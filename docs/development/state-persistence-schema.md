@@ -24,6 +24,7 @@ Defined in `js/main/session.js`.
   sessionDirty: boolean,
   sessionUserDirty: boolean,
   sessionRevision: number,
+  documentOperation: { active: boolean, token: string, kind: string, status: string, fileName: string } | null,
   draggingTabId: string | null,
   dragStartIndex: number | null,
   dragOverTabId: string | null,
@@ -72,7 +73,8 @@ Defined in `js/main/session.js`.
     table: {
       firstDisplayedRow: number | undefined,
       scrollTopPx:        number | undefined,
-      selection: { from: { row, col }, to: { row, col } } | undefined
+      selection: { from: { row, col }, to: { row, col } } | undefined,
+      columnWidths: Record<string, number> | undefined
     } | undefined,
     // future per-component additions go here
   } | undefined
@@ -83,7 +85,9 @@ The toolbar fields are captured/applied by `Main.session.captureWorkspaceToolbar
 
 Document lifecycle state is shared by the web and Electron builds. `sessionFileHandle` is a File System Access API handle in browsers and a lightweight desktop path handle in Electron. `sessionFilePath` is populated only when the desktop bridge has a real filesystem path. Dirty-state updates increment `sessionRevision` and emit `graphitix:document-state-change` so document UI, Autosave, and recovery do not need to duplicate tab-change logic or repeatedly snapshot an unchanged dirty session.
 
-`sessionDirty` means the in-memory workspace has observed any state transition. `sessionUserDirty` means a user-originated change still needs persistence. Lifecycle transitions such as tab activation, render-cache warming, archive save, autosave, recovery snapshots, and workspace binding can update runtime/cache metadata without setting `sessionUserDirty` only when they pass explicit `origin: 'lifecycle'` metadata. Missing origin metadata is treated as user-originated so future callers fail dirty rather than silently dropping a user edit.
+`documentOperation` is transient, plain-data UI state for an active document-level transaction. It is never archived. While it is active, tab activation, add/close, rename, context, and drag mutations are rejected at their command boundaries and the application shell is inert.
+
+`sessionDirty` means the in-memory workspace has observed any state transition. `sessionUserDirty` means a user-originated change still needs persistence. Lifecycle transitions such as tab activation, archive save, autosave, recovery snapshots, and workspace binding can update runtime/cache metadata without setting `sessionUserDirty` only when they pass explicit `origin: 'lifecycle'` metadata. Missing origin metadata is treated as user-originated so future callers fail dirty rather than silently dropping a user edit.
 
 ## 2. Document UI, Autosave, And Recovery
 

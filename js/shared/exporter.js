@@ -3446,6 +3446,115 @@
     return true;
   }
 
+
+  function formatExportNumber(value, precision = 6) {
+    if (!Number.isFinite(value)) return '0';
+    const rounded = Number(value.toFixed(precision));
+    return Object.is(rounded, -0) ? '0' : String(rounded);
+  }
+
+  function readInlinePresentationValue(node, propertyName) {
+    if (!node?.getAttribute) return null;
+    const styleValues = {};
+    applyStyleString(styleValues, node.getAttribute('style'));
+    if (Object.prototype.hasOwnProperty.call(styleValues, propertyName)) {
+      return styleValues[propertyName];
+    }
+    return node.getAttribute(propertyName);
+  }
+
+  function resolveInheritedNumericPresentationValue(node, propertyName, fallback) {
+    let current = node;
+    while (current?.getAttribute) {
+      const raw = readInlinePresentationValue(current, propertyName);
+      if (raw !== null && raw !== undefined && String(raw).trim() && String(raw).trim() !== 'inherit') {
+        const parsed = Number.parseFloat(String(raw));
+        if (Number.isFinite(parsed)) return parsed;
+      }
+      current = current.parentElement;
+    }
+    return fallback;
+  }
+
+  function normalizeRelativeTextOffsetsForExport(svgNode) {
+    const stats = { normalizedDy: 0 };
+    if (!svgNode?.querySelectorAll) return stats;
+    svgNode.querySelectorAll('text, tspan, textPath').forEach(node => {
+      const rawDy = node.getAttribute('dy');
+      if (!rawDy || !/em\b/i.test(rawDy)) return;
+      const fontSize = resolveInheritedNumericPresentationValue(node, 'font-size', 16);
+      const parts = rawDy.trim().split(/[\s,]+/g);
+      const normalized = parts.map(part => {
+        const match = part.match(/^([+-]?(?:\d*\.)?\d+(?:e[+-]?\d+)?)em$/i);
+        if (!match) return part;
+        const value = Number.parseFloat(match[1]);
+        return Number.isFinite(value) ? formatExportNumber(value * fontSize, 6) : part;
+      });
+      if (normalized.some((value, index) => value !== parts[index])) {
+        node.setAttribute('dy', normalized.join(' '));
+        stats.normalizedDy += 1;
+      }
+    });
+    return stats;
+  }
+
+  function parseSimpleDashArray(rawValue) {
+    if (!rawValue || String(rawValue).trim().toLowerCase() === 'none') return null;
+    const values = String(rawValue).trim().split(/[\s,]+/g).map(Number.parseFloat);
+    return values.length === 2 && values.every(Number.isFinite) ? values : null;
+  }
+
+  function replaceRoundCapZeroDashLinesForExport(svgNode) {
+    const stats = { replacedLines: 0, emittedDots: 0 };
+    if (!svgNode?.querySelectorAll) return stats;
+    Array.from(svgNode.querySelectorAll('line')).forEach(line => {
+      const dashArray = parseSimpleDashArray(readInlinePresentationValue(line, 'stroke-dasharray'));
+      const lineCap = String(readInlinePresentationValue(line, 'stroke-linecap') || '').trim().toLowerCase();
+      const dashOffset = Number.parseFloat(readInlinePresentationValue(line, 'stroke-dashoffset') || '0');
+      if (!dashArray || Math.abs(dashArray[0]) > 1e-9 || dashArray[1] <= 0 || lineCap !== 'round') return;
+      if (Number.isFinite(dashOffset) && Math.abs(dashOffset) > 1e-9) return;
+
+      const x1 = Number.parseFloat(line.getAttribute('x1') || '0');
+      const y1 = Number.parseFloat(line.getAttribute('y1') || '0');
+      const x2 = Number.parseFloat(line.getAttribute('x2') || '0');
+      const y2 = Number.parseFloat(line.getAttribute('y2') || '0');
+      if (![x1, y1, x2, y2].every(Number.isFinite)) return;
+      const length = Math.hypot(x2 - x1, y2 - y1);
+      if (!(length > 0)) return;
+
+      const strokeWidth = resolveInheritedNumericPresentationValue(line, 'stroke-width', 1);
+      const stroke = readInlinePresentationValue(line, 'stroke') || '#000000';
+      const step = dashArray[1];
+      const dotCount = Math.floor(length / step) + 1;
+      const group = svgNode.ownerDocument.createElementNS('http://www.w3.org/2000/svg', 'g');
+      group.setAttribute('data-export-dotted-line', 'true');
+      group.setAttribute('data-export-object', 'dotted-line');
+      ['id', 'transform', 'opacity', 'display', 'visibility', 'clip-path', 'mask', 'filter'].forEach(attr => {
+        const value = line.getAttribute(attr);
+        if (value !== null) group.setAttribute(attr, value);
+      });
+      const sourceClasses = String(line.getAttribute('class') || '').trim().split(/\s+/).filter(Boolean);
+      group.setAttribute('class', Array.from(new Set([...sourceClasses, 'graphitix-dotted-line'])).join(' '));
+
+      const fillOpacity = readInlinePresentationValue(line, 'stroke-opacity');
+      for (let index = 0; index < dotCount; index += 1) {
+        const distance = Math.min(index * step, length);
+        const ratio = distance / length;
+        const circle = svgNode.ownerDocument.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        circle.setAttribute('cx', formatExportNumber(x1 + ((x2 - x1) * ratio), 6));
+        circle.setAttribute('cy', formatExportNumber(y1 + ((y2 - y1) * ratio), 6));
+        circle.setAttribute('r', formatExportNumber(strokeWidth / 2, 6));
+        circle.setAttribute('fill', stroke);
+        if (fillOpacity !== null && fillOpacity !== undefined) circle.setAttribute('fill-opacity', fillOpacity);
+        group.appendChild(circle);
+      }
+      line.parentNode?.replaceChild(group, line);
+      stats.replacedLines += 1;
+      stats.emittedDots += dotCount;
+    });
+    return stats;
+  }
+
   function prepareSvgForExport(svgNode, contextLabel, options = {}) {
     if (!svgNode) {
       logDebug('prepareSvgForExport skipped', { contextLabel, reason: 'no svg node' });
@@ -3462,6 +3571,8 @@
       dendrogramOverlaysRemoved: 0,
       significanceOverlaysRemoved: 0,
       additionalLineOverlaysRemoved: 0,
+      relativeTextOffsets: null,
+      dottedLines: null,
       gridOverlaysRemoved: 0,
       editHighlightsRemoved: 0,
       darkBackgroundInjected: 0,
@@ -3501,6 +3612,8 @@
       counters.dendrogramOverlaysRemoved = removeDendrogramControlOverlays(svgNode);
       counters.significanceOverlaysRemoved = removeSignificanceControlOverlays(svgNode);
       counters.additionalLineOverlaysRemoved = removeAdditionalLineControlOverlays(svgNode);
+      counters.relativeTextOffsets = normalizeRelativeTextOffsetsForExport(svgNode);
+      counters.dottedLines = replaceRoundCapZeroDashLinesForExport(svgNode);
       counters.gridOverlaysRemoved = removeGridControlOverlays(svgNode);
       counters.editHighlightsRemoved = removeEditHighlightArtifacts(svgNode);
       ensureDarkBackgroundRectForExport(svgNode, counters);

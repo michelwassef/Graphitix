@@ -72,7 +72,11 @@ describe('tab switch reuse-cache contract (post-reopen)', () => {
     const draw = jest.fn();
     const restoreRenderCache = jest.fn(() => true);
     const canRestoreRenderCache = jest.fn(() => true);
-    const ensure = jest.fn();
+    const ensure = jest.fn(options => {
+      if (options?.skipInitialDraw !== true) {
+        draw({ reason: 'ensure-initial-draw' });
+      }
+    });
     const config = {
       type,
       element: document.getElementById(`${type}Page`),
@@ -267,7 +271,7 @@ describe('tab switch reuse-cache contract (post-reopen)', () => {
     });
   });
 
-  test('tab switch with mismatched payloadSignature falls back to draw (negative control)', () => {
+  test('tab switch with mismatched payloadSignature falls back to draw (negative control)', async () => {
     const tab = createGraphTab({
       id: 'tab-mismatch',
       type: 'box',
@@ -278,8 +282,9 @@ describe('tab switch reuse-cache contract (post-reopen)', () => {
     // and draw MUST be the only output path.
     tab.archiveRenderCacheSignature = 'stale-sig';
     const { config, draw, restoreRenderCache } = makeWorkspaceConfig('box');
+    config.hasRenderedGraph = () => draw.mock.calls.length > 0;
 
-    domControls.showWorkspaceForTab({
+    await domControls.showWorkspaceForTab({
       tab,
       options: { reason: 'mismatched-sig' },
       dom: {},

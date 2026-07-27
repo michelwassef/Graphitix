@@ -18,7 +18,8 @@ const {
   installLocalCdnOverrides,
   registerIssueCollectors,
   openComponentFromWelcome,
-  clickExampleButtonIfPresent
+  clickExampleButtonIfPresent,
+  waitForDocumentOpenComplete
 } = require('./helpers/workspaceHarness');
 
 const TMP_DIR = path.resolve(__dirname, '.tmp');
@@ -82,13 +83,6 @@ async function captureWorkspaceArchive(page, fileStem) {
   return archivePath;
 }
 
-async function awaitWarmup(page) {
-  await page.evaluate(async () => {
-    const sa = window.Main?.sessionActions;
-    if (sa && typeof sa.awaitPostLoadWarmup === 'function') { await sa.awaitPostLoadWarmup({ timeoutMs: 60_000, reason: 'e2e-pca-stats' }); }
-  });
-}
-
 async function seedRecoverySnapshot(page) {
   await page.evaluate(async () => {
     const openWebDb = () => new Promise((resolve, reject) => {
@@ -128,8 +122,8 @@ test('PCA scree + biplot survive file reopen (archive load)', async ({ page }) =
   await page.reload({ waitUntil: 'domcontentloaded' });
   await expect(page.locator('#welcomeScreen')).toBeVisible({ timeout: 20_000 });
   await page.locator('#workspaceSessionInput').setInputFiles(archivePath);
+  await waitForDocumentOpenComplete(page);
   await page.waitForTimeout(1000);
-  await awaitWarmup(page);
   await page.waitForSelector('#pcaPage:not([hidden])', { timeout: 30_000 });
 
   await expectFullPcaStats(page, 'after file reopen');
@@ -150,7 +144,6 @@ test('PCA scree + biplot survive crash recovery', async ({ page }) => {
   await page.reload({ waitUntil: 'domcontentloaded' });
   await page.waitForTimeout(1500);
   page.off('dialog', dialogHandler);
-  await awaitWarmup(page);
   await page.evaluate(async () => {
     const state = window.Main?.session?.workspaceState;
     const tab = (state?.tabs || []).find(t => t && t.type === 'pca');

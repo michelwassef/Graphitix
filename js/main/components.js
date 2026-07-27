@@ -738,39 +738,7 @@
           scheduleRaw: raw
         })
       : raw;
-    return function scheduleRegistryDraw(options = {}) {
-      const source = options && typeof options === 'object' ? options : {};
-      const reason = source.reason || source.source || null;
-      // A cache-rejection fallback is already inside the owning tab's restore transaction.
-      // Deferring it through another registry frame creates a gap where readiness can report
-      // idle and the restore transaction can close before the component has even seen the draw.
-      // Invoke the component contract immediately; components may still use their own
-      // owner-scoped scheduler/worker internally. Apply this uniformly to every workspace.
-      if(source.forceDraw === true && reason === 'workspace-draw-fallback'){
-        // Immediate execution must preserve exactly the same owner metadata that the
-        // tab-scoped scheduler would attach. Calling runRegistryDraw with the raw
-        // options bypassed createTabScopedScheduler(), so the registry guard saw a
-        // missing session meta and rejected the recovery redraw as stale. Heavy
-        // Heatmap then remained blank until a resize scheduled a fresh owned draw.
-        const immediateMeta = source.__workspaceSessionMeta
-          || Shared.workspaceTabs?.buildSessionMeta?.(componentKey, source)
-          || null;
-        const immediateOptions = {
-          ...source,
-          tabId: source.tabId || immediateMeta?.tabId || null,
-          sessionGeneration: source.sessionGeneration || immediateMeta?.sessionGeneration || 0,
-          __workspaceSessionMeta: immediateMeta
-        };
-        console.debug('Debug: registry draw executing restore fallback immediately', {
-          componentKey,
-          tabId: immediateOptions.tabId,
-          sessionGeneration: immediateOptions.sessionGeneration,
-          reason
-        });
-        return runRegistryDraw(immediateOptions);
-      }
-      return scheduled(source);
-    };
+    return scheduled;
   };
 
   function resolveWorkspacePreviewSvg(type, tab) {
@@ -1147,7 +1115,7 @@
       renderCache: { selectors: ['#linePlot svg', '#linePlot canvas', 'svg', 'canvas'], graphSelectors: ['#linePlot svg', '#linePlot canvas', 'svg', 'canvas'], markupPattern: /(<svg\b|<canvas\b|data-export-layer|data-layer)/i }
     },
     heatmap: {
-      payloadKeys: Object.freeze(['type', 'data', 'exclusions', 'config']),
+      payloadKeys: Object.freeze(['type', 'data', 'exclusions', 'filters', 'dataViews', 'activeDataViewId', 'stats', 'renderModelCache', 'config']),
       root: { pageId: 'heatmapPage', sentinelSelector: '#heatmapHot' },
       table: { wrapperSelector: '#heatmapHotWrapper', containerSelector: '#heatmapHot' },
       renderCache: { selectors: ['#heatmapSvg', '#heatmapGraphPanel svg', 'svg', 'canvas'], graphSelectors: ['#heatmapSvg', '#heatmapGraphPanel svg', 'svg'], markupPattern: /(<svg\b|id=["']heatmapSvg["'])/i }

@@ -10,6 +10,9 @@
     const workspaceState = options.workspaceState;
     const session = options.session;
     const getTabById = options.getTabById;
+    const isInteractionLocked = typeof options.isInteractionLocked === 'function'
+      ? options.isInteractionLocked
+      : () => false;
     const activateTab = typeof options.activateTab === 'function' ? options.activateTab : () => {};
     const applyTabDragClasses = typeof options.applyTabDragClasses === 'function'
       ? options.applyTabDragClasses
@@ -186,6 +189,7 @@
 
     function renderTabs() {
       if (!dom.tabsList) return;
+      const interactionLocked = isInteractionLocked();
       if (typeof previews.hideTabPreviewTooltip === 'function') {
         previews.hideTabPreviewTooltip('render');
       }
@@ -195,6 +199,7 @@
         btn.type = 'button';
         btn.className = 'workspace-tab'
           + (tab.id === workspaceState.activeTabId ? ' is-active' : '')
+          + (workspaceState.tabs[index + 1]?.id === workspaceState.activeTabId ? ' is-before-active' : '')
           + (tab.isWelcome ? ' is-welcome' : '')
           + (tab.isRenaming ? ' is-renaming' : '')
           + (tab.activationError ? ' has-activation-error' : '');
@@ -207,9 +212,15 @@
         }
         btn.setAttribute('role', 'tab');
         btn.setAttribute('aria-selected', tab.id === workspaceState.activeTabId ? 'true' : 'false');
-        btn.draggable = !tab.isRenaming;
+        btn.disabled = interactionLocked;
+        btn.setAttribute('aria-disabled', interactionLocked ? 'true' : 'false');
+        btn.draggable = !interactionLocked && !tab.isRenaming;
         const displayTitle = tab.title || `Workspace ${index + 1}`;
         btn.addEventListener('click', event => {
+          if (isInteractionLocked()) {
+            event.preventDefault();
+            return;
+          }
           if (handleClickForRename(tab, event)) {
             return;
           }
@@ -369,6 +380,7 @@
           });
         }
       });
+      dom.tabsList.classList.toggle('is-document-operation-locked', interactionLocked);
       applyTabDragClasses();
       syncTabOverflowState();
       ensureTabOverflowObserver();

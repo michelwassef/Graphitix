@@ -95,6 +95,7 @@ describe('PCA color scheme survives a tab round-trip (regression)', () => {
     require('../js/shared/dataTransforms.js');
     require('../js/shared/dataViews.js');
     require('../js/shared/workspaceTabs.js');
+    require('../js/shared/componentLifecycle.js');
     require('../js/shared/tabContext.js');
     require('../js/shared/undo.js');
     require('../js/shared/resizer.js');

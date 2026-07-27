@@ -2122,8 +2122,7 @@
     await window.Main?.sessionActions?.applyArchiveBlob?.(ctx, blob, {
       reason: 'regression-cold-reopen',
       fileName: blob.name,
-      loadMode: 'replace',
-      skipWarmup: true
+      loadMode: 'replace'
     });
     await waitFor(() => getGraphTabs().length > 0, 15000, 'graph tabs after cold reopen');
     await settle(240);
@@ -2152,15 +2151,9 @@
     await window.Main?.sessionActions?.applyArchiveBlob?.(ctx, blob, {
       reason: 'regression-reopen',
       fileName: blob.name,
-      loadMode: 'replace',
-      skipWarmup: options.skipWarmup === true
+      loadMode: 'replace'
     });
     await waitFor(() => getGraphTabs().length > 0, 15000, 'graph tabs after reopen');
-    if(options.skipWarmup !== true && typeof window.Main?.sessionActions?.awaitPostLoadWarmup === 'function'){
-      progress('reopen-phase:await-post-load-warmup:start', {});
-      const warmupResult = await window.Main.sessionActions.awaitPostLoadWarmup({ timeoutMs: 90000, reason: 'regression-reopen-await-warmup' });
-      progress('reopen-phase:await-post-load-warmup:complete', warmupResult || {});
-    }
     await settle(700);
     const switchResult = await switchTabsInternal('regression-reopened-switch', Number(options.tabsPerComponent || 2));
     progress('reopen-phase:complete', { visited: switchResult.visited?.length || 0, failures: switchResult.failures?.length || 0 });

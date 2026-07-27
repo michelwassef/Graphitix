@@ -106,6 +106,7 @@
     const sessionFileTypes = config.sessionFileTypes || [];
 
     const getActiveTab = () => workspaceState.tabs.find(tab => tab.id === workspaceState.activeTabId) || null;
+    const isDocumentInteractionLocked = () => workspaceState.documentOperation?.active === true;
 
     const showWorkspaceForTab = (tab, options = {}) => {
       const result = domControls.showWorkspaceForTab({
@@ -210,6 +211,7 @@
       workspaceState,
       session,
       getTabById,
+      isInteractionLocked: isDocumentInteractionLocked,
       activateTab: (tabId, options) => activateTab(tabId, options || {}),
       applyTabDragClasses,
       dragHandlers: {
@@ -488,6 +490,10 @@
     }
 
     function closeTab(tabId, options = {}) {
+      if (isDocumentInteractionLocked() && options.allowDuringDocumentOperation !== true) {
+        console.debug('Debug: closeTab blocked during document operation', { tabId });
+        return false;
+      }
       const tab = getTabById(tabId);
       if (!tab) {
         console.debug('Debug: closeTab skipped', { tabId, reason: 'missing-tab' });
@@ -533,6 +539,10 @@
     }
 
     function activateTab(tabId, options = {}) {
+      if (isDocumentInteractionLocked() && options.allowDuringDocumentOperation !== true) {
+        console.debug('Debug: activateTab blocked during document operation', { tabId });
+        return false;
+      }
       const current = getActiveTab();
       if (current && current.id !== tabId && !options.skipPersist) {
         session.persistActiveTabState(current, withSessionContext({
@@ -619,6 +629,10 @@
 
 
     function handleGraphSelection(type, options = {}) {
+      if (isDocumentInteractionLocked() && options.allowDuringDocumentOperation !== true) {
+        console.debug('Debug: graph selection blocked during document operation', { type });
+        return false;
+      }
       let tab = getActiveTab();
       if (!tab) {
         console.warn('handleGraphSelection with no active tab', { type, options });
@@ -832,6 +846,10 @@
     }
 
     function handleAddTabClick() {
+      if (isDocumentInteractionLocked()) {
+        console.debug('Debug: add tab blocked during document operation');
+        return false;
+      }
       const current = getActiveTab();
       if (current && !current.isWelcome) {
         session.persistActiveTabState(current, withSessionContext({

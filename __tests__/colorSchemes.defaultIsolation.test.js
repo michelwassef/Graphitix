@@ -45,7 +45,8 @@ describe('color scheme default isolation', () => {
           labelColors: { 'Series 1': '#0000ff' }
         }
       })),
-      getPayload: jest.fn(() => deepClone(activeTab.payload))
+      getPayload: jest.fn(() => deepClone(activeTab.payload)),
+      applyColorSchemePayload: jest.fn(() => true)
     };
 
     window.Main = {
@@ -96,7 +97,8 @@ describe('color scheme default isolation', () => {
     };
     const lineWorkspace = {
       createEmptyPayload: jest.fn(() => ({ type: 'line', config: { colorScheme: 'scientific' } })),
-      getPayload: jest.fn(() => ({ type: 'line', config: { colorScheme: 'scientific' } }))
+      getPayload: jest.fn(() => ({ type: 'line', config: { colorScheme: 'scientific' } })),
+      applyColorSchemePayload: jest.fn(() => true)
     };
 
     window.Main = {

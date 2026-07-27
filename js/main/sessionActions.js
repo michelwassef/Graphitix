@@ -48,11 +48,262 @@
       && typeof withSessionContext === 'function';
   }
 
+  const DOCUMENT_OPEN_OVERLAY_ID = 'documentOpenOverlay';
+  let documentOperationSequence = 0;
+  let lastDocumentOpenError = null;
+
+  function formatDocumentOperationTitle(kind, fileName) {
+    const safeName = String(fileName || '').trim();
+    const verb = kind === 'recovery' ? 'Recovering' : (kind === 'append' ? 'Adding' : 'Opening');
+    return safeName ? `${verb} “${safeName}”…` : `${verb} file…`;
+  }
+
+  function ensureDocumentOpenOverlay() {
+    if (typeof document === 'undefined' || !document.body || !document.createElement) {
+      return null;
+    }
+    const existing = document.getElementById(DOCUMENT_OPEN_OVERLAY_ID);
+    if (existing) {
+      return existing;
+    }
+    const overlay = document.createElement('div');
+    overlay.id = DOCUMENT_OPEN_OVERLAY_ID;
+    overlay.className = 'document-open-overlay';
+    overlay.hidden = true;
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-modal', 'true');
+    overlay.setAttribute('aria-labelledby', 'documentOpenTitle');
+    overlay.setAttribute('aria-describedby', 'documentOpenDetail');
+    overlay.tabIndex = -1;
+    overlay.innerHTML = [
+      '<div class="document-open-overlay__panel">',
+      '  <div class="document-open-overlay__spinner" aria-hidden="true"></div>',
+      '  <h2 id="documentOpenTitle" class="document-open-overlay__title"></h2>',
+      '  <p id="documentOpenDetail" class="document-open-overlay__detail" aria-live="polite"></p>',
+      '  <div class="document-open-overlay__progress" aria-hidden="true"><span></span></div>',
+      '  <div class="document-open-overlay__actions" hidden>',
+      '    <button type="button" class="btn" data-document-open-action="retry">Choose another file</button>',
+      '    <button type="button" class="btn btn-secondary" data-document-open-action="close">Close</button>',
+      '  </div>',
+      '</div>'
+    ].join('');
+    overlay.addEventListener('keydown', event => {
+      if (event.key === 'Escape' && overlay.dataset.state === 'error') {
+        event.preventDefault();
+        overlay.querySelector('[data-document-open-action="close"]')?.click();
+      }
+    });
+    document.body.appendChild(overlay);
+    return overlay;
+  }
+
+  function lockDocumentInteraction(operation) {
+    if (!operation || typeof document === 'undefined' || !document.body) {
+      return;
+    }
+    operation.lockedElements = [];
+    const lockTargets = new Set([
+      ...Array.from(document.body.children),
+      document.querySelector('main'),
+      document.getElementById('workspaceTabsDock')
+    ].filter(Boolean));
+    lockTargets.forEach(element => {
+      if ((typeof HTMLElement !== 'undefined' && !(element instanceof HTMLElement))
+        || element.id === DOCUMENT_OPEN_OVERLAY_ID
+        || ['SCRIPT', 'STYLE', 'LINK'].includes(element.tagName)) {
+        return;
+      }
+      operation.lockedElements.push({
+        element,
+        inert: !!element.inert
+      });
+      element.inert = true;
+    });
+    operation.previousBodyBusy = document.body.getAttribute('aria-busy');
+    document.body.setAttribute('aria-busy', 'true');
+  }
+
+  function unlockDocumentInteraction(operation) {
+    if (!operation || typeof document === 'undefined' || !document.body) {
+      return;
+    }
+    (operation.lockedElements || []).forEach(entry => {
+      if (!entry?.element) return;
+      entry.element.inert = !!entry.inert;
+    });
+    if (operation.previousBodyBusy === null || operation.previousBodyBusy === undefined) {
+      document.body.removeAttribute('aria-busy');
+    } else {
+      document.body.setAttribute('aria-busy', operation.previousBodyBusy);
+    }
+    operation.lockedElements = [];
+  }
+
+  function renderDocumentOperation(operation) {
+    const overlay = operation?.overlay;
+    if (!overlay) {
+      return;
+    }
+    const title = overlay.querySelector('.document-open-overlay__title');
+    const detail = overlay.querySelector('.document-open-overlay__detail');
+    const actions = overlay.querySelector('.document-open-overlay__actions');
+    const progress = overlay.querySelector('.document-open-overlay__progress span');
+    overlay.dataset.state = operation.status || 'loading';
+    overlay.hidden = false;
+    if (title) title.textContent = operation.title || formatDocumentOperationTitle(operation.kind, operation.fileName);
+    if (detail) detail.textContent = operation.detail || 'Reading file…';
+    if (actions) actions.hidden = operation.status !== 'error';
+    if (progress) {
+      const total = Math.max(0, Number(operation.total) || 0);
+      const current = Math.max(0, Math.min(total, Number(operation.current) || 0));
+      progress.style.width = total > 0 ? `${Math.round((current / total) * 100)}%` : '';
+      progress.parentElement?.classList?.toggle('is-indeterminate', total <= 0);
+    }
+  }
+
+  function beginDocumentOpenTransaction(context, meta = {}) {
+    const workspaceState = context?.workspaceState;
+    if (!workspaceState) {
+      return null;
+    }
+    if (workspaceState.documentOperation?.active) {
+      throw new Error('Another document operation is already in progress.');
+    }
+    const reason = String(meta.reason || 'graph-load');
+    const kind = reason.includes('recovery')
+      ? 'recovery'
+      : (meta.loadMode === 'append' ? 'append' : 'open');
+    const operation = {
+      active: true,
+      token: `document-open-${Date.now()}-${++documentOperationSequence}`,
+      kind,
+      status: 'loading',
+      fileName: String(meta.fileName || '').trim(),
+      title: formatDocumentOperationTitle(kind, meta.fileName),
+      detail: 'Reading file…',
+      current: 0,
+      total: 0,
+      overlay: ensureDocumentOpenOverlay(),
+      context,
+      previousFocus: typeof document !== 'undefined' ? document.activeElement : null,
+      lockedElements: []
+    };
+    lastDocumentOpenError = null;
+    workspaceState.documentOperation = {
+      active: true,
+      token: operation.token,
+      kind: operation.kind,
+      status: operation.status,
+      fileName: operation.fileName
+    };
+    context.hideDuplicatePrompt?.();
+    lockDocumentInteraction(operation);
+    renderDocumentOperation(operation);
+    context.renderTabs?.();
+    if (operation.overlay) {
+      operation.overlay.onclick = event => {
+        const action = event.target?.closest?.('[data-document-open-action]')?.dataset?.documentOpenAction;
+        if (!action || operation.status !== 'error') return;
+        const retryInput = context?.dom?.sessionFileInput || null;
+        finishDocumentOpenTransaction(context, operation, { restoreFocus: action !== 'retry' });
+        if (action === 'retry' && retryInput && typeof retryInput.click === 'function') {
+          window.setTimeout(() => {
+            retryInput.value = '';
+            retryInput.click();
+          }, 0);
+        }
+      };
+      operation.overlay.focus({ preventScroll: true });
+    }
+    return operation;
+  }
+
+  function updateDocumentOpenTransaction(operation, update = {}) {
+    if (!operation?.active) {
+      return;
+    }
+    Object.assign(operation, update);
+    const workspaceState = operation.context?.workspaceState;
+    if (workspaceState?.documentOperation?.token === operation.token) {
+      workspaceState.documentOperation = {
+        active: true,
+        token: operation.token,
+        kind: operation.kind,
+        status: operation.status,
+        fileName: operation.fileName
+      };
+    }
+    renderDocumentOperation(operation);
+  }
+
+  function finishDocumentOpenTransaction(context, operation, options = {}) {
+    if (!operation?.active) {
+      return;
+    }
+    operation.active = false;
+    unlockDocumentInteraction(operation);
+    if (operation.overlay) {
+      operation.overlay.hidden = true;
+      operation.overlay.removeAttribute('data-state');
+      operation.overlay.onclick = null;
+    }
+    if (context?.workspaceState?.documentOperation?.token === operation.token) {
+      context.workspaceState.documentOperation = null;
+    }
+    context?.renderTabs?.();
+    if (options.restoreFocus !== false) {
+      const activeTabId = context?.workspaceState?.activeTabId || null;
+      const activeTabButton = activeTabId && typeof document !== 'undefined'
+        ? document.querySelector(`.workspace-tab[data-tab-id="${activeTabId}"]`)
+        : null;
+      const focusTarget = activeTabButton || operation.previousFocus;
+      focusTarget?.focus?.({ preventScroll: true });
+    }
+  }
+
+  function failDocumentOpenTransaction(context, operation, error) {
+    if (!operation?.active) {
+      return;
+    }
+    const canPresentError = !!operation.overlay;
+    lastDocumentOpenError = {
+      at: Date.now(),
+      fileName: operation.fileName,
+      message: error?.message || String(error || ''),
+      stack: error?.stack || ''
+    };
+    updateDocumentOpenTransaction(operation, {
+      status: 'error',
+      title: operation.fileName
+        ? `Couldn’t open “${operation.fileName}”`
+        : 'Couldn’t open this file',
+      detail: 'The file may be damaged or from an unsupported Graphitix version. Your current workspace is unchanged.',
+      current: 0,
+      total: 0,
+      errorMessage: error?.message || String(error || '')
+    });
+    if (operation.overlay) {
+      operation.overlay.focus({ preventScroll: true });
+    }
+    if (!canPresentError) {
+      finishDocumentOpenTransaction(context, operation);
+    }
+  }
+
+  namespace.beginDocumentOpenTransaction = beginDocumentOpenTransaction;
+  namespace.updateDocumentOpenTransaction = updateDocumentOpenTransaction;
+  namespace.finishDocumentOpenTransaction = finishDocumentOpenTransaction;
+  namespace.getDocumentOpenDiagnostics = () => lastDocumentOpenError ? { ...lastDocumentOpenError } : null;
+
   function getGraphTabsFromWorkspaceState(workspaceState) {
     if (!Array.isArray(workspaceState?.tabs)) {
       return [];
     }
     return workspaceState.tabs.filter(tab => tab && !tab.isWelcome && typeof tab.type === 'string' && tab.type.length > 0);
+  }
+
+  function hasActiveDocumentOperation(context) {
+    return context?.workspaceState?.documentOperation?.active === true;
   }
 
   function findTabById(workspaceState, tabId) {
@@ -679,16 +930,6 @@
     return true;
   }
 
-  function awaitDelay(ms) {
-    return new Promise(resolve => {
-      if (typeof window !== 'undefined' && typeof window.setTimeout === 'function') {
-        window.setTimeout(resolve, ms);
-      } else {
-        setTimeout(resolve, ms);
-      }
-    });
-  }
-
   async function awaitWithTimeout(promise, timeoutMs, label, details = {}) {
     const ms = Math.max(250, Number(timeoutMs) || 0);
     let timer = null;
@@ -762,287 +1003,7 @@
     }
   }
 
-  function tabHasRuntimeRenderCache(tab) {
-    return !!(tab && tab.renderCache && tab.renderCache.cache);
-  }
-
-  function tabHasArchiveRenderCache(tab) {
-    return !!(tab && tab.archiveRenderCache && typeof tab.archiveRenderCache === 'object');
-  }
-
-  function tabHasReusableRenderCache(tab) {
-    return tabHasRuntimeRenderCache(tab) || tabHasArchiveRenderCache(tab);
-  }
-
-  function hasTabsNeedingPostLoadWarmup(workspaceState) {
-    const tabs = getGraphTabsFromWorkspaceState(workspaceState);
-    return tabs.some(tab => tab && !tabHasReusableRenderCache(tab));
-  }
-
-  function isComponentReadyForWarmup(type) {
-    if (!type || typeof window === 'undefined') {
-      return false;
-    }
-    const component = window.Components ? window.Components[type] : null;
-    return !!(component && component.ready === true);
-  }
-
-  // Run config.ensure() for each unique tab type so the component bundle is loaded and
-  // its setup() has run against the default (non-per-tab) DOM root before we start the
-  // visible-activation warmup loop. This decouples bundle-load + first-init races (the
-  // class of bug we were avoiding via Option B's cold-component skip) from the rapid
-  // tab-activation cycle. After this returns, every component listed in `types` has
-  // ready === true (or has logged an error and is excluded from the returned set).
-  async function ensureComponentsBeforeWarmup(context, types, options = {}) {
-    const { workspaces, workspaceState } = context || {};
-    if (!workspaces || !Array.isArray(types) || !types.length) {
-      return new Set();
-    }
-    const tabs = Array.isArray(workspaceState?.tabs) ? workspaceState.tabs : [];
-    const ready = new Set();
-    const uniqueTypes = Array.from(new Set(types.filter(Boolean)));
-    await Promise.all(uniqueTypes.map(async type => {
-      if (isComponentReadyForWarmup(type)) {
-        ready.add(type);
-        return;
-      }
-      const config = workspaces[type];
-      if (!config || typeof config.ensure !== 'function') {
-        return;
-      }
-      const representativeTab = tabs.find(tab => tab && tab.type === type && tab.id) || null;
-      try {
-        const ensureResult = config.ensure({
-          tabId: representativeTab?.id || null,
-          tab: representativeTab || null,
-          reason: options.reason || 'pre-warmup-ensure'
-        });
-        if (ensureResult && typeof ensureResult.then === 'function') {
-          const outcome = await awaitWithTimeout(ensureResult, 12000, 'ensureComponentsBeforeWarmup', {
-            type,
-            reason: options.reason || 'pre-warmup-ensure'
-          });
-          if (outcome?.timedOut) {
-            return;
-          }
-        }
-      } catch (err) {
-        console.error('ensureComponentsBeforeWarmup error', { type, err, reason: options.reason || 'pre-warmup-ensure' });
-        return;
-      }
-      // Re-check readiness after ensure resolved. A few component bundles set
-      // component.ready inside an internal async path; if it's still false, exclude this
-      // type from the warmup so we never call activateTab for a half-constructed bundle.
-      if (isComponentReadyForWarmup(type)) {
-        ready.add(type);
-      } else {
-        console.debug('Debug: ensureComponentsBeforeWarmup component still cold after ensure', {
-          type,
-          reason: options.reason || 'pre-warmup-ensure'
-        });
-      }
-    }));
-    return ready;
-  }
-
-  async function warmTabRenderCaches(context, options = {}) {
-    const { session, workspaceState, withSessionContext, activateTab } = context || {};
-    if (!session || !workspaceState || typeof activateTab !== 'function' || typeof withSessionContext !== 'function') {
-      return { warmed: 0, reason: 'missing-context' };
-    }
-    const reasonBase = options.reason || 'render-cache-warmup';
-    const finalTabId = options.finalTabId
-      || (typeof session.getActiveTab === 'function' ? session.getActiveTab()?.id : null);
-    if (!finalTabId) {
-      return { warmed: 0, reason: 'no-final-tab' };
-    }
-    const graphTabs = getGraphTabsFromWorkspaceState(workspaceState);
-    // Phase 1: ensure every component bundle is loaded and its setup() has run, so the
-    // upcoming activation loop never triggers cold setup against a per-tab clone.
-    const candidateTypes = graphTabs
-      .filter(tab => tab.id !== finalTabId && !tabHasReusableRenderCache(tab))
-      .map(tab => tab.type);
-    const readyTypes = await ensureComponentsBeforeWarmup(context, candidateTypes, { reason: reasonBase });
-    const tabsToWarm = [];
-    let skippedColdComponents = 0;
-    for (let i = 0; i < graphTabs.length; i += 1) {
-      const tab = graphTabs[i];
-      if (tab.id === finalTabId || tabHasReusableRenderCache(tab)) {
-        continue;
-      }
-      if (!readyTypes.has(tab.type) && !isComponentReadyForWarmup(tab.type)) {
-        skippedColdComponents += 1;
-        continue;
-      }
-      tabsToWarm.push(tab);
-    }
-    if (!tabsToWarm.length) {
-      return { warmed: 0, reason: 'all-warm', skippedColdComponents };
-    }
-    if (typeof session.setRenderCachePruneSuspended === 'function') {
-      session.setRenderCachePruneSuspended(true);
-    }
-    // Hide the rapid tab activations behind a loading overlay so the user does not see
-    // each tab flash. Resolved lazily so tests that don't expose Shared.loadingOverlay
-    // (or DOM hosts) keep working.
-    const Shared = context?.Shared || (typeof window !== 'undefined' ? window.Shared : null);
-    const overlayHost = (() => {
-      if (!Shared?.loadingOverlay || typeof Shared.loadingOverlay.show !== 'function') {
-        return null;
-      }
-      if (options.overlayHost) {
-        return options.overlayHost;
-      }
-      if (typeof document === 'undefined' || !document.getElementById) {
-        return null;
-      }
-      return document.getElementById('workspacePages') || document.body || null;
-    })();
-    const overlayHandle = overlayHost
-      ? Shared.loadingOverlay.show(overlayHost, {
-          reason: reasonBase,
-          component: 'render-cache-warmup',
-          message: options.overlayMessage || 'Preparing tabs…'
-        })
-      : null;
-    const stepDelayMs = Number.isFinite(options.stepDelayMs) ? Math.max(80, options.stepDelayMs) : 220;
-    // Capture the active (final) tab's render cache NOW, before the warmup loop
-    // re-activates it. Re-activation triggers a fresh debounced draw; isIdleForSnapshot()
-    // would return true before that draw fires → fallback capture grabs the wrong state.
-    const preFinalTab = graphTabs.find(t => t && t.id === finalTabId) || null;
-    if (preFinalTab && !tabHasReusableRenderCache(preFinalTab)) {
-      await awaitWorkspaceReadyForSnapshot(context, preFinalTab, { reason: `${reasonBase}-pre-warmup-active-ready` });
-      try {
-        if (typeof session.persistActiveTabState === 'function') {
-          session.persistActiveTabState(preFinalTab, withSessionContext({
-            reason: `${reasonBase}-pre-warmup-active-capture`,
-            origin: 'lifecycle',
-            snapshotKind: 'warmup-cache',
-            snapshotIntent: resolvePersistSnapshotIntent({ snapshotKind: 'warmup-cache' }),
-            captureRenderCache: true,
-            preserveRenderCacheTabIds: graphTabs.map(item => item && item.id).filter(Boolean),
-            disableRenderCachePrune: true
-          }));
-        }
-      } catch (err) {
-        console.error('warmTabRenderCaches pre-warmup active capture error', { tabId: preFinalTab.id, err });
-      }
-    }
-    let warmed = 0;
-    try {
-      for (let i = 0; i < tabsToWarm.length; i += 1) {
-        const tab = tabsToWarm[i];
-        try {
-          const activation = activateTab(tab.id, withSessionContext({
-            reason: `${reasonBase}-step`,
-            silent: true
-          }));
-          if (activation && typeof activation.then === 'function') {
-            const activationOutcome = await awaitWithTimeout(activation, 15000, 'warmTabRenderCaches.activate', {
-              tabId: tab.id,
-              type: tab.type,
-              reason: `${reasonBase}-step`
-            });
-            if (activationOutcome?.timedOut) {
-              console.warn('warmTabRenderCaches activate timeout', { tabId: tab.id, type: tab.type, reason: `${reasonBase}-step` });
-              await awaitDelay(stepDelayMs);
-              continue;
-            }
-          }
-        } catch (err) {
-          console.error('warmTabRenderCaches activate error', { tabId: tab.id, err });
-          await awaitDelay(stepDelayMs);
-          continue;
-        }
-        await awaitWorkspaceReadyForSnapshot(context, tab, { reason: `${reasonBase}-step-ready` });
-        try {
-          if (typeof session.persistActiveTabState === 'function') {
-            session.persistActiveTabState(tab, withSessionContext({
-              reason: `${reasonBase}-capture-cache`,
-              origin: 'lifecycle',
-              snapshotKind: 'warmup-cache',
-              snapshotIntent: resolvePersistSnapshotIntent({ snapshotKind: 'warmup-cache' }),
-              captureRenderCache: true,
-              preserveRenderCacheTabIds: graphTabs.map(item => item && item.id).filter(Boolean),
-              disableRenderCachePrune: true
-            }));
-          }
-        } catch (err) {
-          console.error('warmTabRenderCaches cache capture error', { tabId: tab.id, type: tab.type, err });
-        }
-        await awaitDelay(stepDelayMs);
-        warmed += 1;
-      }
-      let finalTab = null;
-      try {
-        const finalActivation = activateTab(finalTabId, withSessionContext({
-          reason: `${reasonBase}-finish`,
-          silent: true
-        }));
-        if (finalActivation && typeof finalActivation.then === 'function') {
-          const finalOutcome = await awaitWithTimeout(finalActivation, 15000, 'warmTabRenderCaches.finalActivate', {
-            tabId: finalTabId,
-            reason: `${reasonBase}-finish`
-          });
-          if (finalOutcome?.timedOut) {
-            console.warn('warmTabRenderCaches final activate timeout', { tabId: finalTabId, reason: `${reasonBase}-finish` });
-          }
-        }
-        finalTab = graphTabs.find(item => item && item.id === finalTabId) || null;
-      } catch (err) {
-        console.error('warmTabRenderCaches final-activate error', { tabId: finalTabId, err });
-      }
-      if (finalTab && !tabHasReusableRenderCache(finalTab)) {
-        await awaitWorkspaceReadyForSnapshot(context, finalTab, { reason: `${reasonBase}-finish-ready` });
-        try {
-          if (typeof session.persistActiveTabState === 'function') {
-            session.persistActiveTabState(finalTab, withSessionContext({
-              reason: `${reasonBase}-finish-capture-cache`,
-              origin: 'lifecycle',
-              snapshotKind: 'warmup-cache',
-              snapshotIntent: resolvePersistSnapshotIntent({ snapshotKind: 'warmup-cache' }),
-              captureRenderCache: true,
-              preserveRenderCacheTabIds: graphTabs.map(item => item && item.id).filter(Boolean),
-              disableRenderCachePrune: true
-            }));
-          }
-        } catch (err) {
-          console.error('warmTabRenderCaches final cache capture error', { tabId: finalTab.id, type: finalTab.type, err });
-        }
-      }
-      await awaitDelay(stepDelayMs);
-    } finally {
-      if (typeof session.setRenderCachePruneSuspended === 'function') {
-        session.setRenderCachePruneSuspended(false);
-      }
-      if (overlayHandle && Shared?.loadingOverlay?.hide) {
-        try {
-          Shared.loadingOverlay.hide(overlayHandle, {
-            reason: reasonBase,
-            component: 'render-cache-warmup'
-          });
-        } catch (err) {
-          console.error('warmTabRenderCaches overlay hide error', err);
-        }
-      }
-    }
-    debug(context, 'warmTabRenderCaches.complete', {
-      warmed,
-      tabCount: graphTabs.length,
-      finalTabId,
-      stepDelayMs,
-      skippedColdComponents,
-      overlayUsed: !!overlayHandle
-    });
-    return { warmed, reason: null, skippedColdComponents, overlayUsed: !!overlayHandle };
-  }
-
-  namespace.warmTabRenderCaches = warmTabRenderCaches;
   namespace.awaitWorkspaceReadyForSnapshot = awaitWorkspaceReadyForSnapshot;
-  namespace.tabHasRuntimeRenderCache = tabHasRuntimeRenderCache;
-  namespace.tabHasArchiveRenderCache = tabHasArchiveRenderCache;
-  namespace.tabHasReusableRenderCache = tabHasReusableRenderCache;
-  namespace.hasTabsNeedingPostLoadWarmup = hasTabsNeedingPostLoadWarmup;
 
   async function createDocumentCheckpoint(context, options = {}) {
     const { session, workspaceState } = context || {};
@@ -1069,16 +1030,6 @@
     const deferArchiveNormalization = options.useWorker !== false
       && policy.snapshotKind === 'recovery'
       && !captureRenderCache;
-
-    if (scope === 'workspace' && captureRenderCache && options.prepareRenderCaches === true) {
-      try {
-        await warmTabRenderCaches(context, {
-          reason: options.warmupReason || `${options.reason || 'document-checkpoint'}-warmup`
-        });
-      } catch (err) {
-        console.error('createDocumentCheckpoint warmup error', err);
-      }
-    }
 
     const activeTab = typeof session.getActiveTab === 'function' ? session.getActiveTab() : null;
     if (activeTab && !activeTab.isWelcome && activeTab.type) {
@@ -1143,94 +1094,6 @@
 
   namespace.serializeDocumentCheckpoint = serializeDocumentCheckpoint;
 
-  let pendingPostLoadWarmup = null;
-  function schedulePostLoadWarmup(context, reason) {
-    if (pendingPostLoadWarmup && pendingPostLoadWarmup.cancel) {
-      try { pendingPostLoadWarmup.cancel(); } catch (err) { /* no-op */ }
-    }
-    const session = context?.session;
-    if (!session || typeof session.getActiveTab !== 'function') {
-      pendingPostLoadWarmup = null;
-      return null;
-    }
-    let cancelled = false;
-    let timerId = null;
-    let resolveWarmup = null;
-    const token = `post-load-warmup-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    const promise = new Promise(resolve => {
-      resolveWarmup = resolve;
-    });
-    const finish = result => {
-      if (pendingPostLoadWarmup?.token === token) {
-        pendingPostLoadWarmup = null;
-      }
-      if (typeof resolveWarmup === 'function') {
-        resolveWarmup(result || { ok: true, reason: 'post-load-warmup-complete' });
-        resolveWarmup = null;
-      }
-    };
-    const startup = async () => {
-      if (cancelled) {
-        finish({ ok: true, cancelled: true, reason: 'post-load-warmup-cancelled-before-start' });
-        return;
-      }
-      // Resolve finalTabId at warmup START, not at schedule time. If the user clicked a
-      // different tab during the 250 ms gap, we honour their navigation by warming around
-      // their new selection. Tests can await this promise so the warmup does not race
-      // against explicit tab-switch checks.
-      const finalTabId = session.getActiveTab()?.id || null;
-      if (!finalTabId) {
-        finish({ ok: true, skipped: true, reason: 'post-load-warmup-no-final-tab' });
-        return;
-      }
-      try {
-        const result = await warmTabRenderCaches(context, {
-          reason,
-          finalTabId
-        });
-        finish({ ok: true, result, reason: 'post-load-warmup-complete' });
-      } catch (err) {
-        console.error('schedulePostLoadWarmup error', err);
-        finish({ ok: false, error: err?.message || String(err), reason: 'post-load-warmup-error' });
-      }
-    };
-    if (typeof window !== 'undefined' && typeof window.setTimeout === 'function') {
-      timerId = window.setTimeout(startup, 250);
-    } else {
-      startup();
-    }
-    pendingPostLoadWarmup = {
-      token,
-      promise,
-      cancel: () => {
-        cancelled = true;
-        if (timerId !== null && typeof window !== 'undefined' && typeof window.clearTimeout === 'function') {
-          window.clearTimeout(timerId);
-          timerId = null;
-        }
-        finish({ ok: true, cancelled: true, reason: 'post-load-warmup-cancelled' });
-      }
-    };
-    return pendingPostLoadWarmup;
-  }
-
-  async function awaitPostLoadWarmup(options = {}) {
-    const pending = pendingPostLoadWarmup;
-    if (!pending || !pending.promise || typeof pending.promise.then !== 'function') {
-      return { ok: true, skipped: true, reason: 'no-pending-post-load-warmup' };
-    }
-    const timeoutMs = Number.isFinite(options.timeoutMs) ? Math.max(1000, options.timeoutMs) : 60000;
-    const outcome = await awaitWithTimeout(pending.promise, timeoutMs, 'awaitPostLoadWarmup', {
-      reason: options.reason || 'await-post-load-warmup'
-    });
-    if (outcome?.timedOut) {
-      return { ok: false, timedOut: true, reason: 'post-load-warmup-timeout', timeoutMs };
-    }
-    return outcome?.value || { ok: true, reason: 'post-load-warmup-complete' };
-  }
-
-  namespace.awaitPostLoadWarmup = awaitPostLoadWarmup;
-
   async function applyParsedSession(context, parsed, meta = {}) {
     if (!canLoadFile(context)) {
       throw new Error('Session load unavailable: missing applySessionData context.');
@@ -1259,8 +1122,7 @@
         reason: meta.reason || 'graph-load-append-existing',
         snapshotKind: 'append-existing',
         policyMode: 'manual-save',
-        captureRenderCacheBeforeSnapshot: true,
-        prepareRenderCaches: false
+        captureRenderCacheBeforeSnapshot: true
       });
       const existingSnapshot = existingCheckpoint?.snapshot || null;
       const existingTabs = Array.isArray(existingSnapshot?.tabs) ? existingSnapshot.tabs : [];
@@ -1326,7 +1188,19 @@
       activateTab,
       showGraphSelection
     });
+    updateDocumentOpenTransaction(meta.documentOperation, {
+      detail: payloadToApply.tabs.length === 1
+        ? 'Restoring workspace…'
+        : `Restoring ${payloadToApply.tabs.length} workspaces…`,
+      current: 0,
+      total: Math.max(1, payloadToApply.tabs.length)
+    });
     const restoreResult = await session.applySessionData(payloadToApply, loadOptions);
+    updateDocumentOpenTransaction(meta.documentOperation, {
+      detail: 'Finishing…',
+      current: Math.max(1, payloadToApply.tabs.length),
+      total: Math.max(1, payloadToApply.tabs.length)
+    });
     if (loadMode === 'append') {
       if (workspaceState) {
         workspaceState.sessionFileHandle = null;
@@ -1344,9 +1218,6 @@
       addedTabCount,
       tabCount: payloadToApply.tabs.length
     });
-    if (meta.skipWarmup !== true && payloadToApply.tabs.length > 1 && hasTabsNeedingPostLoadWarmup(workspaceState)) {
-      schedulePostLoadWarmup(context, meta.reason || 'post-load-warmup');
-    }
     return {
       status: 'loaded',
       scope: fileScope,
@@ -1364,15 +1235,31 @@
     if (!graphArchive || typeof graphArchive.parseFile !== 'function') {
       throw new Error('Shared.graphArchive.parseFile is unavailable.');
     }
-    const parsed = await graphArchive.parseFile(source, {
+    const transactionMeta = {
+      ...meta,
       fileName: meta.fileName || source?.name || 'workspace.graph'
-    });
-    debug(context, 'restoreDocumentArchive.parsed', {
-      source: parsed?.source || 'unknown',
-      tabCount: parsed?.session?.tabs?.length || 0,
-      reason: meta.reason || 'graph-load'
-    });
-    return applyParsedSession(context, parsed, meta);
+    };
+    const documentOperation = beginDocumentOpenTransaction(context, transactionMeta);
+    try {
+      const parsed = await graphArchive.parseFile(source, {
+        fileName: transactionMeta.fileName
+      });
+      debug(context, 'restoreDocumentArchive.parsed', {
+        source: parsed?.source || 'unknown',
+        tabCount: parsed?.session?.tabs?.length || 0,
+        reason: meta.reason || 'graph-load'
+      });
+      const result = await applyParsedSession(context, parsed, {
+        ...meta,
+        fileName: transactionMeta.fileName,
+        documentOperation
+      });
+      finishDocumentOpenTransaction(context, documentOperation);
+      return result;
+    } catch (err) {
+      failDocumentOpenTransaction(context, documentOperation, err);
+      throw err;
+    }
   }
 
   namespace.restoreDocumentArchive = restoreDocumentArchive;
@@ -1394,6 +1281,9 @@
     if (!session || !workspaceState) {
       throw new Error('Save unavailable: missing session context.');
     }
+    if (hasActiveDocumentOperation(context)) {
+      return { status: 'cancelled', reason: 'document-operation' };
+    }
 
     const scope = options.scope === 'workspace' ? 'workspace' : 'tab';
     const rememberFile = options.rememberFile !== false;
@@ -1405,8 +1295,6 @@
       reason: options.reason || 'archive-save',
       snapshotKind: requestedSnapshotKind,
       policyMode: options.reason === 'autosave' ? 'autosave' : 'manual-save',
-      prepareRenderCaches: scope === 'workspace' && options.skipWarmup !== true,
-      warmupReason: 'pre-save-warmup',
       readyReason: 'pre-save-active-ready'
     });
     if (!checkpoint) {
@@ -1514,11 +1402,14 @@
 
   namespace.handleSessionLoadClick = async function handleSessionLoadClick(context, options = {}) {
     const Shared = context?.Shared || window.Shared;
-    const { workspaceState, sessionFileTypes, dom } = context || {};
+    const { sessionFileTypes, dom } = context || {};
     if (!Shared?.fileIO || typeof Shared.fileIO.openGraphFile !== 'function') {
       console.warn('Load unavailable: missing Shared.fileIO.openGraphFile');
       dom?.sessionFileInput?.click?.();
       return { status: 'error', reason: 'no-open-handler' };
+    }
+    if (hasActiveDocumentOperation(context)) {
+      return { status: 'cancelled', reason: 'document-operation' };
     }
     if (!confirmWorkspaceReplacement(context)) {
       return { status: 'cancelled', reason: 'replace-denied' };
@@ -1531,13 +1422,10 @@
         context: 'workspace',
         setFileHandle: handle => {
           lastHandle = handle || null;
-          workspaceState.sessionFileHandle = handle || null;
-          workspaceState.sessionFilePath = handle?.__desktopFilePath || '';
           debug(context, 'load.handleCaptured', { hasHandle: !!handle });
         },
         setFileName: name => {
           lastName = String(name || '').trim();
-          workspaceState.sessionFileName = lastName;
           debug(context, 'load.fileNameCaptured', { name: lastName });
         },
         fileTypes: sessionFileTypes,
@@ -1561,17 +1449,19 @@
       });
       return result;
     } catch (err) {
-      console.error('handleSessionLoadClick error', err);
+      debug(context, 'handleSessionLoadClick.error', { message: err?.message || String(err) });
       return { status: 'error', error: err };
     }
   };
 
   namespace.handleDesktopOpenFilePath = async function handleDesktopOpenFilePath(context, filePath, options = {}) {
     const Shared = context?.Shared || window.Shared;
-    const { workspaceState } = context || {};
     const normalizedPath = String(filePath || '').trim();
     if (!normalizedPath) {
       return { status: 'error', reason: 'missing-file-path' };
+    }
+    if (hasActiveDocumentOperation(context)) {
+      return { status: 'cancelled', reason: 'document-operation' };
     }
     if (!Shared?.fileIO || typeof Shared.fileIO.openGraphFilePath !== 'function') {
       console.warn('Desktop file open unavailable: missing Shared.fileIO.openGraphFilePath');
@@ -1589,17 +1479,10 @@
         filePath: normalizedPath,
         setFileHandle: handle => {
           lastHandle = handle || null;
-          if (workspaceState) {
-            workspaceState.sessionFileHandle = handle || null;
-            workspaceState.sessionFilePath = handle?.__desktopFilePath || normalizedPath;
-          }
           debug(context, 'desktopOpen.handleCaptured', { hasHandle: !!handle });
         },
         setFileName: name => {
           lastName = String(name || '').trim();
-          if (workspaceState) {
-            workspaceState.sessionFileName = lastName;
-          }
           debug(context, 'desktopOpen.fileNameCaptured', { name: lastName });
         },
         loadFromFile: async file => {
@@ -1618,17 +1501,23 @@
       });
       return result;
     } catch (err) {
-      console.error('handleDesktopOpenFilePath error', { filePath: normalizedPath, err });
+      debug(context, 'handleDesktopOpenFilePath.error', {
+        filePath: normalizedPath,
+        message: err?.message || String(err)
+      });
       return { status: 'error', filePath: normalizedPath, error: err };
     }
   };
 
   namespace.handleSessionInputChange = function handleSessionInputChange(context, event) {
-    const { workspaceState } = context || {};
     const input = event?.target;
     const file = input?.files && input.files[0];
     if (!file) {
       debug(context, 'handleSessionInputChange.noFile');
+      return;
+    }
+    if (hasActiveDocumentOperation(context)) {
+      if (input) input.value = '';
       return;
     }
     if (!confirmWorkspaceReplacement(context)) {
@@ -1637,14 +1526,13 @@
       }
       return;
     }
-    workspaceState.sessionFileHandle = null;
-    workspaceState.sessionFileName = String(file.name || '').trim();
+    const fileName = String(file.name || '').trim();
     namespace.loadWorkspaceFile(context, file, {
       reason: 'graph-load-input',
       fileHandle: null,
-      fileName: workspaceState.sessionFileName
+      fileName
     }).catch(err => {
-      console.error('handleSessionInputChange load error', err);
+      debug(context, 'handleSessionInputChange.error', { message: err?.message || String(err) });
     }).finally(() => {
       if (input) {
         input.value = '';
@@ -1700,6 +1588,9 @@
   };
 
   namespace.buildWorkspaceArchiveBlob = async function buildWorkspaceArchiveBlob(context, options = {}) {
+    if (hasActiveDocumentOperation(context)) {
+      return null;
+    }
     const Shared = context?.Shared || window.Shared;
     const graphArchive = ensureGraphArchiveApi(Shared);
     if (!graphArchive || typeof graphArchive.buildArchiveBlob !== 'function') {
@@ -1712,8 +1603,7 @@
       scope: options.scope === 'tab' ? 'tab' : 'workspace',
       reason: options.reason || 'document-snapshot',
       snapshotKind: options.snapshotKind || 'document-snapshot',
-      policyMode: options.policyMode || options.mode || 'manual-save',
-      prepareRenderCaches: options.prepareRenderCaches === true
+      policyMode: options.policyMode || options.mode || 'manual-save'
     });
     options.onPhase?.({ phase: 'checkpoint', ms: now() - checkpointStartedAt });
     if (!checkpoint) {
@@ -1731,8 +1621,7 @@
       reason: meta.reason || 'recovery-restore',
       fileHandle: meta.fileHandle || null,
       fileName: meta.fileName || blob?.name || '',
-      loadMode: meta.loadMode || 'replace',
-      skipWarmup: meta.skipWarmup === true
+      loadMode: meta.loadMode || 'replace'
     });
   };
 
@@ -1740,6 +1629,9 @@
     const { workspaceState, session } = context || {};
     if (!workspaceState || !session) {
       return { status: 'error', reason: 'missing-context' };
+    }
+    if (hasActiveDocumentOperation(context)) {
+      return { status: 'skipped', reason: 'document-operation' };
     }
     if (!workspaceState.sessionUserDirty) {
       return { status: 'skipped', reason: 'clean' };

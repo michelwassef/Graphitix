@@ -5,7 +5,8 @@ const {
   installLocalCdnOverrides,
   registerIssueCollectors,
   openComponentFromWelcome,
-  clickExampleButtonIfPresent
+  clickExampleButtonIfPresent,
+  waitForDocumentOpenComplete
 } = require('./helpers/workspaceHarness');
 
 const TMP_DIR = path.resolve(__dirname, '.tmp');
@@ -109,22 +110,13 @@ async function captureWorkspaceArchive(page, name) {
   return archivePath;
 }
 
-async function awaitPostLoadWarmup(page) {
-  await page.evaluate(async () => {
-    const sessionActions = window.Main?.sessionActions;
-    if (sessionActions?.awaitPostLoadWarmup) {
-      await sessionActions.awaitPostLoadWarmup({ timeoutMs: 60_000, reason: 'e2e-box-stats-controls' });
-    }
-  });
-}
-
 async function loadWorkspaceArchive(page, archivePath) {
   await page.reload({ waitUntil: 'domcontentloaded' });
   await expect(page.locator('#welcomeScreen')).toBeVisible({ timeout: 20_000 });
   await expect(page.locator('#workspaceSessionInput')).toHaveCount(1, { timeout: 20_000 });
   await page.locator('#workspaceSessionInput').setInputFiles(archivePath);
+  await waitForDocumentOpenComplete(page);
   await expect(page.locator('#boxPage:not([hidden])')).toBeVisible({ timeout: 40_000 });
-  await awaitPostLoadWarmup(page);
 }
 
 async function seedRecoverySnapshot(page) {
@@ -187,7 +179,6 @@ async function reloadAndAcceptRecovery(page) {
   try {
     await page.reload({ waitUntil: 'domcontentloaded' });
     await expect(page.locator('#boxPage:not([hidden])')).toBeVisible({ timeout: 40_000 });
-    await awaitPostLoadWarmup(page);
   } finally {
     page.off('dialog', handler);
   }

@@ -5,7 +5,8 @@ const {
   installLocalCdnOverrides,
   registerIssueCollectors,
   openComponentFromWelcome,
-  clickExampleButtonIfPresent
+  clickExampleButtonIfPresent,
+  waitForDocumentOpenComplete
 } = require('./helpers/workspaceHarness');
 
 const TMP_DIR = path.resolve(__dirname, '.tmp');
@@ -690,20 +691,8 @@ async function loadWorkspaceArchiveFromPath(page, archivePath) {
   const input = page.locator('#workspaceSessionInput');
   await expect(input).toHaveCount(1, { timeout: 20_000 });
   await input.setInputFiles(archivePath);
+  await waitForDocumentOpenComplete(page);
   await page.waitForTimeout(1_000);
-}
-
-async function awaitPostLoadWarmup(page, reason = 'e2e-await-post-load-warmup') {
-  await page.evaluate(async (reasonText) => {
-    const sessionActions = window.Main?.sessionActions;
-    if (!sessionActions || typeof sessionActions.awaitPostLoadWarmup !== 'function') {
-      return;
-    }
-    await sessionActions.awaitPostLoadWarmup({
-      timeoutMs: 90_000,
-      reason: reasonText || 'e2e-await-post-load-warmup'
-    });
-  }, reason);
 }
 
 async function seedRecoverySnapshot(page) {
@@ -1014,7 +1003,7 @@ async function verifyMixedTabsAfterRestore(page, workspace, testInfo, scenarioLa
   ).toEqual([]);
   expect(
     missingBeforeEdit,
-    `${scenarioLabel || 'restore'}: restored cache was already absent before simulated user edit; see *before-user-edit.json plus snapshot/warmup diagnostics.`
+    `${scenarioLabel || 'restore'}: restored cache was already absent before simulated user edit; see *before-user-edit.json plus snapshot/open diagnostics.`
   ).toEqual([]);
   expect(
     notInvalidated,
@@ -1037,9 +1026,8 @@ test.fixme('mixed heavy scatter tabs + heavy box tab survive archive reopen with
   await page.reload({ waitUntil: 'domcontentloaded' });
   await expect(page.locator('#welcomeScreen')).toBeVisible({ timeout: 20_000 });
   await loadWorkspaceArchiveFromPath(page, archivePath);
-  await attachRenderCacheDiagnostics(testInfo, 'document-reopen-after-input-load-before-warmup.json', await collectWorkspaceRenderCacheDiagnostics(page, 'document-reopen-after-input-load-before-warmup'));
-  await awaitPostLoadWarmup(page, 'e2e-heavy-mixed-archive-await-warmup');
-  await attachRenderCacheDiagnostics(testInfo, 'document-reopen-after-warmup.json', await collectWorkspaceRenderCacheDiagnostics(page, 'document-reopen-after-warmup'));
+  await attachRenderCacheDiagnostics(testInfo, 'document-reopen-after-input-load.json', await collectWorkspaceRenderCacheDiagnostics(page, 'document-reopen-after-input-load'));
+  await attachRenderCacheDiagnostics(testInfo, 'document-reopen-after-open.json', await collectWorkspaceRenderCacheDiagnostics(page, 'document-reopen-after-open'));
   await verifyMixedTabsAfterRestore(page, workspace, testInfo, 'document-reopen');
   expect(issues.critical).toEqual([]);
 });
@@ -1054,9 +1042,8 @@ test.fixme('mixed heavy scatter tabs + heavy box tab survive crash-recovery rest
   const recoveryDiagnostics = await seedRecoverySnapshot(page);
   await attachRenderCacheDiagnostics(testInfo, 'recovery-snapshot-created.json', recoveryDiagnostics);
   await reloadAndAcceptRecovery(page);
-  await attachRenderCacheDiagnostics(testInfo, 'recovery-after-dialog-before-warmup.json', await collectWorkspaceRenderCacheDiagnostics(page, 'recovery-after-dialog-before-warmup'));
-  await awaitPostLoadWarmup(page, 'e2e-heavy-mixed-recovery-await-warmup');
-  await attachRenderCacheDiagnostics(testInfo, 'recovery-after-warmup.json', await collectWorkspaceRenderCacheDiagnostics(page, 'recovery-after-warmup'));
+  await attachRenderCacheDiagnostics(testInfo, 'recovery-after-dialog.json', await collectWorkspaceRenderCacheDiagnostics(page, 'recovery-after-dialog'));
+  await attachRenderCacheDiagnostics(testInfo, 'recovery-after-open.json', await collectWorkspaceRenderCacheDiagnostics(page, 'recovery-after-open'));
   await verifyMixedTabsAfterRestore(page, workspace, testInfo, 'recovery');
   expect(issues.critical).toEqual([]);
 });

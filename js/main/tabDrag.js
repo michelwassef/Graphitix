@@ -3,6 +3,7 @@
 
   const Main = window.Main = window.Main || {};
   const namespace = Main.tabDrag = Main.tabDrag || {};
+  const isDocumentInteractionLocked = workspaceState => workspaceState?.documentOperation?.active === true;
 
   namespace.applyTabDragClasses = function applyTabDragClasses(context) {
     const { dom, workspaceState } = context || {};
@@ -63,6 +64,9 @@
 
   namespace.moveWorkspaceTab = function moveWorkspaceTab(context, tabId, targetIndex) {
     const { workspaceState } = context || {};
+    if (isDocumentInteractionLocked(workspaceState)) {
+      return { moved: false, fromIndex: -1, toIndex: -1, reason: 'document-operation' };
+    }
     const tabs = workspaceState?.tabs;
     if (!Array.isArray(tabs)) {
       return { moved: false, fromIndex: -1, toIndex: -1 };
@@ -93,7 +97,7 @@
 
   namespace.handleTabDragStart = function handleTabDragStart(context, event, tab) {
     const { workspaceState } = context || {};
-    if (!workspaceState || !tab || tab.isRenaming) {
+    if (!workspaceState || !tab || tab.isRenaming || isDocumentInteractionLocked(workspaceState)) {
       if (!tab) {
         console.debug('Debug: tab drag start skipped', { reason: 'missing-tab' });
       }

@@ -12,7 +12,7 @@
  */
 const fs = require('fs'); const path = require('path');
 const { test, expect } = require('@playwright/test');
-const { installLocalCdnOverrides, registerIssueCollectors, openComponentFromWelcome, clickExampleButtonIfPresent } = require('./helpers/workspaceHarness');
+const { installLocalCdnOverrides, registerIssueCollectors, openComponentFromWelcome, clickExampleButtonIfPresent, waitForDocumentOpenComplete } = require('./helpers/workspaceHarness');
 const TMP = path.resolve(__dirname, '.tmp');
 
 const GENES = {
@@ -111,8 +111,8 @@ async function reopen(page, archivePath) {
   await page.reload({ waitUntil: 'domcontentloaded' });
   await expect(page.locator('#welcomeScreen')).toBeVisible({ timeout: 20_000 });
   await page.locator('#workspaceSessionInput').setInputFiles(archivePath);
+  await waitForDocumentOpenComplete(page);
   await page.waitForTimeout(1000);
-  await page.evaluate(async () => { const sa = window.Main?.sessionActions; if (sa?.awaitPostLoadWarmup) await sa.awaitPostLoadWarmup({ timeoutMs: 60_000, reason: 'e2e-venn' }); });
   await page.waitForSelector('#vennPage:not([hidden])', { timeout: 30_000 }).catch(() => {});
   await page.waitForTimeout(1000);
 }

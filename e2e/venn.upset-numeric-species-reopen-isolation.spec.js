@@ -4,7 +4,8 @@ const { test, expect } = require('@playwright/test');
 const {
   installLocalCdnOverrides,
   registerIssueCollectors,
-  openComponentFromWelcome
+  openComponentFromWelcome,
+  waitForDocumentOpenComplete
 } = require('./helpers/workspaceHarness');
 
 const TMP = path.resolve(__dirname, '.tmp');
@@ -275,13 +276,8 @@ async function reopenArchive(page, archivePath) {
   await expect(page.locator('#welcomeScreen')).toBeVisible({ timeout: 20_000 });
   await installSpeciesMock(page);
   await page.locator('#workspaceSessionInput').setInputFiles(archivePath);
+  await waitForDocumentOpenComplete(page);
   await page.waitForTimeout(1000);
-  await page.evaluate(async () => {
-    const sa = window.Main?.sessionActions;
-    if (sa?.awaitPostLoadWarmup) {
-      await sa.awaitPostLoadWarmup({ timeoutMs: 60_000, reason: 'e2e-venn-upset-numeric-species' });
-    }
-  });
   await page.waitForSelector('#vennPage:not([hidden]) #stage', { timeout: 30_000 });
   await page.waitForTimeout(1000);
 }

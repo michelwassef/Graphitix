@@ -121,6 +121,92 @@ describe('Style controls remain functional and tab-isolated across components', 
     }
   });
 
+  test('Box and PCA expose their named default palettes', async () => {
+    const Main = window.Main;
+
+    await handleGraphSelection(Main, 'box');
+    const boxSelect = document.querySelector('#boxColorSchemeSelect');
+    expect(boxSelect?.value).toBe('grayscale');
+
+    Main.tabs.handleAddTabClick();
+    await flush();
+    await handleGraphSelection(Main, 'pca');
+    const pcaSelect = document.querySelector('#pcaColorSchemeSelect');
+    expect(pcaSelect?.value).toBe('scientific');
+
+    document.getElementById('pcaLoadExample')?.click();
+    for (let index = 0; index < 20; index += 1) {
+      await flush();
+    }
+    expect(pcaSelect?.value).toBe('scientific');
+  });
+
+  test('PCA palette undo preserves graph size and skips layout restoration', async () => {
+    const Main = window.Main;
+    await handleGraphSelection(Main, 'pca');
+    document.getElementById('pcaLoadExample')?.click();
+    for (let index = 0; index < 20; index += 1) {
+      await flush();
+    }
+
+    const tab = Main.tabs.getActiveTab();
+    const workspace = Main.components.registry.pca;
+    const graph = document.querySelector('#pcaGraphPanel .svgbox');
+    const fillInput = document.getElementById('pcaFill');
+    fillInput.value = '#123456';
+    fillInput.dispatchEvent(new Event('input', { bubbles: true }));
+    for (let index = 0; index < 8; index += 1) {
+      await flush();
+    }
+    expect(workspace.getPayload().config.fill).toBe('#123456');
+    const sizeBefore = {
+      width: graph?.style.width || '',
+      height: graph?.style.height || '',
+      minWidth: graph?.style.minWidth || '',
+      minHeight: graph?.style.minHeight || ''
+    };
+    const applyLayoutSpy = jest.spyOn(workspace, 'applyLayoutState');
+    const schemeSelect = document.querySelector('#pcaColorSchemeSelect');
+    const legendTextBefore = Array.from(document.querySelectorAll('#pcaSvg text[data-legend-key]'))
+      .map(node => node.getAttribute('fill'));
+    const legendSwatchesBefore = Array.from(document.querySelectorAll('#pcaSvg [data-legend-swatch="1"]'))
+      .map(node => node.getAttribute('fill'));
+    expect(legendTextBefore.length).toBeGreaterThan(0);
+    expect(legendSwatchesBefore.length).toBeGreaterThan(0);
+
+    schemeSelect.value = 'soft';
+    schemeSelect.dispatchEvent(new Event('change', { bubbles: true }));
+    const paletteChoice = schemeSelect.parentElement?.querySelector('[data-color-scheme-choice="1"]');
+    expect(paletteChoice?.hidden).toBe(false);
+    paletteChoice?.querySelector('[data-color-scheme-choice-action="match"]')?.click();
+    for (let index = 0; index < 8; index += 1) {
+      await flush();
+    }
+    expect(window.Shared.colorSchemes.resolveCategoricalPaletteForType('pca', { schemeId: 'soft' }))
+      .toContain(workspace.getPayload().config.fill);
+    expect(schemeSelect.value).toBe('soft');
+    expect(Array.from(document.querySelectorAll('#pcaSvg text[data-legend-key]'))
+      .map(node => node.getAttribute('fill'))).toEqual(legendTextBefore);
+    expect(Array.from(document.querySelectorAll('#pcaSvg [data-legend-swatch="1"]'))
+      .map(node => node.getAttribute('fill'))).not.toEqual(legendSwatchesBefore);
+    expect(window.Shared.undoManager.undo({ tabId: tab.id })).toBe(true);
+    for (let index = 0; index < 8; index += 1) {
+      await flush();
+    }
+
+    expect(applyLayoutSpy).not.toHaveBeenCalled();
+    expect({
+      width: graph?.style.width || '',
+      height: graph?.style.height || '',
+      minWidth: graph?.style.minWidth || '',
+      minHeight: graph?.style.minHeight || ''
+    }).toEqual(sizeBefore);
+    expect(schemeSelect.value).toBe('custom');
+    expect(workspace.getPayload().config.fill).toBe('#123456');
+    expect(Array.from(document.querySelectorAll('#pcaSvg text[data-legend-key]'))
+      .map(node => node.getAttribute('fill'))).toEqual(legendTextBefore);
+  });
+
   test('color scheme and publication style controls apply on active tab without leaking to sibling tab', async () => {
     const Main = window.Main;
     const registry = Main.components.registry;

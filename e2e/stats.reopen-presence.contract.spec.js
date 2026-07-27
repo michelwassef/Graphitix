@@ -19,7 +19,8 @@ const {
   installLocalCdnOverrides,
   registerIssueCollectors,
   openComponentFromWelcome,
-  clickExampleButtonIfPresent
+  clickExampleButtonIfPresent,
+  waitForDocumentOpenComplete
 } = require('./helpers/workspaceHarness');
 
 const TMP_DIR = path.resolve(__dirname, '.tmp');
@@ -32,7 +33,7 @@ const CASES = [
   { key: 'line', pageId: 'linePage', exampleButtonId: 'lineLoadExample', compute: 'lineComputeStats', containers: ['lineStatsResults'] },
   { key: 'pie', pageId: 'piePage', exampleButtonId: 'pieLoadExample', compute: 'pieComputeStats', containers: ['pieStatsResults'] },
   { key: 'hist', pageId: 'histPage', exampleButtonId: 'histLoadExample', compute: null, containers: ['histStatsResults'] },
-  { key: 'roc', pageId: 'rocPage', exampleButtonId: 'rocLoadExample', compute: 'rocComputeStats', containers: ['rocStatsResults'] },
+  { key: 'roc', pageId: 'rocPage', exampleButtonId: 'rocLoadExample', compute: 'rocComputeStats', recovery: true, containers: ['rocStatsResults'] },
   { key: 'survival', pageId: 'survivalPage', exampleButtonId: 'survivalLoadExample', compute: null, containers: ['survivalStatsSummary', 'survivalStatsLogRank', 'survivalStatsHazardRatios', 'survivalStatsCox'] },
   { key: 'heatmap', pageId: 'heatmapPage', exampleButtonId: 'heatmapLoadExample', compute: null, containers: ['heatmapStatsContent'] },
   { key: 'surface', pageId: 'surfacePage', exampleButtonId: 'surfaceLoadExample', compute: null, containers: ['surfaceStatsSummary'] }
@@ -93,6 +94,20 @@ function statsRichnessInPage(containerIds) {
   };
 }
 
+async function captureRocStatsPersistenceState(page) {
+  return page.evaluate(() => {
+    const payload = window.Components?.roc?.getPayload?.() || {};
+    const stats = payload.stats || {};
+    return JSON.parse(JSON.stringify({
+      graphType: payload.config?.graphType || null,
+      analysisSignature: stats.analysisSignature || '',
+      statsPanelSignature: stats.statsPanelSignature || '',
+      resultsModel: stats.resultsModel || null,
+      reportModel: stats.reportModel || null
+    }));
+  });
+}
+
 // Click the first stats-table export trigger and report whether its menu opens. Proves the
 // restored Download/Copy controls are live (re-wired), not dead/mangled markup. Returns
 // { controls: false } when the component has no stats-table export controls.
@@ -140,13 +155,6 @@ async function captureArchive(page, stem) {
   const p = path.join(TMP_DIR, `${stem}.graph`);
   fs.writeFileSync(p, Buffer.from(archive, 'base64'));
   return p;
-}
-
-async function awaitWarmup(page) {
-  await page.evaluate(async () => {
-    const sa = window.Main?.sessionActions;
-    if (sa?.awaitPostLoadWarmup) { await sa.awaitPostLoadWarmup({ timeoutMs: 60_000, reason: 'e2e-stats-contract' }); }
-  });
 }
 
 async function activateComponentTab(page, key) {
@@ -211,18 +219,22 @@ for (const c of CASES) {
 
     await buildAndCompute(page, c);
     const before = await page.evaluate(statsRichnessInPage, c.containers);
+    const rocBefore = c.key === 'roc' ? await captureRocStatsPersistenceState(page) : null;
     const archivePath = await captureArchive(page, `contract-${c.key}-reopen`);
 
     await page.reload({ waitUntil: 'domcontentloaded' });
     await expect(page.locator('#welcomeScreen')).toBeVisible({ timeout: 20_000 });
     await page.locator('#workspaceSessionInput').setInputFiles(archivePath);
+    await waitForDocumentOpenComplete(page);
     await page.waitForTimeout(1000);
-    await awaitWarmup(page);
     await page.waitForSelector(`#${c.pageId}:not([hidden])`, { timeout: 30_000 }).catch(() => {});
     await page.waitForTimeout(1200);
 
     const after = await page.evaluate(statsRichnessInPage, c.containers);
     expectNoStatsLoss(before, after, `${c.key} reopen`);
+    if (c.key === 'roc') {
+      expect(await captureRocStatsPersistenceState(page)).toStrictEqual(rocBefore);
+    }
     await expectExportControlsLive(page, c.containers, `${c.key} reopen`);
     expect(issues.critical.filter(e => e.kind !== 'requestfailed')).toEqual([]);
   });
@@ -235,6 +247,7 @@ for (const c of CASES) {
 
       await buildAndCompute(page, c);
       const before = await page.evaluate(statsRichnessInPage, c.containers);
+      const rocBefore = c.key === 'roc' ? await captureRocStatsPersistenceState(page) : null;
       await seedRecoverySnapshot(page);
 
       const handler = async d => { await d.accept(); };
@@ -242,13 +255,15 @@ for (const c of CASES) {
       await page.reload({ waitUntil: 'domcontentloaded' });
       await page.waitForTimeout(1500);
       page.off('dialog', handler);
-      await awaitWarmup(page);
       await activateComponentTab(page, c.key);
       await page.waitForSelector(`#${c.pageId}:not([hidden])`, { timeout: 30_000 }).catch(() => {});
       await page.waitForTimeout(1200);
 
       const after = await page.evaluate(statsRichnessInPage, c.containers);
       expectNoStatsLoss(before, after, `${c.key} recovery`);
+      if (c.key === 'roc') {
+        expect(await captureRocStatsPersistenceState(page)).toStrictEqual(rocBefore);
+      }
       await expectExportControlsLive(page, c.containers, `${c.key} recovery`);
       expect(issues.critical.filter(e => e.kind !== 'requestfailed')).toEqual([]);
     });

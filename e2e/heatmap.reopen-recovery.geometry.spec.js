@@ -18,7 +18,8 @@ const {
   installLocalCdnOverrides,
   registerIssueCollectors,
   openComponentFromWelcome,
-  clickExampleButtonIfPresent
+  clickExampleButtonIfPresent,
+  waitForDocumentOpenComplete
 } = require('./helpers/workspaceHarness');
 
 const TMP_DIR = path.resolve(__dirname, '.tmp');
@@ -193,17 +194,8 @@ async function loadWorkspaceArchiveFromPath(page, archivePath) {
   const input = page.locator('#workspaceSessionInput');
   await expect(input).toHaveCount(1, { timeout: 20_000 });
   await input.setInputFiles(archivePath);
+  await waitForDocumentOpenComplete(page);
   await page.waitForTimeout(1_000);
-}
-
-async function awaitPostLoadWarmup(page, reason) {
-  await page.evaluate(async (reasonText) => {
-    const sessionActions = window.Main?.sessionActions;
-    if (!sessionActions || typeof sessionActions.awaitPostLoadWarmup !== 'function') {
-      return;
-    }
-    await sessionActions.awaitPostLoadWarmup({ timeoutMs: 90_000, reason: reasonText });
-  }, reason);
 }
 
 async function seedRecoverySnapshot(page) {
@@ -291,7 +283,6 @@ test('Heatmap correlation geometry survives file reopen (archive load)', async (
   await page.reload({ waitUntil: 'domcontentloaded' });
   await expect(page.locator('#welcomeScreen')).toBeVisible({ timeout: 20_000 });
   await loadWorkspaceArchiveFromPath(page, archivePath);
-  await awaitPostLoadWarmup(page, 'e2e-heatmap-reopen-archive-warmup');
   await page.waitForSelector('#heatmapPage:not([hidden])', { timeout: 30_000 });
   await waitForHeatmapCells(page);
   await page.waitForTimeout(900);
@@ -352,7 +343,6 @@ test('Heatmap correlation geometry survives recovery while restored in the backg
   await activateWelcomeOrNewTab(page);
   await seedRecoverySnapshot(page);
   await reloadAndAcceptRecovery(page);
-  await awaitPostLoadWarmup(page, 'e2e-heatmap-bg-recovery-warmup');
   await activateHeatmapTab(page);
   await waitForHeatmapCells(page);
   await page.waitForTimeout(1200);
@@ -370,7 +360,6 @@ test('Heatmap correlation geometry survives crash-recovery restore', async ({ pa
   const initial = await buildCorrelationHeatmap(page, { resize: true });
   await seedRecoverySnapshot(page);
   await reloadAndAcceptRecovery(page);
-  await awaitPostLoadWarmup(page, 'e2e-heatmap-recovery-warmup');
   await page.waitForSelector('#heatmapPage:not([hidden])', { timeout: 30_000 });
   await waitForHeatmapCells(page);
   await page.waitForTimeout(900);

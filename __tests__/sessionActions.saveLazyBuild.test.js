@@ -480,7 +480,10 @@ describe('sessionActions save lazy archive build', () => {
       reason: 'recovery-interval'
     });
 
-    expect(context.session.persistActiveTabState).not.toHaveBeenCalled();
+    expect(context.session.persistActiveTabState).toHaveBeenCalledWith(activeTab, expect.objectContaining({
+      captureRenderCache: false,
+      reason: 'recovery-interval'
+    }));
     expect(context.session.serializeRenderCacheForArchive).not.toHaveBeenCalled();
     expect(archiveRequest?.tabs?.[0]?.archiveRenderCache).toBeNull();
     expect(archiveRequest?.tabs?.[0]?.archiveRenderCacheSignature).toBeNull();
@@ -556,32 +559,18 @@ describe('sessionActions save lazy archive build', () => {
     expect(archiveRequest?.tabs?.[0]?.layout).toStrictEqual(enrichedLayout);
   });
 
-  test('warmTabRenderCaches calls config.ensure on cold components before any activateTab', async () => {
+  test('workspace save never activates inactive tabs to manufacture render caches', async () => {
     const sessionActions = installSessionActions();
-    const callOrder = [];
-    const scatterEnsure = jest.fn(() => {
-      callOrder.push('scatter-ensure');
-      window.Components = window.Components || {};
-      window.Components.scatter = window.Components.scatter || {};
-      window.Components.scatter.ready = true;
+    window.Shared.fileIO.saveGraphFileAs = jest.fn(async options => {
+      await options.getPayload();
+      return { status: 'saved', via: 'picker', fileName: 'workspace.graph' };
     });
-    const boxEnsure = jest.fn(() => {
-      callOrder.push('box-ensure');
-      window.Components = window.Components || {};
-      window.Components.box = window.Components.box || {};
-      window.Components.box.ready = true;
-    });
-    const activateTab = jest.fn((tabId) => {
-      callOrder.push(`activate:${tabId}`);
-    });
-
-    window.Components = {};
-
+    const activateTab = jest.fn();
     const context = createContext({
       workspaceState: {
         tabs: [
-          { id: 'tab-1', title: 'A', type: 'scatter', isWelcome: false, payload: { type: 'scatter', data: [] }, layoutState: null },
-          { id: 'tab-2', title: 'B', type: 'box', isWelcome: false, payload: { type: 'box', data: [] }, layoutState: null }
+          { id: 'tab-1', title: 'A', type: 'scatter', isWelcome: false, payload: { type: 'scatter', data: [[1, 2]] }, layoutState: null },
+          { id: 'tab-2', title: 'B', type: 'box', isWelcome: false, payload: { type: 'box', data: [[3, 4]] }, layoutState: null }
         ],
         sessionDirty: false,
         sessionFileHandle: null,
@@ -591,30 +580,43 @@ describe('sessionActions save lazy archive build', () => {
     });
     context.session.getActiveTab.mockReturnValue(context.workspaceState.tabs[0]);
     context.activateTab = activateTab;
-    context.workspaces = {
-      scatter: { ensure: scatterEnsure },
-      box: { ensure: boxEnsure }
-    };
-
-    const result = await sessionActions.warmTabRenderCaches(context, {
-      reason: 'unit-test-warmup',
-      finalTabId: 'tab-1',
-      stepDelayMs: 80
+    await sessionActions.saveWorkspaceArchiveWithScope(context, {
+      scope: 'workspace'
     });
 
-    // Ensure box was called (scatter is the active/final tab and is skipped from warmup)
-    expect(boxEnsure).toHaveBeenCalledTimes(1);
-    // The order must be: every ensure() comes before any activateTab()
-    const firstActivate = callOrder.findIndex(entry => entry.startsWith('activate:'));
-    const lastEnsure = callOrder.map((e, i) => e.endsWith('-ensure') ? i : -1).filter(i => i >= 0).pop() ?? -1;
-    expect(lastEnsure).toBeLessThan(firstActivate);
-    // tab-2 (box) should have been activated, then the final tab.
-    expect(activateTab).toHaveBeenCalledWith('tab-2', expect.any(Object));
-    expect(activateTab).toHaveBeenCalledWith('tab-1', expect.any(Object));
-    expect(result.warmed).toBe(1);
-    expect(result.skippedColdComponents).toBe(0);
+    expect(activateTab).not.toHaveBeenCalled();
+    expect(sessionActions.warmTabRenderCaches).toBeUndefined();
+  });
 
-    delete window.Components;
+  test('save, autosave, and recovery snapshots do not run inside a document transaction', async () => {
+    const sessionActions = installSessionActions();
+    window.Shared.fileIO.saveGraphFileAs = jest.fn();
+    const context = createContext();
+    context.workspaceState.documentOperation = {
+      active: true,
+      token: 'document-open-1',
+      kind: 'open',
+      status: 'loading',
+      fileName: 'incoming.graph'
+    };
+
+    await expect(sessionActions.saveWorkspaceArchiveWithScope(context, {
+      scope: 'workspace'
+    })).resolves.toEqual(expect.objectContaining({
+      status: 'cancelled',
+      reason: 'document-operation'
+    }));
+    await expect(sessionActions.autosaveWorkspace(context)).resolves.toEqual(expect.objectContaining({
+      status: 'skipped',
+      reason: 'document-operation'
+    }));
+    await expect(sessionActions.buildWorkspaceArchiveBlob(context, {
+      scope: 'workspace',
+      snapshotKind: 'recovery'
+    })).resolves.toBeNull();
+
+    expect(window.Shared.fileIO.saveGraphFileAs).not.toHaveBeenCalled();
+    expect(window.Shared.graphArchive.buildArchiveBlob).not.toHaveBeenCalled();
   });
 
   test('handleSessionSaveClick uses Save As flow when there is no existing file handle', async () => {

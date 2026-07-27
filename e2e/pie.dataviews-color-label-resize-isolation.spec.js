@@ -4,7 +4,8 @@ const { test, expect } = require('@playwright/test');
 const {
   installLocalCdnOverrides,
   registerIssueCollectors,
-  openComponentFromWelcome
+  openComponentFromWelcome,
+  waitForDocumentOpenComplete
 } = require('./helpers/workspaceHarness');
 
 const TMP_DIR = path.resolve(__dirname, '.tmp');
@@ -227,17 +228,12 @@ async function reopenArchive(page, archivePath) {
   await page.reload({ waitUntil: 'domcontentloaded' });
   await expect(page.locator('#welcomeScreen')).toBeVisible({ timeout: 20_000 });
   await page.locator('#workspaceSessionInput').setInputFiles(archivePath);
+  await waitForDocumentOpenComplete(page);
   await page.waitForFunction(
     () => (window.Main?.session?.workspaceState?.tabs || []).filter(tab => tab && tab.type === 'pie').length === 2,
     null,
     { timeout: 60_000 }
   );
-  await page.evaluate(async () => {
-    const sa = window.Main?.sessionActions;
-    if (sa?.awaitPostLoadWarmup) {
-      await sa.awaitPostLoadWarmup({ timeoutMs: 60_000, reason: 'e2e-pie-dataviews-color-label-resize' });
-    }
-  });
 }
 
 function expectClose(actual, expected, tolerance, label) {

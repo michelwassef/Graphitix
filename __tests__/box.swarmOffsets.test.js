@@ -52,6 +52,27 @@ describe('Box swarm offset constraints', () => {
     hooks = window.Components?.box?.__testHooks;
   });
 
+  test('Unified palette projection keeps global point color and indexed overrides', () => {
+    expect(hooks.resolveBoxPointPalettePaint(
+      { fill: '#009e73' },
+      null,
+      '#0072b2',
+      '#111111'
+    )).toEqual({
+      fill: '#009e73',
+      border: '#111111'
+    });
+    expect(hooks.resolveBoxPointPalettePaint(
+      { fill: '#009e73' },
+      { fill: '#d55e00' },
+      '#0072b2',
+      '#111111'
+    )).toEqual({
+      fill: '#d55e00',
+      border: '#111111'
+    });
+  });
+
   test('spacing profile is continuous across sample sizes', () => {
     expect(hooks).toBeDefined();
     expect(typeof hooks.computeSwarmSpacingProfile).toBe('function');
@@ -715,6 +736,54 @@ describe('Box swarm offset constraints', () => {
     expect(hooks.hasExplicitBoxPointBorderWidth({ borderWidth: 1.5 })).toBe(true);
     expect(hooks.hasExplicitBoxPointBorderWidth({ strokeWidth: 1.5 })).toBe(true);
     expect(hooks.hasExplicitBoxPointBorderWidth({})).toBe(false);
+  });
+
+  test('point style identity remains bound to the source column after exclusions', () => {
+    expect(typeof hooks.resolveBoxTraceStyleIndex).toBe('function');
+    const visibleTraces = [
+      { name: 'Control', columnIndex: 0 },
+      { name: 'Treatment B', columnIndex: 2 }
+    ];
+    expect(hooks.resolveBoxTraceStyleIndex(visibleTraces[0], 0)).toBe(0);
+    expect(hooks.resolveBoxTraceStyleIndex(visibleTraces[1], 1)).toBe(2);
+    expect(hooks.resolveBoxTraceStyleIndex({ groupName: 'A', columnIndex: 2 }, 1)).toBe(1);
+    expect(hooks.resolveBoxTraceStyleIndex({ name: 'Legacy trace' }, 1)).toBe(1);
+  });
+
+  test('dataset drag builds a physical column order and carries indexed styles', () => {
+    expect(hooks.buildBoxDatasetColumnOrder(
+      [0, 1, 2, 3],
+      [{ columnIndex: 0 }, { columnIndex: 2 }],
+      0,
+      1
+    )).toEqual([1, 2, 0, 3]);
+    expect(hooks.reorderBoxIndexedValues(
+      { 0: { fill: 'red' }, 2: { fill: 'blue' } },
+      [1, 2, 0, 3]
+    )).toEqual({
+      1: { fill: 'blue' },
+      2: { fill: 'red' }
+    });
+  });
+
+  test('dataset drag resolves the active tab-owned table manager', () => {
+    const state = window.Components.box.__getState();
+    const applyColumnOrder = jest.fn((permutation, options) => {
+      options.onApplied(permutation);
+      return true;
+    });
+    state.hot = { applyColumnOrder };
+    state.fillColors = ['red', 'green', 'blue'];
+    state.borderColors = [];
+    state.traceShapeStyles = {};
+    state.pointStyles = { 0: { shape: 'square' } };
+    state.summaryStyles = {};
+    state.colOrder = [0, 1, 2];
+    expect(hooks.applyBoxDatasetColumnOrder([1, 2, 0])).toBe(true);
+    expect(applyColumnOrder).toHaveBeenCalledTimes(1);
+    expect(state.fillColors).toEqual(['green', 'blue', 'red']);
+    expect(state.pointStyles).toEqual({ 2: { shape: 'square' } });
+    state.hot = null;
   });
 
   test('canvas-backed point groups expose an interaction proxy for toolbar selection', () => {

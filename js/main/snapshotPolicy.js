@@ -52,7 +52,9 @@
         return {
           saveLike: true,
           captureLivePayload: true,
+          skipLivePayloadCapture: false,
           allowSkipLivePayloadCapture: false,
+          lifecycleSnapshot: false,
           runSkippedPayloadDriftProbe: true,
           promoteSkippedPayloadDrift: true,
           reasonSkippable: false,

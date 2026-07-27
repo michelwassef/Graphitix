@@ -34,6 +34,13 @@ describe('Shared.hot exclusion persistence ownership', () => {
         tab.userModified = meta?.origin === 'user';
         session.workspaceState.sessionRevision += 1;
         return true;
+      }),
+      commitTabPayload: jest.fn((tab, payload, meta) => {
+        tab.payload = JSON.parse(JSON.stringify(payload || {}));
+        tab.payloadDirty = false;
+        tab.userModified = meta?.origin === 'user';
+        session.workspaceState.sessionRevision += 1;
+        return true;
       })
     };
     window.Main = { session, components: { registry: {} } };
@@ -142,5 +149,39 @@ describe('Shared.hot exclusion persistence ownership', () => {
     expect(session.updateTabPayload).not.toHaveBeenCalled();
     expect(session.workspaceState.sessionRevision).toBe(initialRevision);
     expect(scheduleDraw).not.toHaveBeenCalled();
+  });
+
+  test('column reorder writes the physical matrix to the owner payload and creates a recovery revision', () => {
+    const { table, scheduleDraw } = createOwnedTable(ownerTab);
+    let displayed = Array.from({ length: table.countCols() }, (_, index) => `c${index}`);
+    table.columnApi = {
+      getAllDisplayedColumns: () => displayed.map(colId => ({ getColId: () => colId })),
+      applyColumnState: ({ state, applyOrder }) => {
+        if(applyOrder){
+          displayed = state.map(entry => entry.colId);
+        }
+        return true;
+      }
+    };
+    const permutation = Array.from({ length: table.countCols() }, (_, index) => index);
+    permutation.splice(0, 2, 1, 0);
+    const initialRevision = session.workspaceState.sessionRevision;
+
+    expect(table.applyColumnOrder(permutation, { reason: 'box-graph-dataset-reorder' })).toBe(true);
+
+    expect(ownerTab.payload.data[0].slice(0, 2)).toEqual(['B', 'A']);
+    expect(ownerTab.payload.data[1].slice(0, 2)).toEqual([2, 1]);
+    expect(activeTab.payload.data).toEqual([['A'], [1]]);
+    expect(session.commitTabPayload).toHaveBeenCalledWith(
+      ownerTab,
+      expect.objectContaining({ data: expect.any(Array) }),
+      expect.objectContaining({ origin: 'user', reason: 'table-column-reorder' })
+    );
+    expect(session.workspaceState.sessionRevision).toBe(initialRevision + 1);
+    expect(scheduleDraw).toHaveBeenCalledWith(expect.objectContaining({
+      reason: 'afterColumnMove',
+      invalidate: 'data',
+      userInitiated: true
+    }));
   });
 });

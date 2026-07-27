@@ -43,27 +43,6 @@
     return resolved;
   }
 
-  function applyExistingRocOwnedRuntimeRecord(tabLike = null, meta = {}){
-    const snapshot = getRocRuntimeOwner()?.bind(null, {
-      ...(meta || {}),
-      tab: tabLike || meta?.tab || null,
-      componentKey: 'roc',
-      reason: meta?.reason || 'roc-owned-runtime-activate-apply'
-    });
-    if(!snapshot || typeof roc.applyRuntimeState !== 'function'){
-      return false;
-    }
-    bindRocSessionForTab(tabLike || meta?.tabId || null, {
-      ...(meta || {}),
-      reason: meta?.reason || 'roc-owned-runtime-activate-bind'
-    }, { apply: false });
-    return roc.applyRuntimeState(snapshot, {
-      ...(meta || {}),
-      reason: meta?.reason || 'roc-owned-runtime-activate-apply'
-    });
-  }
-
-
   const chartStyle = Shared.chartStyle = Shared.chartStyle || {};
   const fontControls = Shared.fontControls = Shared.fontControls || {};
   const notesHelper = Shared.notes = Shared.notes || {};
@@ -608,12 +587,111 @@
   }
 
   const DEFAULT_ROC_BORDER_WIDTH = 2;
+  const ROC_SCORE_DIRECTIONS = new Set(['higher', 'lower']);
   const SINGLE_ROC_P_METHODS = new Set(['auto', 'exact', 'asymptotic']);
   const ROC_EXACT_MANN_WHITNEY_MAX_TOTAL = 50;
 
   function normalizeSingleRocPMethod(value){
     const normalized = String(value || 'auto').trim().toLowerCase();
     return SINGLE_ROC_P_METHODS.has(normalized) ? normalized : 'auto';
+  }
+
+  function normalizeRocScoreDirection(value){
+    return ROC_SCORE_DIRECTIONS.has(String(value || '').toLowerCase()) ? String(value).toLowerCase() : 'higher';
+  }
+
+  function isValidRocClassValue(value){
+    return value !== null && value !== undefined && !(typeof value === 'string' && value.trim() === '') && !(typeof value === 'number' && Number.isNaN(value));
+  }
+
+  function rocClassKey(value){
+    return `${typeof value}:${JSON.stringify(value)}`;
+  }
+
+  function formatRocClassValue(value){
+    return typeof value === 'string' ? value : String(value);
+  }
+
+  function getDistinctRocClasses(rawLabels){
+    const seen = new Set();
+    const classes = [];
+    (Array.isArray(rawLabels) ? rawLabels : []).forEach(value => {
+      if(!isValidRocClassValue(value)){ return; }
+      const key = rocClassKey(value);
+      if(seen.has(key)){ return; }
+      seen.add(key);
+      classes.push(value);
+    });
+    return classes;
+  }
+
+  function parseRocScore(value){
+    if(value === null || value === undefined || (typeof value === 'string' && value.trim() === '')){
+      return NaN;
+    }
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric : NaN;
+  }
+
+  function resolveRocClassificationSetup(rawLabels, source = {}){
+    const classes = getDistinctRocClasses(rawLabels);
+    const requested = source?.positiveClass;
+    let positiveClass = classes.find(value => rocClassKey(value) === rocClassKey(requested));
+    if(positiveClass === undefined){
+      positiveClass = classes.find(value => value === 1)
+        ?? classes.find(value => value === '1')
+        ?? classes[1]
+        ?? classes[0];
+    }
+    const negativeClass = classes.find(value => rocClassKey(value) !== rocClassKey(positiveClass));
+    return {
+      classes,
+      positiveClass,
+      negativeClass,
+      scoreDirection: normalizeRocScoreDirection(source?.scoreDirection),
+      valid: classes.length === 2
+    };
+  }
+
+  function buildCanonicalAnalysisPairs(rawLabels, originalScores, setup = {}){
+    const resolved = resolveRocClassificationSetup(rawLabels, setup);
+    if(!resolved.valid){ return []; }
+    const lowerPositive = resolved.scoreDirection === 'lower';
+    const pairs = [];
+    const count = Math.min(rawLabels?.length || 0, originalScores?.length || 0);
+    for(let observationIndex = 0; observationIndex < count; observationIndex += 1){
+      const rawLabel = rawLabels[observationIndex];
+      const originalScore = parseRocScore(originalScores[observationIndex]);
+      if(!isValidRocClassValue(rawLabel) || !Number.isFinite(originalScore)){ continue; }
+      const classKey = rocClassKey(rawLabel);
+      if(!resolved.classes.some(value => rocClassKey(value) === classKey)){ continue; }
+      const analysisLabel = rawLabel === resolved.positiveClass ? 1 : 0;
+      const analysisScore = lowerPositive ? -originalScore : originalScore;
+      pairs.push({
+        rawLabel,
+        originalScore,
+        analysisLabel,
+        analysisScore,
+        label: analysisLabel,
+        score: analysisScore,
+        observationIndex
+      });
+    }
+    return pairs;
+  }
+
+  function rocOriginalThreshold(analysisThreshold, scoreDirection){
+    return normalizeRocScoreDirection(scoreDirection) === 'lower' ? -analysisThreshold : analysisThreshold;
+  }
+
+  function rocCutoffOperator(scoreDirection){
+    return normalizeRocScoreDirection(scoreDirection) === 'lower' ? '≤' : '≥';
+  }
+
+  function getRocAucDirectionWarning(stats, graphType = 'roc'){
+    return graphType === 'roc' && (Array.isArray(stats) ? stats : []).some(stat => Number.isFinite(stat?.auc) && stat.auc < 0.5)
+      ? 'AUC is below 0.5. Verify the positive class and score direction. The curve was not automatically reversed.'
+      : '';
   }
 
   const state = {
@@ -649,6 +727,11 @@
     lastAutoDrawEvaluation: null,
     labelPositions: { title: null, xLabel: null, yLabel: null, legend: null },
     statsPanelModel: { resultsModel: null, reportModel: null },
+    analysisSignature: '',
+    statsPanelSignature: '',
+    positiveClass: undefined,
+    negativeClass: undefined,
+    scoreDirection: 'higher',
     controls: null
   };
   let rocAutoDrawManager = null;
@@ -728,6 +811,11 @@
       lastAutoDrawEvaluation: cloneSimple(src.lastAutoDrawEvaluation) || null,
       labelPositions: cloneSimple(src.labelPositions) || { title: null, xLabel: null, yLabel: null, legend: null },
       statsPanelModel: createDefaultRocStatsPanelModel(src.statsPanelModel || src.statsPanel || src.stats || {}),
+      analysisSignature: src.analysisSignature == null ? '' : String(src.analysisSignature),
+      statsPanelSignature: src.statsPanelSignature == null ? '' : String(src.statsPanelSignature),
+      positiveClass: Object.prototype.hasOwnProperty.call(src, 'positiveClass') ? src.positiveClass : undefined,
+      negativeClass: Object.prototype.hasOwnProperty.call(src, 'negativeClass') ? src.negativeClass : undefined,
+      scoreDirection: normalizeRocScoreDirection(src.scoreDirection),
       controls
     };
   }
@@ -777,9 +865,9 @@
     };
   }
 
-  function buildRocCompareResultSignature({ graphType, diffMethod, compareSelection, pairsA, pairsB, resamplingSeed, resamplingIterations } = {}){
+  function buildRocCompareResultSignature({ graphType, diffMethod, compareSelection, pairsA, pairsB, resamplingSeed, resamplingIterations, positiveClass, negativeClass, scoreDirection } = {}){
     const normalizePairs = pairs => (Array.isArray(pairs) ? pairs : []).map(pair => [
-      Number(pair?.label) > 0 ? 1 : 0,
+      pair?.label === 1 ? 1 : 0,
       Number.isFinite(Number(pair?.score)) ? Number(pair.score) : null
     ]);
     return JSON.stringify({
@@ -788,9 +876,34 @@
       compareSelection: compareSelection == null ? null : String(compareSelection),
       resamplingSeed: normalizeRocResamplingSeed(resamplingSeed, ROC_RESAMPLING_DEFAULT_SEED),
       resamplingIterations: normalizeRocResamplingIterations(resamplingIterations, ROC_RESAMPLING_DEFAULT_ITERATIONS),
+      positiveClass,
+      negativeClass,
+      scoreDirection: normalizeRocScoreDirection(scoreDirection),
       pairsA: normalizePairs(pairsA),
       pairsB: normalizePairs(pairsB)
     });
+  }
+
+  function buildRocAnalysisSignature({ data, graphType, positiveClass, negativeClass, scoreDirection, singleRocPMethod, diffMethod, compareSelection, resamplingSeed, resamplingIterations } = {}){
+    return JSON.stringify({
+      data: cloneSimple(Array.isArray(data) ? data : []) || [],
+      graphType: String(graphType || 'roc').toLowerCase() === 'pr' ? 'pr' : 'roc',
+      positiveClass,
+      negativeClass,
+      scoreDirection: normalizeRocScoreDirection(scoreDirection),
+      singleRocPMethod: normalizeSingleRocPMethod(singleRocPMethod),
+      diffMethod: String(diffMethod || 'delong'),
+      compareSelection: compareSelection == null ? null : String(compareSelection),
+      resamplingSeed: normalizeRocResamplingSeed(resamplingSeed, ROC_RESAMPLING_DEFAULT_SEED),
+      resamplingIterations: normalizeRocResamplingIterations(resamplingIterations, ROC_RESAMPLING_DEFAULT_ITERATIONS)
+    });
+  }
+
+  function getRocAnalysisData(hotInstance = state.hot){
+    if(typeof hotInstance?.getIncludedDataMatrix === 'function'){
+      return hotInstance.getIncludedDataMatrix() || [];
+    }
+    return Shared.hot?.getIncludedDataMatrix?.(hotInstance) || [];
   }
 
   function formatRocCompareResultText(graphType, diffMethod, diffResult){
@@ -869,6 +982,9 @@
       fontSizeVal: null,
       showLegend: null,
       graphType: null,
+      positiveClass: null,
+      negativeClass: null,
+      scoreDirection: null,
       loadExampleBtn: null,
       importBtn: null,
       fileInput: null,
@@ -904,7 +1020,8 @@
       listeners: new Map(),
       timers: {
         scheduleDraw: null,
-        pendingDrawOptions: null
+        pendingDrawOptions: null,
+        drawGeneration: 0
       },
       workers: new Map(),
       managers: {
@@ -944,6 +1061,7 @@
     session.timers = session.timers && typeof session.timers === 'object' ? session.timers : {};
     if(!Object.prototype.hasOwnProperty.call(session.timers, 'scheduleDraw')){ session.timers.scheduleDraw = null; }
     if(!Object.prototype.hasOwnProperty.call(session.timers, 'pendingDrawOptions')){ session.timers.pendingDrawOptions = null; }
+    if(!Number.isFinite(Number(session.timers.drawGeneration))){ session.timers.drawGeneration = 0; }
     session.workers = session.workers instanceof Map ? session.workers : new Map();
     session.managers = session.managers && typeof session.managers === 'object' ? session.managers : {};
     if(!Object.prototype.hasOwnProperty.call(session.managers, 'hot')){ session.managers.hot = null; }
@@ -1047,7 +1165,7 @@
       captureRocSessionStateFromActive(targetSession, {
         ...(meta || {}),
         reason: meta?.reason || 'deactivate-tab',
-        captureStatsPanel: true
+        captureStatsPanel: false
       });
     }
     return targetSession;
@@ -1155,8 +1273,32 @@
       tabId: shaped.tabId || undefined,
       reason: sourceOptions.reason || 'roc-session-draw'
     };
+    const lifecycleMeta = {
+      ...scheduleOptions,
+      tabId: shaped.tabId || scheduleOptions.tabId || null,
+      componentKey: 'roc',
+      source: scheduleOptions.source || 'roc-session-scheduler',
+      forceDraw: scheduleOptions.forceDraw === true,
+      userInitiated: scheduleOptions.userInitiated === true
+    };
+    if(Shared.componentLifecycle?.shouldSuppressDraw?.('roc', lifecycleMeta)){
+      Shared.componentLifecycle?.emitLifecycleEvent?.({
+        componentKey: 'roc',
+        tabId: lifecycleMeta.tabId,
+        action: 'draw-suppressed',
+        reason: lifecycleMeta.reason,
+        details: { source: lifecycleMeta.source }
+      });
+      return false;
+    }
+    shaped.timers.drawGeneration = Number(shaped.timers.drawGeneration || 0) + 1;
+    scheduleOptions.drawGeneration = shaped.timers.drawGeneration;
     const pendingDrawOptions = sanitizeRocDrawOptions(scheduleOptions);
     shaped.timers.pendingDrawOptions = pendingDrawOptions;
+    shaped.state.drawPending = true;
+    if(isRocSessionActiveOrActivating(shaped)){
+      state.drawPending = true;
+    }
     shaped.updatedAt = Date.now();
     if(!isRocSessionActiveOrActivating(shaped)){
       shaped.state.drawPending = true;
@@ -1301,9 +1443,7 @@
     if(meta.syncControls !== false){
       syncRocRuntimeControlsFromDom();
     }
-    const statsPanelModel = meta.captureStatsPanel === false
-      ? createDefaultRocStatsPanelModel(state.statsPanelModel || {})
-      : createDefaultRocStatsPanelModel(captureRocStatsPanelModel(state.statsPanelModel || {}));
+    const statsPanelModel = createDefaultRocStatsPanelModel(state.statsPanelModel || {});
     shaped.state = createDefaultRocDurableState({
       borderWidth: state.borderWidth,
       labelColors: state.labelColors,
@@ -1328,6 +1468,11 @@
       lastAutoDrawEvaluation: state.lastAutoDrawEvaluation,
       labelPositions: state.labelPositions,
       statsPanelModel,
+      analysisSignature: state.analysisSignature,
+      statsPanelSignature: state.statsPanelSignature,
+      positiveClass: state.positiveClass,
+      negativeClass: state.negativeClass,
+      scoreDirection: state.scoreDirection,
       controls: state.controls
     });
     shaped.results = createDefaultRocResultsState({
@@ -1370,6 +1515,11 @@
     state.lastAutoDrawEvaluation = cloneSimple(shaped.state.lastAutoDrawEvaluation) || null;
     state.labelPositions = cloneSimple(shaped.state.labelPositions) || { title: null, xLabel: null, yLabel: null, legend: null };
     state.statsPanelModel = createDefaultRocStatsPanelModel(shaped.results.statsPanelModel || shaped.state.statsPanelModel || {});
+    state.analysisSignature = shaped.state.analysisSignature || '';
+    state.statsPanelSignature = shaped.state.statsPanelSignature || '';
+    state.positiveClass = shaped.state.positiveClass;
+    state.negativeClass = shaped.state.negativeClass;
+    state.scoreDirection = normalizeRocScoreDirection(shaped.state.scoreDirection);
     state.compareResultModel = normalizeRocCompareResultModel(shaped.results.compareResult || null);
     state.controls = normalizeRocRuntimeControls(shaped.state.controls || {});
     state.fileHandle = shaped.managers.fileHandle || state.fileHandle || null;
@@ -1415,7 +1565,7 @@
     if(projectedRocSession && projectedRocSession.tabId && projectedRocSession.tabId !== tabId){
       captureRocSessionStateFromActive(projectedRocSession, {
         reason: meta?.reason || 'roc-session-switch-capture',
-        captureStatsPanel: true
+        captureStatsPanel: false
       });
     }
     const session = getRocSession(tabId, { ...(meta || {}), tabId, reason: meta?.reason || 'roc-session-bind' }, { create: true });
@@ -1711,6 +1861,106 @@
       ownerSession.updatedAt = Date.now();
     }
     return nextControls;
+  }
+
+  function syncRocClassificationControls(rawLabels = null){
+    const labels = Array.isArray(rawLabels)
+      ? rawLabels
+      : ((state.hot?.getIncludedDataMatrix?.() || state.hot?.getData?.() || []).slice(1).map(row => row?.[0]));
+    const setup = resolveRocClassificationSetup(labels, state);
+    state.positiveClass = setup.positiveClass;
+    state.negativeClass = setup.negativeClass;
+    state.scoreDirection = setup.scoreDirection;
+    if(refs.positiveClass){
+      refs.positiveClass.innerHTML = '';
+      setup.classes.forEach((value, index) => {
+        const option = document.createElement('option');
+        option.value = String(index);
+        option.dataset.rocClassKey = rocClassKey(value);
+        option.textContent = formatRocClassValue(value);
+        option.selected = value === setup.positiveClass;
+        refs.positiveClass.appendChild(option);
+      });
+      refs.positiveClass.disabled = !setup.valid;
+    }
+    if(refs.negativeClass){
+      refs.negativeClass.value = setup.negativeClass === undefined ? '' : formatRocClassValue(setup.negativeClass);
+    }
+    if(refs.scoreDirection){
+      refs.scoreDirection.value = setup.scoreDirection;
+    }
+    const session = getActiveRocSessionForState();
+    if(session?.state){
+      session.state.positiveClass = setup.positiveClass;
+      session.state.negativeClass = setup.negativeClass;
+      session.state.scoreDirection = setup.scoreDirection;
+      session.updatedAt = Date.now();
+    }
+    return setup;
+  }
+
+  function projectRocClassificationControlsFromState(){
+    const classes = [state.positiveClass, state.negativeClass].filter(value => value !== undefined);
+    if(refs.positiveClass){
+      refs.positiveClass.innerHTML = '';
+      classes.forEach((value, index) => {
+        const option = document.createElement('option');
+        option.value = String(index);
+        option.dataset.rocClassKey = rocClassKey(value);
+        option.textContent = formatRocClassValue(value);
+        option.selected = index === 0;
+        refs.positiveClass.appendChild(option);
+      });
+      refs.positiveClass.disabled = classes.length !== 2;
+    }
+    if(refs.negativeClass){
+      refs.negativeClass.value = state.negativeClass === undefined ? '' : formatRocClassValue(state.negativeClass);
+    }
+    if(refs.scoreDirection){
+      refs.scoreDirection.value = normalizeRocScoreDirection(state.scoreDirection);
+    }
+  }
+
+  function invalidateRocAnalysisResults(session){
+    state.compareResultModel = null;
+    state.statsPanelModel = { resultsModel: null, reportModel: null };
+    state.analysisSignature = '';
+    state.statsPanelSignature = '';
+    if(session){
+      session.cache.render = null;
+      session.state.statsPanelModel = createDefaultRocStatsPanelModel(state.statsPanelModel);
+      session.state.analysisSignature = '';
+      session.state.statsPanelSignature = '';
+      session.results = createDefaultRocResultsState({
+        compareSelection: state.compareSelection,
+        diffMethod: state.diffMethod,
+        compareResult: null,
+        statsPanelModel: state.statsPanelModel
+      });
+      session.updatedAt = Date.now();
+    }
+    commitRocCompareStateToSession(session, { compareResult: null });
+  }
+
+  function applyRocClassificationSetting(key, value, session, reason){
+    if(key === 'scoreDirection'){
+      state.scoreDirection = normalizeRocScoreDirection(value);
+    }else{
+      state.positiveClass = value;
+    }
+    const data = state.hot?.getIncludedDataMatrix?.() || state.hot?.getData?.() || [];
+    const header = data[0] || [];
+    const labelIndex = Math.max(0, header.findIndex(cell => String(cell).trim().toLowerCase() === 'label'));
+    const setup = syncRocClassificationControls(data.slice(1).map(row => row?.[labelIndex]));
+    if(session?.state){
+      session.state.positiveClass = setup.positiveClass;
+      session.state.negativeClass = setup.negativeClass;
+      session.state.scoreDirection = setup.scoreDirection;
+    }
+    invalidateRocAnalysisResults(session);
+    persistRocTabState(reason);
+    scheduleRocControlDraw(reason, { session, force: true });
+    return setup;
   }
 
   function ensureRocStatsReportHost(){
@@ -2354,8 +2604,13 @@
         ensureRocLegendControlPlacement();
       }
     }
-      refs.graphType = getRocNodeById('rocGraphType');
-      attachRocSelectAutoSize(refs.graphType, 'roc');
+    refs.graphType = getRocNodeById('rocGraphType');
+    refs.positiveClass = getRocNodeById('rocPositiveClass');
+    refs.negativeClass = getRocNodeById('rocNegativeClass');
+    refs.scoreDirection = getRocNodeById('rocScoreDirection');
+    attachRocSelectAutoSize(refs.graphType, 'roc');
+    attachRocSelectAutoSize(refs.positiveClass, '');
+    attachRocSelectAutoSize(refs.scoreDirection, 'higher');
     refs.loadExampleBtn = getRocNodeById('rocLoadExample');
     refs.importBtn = getRocNodeById('rocImport');
     refs.fileInput = getRocNodeById('rocFile');
@@ -2940,7 +3195,7 @@
     select.addEventListener('change', event => {
       runRocControlOwner(event, 'roc-diff-method-change', session => {
         state.diffMethod = select.value;
-        state.compareResultModel = null;
+        invalidateRocAnalysisResults(session);
         commitRocCompareStateToSession(session, { diffMethod: state.diffMethod, compareResult: null });
         persistRocTabState('roc-diff-method-change');
         console.debug('Debug: ROC diff method change', state.diffMethod);
@@ -2954,7 +3209,7 @@
     if(graphType === 'roc'){
       const singlePLabel = document.createElement('label');
       singlePLabel.textContent = 'Single-curve p value:';
-      singlePLabel.title = 'Tests no discrimination using the Mann–Whitney rank test. Automatic uses the exact test for small untied datasets and the tie-corrected asymptotic test otherwise.';
+      singlePLabel.title = 'Tests AUC = 0.5 using a two-sided Mann–Whitney rank test. Automatic uses the exact test for small untied datasets and the tie-corrected asymptotic test otherwise.';
       refs.statsControls.appendChild(singlePLabel);
 
       const singlePSelect = document.createElement('select');
@@ -2976,6 +3231,7 @@
             session.state.singleRocPMethod = state.singleRocPMethod;
             session.updatedAt = Date.now();
           }
+          invalidateRocAnalysisResults(session);
           persistRocTabState('roc-single-p-method-change');
           scheduleRocControlDraw('roc-single-p-method-change', { event, session });
         });
@@ -2991,7 +3247,7 @@
     state.compareSel.addEventListener('change', event => {
       runRocControlOwner(event, 'roc-compare-change', session => {
         state.compareSelection = state.compareSel.value;
-        state.compareResultModel = null;
+        invalidateRocAnalysisResults(session);
         commitRocCompareStateToSession(session, { compareSelection: state.compareSelection, compareResult: null });
         persistRocTabState('roc-compare-change');
         console.debug('Debug: ROC compare pair change', state.compareSel.value);
@@ -3019,8 +3275,8 @@
         runRocControlOwner(event, 'roc-resampling-iterations-change', session => {
           state.resamplingIterations = normalizeRocResamplingIterations(iterationsInput.value, ROC_RESAMPLING_DEFAULT_ITERATIONS);
           iterationsInput.value = String(state.resamplingIterations);
-          state.compareResultModel = null;
           if(session?.state){ session.state.resamplingIterations = state.resamplingIterations; session.updatedAt = Date.now(); }
+          invalidateRocAnalysisResults(session);
           commitRocCompareStateToSession(session, { compareResult: null });
           persistRocTabState('roc-resampling-iterations-change');
           scheduleRocControlDraw('roc-resampling-iterations-change', { event, session });
@@ -3040,8 +3296,8 @@
         runRocControlOwner(event, 'roc-resampling-seed-change', session => {
           state.resamplingSeed = normalizeRocResamplingSeed(seedInput.value, ROC_RESAMPLING_DEFAULT_SEED);
           seedInput.value = String(state.resamplingSeed);
-          state.compareResultModel = null;
           if(session?.state){ session.state.resamplingSeed = state.resamplingSeed; session.updatedAt = Date.now(); }
+          invalidateRocAnalysisResults(session);
           commitRocCompareStateToSession(session, { compareResult: null });
           persistRocTabState('roc-resampling-seed-change');
           scheduleRocControlDraw('roc-resampling-seed-change', { event, session });
@@ -3296,6 +3552,10 @@
       .map((pair, index) => ({
         label: pair?.label === 1 ? 1 : (pair?.label === 0 ? 0 : null),
         score: Number(pair?.score),
+        analysisLabel: pair?.analysisLabel === 1 ? 1 : (pair?.analysisLabel === 0 ? 0 : undefined),
+        analysisScore: Number.isFinite(Number(pair?.analysisScore)) ? Number(pair.analysisScore) : Number(pair?.score),
+        rawLabel: pair?.rawLabel,
+        originalScore: Number.isFinite(Number(pair?.originalScore)) ? Number(pair.originalScore) : Number(pair?.score),
         observationIndex: Number.isInteger(pair?.observationIndex) ? pair.observationIndex : index
       }))
       .filter(pair => pair.label !== null && Number.isFinite(pair.score));
@@ -3773,6 +4033,23 @@
     return `${formatValue(interval.low)} to ${formatValue(interval.high)}`;
   }
 
+  function renderRocAucDirectionWarning(stats, graphType){
+    const warning = getRocAucDirectionWarning(stats, graphType);
+    if(!warning || !refs.statsResults){ return null; }
+    const banner = document.createElement('div');
+    banner.className = 'roc-auc-direction-warning';
+    banner.setAttribute('role', 'alert');
+    banner.setAttribute('aria-live', 'polite');
+    const title = document.createElement('strong');
+    title.textContent = 'Check classification setup';
+    const message = document.createElement('span');
+    message.textContent = warning;
+    banner.appendChild(title);
+    banner.appendChild(message);
+    refs.statsResults.insertBefore(banner, refs.statsResults.firstChild || null);
+    return banner;
+  }
+
   function renderRocStatsSummary(stats, graphType){
     if(!refs.statsResults){
       return;
@@ -3818,6 +4095,7 @@
     if(graphType==='roc'){
       summaryColumns.push(
         { key:'threshold', label:'Youden threshold', align:'right' },
+        { key:'cutoffRule', label:'Cutoff rule', align:'left' },
         { key:'sensitivity', label:'Sensitivity', align:'right' },
         { key:'specificity', label:'Specificity', align:'right' },
         { key:'ppv', label:'PPV', align:'right' },
@@ -3830,6 +4108,7 @@
     }else{
       summaryColumns.push(
         { key:'threshold', label:'Maximum-F1 threshold', align:'right' },
+        { key:'cutoffRule', label:'Cutoff rule', align:'left' },
         { key:'accuracy', label:'Accuracy', align:'right' },
         { key:'precision', label:'Precision', align:'right' },
         { key:'recall', label:'Recall', align:'right' },
@@ -3851,6 +4130,7 @@
       p:graphType==='roc' ? formatPValue(stat.pVal) : undefined,
       pMethod:graphType==='roc' ? (stat.pMethod?.startsWith('exact') ? 'Exact' : 'Asymptotic, tie corrected') : undefined,
       threshold:Number.isFinite(stat.thr)?stat.thr.toFixed(3):'—',
+      cutoffRule:stat.cutoffRule || '—',
       sensitivity:graphType==='roc' ? formatRocPercent(stat.recall) : undefined,
       specificity:graphType==='roc' ? formatRocPercent(stat.specificity) : undefined,
       ppv:graphType==='roc' ? formatRocPercent(stat.precision) : undefined,
@@ -3864,12 +4144,20 @@
     }));
     const footnotes=[
       graphType==='roc'
-        ? 'AUC is tie-aware. The p value tests no discrimination with a two-sided Mann–Whitney rank test.'
+        ? 'AUC is tie-aware. The p value tests AUC = 0.5 with a two-sided Mann–Whitney rank test.'
         : 'Average precision is computed as step-wise precision weighted by each increase in recall.',
       graphType==='roc'
-        ? 'The reported cutoff maximizes the Youden index (sensitivity + specificity − 1); ties are resolved by proximity to the top-left ROC corner, then by the higher threshold.'
+        ? `The reported cutoff maximizes the Youden index (sensitivity + specificity − 1); ties are resolved by proximity to the top-left ROC corner, then by the ${stats[0]?.scoreDirection === 'lower' ? 'lower' : 'higher'} original-score threshold.`
         : 'The reported cutoff maximizes the F1 score; this criterion depends on class prevalence and does not use true negatives.'
     ];
+    const setup = stats[0] || {};
+    footnotes.push(
+      `Positive class: ${formatRocClassValue(setup.positiveClass)}. Negative class: ${formatRocClassValue(setup.negativeClass)}. Score direction: ${setup.scoreDirection === 'lower' ? 'Lower values indicate positive' : 'Higher values indicate positive'}.`
+    );
+    const directionWarning = getRocAucDirectionWarning(stats, graphType);
+    if(directionWarning){
+      footnotes.push(directionWarning);
+    }
     if(graphType==='roc'){
       footnotes.push('AUC SE and the Wald 95% CI use the nonparametric DeLong variance estimate. Single-curve significance uses exact Mann–Whitney inference for eligible untied samples and a tie-corrected, continuity-corrected asymptotic Mann–Whitney test otherwise.');
       const pMethods = Array.from(new Set(stats.map(stat => stat.pMethod).filter(Boolean)));
@@ -3923,7 +4211,7 @@
           section: 'supplementary',
           columns: thresholdTableColumns,
           rows: buildThresholdRows(thresholdRows),
-          footnotes: ['Rows reflect score cutoffs applied as score ≥ threshold.'],
+          footnotes: [`Rows reflect score cutoffs applied as Score ${stat.cutoffOperator || '≥'} threshold.`],
           options: {
             fileName: `${String(stat.name || 'roc').replace(/[^a-z0-9_-]+/gi, '_').toLowerCase()}-threshold-metrics`,
             contextLabel: 'roc-threshold-metrics'
@@ -3948,6 +4236,7 @@
     if(hasStatsTable){
       Shared.statsTable.render({ target:refs.statsResults, ...model });
       appendThresholdTables(true);
+      renderRocAucDirectionWarning(stats, graphType);
       console.debug('Debug: roc stats rendered via Shared.statsTable',{ graphType, rowCount:rows.length });
       return;
     }
@@ -3978,8 +4267,9 @@
       footnoteBlock.appendChild(item);
     });
     refs.statsResults.appendChild(footnoteBlock);
-    console.debug('Debug: roc stats fallback rendered',{ graphType, rowCount:rows.length });
     appendThresholdTables(false);
+    renderRocAucDirectionWarning(stats, graphType);
+    console.debug('Debug: roc stats fallback rendered',{ graphType, rowCount:rows.length });
   }
 
 
@@ -3988,6 +4278,11 @@
       return;
     }
     const primary = stats[0] || null;
+    const positiveClassText = formatRocClassValue(primary?.positiveClass);
+    const negativeClassText = formatRocClassValue(primary?.negativeClass);
+    const scoreDirectionText = primary?.scoreDirection === 'lower' ? 'Lower values indicate positive' : 'Higher values indicate positive';
+    const cutoffRuleText = primary?.cutoffRule || `Score ${rocCutoffOperator(primary?.scoreDirection)} threshold`;
+    const directionWarning = getRocAucDirectionWarning(stats, graphType);
     const compareText = state.compareResult && state.compareResult.textContent ? state.compareResult.textContent.trim() : '';
     const primaryTextPrefix = primary ? `${primary.name} yielded ${graphType === 'roc' ? 'AUC' : 'average precision'} = ${formatRocDecimal(primary.auc,3)}${graphType === 'roc' && Number.isFinite(primary.aucCiLow) && Number.isFinite(primary.aucCiHigh) ? ` (95% CI ${formatRocDecimal(primary.aucCiLow,3)} to ${formatRocDecimal(primary.aucCiHigh,3)}) and two-sided Mann–Whitney p = ` : '.'}` : '';
     const compareParts = compareText && diffResult && Number.isFinite(diffResult.p)
@@ -3998,17 +4293,19 @@
         ]
       : (compareText || null);
     Shared.statsReporting.appendReportPanel(refs.statsResults, {
-      methodsText: `${graphType === 'roc' ? 'ROC' : 'Precision–recall'} summary statistics were computed for ${stats.length} series after excluding rows with missing labels or non-numeric scores. ${graphType === 'roc' ? 'Tied scores were processed as one threshold. AUC standard errors and Wald 95% confidence intervals used the nonparametric DeLong variance estimate. Single-curve significance used a two-sided Mann–Whitney test of no discrimination: exact for eligible untied samples and tie-corrected, continuity-corrected asymptotic inference otherwise. The default cutoff maximized the Youden index. Diagnostic-rate confidence intervals used the Wilson method.' : 'Tied scores were processed as one threshold. Average precision used step-wise precision weighted by increases in recall. The displayed cutoff maximized F1.'} ${diffResult && state.diffMethod !== 'delong' ? `Monte Carlo curve-comparison p values used ${state.resamplingIterations} iterations with seed ${state.resamplingSeed}.` : ''} Cutoffs classify observations as positive when score ≥ threshold.`,
+      methodsText: `${graphType === 'roc' ? 'ROC' : 'Precision–recall'} summary statistics were computed for ${stats.length} series after excluding rows with missing labels or non-numeric scores. Positive class: ${positiveClassText}. Negative class: ${negativeClassText}. Score direction: ${scoreDirectionText}. ${graphType === 'roc' ? 'Tied scores were processed as one threshold. AUC standard errors and Wald 95% confidence intervals used the nonparametric DeLong variance estimate. Single-curve significance used a two-sided Mann–Whitney test of AUC = 0.5: exact for eligible untied samples and tie-corrected, continuity-corrected asymptotic inference otherwise. The default cutoff maximized the Youden index. Diagnostic-rate confidence intervals used the Wilson method.' : 'Tied scores were processed as one threshold. Average precision used step-wise precision weighted by increases in recall. The displayed cutoff maximized F1.'} ${diffResult && state.diffMethod !== 'delong' ? `Monte Carlo curve-comparison p values used ${state.resamplingIterations} iterations with seed ${state.resamplingSeed}.` : ''} Cutoff rule: ${cutoffRuleText}.`,
       resultsText: [
         `${stats.length} series were analysed.`,
         primary ? (graphType === 'roc' ? `${primaryTextPrefix}${formatPValue(primary.pVal)}.` : primaryTextPrefix) : null,
         graphType === 'roc' && primary && Array.isArray(primary.thresholdRows) ? `${primary.thresholdRows.length} cutoff row(s) were tabulated for ${primary.name}.` : null,
+        directionWarning || null,
         compareText || null
       ].filter(Boolean).join(' '),
       resultsParts: [
         `${stats.length} series were analysed.`,
         primary ? (graphType === 'roc' ? [' ', primaryTextPrefix, { type:'pValue', value:primary.pVal, fallback:String(formatPValue(primary.pVal)) }, '.'] : [' ', primaryTextPrefix]) : null,
         graphType === 'roc' && primary && Array.isArray(primary.thresholdRows) ? ` ${primary.thresholdRows.length} cutoff row(s) were tabulated for ${primary.name}.` : null,
+        directionWarning ? ` ${directionWarning}` : null,
         compareParts ? [' ', compareParts] : null
       ].filter(Boolean),
       analysisSpec: {
@@ -4020,6 +4317,10 @@
         resamplingSeed: state.resamplingSeed,
         resamplingIterations: state.resamplingIterations,
         compareSelection: state.compareSelection || state.compareSel?.value || null,
+        positiveClass: primary?.positiveClass,
+        negativeClass: primary?.negativeClass,
+        scoreDirection: primary?.scoreDirection,
+        cutoffRule: cutoffRuleText,
         compared: !!compareText,
         differenceSummary: diffResult ? {
           diff: Number.isFinite(diffResult.diff) ? Number(diffResult.diff) : null,
@@ -4058,6 +4359,20 @@
       drawSession.updatedAt = Date.now();
       return;
     }
+    const requestedGeneration = Number(meta?.drawGeneration);
+    if(Number.isFinite(requestedGeneration) && requestedGeneration > 0){
+      if(requestedGeneration !== Number(drawSession?.timers?.drawGeneration || 0)){
+        return;
+      }
+    }else if(drawSession?.timers){
+      drawSession.timers.drawGeneration = Number(drawSession.timers.drawGeneration || 0) + 1;
+      meta = { ...(meta || {}), drawGeneration: drawSession.timers.drawGeneration };
+      drawSession.state.drawPending = true;
+      if(isRocSessionActiveOrActivating(drawSession)){
+        state.drawPending = true;
+      }
+    }
+    const drawGeneration = Number(meta?.drawGeneration || drawSession?.timers?.drawGeneration || 0);
     bindRocSessionForTab(drawSession?.tabId || meta?.tab || meta?.tabId || getRocProjectionTabId() || null, {
       ...(meta || {}),
       reason: meta?.reason || 'roc-draw-bind'
@@ -4069,6 +4384,14 @@
       status = 'error';
       throw err;
     }finally{
+      if(drawSession?.timers && drawGeneration === Number(drawSession.timers.drawGeneration || 0)){
+        drawSession.state.drawPending = false;
+        drawSession.timers.pendingDrawOptions = null;
+        drawSession.updatedAt = Date.now();
+        if(isRocSessionActiveOrActivating(drawSession)){
+          state.drawPending = false;
+        }
+      }
       resolveRocOverlay({ reason: status, status, tabId: drawSession?.tabId || meta?.tabId || null });
     }
   }
@@ -4100,7 +4423,8 @@
         }
         throw err;
       }
-      return execution?.isCurrent?.() !== false;
+      return execution?.isCurrent?.() !== false
+        && Number(drawSession?.timers?.drawGeneration || 0) === Number(meta?.drawGeneration || 0);
     };
     const drawRefs = Object.assign(createDefaultRocRefs(drawSession?.root || state.root || null), drawSession?.refs || {}, refs || {});
     drawRefs.root = drawSession?.root || drawRefs.root || state.root || resolveRocRoot(drawTabId) || null;
@@ -4171,9 +4495,7 @@
     const axisMetrics = chartStyle.createAxisMetrics(fontInfo.px, styleScaleInfo);
     console.debug('Debug: roc axis metrics',axisMetrics);
 
-    const data = typeof state.hot?.getIncludedDataMatrix === 'function'
-      ? state.hot.getIncludedDataMatrix()
-      : (Shared.hot?.getIncludedDataMatrix ? Shared.hot.getIncludedDataMatrix(state.hot) : []);
+    const data = getRocAnalysisData(state.hot);
     if(!(await checkpoint())){
       return false;
     }
@@ -4197,11 +4519,10 @@
     if(labelIndex < 0){
       labelIndex = 0;
     }
-    const labels = bodyRows.map(row => parseFloat(row[labelIndex]));
-    const positives = labels.filter(val => !Number.isNaN(val) && val > 0).length;
-    const negatives = labels.filter(val => !Number.isNaN(val) && val <= 0).length;
-    if(positives === 0 && negatives === 0){
-      clearPlotArea('no-labels');
+    const rawLabels = bodyRows.map(row => row[labelIndex]);
+    const classification = syncRocClassificationControls(rawLabels);
+    if(!classification.valid){
+      clearPlotArea('invalid-outcome-classes', { message: 'Exactly two valid Label classes are required.' });
       return;
     }
     const scoreColumns = header
@@ -4209,7 +4530,7 @@
       .filter(idx => idx !== labelIndex && header[idx] != null && String(header[idx]).trim() !== '');
     const series = scoreColumns.map((colIdx, index) => ({
       name: header[colIdx] || `Model ${index + 1}`,
-      scores: bodyRows.map(row => parseFloat(row[colIdx]))
+      scores: bodyRows.map(row => parseRocScore(row[colIdx]))
     }));
     if(!(await checkpoint())){
       return false;
@@ -4224,18 +4545,14 @@
       return;
     }
 
-    const pairCountsForAdvisor = series.map(serie => {
-      const scores = Array.isArray(serie.scores) ? serie.scores : [];
-      let count = 0;
-      for(let idx = 0; idx < scores.length; idx += 1){
-        const score = scores[idx];
-        const label = labels[idx];
-        if(!Number.isNaN(score) && !Number.isNaN(label)){
-          count += 1;
-        }
-      }
-      return count;
-    });
+    const canonicalSeries = series.map(serie => ({
+      ...serie,
+      pairs: buildCanonicalAnalysisPairs(rawLabels, serie.scores, classification)
+    }));
+    const referencePairs = canonicalSeries[0]?.pairs || [];
+    const positives = referencePairs.filter(pair => pair.analysisLabel === 1).length;
+    const negatives = referencePairs.filter(pair => pair.analysisLabel === 0).length;
+    const pairCountsForAdvisor = canonicalSeries.map(serie => serie.pairs.length);
     state.advisorContext = {
       graphType,
       positives,
@@ -4246,10 +4563,22 @@
     };
     renderRocStatsAdvisor(state.advisorContext);
 
-    const legendLabels = series.map(s => s.name);
+    const legendLabels = canonicalSeries.map(s => s.name);
     ensureLabelColors(legendLabels);
 
-    populateRocCompareOptions(series.map(s => s.name));
+    populateRocCompareOptions(canonicalSeries.map(s => s.name));
+    state.analysisSignature = buildRocAnalysisSignature({
+      data,
+      graphType,
+      positiveClass: classification.positiveClass,
+      negativeClass: classification.negativeClass,
+      scoreDirection: classification.scoreDirection,
+      singleRocPMethod: state.singleRocPMethod,
+      diffMethod: state.diffMethod,
+      compareSelection: state.compareSelection || state.compareSel?.value || null,
+      resamplingSeed: state.resamplingSeed,
+      resamplingIterations: state.resamplingIterations
+    });
 
     const plotEl = drawRefs.plotDiv;
     plotEl.style.display = 'block';
@@ -4709,27 +5038,23 @@
     const stats = [];
     const allPairs = [];
 
-    for(let seriesIndex = 0; seriesIndex < series.length; seriesIndex += 1){
-      const serie = series[seriesIndex];
-      const pairs = [];
-      for(let idx = 0; idx < labels.length; idx += 1){
-        if((idx & 2047) === 0 && !(await checkpoint())){
-          return false;
-        }
-        const label = labels[idx];
-        const score = serie.scores[idx];
-        if(!Number.isNaN(label) && !Number.isNaN(score)){
-          pairs.push({label: label > 0 ? 1 : 0, score, observationIndex: idx});
-        }
-      }
+    for(let seriesIndex = 0; seriesIndex < canonicalSeries.length; seriesIndex += 1){
+      const serie = canonicalSeries[seriesIndex];
+      const pairs = serie.pairs;
       const rankedCurve = buildRankedCurve(pairs, graphType);
       const rankedPairs = rankedCurve.sorted;
       allPairs.push(rankedPairs);
       const points = rankedCurve.points;
       const auc = rankedCurve.metric;
       const avgPrecision = graphType === 'pr' ? rankedCurve.metric : undefined;
-      const thresholdRows = buildRocThresholdMetricsTable(rankedPairs);
-      const selectedCutoff = graphType === 'roc' ? selectYoudenThreshold(thresholdRows) : selectMaximumF1Threshold(thresholdRows);
+      const analysisThresholdRows = buildRocThresholdMetricsTable(rankedPairs);
+      const selectedCutoff = graphType === 'roc' ? selectYoudenThreshold(analysisThresholdRows) : selectMaximumF1Threshold(analysisThresholdRows);
+      const thresholdRows = analysisThresholdRows.map(row => ({
+        ...row,
+        analysisThreshold: row.threshold,
+        threshold: rocOriginalThreshold(row.threshold, classification.scoreDirection),
+        cutoffOperator: rocCutoffOperator(classification.scoreDirection)
+      }));
       const aucUncertainty = graphType === 'roc' ? computeSingleAucInference(rankedPairs, 0.05, state.singleRocPMethod) : null;
 
       stats.push({
@@ -4740,7 +5065,16 @@
         aucCiLow: aucUncertainty?.ciLow,
         aucCiHigh: aucUncertainty?.ciHigh,
         aucZ: aucUncertainty?.mannWhitneyZ,
-        thr: selectedCutoff?.threshold,
+        thr: Number.isFinite(selectedCutoff?.threshold)
+          ? rocOriginalThreshold(selectedCutoff.threshold, classification.scoreDirection)
+          : NaN,
+        cutoffOperator: rocCutoffOperator(classification.scoreDirection),
+        cutoffRule: Number.isFinite(selectedCutoff?.threshold)
+          ? `Score ${rocCutoffOperator(classification.scoreDirection)} ${formatRocDecimal(rocOriginalThreshold(selectedCutoff.threshold, classification.scoreDirection), 3)}`
+          : null,
+        positiveClass: classification.positiveClass,
+        negativeClass: classification.negativeClass,
+        scoreDirection: classification.scoreDirection,
         thresholdMethod: graphType === 'roc' ? 'Youden index' : 'maximum F1 score',
         youden: selectedCutoff?.youden,
         accuracy: selectedCutoff?.accuracy,
@@ -4836,6 +5170,9 @@
       console.debug('Debug: roc legend skipped',{ legendVisible, entryCount: legendRenderer.entries.length });
     }
 
+    if(!(await checkpoint())){
+      return false;
+    }
     renderRocStatsSummary(stats, graphType);
 
     let diffResult = null;
@@ -4851,7 +5188,10 @@
         pairsA,
         pairsB,
         resamplingSeed: state.resamplingSeed,
-        resamplingIterations: state.resamplingIterations
+        resamplingIterations: state.resamplingIterations,
+        positiveClass: classification.positiveClass,
+        negativeClass: classification.negativeClass,
+        scoreDirection: classification.scoreDirection
       });
       const savedCompareResult = normalizeRocCompareResultModel(state.compareResultModel);
       if(savedCompareResult
@@ -4896,7 +5236,11 @@
       state.compareResultModel = null;
       commitRocCompareStateToSession(null, { compareResult: null });
     }
+    if(!(await checkpoint())){
+      return false;
+    }
     appendRocReportPanel(stats, graphType, diffResult);
+    state.statsPanelSignature = state.analysisSignature;
     captureRocStatsPanelModel();
     captureRocSessionStateFromActive(getRocProjectionSession({ reason: 'roc-projection-mutation' }), {
       reason: 'roc-draw-complete',
@@ -4954,6 +5298,9 @@
         labelLinePattern: state.labelLinePattern,
         title: state.titleText,
         graphType: controls.graphType,
+        positiveClass: state.positiveClass,
+        negativeClass: state.negativeClass,
+        scoreDirection: normalizeRocScoreDirection(state.scoreDirection),
         notes: {
           text: notesText,
           open: notesOpen
@@ -4971,7 +5318,12 @@
       minorTickSubdivisionsX: clampMinorTickSubdivisions(axisSettings.x?.minorTickSubdivisions),
       minorTickSubdivisionsY: clampMinorTickSubdivisions(axisSettings.y?.minorTickSubdivisions)
     };
-    const statsPanelModel = captureRocStatsPanelModel();
+    const statsPanelModel = createDefaultRocStatsPanelModel(
+      payloadSession?.results?.statsPanelModel
+      || payloadSession?.state?.statsPanelModel
+      || state.statsPanelModel
+      || {}
+    );
     payload.stats = {
       diffMethod: state.diffMethod,
       singleRocPMethod: state.singleRocPMethod,
@@ -4979,6 +5331,8 @@
       resamplingIterations: state.resamplingIterations,
       compareSelection: state.compareSelection || state.compareSel?.value || null,
       compareResult: normalizeRocCompareResultModel(state.compareResultModel || null),
+      analysisSignature: state.analysisSignature || '',
+      statsPanelSignature: state.statsPanelSignature || '',
       advisor: createDefaultRocAdvisorState(getRocAdvisorState(getActiveRocSessionForState())),
       resultsModel: statsPanelModel.resultsModel || null,
       reportModel: statsPanelModel.reportModel || null
@@ -4986,7 +5340,7 @@
     payload.config.labelPositions = state.labelPositions || null;
     captureRocSessionStateFromActive(getRocProjectionSession({ reason: 'roc-projection-mutation' }), {
       reason: 'roc-get-payload',
-      captureStatsPanel: true
+      captureStatsPanel: false
     });
     console.debug('Debug: roc.getPayload captured state', {
       rows: payload.data?.length || 0,
@@ -5025,6 +5379,7 @@
       refs.fontSize.value = String(controls.fontSize);
       updateFontSizeLabel();
     }
+    projectRocClassificationControlsFromState();
     renderStatsControls();
     if(state.compareSel && state.compareSelection){
       const wanted = String(state.compareSelection);
@@ -5042,7 +5397,7 @@
       ? captureRocSessionStateFromActive(requestedSession, {
           ...(meta || {}),
           reason: meta?.reason || 'roc-runtime-capture',
-          captureStatsPanel: true
+          captureStatsPanel: false
         })
       : ensureRocSessionOwnershipShape(requestedSession);
     const sessionState = createDefaultRocDurableState(session?.state || state);
@@ -5077,6 +5432,11 @@
         lastDataShape: cloneSimple(sessionState.lastDataShape) || { rows: 0, cols: 0 },
         lastAutoDrawEvaluation: cloneSimple(sessionState.lastAutoDrawEvaluation) || null,
         labelPositions: cloneSimple(sessionState.labelPositions) || {},
+        analysisSignature: sessionState.analysisSignature || '',
+        statsPanelSignature: sessionState.statsPanelSignature || '',
+        positiveClass: sessionState.positiveClass,
+        negativeClass: sessionState.negativeClass,
+        scoreDirection: normalizeRocScoreDirection(sessionState.scoreDirection),
         statsPanel: createDefaultRocStatsPanelModel(sessionResults.statsPanelModel || sessionState.statsPanelModel),
         statsPanelModel: createDefaultRocStatsPanelModel(sessionResults.statsPanelModel || sessionState.statsPanelModel),
         controls: cloneSimple(sessionState.controls) || createDefaultRocRuntimeControls()
@@ -5228,11 +5588,16 @@
       ? !!(scheduleTargetSession && isRocSessionActiveOrActivating(scheduleTargetSession))
       : (!scheduleTargetSession || isRocSessionActiveOrActivating(scheduleTargetSession));
     let scheduleBackup = null;
+    let sessionScheduleBackup = null;
     let mutedScheduleDraw = null;
     if(skipDraw && canMuteActiveScheduler && typeof state.scheduleDraw === 'function'){
       mutedScheduleDraw = () => {};
       scheduleBackup = state.scheduleDraw;
       state.scheduleDraw = mutedScheduleDraw;
+      if(scheduleTargetSession?.timers && typeof scheduleTargetSession.timers.scheduleDraw === 'function'){
+        sessionScheduleBackup = scheduleTargetSession.timers.scheduleDraw;
+        scheduleTargetSession.timers.scheduleDraw = mutedScheduleDraw;
+      }
     }
     ensureHotForActiveTab();
     const dataMatrix = Array.isArray(payload.data) ? payload.data : [];
@@ -5321,6 +5686,12 @@
     state.labelOpacity = config.labelOpacity || {};
     state.labelLinePattern = config.labelLinePattern || {};
     if(refs.graphType) refs.graphType.value = String(config.graphType || refs.graphType.value || 'roc').toLowerCase() === 'pr' ? 'pr' : 'roc';
+    state.positiveClass = Object.prototype.hasOwnProperty.call(config, 'positiveClass') ? config.positiveClass : undefined;
+    state.negativeClass = Object.prototype.hasOwnProperty.call(config, 'negativeClass') ? config.negativeClass : undefined;
+    state.scoreDirection = normalizeRocScoreDirection(config.scoreDirection);
+    const loadedHeader = dataToLoad[0] || [];
+    const loadedLabelIndex = Math.max(0, loadedHeader.findIndex(cell => String(cell).trim().toLowerCase() === 'label'));
+    syncRocClassificationControls(dataToLoad.slice(1).map(row => row?.[loadedLabelIndex]));
     syncRocRuntimeControlsFromDom();
     const axisConfig = config.axis || config.axisSettings;
     if(axisConfig){
@@ -5340,6 +5711,8 @@
         ? statsConfig.compareSelection
         : null;
       state.compareResultModel = normalizeRocCompareResultModel(statsConfig.compareResult || null);
+      state.analysisSignature = statsConfig.analysisSignature == null ? '' : String(statsConfig.analysisSignature);
+      state.statsPanelSignature = statsConfig.statsPanelSignature == null ? '' : String(statsConfig.statsPanelSignature);
       setRocAdvisorState(statsConfig.advisor || {}, getRocProjectionSession({ reason: 'roc-projection-mutation' }));
       state.statsPanelModel = normalizeRocStatsPanelModel(statsConfig);
     }else{
@@ -5349,6 +5722,8 @@
       state.resamplingIterations = ROC_RESAMPLING_DEFAULT_ITERATIONS;
       state.compareSelection = null;
       state.compareResultModel = null;
+      state.analysisSignature = '';
+      state.statsPanelSignature = '';
       setRocAdvisorState({}, getRocProjectionSession({ reason: 'roc-projection-mutation' }));
       state.statsPanelModel = { resultsModel: null, reportModel: null };
     }
@@ -5364,9 +5739,26 @@
     renderStatsControls();
     populateRocCompareOptions(getRocSeriesNamesFromHot());
     restoreRocCompareResultControl();
-    if(statsConfig && rocStatsPanelModelHasContent(state.statsPanelModel)){
+    const expectedAnalysisSignature = buildRocAnalysisSignature({
+      data: getRocAnalysisData(state.hot),
+      graphType: refs.graphType?.value || 'roc',
+      positiveClass: state.positiveClass,
+      negativeClass: state.negativeClass,
+      scoreDirection: state.scoreDirection,
+      singleRocPMethod: state.singleRocPMethod,
+      diffMethod: state.diffMethod,
+      compareSelection: state.compareSelection,
+      resamplingSeed: state.resamplingSeed,
+      resamplingIterations: state.resamplingIterations
+    });
+    const statsSignatureMatches = !state.statsPanelSignature || state.statsPanelSignature === expectedAnalysisSignature;
+    if(statsConfig && statsSignatureMatches && rocStatsPanelModelHasContent(state.statsPanelModel)){
       restoreRocStatsPanelModel(state.statsPanelModel);
     }else if(refs.statsResults){
+      if(!statsSignatureMatches){
+        state.statsPanelModel = { resultsModel: null, reportModel: null };
+        state.statsPanelSignature = '';
+      }
       renderRocStatsSummary([], refs.graphType?.value || 'roc');
     }
     if(!skipDraw){
@@ -5375,9 +5767,12 @@
     if(scheduleBackup && state.scheduleDraw === mutedScheduleDraw){
       state.scheduleDraw = scheduleBackup;
     }
+    if(sessionScheduleBackup && scheduleTargetSession?.timers?.scheduleDraw === mutedScheduleDraw){
+      scheduleTargetSession.timers.scheduleDraw = sessionScheduleBackup;
+    }
     captureRocSessionStateFromActive(getRocProjectionSession({ reason: 'roc-projection-mutation' }), {
       reason: `roc-payload-${source}`,
-      captureStatsPanel: true
+      captureStatsPanel: false
     });
     console.debug('Debug: roc payload applied', { source, rows: dataToLoad.length, graphType: refs.graphType?.value });
     return true;
@@ -5547,10 +5942,42 @@
       const session = getRocSessionForEvent(event, { reason: 'graph-type-control' }, { create: true });
       state.compareResultModel = null;
       const controls = syncRocRuntimeControlsFromEvent({ event, session, reason: 'graph-type-control', updateDefaultTitleOnGraphTypeChange: true });
+      invalidateRocAnalysisResults(session);
       commitRocCompareStateToSession(session, { diffMethod: state.diffMethod, compareResult: null });
+      persistRocTabState('roc-graph-type-change');
       renderStatsControls({ graphType: controls.graphType || 'roc' });
       scheduleRocControlDraw('graph-type-control', { event, session, force: true });
     });
+    const handlePositiveClassSelection = event => {
+      const session = getRocSessionForEvent(event, { reason: 'roc-positive-class-change' }, { create: true });
+      const data = state.hot?.getIncludedDataMatrix?.() || state.hot?.getData?.() || [];
+      const header = data[0] || [];
+      const labelIndex = Math.max(0, header.findIndex(cell => String(cell).trim().toLowerCase() === 'label'));
+      const classes = getDistinctRocClasses(data.slice(1).map(row => row?.[labelIndex]));
+      const selectedClassKey = refs.positiveClass.selectedOptions?.[0]?.dataset?.rocClassKey || '';
+      const next = classes.find(value => rocClassKey(value) === selectedClassKey);
+      const previous = state.positiveClass;
+      if(next === undefined || next === previous){ return; }
+      applyRocClassificationSetting('positiveClass', next, session, 'roc-positive-class-change');
+      recordRocChange('roc:positive-class', previous, next, value => {
+        applyRocClassificationSetting('positiveClass', value, getActiveRocSessionForState(), 'roc-positive-class-undo');
+      });
+    };
+    refs.positiveClass?.addEventListener('input', handlePositiveClassSelection);
+    refs.positiveClass?.addEventListener('change', handlePositiveClassSelection);
+    const handleScoreDirectionSelection = event => {
+      const session = getRocSessionForEvent(event, { reason: 'roc-score-direction-change' }, { create: true });
+      const previous = normalizeRocScoreDirection(state.scoreDirection);
+      const next = normalizeRocScoreDirection(refs.scoreDirection.value);
+      if(next === previous){ return; }
+      applyRocClassificationSetting('scoreDirection', next, session, 'roc-score-direction-change');
+      recordRocChange('roc:score-direction', previous, next, value => {
+        applyRocClassificationSetting('scoreDirection', value, getActiveRocSessionForState(), 'roc-score-direction-undo');
+      });
+    };
+    refs.scoreDirection?.addEventListener('input', handleScoreDirectionSelection);
+    refs.scoreDirection?.addEventListener('change', handleScoreDirectionSelection);
+    syncRocClassificationControls();
     renderStatsControls();
   }
 
@@ -5775,7 +6202,9 @@
     initNotes();
     initExampleAndImport();
     initExportsAndFiles();
-    scheduleActiveRocDraw({ reason: 'roc-init-complete' });
+    if(options.skipInitialDraw !== true && options.suppressDraw !== true && options.suppressAutoDraw !== true){
+      scheduleActiveRocDraw({ reason: 'roc-init-complete' });
+    }
     ensureEmptyPayloadTemplate();
     captureRocSessionStateFromActive(getRocProjectionSession({ reason: 'roc-projection-mutation' }), { reason: 'roc-init-complete', captureStatsPanel: false });
     roc.__domSentinel = getRocNodeById('rocHot');
@@ -5858,9 +6287,9 @@
     init: options => init(options),
     afterReady: (tabLike, meta = {}) => {
       bindRocSessionForTab(tabLike || meta?.tabId || null, { ...(meta || {}), reason: meta?.reason || 'roc-activate-bind-session' }, { apply: true, syncUi: true });
-      applyExistingRocOwnedRuntimeRecord(tabLike || meta?.tabId || null, { ...(meta || {}), reason: meta?.reason || 'roc-activate-apply-owned-runtime' });
       scheduleRocStatsReportOrderPin();
       ensureHotForActiveTab();
+      syncRocClassificationControls();
       syncRocSessionManagersFromActive();
     },
     getSentinel: () => getRocNodeById('rocHot')
@@ -6028,6 +6457,14 @@
   };
 
   roc.__testHooks = Object.assign({}, roc.__testHooks, {
+    resolveClassificationSetup: (labels, source = {}) => resolveRocClassificationSetup(labels, source),
+    buildCanonicalAnalysisPairs: (labels, scores, source = {}) => buildCanonicalAnalysisPairs(labels, scores, source),
+    originalThreshold: (threshold, scoreDirection) => rocOriginalThreshold(threshold, scoreDirection),
+    cutoffOperator: scoreDirection => rocCutoffOperator(scoreDirection),
+    getAucDirectionWarning: (stats, graphType = 'roc') => getRocAucDirectionWarning(stats, graphType),
+    createDurableState: source => createDefaultRocDurableState(source),
+    buildCompareSignature: source => buildRocCompareResultSignature(source),
+    buildAnalysisSignature: source => buildRocAnalysisSignature(source),
     computeCurveMetric: (pairs, graphType = 'roc') => computeCurveMetric(Array.isArray(pairs) ? pairs : [], graphType),
     computeSingleAucInference: (pairs, alpha = 0.05, method = 'auto') => computeSingleAucInference(Array.isArray(pairs) ? pairs : [], alpha, method),
     computeMannWhitneyInference: (pairs, method = 'auto') => computeMannWhitneyInference(Array.isArray(pairs) ? pairs : [], method),

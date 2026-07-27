@@ -91,15 +91,17 @@ Graphitix has one document checkpoint transaction and one document restore trans
 1. `Main.sessionActions.createDocumentCheckpoint()` resolves the snapshot policy, waits for the active component's snapshot-ready contract, and captures the active live payload through `Main.session.persistActiveTabState()` with save-grade intent.
 2. `Main.sessionActions.buildScopeSnapshot()` clones the committed payload, layout, `uiState`, preview metadata, and only render caches whose owner, payload signature, and layout signature exactly match that detached checkpoint snapshot.
 3. `Main.sessionActions.serializeDocumentCheckpoint()` is the only archive serialization entry for a detached checkpoint snapshot.
-4. Manual Save, Autosave, and recovery call those shared primitives. Manual workspace save may warm caches first; recovery may omit caches while the user is active. Omitting a cache changes only restore speed, never canonical document content.
+4. Manual Save, Autosave, and recovery call those shared primitives. They reuse already-valid owner-scoped caches but never activate inactive tabs to manufacture caches. Omitting a cache changes only first-activation speed, never canonical document content.
 
 ### Restore
 
 1. `Main.sessionActions.restoreDocumentArchive()` parses every `.graph` source through `Shared.graphArchive.parseFile()`.
 2. `Main.sessionActions.applyParsedSession()` passes the parsed session to `Main.session.applySessionData()`.
-3. `Main.session.applySessionData()` rebuilds tab records and **awaits** activation/hydration of the target workspace before the restore transaction resolves.
-4. Cache restoration requires exact owner, payload-signature, and layout-signature parity. A rejected or absent cache falls back to the component's normal live draw.
-5. The caller then applies the only legitimate source-specific state: a normal file open may retain a file handle and is clean; crash recovery clears any trusted destination and marks the restored document dirty.
+3. `Main.session.applySessionData()` stages new, non-colliding tab owners while the current document remains recoverable.
+4. Only the archive's saved active tab is activated and hydrated. Inactive tabs remain canonical payload/session records and hydrate lazily on first selection.
+5. The staged document commits only after active-workspace readiness. Activation failure restores the previous tabs and file metadata.
+6. Cache restoration requires exact owner, payload-signature, and layout-signature parity. A rejected or absent cache falls back to the component's normal live draw.
+7. The caller then applies the only legitimate source-specific state: a normal file open may retain a file handle and is clean; crash recovery clears any trusted destination and marks the restored document dirty.
 
 `Shared.hot` exclusion mutations are owner-scoped payload transactions. Cell, row, and column exclusions immediately update only the owning tab's canonical `payload.exclusions`, invalidate that tab's caches, increment the session revision, and schedule recovery. Archive/recovery hydration applies exclusions silently.
 

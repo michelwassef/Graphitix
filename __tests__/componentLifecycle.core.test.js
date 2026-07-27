@@ -1672,6 +1672,82 @@ describe('session teardown contract', () => {
     expect(settled).toBe(true);
   });
 
+  test('applySessionData hydrates only the saved active tab', async () => {
+    const activateTab = jest.fn(() => true);
+
+    const result = await session.applySessionData({
+      activeIndex: 1,
+      tabs: [
+        { title: 'Inactive Box', type: 'box', payload: { type: 'box', data: [['A'], [1]] } },
+        { title: 'Active Box', type: 'box', payload: { type: 'box', data: [['B'], [2]] } },
+        { title: 'Other Box', type: 'box', payload: { type: 'box', data: [['C'], [3]] } }
+      ]
+    }, {
+      reason: 'unit-lazy-restore',
+      activateTab
+    });
+
+    expect(activateTab).toHaveBeenCalledTimes(1);
+    expect(activateTab).toHaveBeenCalledWith(result.targetTabId, expect.objectContaining({
+      awaitReadyForRestore: true,
+      allowDuringDocumentOperation: true
+    }));
+    const graphTabs = session.workspaceState.tabs.filter(tab => !tab.isWelcome);
+    expect(result.targetTabId).toBe(graphTabs[1].id);
+    expect(graphTabs[0].loadedFromArchive).toBe(true);
+    expect(graphTabs[2].loadedFromArchive).toBe(true);
+  });
+
+  test('applySessionData rolls back tabs and file metadata when restored activation fails', async () => {
+    const previousTab = session.createTab({
+      title: 'Current Box',
+      type: 'box',
+      payload: { type: 'box', data: [['Current'], [7]] }
+    });
+    session.workspaceState.tabs.push(previousTab);
+    session.workspaceState.activeTabId = previousTab.id;
+    session.workspaceState.sessionFileHandle = { name: 'current-handle' };
+    session.workspaceState.sessionFileName = 'current.graph';
+    session.workspaceState.sessionFilePath = 'C:/current.graph';
+    session.workspaceState.sessionFileScope = 'workspace';
+    window.Shared.workspaceTabs.setOwnedRuntimeRecord(previousTab, 'box', { hydrated: true });
+
+    const activateTab = jest.fn((tabId, meta) => {
+      if (meta.reason === 'unit-atomic-rollback') {
+        return Promise.reject(new Error('restore activation failed'));
+      }
+      return true;
+    });
+
+    await expect(session.applySessionData({
+      activeIndex: 0,
+      tabs: [{
+        title: 'Incoming Box',
+        type: 'box',
+        payload: { type: 'box', data: [['Incoming'], [9]] }
+      }]
+    }, {
+      reason: 'unit-atomic-rollback',
+      fileHandle: { name: 'incoming-handle' },
+      fileName: 'incoming.graph',
+      filePath: 'C:/incoming.graph',
+      fileScope: 'workspace',
+      activateTab,
+      renderTabs: jest.fn()
+    })).rejects.toThrow('restore activation failed');
+
+    expect(session.workspaceState.tabs).toEqual([previousTab]);
+    expect(session.workspaceState.activeTabId).toBe(previousTab.id);
+    expect(session.workspaceState.sessionFileHandle).toEqual({ name: 'current-handle' });
+    expect(session.workspaceState.sessionFileName).toBe('current.graph');
+    expect(session.workspaceState.sessionFilePath).toBe('C:/current.graph');
+    expect(previousTab.sharedState).toBeTruthy();
+    expect(activateTab).toHaveBeenLastCalledWith(previousTab.id, expect.objectContaining({
+      allowDuringDocumentOperation: true,
+      reason: 'unit-atomic-rollback-rollback'
+    }));
+  });
+
 });
 
 describe('componentLifecycle — waitForAnimationFrames', () => {

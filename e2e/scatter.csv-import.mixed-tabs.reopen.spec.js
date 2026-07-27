@@ -281,7 +281,7 @@ test('scatter CSV import + box tab: save and reopen preserves data, render cache
   await page.waitForTimeout(800);
   await page.waitForFunction(() => !!document.querySelector('#boxPlot svg'), null, { timeout: 60_000 });
 
-  // ── Step 4: Activate scatter tab again to let warmup / render cache settle ──
+  // ── Step 4: Activate scatter tab again and let its render cache settle ───────
   await activateTab(page, beforeSave.tabId);
   await waitForScatterSnapshotReady(page);
   // Extra settle time for async render-cache capture after switching back to Scatter
@@ -307,7 +307,7 @@ test('scatter CSV import + box tab: save and reopen preserves data, render cache
   if (archiveInfo.svgViewBox !== null) {
     expect(
       archiveInfo.svgViewBox,
-      'render cache SVG has placeholder viewBox — warmup did not capture from live render'
+      'render cache SVG has placeholder viewBox — archive capture did not use the live render'
     ).not.toBe('-16 -16 32 32');
   }
 
@@ -420,81 +420,5 @@ test('scatter CSV import + box tab: save and reopen preserves data, render cache
   await expect(page.locator('#boxPlot svg')).toBeVisible({ timeout: 40_000 });
 
   // No JS errors throughout
-  expect(issues.critical).toEqual([]);
-});
-
-test('scatter render cache is not destroyed by async stats callback after warmup', async ({ page }) => {
-  // Regression guard for the root-cause race: after warmTabRenderCaches captures scatter's
-  // render cache, an async scatter-stats-computed callback must NOT clear that cache by calling
-  // persistUserModifiedTabState → NON-SKIP drift path → clearTabRenderCache.
-  // Fix: persistActiveTabState now uses preserveRuntimeCacheOnPayloadChange = !captureRenderCache && !!tab.renderCache
-  test.setTimeout(300_000);
-  const issues = registerIssueCollectors(page);
-  await installLocalCdnOverrides(page);
-
-  await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
-  await expect(page.locator('#welcomeScreen')).toBeVisible({ timeout: 20_000 });
-  await openComponentFromWelcome(page, { type: 'scatter', pageId: 'scatterPage' }, { first: true });
-
-  await importDataFile(page, '#scatterFile', CSV_PATH);
-  await waitForScatterRender(page);
-
-  const scatterTabId = await page.evaluate(() =>
-    window.Main?.session?.workspaceState?.activeTabId || null
-  );
-  expect(scatterTabId).toBeTruthy();
-
-  // Open box tab (box becomes active; scatter is now inactive)
-  const boxTabId = await openNewTabType(page, 'box');
-  expect(boxTabId).toBeTruthy();
-  await expect(page.locator('#boxPage:not([hidden])')).toBeVisible({ timeout: 20_000 });
-  await clickExampleButtonIfPresent(page, 'boxLoadExample');
-  await page.waitForTimeout(800);
-  await page.waitForFunction(() => !!document.querySelector('#boxPlot svg'), null, { timeout: 60_000 });
-
-  // Trigger warmup explicitly. warmTabRenderCaches will:
-  //   1. Activate scatter, wait for isIdleForSnapshot() (statsComputationPending = false)
-  //   2. Capture scatter's render cache via persistActiveTabState(captureRenderCache: true)
-  //   3. Return to box (the final active tab)
-  // After warmup, the async stats-result callback may still be pending in the event loop.
-  // It fires after warmup releases the event loop and calls persistUserModifiedTabState.
-  // Our fix must prevent that callback from clearing the render cache.
-  await page.evaluate(async () => {
-    const tabsApi = window.Main?.tabs;
-    const sessionActions = window.Main?.sessionActions;
-    if (!tabsApi || typeof tabsApi.getSessionActionsContext !== 'function') {
-      throw new Error('tabs.getSessionActionsContext unavailable');
-    }
-    if (!sessionActions || typeof sessionActions.warmTabRenderCaches !== 'function') {
-      throw new Error('sessionActions.warmTabRenderCaches unavailable');
-    }
-    const context = tabsApi.getSessionActionsContext();
-    await sessionActions.warmTabRenderCaches(context, { reason: 'e2e-explicit-warmup-race-test' });
-  });
-
-  // Allow time for the async stats-result callback to fire and be processed.
-  // If the fix works, the render cache survives this window.
-  await page.waitForTimeout(4_000);
-
-  // Scatter render cache must still be present after stats callback
-  const cacheState = await page.evaluate((id) => {
-    const tabs = window.Main?.session?.workspaceState?.tabs || [];
-    const tab = tabs.find(t => t && t.id === id) || null;
-    return {
-      hasRenderCache: !!(tab && tab.renderCache && tab.renderCache.cache),
-      promotedFromArchive: !!(tab && tab.renderCache && tab.renderCache.promotedFromArchive),
-      renderCacheType: tab?.renderCache?.__graphitixRenderCache?.type || tab?.renderCache?.type || null
-    };
-  }, scatterTabId);
-
-  expect(
-    cacheState.hasRenderCache,
-    'scatter render cache was cleared after async stats callback — preserve-on-drift fix may have regressed'
-  ).toBe(true);
-
-  // The render cache should be a live capture (not archive-promoted)
-  // since we just created this workspace from scratch
-  expect(cacheState.promotedFromArchive).toBe(false);
-
   expect(issues.critical).toEqual([]);
 });

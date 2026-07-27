@@ -2679,6 +2679,7 @@
       if(entry.key){
         node.dataset.legendKey = entry.key;
       }
+      node.dataset.legendSwatch = '1';
       node.dataset.legendIndex = String(idx);
       node.setAttribute('fill', entry.fill);
       const effectiveStrokeWidth = entry.strokeWidth > 0 ? entry.strokeWidth : 0;

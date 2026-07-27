@@ -1,4 +1,49 @@
 
+## 2026-07-27 — AG Grid column sizing persistence
+
+- Auto-sizing a fully selected table now covers every titled column, including virtualized off-screen columns.
+- Manual and automatic column widths now persist per tab through save, reopen, autosave, and crash recovery.
+
+## 2026-07-27 — Atomic, interruption-safe document opening
+
+- Replaced visible post-load tab activation and cache warming with lazy hydration: only the archive's saved active tab is restored during open.
+- Added one full-application opening transaction with clear file-aware progress, accessible busy state, and locked tab/add/close/drag interactions.
+- Session replacement now stages non-colliding tab owners, commits only after active-workspace readiness, and rolls back the prior tabs and file metadata on failure.
+- Failed opens keep the current document intact and present concise recovery actions instead of console-only feedback.
+- Removed obsolete warmup APIs, delays, overlay wording, and test waits; save/recovery snapshots reuse valid caches without navigating inactive tabs.
+- Normalized save/recovery snapshot intent flags so the persistence contract and its tests use one explicit shape.
+- Made the restored active tab’s side delimiters explicit CSS borders and projected the preceding-tab separator class directly, avoiding stale shadow/`:has()` painting after the opening lock clears.
+- ROC hydration now suppresses initialization, payload, and resize redraws when a valid saved render cache is restored.
+- Resizable graphs now ignore the ResizeObserver's unchanged first measurement, preventing false post-restore redraws across components.
+- Added a mixed Scatter/Box/ROC archive regression proving Box and ROC reuse their saved graph caches without fallback redraws.
+
+## 2026-07-27 — Explicit ROC classification setup
+
+- ROC and precision–recall analyses now use an explicit positive class and global score direction.
+- All curve, cutoff, inference, resampling, and comparison paths consume canonical higher-is-positive analysis pairs while retaining original-scale cutoff reporting.
+- Classification settings persist per tab and are included in reports and cache signatures; low AUC values now warn without automatic reversal.
+- Positive-class and score-direction controls now commit on `input` before recovery capture, and class options use stable typed identities so session projection cannot reinterpret class 0 as class 1.
+- ROC statistics are now committed from the completed owner-scoped draw instead of being reconstructed from visible DOM during save, tab switching, reopen, or recovery.
+- Draw generations and snapshot readiness prevent an older ROC/PR calculation from publishing or persisting statistics after a newer settings change.
+- Every analysis-setting change invalidates its prior statistics model before payload persistence, and restored models are validated against the exact included analysis matrix.
+- Removed ROC's duplicate activation-time runtime replay, which could overwrite the newly hydrated owner session with an older statistics snapshot.
+
+## 2026-07-27 — Palette matching for custom dataset colors
+
+- Named palette selection now offers a compact, contextual choice when custom dataset colors exist.
+- The recommended action maps custom colors to distinct perceptually nearest colors in the selected palette; full replacement remains available.
+- Equal-colored datasets are matched as one visual group, even when one occurrence coincides with its old positional palette default.
+- Box Unified point colors now retain their global and indexed override precedence during the immediate palette projection, matching the subsequent full renderer.
+- Palette matching, replacement, and exact restoration remain single owner-scoped undo actions.
+
+## 2026-07-27 — Heatmap recovery redraw
+
+- Invalid or missing Heatmap render caches now trigger one owner-scoped redraw from the authoritative payload after hydration settles.
+- Recovery awaits graph publication, including heavy canvas Heatmaps, instead of leaving a blank graph.
+- Restore hydration suppresses automatic component draws, preventing duplicate Heatmap work and removing the 12-second readiness timeout before fallback redraw.
+- Heavy Heatmap recovery now persists the completed render model, validates it against the full processed matrix, reuses its clustering during the single fallback repaint, and keeps the loading spinner visible until publication.
+- Recovery redraws now use the standard owner-scoped scheduler and lifecycle transaction; duplicate overlay and timer-based suppression paths were removed.
+
 ## 2026-07-24 — Cross-component statistical standards overhaul
 
 - Preserved missing/invalid p-values through multiplicity adjustment instead of converting failures to significance.

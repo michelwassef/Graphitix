@@ -454,6 +454,52 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     expect(col1.width).toBe(222);
   });
 
+  test('user column resize writes widths to the owning tab UI state and marks it dirty', () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agColumnResizeOwnerStateHot';
+    document.body.appendChild(container);
+    const tab = { id: 'width-owner', type: 'box', uiState: null };
+    const markTabUserModified = jest.fn(() => true);
+    global.window.Main = {
+      session: {
+        workspaceState: { tabs: [tab], activeTabId: tab.id },
+        getActiveTab: () => tab,
+        markTabUserModified
+      }
+    };
+    const hot = createTable(
+      container,
+      { rows: 3, cols: 3 },
+      () => {},
+      { debugLabel: 'ag-column-resize-owner-state', data: Shared.createEmptyData(3, 3) }
+    );
+    const widthStateApi = {
+      getColumnState: () => [
+        { colId: 'c0', width: 101 },
+        { colId: 'c1', width: 202 },
+        { colId: 'c2', width: 303 }
+      ],
+      applyColumnState: jest.fn()
+    };
+    hot.columnApi = widthStateApi;
+    hot.gridApi.columnApi = widthStateApi;
+
+    capturedGridOptions.onColumnResized({
+      api: hot.gridApi,
+      columnApi: widthStateApi,
+      finished: true,
+      source: 'uiColumnResized'
+    });
+
+    expect(tab.uiState.component.table.columnWidths).toEqual({ c0: 101, c1: 202, c2: 303 });
+    expect(markTabUserModified).toHaveBeenCalledWith(
+      tab,
+      'table-column-width-changed',
+      expect.objectContaining({ affectsPayload: false })
+    );
+  });
+
   test('dragging column headers selects a multi-column range', async () => {
     const Shared = global.window.Shared;
     const container = document.createElement('div');
@@ -2391,6 +2437,48 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     expect(hot.getDataAtCell(0, 2)).toBe('A0');
 
     global.window.agGrid = originalAgGrid;
+  });
+
+  test('programmatic column order commits through the same data reorder path', () => {
+    const container = document.createElement('div');
+    container.id = 'agProgrammaticColumnOrderHot';
+    document.body.appendChild(container);
+    const hot = createTable(
+      container,
+      { rows: 2, cols: 3 },
+      () => {},
+      {
+        debugLabel: 'ag-programmatic-column-order',
+        data: [
+          ['A0', 'B0', 'C0'],
+          ['A1', 'B1', 'C1']
+        ]
+      }
+    );
+    let displayed = Array.from({ length: hot.countCols() }, (_, index) => `c${index}`);
+    hot.columnApi = {
+      getAllDisplayedColumns: () => displayed.map(colId => ({ getColId: () => colId })),
+      applyColumnState: ({ state, applyOrder }) => {
+        if(applyOrder){
+          displayed = state.map(entry => entry.colId);
+        }
+        return true;
+      }
+    };
+    const permutation = Array.from({ length: hot.countCols() }, (_, index) => index);
+    permutation.splice(0, 3, 1, 2, 0);
+    global.window.Shared.undoManager.clear();
+    const lifecycle = [];
+    expect(hot.applyColumnOrder(permutation, {
+      reason: 'box-graph-dataset-reorder',
+      onApplied: order => lifecycle.push(['apply', order.slice(0, 3)]),
+      onUndo: order => lifecycle.push(['undo', order.slice(0, 3)]),
+      onRedo: order => lifecycle.push(['redo', order.slice(0, 3)])
+    })).toBe(true);
+    expect(hot.getDataAtCell(0, 0)).toBe('B0');
+    expect(hot.getDataAtCell(0, 1)).toBe('C0');
+    expect(hot.getDataAtCell(0, 2)).toBe('A0');
+    expect(lifecycle).toEqual([['apply', [1, 2, 0]]]);
   });
 
   test('column reorder commit records undo/redo steps', async () => {
@@ -4373,24 +4461,30 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     expect(writeText).not.toHaveBeenCalled();
   });
 
-  test('double-clicking one separator auto-sizes every selected data column only when all are selected', async () => {
+  test('double-clicking one separator auto-sizes every titled column when all titled columns are selected', async () => {
     const Shared = global.window.Shared;
     const container = document.createElement('div');
     container.id = 'agAutosizeAllSelectedColumnsHot';
     document.body.appendChild(container);
     capturedApi.autoSizeColumns = jest.fn();
+    capturedApi.ensureColumnVisible = jest.fn(colId => {
+      const cell = document.createElement('div');
+      cell.className = 'ag-cell';
+      cell.setAttribute('col-id', colId);
+      container.appendChild(cell);
+    });
 
     const hot = createTable(
       container,
-      { rows: 3, cols: 3 },
+      { rows: 3, cols: 5 },
       () => {},
       {
         debugLabel: 'ag-autosize-all-selected-columns',
         pinFirstRow: true,
         data: [
-          ['A very long pinned title', 'B', 'C'],
-          [1, 2, 3],
-          [4, 5, 6]
+          ['A very long pinned title', 'B', 'C', '', ''],
+          [1, 2, 3, null, null],
+          [4, 5, 6, null, null]
         ]
       }
     );
@@ -4417,19 +4511,33 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     }));
     expect(capturedApi.autoSizeColumns).not.toHaveBeenCalled();
 
-    hot.selectCell(0, 0, hot.countRows() - 1, hot.countCols() - 1);
+    container.dispatchEvent(new global.window.KeyboardEvent('keydown', {
+      key: 'a',
+      ctrlKey: true,
+      bubbles: true,
+      cancelable: true
+    }));
+    expect(hot.getSelectedLast()).toEqual([
+      0,
+      0,
+      hot.countRows() - 1,
+      hot.countCols() - 1
+    ]);
     separator.dispatchEvent(new global.window.MouseEvent('dblclick', {
       bubbles: true,
       cancelable: true,
       button: 0
     }));
 
-    expect(capturedApi.autoSizeColumns).toHaveBeenCalledTimes(1);
-    expect(capturedApi.autoSizeColumns).toHaveBeenCalledWith(
-      Array.from({ length: hot.countCols() }, (_, index) => `c${index}`),
-      false
-    );
     await waitForNextFrame();
+    await waitForNextFrame();
+    await waitForNextFrame();
+    await waitForNextFrame();
+    const autosizedIds = capturedApi.autoSizeColumns.mock.calls
+      .flatMap(call=>call[0]);
+    expect(new Set(autosizedIds)).toEqual(new Set(['c0', 'c1', 'c2']));
+    expect(capturedApi.ensureColumnVisible).toHaveBeenCalledWith('c1', 'middle');
+    expect(capturedApi.ensureColumnVisible).toHaveBeenCalledWith('c2', 'middle');
   });
 
   test('paste writes into all additive selected header columns', () => {

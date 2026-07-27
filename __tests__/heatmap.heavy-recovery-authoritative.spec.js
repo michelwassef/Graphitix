@@ -173,12 +173,6 @@ test('heavy Heatmap publishes one complete graph after crash recovery', async ({
   await reloadAndAcceptRecovery(page);
 
   await page.waitForSelector('#heatmapPage:not([hidden])', { timeout: 60_000 });
-  await page.evaluate(async () => {
-    const warmup = window.Main?.sessionActions?.awaitPostLoadWarmup;
-    if (typeof warmup === 'function') {
-      await warmup({ timeoutMs: 120_000, reason: 'e2e-heavy-heatmap-recovery-warmup' });
-    }
-  });
   await waitForPublishedHeatmap(page);
 
   const restored = await page.evaluate(() => {

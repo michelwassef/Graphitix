@@ -43,6 +43,7 @@
    * @property {'tab'|'workspace'|null} sessionFileScope Scope of the last saved/opened `.graph` archive.
    * @property {boolean} sessionDirty True when the in-memory session differs from disk.
    * @property {number} sessionRevision Monotonic counter incremented on dirty-state changes.
+   * @property {Object|null} documentOperation Active document-level transaction, if any.
    * @property {string|null} draggingTabId Tab currently being dragged in the UI.
    * @property {number|null} dragStartIndex Starting index for the active drag operation.
    * @property {string|null} dragOverTabId Tab currently hovered while dragging.
@@ -66,6 +67,7 @@
     sessionDirty: false,
     sessionUserDirty: false,
     sessionRevision: 0,
+    documentOperation: null,
     draggingTabId: null,
     dragStartIndex: null,
     dragOverTabId: null,
@@ -74,6 +76,9 @@
   namespace.workspaceState = workspaceState;
   if (typeof workspaceState.sessionUserDirty !== 'boolean') {
     workspaceState.sessionUserDirty = !!workspaceState.sessionDirty;
+  }
+  if (!Object.prototype.hasOwnProperty.call(workspaceState, 'documentOperation')) {
+    workspaceState.documentOperation = null;
   }
   const MAX_WARM_RENDER_CACHES_TOTAL = 64;
   const MAX_WARM_RENDER_CACHES_PER_TYPE = 2;
@@ -3258,167 +3263,241 @@
     };
   }
 
+  const WORKSPACE_REPLACEMENT_STATE_KEYS = [
+    'tabs',
+    'activeTabId',
+    'nextId',
+    'pendingDuplicateSource',
+    'lastActiveGraphId',
+    'loadedWorkspaces',
+    'renderedWorkspaceByType',
+    'renameFocusId',
+    'pendingClosePrompt',
+    'sessionFileHandle',
+    'sessionFileName',
+    'sessionFilePath',
+    'sessionFileScope',
+    'sessionDirty',
+    'sessionUserDirty',
+    'sessionRevision',
+    'draggingTabId',
+    'dragStartIndex',
+    'dragOverTabId',
+    'dragInsertBefore'
+  ];
+
+  function captureWorkspaceReplacementState() {
+    const snapshot = {};
+    WORKSPACE_REPLACEMENT_STATE_KEYS.forEach(key => {
+      snapshot[key] = workspaceState[key];
+    });
+    return snapshot;
+  }
+
+  function restoreWorkspaceReplacementState(snapshot) {
+    WORKSPACE_REPLACEMENT_STATE_KEYS.forEach(key => {
+      workspaceState[key] = snapshot[key];
+    });
+  }
+
+  function stageSessionTabs(tabs, startId) {
+    const priorTabs = workspaceState.tabs;
+    const priorNextId = workspaceState.nextId;
+    const welcomeAndGraphTabs = [];
+    const graphTabs = [];
+    let nextId = Math.max(1, Number(startId) || 1);
+    try {
+      workspaceState.tabs = welcomeAndGraphTabs;
+      workspaceState.nextId = nextId;
+      const welcomeTab = createTab({ title: 'Welcome', isWelcome: true, allowClose: false });
+      welcomeAndGraphTabs.push(welcomeTab);
+      tabs.forEach((tabData, index) => {
+        if (!tabData || typeof tabData.type !== 'string') {
+          console.warn('applySessionData skipping invalid tab', { index, tabData });
+          return;
+        }
+        const predictedRuntimeTabId = `workspace-${workspaceState.nextId}`;
+        const clonedPayload = clonePayload(tabData.payload) || null;
+        const clonedLayout = rehomeTabScopedState(tabData.layout || null, predictedRuntimeTabId);
+        const clonedPreviewMeta = tabData.previewMeta && typeof tabData.previewMeta === 'object'
+          ? rehomeTabScopedState(tabData.previewMeta, predictedRuntimeTabId)
+          : null;
+        const clonedPreviewMarkup = typeof tabData.previewMarkup === 'string'
+          ? remapRuntimeWorkspaceString(tabData.previewMarkup, predictedRuntimeTabId)
+          : null;
+        const clonedArchiveRenderCache = tabData.archiveRenderCache && typeof tabData.archiveRenderCache === 'object'
+          ? rehomeTabScopedState(tabData.archiveRenderCache, predictedRuntimeTabId)
+          : null;
+        const clonedUiState = tabData.uiState && typeof tabData.uiState === 'object'
+          ? rehomeTabScopedState(tabData.uiState, predictedRuntimeTabId)
+          : null;
+        const oldRuntimeIds = Array.from(collectRuntimeWorkspaceIds({
+          layout: tabData.layout || null,
+          previewMarkup: tabData.previewMarkup || null,
+          previewMeta: tabData.previewMeta || null,
+          archiveRenderCache: tabData.archiveRenderCache || null,
+          uiState: tabData.uiState || null
+        })).filter(id => id !== predictedRuntimeTabId);
+        if (oldRuntimeIds.length) {
+          console.debug('Debug: session remapped archive runtime tab ids', {
+            title: tabData.title || `Workspace ${index + 1}`,
+            type: tabData.type,
+            targetTabId: predictedRuntimeTabId,
+            oldRuntimeIds
+          });
+        }
+        const staleRuntimeIds = [
+          ...assertNoStaleRuntimeWorkspaceIds('layout', predictedRuntimeTabId, clonedLayout),
+          ...assertNoStaleRuntimeWorkspaceIds('previewMeta', predictedRuntimeTabId, clonedPreviewMeta),
+          ...assertNoStaleRuntimeWorkspaceIds('previewMarkup', predictedRuntimeTabId, clonedPreviewMarkup),
+          ...assertNoStaleRuntimeWorkspaceIds('archiveRenderCache', predictedRuntimeTabId, clonedArchiveRenderCache),
+          ...assertNoStaleRuntimeWorkspaceIds('uiState', predictedRuntimeTabId, clonedUiState)
+        ];
+        const rehomedArchiveCacheSignatures = resolveRehomedArchiveCacheSignatures(
+          tabData,
+          clonedPayload,
+          clonedLayout,
+          predictedRuntimeTabId
+        );
+        if (staleRuntimeIds.length) {
+          console.warn('Debug: session archive tab contains stale runtime ids after rehome', {
+            title: tabData.title || `Workspace ${index + 1}`,
+            type: tabData.type,
+            targetTabId: predictedRuntimeTabId,
+            staleRuntimeIds: Array.from(new Set(staleRuntimeIds))
+          });
+        }
+        const newTab = createTab({
+          title: tabData.title || `Workspace ${index + 1}`,
+          type: tabData.type,
+          payload: clonedPayload,
+          layoutState: clonedLayout,
+          previewMarkup: clonedPreviewMarkup,
+          previewSignature: tabData.previewSignature || null,
+          previewMeta: clonedPreviewMeta,
+          archiveRenderCache: clonedArchiveRenderCache,
+          archiveRenderCacheSignature: rehomedArchiveCacheSignatures.payloadSignature,
+          archiveRenderCacheLayoutSignature: rehomedArchiveCacheSignatures.layoutSignature,
+          loadedFromArchive: true,
+          userModified: false,
+          payloadDirty: false,
+          uiState: clonedUiState
+        });
+        graphTabs.push(newTab);
+        welcomeAndGraphTabs.push(newTab);
+        console.debug('Debug: session tab staged', {
+          index,
+          tabId: newTab.id,
+          type: newTab.type,
+          hasPayload: !!clonedPayload,
+          hasLayout: !!clonedLayout
+        });
+      });
+      nextId = workspaceState.nextId;
+      return { tabs: welcomeAndGraphTabs, graphTabs, welcomeTab, nextId };
+    } finally {
+      workspaceState.tabs = priorTabs;
+      workspaceState.nextId = priorNextId;
+    }
+  }
+
   async function applySessionData(session, options = {}) {
     const tabs = Array.isArray(session?.tabs) ? session.tabs : [];
-    if (window.Shared?.undoManager?.clear) {
-      window.Shared.undoManager.clear({ reason: options.reason || 'session-load' });
-    }
+    const reason = options.reason || 'session-load';
     if (typeof options.hideDuplicatePrompt === 'function') {
       options.hideDuplicatePrompt();
-      console.debug('Debug: session apply requested duplicate prompt hide', { reason: options.reason || 'session-load' });
+      console.debug('Debug: session apply requested duplicate prompt hide', { reason });
     }
-    disposeWorkspaceTabs(workspaceState.tabs, {
-      reason: options.reason || 'session-load-replace'
-    });
-    workspaceState.tabs = [];
-    workspaceState.activeTabId = null;
+    const previous = captureWorkspaceReplacementState();
+    const staged = stageSessionTabs(tabs, previous.nextId);
+    const requestedIndex = typeof session?.activeIndex === 'number' ? session.activeIndex : -1;
+    const targetTab = (requestedIndex >= 0 && requestedIndex < staged.graphTabs.length)
+      ? staged.graphTabs[requestedIndex]
+      : (staged.graphTabs[0] || null);
+
+    workspaceState.tabs = staged.tabs;
+    workspaceState.activeTabId = staged.welcomeTab.id;
     workspaceState.pendingDuplicateSource = null;
     workspaceState.lastActiveGraphId = null;
     workspaceState.loadedWorkspaces = {};
     workspaceState.renderedWorkspaceByType = {};
     workspaceState.renameFocusId = null;
     workspaceState.pendingClosePrompt = null;
-    workspaceState.nextId = 1;
+    workspaceState.nextId = staged.nextId;
+    workspaceState.draggingTabId = null;
+    workspaceState.dragStartIndex = null;
+    workspaceState.dragOverTabId = null;
+    workspaceState.dragInsertBefore = true;
     if (Object.prototype.hasOwnProperty.call(options, 'fileHandle')) {
       workspaceState.sessionFileHandle = options.fileHandle;
       workspaceState.sessionFilePath = options.fileHandle?.__desktopFilePath || options.filePath || '';
-      console.debug('Debug: session file handle applied', { hasHandle: !!options.fileHandle });
     }
     if (options.fileName) {
       workspaceState.sessionFileName = options.fileName;
-      console.debug('Debug: session file name applied', { name: workspaceState.sessionFileName });
     }
     if (Object.prototype.hasOwnProperty.call(options, 'filePath')) {
       workspaceState.sessionFilePath = options.filePath || workspaceState.sessionFilePath || '';
-      console.debug('Debug: session file path applied', { hasPath: !!workspaceState.sessionFilePath });
     }
-    if (Object.prototype.hasOwnProperty.call(options, 'fileScope')) {
-      workspaceState.sessionFileScope = options.fileScope || null;
-      console.debug('Debug: session file scope applied', { scope: workspaceState.sessionFileScope });
-    } else {
-      workspaceState.sessionFileScope = tabs.length > 1 ? 'workspace' : (tabs.length === 1 ? 'tab' : null);
+    workspaceState.sessionFileScope = Object.prototype.hasOwnProperty.call(options, 'fileScope')
+      ? (options.fileScope || null)
+      : (tabs.length > 1 ? 'workspace' : (tabs.length === 1 ? 'tab' : null));
+    options.renderTabs?.();
+
+    try {
+      if (targetTab && typeof options.activateTab === 'function') {
+        const activationResult = await Promise.resolve(options.activateTab(targetTab.id, {
+          skipPersist: true,
+          awaitReadyForRestore: true,
+          allowDuringDocumentOperation: true,
+          reason
+        }));
+        if (activationResult === false || targetTab.activationError) {
+          throw new Error(targetTab.activationError?.message || 'The restored workspace could not be activated.');
+        }
+      } else if (!targetTab && typeof options.showGraphSelection === 'function') {
+        window.Shared?.undoManager?.refreshState?.(staged.welcomeTab.id, reason || 'session-empty');
+        options.showGraphSelection({ reason: 'session-empty' });
+      }
+    } catch (err) {
+      disposeWorkspaceTabs(staged.tabs, { reason: `${reason}-rollback-dispose-staged` });
+      restoreWorkspaceReplacementState(previous);
+      options.renderTabs?.();
+      const previousActive = previous.tabs.find(tab => tab?.id === previous.activeTabId) || null;
+      if (previousActive && typeof options.activateTab === 'function') {
+        try {
+          await Promise.resolve(options.activateTab(previousActive.id, {
+            skipPersist: true,
+            allowDuringDocumentOperation: true,
+            reason: `${reason}-rollback`
+          }));
+        } catch (rollbackErr) {
+          console.error('session restore rollback activation error', { tabId: previousActive.id, err: rollbackErr });
+        }
+      } else if (typeof options.showGraphSelection === 'function') {
+        options.showGraphSelection({ reason: `${reason}-rollback-empty` });
+      }
+      console.debug('Debug: session apply rolled back', { reason, message: err?.message || String(err) });
+      throw err;
     }
-    const welcomeTab = createTab({ title: 'Welcome', isWelcome: true, allowClose: false });
-    workspaceState.tabs.push(welcomeTab);
-    const graphTabs = [];
-    tabs.forEach((tabData, index) => {
-      if (!tabData || typeof tabData.type !== 'string') {
-        console.warn('applySessionData skipping invalid tab', { index, tabData });
-        return;
-      }
-      const predictedRuntimeTabId = `workspace-${workspaceState.nextId}`;
-      const clonedPayload = clonePayload(tabData.payload) || null;
-      const clonedLayout = rehomeTabScopedState(tabData.layout || null, predictedRuntimeTabId);
-      const clonedPreviewMeta = tabData.previewMeta && typeof tabData.previewMeta === 'object'
-        ? rehomeTabScopedState(tabData.previewMeta, predictedRuntimeTabId)
-        : null;
-      const clonedPreviewMarkup = typeof tabData.previewMarkup === 'string'
-        ? remapRuntimeWorkspaceString(tabData.previewMarkup, predictedRuntimeTabId)
-        : null;
-      const clonedArchiveRenderCache = tabData.archiveRenderCache && typeof tabData.archiveRenderCache === 'object'
-        ? rehomeTabScopedState(tabData.archiveRenderCache, predictedRuntimeTabId)
-        : null;
-      const clonedUiState = tabData.uiState && typeof tabData.uiState === 'object'
-        ? rehomeTabScopedState(tabData.uiState, predictedRuntimeTabId)
-        : null;
-      const oldRuntimeIds = Array.from(collectRuntimeWorkspaceIds({
-        layout: tabData.layout || null,
-        previewMarkup: tabData.previewMarkup || null,
-        previewMeta: tabData.previewMeta || null,
-        archiveRenderCache: tabData.archiveRenderCache || null,
-        uiState: tabData.uiState || null
-      })).filter(id => id !== predictedRuntimeTabId);
-      if (oldRuntimeIds.length) {
-        console.debug('Debug: session remapped archive runtime tab ids', {
-          title: tabData.title || `Workspace ${index + 1}`,
-          type: tabData.type,
-          targetTabId: predictedRuntimeTabId,
-          oldRuntimeIds
-        });
-      }
-      const staleRuntimeIds = [
-        ...assertNoStaleRuntimeWorkspaceIds('layout', predictedRuntimeTabId, clonedLayout),
-        ...assertNoStaleRuntimeWorkspaceIds('previewMeta', predictedRuntimeTabId, clonedPreviewMeta),
-        ...assertNoStaleRuntimeWorkspaceIds('previewMarkup', predictedRuntimeTabId, clonedPreviewMarkup),
-        ...assertNoStaleRuntimeWorkspaceIds('archiveRenderCache', predictedRuntimeTabId, clonedArchiveRenderCache),
-        ...assertNoStaleRuntimeWorkspaceIds('uiState', predictedRuntimeTabId, clonedUiState)
-      ];
-      const rehomedArchiveCacheSignatures = resolveRehomedArchiveCacheSignatures(
-        tabData,
-        clonedPayload,
-        clonedLayout,
-        predictedRuntimeTabId
-      );
-      if (staleRuntimeIds.length) {
-        console.warn('Debug: session archive tab contains stale runtime ids after rehome', {
-          title: tabData.title || `Workspace ${index + 1}`,
-          type: tabData.type,
-          targetTabId: predictedRuntimeTabId,
-          staleRuntimeIds: Array.from(new Set(staleRuntimeIds))
-        });
-      }
-      const newTab = createTab({
-        title: tabData.title || `Workspace ${index + 1}`,
-        type: tabData.type,
-        payload: clonedPayload,
-        layoutState: clonedLayout,
-        previewMarkup: clonedPreviewMarkup,
-        previewSignature: tabData.previewSignature || null,
-        previewMeta: clonedPreviewMeta,
-        archiveRenderCache: clonedArchiveRenderCache,
-        archiveRenderCacheSignature: rehomedArchiveCacheSignatures.payloadSignature,
-        archiveRenderCacheLayoutSignature: rehomedArchiveCacheSignatures.layoutSignature,
-        loadedFromArchive: true,
-        userModified: false,
-        payloadDirty: false,
-        uiState: clonedUiState
-      });
-      graphTabs.push(newTab);
-      workspaceState.tabs.push(newTab);
-      console.debug('Debug: session tab restored', {
-        index,
-        tabId: newTab.id,
-        type: newTab.type,
-        hasPayload: !!clonedPayload,
-        hasLayout: !!clonedLayout
-      });
-    });
-    workspaceState.activeTabId = welcomeTab.id;
-    if (typeof options.renderTabs === 'function') {
-      options.renderTabs();
-    }
-    const requestedIndex = typeof session?.activeIndex === 'number' ? session.activeIndex : -1;
-    const targetTab = (requestedIndex >= 0 && requestedIndex < graphTabs.length)
-      ? graphTabs[requestedIndex]
-      : (graphTabs[0] || null);
-    if (targetTab && typeof options.activateTab === 'function') {
-      await Promise.resolve(options.activateTab(targetTab.id, {
-        skipPersist: true,
-        awaitReadyForRestore: true,
-        reason: options.reason || 'session-load'
-      }));
-    } else if (!targetTab && typeof options.showGraphSelection === 'function') {
-      if (window.Shared?.undoManager?.refreshState) {
-        window.Shared.undoManager.refreshState(welcomeTab.id, options.reason || 'session-empty');
-      }
-      options.showGraphSelection({ reason: 'session-empty' });
-    }
-    clearSessionDirty(options.reason || 'session-load');
+
+    disposeWorkspaceTabs(previous.tabs, { reason: `${reason}-commit-dispose-previous` });
+    window.Shared?.undoManager?.clear?.({ reason });
+    clearSessionDirty(reason);
     notifySessionDocumentState('loaded', {
       dirty: workspaceState.sessionDirty,
       userDirty: workspaceState.sessionUserDirty,
-      reason: options.reason || 'session-load'
+      reason
     });
-    console.debug('Debug: session applied', {
+    console.debug('Debug: session applied atomically', {
       requestedIndex,
-      resolvedIndex: targetTab ? graphTabs.indexOf(targetTab) : -1,
-      tabCount: graphTabs.length,
-      reason: options.reason || 'session-load'
+      resolvedIndex: targetTab ? staged.graphTabs.indexOf(targetTab) : -1,
+      tabCount: staged.graphTabs.length,
+      reason
     });
     return {
-      welcomeTabId: welcomeTab.id,
+      welcomeTabId: staged.welcomeTab.id,
       targetTabId: targetTab ? targetTab.id : null,
-      graphTabCount: graphTabs.length
+      graphTabCount: staged.graphTabs.length
     };
   }
 

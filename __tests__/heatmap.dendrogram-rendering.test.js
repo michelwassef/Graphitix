@@ -1,4 +1,6 @@
 const { initializeWorkspaceHarness } = require('./setup/workspaceHarness');
+const fs = require('fs');
+const path = require('path');
 
 describe('Heatmap dendrogram and dense projection geometry', () => {
   beforeEach(() => {
@@ -125,6 +127,17 @@ describe('Heatmap dendrogram and dense projection geometry', () => {
     expect(indices[0]).toBe(0);
     expect(indices.at(-1)).toBe(7357);
     expect(new Set(indices).size).toBe(indices.length);
+  });
+
+  test('render-model signatures include every processed matrix value', () => {
+    const createSignature = window.Components.heatmap.__testHooks.createDataSignature;
+    const base = {
+      rowLabels: ['A', 'B'],
+      columnLabels: ['X', 'Y']
+    };
+
+    expect(createSignature({ ...base, matrix: [[1, 4], [2, 3]] }))
+      .not.toBe(createSignature({ ...base, matrix: [[1, 3], [2, 4]] }));
   });
 
 
@@ -279,8 +292,8 @@ describe('Heatmap dendrogram and dense projection geometry', () => {
     expect(path.getAttribute('data-preview-branch-count')).toBe('320');
   });
   test('table scheduling preserves heavy-paste overlay metadata', () => {
-    const source = require('fs').readFileSync(
-      require('path').join(__dirname, '../js/components/heatmap.js'),
+    const source = fs.readFileSync(
+      path.join(__dirname, '../js/components/heatmap.js'),
       'utf8'
     );
     expect(source).toContain("...(scheduleMeta && typeof scheduleMeta === 'object' ? scheduleMeta : {})");
@@ -295,14 +308,14 @@ describe('Heatmap dendrogram and dense projection geometry', () => {
 
 describe('heatmap draw scheduling lifecycle', () => {
   test('retries a stale owner-scoped draw frame while the Heatmap tab remains active', () => {
-    const source = require('fs').readFileSync(require('path').join(__dirname, '../js/components/heatmap.js'), 'utf8');
+    const source = fs.readFileSync(path.join(__dirname, '../js/components/heatmap.js'), 'utf8');
     expect(source).toContain('retryOnStale: true');
     expect(source).toContain("reason: 'heatmap-draw-frame-stale-retry'");
     expect(source).toContain('isHeatmapSessionActiveForModuleState(ownerSession)');
   });
   test('snapshot readiness uses the same shared lifecycle contract as Scatter', () => {
-    const heatmapSource = require('fs').readFileSync(require('path').join(__dirname, '../js/components/heatmap.js'), 'utf8');
-    const scatterSource = require('fs').readFileSync(require('path').join(__dirname, '../js/components/scatter.js'), 'utf8');
+    const heatmapSource = fs.readFileSync(path.join(__dirname, '../js/components/heatmap.js'), 'utf8');
+    const scatterSource = fs.readFileSync(path.join(__dirname, '../js/components/scatter.js'), 'utf8');
     expect(heatmapSource).toContain("Shared.componentLifecycle?.awaitReadyForSnapshot?.(heatmap");
     expect(scatterSource).toContain("Shared.componentLifecycle?.awaitReadyForSnapshot?.(scatter");
     expect(heatmapSource).not.toContain('restoreAuthoritative');
@@ -310,10 +323,9 @@ describe('heatmap draw scheduling lifecycle', () => {
     expect(heatmapSource).not.toContain('heatmap-restore-readiness-reset');
   });
 
-
   test('inline title edits do not schedule a full Heatmap redraw', () => {
     const source = fs.readFileSync(path.join(__dirname, '..', 'js', 'components', 'heatmap.js'), 'utf8');
-    const applyTitleStart = source.indexOf('const applyHeatmapTitle = value =>');
+    const applyTitleStart = source.indexOf("const applyHeatmapTitle = (value, reason = 'heatmap-title-edit') =>");
     const makeEditableStart = source.indexOf('makeEditable(title, txt =>', applyTitleStart);
     expect(applyTitleStart).toBeGreaterThan(-1);
     expect(makeEditableStart).toBeGreaterThan(applyTitleStart);
@@ -390,8 +402,6 @@ describe('heatmap draw scheduling lifecycle', () => {
   });
 
   test('render-cache restore resolves the explicit owner and never falls back to active globals', () => {
-    const fs = require('fs');
-    const path = require('path');
     const source = fs.readFileSync(path.join(__dirname, '..', 'js', 'components', 'heatmap.js'), 'utf8');
     const start = source.indexOf('heatmap.restoreRenderCache = function restoreRenderCache');
     const end = source.indexOf('heatmap.hasRenderedGraph = function hasRenderedGraph', start);
@@ -409,8 +419,6 @@ describe('heatmap draw scheduling lifecycle', () => {
   });
 
   test('Heatmap exposes strict post-restore graph validation to the shared workspace owner', () => {
-    const fs = require('fs');
-    const path = require('path');
     const heatmapSource = fs.readFileSync(path.join(__dirname, '..', 'js', 'components', 'heatmap.js'), 'utf8');
     const componentsSource = fs.readFileSync(path.join(__dirname, '..', 'js', 'main', 'components.js'), 'utf8');
     const domControlsSource = fs.readFileSync(path.join(__dirname, '..', 'js', 'main', 'domControls.js'), 'utf8');
@@ -419,20 +427,6 @@ describe('heatmap draw scheduling lifecycle', () => {
     expect(domControlsSource).toContain("reason: 'workspace-render-cache-post-restore-validation'");
     expect(domControlsSource).toContain('componentRendered === true');
     expect(domControlsSource).toContain('componentRendered == null && hasRenderableGraphContent(restoredRoot)');
-  });
-
-  test('workspace fallback draw projects the explicit Heatmap owner before rendering', () => {
-    const fs = require('fs');
-    const path = require('path');
-    const source = fs.readFileSync(path.join(__dirname, '..', 'js', 'components', 'heatmap.js'), 'utf8');
-    const start = source.indexOf('function draw(options = {})');
-    const end = source.indexOf('function refreshStatsForView', start + 1);
-    const drawSource = source.slice(start, end > start ? end : start + 12000);
-    expect(drawSource).toContain("requestedOptions.reason === 'workspace-draw-fallback'");
-    expect(drawSource).toContain('bindHeatmapDomProjectionForSession(explicitSession, explicitRoot');
-    expect(drawSource).toContain('applyHeatmapSessionStateToActive(explicitSession');
-    expect(drawSource).toContain("error: 'missing-owner-hot-or-svg'");
-    expect(drawSource).not.toContain("if(!state.hot || !state.svg)");
   });
 
 

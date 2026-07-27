@@ -1976,6 +1976,26 @@
                 </label>
               </div>
             </fieldset>
+            <fieldset data-roc-classification-fieldset="1">
+              <legend>Classification setup</legend>
+              <div class="control idx-inline-031">
+                <label class="idx-inline-023">
+                  Positive class
+                  <select id="rocPositiveClass"></select>
+                </label>
+                <label class="idx-inline-023">
+                  Negative class
+                  <input id="rocNegativeClass" type="text" readonly />
+                </label>
+                <label class="idx-inline-023">
+                  Score direction
+                  <select id="rocScoreDirection">
+                    <option value="higher">Higher values indicate positive</option>
+                    <option value="lower">Lower values indicate positive</option>
+                  </select>
+                </label>
+              </div>
+            </fieldset>
             <fieldset>
               <legend>Grid & axis</legend>
               <div class="control idx-inline-031">

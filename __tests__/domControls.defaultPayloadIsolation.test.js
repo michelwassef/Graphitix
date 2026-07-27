@@ -375,16 +375,12 @@ describe('domControls default payload cache isolation', () => {
     expect(session.clearTabRenderCache).not.toHaveBeenCalled();
   });
 
-  test('showWorkspaceForTab awaits the component readiness barrier during archive restore', async () => {
+  test('showWorkspaceForTab redraws missing-cache payloads without waiting for snapshot readiness', async () => {
     const domControls = window.Main?.domControls;
     expect(domControls).toBeTruthy();
 
     document.body.innerHTML = '<div id="welcomeScreen"></div><div id="heatmapPage" hidden></div>';
     const element = document.getElementById('heatmapPage');
-    let resolveReady;
-    const readiness = new Promise(resolve => {
-      resolveReady = resolve;
-    });
     const config = {
       type: 'heatmap',
       element,
@@ -394,7 +390,7 @@ describe('domControls default payload cache isolation', () => {
         element.innerHTML = '<svg data-test-graph-published="true"></svg>';
       }),
       hasRenderedGraph: jest.fn(() => !!element.querySelector('[data-test-graph-published="true"]')),
-      awaitReadyForSnapshot: jest.fn(() => readiness)
+      awaitReadyForSnapshot: jest.fn(() => new Promise(() => {}))
     };
     const tab = {
       id: 'workspace-4',
@@ -407,7 +403,6 @@ describe('domControls default payload cache isolation', () => {
     ensureWorkspaceTabs({ activateWorkspace: jest.fn() });
     domControls.markWorkspaceInitialized('heatmap', { reason: 'test-restore-readiness' });
 
-    let settled = false;
     const activation = domControls.showWorkspaceForTab({
       tab,
       options: { reason: 'recovery-restore', awaitReadyForRestore: true },
@@ -417,27 +412,20 @@ describe('domControls default payload cache isolation', () => {
       workspaceState
     });
     expect(activation).toBeInstanceOf(Promise);
-    activation.finally(() => { settled = true; });
-
-    await Promise.resolve();
-    expect(config.loadFromPayload).toHaveBeenCalledTimes(1);
-    expect(config.awaitReadyForSnapshot).toHaveBeenCalledWith(expect.objectContaining({
-      tabId: 'workspace-4',
-      componentKey: 'heatmap',
-      reason: 'recovery-restore-restore-ready'
-    }));
-    expect(settled).toBe(false);
-
-    resolveReady({ ok: true });
     await activation;
-    expect(settled).toBe(true);
+    expect(config.loadFromPayload).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'heatmap' }),
+      expect.objectContaining({ skipDraw: true, skipInitialDraw: true })
+    );
+    expect(config.draw).toHaveBeenCalledTimes(1);
+    expect(config.awaitReadyForSnapshot).not.toHaveBeenCalled();
+    expect(config.hasRenderedGraph()).toBe(true);
   });
 
-  test('showWorkspaceForTab forces an owner-scoped redraw when cache/readiness restore fails', async () => {
+  test('showWorkspaceForTab defers and awaits one owner-scoped redraw when cache restore fails', async () => {
     const domControls = window.Main?.domControls;
     document.body.innerHTML = '<div id="welcomeScreen"></div><div id="heatmapPage" hidden></div>';
     const element = document.getElementById('heatmapPage');
-    const readinessError = new Error('heatmap restore did not settle');
     const config = {
       type: 'heatmap',
       element,
@@ -445,7 +433,7 @@ describe('domControls default payload cache isolation', () => {
       loadFromPayload: jest.fn(),
       canRestoreRenderCache: jest.fn(() => true),
       restoreRenderCache: jest.fn(() => false),
-      draw: jest.fn(meta => {
+      draw: jest.fn(async meta => {
         expect(meta).toEqual(expect.objectContaining({
           tabId: 'workspace-readiness-error',
           componentType: 'heatmap',
@@ -453,10 +441,11 @@ describe('domControls default payload cache isolation', () => {
           forceDraw: true,
           reason: 'workspace-draw-fallback'
         }));
+        await Promise.resolve();
         element.innerHTML = '<svg data-test-graph-published="true"></svg>';
       }),
       hasRenderedGraph: jest.fn(() => !!element.querySelector('[data-test-graph-published="true"]')),
-      awaitReadyForSnapshot: jest.fn(() => Promise.reject(readinessError))
+      awaitReadyForSnapshot: jest.fn(() => Promise.reject(new Error('readiness failed')))
     };
     const tab = {
       id: 'workspace-readiness-error',
@@ -475,7 +464,6 @@ describe('domControls default payload cache isolation', () => {
     const workspaceState = { loadedWorkspaces: {}, renderedWorkspaceByType: {} };
     ensureWorkspaceTabs({ activateWorkspace: jest.fn() });
     domControls.markWorkspaceInitialized('heatmap', { reason: 'test-restore-readiness-error' });
-    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {});
 
     await expect(domControls.showWorkspaceForTab({
       tab,
@@ -488,10 +476,10 @@ describe('domControls default payload cache isolation', () => {
 
     expect(config.loadFromPayload).toHaveBeenCalledTimes(1);
     expect(config.restoreRenderCache).toHaveBeenCalledTimes(1);
-    expect(config.draw).toHaveBeenCalled();
+    expect(config.draw).toHaveBeenCalledTimes(1);
+    expect(config.awaitReadyForSnapshot).not.toHaveBeenCalled();
     expect(config.hasRenderedGraph()).toBe(true);
     expect(tab.activationError || null).toBeNull();
-    consoleError.mockRestore();
   });
 
   test('showWorkspaceForTab reuses a matching per-tab DOM root without payload redraw', () => {

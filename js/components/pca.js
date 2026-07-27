@@ -7222,7 +7222,7 @@
       seenLabels.add(key);
       legendColors.set(`label-${key}`, pcaState.labelColors?.[key] || DEFAULT_SCATTER_COLORS[legendColors.size % DEFAULT_SCATTER_COLORS.length]);
     });
-    svg.querySelectorAll('[data-legend-key]').forEach(node => {
+    svg.querySelectorAll('[data-legend-swatch="1"]').forEach(node => {
       const color = legendColors.get(String(node.dataset?.legendKey || ''));
       if (color) {
         node.setAttribute('fill', color);
@@ -13652,6 +13652,7 @@
             if (swatch3) {
               swatch3.style.cursor = 'pointer';
               swatch3.dataset.legendKey = entry.key;
+              swatch3.dataset.legendSwatch = '1';
               if (Number.isInteger(entry.groupIndex)) {
                 swatch3.dataset.legendGroupIndex = String(entry.groupIndex);
               } else if (entry.labelValue) {

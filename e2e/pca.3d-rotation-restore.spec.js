@@ -5,7 +5,8 @@ const {
   installLocalCdnOverrides,
   registerIssueCollectors,
   openComponentFromWelcome,
-  clickExampleButtonIfPresent
+  clickExampleButtonIfPresent,
+  waitForDocumentOpenComplete
 } = require('./helpers/workspaceHarness');
 
 const TMP_DIR = path.resolve(__dirname, '.tmp');
@@ -30,15 +31,6 @@ async function captureWorkspaceArchive(page, fileStem) {
   const archivePath = path.join(TMP_DIR, archive.fileName);
   fs.writeFileSync(archivePath, Buffer.from(archive.base64, 'base64'));
   return archivePath;
-}
-
-async function awaitWarmup(page) {
-  await page.evaluate(async () => {
-    const sa = window.Main?.sessionActions;
-    if (sa && typeof sa.awaitPostLoadWarmup === 'function') {
-      await sa.awaitPostLoadWarmup({ timeoutMs: 60_000, reason: 'e2e-pca-3d-rotation-restore' });
-    }
-  });
 }
 
 async function buildPca3d(page) {
@@ -146,7 +138,7 @@ test('PCA 3D rotation remains live after file reopen', async ({ page }) => {
   await page.reload({ waitUntil: 'domcontentloaded' });
   await expect(page.locator('#welcomeScreen')).toBeVisible({ timeout: 20_000 });
   await page.locator('#workspaceSessionInput').setInputFiles(archivePath);
-  await awaitWarmup(page);
+  await waitForDocumentOpenComplete(page);
   await page.waitForSelector('#pcaPage:not([hidden]) #pcaPlot #pcaSvg', { timeout: 30_000 });
   await expect
     .poll(async () => page.evaluate(() => document.querySelector('#pcaPage:not([hidden]) #pcaSvg')?.dataset?.viewMode || null), {

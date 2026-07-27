@@ -134,7 +134,10 @@ const CASES = [
       }, variant);
     },
     compute: async page => {
-      await page.evaluate(() => window.Components?.roc?.draw?.({ reason: 'e2e-stats-contract' }));
+      await page.evaluate(async () => {
+        window.Components?.roc?.draw?.({ reason: 'e2e-stats-contract' });
+        await window.Components?.roc?.awaitReadyForSnapshot?.({ reason: 'e2e-stats-contract-ready' });
+      });
       await expect(page.locator('#rocStatsResults')).toContainText(/ROC metrics|AUC|Reporting and reproducibility/i, { timeout: 40_000 });
     },
     capture: async page => page.evaluate(() => {

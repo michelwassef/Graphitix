@@ -5,7 +5,8 @@ const {
   installLocalCdnOverrides,
   registerIssueCollectors,
   openComponentFromWelcome,
-  clickExampleButtonIfPresent
+  clickExampleButtonIfPresent,
+  waitForDocumentOpenComplete
 } = require('./helpers/workspaceHarness');
 
 const TMP_DIR = path.resolve(__dirname, '.tmp-render-cache-lifecycle');
@@ -505,15 +506,8 @@ async function loadWorkspaceArchiveFromPath(page, archivePath) {
   const input = page.locator('#workspaceSessionInput');
   await expect(input).toHaveCount(1, { timeout: 20_000 });
   await input.setInputFiles(archivePath);
+  await waitForDocumentOpenComplete(page);
   await page.waitForTimeout(1_000);
-}
-
-async function awaitPostLoadWarmup(page, reason = 'e2e-render-cache-lifecycle-warmup') {
-  await page.evaluate(async (reasonText) => {
-    const sessionActions = window.Main?.sessionActions;
-    if (!sessionActions || typeof sessionActions.awaitPostLoadWarmup !== 'function') return;
-    await sessionActions.awaitPostLoadWarmup({ timeoutMs: 90_000, reason: reasonText });
-  }, reason);
 }
 
 async function seedRecoverySnapshot(page, archive, scenarioLabel) {
@@ -771,16 +765,15 @@ async function runLifecycleScenario(page, testInfo, scenario, issues) {
     await page.reload({ waitUntil: 'domcontentloaded' });
     await expect(page.locator('#welcomeScreen')).toBeVisible({ timeout: 20_000 });
     await loadWorkspaceArchiveFromPath(page, archivePath);
-    await attachJson(testInfo, `${label}-02-after-input-load-before-warmup.json`, await collectWorkspaceDiagnostics(page, `${label}-02-after-input-load-before-warmup`));
+    await attachJson(testInfo, `${label}-02-after-document-open.json`, await collectWorkspaceDiagnostics(page, `${label}-02-after-document-open`));
   } else {
     await seedRecoverySnapshot(page, archive, label);
     await reloadAndAcceptRecovery(page);
-    await attachJson(testInfo, `${label}-02-after-recovery-dialog-before-warmup.json`, await collectWorkspaceDiagnostics(page, `${label}-02-after-recovery-dialog-before-warmup`));
+    await attachJson(testInfo, `${label}-02-after-recovery-open.json`, await collectWorkspaceDiagnostics(page, `${label}-02-after-recovery-open`));
   }
 
-  await awaitPostLoadWarmup(page, `${label}-warmup`);
-  const afterWarmup = await collectWorkspaceDiagnostics(page, `${label}-03-after-warmup`);
-  await attachJson(testInfo, `${label}-03-after-warmup.json`, afterWarmup);
+  const afterOpen = await collectWorkspaceDiagnostics(page, `${label}-03-after-open`);
+  await attachJson(testInfo, `${label}-03-after-open.json`, afterOpen);
 
   const restoredTargetTabId = await findRestoredTargetTab(page, scenario.component);
   expect(restoredTargetTabId, `${label}: restored target tab not found`).toBeTruthy();
@@ -798,7 +791,7 @@ async function runLifecycleScenario(page, testInfo, scenario, issues) {
     workspace,
     restoredTargetTabId,
     snapshotTargetCache: archiveSummary.tabs.find(tab => tab.type === scenario.component) || null,
-    afterWarmupTargetCache: targetCachePresence(afterWarmup, restoredTargetTabId),
+    afterOpenTargetCache: targetCachePresence(afterOpen, restoredTargetTabId),
     afterRenderWaitTargetCache: targetCachePresence(afterRenderWait, restoredTargetTabId),
     editInvalidatedCache: edit.invalidated,
     consoleRecords: consoleRecords.slice(-300),

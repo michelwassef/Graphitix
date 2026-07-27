@@ -84,11 +84,11 @@ describe('Main.components.ensureComponent', () => {
     expect(window.Main.components.registry.box.__lifecycleContract.applyRuntimeState).toBe(true);
   });
 
-  test('restore fallback draws bypass the registry frame with current owner metadata', () => {
+  test('restore fallback uses the standard owner-scoped registry scheduler', () => {
     const draw = jest.fn();
     const buildSessionMeta = jest.fn((componentKey, options) => ({
       tabId: options.tabId,
-      sessionGeneration: options.sessionGeneration,
+      sessionGeneration: 7,
       componentKey
     }));
     global.window.Components = { heatmap: { ready: true, draw } };
@@ -102,22 +102,27 @@ describe('Main.components.ensureComponent', () => {
       workspaceTabs: {
         buildSessionMeta,
         isSessionMetaCurrent: jest.fn(() => true),
-        createTabScopedScheduler: jest.fn(() => jest.fn())
+        createTabScopedScheduler: jest.fn(config => options => {
+          const meta = buildSessionMeta(config.componentKey, options);
+          return config.scheduleRaw({
+            ...options,
+            sessionGeneration: meta.sessionGeneration,
+            __workspaceSessionMeta: meta
+          });
+        })
       }
     };
     require('../js/main/components.js');
 
     window.Main.components.registry.heatmap.draw({
       tabId: 'workspace-heavy-heatmap',
-      sessionGeneration: 7,
       force: true,
       forceDraw: true,
       reason: 'workspace-draw-fallback'
     });
 
     expect(buildSessionMeta).toHaveBeenCalledWith('heatmap', expect.objectContaining({
-      tabId: 'workspace-heavy-heatmap',
-      sessionGeneration: 7
+      tabId: 'workspace-heavy-heatmap'
     }));
     expect(window.Shared.workspaceTabs.isSessionMetaCurrent).toHaveBeenCalledWith('heatmap', expect.objectContaining({
       tabId: 'workspace-heavy-heatmap',

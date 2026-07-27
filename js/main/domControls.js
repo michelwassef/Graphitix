@@ -351,6 +351,7 @@
   }
 
   const WORKSPACE_ENSURE_TIMEOUT_MS = 12000;
+  const WORKSPACE_RESTORE_SETTLE_FRAMES = 2;
 
   async function workspacePromiseWithTimeout(promise, timeoutMs, meta = {}) {
     const label = meta.label || 'workspace-promise';
@@ -774,6 +775,7 @@
       workspaceState.renderedWorkspaceByType = {};
     }
     const loadedWorkspaces = workspaceState?.loadedWorkspaces || {};
+    let fallbackDrawReason = null;
     const cachedWorkspace = loadedWorkspaces[tab.id] || null;
     const renderedWorkspaceByType = workspaceState?.renderedWorkspaceByType || {};
     const renderedTabForType = renderedWorkspaceByType[tab.type] || null;
@@ -896,6 +898,7 @@
         type: tab.type
       });
     }
+    const deferInitialDraw = canRestoreRender || options.awaitReadyForRestore === true;
     if (isSameComponentTabSwitch && canRestoreRender) {
       console.debug('Debug: workspace same-component render cache restore allowed', {
         tabId: tab.id,
@@ -922,14 +925,6 @@
         reasonText: renderCacheUnavailableReasons.join('|')
       });
     }
-    if (canRestoreRender && Shared.componentLayout?.suppressNextScheduleFor) {
-      Shared.componentLayout.suppressNextScheduleFor(tab.type, {
-        tabId: tab.id,
-        reason: 'render-cache-restore-prepare',
-        delayMs: 400,
-        count: 3
-      });
-    }
     const activeWorkspaceElement = Shared.workspaceTabs?.ensureMountedRoot
       ? (Shared.workspaceTabs.ensureMountedRoot(tab, config, {
           reason: options.reason || 'workspace-view-prepare'
@@ -941,12 +936,12 @@
       tab,
       type: tab.type,
       restoreRenderCache: canRestoreRender,
-      skipInitialDraw: canRestoreRender,
-      suppressDraw: canRestoreRender,
-      suppressAutoDraw: canRestoreRender,
-      suppressResizeDraw: canRestoreRender,
-      suppressStatsRecompute: canRestoreRender,
-      passiveControls: canRestoreRender,
+      skipInitialDraw: deferInitialDraw,
+      suppressDraw: deferInitialDraw,
+      suppressAutoDraw: deferInitialDraw,
+      suppressResizeDraw: deferInitialDraw,
+      suppressStatsRecompute: deferInitialDraw,
+      passiveControls: deferInitialDraw,
       reason: reason || options.reason || 'workspace-ensure'
     });
     if (config.perTabDomInstances === true) {
@@ -1513,11 +1508,15 @@
     });
 
     let earlyRenderRestoreTransactionEnd = null;
+    let deferredRestoreTransactionEnd = null;
     const beginEarlyRenderRestoreTransaction = () => {
-      if (!canRestoreRender || earlyRenderRestoreTransactionEnd || !Shared.componentLifecycle?.beginRenderCacheRestoreTransaction) {
+      const beginRestore = canRestoreRender
+        ? Shared.componentLifecycle?.beginRenderCacheRestoreTransaction
+        : Shared.componentLifecycle?.beginRestoreTransaction;
+      if (!deferInitialDraw || earlyRenderRestoreTransactionEnd || typeof beginRestore !== 'function') {
         return null;
       }
-      earlyRenderRestoreTransactionEnd = Shared.componentLifecycle.beginRenderCacheRestoreTransaction(tab.type, {
+      earlyRenderRestoreTransactionEnd = beginRestore.call(Shared.componentLifecycle, tab.type, {
         tab,
         tabId: tab.id,
         type: tab.type,
@@ -1542,17 +1541,17 @@
         reason: canRestoreRender ? 'workspace-render-cache-restore' : (options.reason || 'workspace-view-restore'),
         passiveControls: true,
         suppressAutosize: true,
-        suppressDraw: canRestoreRender,
-        suppressAutoDraw: canRestoreRender,
-        suppressResizeDraw: canRestoreRender,
-        suppressStatsRecompute: canRestoreRender
+        suppressDraw: deferInitialDraw,
+        suppressAutoDraw: deferInitialDraw,
+        suppressResizeDraw: deferInitialDraw,
+        suppressStatsRecompute: deferInitialDraw
       };
       const endRestoreTransaction = earlyRenderRestoreTransactionEnd
         || (canRestoreRender && Shared.componentLifecycle?.beginRenderCacheRestoreTransaction
           ? Shared.componentLifecycle.beginRenderCacheRestoreTransaction(tab.type, transactionMeta)
           : (Shared.componentLifecycle?.beginRestoreTransaction
               ? Shared.componentLifecycle.beginRestoreTransaction(tab.type, transactionMeta)
-              : null));
+              : () => {}));
       earlyRenderRestoreTransactionEnd = null;
       try {
       const canReuseWorkspace = canReuseWorkspaceForActivation();
@@ -1687,14 +1686,6 @@
           reason: 'same-component-reset-not-required'
         });
       }
-      if(canRestoreRender && Shared.componentLayout?.suppressNextScheduleFor){
-        Shared.componentLayout.suppressNextScheduleFor(tab.type, {
-          tabId: tab.id,
-          reason: 'render-cache-restore',
-          delayMs: 400,
-          count: 3
-        });
-      }
       if (!options.skipApply) {
         let payload = tab.payload
           ? mergeWorkspaceApplyPayloadWithDefaults(tab.payload, defaultPayload, cloneFn)
@@ -1718,16 +1709,16 @@
         }
         if (guardWorkspaceMutation('apply-payload')) {
           namespace.applyWorkspacePayload(config, payload, {
-            skipDraw: canRestoreRender,
-            skipInitialDraw: canRestoreRender,
+            skipDraw: deferInitialDraw,
+            skipInitialDraw: deferInitialDraw,
             restoreRenderCache: canRestoreRender,
             skipPayloadSizing: canRestoreRender || !!tab.layoutState,
             authoritativeLayoutState: !!tab.layoutState,
             layoutStatePresent: !!tab.layoutState,
-            suppressAutoDraw: canRestoreRender,
-            suppressResizeDraw: canRestoreRender,
-            suppressStatsRecompute: canRestoreRender,
-            passiveControls: canRestoreRender,
+            suppressAutoDraw: deferInitialDraw,
+            suppressResizeDraw: deferInitialDraw,
+            suppressStatsRecompute: deferInitialDraw,
+            passiveControls: deferInitialDraw,
             ...drawMeta
           });
         }
@@ -1774,11 +1765,11 @@
               reason: options.reason || 'workspace-view',
               resetStyles: true,
               resetDataset: true,
-              skipSchedule: canRestoreRender,
-              suppressAutoDraw: canRestoreRender,
-              suppressResizeDraw: canRestoreRender,
-              suppressStatsRecompute: canRestoreRender,
-              passiveControls: canRestoreRender,
+              skipSchedule: deferInitialDraw,
+              suppressAutoDraw: deferInitialDraw,
+              suppressResizeDraw: deferInitialDraw,
+              suppressStatsRecompute: deferInitialDraw,
+              passiveControls: deferInitialDraw,
               ...drawMeta
             })
           : false;
@@ -1853,60 +1844,14 @@
         }
       }
       if (!restored) {
-        // Earlier in this path we may have called suppressNextScheduleFor in anticipation of a
-        // successful restore. If restore did not succeed, release that suppression so the
-        // fallback draw is not silently swallowed (which would leave the tab blank).
-        if (canRestoreRender && Shared.componentLayout?.releaseSuppressedSchedulesFor) {
-          Shared.componentLayout.releaseSuppressedSchedulesFor(tab.type, {
-            tabId: tab.id,
-            reason: 'render-cache-restore-fallback'
-          });
-        }
         if (canRestoreRender && renderCacheIsArchiveBacked && typeof session?.clearTabArchiveRenderCache === 'function') {
           session.clearTabArchiveRenderCache(tab, { reason: 'render-cache-restore-fallback' });
         }
         if (canRestoreRender && typeof session?.clearTabRenderCache === 'function') {
           session.clearTabRenderCache(tab, { reason: 'render-cache-restore-fallback' });
         }
-        try {
-          if (typeof config.draw === 'function') {
-            // A payload redraw must run outside the restore transaction whether or not a
-            // render cache was present. Recovery snapshots commonly omit heavy render caches;
-            // keeping the transaction open in that case causes the shared lifecycle guard to
-            // suppress the only fallback draw. Scatter and Box often receive later incidental
-            // redraws, but Heatmap can remain permanently blank. End the transaction first and
-            // release every restore-time suppression uniformly for all components.
-            if (typeof endRestoreTransaction === 'function') {
-              endRestoreTransaction({ reason: 'workspace-fallback-before-draw', cancelPostSuppress: true });
-            }
-            Shared.componentLifecycle?.clearPostRestoreDrawSuppression?.(tab.type, {
-              tabId: tab.id,
-              reason: 'workspace-fallback-before-draw'
-            });
-            Shared.componentLayout?.releaseSuppressedSchedulesFor?.(tab.type, {
-              tabId: tab.id,
-              reason: 'workspace-fallback-before-draw'
-            });
-            const fallbackDrawMeta = {
-              ...drawMeta,
-              force: true,
-              forceDraw: true,
-              reason: 'workspace-draw-fallback',
-              originReason: drawMeta.reason || options.reason || 'workspace-view'
-            };
-            Shared.componentLifecycle?.emitLifecycleEvent?.({
-              componentKey: tab.type,
-              tabId: tab.id,
-              action: 'draw-executed',
-              reason: fallbackDrawMeta.reason,
-              details: { via: 'domControls-fallback', originReason: fallbackDrawMeta.originReason }
-            });
-            config.draw(fallbackDrawMeta);
-          }
-        } catch (err) {
-          console.error('workspace draw error', { type: tab.type, err });
-          setWorkspaceActivationError(tab, { reason: 'workspace-draw-error', err });
-        }
+        // Hydration must settle before the single payload redraw starts.
+        fallbackDrawReason = drawMeta.reason || options.reason || 'workspace-view';
       } else {
         Shared.componentLifecycle?.emitLifecycleEvent?.({ componentKey: tab.type, tabId: tab.id, action: renderCacheIsArchiveBacked ? 'saved-render-cache-restored' : 'runtime-render-cache-restored', reason: 'workspace-render-cache-restored' });
         console.debug('Debug: workspace render cache restored', { tabId: tab.id, type: tab.type });
@@ -1942,17 +1887,9 @@
         activationError: tab.activationError?.reason || null
       });
       } finally {
-        if (canRestoreRender) {
-          Shared.componentLifecycle?.clearPostRestoreDrawSuppression?.(tab.type, {
-            tabId: tab.id,
-            reason: options.reason || 'workspace-render-cache-restore-complete'
-          });
-          Shared.componentLayout?.releaseSuppressedSchedulesFor?.(tab.type, {
-            tabId: tab.id,
-            reason: options.reason || 'workspace-render-cache-restore-complete'
-          });
-        }
-        if (typeof endRestoreTransaction === 'function') {
+        if (fallbackDrawReason) {
+          deferredRestoreTransactionEnd = endRestoreTransaction;
+        } else {
           endRestoreTransaction({
             reason: options.reason || 'workspace-view-restore-complete',
             cancelPostSuppress: true
@@ -1998,32 +1935,31 @@
       return !!tab?.payload?.data;
     };
 
-    const requestWorkspaceRecoveryFallbackDraw = reason => {
+    const requestWorkspaceFallbackDraw = reason => {
       if (typeof config.draw !== 'function' || !guardWorkspaceMutation('post-restore-fallback-draw')) {
         return false;
       }
-      Shared.componentLifecycle?.clearPostRestoreDrawSuppression?.(tab.type, {
-        tabId: tab.id,
-        reason: reason || 'workspace-post-restore-fallback'
-      });
-      Shared.componentLayout?.releaseSuppressedSchedulesFor?.(tab.type, {
-        tabId: tab.id,
-        reason: reason || 'workspace-post-restore-fallback'
-      });
+      const originReason = reason || fallbackDrawReason || options.reason || 'workspace-post-restore-fallback';
+      fallbackDrawReason = null;
       const fallbackMeta = {
         ...buildWorkspaceDrawMeta('workspace-draw-fallback'),
         force: true,
         forceDraw: true,
         reason: 'workspace-draw-fallback',
-        originReason: reason || options.reason || 'workspace-post-restore-fallback'
+        originReason
       };
       console.warn('workspace graph missing after restore; forcing payload redraw', {
         tabId: tab.id,
         type: tab.type,
-        originReason: fallbackMeta.originReason
+        originReason
       });
-      config.draw(fallbackMeta);
-      return true;
+      try {
+        return config.draw(fallbackMeta);
+      } catch (err) {
+        console.error('workspace recovery fallback draw error', { tabId: tab.id, type: tab.type, err });
+        setWorkspaceActivationError(tab, { reason: 'workspace-draw-error', err });
+        return false;
+      }
     };
 
     const waitForWorkspaceGraphPublication = async (timeoutMs = 90000) => {
@@ -2048,7 +1984,16 @@
       if (!tabHasRecoverableData() || isWorkspaceGraphPublished()) {
         return true;
       }
-      requestWorkspaceRecoveryFallbackDraw(reason || 'workspace-post-restore-empty-graph');
+      const drawResult = requestWorkspaceFallbackDraw(reason || 'workspace-post-restore-empty-graph');
+      if (drawResult && typeof drawResult.then === 'function') {
+        try {
+          await drawResult;
+        } catch (err) {
+          console.error('workspace recovery fallback draw async error', { tabId: tab.id, type: tab.type, err });
+          setWorkspaceActivationError(tab, { reason: 'workspace-draw-error', err });
+          return false;
+        }
+      }
       const published = await waitForWorkspaceGraphPublication(90000);
       if (published) {
         clearWorkspaceActivationError(tab, { reason: 'workspace-post-restore-fallback-succeeded' });
@@ -2100,7 +2045,7 @@
         label: 'workspace-restore-ready',
         tabId: tab.id,
         type: tab.type
-      }).then(async outcome => {
+      }).then(outcome => {
         if (outcome?.timedOut) {
           console.warn('workspace restore readiness timed out; validating final graph before failing', {
             tabId: tab.id,
@@ -2108,31 +2053,39 @@
             timeoutMs: WORKSPACE_ENSURE_TIMEOUT_MS
           });
         }
-        await ensureWorkspaceGraphPublishedAfterRestore(
-          outcome?.timedOut ? 'workspace-restore-readiness-timeout' : 'workspace-restore-ready'
-        );
         return outcome;
-      }, async err => {
+      }, err => {
         console.error('workspace restore readiness async error', { tabId: tab.id, type: tab.type, err });
-        const published = await ensureWorkspaceGraphPublishedAfterRestore('workspace-restore-readiness-async-error');
-        if (!published) {
-          setWorkspaceActivationError(tab, { reason: 'workspace-restore-readiness-async-error', err });
-        }
         return null;
       });
     };
 
     const finishWorkspaceActivation = () => {
-      const readyResult = awaitWorkspaceActivationReady();
-      if (readyResult && typeof readyResult.then === 'function') {
-        return readyResult
-          .then(() => ensureWorkspaceGraphPublishedAfterRestore('workspace-activation-finish'))
+      if (fallbackDrawReason) {
+        const originReason = fallbackDrawReason;
+        const settle = typeof Shared.componentLifecycle?.waitForAnimationFrames === 'function'
+          ? Shared.componentLifecycle.waitForAnimationFrames(WORKSPACE_RESTORE_SETTLE_FRAMES)
+          : Promise.resolve();
+        return Promise.resolve(settle)
+          .then(() => {
+            deferredRestoreTransactionEnd({
+              reason: options.reason || 'workspace-view-fallback-ready',
+              cancelPostSuppress: true
+            });
+            deferredRestoreTransactionEnd = null;
+            return ensureWorkspaceGraphPublishedAfterRestore(originReason);
+          })
           .then(() => config);
       }
-      if (options.awaitReadyForRestore === true) {
-        return ensureWorkspaceGraphPublishedAfterRestore('workspace-activation-finish').then(() => config);
+      const readyResult = awaitWorkspaceActivationReady();
+      const mustFinishAsync = options.awaitReadyForRestore === true
+        || (readyResult && typeof readyResult.then === 'function');
+      if (!mustFinishAsync) {
+        return config;
       }
-      return config;
+      return Promise.resolve(readyResult)
+        .then(() => ensureWorkspaceGraphPublishedAfterRestore('workspace-activation-finish'))
+        .then(() => config);
     };
 
     if (applyLiveDomFastPath('pre-ensure-live-dom-fast-path')) {

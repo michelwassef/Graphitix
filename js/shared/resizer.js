@@ -3159,6 +3159,13 @@
     attachDrag(hHandle, 'y');
     attachDrag(cHandle, 'both');
     if (global.ResizeObserver) {
+      const initialObservedRect = container.getBoundingClientRect?.();
+      if(Number.isFinite(initialObservedRect?.width) && Number.isFinite(initialObservedRect?.height)){
+        lastResizeNotificationSize = {
+          width: initialObservedRect.width,
+          height: initialObservedRect.height
+        };
+      }
       resizeObserver = new ResizeObserver(() => {
         if(shouldSuppressObserverResize()){
           return;

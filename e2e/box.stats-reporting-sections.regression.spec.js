@@ -4,7 +4,8 @@ const { test, expect } = require('@playwright/test');
 const {
   installLocalCdnOverrides,
   registerIssueCollectors,
-  openComponentFromWelcome
+  openComponentFromWelcome,
+  waitForDocumentOpenComplete
 } = require('./helpers/workspaceHarness');
 
 const TMP_DIR = path.resolve(__dirname, '.tmp');
@@ -86,10 +87,8 @@ test('Box diagnostic and reporting sections survive tab switching and archive re
   const archivePath = await captureWorkspaceArchive(page, 'box-stats-reporting-sections.graph');
   await page.reload({ waitUntil: 'domcontentloaded' });
   await page.locator('#workspaceSessionInput').setInputFiles(archivePath);
+  await waitForDocumentOpenComplete(page);
   await expect(page.locator('#boxPage:not([hidden])')).toBeVisible({ timeout: 40_000 });
-  await page.evaluate(async () => {
-    await window.Main?.sessionActions?.awaitPostLoadWarmup?.({ timeoutMs: 60_000, reason: 'box-stats-reporting-sections' });
-  });
   await assertStatsSections(page);
   expect(issues.critical.filter(entry => entry.kind !== 'requestfailed')).toEqual([]);
 });

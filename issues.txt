@@ -31,3 +31,11 @@
 [open][P2][2026-07-20] `scatter.statsDefaults.isolation.test.js` consistently times out while waiting for the same-component regression-overlay activation scenario, even in isolation. Replace timer-based settling with an explicit owner-scoped render-ready signal, then verify the final session/payload/SVG agreement without extending the timeout.
 
 [open][P2][2026-07-22] `js/shared/chartStyle.js` still contains many unguarded per-operation debug traces. Heatmap's hot `measureText` trace was removed after it added seconds to large renders with DevTools or browser console listeners attached, but the remaining traces need one shared debug gate and focused logging tests so debug instrumentation cannot become rendering work in other components.
+
+[open][P1][2026-07-27] PCA statistics redraw references an undeclared `preprocessingMetadata` value while building its cached analysis snapshot. This aborts the PCA stats reporting and method-switch draw paths in `pca.view.test.js`. Make preprocessing metadata an explicit owner-scoped draw input or derive it from the owning analysis result, then cover stats redraw, method switching, tab switching, and archive reopen.
+
+[open][P2][2026-07-27] `roc.statistics.standard.test.js` depends on the missing `__tests__/fixtures/roc.reference.dataset.csv`, so its reference AUC/DeLong/Mann–Whitney/Youden assertion cannot run. Restore the validated fixture or replace it with an inline immutable reference dataset and provenance.
+
+[open][P1][2026-07-27] Pie goodness-of-fit statistics reference an undeclared `rowCount`, aborting statistics computation and breaking saved report-panel restoration in `stats.ui.persistence.restore.test.js`. Derive the count from the owning included-data snapshot and cover calculation, tab isolation, and archive reopen.
+
+[open][P1][2026-07-27] Manual archive Save does not self-heal render caches missing from untouched inactive tabs. It reuses valid saved/runtime caches and clones rendered mounted roots, but it cannot generate a graph cache for a tab that has never been mounted in the current session. Add owner-scoped offscreen cache rendering that never activates tabs or reads active component globals, await it during explicit Save with clear progress/cancellation, and verify five-plus same-component tabs reopen without fallback redraws.

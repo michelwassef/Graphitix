@@ -776,6 +776,30 @@ async function exerciseVisibleComponentControls(page, component) {
   };
 }
 
+async function waitForDocumentOpenComplete(page, timeoutMs = 120_000) {
+  const handle = await page.waitForFunction(() => {
+    const operation = window.Main?.session?.workspaceState?.documentOperation || null;
+    const overlay = document.getElementById('documentOpenOverlay');
+    if (overlay?.dataset?.state === 'error') {
+      const diagnostics = window.Main?.sessionActions?.getDocumentOpenDiagnostics?.() || null;
+      return {
+        status: 'error',
+        title: overlay.querySelector('.document-open-overlay__title')?.textContent || '',
+        detail: overlay.querySelector('.document-open-overlay__detail')?.textContent || '',
+        diagnostics: diagnostics?.message || ''
+      };
+    }
+    if (operation?.active !== true && (!overlay || overlay.hidden === true)) {
+      return { status: 'complete' };
+    }
+    return false;
+  }, null, { timeout: timeoutMs });
+  const result = await handle.jsonValue();
+  if (result?.status === 'error') {
+    throw new Error([result.title, result.detail, result.diagnostics].filter(Boolean).join(': ') || 'Document open failed');
+  }
+}
+
 module.exports = {
   COMPONENT_MATRIX,
   installLocalCdnOverrides,
@@ -784,6 +808,7 @@ module.exports = {
   clickExampleButtonIfPresent,
   confirmDataImportPrompt,
   importDataFile,
+  waitForDocumentOpenComplete,
   exerciseVisibleComponentControls,
   collectComponentPerformanceSnapshot,
   shouldIgnoreConsoleEntry

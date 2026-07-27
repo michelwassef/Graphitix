@@ -285,6 +285,7 @@
     darkTextObservers: new WeakMap()
   };
   let openPaletteMenu = null;
+  let pendingPaletteChoice = null;
 
   function getDefaultSchemeIdForType(type){
     return TYPE_DEFAULT_SCHEME_IDS[type] || DEFAULT_SCHEME_ID;
@@ -630,6 +631,93 @@
     }
   }
 
+  function closePaletteChoice(options){
+    const pending = pendingPaletteChoice;
+    if(!pending){
+      return;
+    }
+    pendingPaletteChoice = null;
+    pending.popover.hidden = true;
+    if(options?.restore !== false){
+      const displayed = resolveDisplayedSchemeIdForType(pending.type, { preferWorkspace: true });
+      pending.select.value = displayed;
+      syncPickerElement(pending.select, displayed);
+    }
+    if(options?.focus === true){
+      pending.picker.querySelector('.color-scheme-picker__button')?.focus();
+    }
+  }
+
+  function openPaletteChoice(type, schemeId, select){
+    const picker = select?.parentElement?.querySelector?.('.color-scheme-picker') || null;
+    const popover = picker?.querySelector?.('[data-color-scheme-choice="1"]') || null;
+    if(!picker || !popover){
+      return false;
+    }
+    closePaletteChoice();
+    const scheme = getScheme(schemeId);
+    const description = popover.querySelector('.color-scheme-picker__choice-description');
+    if(description){
+      description.textContent = `Apply “${scheme.label}” by:`;
+    }
+    pendingPaletteChoice = {
+      type,
+      schemeId: scheme.id,
+      select,
+      picker,
+      popover,
+      tabId: getActiveTab()?.id || null
+    };
+    const displayed = resolveDisplayedSchemeIdForType(type, { preferWorkspace: true });
+    select.value = displayed;
+    syncPickerElement(select, displayed);
+    popover.hidden = false;
+    popover.querySelector('[data-color-scheme-choice-action="match"]')?.focus();
+    return true;
+  }
+
+  function completePaletteChoice(mode){
+    const pending = pendingPaletteChoice;
+    if(!pending){
+      return false;
+    }
+    const active = getActiveTab();
+    if(!active || active.type !== pending.type || String(active.id || '') !== String(pending.tabId || '')){
+      closePaletteChoice();
+      return false;
+    }
+    closePaletteChoice({ restore: false });
+    const applied = applySchemeToActiveTab(pending.type, pending.schemeId, {
+      recordUndo: true,
+      colorMode: mode
+    });
+    const displayed = applied
+      ? resolveDisplayedSchemeIdForType(pending.type, { preferWorkspace: true })
+      : resolveDisplayedSchemeIdForType(pending.type);
+    pending.select.value = displayed;
+    syncPickerElement(pending.select, displayed);
+    return applied;
+  }
+
+  function requestPaletteSelection(type, schemeId, select){
+    const scheme = getScheme(schemeId);
+    const sourcePayload = getComparisonPayload(type, { preferWorkspace: true });
+    const hasCustomDatasetColors = sourcePayload
+      ? collectCustomDatasetColorSlots(type, sourcePayload).length > 0
+      : false;
+    if(hasCustomDatasetColors && type !== 'surface'){
+      return openPaletteChoice(type, scheme.id, select);
+    }
+    const applied = applySchemeToActiveTab(type, scheme.id, {
+      recordUndo: true,
+      colorMode: 'replace'
+    });
+    const displayed = resolveDisplayedSchemeIdForType(type, { preferWorkspace: true });
+    select.value = displayed;
+    syncPickerElement(select, displayed);
+    return applied;
+  }
+
   function attachColorSchemeControlListeners(){
     if(state.controlListenersBound){
       return;
@@ -642,6 +730,17 @@
       const target = evt.target instanceof global.Element ? evt.target : null;
       if(!target){
         closePaletteMenu();
+        closePaletteChoice();
+        return;
+      }
+      const choiceAction = target.closest('[data-color-scheme-choice-action]');
+      if(choiceAction){
+        const action = String(choiceAction.dataset?.colorSchemeChoiceAction || '');
+        if(action === 'cancel'){
+          closePaletteChoice({ focus: true });
+        }else if(action === 'match' || action === 'replace'){
+          completePaletteChoice(action);
+        }
         return;
       }
       const optionButton = target.closest('.color-scheme-picker__option');
@@ -659,9 +758,7 @@
         const owner = menu?.__pickerOwner || menu?.closest?.('.color-scheme-picker') || null;
         const select = owner?.parentElement?.querySelector?.('select[data-color-scheme-select="1"]') || null;
         if(select){
-          select.value = nextScheme;
-          syncPickerElement(select, nextScheme);
-          select.dispatchEvent(new global.Event('change', { bubbles: true }));
+          requestPaletteSelection(String(select.dataset?.componentType || ''), nextScheme, select);
         }
         closePaletteMenu();
         return;
@@ -674,11 +771,18 @@
       if(openPaletteMenu && (!target.closest || !target.closest('.color-scheme-picker'))){
         closePaletteMenu();
       }
+      if(pendingPaletteChoice && !target.closest('[data-color-scheme-choice="1"]')){
+        closePaletteChoice();
+      }
     });
 
     doc.addEventListener('keydown', evt => {
-      if(evt.key === 'Escape' && openPaletteMenu){
-        closePaletteMenu();
+      if(evt.key === 'Escape'){
+        if(pendingPaletteChoice){
+          closePaletteChoice({ focus: true });
+        }else if(openPaletteMenu){
+          closePaletteMenu();
+        }
       }
     });
 
@@ -695,9 +799,7 @@
       }
       if(type === 'surface'){
         const selectedSurface = normalizeSurfaceSchemeId(select.value);
-        select.value = selectedSurface;
-        syncPickerElement(select, selectedSurface);
-        applySchemeToActiveTab(type, selectedSurface);
+        requestPaletteSelection(type, selectedSurface, select);
         return;
       }
       if(select.value === CUSTOM_SCHEME_ID){
@@ -707,9 +809,7 @@
         return;
       }
       const selected = getScheme(select.value).id;
-      select.value = selected;
-      syncPickerElement(select, selected);
-      applySchemeToActiveTab(type, selected);
+      requestPaletteSelection(type, selected, select);
     });
 
     state.controlListenersBound = true;
@@ -1672,6 +1772,265 @@
     return legacyApplySchemeToPayload(type, payload, scheme, options);
   }
 
+  const DATASET_STYLE_COLOR_FIELDS = Object.freeze([
+    'fill', 'color', 'markerFill', 'lineColor', 'lineStroke',
+    'stroke', 'borderColor', 'markerStroke', 'border'
+  ]);
+
+  function normalizeHexColor(value){
+    const raw = typeof value === 'string' ? value.trim().toLowerCase() : '';
+    const shortMatch = raw.match(/^#([0-9a-f]{3})$/i);
+    if(shortMatch){
+      return `#${shortMatch[1].split('').map(char => char + char).join('')}`;
+    }
+    return /^#[0-9a-f]{6}$/i.test(raw) ? raw : null;
+  }
+
+  function addDatasetColorSlot(slots, id, owner, key, paletteKind = 'categorical'){
+    if(!owner || typeof owner !== 'object' || !Object.prototype.hasOwnProperty.call(owner, key)){
+      return;
+    }
+    const color = normalizeHexColor(owner[key]);
+    if(!color){
+      return;
+    }
+    slots.push({
+      id,
+      color,
+      paletteKind,
+      setColor(nextColor){
+        owner[key] = nextColor;
+      }
+    });
+  }
+
+  function addDatasetColorMap(slots, prefix, map, paletteKind){
+    Object.keys(ensureObject(map)).sort().forEach(key => {
+      addDatasetColorSlot(slots, `${prefix}.${key}`, map, key, paletteKind);
+    });
+  }
+
+  function addDatasetColorArray(slots, prefix, values, paletteKind){
+    ensureArray(values).forEach((_value, index) => {
+      addDatasetColorSlot(slots, `${prefix}.${index}`, values, index, paletteKind);
+    });
+  }
+
+  function addDatasetStyleSlots(slots, prefix, style, paletteKind){
+    const source = ensureObject(style);
+    DATASET_STYLE_COLOR_FIELDS.forEach(field => {
+      addDatasetColorSlot(slots, `${prefix}.${field}`, source, field, paletteKind);
+    });
+  }
+
+  function addDatasetStyleMap(slots, prefix, map, paletteKind){
+    Object.keys(ensureObject(map)).sort().forEach(key => {
+      addDatasetStyleSlots(slots, `${prefix}.${key}`, map[key], paletteKind);
+    });
+  }
+
+  function collectDatasetColorSlots(type, payload){
+    const slots = [];
+    if(type === 'venn'){
+      const style = ensureObject(payload?.style);
+      ['colorA', 'colorB', 'colorC'].forEach(key => {
+        addDatasetColorSlot(slots, `style.${key}`, style, key, 'categorical');
+      });
+      return slots;
+    }
+
+    const cfg = ensureObject(payload?.config);
+    if(type === 'scatter'){
+      addDatasetColorSlot(slots, 'config.fill', cfg, 'fill');
+      addDatasetColorMap(slots, 'config.labelColors', cfg.labelColors);
+      addDatasetStyleMap(slots, 'config.labelStyles', cfg.labelStyles);
+    }else if(type === 'pca'){
+      addDatasetColorSlot(slots, 'config.fill', cfg, 'fill');
+      addDatasetColorMap(slots, 'config.labelColors', cfg.labelColors);
+      addDatasetStyleMap(slots, 'config.labelPointStyles', cfg.labelPointStyles);
+      addDatasetColorArray(slots, 'config.grouped.colors', cfg.grouped?.colors);
+    }else if(type === 'line'){
+      addDatasetColorMap(slots, 'config.labelColors', cfg.labelColors);
+      addDatasetStyleMap(slots, 'config.seriesStyles', cfg.seriesStyles);
+    }else if(type === 'box'){
+      addDatasetColorSlot(slots, 'config.fill', cfg, 'fill');
+      addDatasetColorArray(slots, 'config.colors', cfg.colors);
+      addDatasetColorArray(slots, 'config.borderColors', cfg.borderColors);
+      addDatasetStyleSlots(slots, 'config.shapeGlobalStyle', cfg.shapeGlobalStyle);
+      addDatasetStyleMap(slots, 'config.shapeStyles', cfg.shapeStyles);
+      addDatasetStyleSlots(slots, 'config.pointGlobalStyle', cfg.pointGlobalStyle);
+      addDatasetStyleMap(slots, 'config.pointStyles', cfg.pointStyles);
+      addDatasetStyleSlots(slots, 'config.summaryGlobalStyle', cfg.summaryGlobalStyle);
+      addDatasetStyleMap(slots, 'config.summaryStyles', cfg.summaryStyles);
+    }else if(type === 'hist'){
+      addDatasetColorSlot(slots, 'config.fill', cfg, 'fill');
+      addDatasetColorMap(slots, 'config.seriesColors', cfg.seriesColors);
+      ensureArray(cfg.distributions?.options).forEach(entry => {
+        const key = String(entry?.key || '').trim();
+        if(key){
+          addDatasetColorSlot(slots, `config.distributions.${key}`, entry, 'color', 'categorical');
+        }
+      });
+    }else if(type === 'pie'){
+      addDatasetColorMap(slots, 'config.colors', cfg.colors);
+    }else if(type === 'roc' || type === 'survival'){
+      addDatasetColorMap(slots, 'config.labelColors', cfg.labelColors);
+    }else if(type === 'heatmap'){
+      ['negative', 'zero', 'positive'].forEach(key => {
+        addDatasetColorSlot(slots, `config.colors.${key}`, cfg.colors, key, 'diverging');
+      });
+    }
+    return slots;
+  }
+
+  function rgbToLab(hex){
+    const normalized = normalizeHexColor(hex);
+    if(!normalized){
+      return null;
+    }
+    const channel = offset => Number.parseInt(normalized.slice(offset, offset + 2), 16) / 255;
+    const linear = value => value <= 0.04045
+      ? value / 12.92
+      : Math.pow((value + 0.055) / 1.055, 2.4);
+    const r = linear(channel(1));
+    const g = linear(channel(3));
+    const b = linear(channel(5));
+    const x = (r * 0.4124 + g * 0.3576 + b * 0.1805) / 0.95047;
+    const y = r * 0.2126 + g * 0.7152 + b * 0.0722;
+    const z = (r * 0.0193 + g * 0.1192 + b * 0.9505) / 1.08883;
+    const transform = value => value > 0.008856
+      ? Math.cbrt(value)
+      : (7.787 * value) + (16 / 116);
+    const fx = transform(x);
+    const fy = transform(y);
+    const fz = transform(z);
+    return {
+      l: (116 * fy) - 16,
+      a: 500 * (fx - fy),
+      b: 200 * (fy - fz)
+    };
+  }
+
+  function perceptualColorDistance(first, second){
+    const a = rgbToLab(first);
+    const b = rgbToLab(second);
+    if(!a || !b){
+      return Number.POSITIVE_INFINITY;
+    }
+    return Math.hypot(a.l - b.l, a.a - b.a, a.b - b.b);
+  }
+
+  function assignDistinctNearestColors(sourceColors, targetColors){
+    const sources = uniqueStrings(sourceColors.map(normalizeHexColor).filter(Boolean));
+    const targets = uniqueStrings(targetColors.map(normalizeHexColor).filter(Boolean));
+    const assignments = new Map();
+    if(!sources.length || !targets.length){
+      return assignments;
+    }
+    if(sources.length > targets.length){
+      sources.forEach(source => {
+        let best = targets[0];
+        let bestDistance = perceptualColorDistance(source, best);
+        targets.slice(1).forEach(target => {
+          const distance = perceptualColorDistance(source, target);
+          if(distance < bestDistance){
+            best = target;
+            bestDistance = distance;
+          }
+        });
+        assignments.set(source, best);
+      });
+      return assignments;
+    }
+
+    let states = new Map([[0, { cost: 0, colors: [] }]]);
+    sources.forEach(source => {
+      const nextStates = new Map();
+      states.forEach((stateValue, mask) => {
+        targets.forEach((target, targetIndex) => {
+          const bit = 1 << targetIndex;
+          if(mask & bit){
+            return;
+          }
+          const nextMask = mask | bit;
+          const nextCost = stateValue.cost + perceptualColorDistance(source, target);
+          const existing = nextStates.get(nextMask);
+          if(!existing || nextCost < existing.cost){
+            nextStates.set(nextMask, {
+              cost: nextCost,
+              colors: stateValue.colors.concat(target)
+            });
+          }
+        });
+      });
+      states = nextStates;
+    });
+    let best = null;
+    states.forEach(value => {
+      if(!best || value.cost < best.cost){
+        best = value;
+      }
+    });
+    sources.forEach((source, index) => assignments.set(source, best.colors[index]));
+    return assignments;
+  }
+
+  function getSchemePaletteForKind(type, scheme, paletteKind){
+    if(paletteKind === 'diverging'){
+      const diverging = ensureObject(scheme?.diverging);
+      return uniqueStrings([diverging.negative, diverging.zero, diverging.positive]);
+    }
+    return resolveCategoricalPalette(type, scheme);
+  }
+
+  function collectCustomDatasetColorSlots(type, payload){
+    const source = cloneThemePayload(payload, type);
+    const sourceScheme = getScheme(getPayloadColorSchemeId(type, source));
+    const baseline = applySchemeToPayload(type, source, sourceScheme, { forceColors: true });
+    const baselineById = new Map(
+      collectDatasetColorSlots(type, baseline).map(slot => [slot.id, slot])
+    );
+    const sourceSlots = collectDatasetColorSlots(type, source);
+    const customColorsByKind = new Map();
+    sourceSlots.forEach(slot => {
+      const baselineSlot = baselineById.get(slot.id);
+      if(!baselineSlot || baselineSlot.color !== slot.color){
+        if(!customColorsByKind.has(slot.paletteKind)){
+          customColorsByKind.set(slot.paletteKind, new Set());
+        }
+        customColorsByKind.get(slot.paletteKind).add(slot.color);
+      }
+    });
+    return sourceSlots.filter(slot => customColorsByKind.get(slot.paletteKind)?.has(slot.color));
+  }
+
+  function applyMatchedDatasetColors(type, sourcePayload, targetPayload, scheme){
+    const customSlots = collectCustomDatasetColorSlots(type, sourcePayload);
+    if(!customSlots.length){
+      return targetPayload;
+    }
+    const targetSlots = collectDatasetColorSlots(type, targetPayload);
+    const targetById = new Map(targetSlots.map(slot => [slot.id, slot]));
+    const assignmentsByKind = new Map();
+    uniqueStrings(customSlots.map(slot => slot.paletteKind)).forEach(paletteKind => {
+      const sourceColors = customSlots
+        .filter(slot => slot.paletteKind === paletteKind)
+        .map(slot => slot.color);
+      assignmentsByKind.set(
+        paletteKind,
+        assignDistinctNearestColors(sourceColors, getSchemePaletteForKind(type, scheme, paletteKind))
+      );
+    });
+    customSlots.forEach(slot => {
+      const targetSlot = targetById.get(slot.id);
+      const nextColor = assignmentsByKind.get(slot.paletteKind)?.get(slot.color);
+      if(targetSlot && nextColor){
+        targetSlot.setColor(nextColor);
+      }
+    });
+    return targetPayload;
+  }
+
   function getActiveTab(){
     const session = global.Main?.session;
     if(!session || typeof session.getActiveTab !== 'function') return null;
@@ -1703,7 +2062,8 @@
   function readProjectedMapKeys(value, reference){
     const source = ensureObject(value);
     const template = ensureObject(reference);
-    const keys = Object.keys(template).length ? Object.keys(template) : Object.keys(source);
+    const hasReference = reference !== null && reference !== undefined;
+    const keys = hasReference ? Object.keys(template) : Object.keys(source);
     return uniqueStrings(keys).sort();
   }
 
@@ -1866,6 +2226,7 @@
       case 'hist': {
         assignIfPresent(out, 'fill', projectColorScalar(cfg, 'fill', refCfg));
         assignIfPresent(out, 'border', projectColorScalar(cfg, 'border', refCfg));
+        assignIfPresent(out, 'seriesColors', extractColorMap(cfg.seriesColors, refCfg.seriesColors));
         const sourceOptions = ensureArray(cfg.distributions?.options);
         const referenceOptions = ensureArray(refCfg.distributions?.options);
         const templateOptions = referenceOptions.length ? referenceOptions : sourceOptions;
@@ -1972,16 +2333,141 @@
     const actualSchemeId = normalizePresetSchemeId(schemeId, type);
     const scheme = getScheme(actualSchemeId);
     const expected = applySchemeToPayload(type, payload, scheme, { forceColors: true });
-    return buildPayloadColorSignature(type, payload, payload) === buildPayloadColorSignature(type, expected, payload);
+    if(buildPayloadColorSignature(type, payload, payload) === buildPayloadColorSignature(type, expected, payload)){
+      return true;
+    }
+    const normalized = cloneThemePayload(payload, type);
+    const normalizedSlots = collectDatasetColorSlots(type, normalized);
+    const expectedById = new Map(
+      collectDatasetColorSlots(type, expected).map(slot => [slot.id, slot])
+    );
+    const paletteByKind = new Map();
+    for(const slot of normalizedSlots){
+      const expectedSlot = expectedById.get(slot.id);
+      if(!expectedSlot || slot.color === expectedSlot.color){
+        continue;
+      }
+      if(!paletteByKind.has(slot.paletteKind)){
+        paletteByKind.set(
+          slot.paletteKind,
+          new Set(getSchemePaletteForKind(type, scheme, slot.paletteKind).map(normalizeHexColor).filter(Boolean))
+        );
+      }
+      if(!paletteByKind.get(slot.paletteKind).has(slot.color)){
+        return false;
+      }
+      slot.setColor(expectedSlot.color);
+    }
+    return buildPayloadColorSignature(type, normalized, normalized)
+      === buildPayloadColorSignature(type, expected, normalized);
   }
 
-  function applySchemeToActiveTab(type, schemeId){
+  function resolveColorSchemeOwnerTab(tabId, type){
+    const expectedId = String(tabId || '').trim();
+    const active = getActiveTab();
+    if(active && String(active.id || '') === expectedId && active.type === type){
+      return active;
+    }
+    const resolved = Shared.workspaceTabs?.resolveTab?.(expectedId) || null;
+    if(resolved && resolved.type === type){
+      return resolved;
+    }
+    const tabs = global.Main?.session?.workspaceState?.tabs;
+    return Array.isArray(tabs)
+      ? (tabs.find(tab => String(tab?.id || '') === expectedId && tab?.type === type) || null)
+      : null;
+  }
+
+  function getPayloadColorSchemeId(type, payload){
+    return type === 'venn'
+      ? normalizePresetSchemeId(payload?.style?.colorScheme, type)
+      : (type === 'surface'
+        ? normalizeSurfaceSchemeId(payload?.config?.colorScheme)
+        : normalizePresetSchemeId(payload?.config?.colorScheme, type));
+  }
+
+  function colorSchemePayloadsEqual(type, first, second){
+    return getPayloadColorSchemeId(type, first) === getPayloadColorSchemeId(type, second)
+      && buildPayloadColorSignature(type, first, first) === buildPayloadColorSignature(type, second, second);
+  }
+
+  function commitAndProjectColorSchemePayload(type, tabId, payload, options){
+    const opts = ensureObject(options);
+    const main = global.Main || {};
+    const session = main.session;
+    const tab = resolveColorSchemeOwnerTab(tabId, type);
+    if(!session || !tab || !payload){
+      return false;
+    }
+    const nextPayload = cloneThemePayload(payload, type);
+    const reason = opts.reason || `color-scheme-${type}`;
+    if(typeof session.commitTabPayload === 'function'){
+      session.commitTabPayload(tab, nextPayload, { reason, origin: 'user' });
+    }else if(typeof session.updateTabPayload === 'function'){
+      session.updateTabPayload(tab, () => cloneThemePayload(nextPayload, type), { reason, origin: 'user' });
+    }else if(typeof session.assignTabPayload === 'function'){
+      session.assignTabPayload(tab, cloneThemePayload(nextPayload, type), { reason });
+    }else{
+      tab.payload = cloneThemePayload(nextPayload, type);
+    }
+
+    const active = getActiveTab();
+    if(!active || String(active.id || '') !== String(tab.id || '')){
+      return true;
+    }
+    const workspace = typeof main.components?.get === 'function' ? main.components.get(type) : null;
+    if(!workspace){
+      return false;
+    }
+    const projectionMeta = {
+      reason,
+      source: opts.source || 'color-scheme',
+      colorSchemeOnly: true,
+      styleOnly: true,
+      skipDataLoad: true,
+      skipPayloadSizing: true,
+      viewOnly: true,
+      tabId: tab.id,
+      type
+    };
+    try{
+      let projected = false;
+      if(typeof workspace.applyColorSchemePayload === 'function'){
+        projected = workspace.applyColorSchemePayload(cloneThemePayload(nextPayload, type), projectionMeta) !== false;
+      }
+      if(!projected && typeof workspace.loadFromPayload === 'function'){
+        projected = workspace.loadFromPayload(cloneThemePayload(nextPayload, type), projectionMeta) !== false;
+      }
+      if(!projected){
+        return false;
+      }
+    }catch(err){
+      console.error('colorSchemes style-only projection error', { type, reason, err });
+      return false;
+    }
+
+    if(typeof session.updateTabPayload !== 'function' && typeof session.markSessionDirty === 'function'){
+      session.markSessionDirty(reason, { type, tabId: tab.id, origin: 'user' });
+    }
+    const appliedSchemeId = getPayloadColorSchemeId(type, nextPayload) || getDefaultSchemeIdForType(type);
+    applyRenderedThemeForTab(type, appliedSchemeId, tab.id, `${reason}-immediate`);
+    scheduleColorSchemeTimeout(type, tab.id, `${reason}-delayed-40`, () => {
+      applyRenderedThemeForTab(type, appliedSchemeId, tab.id, `${reason}-delayed-40`);
+    }, 40);
+    scheduleColorSchemeTimeout(type, tab.id, `${reason}-delayed-180`, () => {
+      applyRenderedThemeForTab(type, appliedSchemeId, tab.id, `${reason}-delayed-180`);
+    }, 180);
+    syncActiveTabVisuals(reason);
+    return true;
+  }
+
+  function applySchemeToActiveTab(type, schemeId, options){
+    const opts = ensureObject(options);
     const scheme = getScheme(schemeId);
     const main = global.Main || {};
     const session = main.session;
-    const domControls = main.domControls;
     const components = main.components;
-    if(!session || !domControls || !components){
+    if(!session || !components){
       debugLog('Debug: colorSchemes apply skipped', { reason: 'missing-main-modules', type });
       return false;
     }
@@ -1997,14 +2483,33 @@
       return false;
     }
 
-    const sourcePayload = cloneThemePayload(tab.payload
-      || (typeof workspace.getPayload === 'function' ? workspace.getPayload({
-        tabId: tab.id,
-        type,
-        reason: `color-scheme-source-${type}`,
-        origin: 'colorSchemes'
-      }) : null)
-      || (typeof workspace.createEmptyPayload === 'function' ? workspace.createEmptyPayload() : { type, config: {} }), type);
+    const undoManager = Shared.undoManager || null;
+    let livePayload = null;
+    if(typeof workspace.getPayload === 'function'){
+      try{
+        livePayload = workspace.getPayload({
+          tabId: tab.id,
+          type,
+          reason: `color-scheme-source-${type}`,
+          origin: 'colorSchemes'
+        });
+      }catch(err){
+        debugLog('Debug: colorSchemes source payload read failed', {
+          type,
+          tabId: tab.id,
+          err: err?.message || String(err)
+        });
+      }
+    }
+    let payloadBeforeScheme = livePayload || tab.payload;
+    if(!payloadBeforeScheme){
+      payloadBeforeScheme = typeof workspace.createEmptyPayload === 'function'
+        ? workspace.createEmptyPayload()
+        : { type, config: {} };
+    }
+    const sourcePayload = cloneThemePayload(payloadBeforeScheme, type);
+    const shouldRecordUndo = opts.recordUndo === true
+      && typeof undoManager?.recordStateChange === 'function';
     const colorContext = typeof workspace.getColorSchemeContext === 'function'
       ? workspace.getColorSchemeContext({ tabId: tab.id, type, reason: `color-scheme-context-${type}` })
       : null;
@@ -2019,52 +2524,39 @@
       sourcePayload.config.labelColors = labelColors;
     }
 
-    const nextPayload = applySchemeToPayload(type, sourcePayload, scheme, { forceColors: true });
+    let nextPayload = applySchemeToPayload(type, sourcePayload, scheme, {
+      forceColors: opts.colorMode !== 'match'
+    });
+    if(opts.colorMode === 'match'){
+      nextPayload = applyMatchedDatasetColors(type, sourcePayload, nextPayload, scheme);
+    }
     syncSharedScatterPalette(type, scheme);
 
-    if(typeof session.commitTabPayload === 'function'){
-      session.commitTabPayload(tab, nextPayload, {
-        reason: `color-scheme-${type}`,
-        origin: 'user'
+    if(!commitAndProjectColorSchemePayload(type, tab.id, nextPayload, {
+      reason: `color-scheme-${type}`,
+      source: 'color-scheme'
+    })){
+      return false;
+    }
+
+    if(shouldRecordUndo){
+      const undoPayload = cloneThemePayload(sourcePayload, type);
+      const redoPayload = cloneThemePayload(nextPayload, type);
+      undoManager.recordStateChange({
+        tabId: tab.id,
+        label: `color-scheme:${scheme.id}`,
+        scope: type,
+        from: undoPayload,
+        to: redoPayload,
+        equals: (first, second) => colorSchemePayloadsEqual(type, first, second),
+        sessionCommit: false,
+        apply: (value, phase) => commitAndProjectColorSchemePayload(type, tab.id, value, {
+          reason: `${phase || 'apply'}-color-scheme-${type}`,
+          source: 'color-scheme-history'
+        })
       });
-    }else if(typeof session.updateTabPayload === 'function'){
-      session.updateTabPayload(tab, () => cloneThemePayload(nextPayload, type), {
-        reason: `color-scheme-${type}`,
-        origin: 'user'
-      });
-    }else if(typeof session.assignTabPayload === 'function'){
-      session.assignTabPayload(tab, cloneThemePayload(nextPayload, type), {
-        reason: `color-scheme-${type}`
-      });
-    }else{
-      tab.payload = cloneThemePayload(nextPayload, type);
     }
 
-    let appliedViaWorkspaceFastPath = false;
-    if(typeof workspace.applyColorSchemePayload === 'function'){
-      try{
-        const fastResult = workspace.applyColorSchemePayload(cloneThemePayload(nextPayload, type), {
-          reason: `color-scheme-${type}`,
-          source: 'color-scheme',
-          viewOnly: true
-        });
-        appliedViaWorkspaceFastPath = fastResult !== false;
-      }catch(err){
-        console.error('colorSchemes workspace fast-path error', { type, err });
-      }
-    }
-
-    if(!appliedViaWorkspaceFastPath && typeof domControls.applyWorkspacePayload === 'function'){
-      domControls.applyWorkspacePayload(workspace, cloneThemePayload(nextPayload, type), { reason: `color-scheme-${type}` });
-    }
-
-    if(typeof session.updateTabPayload !== 'function' && typeof session.markSessionDirty === 'function'){
-      session.markSessionDirty('color-scheme-applied', { type, tabId: tab.id, scheme: scheme.id, origin: 'user' });
-    }
-
-    applyRenderedThemeForTab(type, scheme.id, tab.id, 'color-scheme-immediate');
-    scheduleColorSchemeTimeout(type, tab.id, 'color-scheme-delayed-40', () => applyRenderedThemeForTab(type, scheme.id, tab.id, 'color-scheme-delayed-40'), 40);
-    scheduleColorSchemeTimeout(type, tab.id, 'color-scheme-delayed-180', () => applyRenderedThemeForTab(type, scheme.id, tab.id, 'color-scheme-delayed-180'), 180);
     debugLog('Debug: colorSchemes applied to active tab', { type, tabId: tab.id, scheme: scheme.id });
     return true;
   }
@@ -2315,6 +2807,7 @@
     select.id = `${type}ColorSchemeSelect`;
     select.dataset.colorSchemeSelect = '1';
     select.dataset.componentType = type;
+    select.setAttribute('data-undo-ignore', '1');
     const schemeIds = (type === 'surface')
       ? SURFACE_SCHEME_OPTION_IDS
       : BASE_SCHEME_OPTION_IDS;
@@ -2402,8 +2895,51 @@
       pickerMenu.appendChild(customButton);
     }
 
+    const choice = doc.createElement('div');
+    choice.className = 'color-scheme-picker__choice';
+    choice.dataset.colorSchemeChoice = '1';
+    choice.setAttribute('role', 'dialog');
+    choice.setAttribute('aria-label', 'Apply color scheme');
+    choice.hidden = true;
+
+    const choiceTitle = doc.createElement('div');
+    choiceTitle.className = 'color-scheme-picker__choice-title';
+    choiceTitle.textContent = 'Custom colors detected';
+
+    const choiceDescription = doc.createElement('div');
+    choiceDescription.className = 'color-scheme-picker__choice-description';
+
+    const matchButton = doc.createElement('button');
+    matchButton.type = 'button';
+    matchButton.className = 'color-scheme-picker__choice-button color-scheme-picker__choice-button--primary';
+    matchButton.dataset.colorSchemeChoiceAction = 'match';
+    matchButton.textContent = 'Match closest colors';
+    const recommended = doc.createElement('span');
+    recommended.className = 'color-scheme-picker__choice-recommended';
+    recommended.textContent = 'Recommended';
+    matchButton.appendChild(recommended);
+
+    const replaceButton = doc.createElement('button');
+    replaceButton.type = 'button';
+    replaceButton.className = 'color-scheme-picker__choice-button';
+    replaceButton.dataset.colorSchemeChoiceAction = 'replace';
+    replaceButton.textContent = 'Replace all colors';
+
+    const cancelButton = doc.createElement('button');
+    cancelButton.type = 'button';
+    cancelButton.className = 'color-scheme-picker__choice-cancel';
+    cancelButton.dataset.colorSchemeChoiceAction = 'cancel';
+    cancelButton.textContent = 'Cancel';
+
+    choice.appendChild(choiceTitle);
+    choice.appendChild(choiceDescription);
+    choice.appendChild(matchButton);
+    choice.appendChild(replaceButton);
+    choice.appendChild(cancelButton);
+
     picker.appendChild(pickerButton);
     picker.appendChild(pickerMenu);
+    picker.appendChild(choice);
 
     syncPickerElement(select, initialDisplayedSchemeId);
 
@@ -2469,6 +3005,11 @@
         const clusteringFieldset = panel.querySelector('.heatmap-clustering-panel');
         if(clusteringFieldset && clusteringFieldset.parentNode === panel){
           insertionAnchor = clusteringFieldset;
+        }
+      }else if(type === 'roc'){
+        const classificationFieldset = panel.querySelector('[data-roc-classification-fieldset="1"]');
+        if(classificationFieldset && classificationFieldset.parentNode === panel){
+          insertionAnchor = classificationFieldset;
         }
       }
       if(insertionAnchor.nextSibling){
@@ -2537,8 +3078,8 @@
     };
   };
 
-  namespace.applyToActiveTab = function applyToActiveTab(type, schemeId){
-    return applySchemeToActiveTab(type, schemeId);
+  namespace.applyToActiveTab = function applyToActiveTab(type, schemeId, options){
+    return applySchemeToActiveTab(type, schemeId, options);
   };
 
   // Apply a scheme to an arbitrary payload without mutating global defaults.

@@ -412,6 +412,15 @@
     return DEFAULT_BOX_BORDER_COLOR;
   }
 
+  function getBoxDefaultGridColor(schemeId){
+    const resolved = Shared.colorSchemes?.resolveThemeState?.('box', {
+      config: {
+        colorScheme: schemeId || DEFAULT_BOX_COLOR_SCHEME_ID
+      }
+    });
+    return resolved?.gridColor || DEFAULT_GRID_COLOR;
+  }
+
 
   const BOX_CLEANUP_DEBUG = false;
 
@@ -658,7 +667,8 @@
       pointCoords[idx] = coordProjector(rawValues[idx]);
     }
     const traceIndex = params.traceIndex;
-    const traceStyle = typeof params.getPointStyle === 'function' ? params.getPointStyle(traceIndex) : null;
+    const styleTraceIndex = params.styleTraceIndex == null ? traceIndex : params.styleTraceIndex;
+    const traceStyle = typeof params.getPointStyle === 'function' ? params.getPointStyle(styleTraceIndex) : null;
     const overrideRadius = Number(params.pointRadiusOverride);
     const styleRadiusRaw = traceStyle && Number.isFinite(Number(traceStyle.size)) ? Number(traceStyle.size) : null;
     const allowAutoSize = !!params.autoSize && !(typeof params.hasExplicitPointSize === 'function' && params.hasExplicitPointSize(traceIndex));
@@ -2236,13 +2246,25 @@
     return { border: color, stroke: color, borderColor: color };
   }
 
-  function mergePointStyles(localStyle){
-    const globalStyle = normalizeStyleObject(state.pointGlobalStyle);
+  function mergeBoxPointStyleLayers(globalStyle, localStyle){
+    const globalNormalized = normalizeStyleObject(globalStyle);
     const specific = normalizeStyleObject(localStyle);
-    if(!globalStyle && !specific){
+    if(!globalNormalized && !specific){
       return null;
     }
-    return Object.assign({}, globalStyle || {}, specific || {});
+    return Object.assign({}, globalNormalized || {}, specific || {});
+  }
+
+  function mergePointStyles(localStyle){
+    return mergeBoxPointStyleLayers(state.pointGlobalStyle, localStyle);
+  }
+
+  function resolveBoxPointPalettePaint(globalStyle, localStyle, fallbackFill, fallbackBorder){
+    const merged = mergeBoxPointStyleLayers(globalStyle, localStyle) || {};
+    return {
+      fill: readBoxStylePaintColor(merged, ['fill', 'color']) || fallbackFill,
+      border: readBoxStylePaintColor(merged, ['stroke', 'borderColor', 'border']) || fallbackBorder
+    };
   }
 
   function getTraceShapeStyle(index){
@@ -2254,6 +2276,101 @@
     if(index == null){ return state.pointGlobalStyle || null; }
     const specific = state.pointStyles && state.pointStyles[index] ? state.pointStyles[index] : null;
     return mergePointStyles(specific);
+  }
+
+  function resolveBoxTraceStyleIndex(trace, renderIndex){
+    if(trace?.groupName != null || trace?.groupIndex != null || trace?.replicateIndex != null){
+      return renderIndex;
+    }
+    const columnIndex = Number(trace?.columnIndex);
+    if(Number.isInteger(columnIndex) && columnIndex >= 0){
+      return columnIndex;
+    }
+    return renderIndex;
+  }
+
+  function reorderBoxIndexedValues(source, permutationOldByNew){
+    const permutation = Array.isArray(permutationOldByNew) ? permutationOldByNew : [];
+    if(Array.isArray(source)){
+      const output = [];
+      permutation.forEach((oldIndex, newIndex) => {
+        if(oldIndex < source.length){
+          output[newIndex] = source[oldIndex];
+        }
+      });
+      return output;
+    }
+    const input = source && typeof source === 'object' ? source : {};
+    const output = {};
+    Object.keys(input).forEach(key => {
+      if(!Number.isInteger(Number(key)) || Number(key) < 0){
+        output[key] = input[key];
+      }
+    });
+    permutation.forEach((oldIndex, newIndex) => {
+      if(Object.prototype.hasOwnProperty.call(input, oldIndex)){
+        output[newIndex] = input[oldIndex];
+      }
+    });
+    return output;
+  }
+
+  function buildBoxDatasetColumnOrder(currentOrder, traces, fromTraceIndex, toTraceIndex){
+    const order = Array.isArray(currentOrder) ? currentOrder.slice() : [];
+    const fromColumn = Number(traces?.[fromTraceIndex]?.columnIndex);
+    const toColumn = Number(traces?.[toTraceIndex]?.columnIndex);
+    const fromOrderIndex = order.indexOf(fromColumn);
+    const toOrderIndex = order.indexOf(toColumn);
+    if(fromOrderIndex < 0 || toOrderIndex < 0 || fromOrderIndex === toOrderIndex){
+      return order;
+    }
+    const moved = order.splice(fromOrderIndex, 1)[0];
+    order.splice(toOrderIndex, 0, moved);
+    return order;
+  }
+
+  function applyBoxDatasetColumnOrder(permutationOldByNew, session = null){
+    const owner = session || getActiveBoxSessionForState();
+    const hot = getBoxActiveHotManager(owner);
+    const permutation = Array.isArray(permutationOldByNew)
+      ? permutationOldByNew.map(value => Number(value))
+      : [];
+    if(!hot || typeof hot.applyColumnOrder !== 'function' || !permutation.length){
+      return false;
+    }
+    const applyOwnedPermutation = appliedPermutation => {
+      state.fillColors = reorderBoxIndexedValues(state.fillColors, appliedPermutation);
+      state.borderColors = reorderBoxIndexedValues(state.borderColors, appliedPermutation);
+      state.traceShapeStyles = reorderBoxIndexedValues(state.traceShapeStyles, appliedPermutation);
+      state.pointStyles = reorderBoxIndexedValues(state.pointStyles, appliedPermutation);
+      state.summaryStyles = reorderBoxIndexedValues(state.summaryStyles, appliedPermutation);
+      state.colOrder = appliedPermutation.map((_, index) => index);
+      commitBoxSelectionStateToSession({ colOrder: state.colOrder }, owner);
+      markBoxDrawDataDirty('dataset-column-reorder', owner);
+      captureBoxSessionState(owner, { reason: 'dataset-column-reorder' }, { readActiveGlobals: true });
+    };
+    const applied = hot.applyColumnOrder(permutation, {
+      reason: 'box-graph-dataset-reorder',
+      onApplied: applyOwnedPermutation,
+      onUndo: applyOwnedPermutation,
+      onRedo: applyOwnedPermutation,
+      updatePayload: payload => {
+        const nextPayload = payload && typeof payload === 'object' ? payload : {};
+        const config = nextPayload.config && typeof nextPayload.config === 'object'
+          ? nextPayload.config
+          : (nextPayload.config = {});
+        config.colors = state.fillColors.slice();
+        config.borderColors = state.borderColors.slice();
+        config.shapeStyles = cloneSimple(state.traceShapeStyles) || {};
+        config.pointStyles = cloneSimple(state.pointStyles) || {};
+        config.summaryStyles = cloneSimple(state.summaryStyles) || {};
+        return nextPayload;
+      }
+    });
+    if(!applied){
+      return false;
+    }
+    return true;
   }
 
   function isBoxAutoDefaultPointSize(rawSize, renderedRadius){
@@ -2639,7 +2756,9 @@
     const parentGroup = el.closest
       ? (el.closest('g[data-export-layer="box-points"]') || el.closest('g[data-trace]'))
       : null;
-    let traceIndex = parentGroup && parentGroup.dataset && parentGroup.dataset.trace != null ? String(parentGroup.dataset.trace) : null;
+    let traceIndex = parentGroup && parentGroup.dataset
+      ? String(parentGroup.dataset.styleTrace ?? parentGroup.dataset.trace ?? '').trim() || null
+      : null;
     const knownTraceIndices = () => {
       const keys = new Set();
       const addKey = value => {
@@ -2652,7 +2771,9 @@
       Object.keys(state.pointStyles || {}).forEach(addKey);
       const plotRoot = getBoxNodeById('boxPlot');
       if(plotRoot && plotRoot.querySelectorAll){
-        plotRoot.querySelectorAll('g[data-export-layer="box-points"][data-trace], g[data-trace]').forEach(group => addKey(group.getAttribute('data-trace')));
+        plotRoot.querySelectorAll('g[data-export-layer="box-points"][data-trace], g[data-trace]').forEach(group => {
+          addKey(group.getAttribute('data-style-trace') ?? group.getAttribute('data-trace'));
+        });
       }
       return Array.from(keys);
     };
@@ -12162,20 +12283,20 @@
     return settings;
   }
 
-  function createDefaultGridStyle(fallbackThickness){
+  function createDefaultGridStyle(fallbackThickness, schemeId){
     const thickness = Number.isFinite(Number(fallbackThickness)) && Number(fallbackThickness) >= 0
       ? Number(fallbackThickness)
       : 1;
     return {
-      color: DEFAULT_GRID_COLOR,
+      color: getBoxDefaultGridColor(schemeId),
       thickness,
       pattern: 'solid',
       transparency: 0
     };
   }
 
-  function sanitizeGridStyle(style, fallbackThickness){
-    const fallback = createDefaultGridStyle(fallbackThickness);
+  function sanitizeGridStyle(style, fallbackThickness, schemeId){
+    const fallback = createDefaultGridStyle(fallbackThickness, schemeId);
     if(gridControls && typeof gridControls.sanitizeStyle === 'function'){
       return gridControls.sanitizeStyle(style, fallback);
     }
@@ -12199,8 +12320,8 @@
     return sanitizeGridStyle(ensureGridStyle(fallbackThickness), fallbackThickness);
   }
 
-  function setGridStyle(style, fallbackThickness){
-    state.gridStyle = sanitizeGridStyle(style, fallbackThickness);
+  function setGridStyle(style, fallbackThickness, schemeId){
+    state.gridStyle = sanitizeGridStyle(style, fallbackThickness, schemeId);
   }
 
   function getAxisNotation(axis){
@@ -15626,7 +15747,7 @@
       return groups;
     }
     const targetTrace = String(traceIndex);
-    return groups.filter(group => String(group.getAttribute('data-trace') || '').trim() === targetTrace);
+    return groups.filter(group => String(group.getAttribute('data-style-trace') ?? group.getAttribute('data-trace') ?? '').trim() === targetTrace);
   }
 
   function applyBoxPointProxyStyleLive(group, patch){
@@ -15809,6 +15930,12 @@
         ?? traceIndex
       );
       const colorIndex = Number.isInteger(colorIndexRaw) && colorIndexRaw >= 0 ? colorIndexRaw : traceIndex;
+      const styleIndexRaw = Number(
+        pointGroup?.getAttribute?.('data-style-trace')
+        ?? node.getAttribute('data-style-trace')
+        ?? traceIndex
+      );
+      const styleIndex = Number.isInteger(styleIndexRaw) && styleIndexRaw >= 0 ? styleIndexRaw : traceIndex;
       if(colorMode === 'individual'){
         const themedColors = resolveThemeAwareDefaultTraceColors({
           schemeId,
@@ -15817,12 +15944,18 @@
           fillColor: fills.length ? fills[colorIndex % fills.length] : unifiedFill,
           borderColor: borders.length ? borders[colorIndex % borders.length] : unifiedBorder
         });
-        if(themedColors.fillColor){
-          node.setAttribute('fill', themedColors.fillColor);
+        const pointPaint = resolveBoxPointPalettePaint(
+          explicitPointGlobalStyle,
+          opts.pointStyles?.[styleIndex],
+          themedColors.fillColor,
+          themedColors.borderColor
+        );
+        if(pointPaint.fill){
+          node.setAttribute('fill', pointPaint.fill);
           applied = true;
         }
-        if(themedColors.borderColor){
-          node.setAttribute('stroke', themedColors.borderColor);
+        if(pointPaint.border){
+          node.setAttribute('stroke', pointPaint.border);
           applied = true;
         }
       }else{
@@ -15834,12 +15967,18 @@
           borderColor: useUnifiedStripDefaults ? '' : (unifiedBorder || node.getAttribute('stroke') || ''),
           preferUnifiedDefault: isBoxGrayscaleScheme(schemeId)
         });
-        if(themedColors.fillColor){
-          node.setAttribute('fill', themedColors.fillColor);
+        const pointPaint = resolveBoxPointPalettePaint(
+          explicitPointGlobalStyle,
+          opts.pointStyles?.[styleIndex],
+          themedColors.fillColor,
+          themedColors.borderColor
+        );
+        if(pointPaint.fill){
+          node.setAttribute('fill', pointPaint.fill);
           applied = true;
         }
-        if(themedColors.borderColor){
-          node.setAttribute('stroke', themedColors.borderColor);
+        if(pointPaint.border){
+          node.setAttribute('stroke', pointPaint.border);
           applied = true;
         }
       }
@@ -28935,14 +29074,13 @@ Technical analysis record (advanced)
               targetIdx = Math.max(0, Math.min(axisLabels.length - 1, targetIdx));
             }
             if(targetIdx !== i){
-              const moved = state.colOrder.splice(i, 1)[0];
-              state.colOrder.splice(targetIdx, 0, moved);
-              commitBoxSelectionStateToSession({ colOrder: state.colOrder }, drawSession);
+              const nextOrder = buildBoxDatasetColumnOrder(state.colOrder, traces, i, targetIdx);
+              applyBoxDatasetColumnOrder(nextOrder, drawSession);
             }
             if(Shared.isDebugEnabled?.()){
               boxLog('boxplot label drag end',{ component: 'box', from: i, to: targetIdx, orientation: 'horizontal-axis' });
             }
-            scheduleBoxDrawForSession(drawSession, { reason: 'category-reorder', viewOnly: true });
+            scheduleBoxDrawForSession(drawSession, { reason: 'category-reorder' });
           }
         });
       }else{
@@ -29473,11 +29611,24 @@ Technical analysis record (advanced)
       token,
       traces,
       xTickMeasureProfile,
+      yTickMeasureProfile,
+      yTitleMeasureProfile,
     } = context;
 
-    const axisLabelFont = chartStyle.makeFont(fs);
-    const xTickFontSize = Number.isFinite(Number(xTickMeasureProfile.fontSizePx)) ? Number(xTickMeasureProfile.fontSizePx) : fs;
-    const categoryWidths = labelTexts.map(lbl => chartStyle.measureText(lbl, axisLabelFont));
+    // Flipping changes screen orientation, not the semantic ownership of font styles.
+    // Categories remain x-axis data and values remain y-axis data, so their saved
+    // font roles must follow the data onto the opposite physical axis.
+    const categoryTickFontSize = Number.isFinite(Number(xTickMeasureProfile?.fontSizePx))
+      ? Number(xTickMeasureProfile.fontSizePx)
+      : fs;
+    const valueTickFontSize = Number.isFinite(Number(yTickMeasureProfile?.fontSizePx))
+      ? Number(yTickMeasureProfile.fontSizePx)
+      : fs;
+    const valueTitleFontSize = Number.isFinite(Number(yTitleMeasureProfile?.fontSizePx))
+      ? Number(yTitleMeasureProfile.fontSizePx)
+      : fs;
+    const categoryTickFont = xTickMeasureProfile?.fontSpec || chartStyle.makeFont(categoryTickFontSize);
+    const categoryWidths = labelTexts.map(lbl => chartStyle.measureText(lbl, categoryTickFont));
     const maxCategoryWidth = Math.max(...categoryWidths, 0);
     const tickLen = axisMetrics.tickLength;
     const tickGap = axisMetrics.tickLabelGap;
@@ -29536,13 +29687,13 @@ Technical analysis record (advanced)
       outerPadding: axisMetrics.outerPadding,
       tickLength: tickLen,
       tickLabelGap: tickGap,
-      tickFontSize: xTickFontSize
+      tickFontSize: categoryTickFontSize
     });
     const leftLabelReservePx = categoryMargin.extensionPx;
     marginLocal.top = Math.max(marginLocal.top, fs * 2);
     marginLocal.left = categoryMargin.marginLeft;
     marginLocal.right = Math.max(baseMarginRight, fs) + rightSignificanceReservePx;
-    marginLocal.bottom = Math.max(marginLocal.bottom, tickLen + tickGap + xTickFontSize + axisMetrics.axisTitleGap + fs);
+    marginLocal.bottom = Math.max(marginLocal.bottom, tickLen + tickGap + valueTickFontSize + axisMetrics.axisTitleGap + valueTitleFontSize);
     marginLocal = stabilizeBoxMarginForAxisResize(marginLocal, { exactRightPx: marginLocal.right });
     const flipAxisSpanTarget = getBoxFlipAxisSpanTarget('horizontal');
     let canvasWidthLocal = Math.max(50, baseCanvasWidth + leftLabelReservePx + rightSignificanceReservePx);
@@ -29720,7 +29871,6 @@ Technical analysis record (advanced)
     });
     const categoricalLayout = runtime.categoricalLayout;
 
-    const datasetGapPxH = categoricalLayout.gapPx;
     const bandH = categoricalLayout.bandSize;
     const separatedSpacing = categoricalLayout.separatedSpacing;
 
@@ -29765,24 +29915,38 @@ Technical analysis record (advanced)
     const yIntervalSetting = getAxisTickInterval('y');
     const yInterval = Number.isFinite(yIntervalSetting) && yIntervalSetting > 1 ? Math.max(1, Math.round(yIntervalSetting)) : null;
     let renderedYTicks = 0;
+    const categoryTickCenters = categoricalLayout.tickCenters;
+    const resolveNearestCategoryIndex = pointerY => {
+      let nearestIndex = 0;
+      let nearestDistance = Infinity;
+      categoryTickCenters.forEach((center, index) => {
+        const distance = Math.abs(pointerY - center);
+        if(distance < nearestDistance){
+          nearestDistance = distance;
+          nearestIndex = index;
+        }
+      });
+      return nearestIndex;
+    };
     axisLabels.forEach((lab, i) => {
       if(yInterval && i % yInterval !== 0){
         return;
       }
-      const y = separatedSpacing ? separatedSpacing.centers[i] : plotTopY + (i + 0.5) * bandH;
+      const y = categoryTickCenters[i];
       addAxisElement('line',{ x1: yAxisLeft, y1: y, x2: yAxisLeft - tickLen, y2: y, stroke: axisStroke, 'stroke-width': axisStrokeWidth });
       const labelText = lab || `Category ${i + 1}`;
       const labelAnchorX = yAxisLeft - categoryMargin.labelOffset;
       const t = addAxisElement('text',{
         x: labelAnchorX,
         y,
-        'font-size': fs,
+        'font-size': categoryTickFontSize,
         'text-anchor': 'end',
         'dominant-baseline': 'central',
         fill: chartStyle.TEXT_COLOR
       });
       t.setAttribute('data-box-axis-tick', 'y');
       t.textContent = labelText;
+      markFontEditable(t, 'xTick');
       if(isGroupedMode){
         t.style.cursor = 'default';
       }else if(typeof Shared.enableLabelDrag === 'function'){
@@ -29791,17 +29955,15 @@ Technical analysis record (advanced)
           axisLock: 'y',
           recordUndo: false,
           onDragEnd: pos => {
-            let targetIdx = Math.floor((pos.y - plotTopY) / Math.max(1e-6, bandH + datasetGapPxH));
-            targetIdx = Math.max(0, Math.min(axisLabels.length - 1, targetIdx));
+            const targetIdx = resolveNearestCategoryIndex(pos.y);
             if(targetIdx !== i){
-              const moved = state.colOrder.splice(i, 1)[0];
-              state.colOrder.splice(targetIdx, 0, moved);
-              commitBoxSelectionStateToSession({ colOrder: state.colOrder }, drawSession);
+              const nextOrder = buildBoxDatasetColumnOrder(state.colOrder, traces, i, targetIdx);
+              applyBoxDatasetColumnOrder(nextOrder, drawSession);
             }
             if(Shared.isDebugEnabled?.()){
               boxLog('boxplot label drag end',{ component: 'box', from: i, to: targetIdx, orientation: 'vertical-axis' });
             }
-            scheduleBoxDrawForSession(drawSession, { reason: 'category-reorder', viewOnly: true });
+            scheduleBoxDrawForSession(drawSession, { reason: 'category-reorder' });
           }
         });
       }else{
@@ -29834,11 +29996,12 @@ Technical analysis record (advanced)
       }
       const x = valueToX(t);
       addAxisElement('line',{ x1: x, y1: xAxisBottom, x2: x, y2: xAxisBottom + tickLen, stroke: axisStroke, 'stroke-width': axisStrokeWidth });
-      const extra = Shared.computeAxisLabelYOffset ? Shared.computeAxisLabelYOffset(fs, tickLen, tickGap) : 0;
-      const txt = addAxisElement('text',{ x, y: xAxisBottom + tickLen + tickGap + extra, 'font-size': fs, 'text-anchor': 'middle', fill: chartStyle.TEXT_COLOR });
+      const extra = Shared.computeAxisLabelYOffset ? Shared.computeAxisLabelYOffset(valueTickFontSize, tickLen, tickGap) : 0;
+      const txt = addAxisElement('text',{ x, y: xAxisBottom + tickLen + tickGap + extra, 'font-size': valueTickFontSize, 'text-anchor': 'middle', fill: chartStyle.TEXT_COLOR });
       txt.setAttribute('data-box-axis-tick', 'x');
       txt.textContent = formatTick(logScale ? Math.pow(10, t) : t);
-      Shared.applyTextBaseline && Shared.applyTextBaseline(txt, 'hanging', fs);
+      markFontEditable(txt, 'yTick');
+      Shared.applyTextBaseline && Shared.applyTextBaseline(txt, 'hanging', valueTickFontSize);
       xMajorTickLabels.push({ pixel: x, node: txt });
     });
     if(additionalXTicks.length){
@@ -29902,17 +30065,18 @@ Technical analysis record (advanced)
             if(nearMajor && replaceMajorTickLabel(xMajorTickLabels, pixel, label)){
               return;
             }
-            const extra = Shared.computeAxisLabelYOffset ? Shared.computeAxisLabelYOffset(fs, tickLen, tickGap) : 0;
+            const extra = Shared.computeAxisLabelYOffset ? Shared.computeAxisLabelYOffset(valueTickFontSize, tickLen, tickGap) : 0;
             const txt = addAxisElement('text',{
               x: pixel,
-              y: xAxisBottom + tickLen + tickGap + extra + Math.max(2, fs * 0.85),
-              'font-size': fs,
+              y: xAxisBottom + tickLen + tickGap + extra + Math.max(2, valueTickFontSize * 0.85),
+              'font-size': valueTickFontSize,
               'text-anchor': 'middle',
               fill: chartStyle.TEXT_COLOR
             });
             txt.setAttribute('data-box-axis-tick', 'x');
             txt.textContent = label;
-            Shared.applyTextBaseline && Shared.applyTextBaseline(txt, 'hanging', fs);
+            markFontEditable(txt, 'yTick');
+            Shared.applyTextBaseline && Shared.applyTextBaseline(txt, 'hanging', valueTickFontSize);
           }
         });
       }
@@ -29988,9 +30152,9 @@ Technical analysis record (advanced)
     const defaultXLabelY = xAxisBottom
       + tickLen
       + tickGap
-      + xTickFontSize
+      + valueTickFontSize
       + axisMetrics.axisTitleGap
-      + fs;
+      + valueTitleFontSize;
     const xLabelPos = state.labelPositions?.xLabel;
 
     // Convert relative positions to absolute if needed for xLabel
@@ -30008,9 +30172,10 @@ Technical analysis record (advanced)
       }
     }
 
-    const xLabel = addAxisElement('text',{ x: absoluteXLabelX, y: absoluteXLabelY, 'text-anchor': 'middle', 'font-size': fs, fill: chartStyle.TEXT_COLOR });
+    const xLabel = addAxisElement('text',{ x: absoluteXLabelX, y: absoluteXLabelY, 'text-anchor': 'middle', 'font-size': valueTitleFontSize, fill: chartStyle.TEXT_COLOR });
     xLabel.setAttribute('data-box-axis-title', 'x');
     xLabel.textContent = state.yLabelText;
+    markFontEditable(xLabel, 'yTitle', 'yTitle');
     const applyBoxXLabel = value => {
       const nextValue = value != null ? String(value) : '';
       state.yLabelText = nextValue;
@@ -30440,6 +30605,7 @@ Technical analysis record (advanced)
       styleScaleInfo,
       xTickMeasureProfile,
       yTickMeasureProfile,
+      yTitleMeasureProfile,
       axisStrokeWidth,
       axisStrokeColor,
       gridStrokeAttrs,
@@ -31215,6 +31381,7 @@ Technical analysis record (advanced)
         localBand,
         sampleCount,
         traceIndex,
+        styleTraceIndex = traceIndex,
         tooltipSeriesName,
         tooltipCategoryName,
         tooltipGroupName,
@@ -31246,7 +31413,12 @@ Technical analysis record (advanced)
         nextPlotW = NaN,
         nextPlotH = NaN
       } = config || {};
-      const groupAttributes = { 'data-trace': traceIndex, 'data-export-layer': 'box-points', ...groupAttrs };
+      const groupAttributes = {
+        'data-trace': traceIndex,
+        'data-style-trace': styleTraceIndex,
+        'data-export-layer': 'box-points',
+        ...groupAttrs
+      };
       const group = add('g', groupAttributes);
       const resizePhase = typeof drawOpts?.resizePhase === 'string' ? drawOpts.resizePhase : '';
       const isResizeLivePhase = drawOpts?.reason === 'resize' && (resizePhase === 'start' || resizePhase === 'move');
@@ -31317,6 +31489,7 @@ Technical analysis record (advanced)
       const pointLayout = prepareSwarmPointLayoutConfig({
         valueList,
         traceIndex,
+        styleTraceIndex,
         getPointStyle,
         hasExplicitPointSize,
         pointRadius,
@@ -32167,6 +32340,7 @@ Technical analysis record (advanced)
       const nextPlotH = Number(config?.nextPlotH);
       return async params => renderSwarmPointsShared({
         ...params,
+        styleTraceIndex: resolveBoxTraceStyleIndex(traces?.[params?.traceIndex], params?.traceIndex),
         centerCoord: params?.[centerCoordKey],
         orientation,
         cacheAxisKey,
@@ -33022,6 +33196,7 @@ Technical analysis record (advanced)
       traces,
       xTickMeasureProfile,
       yTickMeasureProfile,
+      yTitleMeasureProfile,
     };
     const orientationResult = isFlipped
       ? await renderBoxHorizontalFrame(orientationFrameContext)
@@ -33727,6 +33902,15 @@ Technical analysis record (advanced)
           fontStyle: 'normal',
           fontWeight: 'normal'
         };
+    const yTitleMeasureProfile = (chartStyle && typeof chartStyle.resolveScopedLabelMeasureFont === 'function')
+      ? chartStyle.resolveScopedLabelMeasureFont({ styles: scopedFontStyles, role: 'yTitle', fallbackPx: fs })
+      : {
+          fontSpec: chartStyle.makeFont(fs),
+          fontSizePx: fs,
+          fontFamily: chartStyle.FONT_FAMILY || 'Arial, Helvetica, sans-serif',
+          fontStyle: 'normal',
+          fontWeight: 'normal'
+        };
     if(debugEnabled){
       boxLog('Debug: box xTick measurement profile', {
         fontSpec: xTickMeasureProfile.fontSpec,
@@ -33775,7 +33959,8 @@ Technical analysis record (advanced)
         || Math.abs(sizeValue - pointRadius) <= tolerance;
     };
     const hasExplicitPointSize = (traceIndex) => {
-      const perTraceSize = state.pointStyles && traceIndex != null ? state.pointStyles[traceIndex]?.size : null;
+      const styleIndex = traceIndex == null ? null : resolveBoxTraceStyleIndex(traces?.[traceIndex], traceIndex);
+      const perTraceSize = state.pointStyles && styleIndex != null ? state.pointStyles[styleIndex]?.size : null;
       if(Number.isFinite(Number(perTraceSize)) && Number(perTraceSize) > 0){
         return !isAutoDefaultPointSize(perTraceSize);
       }
@@ -33789,7 +33974,8 @@ Technical analysis record (advanced)
       let radius = Number.isFinite(Number(fallbackRadius)) && Number(fallbackRadius) > 0
         ? Number(fallbackRadius)
         : 0;
-      const pointStyle = getPointStyle(traceIndex);
+      const styleIndex = resolveBoxTraceStyleIndex(traces?.[traceIndex], traceIndex);
+      const pointStyle = getPointStyle(styleIndex);
       if(Number.isFinite(Number(pointStyle?.size)) && Number(pointStyle.size) > 0){
         const styledRadius = resolveResponsivePointRadius(pointStyle.size, pointFrameScaleInfo, { context: 'box-point-annotation', min: 0.5 });
         radius = Math.max(radius, styledRadius);
@@ -35100,6 +35286,7 @@ Technical analysis record (advanced)
       styleScaleInfo,
       xTickMeasureProfile,
       yTickMeasureProfile,
+      yTitleMeasureProfile,
       axisStrokeWidth,
       axisStrokeColor,
       gridStrokeAttrs,
@@ -35960,7 +36147,7 @@ Technical analysis record (advanced)
     }
     chartStyle.renderFontSizeLabel({ element: els.boxFontSizeVal, pt: Number(els.boxFontSize.value), input: els.boxFontSize, manual: true });
     els.boxShowGrid.checked=!!c.showGrid;
-    setGridStyle(c.gridStyle, c.axis?.strokeWidth);
+    setGridStyle(c.gridStyle, c.axis?.strokeWidth, c.colorScheme);
     if(els.boxShowFrame) els.boxShowFrame.checked=!!c.showFrame;
     if(els.boxShowLegend){
       els.boxShowLegend.checked = Object.prototype.hasOwnProperty.call(c, 'showLegend')
@@ -38076,6 +38263,10 @@ Technical analysis record (advanced)
       resolveBoxToolbarPointBorderColorValue:(style,sourcePoint)=>resolveBoxToolbarPointBorderColorValue(style,sourcePoint),
       resolveBoxToolbarPointBorderWidthPatch:(style,sourcePoint,widthValue)=>resolveBoxToolbarPointBorderWidthPatch(style,sourcePoint,widthValue),
       normalizeBoxPointStylePatch:patch=>normalizeBoxPointStylePatch(patch),
+      resolveBoxTraceStyleIndex:(trace,renderIndex)=>resolveBoxTraceStyleIndex(trace,renderIndex),
+      reorderBoxIndexedValues:(source,permutation)=>reorderBoxIndexedValues(source,permutation),
+      buildBoxDatasetColumnOrder:(order,traces,fromIndex,toIndex)=>buildBoxDatasetColumnOrder(order,traces,fromIndex,toIndex),
+      applyBoxDatasetColumnOrder:(permutation,session)=>applyBoxDatasetColumnOrder(permutation,session),
       hasExplicitBoxPointBorderWidth:style=>hasExplicitBoxPointBorderWidth(style),
       resolveBoxPointStrokeWidthForRender:(rawStrokeWidth,effectiveRadius,options={})=>resolveBoxPointStrokeWidthForRender(rawStrokeWidth,effectiveRadius,options || {}),
       applyBoxCanvasPointGroupStyleLive:(group,patch)=>applyBoxCanvasPointGroupStyleLive(group,patch),
@@ -38086,6 +38277,7 @@ Technical analysis record (advanced)
       computeStripSpreadScale:config=>computeStripSpreadScale(config),
       computeStripHalfExtentLimit:config=>computeStripHalfExtentLimit(config),
       resolveBoxSummaryOverlayColor:(summaryStyle,fillColor,borderColor,options={})=>resolveBoxSummaryOverlayColor(summaryStyle,fillColor,borderColor,options || {}),
+      resolveBoxPointPalettePaint:(globalStyle,localStyle,fallbackFill,fallbackBorder)=>resolveBoxPointPalettePaint(globalStyle,localStyle,fallbackFill,fallbackBorder),
       resolveThemeAwareDefaultTraceColors:(options={})=>resolveThemeAwareDefaultTraceColors(options || {}),
       isBoxThemeNeutralColorToken:(value,options={})=>isBoxThemeNeutralColorToken(value,options || {}),
       resolveIndividualPointThemeDefaults:(config={})=>resolveIndividualPointThemeDefaults(config || {}),

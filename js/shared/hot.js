@@ -564,6 +564,30 @@
     }
   };
 
+  const syncOwnerTabTableUiState = (hotInstance, reason) => {
+    const { tab } = resolveTableOwnerSessionAndTab({
+      hotInstance,
+      reason: reason || 'table-ui-state-change'
+    });
+    if(!tab || tab.isWelcome){
+      return false;
+    }
+    const tableState = captureHotUiState(hotInstance);
+    if(!tableState){
+      return false;
+    }
+    tab.uiState = tab.uiState && typeof tab.uiState === 'object' ? tab.uiState : {};
+    tab.uiState.component = tab.uiState.component && typeof tab.uiState.component === 'object'
+      ? tab.uiState.component
+      : {};
+    tab.uiState.component.table = tableState;
+    markTabUserModifiedForOwner(tab, reason || 'table-ui-state-change', {
+      affectsPayload: false,
+      source: 'table-ui'
+    });
+    return true;
+  };
+
 
 
   // A genuine user table mutation makes a restored render stale. Lift the
@@ -1002,6 +1026,17 @@
         delete nextPayload.dataViews;
         delete nextPayload.activeDataViewId;
       }
+    }
+    const liveExclusions = meta.hotInstance?.exportExclusions?.();
+    if(liveExclusions && typeof liveExclusions === 'object'){
+      nextPayload.exclusions = liveExclusions;
+    }
+    const liveFilters = meta.hotInstance?.exportFilters?.();
+    if(liveFilters && typeof liveFilters === 'object'){
+      nextPayload.filters = liveFilters;
+    }
+    if(typeof meta.updatePayload === 'function'){
+      nextPayload = meta.updatePayload(nextPayload, tab) || nextPayload;
     }
     return session.commitTabPayload(tab, nextPayload, {
       reason: effectiveReason,
@@ -10244,6 +10279,40 @@
       }
     };
 
+    const exportColumnWidths = api => {
+      const widths = captureColumnWidths(api);
+      if(!widths){
+        return null;
+      }
+      const exported = {};
+      widths.forEach((width, colId)=>{
+        if(typeof colId === 'string' && /^c\d+$/.test(colId) && Number.isFinite(width) && width > 0){
+          exported[colId] = Math.round(width);
+        }
+      });
+      return Object.keys(exported).length ? exported : null;
+    };
+
+    const importColumnWidths = (api, rawWidths)=>{
+      if(!rawWidths || typeof rawWidths !== 'object' || Array.isArray(rawWidths)){
+        return false;
+      }
+      const widths = new Map();
+      Object.entries(rawWidths).forEach(([colId, rawWidth])=>{
+        const col = /^c(\d+)$/.exec(colId);
+        const width = Number(rawWidth);
+        if(col && Number(col[1]) < colCount && Number.isFinite(width) && width > 0){
+          widths.set(colId, Math.round(width));
+        }
+      });
+      if(!widths.size){
+        return false;
+      }
+      widths.forEach((width, colId)=>columnWidthOverrides.set(colId, width));
+      applyCapturedColumnWidths(api, widths);
+      return true;
+    };
+
     const applyRowData = (api, rows)=>{
       if(!api || !Array.isArray(rows)){
         return;
@@ -10353,7 +10422,7 @@
         return 'data';
       }
       if(currentReason === 'afterColumnMove'){
-        return 'layout';
+        return 'data';
       }
       if(currentReason === 'updateSettings'){
         if(source === 'columnMove' || source === 'afterColumnMove'){
@@ -10802,6 +10871,12 @@
           fixedRowsTop: pinRowCount
         };
       },
+      getColumnWidths(){
+        return exportColumnWidths(instance.gridApi);
+      },
+      applyColumnWidths(widths){
+        return importColumnWidths(instance.gridApi, widths);
+      },
       changesAffectAnalysis(changes){
         return Array.isArray(changes) ? changes.some(visualChangeAffectsAnalysis) : true;
       },
@@ -10981,6 +11056,9 @@
       },
       countRows(){ return getVisualRowCount(); },
       countCols(){ return colCount; },
+      applyColumnOrder(permutationOldByNew, options = {}){
+        return applyDataColumnOrder(permutationOldByNew, options);
+      },
       countSourceRows(){ return dataHandle.current.length; },
       countSourceCols(){ return colCount; },
       getSourceData(){ return dataHandle.current; },
@@ -13125,6 +13203,9 @@
         rows: Array.isArray(exclusionState?.rows) ? exclusionState.rows : [],
         cols: nextExcludedCols,
         cells: nextExcludedCells
+      }, {
+        silent: true,
+        source: 'column-permutation'
       });
 
       // Reset column state to default c0.. ordering (data has been permuted to match the requested order).
@@ -13168,7 +13249,7 @@
         }
       }
 
-      fireHook('afterColumnMove');
+      fireHook('afterColumnMove', null, null, null, true, true);
       triggerSchedule('afterColumnMove', { source: reason || 'columnPermutation' });
       if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
         hotDebug('Debug: Shared.hot applied column permutation', { debugLabel, reason: reason || null });
@@ -13176,7 +13257,17 @@
       return true;
     };
 
-    const commitDisplayedColumnOrderToData = (reason, movedColIds)=>{
+    const commitDisplayedColumnOrderToData = (reason, movedColIds, transactionOptions = {})=>{
+      const syncReorderedPayload = source => syncOwnerTabPayloadFullData(
+        dataHandle.current,
+        'table-column-reorder',
+        {
+          source: source || reason || 'column-order',
+          hotInstance: instance,
+          affectsAnalysis: true,
+          updatePayload: transactionOptions.updatePayload
+        }
+      );
       const currentOrder = getDisplayedDataColumnOrder();
       if(!currentOrder || currentOrder.length !== colCount){
         if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
@@ -13230,6 +13321,8 @@
         }
         return false;
       }
+      transactionOptions.onApplied?.(permutationOldByNew.slice());
+      syncReorderedPayload(reason || 'column-order');
 
       const undoLabel = `table:${debugLabel}:reorder-columns`;
       undoManager.record({
@@ -13238,6 +13331,10 @@
         tabId: resolveUndoTabId(),
         undo: ()=>{
           const ok = applyColumnPermutation(inverse, { reason: 'undo:reorder-columns', skipSelection: true });
+          if(ok){
+            transactionOptions.onUndo?.(inverse.slice());
+            syncReorderedPayload('undo:reorder-columns');
+          }
           if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
             hotDebug('Debug: Shared.hot reorder undo closure executed', {
               debugLabel,
@@ -13251,6 +13348,10 @@
         },
         redo: ()=>{
           const ok = applyColumnPermutation(permutationOldByNew, { reason: 'redo:reorder-columns', skipSelection: true });
+          if(ok){
+            transactionOptions.onRedo?.(permutationOldByNew.slice());
+            syncReorderedPayload('redo:reorder-columns');
+          }
           if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
             hotDebug('Debug: Shared.hot reorder redo closure executed', {
               debugLabel,
@@ -13282,6 +13383,29 @@
         });
       }
       return true;
+    };
+
+    const applyDataColumnOrder = (permutationOldByNew, options = {})=>{
+      const permutation = Array.isArray(permutationOldByNew)
+        ? permutationOldByNew.map(value => Number(value))
+        : [];
+      if(permutation.length !== colCount
+        || !permutation.every(value => Number.isInteger(value) && value >= 0 && value < colCount)
+        || new Set(permutation).size !== colCount){
+        return false;
+      }
+      if(permutation.every((oldIndex, newIndex)=>oldIndex === newIndex)){
+        return false;
+      }
+      const orderedColIds = permutation.map(oldIndex => `c${oldIndex}`);
+      if(!applyDisplayedColumnOrder(orderedColIds)){
+        return false;
+      }
+      return commitDisplayedColumnOrderToData(
+        options.reason || 'programmatic-column-order',
+        Array.isArray(options.movedColIds) ? options.movedColIds : null,
+        options
+      );
     };
 
     const resolveMovedDataColumnIdsFromEvent = (params)=>{
@@ -13548,6 +13672,9 @@
           const isFinalResizeEvent = params?.finished !== false;
           if(isFinalResizeEvent){
             persistColumnWidthOverrides(apiRef, 'column-resized');
+            if(params?.source === 'uiColumnResized'){
+              syncOwnerTabTableUiState(instance, 'table-column-width-changed');
+            }
           }
           scheduleFillHandleUpdate(isFinalResizeEvent ? 'column-resize-finished' : 'column-resize-live');
           if(formulaReferenceOverlayState.ranges.length){
@@ -15182,10 +15309,12 @@
         }
       };
 
-      let pendingColumnAutosizePersist = null;
-      const cancelPendingColumnAutosizePersist = ()=>{
-        const pending = pendingColumnAutosizePersist;
-        pendingColumnAutosizePersist = null;
+      let pendingColumnAutosizeFrame = null;
+      let columnAutosizeGeneration = 0;
+      const cancelPendingColumnAutosize = ()=>{
+        const pending = pendingColumnAutosizeFrame;
+        pendingColumnAutosizeFrame = null;
+        columnAutosizeGeneration += 1;
         if(!pending){
           return;
         }
@@ -15194,6 +15323,39 @@
         }else{
           pending.win?.clearTimeout?.(pending.id);
         }
+        pending.resolve?.(false);
+      };
+
+      const waitForColumnAutosizeFrame = (generation, winLocal)=>new Promise(resolve=>{
+        const finish = ()=>{
+          pendingColumnAutosizeFrame = null;
+          resolve(!instance?.__destroyed && generation === columnAutosizeGeneration);
+        };
+        if(typeof winLocal?.requestAnimationFrame === 'function'){
+          pendingColumnAutosizeFrame = {
+            kind: 'raf',
+            id: winLocal.requestAnimationFrame(finish),
+            win: winLocal,
+            resolve
+          };
+          return;
+        }
+        pendingColumnAutosizeFrame = {
+          kind: 'timeout',
+          id: winLocal?.setTimeout?.(finish, 0),
+          win: winLocal,
+          resolve
+        };
+      });
+
+      const collectRenderedAutosizeColumns = pendingIds=>{
+        if(!container || typeof container.querySelectorAll !== 'function'){
+          return [];
+        }
+        const rendered = new Set(Array.from(container.querySelectorAll(
+          '.ag-cell[col-id], .ag-header-cell[col-id]'
+        )).map(cell=>cell.getAttribute('col-id')).filter(Boolean));
+        return Array.from(pendingIds).filter(colId=>rendered.has(colId));
       };
 
       const handleColumnResizeDoubleClick = (event)=>{
@@ -15201,11 +15363,15 @@
         if(!target || typeof target.closest !== 'function' || !target.closest('.ag-header-cell-resize')){
           return;
         }
-        const selectedColumns = getSelectedHeaderColumnsSorted();
-        const allDataColumnsSelected = colCount > 1
-          && selectedColumns.length === colCount
-          && selectedColumns.every((col, index)=>col === index);
-        if(!allDataColumnsSelected){
+        const selectedColumns = new Set(getSelectedHeaderColumnsSorted());
+        const titleRow = Number.isInteger(headerRowIndex) && Array.isArray(dataHandle.current?.[headerRowIndex])
+          ? dataHandle.current[headerRowIndex]
+          : [];
+        const titledColumns = Array.from({ length: colCount }, (_, col)=>col)
+          .filter(col=>String(titleRow[col] ?? '').trim() !== '');
+        const allTitledColumnsSelected = titledColumns.length > 1
+          && titledColumns.every(col=>selectedColumns.has(col));
+        if(!allTitledColumnsSelected){
           return;
         }
         const api = instance?.gridApi || null;
@@ -15215,30 +15381,48 @@
         event.preventDefault?.();
         event.stopPropagation?.();
         event.stopImmediatePropagation?.();
-        api.autoSizeColumns(selectedColumns.map(col=>`c${col}`), false);
         const docLocal = container?.ownerDocument || document;
         const winLocal = docLocal?.defaultView || global;
-        cancelPendingColumnAutosizePersist();
-        const persistAfterAutosize = ()=>{
-          pendingColumnAutosizePersist = null;
-          if(instance?.__destroyed){
+        cancelPendingColumnAutosize();
+        const generation = columnAutosizeGeneration;
+        const authority = getAgHorizontalScrollAuthority();
+        const originalScrollLeft = Number(authority?.scrollLeft) || 0;
+        const pendingIds = new Set(titledColumns.map(col=>`c${col}`));
+        const autosizeRendered = fallbackColId=>{
+          const renderedIds = collectRenderedAutosizeColumns(pendingIds);
+          const batch = renderedIds.length
+            ? renderedIds
+            : (fallbackColId && pendingIds.has(fallbackColId) ? [fallbackColId] : []);
+          if(!batch.length){
+            return false;
+          }
+          api.autoSizeColumns(batch, false);
+          batch.forEach(colId=>pendingIds.delete(colId));
+          return true;
+        };
+        void (async ()=>{
+          autosizeRendered(null);
+          while(pendingIds.size && generation === columnAutosizeGeneration && !instance?.__destroyed){
+            const nextColId = pendingIds.values().next().value;
+            if(typeof api.ensureColumnVisible !== 'function'){
+              api.autoSizeColumns(Array.from(pendingIds), false);
+              pendingIds.clear();
+              break;
+            }
+            api.ensureColumnVisible(nextColId, 'middle');
+            if(!await waitForColumnAutosizeFrame(generation, winLocal)
+              || !await waitForColumnAutosizeFrame(generation, winLocal)){
+              return;
+            }
+            autosizeRendered(nextColId);
+          }
+          if(generation !== columnAutosizeGeneration || instance?.__destroyed){
             return;
           }
+          setAgHorizontalScrollAuthorityLeft(originalScrollLeft, 'column-autosize-restore', authority);
           persistColumnWidthOverrides(api, 'selected-columns-autosize');
-        };
-        if(typeof winLocal?.requestAnimationFrame === 'function'){
-          pendingColumnAutosizePersist = {
-            kind: 'raf',
-            id: winLocal.requestAnimationFrame(persistAfterAutosize),
-            win: winLocal
-          };
-        }else{
-          pendingColumnAutosizePersist = {
-            kind: 'timeout',
-            id: winLocal?.setTimeout?.(persistAfterAutosize, 0),
-            win: winLocal
-          };
-        }
+          syncOwnerTabTableUiState(instance, 'table-column-widths-autosized');
+        })();
       };
 
       const handleColumnHeaderMouseUp = (event)=>{
@@ -16877,7 +17061,7 @@
       cleanupFns.push(()=>{
         keyboardShortcutRegistration?.unregister?.();
         keyboardShortcutRegistration = null;
-        cancelPendingColumnAutosizePersist();
+        cancelPendingColumnAutosize();
         clearDeferredColumnMoveCommit();
         stopFormulaOverlayLoop();
         stopFormulaReferenceDrag('cleanup');
@@ -17519,9 +17703,7 @@
   hotNS.exportExclusions = exportExclusions;
   hotNS.applyExclusions = applyExclusions;
   hotNS.clearExclusions = clearExclusions;
-  // Capture/apply UI state from a Shared.hot instance — currently the first displayed
-  // row + the last selection range. Used by components' captureUiState/applyUiState
-  // hooks so the workspace round-trip can preserve scroll position and selection.
+  // Capture/apply the table UI state persisted by every component.
   function captureHotUiState(instance){
     if(!instance){ return null; }
     const captured = {};
@@ -17557,6 +17739,16 @@
         }
       }catch(err){
         console.error('Shared.hot.captureHotUiState getSelectedRangeLast error', err);
+      }
+    }
+    if(typeof instance.getColumnWidths === 'function'){
+      try{
+        const columnWidths = instance.getColumnWidths();
+        if(columnWidths && typeof columnWidths === 'object' && Object.keys(columnWidths).length){
+          captured.columnWidths = columnWidths;
+        }
+      }catch(err){
+        console.error('Shared.hot.captureHotUiState getColumnWidths error', err);
       }
     }
     try{
@@ -17603,6 +17795,15 @@
     let appliedAny = false;
     const gridApi = instance.gridApi || null;
     const reason = options.reason || 'apply-hot-uiState';
+    if(state.columnWidths && typeof instance.applyColumnWidths === 'function'){
+      try{
+        if(instance.applyColumnWidths(state.columnWidths)){
+          appliedAny = true;
+        }
+      }catch(err){
+        console.error('Shared.hot.applyHotUiState column widths error', { reason, err });
+      }
+    }
     if(Number.isInteger(state.firstDisplayedRow) && state.firstDisplayedRow >= 0
       && gridApi && typeof gridApi.ensureIndexVisible === 'function'){
       try{

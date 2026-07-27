@@ -340,6 +340,9 @@ describe('Shared resizer graph options menu', () => {
       minHeight: 90,
       onResize
     });
+    observerCallback?.();
+    expect(onResize).not.toHaveBeenCalled();
+
     window.Shared.applyResizableBoxSize(box, { width: 460, height: 340, axis: 'both' });
     expect(onResize).toHaveBeenLastCalledWith('programmatic');
     now += 1_000;
