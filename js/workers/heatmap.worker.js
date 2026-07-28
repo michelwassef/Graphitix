@@ -607,6 +607,319 @@
     };
   }
 
+  function parseNumber(value){
+    if(typeof value === 'number'){
+      return Number.isFinite(value) ? value : NaN;
+    }
+    if(value == null){ return NaN; }
+    const text = String(value).trim();
+    if(!text){ return NaN; }
+    const numeric = Number(text.replace(/,/g, ''));
+    return Number.isFinite(numeric) ? numeric : NaN;
+  }
+
+  function normalizeMode(value){
+    const mode = String(value || '').trim().toLowerCase();
+    return mode === 'mean' || mode === 'median' ? mode : null;
+  }
+
+  function median(values){
+    const finite = [];
+    for(let index = 0; index < values.length; index += 1){
+      if(Number.isFinite(values[index])){ finite.push(values[index]); }
+    }
+    if(!finite.length){ return NaN; }
+    finite.sort((left, right) => left - right);
+    const middle = Math.floor(finite.length / 2);
+    return finite.length % 2
+      ? finite[middle]
+      : (finite[middle - 1] + finite[middle]) / 2;
+  }
+
+  function parseTransformInput(data){
+    if(!Array.isArray(data) || data.length < 2){ return null; }
+    const header = Array.isArray(data[0]) ? data[0] : [];
+    if(!header.length){ return null; }
+    let hasLabelColumn = false;
+    for(let rowIndex = 1; rowIndex < data.length; rowIndex += 1){
+      const row = Array.isArray(data[rowIndex]) ? data[rowIndex] : [];
+      const cell = row[0];
+      if(cell != null && String(cell).trim() && !Number.isFinite(parseNumber(cell))){
+        hasLabelColumn = true;
+        break;
+      }
+    }
+    const startColumn = hasLabelColumn ? 1 : 0;
+    if(header.length <= startColumn){ return null; }
+    const columnLabels = [];
+    for(let column = startColumn; column < header.length; column += 1){
+      const raw = header[column];
+      columnLabels.push(raw != null && String(raw).trim() ? String(raw).trim() : `Column ${column - startColumn + 1}`);
+    }
+    const matrix = [];
+    const rowLabels = [];
+    let skippedRows = 0;
+    for(let rowIndex = 1; rowIndex < data.length; rowIndex += 1){
+      const source = Array.isArray(data[rowIndex]) ? data[rowIndex] : [];
+      const row = new Array(columnLabels.length);
+      let hasNumeric = false;
+      for(let column = 0; column < columnLabels.length; column += 1){
+        const value = parseNumber(source[column + startColumn]);
+        row[column] = value;
+        hasNumeric = hasNumeric || Number.isFinite(value);
+      }
+      if(!hasNumeric){
+        skippedRows += 1;
+        continue;
+      }
+      const rawLabel = hasLabelColumn ? source[0] : null;
+      rowLabels.push(rawLabel != null && String(rawLabel).trim() ? String(rawLabel).trim() : `Row ${rowLabels.length + 1}`);
+      matrix.push(row);
+    }
+    if(!matrix.length){ return null; }
+    return {
+      matrix,
+      rowLabels,
+      columnLabels,
+      rowHeaderLabel: hasLabelColumn && header[0] != null && String(header[0]).trim()
+        ? String(header[0]).trim()
+        : 'Row',
+      skippedRows
+    };
+  }
+
+  function pruneColumns(matrix, columnLabels){
+    const columnCount = columnLabels.length;
+    const keep = new Uint8Array(columnCount);
+    let keptCount = 0;
+    for(let rowIndex = 0; rowIndex < matrix.length; rowIndex += 1){
+      const row = matrix[rowIndex];
+      for(let column = 0; column < columnCount; column += 1){
+        if(!keep[column] && Number.isFinite(row[column])){
+          keep[column] = 1;
+          keptCount += 1;
+        }
+      }
+      if(keptCount === columnCount){ break; }
+    }
+    if(keptCount === columnCount){
+      return { matrix, columnLabels, removed: 0 };
+    }
+    const labels = [];
+    for(let column = 0; column < columnCount; column += 1){
+      if(keep[column]){ labels.push(columnLabels[column]); }
+    }
+    const nextMatrix = matrix.map(row => {
+      const next = new Array(keptCount);
+      let target = 0;
+      for(let column = 0; column < columnCount; column += 1){
+        if(keep[column]){ next[target++] = row[column]; }
+      }
+      return next;
+    });
+    return { matrix: nextMatrix, columnLabels: labels, removed: columnCount - keptCount };
+  }
+
+  function transformRows(parsed, settings){
+    const filters = settings?.filters || {};
+    const adjust = settings?.adjust || {};
+    const logTransform = !!adjust.logTransform;
+    const logPlusOne = !!adjust.logPlusOne;
+    const presentThreshold = Number(filters.presentThreshold);
+    const sdThreshold = Number(filters.sdThreshold);
+    const absValue = Number(filters.absValue);
+    const absCount = Number(filters.absCount);
+    const rangeThreshold = Number(filters.rangeThreshold);
+    const matrix = [];
+    const rowLabels = [];
+    let filteredRows = 0;
+    let logApplied = 0;
+
+    for(let rowIndex = 0; rowIndex < parsed.matrix.length; rowIndex += 1){
+      const source = parsed.matrix[rowIndex];
+      const row = new Array(source.length);
+      let count = 0;
+      let sum = 0;
+      let sumSq = 0;
+      let min = Infinity;
+      let max = -Infinity;
+      let absoluteMatches = 0;
+      for(let column = 0; column < source.length; column += 1){
+        let value = source[column];
+        if(Number.isFinite(value) && logTransform){
+          value = logPlusOne && value >= 0
+            ? Math.log2(value + 1)
+            : (!logPlusOne && value > 0 ? Math.log2(value) : NaN);
+          if(Number.isFinite(value)){ logApplied += 1; }
+        }
+        row[column] = value;
+        if(!Number.isFinite(value)){ continue; }
+        count += 1;
+        sum += value;
+        sumSq += value * value;
+        if(value < min){ min = value; }
+        if(value > max){ max = value; }
+        if(Number.isFinite(absValue) && Math.abs(value) >= absValue){ absoluteMatches += 1; }
+      }
+      const percentPresent = source.length ? (count / source.length) * 100 : 0;
+      const variance = count > 1 ? (sumSq - ((sum * sum) / count)) / (count - 1) : NaN;
+      const standardDeviation = Number.isFinite(variance) ? Math.sqrt(Math.max(variance, 0)) : NaN;
+      const passes = (!filters.presentEnabled || !Number.isFinite(presentThreshold) || percentPresent >= presentThreshold)
+        && (!filters.sdEnabled || !Number.isFinite(sdThreshold) || (Number.isFinite(standardDeviation) && standardDeviation >= sdThreshold))
+        && (!filters.absEnabled || !Number.isFinite(absValue) || !Number.isFinite(absCount) || absoluteMatches >= absCount)
+        && (!filters.rangeEnabled || !Number.isFinite(rangeThreshold) || (count > 0 && max - min >= rangeThreshold));
+      if(!passes){
+        filteredRows += 1;
+        continue;
+      }
+      matrix.push(row);
+      rowLabels.push(parsed.rowLabels[rowIndex]);
+    }
+    return { matrix, rowLabels, filteredRows, logApplied };
+  }
+
+  function adjustMatrix(matrix, adjust){
+    const rowMode = normalizeMode(adjust?.centerRowsMode ?? adjust?.centerRows);
+    const columnMode = normalizeMode(adjust?.centerColumnsMode ?? adjust?.centerColumns);
+    const normalizeRows = !!adjust?.normalizeRows;
+    const normalizeColumns = !!adjust?.normalizeColumns;
+    const rowCount = matrix.length;
+    const columnCount = matrix[0]?.length || 0;
+
+    for(let rowIndex = 0; rowIndex < rowCount; rowIndex += 1){
+      const row = matrix[rowIndex];
+      let sum = 0;
+      let sumSq = 0;
+      let count = 0;
+      for(let column = 0; column < columnCount; column += 1){
+        const value = row[column];
+        if(Number.isFinite(value)){
+          sum += value;
+          sumSq += value * value;
+          count += 1;
+        }
+      }
+      const mean = count ? sum / count : NaN;
+      const center = rowMode === 'median' ? median(row) : mean;
+      if(rowMode && Number.isFinite(center) && center !== 0){
+        for(let column = 0; column < columnCount; column += 1){
+          if(Number.isFinite(row[column])){ row[column] -= center; }
+        }
+      }
+      if(normalizeRows && count > 1){
+        if(rowMode && Number.isFinite(center) && center !== 0){
+          sum = 0;
+          sumSq = 0;
+          for(let column = 0; column < columnCount; column += 1){
+            const value = row[column];
+            if(Number.isFinite(value)){
+              sum += value;
+              sumSq += value * value;
+            }
+          }
+        }
+        const normalizedMean = sum / count;
+        const variance = (sumSq - ((sum * sum) / count)) / (count - 1);
+        const standardDeviation = Math.sqrt(Math.max(variance, 0));
+        if(Number.isFinite(standardDeviation) && standardDeviation !== 0){
+          for(let column = 0; column < columnCount; column += 1){
+            if(Number.isFinite(row[column])){ row[column] = (row[column] - normalizedMean) / standardDeviation; }
+          }
+        }
+      }
+    }
+
+    for(let column = 0; column < columnCount; column += 1){
+      const values = columnMode === 'median' ? new Array(rowCount) : null;
+      let sum = 0;
+      let sumSq = 0;
+      let count = 0;
+      for(let rowIndex = 0; rowIndex < rowCount; rowIndex += 1){
+        const value = matrix[rowIndex][column];
+        if(values){ values[rowIndex] = value; }
+        if(Number.isFinite(value)){
+          sum += value;
+          sumSq += value * value;
+          count += 1;
+        }
+      }
+      const mean = count ? sum / count : NaN;
+      const center = columnMode === 'median' ? median(values) : mean;
+      if(columnMode && Number.isFinite(center) && center !== 0){
+        for(let rowIndex = 0; rowIndex < rowCount; rowIndex += 1){
+          if(Number.isFinite(matrix[rowIndex][column])){ matrix[rowIndex][column] -= center; }
+        }
+      }
+      if(normalizeColumns && count > 1){
+        if(columnMode && Number.isFinite(center) && center !== 0){
+          sum = 0;
+          sumSq = 0;
+          for(let rowIndex = 0; rowIndex < rowCount; rowIndex += 1){
+            const value = matrix[rowIndex][column];
+            if(Number.isFinite(value)){
+              sum += value;
+              sumSq += value * value;
+            }
+          }
+        }
+        const normalizedMean = sum / count;
+        const variance = (sumSq - ((sum * sum) / count)) / (count - 1);
+        const standardDeviation = Math.sqrt(Math.max(variance, 0));
+        if(Number.isFinite(standardDeviation) && standardDeviation !== 0){
+          for(let rowIndex = 0; rowIndex < rowCount; rowIndex += 1){
+            const value = matrix[rowIndex][column];
+            if(Number.isFinite(value)){ matrix[rowIndex][column] = (value - normalizedMean) / standardDeviation; }
+          }
+        }
+      }
+    }
+  }
+
+  function materializeDataTransform(payload){
+    const parsed = parseTransformInput(payload?.data);
+    if(!parsed){ return { ok: false, reason: 'no-data' }; }
+    const initialColumns = parsed.columnLabels.length;
+    const initialPruned = pruneColumns(parsed.matrix, parsed.columnLabels);
+    parsed.matrix = initialPruned.matrix;
+    parsed.columnLabels = initialPruned.columnLabels;
+    if(!parsed.columnLabels.length){ return { ok: false, reason: 'no-data' }; }
+    const transformed = transformRows(parsed, payload?.settings || {});
+    if(!transformed.matrix.length){ return { ok: false, reason: 'filtered-out' }; }
+    let pruned = pruneColumns(transformed.matrix, parsed.columnLabels);
+    if(!pruned.matrix.length || !pruned.columnLabels.length){
+      return { ok: false, reason: 'adjustment-empty' };
+    }
+    adjustMatrix(pruned.matrix, payload?.settings?.adjust || {});
+    pruned = pruneColumns(pruned.matrix, pruned.columnLabels);
+    if(!pruned.columnLabels.length){ return { ok: false, reason: 'adjustment-empty' }; }
+    let finiteCount = 0;
+    for(let rowIndex = 0; rowIndex < pruned.matrix.length; rowIndex += 1){
+      for(let column = 0; column < pruned.matrix[rowIndex].length; column += 1){
+        if(Number.isFinite(pruned.matrix[rowIndex][column])){ finiteCount += 1; }
+      }
+    }
+    const data = [[parsed.rowHeaderLabel, ...pruned.columnLabels]];
+    for(let rowIndex = 0; rowIndex < pruned.matrix.length; rowIndex += 1){
+      data.push([
+        transformed.rowLabels[rowIndex],
+        ...pruned.matrix[rowIndex].map(value => Number.isFinite(value) ? value : '')
+      ]);
+    }
+    return {
+      ok: true,
+      data,
+      summary: {
+        rows: pruned.matrix.length,
+        cols: pruned.columnLabels.length,
+        finiteCount,
+        rowsFiltered: transformed.filteredRows,
+        columnsRemoved: initialColumns - pruned.columnLabels.length,
+        skippedRows: parsed.skippedRows,
+        logApplied: transformed.logApplied
+      }
+    };
+  }
+
   function handleMessage(event){
     const data = event?.data || {};
     const id = data.id;
@@ -618,6 +931,11 @@
         const metric = payload.metric || 'pearson';
         const linkage = payload.linkage || 'average';
         const result = hierarchicalCluster(items, metric, linkage);
+        ctx.postMessage({ id, ok: true, result });
+        return;
+      }
+      if(action === 'materializeDataTransform'){
+        const result = materializeDataTransform(data.payload || {});
         ctx.postMessage({ id, ok: true, result });
         return;
       }

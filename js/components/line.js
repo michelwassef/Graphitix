@@ -11738,22 +11738,7 @@
       chartStyle.renderFontSizeLabel({ element: payloadRefs.fontSizeVal, pt: Number(payloadRefs.fontSize.value), input: payloadRefs.fontSize, manual: true });
     }
     if(c.axis){
-      applyLineAxisSettings({
-        strokeWidth: c.axis.strokeWidth,
-        color: c.axis.color,
-        tickIntervalX: c.axis.tickIntervalX ?? c.axis.xTickInterval ?? c.axis?.x?.tickInterval ?? null,
-        tickIntervalY: c.axis.tickIntervalY ?? c.axis.yTickInterval ?? c.axis?.y?.tickInterval ?? null,
-        minorTicksX: c.axis.minorTicksX ?? c.axis?.x?.minorTicks ?? false,
-        minorTicksY: c.axis.minorTicksY ?? c.axis?.y?.minorTicks ?? false,
-        minorTickSubdivisionsX: c.axis.minorTickSubdivisionsX ?? c.axis.minorSubdivisionsX ?? c.axis?.x?.minorTickSubdivisions ?? c.axis?.x?.minorSubdivisions ?? DEFAULT_MINOR_TICK_SUBDIVISIONS,
-        minorTickSubdivisionsY: c.axis.minorTickSubdivisionsY ?? c.axis.minorSubdivisionsY ?? c.axis?.y?.minorTickSubdivisions ?? c.axis?.y?.minorSubdivisions ?? DEFAULT_MINOR_TICK_SUBDIVISIONS,
-        notationX: c.axis.notationX ?? c.axis.axisNotationX ?? c.axis?.x?.notation ?? 'decimal',
-        notationY: c.axis.notationY ?? c.axis.axisNotationY ?? c.axis?.y?.notation ?? 'decimal',
-        additionalTicks: c.axis.additionalTicks,
-        additionalTicksX: c.axis.additionalTicksX ?? c.axis?.x?.additionalTicks,
-        additionalTicksY: c.axis.additionalTicksY ?? c.axis?.y?.additionalTicks,
-        brokenAxis: c.axis.brokenAxis || {}
-      }, payloadStateSession, { ...(meta || {}), reason: 'line-payload-axis' });
+      applyLineAxisSettings(c.axis, payloadStateSession, { ...(meta || {}), reason: 'line-payload-axis' });
       console.debug('Debug: line axis settings restored',{ axis: ensureLineAxisSettings(payloadStateSession) });
     }
     if(payloadRefs.regressionMode && c.regression?.mode){
@@ -14138,6 +14123,7 @@
           ? { min: xScale.min, max: xScale.max }
           : { min: yScale.min, max: yScale.max },
         getTickInterval: () => getLineAxisTickInterval(axis),
+        getEffectiveTickInterval: () => axis === 'x' ? xScale.step : yScale.step,
         getMajorTickLength: () => getLineAxisMajorTickLength(axis),
         onMajorTickLengthChange: value => updateLineAxisMajorTickLength(axis, value),
         isMajorTickLengthSupported: () => true,

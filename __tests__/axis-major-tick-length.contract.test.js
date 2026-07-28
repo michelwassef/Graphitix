@@ -81,4 +81,13 @@ describe('shared major tick length axis contract', () => {
     expect(source).toContain('chartStyle.normalizeOptionalMajorTickLength');
   });
 
+  test.each([
+    ['scatter', 'js/components/scatter.js', 'applyScatterAxisSettings(c.axis)'],
+    ['line', 'js/components/line.js', 'applyLineAxisSettings(c.axis, payloadStateSession'],
+    ['hist', 'js/components/hist.js', 'applyAxisSettings(axisConfig)'],
+    ['venn', 'js/components/venn.js', 'state.analysis.upsetAxis = normalizeUpSetAxisStyle(upset)']
+  ])('%s reopen uses its complete canonical axis normalizer', (_name, relativePath, expectedCall) => {
+    expect(read(relativePath)).toContain(expectedCall);
+  });
+
 });

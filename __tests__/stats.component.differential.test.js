@@ -260,7 +260,7 @@ describe('Component statistical engines vs Python oracle', () => {
     js['pie-cont-gtest'] = pieHooks.computeContingencyTest(pieContingency, { method: 'g-test', sparseThreshold: 5, yatesCorrection: false });
     js['pie-cont-yates'] = pieHooks.computeContingencyTest(pieContingency2x2, { method: 'chi-square', sparseThreshold: 5, yatesCorrection: true });
     js['roc-auc'] = { metric: rocHooks.computeCurveMetric(rocPairs1, 'roc') };
-    js['roc-auc-uncertainty'] = rocHooks.computeSingleAucUncertainty(rocPairs1, 0.05);
+    js['roc-auc-uncertainty'] = rocHooks.computeSingleAucInference(rocPairs1, 0.05, 'auto');
     js['roc-thresholds'] = { rows: rocHooks.buildThresholdMetricsTable(rocPairs1, 0.05) };
     js['pr-ap'] = { metric: rocHooks.computeCurveMetric(rocPairs1, 'pr') };
     js['roc-delong'] = rocHooks.delongCurveDiff(rocPairs1, rocPairs2);
@@ -419,8 +419,9 @@ describe('Component statistical engines vs Python oracle', () => {
       expect(ref.ok).toBe(true);
       expect(String(js['pie-gof-chi2'].method)).toBe(String(ref.method));
       expectClose(js['pie-gof-chi2'].statistic, ref.statistic, 'pie-gof-chi2.statistic', { abs: 1e-6, rel: 1e-5 });
+      expectClose(js['pie-gof-chi2'].pearsonStatistic, ref.pearsonStatistic, 'pie-gof-chi2.pearsonStatistic', { abs: 1e-6, rel: 1e-5 });
       expectClose(js['pie-gof-chi2'].pValue, ref.pValue, 'pie-gof-chi2.pValue', { abs: 1e-6, rel: 1e-5 });
-      expectClose(js['pie-gof-chi2'].cramersV, ref.cramersV, 'pie-gof-chi2.cramersV', { abs: 1e-6, rel: 1e-5 });
+      expectClose(js['pie-gof-chi2'].cohensW, ref.cohensW, 'pie-gof-chi2.cohensW', { abs: 1e-6, rel: 1e-5 });
       expect(js['pie-gof-chi2'].df).toBe(ref.df);
     }
     {
@@ -429,8 +430,10 @@ describe('Component statistical engines vs Python oracle', () => {
       expect(ref.ok).toBe(true);
       expect(String(js['pie-gof-gtest'].method)).toBe(String(ref.method));
       expectClose(js['pie-gof-gtest'].statistic, ref.statistic, 'pie-gof-gtest.statistic', { abs: 1e-6, rel: 1e-5 });
+      expectClose(js['pie-gof-gtest'].pearsonStatistic, ref.pearsonStatistic, 'pie-gof-gtest.pearsonStatistic', { abs: 1e-6, rel: 1e-5 });
+      expectClose(js['pie-gof-gtest'].gStatistic, ref.gStatistic, 'pie-gof-gtest.gStatistic', { abs: 1e-6, rel: 1e-5 });
       expectClose(js['pie-gof-gtest'].pValue, ref.pValue, 'pie-gof-gtest.pValue', { abs: 1e-6, rel: 1e-5 });
-      expectClose(js['pie-gof-gtest'].cramersV, ref.cramersV, 'pie-gof-gtest.cramersV', { abs: 1e-6, rel: 1e-5 });
+      expectClose(js['pie-gof-gtest'].cohensW, ref.cohensW, 'pie-gof-gtest.cohensW', { abs: 1e-6, rel: 1e-5 });
       expect(js['pie-gof-gtest'].df).toBe(ref.df);
     }
     {

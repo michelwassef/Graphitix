@@ -168,6 +168,39 @@ describe('sessionActions save lazy archive build', () => {
     expect(persistSpy).toHaveBeenCalledTimes(3);
   });
 
+  test.each([
+    ['manual-save', 'archive-save'],
+    ['recovery', 'recovery']
+  ])('awaits pending PNG previews before %s checkpoint capture', async (policyMode, snapshotKind) => {
+    const sessionActions = installSessionActions();
+    const context = createContext();
+    const tab = context.workspaceState.tabs[0];
+    const previews = {
+      awaitPendingCaptures: jest.fn(async tabIds => {
+        expect(tabIds).toEqual([tab.id]);
+        tab.previewMarkup = '<img src="data:image/png;base64,cHJldmlldw==" data-tab-preview-format="png">';
+        tab.previewSignature = 'preview-payload';
+        tab.previewMeta = { format: 'png', rasterized: true };
+      })
+    };
+    context.previews = previews;
+    context.session.getActiveTab.mockReturnValue(tab);
+
+    const checkpoint = await sessionActions.createDocumentCheckpoint(context, {
+      scope: 'workspace',
+      policyMode,
+      snapshotKind,
+      reason: `${snapshotKind}-preview`
+    });
+
+    expect(previews.awaitPendingCaptures).toHaveBeenCalled();
+    expect(checkpoint.snapshot.tabs[0]).toEqual(expect.objectContaining({
+      previewMarkup: expect.stringContaining('data-tab-preview-format="png"'),
+      previewSignature: 'preview-payload',
+      previewMeta: expect.objectContaining({ format: 'png', rasterized: true })
+    }));
+  });
+
 
   test('manual save and recovery independently capture the same canonical active owner state', async () => {
     const sessionActions = installSessionActions();

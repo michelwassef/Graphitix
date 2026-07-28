@@ -63,15 +63,21 @@ function tryPythonOracle(payload) {
 }
 
 function detectPythonOracleAvailability() {
-  const probePayload = JSON.stringify({ cases: [] });
+  const probePayload = JSON.stringify({
+    cases: [{ id: 'capabilities', operation: 'oracle_capabilities', payload: {} }]
+  });
   const probe = tryPythonOracle(probePayload);
-  if (probe.ok) {
+  const capabilities = probe.ok ? probe.results?.[0] : null;
+  if (capabilities?.ok === true && capabilities.result?.statsmodelsAvailable === true) {
     return { available: true, reason: '' };
   }
-  const reason = probe.detail || 'Unknown Python oracle error.';
+  const reason = probe.ok
+    ? 'The Python oracle requires statsmodels for logistic and survival validation.'
+    : (probe.detail || 'Unknown Python oracle error.');
   const message = [
     '[stats-oracle] Python oracle unavailable.',
     reason,
+    'Install dependencies with: python -m pip install -r requirements-stats.txt',
     'Set PYTHON_BIN to a valid interpreter to enable oracle-backed differential tests.',
     'Set TEST_REQUIRE_PYTHON_ORACLE=1 to fail immediately when oracle coverage is missing.',
     'Set TEST_ALLOW_ORACLE_SKIP=1 to allow skips in CI.'

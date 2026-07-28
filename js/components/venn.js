@@ -153,7 +153,9 @@
     inactiveDotColor: '#d6d6d6',
     gridColor: '#e5e7eb',
     axisColor: '#000000',
-    axisWidth: 1
+    axisWidth: 1,
+    xMajorTickLength: null,
+    yMajorTickLength: null
   };
   const DEFAULT_REGION_OPTIONS = [
     { value: 'A', label: `${DEFAULT_VENN_LABEL_MAP.A} only` },
@@ -923,7 +925,9 @@
         },
         upsetAxis: {
           color: DEFAULT_UPSET_SETTINGS.axisColor,
-          width: DEFAULT_UPSET_SETTINGS.axisWidth
+          width: DEFAULT_UPSET_SETTINGS.axisWidth,
+          xMajorTickLength: DEFAULT_UPSET_SETTINGS.xMajorTickLength,
+          yMajorTickLength: DEFAULT_UPSET_SETTINGS.yMajorTickLength
         },
         upsetTraceStyles: {
           intersectionBars: { global: {}, traces: {} },
@@ -4385,9 +4389,22 @@
     });
   }
 
+  function normalizeUpSetAxisStyle(source = {}) {
+    const axis = source && typeof source === 'object' ? source : {};
+    const own = key => Object.prototype.hasOwnProperty.call(axis, key);
+    const xMajorTickLength = own('xMajorTickLength') ? axis.xMajorTickLength : axis.majorTickLengthX;
+    const yMajorTickLength = own('yMajorTickLength') ? axis.yMajorTickLength : axis.majorTickLengthY;
+    return {
+      color: sanitizeColor(axis.color ?? axis.axisColor, DEFAULT_UPSET_SETTINGS.axisColor),
+      width: clampNumber(axis.width ?? axis.axisWidth, DEFAULT_UPSET_SETTINGS.axisWidth, 0.25, 10),
+      xMajorTickLength: chartStyle.normalizeOptionalMajorTickLength(xMajorTickLength),
+      yMajorTickLength: chartStyle.normalizeOptionalMajorTickLength(yMajorTickLength)
+    };
+  }
+
   function resolveUpSetSettings() {
     const ui = state.ui?.upset || {};
-    const axisState = state.analysis?.upsetAxis || {};
+    const axisState = normalizeUpSetAxisStyle(state.analysis?.upsetAxis);
     const defaults = DEFAULT_UPSET_SETTINGS;
     const allowedSort = new Set(['size-desc', 'size-asc', 'degree-desc', 'degree-asc', 'input']);
     const rawSort = typeof ui.sort?.value === 'string' ? ui.sort.value : defaults.sort;
@@ -4406,10 +4423,10 @@
       dotColor: sanitizeColor(ui.dotColor?.value, defaults.dotColor),
       inactiveDotColor: sanitizeColor(ui.inactiveDotColor?.value, defaults.inactiveDotColor),
       gridColor: sanitizeColor(ui.gridColor?.value, defaults.gridColor),
-      axisColor: sanitizeColor(axisState.color, defaults.axisColor),
-      axisWidth: clampNumber(axisState.width, defaults.axisWidth, 0.25, 10),
-      xMajorTickLength: chartStyle.normalizeOptionalMajorTickLength(axisState.xMajorTickLength),
-      yMajorTickLength: chartStyle.normalizeOptionalMajorTickLength(axisState.yMajorTickLength),
+      axisColor: axisState.color,
+      axisWidth: axisState.width,
+      xMajorTickLength: axisState.xMajorTickLength,
+      yMajorTickLength: axisState.yMajorTickLength,
       traceStyles: cloneUpSetTraceStyles(state.analysis?.upsetTraceStyles)
     };
     debug('Debug: venn upset settings resolved', settings);
@@ -4417,27 +4434,8 @@
   }
 
   function updateUpSetAxisStyle(next = {}) {
-    const defaults = DEFAULT_UPSET_SETTINGS;
     const current = state.analysis?.upsetAxis || {};
-    const color = Object.prototype.hasOwnProperty.call(next, 'color')
-      ? sanitizeColor(next.color, current.color || defaults.axisColor)
-      : sanitizeColor(current.color, defaults.axisColor);
-    const width = Object.prototype.hasOwnProperty.call(next, 'width')
-      ? clampNumber(next.width, current.width || defaults.axisWidth, 0.25, 10)
-      : clampNumber(current.width, defaults.axisWidth, 0.25, 10);
-    const sanitizeMajorTickLength = value => {
-      const numeric = Number(value);
-      return value === null || value === undefined || value === ''
-        ? null
-        : (Number.isFinite(numeric) && numeric >= 0 && numeric <= 100 ? numeric : null);
-    };
-    const xMajorTickLength = Object.prototype.hasOwnProperty.call(next, 'xMajorTickLength')
-      ? sanitizeMajorTickLength(next.xMajorTickLength)
-      : sanitizeMajorTickLength(current.xMajorTickLength);
-    const yMajorTickLength = Object.prototype.hasOwnProperty.call(next, 'yMajorTickLength')
-      ? sanitizeMajorTickLength(next.yMajorTickLength)
-      : sanitizeMajorTickLength(current.yMajorTickLength);
-    state.analysis.upsetAxis = { color, width, xMajorTickLength, yMajorTickLength };
+    state.analysis.upsetAxis = normalizeUpSetAxisStyle({ ...current, ...next });
     debug('Debug: venn upset axis style updated', state.analysis.upsetAxis);
     requestScheduledDraw('upset-axis-style');
     syncActiveVennPayload('venn-upset-axis-style');
@@ -9907,10 +9905,7 @@
       if (state.ui.upset.dotColor) state.ui.upset.dotColor.value = sanitizeColor(upset.dotColor, DEFAULT_UPSET_SETTINGS.dotColor);
       if (state.ui.upset.inactiveDotColor) state.ui.upset.inactiveDotColor.value = sanitizeColor(upset.inactiveDotColor, DEFAULT_UPSET_SETTINGS.inactiveDotColor);
       if (state.ui.upset.gridColor) state.ui.upset.gridColor.value = sanitizeColor(upset.gridColor, DEFAULT_UPSET_SETTINGS.gridColor);
-      state.analysis.upsetAxis = {
-        color: sanitizeColor(upset.axisColor, DEFAULT_UPSET_SETTINGS.axisColor),
-        width: clampNumber(upset.axisWidth, DEFAULT_UPSET_SETTINGS.axisWidth, 0.25, 10)
-      };
+      state.analysis.upsetAxis = normalizeUpSetAxisStyle(upset);
       state.analysis.upsetTraceStyles = cloneUpSetTraceStyles(upset.traceStyles);
     }
     // Restore label positions if saved

@@ -57,10 +57,11 @@ test('first heavy Heatmap paste supersedes a pending projection and survives tab
   }, tsv);
 
   await page.waitForFunction((tabId) => {
-    const tab = window.Main?.session?.workspaceState?.tabs?.find(candidate => candidate?.id === tabId);
+    const workspaceState = window.Main?.session?.workspaceState;
+    const tab = workspaceState?.tabs?.find(candidate => candidate?.id === tabId);
     const transaction = window.__heatmapFirstPasteTransaction;
     const lastRow = tab?.payload?.data?.[1000] || [];
-    return tab?.userDirty === true
+    return workspaceState?.sessionUserDirty === true
       && lastRow[0] === 'Gene_999'
       && window.Shared.hot.isOwnerProjectionTransactionCurrent(transaction) === false
       && window.Shared.hot.getLastOwnerProjectionTransaction(tab)?.interruptedByUserMutation === true;

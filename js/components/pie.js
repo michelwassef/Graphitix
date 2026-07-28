@@ -488,35 +488,71 @@
     };
   }
 
+  function normalizeOwnedAxisSettings(settings){
+    const source = settings && typeof settings === 'object' ? settings : {};
+    const normalizeAxis = value => {
+      const axis = value && typeof value === 'object' ? value : {};
+      const tickInterval = Number(axis.tickInterval);
+      return {
+        tickInterval: axis.tickInterval === null || axis.tickInterval === undefined || axis.tickInterval === ''
+          ? null
+          : (Number.isFinite(tickInterval) && tickInterval > 0 ? tickInterval : null),
+        majorTickLength: chartStyle.normalizeOptionalMajorTickLength(axis.majorTickLength),
+        minorTicks: !!axis.minorTicks,
+        minorTickSubdivisions: clampMinorTickSubdivisions(axis.minorTickSubdivisions)
+      };
+    };
+    const strokeWidth = Number(source.strokeWidth);
+    return {
+      strokeWidth: Number.isFinite(strokeWidth) && strokeWidth > 0 ? strokeWidth : 1,
+      color: typeof source.color === 'string' && source.color.trim() ? source.color : DEFAULT_AXIS_COLOR,
+      x: normalizeAxis(source.x),
+      y: normalizeAxis(source.y)
+    };
+  }
+
   function ensureAxisSettings(){
-    if(!state.axisSettings || typeof state.axisSettings !== 'object'){
-      state.axisSettings = createDefaultAxisSettings();
-    }
-    if(!state.axisSettings.x || typeof state.axisSettings.x !== 'object'){
-      state.axisSettings.x = { tickInterval: null, majorTickLength: null, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS };
-    }
-    if(!state.axisSettings.y || typeof state.axisSettings.y !== 'object'){
-      state.axisSettings.y = { tickInterval: null, majorTickLength: null, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS };
-    }
-    if(typeof state.axisSettings.x.minorTicks !== 'boolean'){
-      state.axisSettings.x.minorTicks = false;
-    }
-    if(typeof state.axisSettings.y.minorTicks !== 'boolean'){
-      state.axisSettings.y.minorTicks = false;
-    }
-    state.axisSettings.x.minorTickSubdivisions = clampMinorTickSubdivisions(state.axisSettings.x.minorTickSubdivisions);
-    state.axisSettings.y.minorTickSubdivisions = clampMinorTickSubdivisions(state.axisSettings.y.minorTickSubdivisions);
-    const numericStroke = Number(state.axisSettings.strokeWidth);
-    state.axisSettings.strokeWidth = Number.isFinite(numericStroke) && numericStroke > 0 ? numericStroke : 1;
-    if(typeof state.axisSettings.color !== 'string' || !state.axisSettings.color.trim()){
-      state.axisSettings.color = DEFAULT_AXIS_COLOR;
-    }
+    state.axisSettings = normalizeOwnedAxisSettings(state.axisSettings);
     return state.axisSettings;
   }
 
-  function getAxisTickInterval(axis){
+  function resolveAxisSettingsForOwner(session = null){
+    const owner = ensurePieSessionOwnershipShape(session || getActivePieSessionForState());
+    if(owner && !isPieSessionActiveOrActivating(owner)){
+      return normalizeOwnedAxisSettings(owner.state?.axisSettings);
+    }
+    return ensureAxisSettings();
+  }
+
+  function mutateAxisSettingsForOwner(session, reason, mutation){
+    const owner = ensurePieSessionOwnershipShape(session || getActivePieSessionForState());
+    const ownerIsActive = !owner || isPieSessionActiveOrActivating(owner);
+    const source = ownerIsActive ? ensureAxisSettings() : owner.state?.axisSettings;
+    const next = normalizeOwnedAxisSettings(source);
+    mutation(next);
+    const normalized = normalizeOwnedAxisSettings(next);
+    if(owner?.state){
+      owner.state.axisSettings = cloneSimple(normalized);
+      owner.updatedAt = Date.now();
+    }
+    if(ownerIsActive){
+      state.axisSettings = normalized;
+    }
+    pieDebug('Debug: pie axis settings committed', {
+      tabId: owner?.tabId || null,
+      reason: reason || null,
+      axisSettings: normalized
+    });
+    return { owner, settings: normalized };
+  }
+
+  function scheduleAxisSettingsDraw(result, reason){
+    return schedulePieDrawForSession(result?.owner || getActivePieSessionForState(), { reason });
+  }
+
+  function getAxisTickInterval(axis, session = null){
     if(axis !== 'x' && axis !== 'y'){ return null; }
-    const settings = ensureAxisSettings();
+    const settings = resolveAxisSettingsForOwner(session);
     const raw = settings[axis]?.tickInterval;
     if(raw === null || raw === undefined || raw === ''){
       return null;
@@ -525,102 +561,103 @@
     return Number.isFinite(numeric) && numeric > 0 ? numeric : null;
   }
 
-  function updateAxisTickInterval(axis, value){
+  function updateAxisTickInterval(axis, value, session = null){
     if(axis !== 'x' && axis !== 'y'){ return; }
-    const settings = ensureAxisSettings();
-    if(value === null || value === undefined || value === ''){
-      settings[axis].tickInterval = null;
-    } else {
+    const result = mutateAxisSettingsForOwner(session, `pie-${axis}-tick-interval-change`, settings => {
       const numeric = Number(value);
-      settings[axis].tickInterval = Number.isFinite(numeric) && numeric > 0 ? numeric : null;
-    }
-    pieDebug('Debug: pie axis tick interval updated',{ axis, tickInterval: settings[axis].tickInterval });
-    scheduleActivePieDraw({ reason: `pie-${axis}-tick-interval-change` });
+      settings[axis].tickInterval = value === null || value === undefined || value === ''
+        ? null
+        : (Number.isFinite(numeric) && numeric > 0 ? numeric : null);
+    });
+    pieDebug('Debug: pie axis tick interval updated',{ axis, tickInterval: result.settings[axis].tickInterval });
+    scheduleAxisSettingsDraw(result, `pie-${axis}-tick-interval-change`);
   }
 
-  function getAxisMajorTickLength(axis){
+  function getAxisMajorTickLength(axis, session = null){
     if(axis !== 'x' && axis !== 'y'){ return null; }
-    const settings = ensureAxisSettings();
+    const settings = resolveAxisSettingsForOwner(session);
     const storedValue = settings[axis]?.majorTickLength;
     if(storedValue === null || storedValue === undefined || storedValue === ''){ return null; }
     const numeric = Number(storedValue);
     return Number.isFinite(numeric) && numeric >= 0 && numeric <= 100 ? numeric : null;
   }
 
-  function updateAxisMajorTickLength(axis, value){
+  function updateAxisMajorTickLength(axis, value, session = null){
     if(axis !== 'x' && axis !== 'y'){ return; }
-    const settings = ensureAxisSettings();
     const numeric = Number(value);
     const nextValue = value === null || value === undefined || value === ''
       ? null
       : (Number.isFinite(numeric) && numeric >= 0 && numeric <= 100 ? numeric : null);
-    if(settings[axis].majorTickLength === nextValue){ return; }
-    settings[axis].majorTickLength = nextValue;
+    const current = getAxisMajorTickLength(axis, session);
+    if(current === nextValue){ return; }
+    const result = mutateAxisSettingsForOwner(session, `pie-${axis}-major-tick-length-change`, settings => {
+      settings[axis].majorTickLength = nextValue;
+    });
     pieDebug('Debug: pie major tick length updated',{ axis, majorTickLength: nextValue });
-    scheduleActivePieDraw({ reason: `pie-${axis}-major-tick-length-change` });
+    scheduleAxisSettingsDraw(result, `pie-${axis}-major-tick-length-change`);
   }
 
-  function getAxisMinorTicksEnabled(axis){
+  function getAxisMinorTicksEnabled(axis, session = null){
     if(axis !== 'x' && axis !== 'y'){ return false; }
-    const settings = ensureAxisSettings();
+    const settings = resolveAxisSettingsForOwner(session);
     return !!settings[axis]?.minorTicks;
   }
 
-  function updateAxisMinorTicks(axis, enabled){
+  function updateAxisMinorTicks(axis, enabled, session = null){
     if(axis !== 'x' && axis !== 'y'){ return; }
-    const settings = ensureAxisSettings();
     const nextValue = !!enabled;
-    if(settings[axis].minorTicks === nextValue){
+    if(getAxisMinorTicksEnabled(axis, session) === nextValue){
       return;
     }
-    settings[axis].minorTicks = nextValue;
+    const result = mutateAxisSettingsForOwner(session, `pie-${axis}-minor-ticks-change`, settings => {
+      settings[axis].minorTicks = nextValue;
+    });
     pieDebug('Debug: pie minor ticks updated',{ axis, enabled: nextValue });
-    scheduleActivePieDraw({ reason: `pie-${axis}-minor-ticks-change` });
+    scheduleAxisSettingsDraw(result, `pie-${axis}-minor-ticks-change`);
   }
 
-  function getAxisMinorTickSubdivisions(axis){
+  function getAxisMinorTickSubdivisions(axis, session = null){
     if(axis !== 'x' && axis !== 'y'){ return DEFAULT_MINOR_TICK_SUBDIVISIONS; }
-    const settings = ensureAxisSettings();
+    const settings = resolveAxisSettingsForOwner(session);
     return clampMinorTickSubdivisions(settings[axis]?.minorTickSubdivisions);
   }
 
-  function updateAxisMinorTickSubdivisions(axis, value){
+  function updateAxisMinorTickSubdivisions(axis, value, session = null){
     if(axis !== 'x' && axis !== 'y'){ return; }
-    const settings = ensureAxisSettings();
     const nextValue = clampMinorTickSubdivisions(value);
-    if(settings[axis].minorTickSubdivisions === nextValue){
+    if(getAxisMinorTickSubdivisions(axis, session) === nextValue){
       return;
     }
-    settings[axis].minorTickSubdivisions = nextValue;
+    const result = mutateAxisSettingsForOwner(session, `pie-${axis}-minor-subdivisions-change`, settings => {
+      settings[axis].minorTickSubdivisions = nextValue;
+    });
     pieDebug('Debug: pie minor tick subdivisions updated',{ axis, subdivisions: nextValue });
-    scheduleActivePieDraw({ reason: `pie-${axis}-minor-subdivisions-change` });
+    scheduleAxisSettingsDraw(result, `pie-${axis}-minor-subdivisions-change`);
   }
 
-  function getAxisStrokeWidthBase(){
-    return ensureAxisSettings().strokeWidth;
+  function getAxisStrokeWidthBase(session = null){
+    return resolveAxisSettingsForOwner(session).strokeWidth;
   }
 
-  function updateAxisStrokeWidth(value){
-    const settings = ensureAxisSettings();
-    if(value === null || value === undefined || value === ''){
-      settings.strokeWidth = 1;
-    } else {
+  function updateAxisStrokeWidth(value, session = null){
+    const result = mutateAxisSettingsForOwner(session, 'pie-axis-stroke-width-change', settings => {
       const numeric = Number(value);
       settings.strokeWidth = Number.isFinite(numeric) && numeric > 0 ? numeric : 1;
-    }
-    pieDebug('Debug: pie axis stroke width updated',{ strokeWidth: settings.strokeWidth });
-    scheduleActivePieDraw({ reason: 'pie-axis-stroke-width-change' });
+    });
+    pieDebug('Debug: pie axis stroke width updated',{ strokeWidth: result.settings.strokeWidth });
+    scheduleAxisSettingsDraw(result, 'pie-axis-stroke-width-change');
   }
 
-  function getAxisColor(){
-    return ensureAxisSettings().color || DEFAULT_AXIS_COLOR;
+  function getAxisColor(session = null){
+    return resolveAxisSettingsForOwner(session).color || DEFAULT_AXIS_COLOR;
   }
 
-  function updateAxisColor(value){
-    const settings = ensureAxisSettings();
-    settings.color = typeof value === 'string' && value.trim() ? value : DEFAULT_AXIS_COLOR;
-    pieDebug('Debug: pie axis color updated',{ color: settings.color });
-    scheduleActivePieDraw({ reason: 'pie-axis-color-change' });
+  function updateAxisColor(value, session = null){
+    const result = mutateAxisSettingsForOwner(session, 'pie-axis-color-change', settings => {
+      settings.color = typeof value === 'string' && value.trim() ? value : DEFAULT_AXIS_COLOR;
+    });
+    pieDebug('Debug: pie axis color updated',{ color: result.settings.color });
+    scheduleAxisSettingsDraw(result, 'pie-axis-color-change');
   }
 
   function applyAxisSettings(settings){
@@ -648,8 +685,7 @@
       base.x.minorTickSubdivisions = clampMinorTickSubdivisions(xMinorSubdiv);
       base.y.minorTickSubdivisions = clampMinorTickSubdivisions(yMinorSubdiv);
     }
-    state.axisSettings = base;
-    ensureAxisSettings();
+    state.axisSettings = normalizeOwnedAxisSettings(base);
     pieDebug('Debug: pie axis settings applied',{ settings: state.axisSettings });
   }
 
@@ -1942,7 +1978,7 @@ let state = {
     }).chartType;
   }
 
-  function isPieStartAngleApplicable(){
+  function isPieRadialChartType(){
     return getPieChartTypeValue() !== 'stacked';
   }
 
@@ -1954,9 +1990,14 @@ let state = {
     return Math.round(numeric * 1000) / 1000;
   }
 
-  function syncPieStartAngleToolbarVisibility(){
+  function syncPieChartTypeControlVisibility(){
+    const hideRadialControls = !isPieRadialChartType();
+    const radialOptions = queryPieRoot('[data-pie-radial-options="1"]');
+    if(radialOptions){
+      radialOptions.hidden = hideRadialControls;
+    }
     if(pieStartAngleToolbarField){
-      pieStartAngleToolbarField.hidden = !isPieStartAngleApplicable();
+      pieStartAngleToolbarField.hidden = hideRadialControls;
     }
   }
 
@@ -1973,7 +2014,7 @@ let state = {
 
   function mountPieStartAngleTraceToolbar(toolbar){
     pieStartAngleToolbarField = null;
-    if(!toolbar?.wrap || !isPieStartAngleApplicable()){
+    if(!toolbar?.wrap || !isPieRadialChartType()){
       return;
     }
     const doc = toolbar.wrap.ownerDocument || global.document;
@@ -2002,7 +2043,7 @@ let state = {
     }).field;
     toolbar.wrap.appendChild(field);
     pieStartAngleToolbarField = field;
-    syncPieStartAngleToolbarVisibility();
+    syncPieChartTypeControlVisibility();
   }
 
   function showPieTraceFormatControls(target){
@@ -3609,37 +3650,23 @@ let state = {
     }
     const method = sanitizePieStatsTest(options.method);
     const testMethod = method === 'auto' ? 'chi-square' : method;
-    let statistic = 0;
-    let pearsonStatistic = 0;
-    for(let rowIndex = 0; rowIndex < rowCount; rowIndex += 1){
-      for(let colIndex = 0; colIndex < colCount; colIndex += 1){
-        const obs = rows[rowIndex][colIndex];
-        const exp = expected[rowIndex][colIndex];
-        if(exp > 0) pearsonStatistic += Math.pow(obs-exp,2)/exp;
-      }
-    }
-    if(testMethod === 'g-test'){
-      for(let index = 0; index < obs.length; index += 1){
-        const observedValue = obs[index];
-        const expectedValue = exp[index];
-        if(observedValue > 0){
-          statistic += 2 * observedValue * Math.log(observedValue / expectedValue);
-        }
-      }
-    }else{
-      statistic = obs.reduce((sum, value, index) => {
-        const expectedValue = exp[index];
-        return sum + Math.pow(value - expectedValue, 2) / expectedValue;
-      }, 0);
-    }
+    const pearsonStatistic = obs.reduce((sum, value, index) => (
+      sum + Math.pow(value - exp[index], 2) / exp[index]
+    ), 0);
+    const gStatistic = obs.reduce((sum, value, index) => (
+      value > 0 ? sum + 2 * value * Math.log(value / exp[index]) : sum
+    ), 0);
+    const statistic = testMethod === 'g-test' ? gStatistic : pearsonStatistic;
     const df = Math.max(1, obs.length - 1);
     const pValue = pieChiSquareUpperTailPValue(statistic, df);
     const total = observedTotal;
-    const cohensW = total > 0 ? Math.sqrt(statistic / total) : NaN;
+    const cohensW = total > 0 ? Math.sqrt(pearsonStatistic / total) : NaN;
     return {
       ok: true,
       method: testMethod,
       statistic,
+      pearsonStatistic,
+      gStatistic,
       df,
       pValue,
       cohensW,
@@ -4866,7 +4893,7 @@ let state = {
           }
           if(el === pieChartType){
             syncPieAspectControls('chart-type-change');
-            syncPieStartAngleToolbarVisibility();
+            syncPieChartTypeControlVisibility();
           }
           syncPieRuntimeControlsFromDom(session);
           const drawOptions = el === pieChartType
@@ -4922,6 +4949,7 @@ let state = {
         });
       });
     }
+    syncPieChartTypeControlVisibility();
 
     const pieComputeStatsButton = getPieNodeById('pieComputeStats');
     if(pieComputeStatsButton){
@@ -5029,17 +5057,6 @@ let state = {
 
     // Save/Open
     function getPayload(){
-      const activeWorkspaceTab = global.Main?.session?.workspaceState?.tabs?.find?.(tab => (
-        tab && tab.id === global.Main?.session?.workspaceState?.activeTabId
-      )) || null;
-      if(activeWorkspaceTab?.type === 'pie'){
-        bindPieSessionForTab(activeWorkspaceTab.id, {
-          tab: activeWorkspaceTab,
-          tabId: activeWorkspaceTab.id,
-          root: resolvePieRoot(activeWorkspaceTab.id) || state.root || null,
-          reason: 'pie-get-payload-active-bind'
-        }, { apply: true });
-      }
       syncPieRuntimeControlsFromDom();
       const notesSnapshot = capturePieNotesMirror();
       const notesText = notesSnapshot.text || '';
@@ -5133,6 +5150,7 @@ let state = {
         chartStyle.renderFontSizeLabel({ element: fontValueLabel, pt: Number(fontInput.value), input: fontInput, manual: true });
       }
       syncPieAspectControls('runtime-controls');
+      syncPieChartTypeControlVisibility();
     }
 
     pie.captureRuntimeState = function capturePieRuntimeState(meta = {}){
@@ -6183,24 +6201,25 @@ let state = {
       const axisControlConfig = axisName => ({
         axis: axisName,
         scopeId: 'pie',
-        getTickInterval: () => getAxisTickInterval(axisName),
-        getMajorTickLength: () => getAxisMajorTickLength(axisName),
-        onMajorTickLengthChange: value => updateAxisMajorTickLength(axisName, value),
+        getTickInterval: () => getAxisTickInterval(axisName, drawSession),
+        getEffectiveTickInterval: () => axisName === 'y' ? percentScale.step : null,
+        getMajorTickLength: () => getAxisMajorTickLength(axisName, drawSession),
+        onMajorTickLengthChange: value => updateAxisMajorTickLength(axisName, value, drawSession),
         isMajorTickLengthSupported: () => true,
         majorTickLengthPlaceholder: 'Auto',
-        getThickness: () => getAxisStrokeWidthBase(),
-        getColor: () => getAxisColor(),
+        getThickness: () => getAxisStrokeWidthBase(drawSession),
+        getColor: () => getAxisColor(drawSession),
         isTickIntervalEnabled: () => axisName === 'y',
         getTickIntervalDisabledMessage: () => 'Tick interval is managed automatically for categorical axes.',
         tickPlaceholder: 'Auto',
-        onTickIntervalChange: value => updateAxisTickInterval(axisName, value),
-        getMinorTicksEnabled: () => getAxisMinorTicksEnabled(axisName),
-        onMinorTicksChange: value => updateAxisMinorTicks(axisName, value),
+        onTickIntervalChange: value => updateAxisTickInterval(axisName, value, drawSession),
+        getMinorTicksEnabled: () => getAxisMinorTicksEnabled(axisName, drawSession),
+        onMinorTicksChange: value => updateAxisMinorTicks(axisName, value, drawSession),
         isMinorTicksSupported: () => axisName === 'y',
-        getMinorTickSubdivisions: () => getAxisMinorTickSubdivisions(axisName),
-        onMinorTickSubdivisionsChange: value => updateAxisMinorTickSubdivisions(axisName, value),
-        onThicknessChange: value => updateAxisStrokeWidth(value),
-        onColorChange: value => updateAxisColor(value)
+        getMinorTickSubdivisions: () => getAxisMinorTickSubdivisions(axisName, drawSession),
+        onMinorTickSubdivisionsChange: value => updateAxisMinorTickSubdivisions(axisName, value, drawSession),
+        onThicknessChange: value => updateAxisStrokeWidth(value, drawSession),
+        onColorChange: value => updateAxisColor(value, drawSession)
       });
       if(axisControls && typeof axisControls.registerAxisElement === 'function'){
         axisControls.registerAxisElement(xAxis, axisControlConfig('x'));

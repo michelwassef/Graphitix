@@ -108,7 +108,7 @@ async function collectWorkspaceRenderCacheDiagnostics(page, label) {
           layoutSignatureLength: String(tab.layoutSignature || '').length,
           previewSignatureLength: String(tab.previewSignature || '').length,
           previewHasBitmap: typeof tab.previewMarkup === 'string'
-            ? tab.previewMarkup.includes('data-preview-canvas-bitmap="true"')
+            ? tab.previewMarkup.includes('data-tab-preview-format="png"')
             : false,
           hasRenderCache: !!tab.renderCache,
           hasArchiveRenderCache: !!tab.archiveRenderCache,
@@ -168,7 +168,7 @@ async function summarizeArchiveFileInPage(page, archivePath, label) {
         archiveRenderCacheSignatureLength: String(tab?.archiveRenderCacheSignature || '').length,
         archiveRenderCacheLayoutSignatureLength: String(tab?.archiveRenderCacheLayoutSignature || '').length,
         previewHasBitmap: typeof tab?.previewMarkup === 'string'
-          ? tab.previewMarkup.includes('data-preview-canvas-bitmap="true"')
+          ? tab.previewMarkup.includes('data-tab-preview-format="png"')
           : false,
         archiveRenderCache: summarizeCache(tab?.archiveRenderCache)
       }))
@@ -577,7 +577,7 @@ async function collectScatterTabState(page, tabId) {
       payloadSignature: tab?.payloadSignature || null,
       previewSignature: tab?.previewSignature || null,
       previewHasCanvasBitmap: typeof tab?.previewMarkup === 'string'
-        ? tab.previewMarkup.includes('data-preview-canvas-bitmap="true"')
+        ? tab.previewMarkup.includes('data-tab-preview-format="png"')
         : false,
       previewIsPlaceholder: typeof tab?.previewMarkup === 'string'
         ? tab.previewMarkup.includes('data-preview-placeholder')
@@ -658,7 +658,7 @@ async function captureWorkspaceArchive(page, fileStem) {
         archiveRenderCacheSignatureLength: String(tab?.archiveRenderCacheSignature || '').length,
         archiveRenderCacheLayoutSignatureLength: String(tab?.archiveRenderCacheLayoutSignature || '').length,
         previewHasBitmap: typeof tab?.previewMarkup === 'string'
-          ? tab.previewMarkup.includes('data-preview-canvas-bitmap="true"')
+          ? tab.previewMarkup.includes('data-tab-preview-format="png"')
           : false,
         archiveRenderCache: summarizeCache(tab?.archiveRenderCache)
       }))
@@ -784,7 +784,7 @@ async function seedRecoverySnapshot(page) {
         archiveRenderCacheSignatureLength: String(tab?.archiveRenderCacheSignature || '').length,
         archiveRenderCacheLayoutSignatureLength: String(tab?.archiveRenderCacheLayoutSignature || '').length,
         previewHasBitmap: typeof tab?.previewMarkup === 'string'
-          ? tab.previewMarkup.includes('data-preview-canvas-bitmap="true"')
+          ? tab.previewMarkup.includes('data-tab-preview-format="png"')
           : false,
         archiveRenderCache: summarizeCache(tab?.archiveRenderCache)
       }))
@@ -892,7 +892,7 @@ async function verifyMixedTabsAfterRestore(page, workspace, testInfo, scenarioLa
         type: tab.type,
         payloadSignature: tab.payloadSignature || null,
         previewSignature: tab.previewSignature || null,
-        previewHasBitmap: typeof tab.previewMarkup === 'string' ? tab.previewMarkup.includes('data-preview-canvas-bitmap="true"') : false
+        previewHasBitmap: typeof tab.previewMarkup === 'string' ? tab.previewMarkup.includes('data-tab-preview-format="png"') : false
       }));
   });
   await attachRenderCacheDiagnostics(testInfo, `${scenarioLabel || 'restore'}-after-load-tabs.json`, {

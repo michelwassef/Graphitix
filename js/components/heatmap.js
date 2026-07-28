@@ -639,9 +639,6 @@
   const HEATMAP_CANVAS_MAX_PIXELS = 8000000;
   const HEATMAP_CANVAS_MIN_AXIS_RESOLUTION = 2048;
   const HEATMAP_CANVAS_DPR_CAP = 2;
-  const HEATMAP_PREVIEW_MAX_ROW_LABELS = 24;
-  const HEATMAP_PREVIEW_MAX_COLUMN_LABELS = 24;
-  const HEATMAP_PREVIEW_MAX_DENDROGRAM_SEGMENTS = 320;
   const HEATMAP_LIVE_MAX_ROW_LABELS = 160;
   const HEATMAP_LIVE_MAX_COLUMN_LABELS = 120;
   const HEATMAP_LIVE_ROW_LABEL_MIN_GAP_PX = 10;
@@ -656,6 +653,7 @@
     minCells: 12000,
     timeoutMs: 20000
   };
+  const HEATMAP_TRANSFORM_WORKER_TIMEOUT_MS = 120000;
   const HEATMAP_LOAD_SOURCE_DATA_VIEW_SWITCH = 'heatmap-data-view-switch';
   const HEATMAP_LOAD_SOURCE_CORRELATION_TAB_ACTIVATE = 'heatmap-correlation-tab-activate';
   const HEATMAP_LOAD_SOURCE_CORRELATION_SYNC = 'heatmap-correlation-view-sync';
@@ -1035,7 +1033,8 @@
       },
       listeners: new Map(),
       timers: {
-        drawRuntime: createDefaultHeatmapDrawRuntime()
+        drawRuntime: createDefaultHeatmapDrawRuntime(),
+        materialization: { token: 0, frameHandle: null, task: null }
       },
       workers: new Map(),
       managers: {
@@ -1088,6 +1087,10 @@
     session.listeners = session.listeners instanceof Map ? session.listeners : new Map();
     session.timers = session.timers && typeof session.timers === 'object' ? session.timers : {};
     session.timers.drawRuntime = createDefaultHeatmapDrawRuntime(session.timers.drawRuntime || {});
+    session.timers.materialization = session.timers.materialization && typeof session.timers.materialization === 'object'
+      ? session.timers.materialization
+      : { token: 0, frameHandle: null, task: null };
+    session.timers.materialization.token = Math.max(0, Number(session.timers.materialization.token) || 0);
     session.workers = session.workers instanceof Map ? session.workers : new Map();
     session.managers = session.managers && typeof session.managers === 'object' ? session.managers : {};
     if(!Object.prototype.hasOwnProperty.call(session.managers, 'hot')){ session.managers.hot = null; }
@@ -4677,7 +4680,10 @@
       valueEls.forEach(el => {
         bindHeatmapControlHandler(el, 'input', `filter-value-${el?.id || 'unknown'}`, () => {
           debugLog('Debug: heatmap filter value changed', { id: el.id, value: el.value });
-          schedule();
+          syncControlsBeforeSchedule();
+          if(!materialize(`filter-value-${el.id}`)){
+            schedule();
+          }
         });
         bindHeatmapControlHandler(el, 'change', `filter-commit-${el?.id || 'unknown'}`, () => {
           if(enableEl.checked){
@@ -5143,7 +5149,30 @@
       rowMeta.push({ label: cleanLabel, originalIndex: rowIndex });
       matrix.push(values);
     }
-    const keepColumns = columnLabels.map((_, colIndex) => matrix.some(row => Number.isFinite(row[colIndex])));
+    const keepColumns = new Array(columnLabels.length).fill(false);
+    let keptColumnCount = 0;
+    for(let rowIndex = 0; rowIndex < matrix.length && keptColumnCount < columnLabels.length; rowIndex += 1){
+      const row = matrix[rowIndex];
+      for(let colIndex = 0; colIndex < columnLabels.length; colIndex += 1){
+        if(!keepColumns[colIndex] && Number.isFinite(row[colIndex])){
+          keepColumns[colIndex] = true;
+          keptColumnCount += 1;
+        }
+      }
+    }
+    if(keptColumnCount === columnLabels.length){
+      return {
+        rowLabels,
+        columnLabels,
+        matrix,
+        rowMeta,
+        columnMeta,
+        rowHeaderLabel,
+        firstColumnHasNonNumericText,
+        skippedRows,
+        removedEmptyColumns: 0
+      };
+    }
     const filteredMatrix = matrix.map(() => []);
     const filteredColumnLabels = [];
     const filteredColumnMeta = [];
@@ -5200,12 +5229,15 @@
     if(!Array.isArray(values) || values.length === 0){
       return NaN;
     }
-    const finite = values.filter(value => Number.isFinite(value));
-    if(finite.length === 0){
-      return NaN;
+    let sum = 0;
+    let count = 0;
+    for(let index = 0; index < values.length; index += 1){
+      if(Number.isFinite(values[index])){
+        sum += values[index];
+        count += 1;
+      }
     }
-    const sum = finite.reduce((acc, value) => acc + value, 0);
-    return sum / finite.length;
+    return count ? sum / count : NaN;
   }
 
   function computeMedian(values){
@@ -5223,51 +5255,15 @@
     return finite[mid];
   }
 
-  function computeStd(values){
-    if(!Array.isArray(values) || values.length === 0){
-      return NaN;
-    }
-    // Single-pass computation avoiding redundant filtering and iteration
-    let sum = 0;
-    let sumSq = 0;
-    let count = 0;
-    for(let i = 0; i < values.length; i += 1){
-      const value = values[i];
-      if(Number.isFinite(value)){
-        sum += value;
-        sumSq += value * value;
-        count += 1;
-      }
-    }
-    if(count < 2){
-      return NaN;
-    }
-    const mean = sum / count;
-    const variance = (sumSq - count * mean * mean) / (count - 1);
-    return Math.sqrt(Math.max(variance, 0));
-  }
-
-  function computeRange(values){
-    // Single-pass min/max computation avoiding spread operator overhead
-    let min = Infinity;
-    let max = -Infinity;
-    let hasFinite = false;
-    for(let i = 0; i < values.length; i += 1){
-      const value = values[i];
-      if(Number.isFinite(value)){
-        hasFinite = true;
-        if(value < min) min = value;
-        if(value > max) max = value;
-      }
-    }
-    if(!hasFinite){
-      return NaN;
-    }
-    return { min, max, span: max - min };
-  }
-
   function filterRowsBySettings(matrix, rowLabels, rowMeta, filters, columnCount){
     if(!filters){
+      return { matrix, rowLabels, rowMeta, removed: [] };
+    }
+    const presentEnabled = !!filters.presentEnabled;
+    const sdEnabled = !!filters.sdEnabled;
+    const absEnabled = !!filters.absEnabled;
+    const rangeEnabled = !!filters.rangeEnabled;
+    if(!presentEnabled && !sdEnabled && !absEnabled && !rangeEnabled){
       return { matrix, rowLabels, rowMeta, removed: [] };
     }
     const keptMatrix = [];
@@ -5282,17 +5278,38 @@
     for(let i = 0; i < matrix.length; i += 1){
       const row = matrix[i];
       const values = Array.isArray(row) ? row : [];
-      const finiteValues = values.filter(value => Number.isFinite(value));
-      const percentPresent = columnCount > 0 ? (finiteValues.length / columnCount) * 100 : 0;
-      const sd = computeStd(values);
-      const rangeInfo = computeRange(values);
-      const absPassCount = Number.isFinite(absThreshold)
-        ? finiteValues.filter(value => Math.abs(value) >= absThreshold).length
-        : finiteValues.length;
-      const passesPresent = !filters.presentEnabled || presentThreshold === null || percentPresent >= presentThreshold;
-      const passesSd = !filters.sdEnabled || sdThreshold === null || (Number.isFinite(sd) && sd >= sdThreshold);
-      const passesAbs = !filters.absEnabled || absThreshold === null || absCountThreshold === null || absPassCount >= absCountThreshold;
-      const passesRange = !filters.rangeEnabled || rangeThreshold === null || (Number.isFinite(rangeInfo?.span) && rangeInfo.span >= rangeThreshold);
+      let finiteCount = 0;
+      let sum = 0;
+      let sumSq = 0;
+      let min = Infinity;
+      let max = -Infinity;
+      let absPassCount = 0;
+      for(let valueIndex = 0; valueIndex < values.length; valueIndex += 1){
+        const value = values[valueIndex];
+        if(!Number.isFinite(value)){ continue; }
+        finiteCount += 1;
+        if(sdEnabled){
+          sum += value;
+          sumSq += value * value;
+        }
+        if(rangeEnabled){
+          if(value < min){ min = value; }
+          if(value > max){ max = value; }
+        }
+        if(absEnabled && Number.isFinite(absThreshold) && Math.abs(value) >= absThreshold){
+          absPassCount += 1;
+        }
+      }
+      const percentPresent = columnCount > 0 ? (finiteCount / columnCount) * 100 : 0;
+      const variance = sdEnabled && finiteCount > 1
+        ? (sumSq - ((sum * sum) / finiteCount)) / (finiteCount - 1)
+        : NaN;
+      const sd = Number.isFinite(variance) ? Math.sqrt(Math.max(variance, 0)) : NaN;
+      const range = rangeEnabled && finiteCount ? max - min : NaN;
+      const passesPresent = !presentEnabled || presentThreshold === null || percentPresent >= presentThreshold;
+      const passesSd = !sdEnabled || sdThreshold === null || (Number.isFinite(sd) && sd >= sdThreshold);
+      const passesAbs = !absEnabled || absThreshold === null || absCountThreshold === null || absPassCount >= absCountThreshold;
+      const passesRange = !rangeEnabled || rangeThreshold === null || (Number.isFinite(range) && range >= rangeThreshold);
       if(passesPresent && passesSd && passesAbs && passesRange){
         keptMatrix.push(values);
         keptLabels.push(rowLabels[i]);
@@ -5303,7 +5320,7 @@
           percentPresent,
           sd,
           absPassCount,
-          range: rangeInfo?.span
+          range
         });
       }
     }
@@ -5321,7 +5338,20 @@
       return { matrix, columnLabels, columnMeta, removed: 0 };
     }
     const columnCount = columnLabels.length;
-    const keep = Array.from({ length: columnCount }, (_, colIndex) => matrix.some(row => Number.isFinite(row[colIndex])));
+    const keep = new Array(columnCount).fill(false);
+    let keepCount = 0;
+    for(let rowIndex = 0; rowIndex < matrix.length && keepCount < columnCount; rowIndex += 1){
+      const row = matrix[rowIndex];
+      for(let colIndex = 0; colIndex < columnCount; colIndex += 1){
+        if(!keep[colIndex] && Number.isFinite(row[colIndex])){
+          keep[colIndex] = true;
+          keepCount += 1;
+        }
+      }
+    }
+    if(keepCount === columnCount){
+      return { matrix, columnLabels, columnMeta, removed: 0 };
+    }
     const newMatrix = matrix.map(() => []);
     const newLabels = [];
     const newMeta = [];
@@ -5402,8 +5432,20 @@
     let skipped = 0;
     for(let i = 0; i < matrix.length; i += 1){
       const row = matrix[i];
-      const mean = computeMean(row);
-      const std = computeStd(row);
+      let sum = 0;
+      let sumSq = 0;
+      let count = 0;
+      for(let j = 0; j < row.length; j += 1){
+        const value = row[j];
+        if(Number.isFinite(value)){
+          sum += value;
+          sumSq += value * value;
+          count += 1;
+        }
+      }
+      const mean = count ? sum / count : NaN;
+      const variance = count > 1 ? (sumSq - ((sum * sum) / count)) / (count - 1) : NaN;
+      const std = Number.isFinite(variance) ? Math.sqrt(Math.max(variance, 0)) : NaN;
       if(!Number.isFinite(std) || std === 0){
         skipped += 1;
         continue;
@@ -7016,13 +7058,14 @@
     return null;
   }
 
-  function materializeHeatmapSelectionToDataView(reason){
+  function prepareHeatmapMaterialization(reason, ownerSession = null){
     if(state.suspendDataViewMaterialization){
-      return false;
+      return null;
     }
-    const hot = state.ensureHotForActiveTab?.() || state.hot;
+    const session = ensureHeatmapSessionOwnershipShape(ownerSession || getActiveHeatmapSessionForState());
+    const hot = session?.managers?.hot || state.ensureHotForActiveTab?.() || state.hot;
     if(!hot){
-      return false;
+      return null;
     }
     const manager = ensureHeatmapDataViewsForHot(hot, {
       wrapper: getHeatmapNodeById('heatmapHotWrapper') || null,
@@ -7030,7 +7073,7 @@
     });
     if(!manager || typeof manager.createDerivedView !== 'function'){
       console.warn('heatmap data transform skipped: Shared.dataViews unavailable');
-      return false;
+      return null;
     }
     syncHeatmapActiveDataViewFromHot(hot, 'transform-before');
     const viewContext = resolveHeatmapViewContext(hot);
@@ -7041,64 +7084,109 @@
     const materializationSourceView = resolveHeatmapMaterializationSourceView(manager, sourceView);
     const materializationSourceViewId = String(materializationSourceView?.id || sourceView?.sourceViewId || sourceViewId || 'raw');
     const sourceData = Array.isArray(materializationSourceView?.data) ? materializationSourceView.data : (hot.getData?.() || []);
-    const sourceRaw = collectTableDataFromMatrix(sourceData);
-    if(!sourceRaw){
-      if(typeof global.alert === 'function'){
-        global.alert('No valid numeric matrix was found to apply the selected heatmap transformations.');
-      }
-      return false;
-    }
-    const settings = collectSettings();
+    const settings = collectSettings(session);
     const existingMaterialized = isHeatmapMaterializedDataView(activeView)
       ? activeView
       : (isHeatmapMaterializedDataView(sourceView)
         ? sourceView
         : findHeatmapMaterializedViewForSource(manager, materializationSourceViewId));
-    if(!hasHeatmapDataTransformSelection(settings)){
-      if(existingMaterialized){
-        const wasActive = existingMaterialized.id === manager.getActiveViewId?.() && !keepCorrelationActive;
-        manager.removeView(existingMaterialized.id, {
-          reason: 'heatmap-transform-clear',
-          silent: !wasActive
-        });
-        if(wasActive && materializationSourceViewId !== 'raw'){
-          manager.activateView(materializationSourceViewId, { reason: 'heatmap-transform-clear' });
-        }
-        if(keepCorrelationActive){
-          updateHeatmapCorrelationMatrixViewSource(manager, materializationSourceViewId);
-          applyHeatmapDataTransformControlState(
-            resolveHeatmapDataTransformControlStateForView(manager.getActiveView?.() || activeView, manager)
-          );
-          markHeatmapOverlayPending('heatmap-transform-clear-correlation-source');
-          scheduleHeatmapDrawForSession(getHeatmapSessionForHot(hot, { reason: 'heatmap-transform-clear-correlation-source' }, { create: false }), {
-            force: true,
-            reason: 'heatmap-transform-clear-correlation-source'
-          });
-        }
-        return true;
-      }
+    return {
+      reason,
+      session,
+      hot,
+      manager,
+      activeView,
+      keepCorrelationActive,
+      materializationSourceViewId,
+      sourceData,
+      settings,
+      existingMaterialized
+    };
+  }
+
+  function clearHeatmapMaterializedSelection(context){
+    const {
+      manager,
+      hot,
+      activeView,
+      keepCorrelationActive,
+      materializationSourceViewId,
+      existingMaterialized
+    } = context;
+    if(!existingMaterialized){
       return false;
     }
-    const processed = prepareProcessedDataFromRaw(sourceRaw, settings);
-    if(!processed?.ok){
-      if(processed?.reason === 'filtered-out' && typeof global.alert === 'function'){
-        global.alert('No rows passed the selected filters. Adjust filter thresholds and try again.');
-      }else if(processed?.reason === 'adjustment-empty' && typeof global.alert === 'function'){
-        global.alert('All columns were removed after adjustments. Please review normalization/centering settings.');
-      }
-      debugLog('Debug: heatmap data view materialization skipped', {
-        reason: reason || 'transform',
-        processedReason: processed?.reason || null
+    const wasActive = existingMaterialized.id === manager.getActiveViewId?.() && !keepCorrelationActive;
+    manager.removeView(existingMaterialized.id, {
+      reason: 'heatmap-transform-clear',
+      silent: !wasActive
+    });
+    if(wasActive && materializationSourceViewId !== 'raw'){
+      manager.activateView(materializationSourceViewId, { reason: 'heatmap-transform-clear' });
+    }
+    if(keepCorrelationActive){
+      updateHeatmapCorrelationMatrixViewSource(manager, materializationSourceViewId);
+      applyHeatmapDataTransformControlState(
+        resolveHeatmapDataTransformControlStateForView(manager.getActiveView?.() || activeView, manager)
+      );
+      markHeatmapOverlayPending('heatmap-transform-clear-correlation-source');
+      scheduleHeatmapDrawForSession(getHeatmapSessionForHot(hot, { reason: 'heatmap-transform-clear-correlation-source' }, { create: false }), {
+        force: true,
+        reason: 'heatmap-transform-clear-correlation-source'
       });
+    }
+    return true;
+  }
+
+  function reportHeatmapMaterializationFailure(result, reason){
+    if(result?.reason === 'filtered-out' && typeof global.alert === 'function'){
+      global.alert('No rows passed the selected filters. Adjust filter thresholds and try again.');
+    }else if(result?.reason === 'adjustment-empty' && typeof global.alert === 'function'){
+      global.alert('All columns were removed after adjustments. Please review normalization/centering settings.');
+    }else if(result?.reason === 'no-data' && typeof global.alert === 'function'){
+      global.alert('No valid numeric matrix was found to apply the selected heatmap transformations.');
+    }
+    debugLog('Debug: heatmap data view materialization skipped', {
+      reason: reason || 'transform',
+      processedReason: result?.reason || null
+    });
+  }
+
+  function commitHeatmapMaterialization(context, result){
+    if(!result?.ok){
+      reportHeatmapMaterializationFailure(result, context.reason);
       return false;
     }
-    const derivedData = buildHeatmapDerivedTableData(processed);
+    const derivedData = Array.isArray(result.data)
+      ? result.data
+      : buildHeatmapDerivedTableData(result.processed);
     if(!Array.isArray(derivedData) || !derivedData.length){
       return false;
     }
+    const {
+      manager,
+      hot,
+      keepCorrelationActive,
+      materializationSourceViewId,
+      existingMaterialized,
+      settings,
+      reason
+    } = context;
     if(existingMaterialized){
       manager.removeView(existingMaterialized.id, { reason: 'heatmap-transform-update', silent: true });
     }
+    const workerSummary = result.summary || null;
+    const summary = result.processed
+      ? buildHeatmapDerivedViewSummary(settings, result.processed)
+      : {
+          transform: collectHeatmapDataTransformTokens(settings).join(' + ') || 'heatmap-transform',
+          rows: Number(workerSummary?.rows) || Math.max(0, derivedData.length - 1),
+          cols: Number(workerSummary?.cols) || Math.max(0, (derivedData[0]?.length || 1) - 1),
+          changedCells: Number(workerSummary?.finiteCount) || 0,
+          numericCells: Number(workerSummary?.finiteCount) || 0,
+          skippedCells: 0,
+          warnings: []
+        };
     const createdView = manager.createDerivedView({
       title: buildHeatmapDerivedViewTitle(settings),
       data: derivedData,
@@ -7107,7 +7195,7 @@
         type: 'heatmapMaterialized',
         dataTransformState: normalizeHeatmapDataTransformState(settings)
       },
-      summary: buildHeatmapDerivedViewSummary(settings, processed),
+      summary,
       shareExclusions: false,
       exclusions: null,
       activate: !keepCorrelationActive,
@@ -7131,6 +7219,121 @@
       rows: derivedData.length,
       cols: derivedData[0]?.length || 0,
       reason: reason || 'heatmap-transform'
+    });
+    return true;
+  }
+
+  function materializeHeatmapSelectionSynchronously(context){
+    const sourceRaw = collectTableDataFromMatrix(context.sourceData);
+    if(!sourceRaw){
+      reportHeatmapMaterializationFailure({ reason: 'no-data' }, context.reason);
+      return false;
+    }
+    const processed = prepareProcessedDataFromRaw(sourceRaw, context.settings);
+    return commitHeatmapMaterialization(context, {
+      ok: !!processed?.ok,
+      reason: processed?.reason,
+      processed
+    });
+  }
+
+  function cancelHeatmapMaterialization(session, reason){
+    const runtime = ensureHeatmapSessionOwnershipShape(session)?.timers?.materialization;
+    if(!runtime){ return; }
+    runtime.token = (Number(runtime.token) || 0) + 1;
+    if(runtime.frameHandle != null){
+      Shared.componentLifecycle?.cancelComponentFrame?.(heatmap, runtime.frameHandle);
+      try{ global.clearTimeout?.(runtime.frameHandle); }catch(_err){}
+      runtime.frameHandle = null;
+    }
+    runtime.task?.cancel?.(reason || 'heatmap-transform-replaced');
+    runtime.task = null;
+  }
+
+  function runHeatmapMaterialization(reason, session, token){
+    const shaped = ensureHeatmapSessionOwnershipShape(session);
+    const runtime = shaped?.timers?.materialization;
+    if(!runtime || runtime.token !== token || !isHeatmapSessionActiveForModuleState(shaped)){
+      return false;
+    }
+    const context = prepareHeatmapMaterialization(reason, shaped);
+    if(!context){
+      return false;
+    }
+    if(!hasHeatmapDataTransformSelection(context.settings)){
+      return clearHeatmapMaterializedSelection(context);
+    }
+    const workerApi = Shared.Workers;
+    if(!workerApi?.isSupported?.() || typeof workerApi.runTask !== 'function'){
+      return materializeHeatmapSelectionSynchronously(context);
+    }
+    const workerKey = 'transform:materialize';
+    const workerRecord = {
+      componentKey: 'heatmap',
+      tabId: shaped.tabId,
+      action: 'materializeDataTransform',
+      status: 'pending',
+      startedAt: Date.now()
+    };
+    shaped.workers.set(workerKey, workerRecord);
+    const task = workerApi.runTask({
+      name: `heatmap-transform:${shaped.tabId}`,
+      url: HEATMAP_CLUSTER_WORKER.url,
+      action: 'materializeDataTransform',
+      payload: {
+        data: context.sourceData,
+        settings: normalizeHeatmapDataTransformState(context.settings)
+      },
+      timeoutMs: HEATMAP_TRANSFORM_WORKER_TIMEOUT_MS,
+      cancelStrategy: 'terminate'
+    });
+    runtime.task = task;
+    task.then(result => {
+      const current = runtime.token === token && isHeatmapSessionActiveForModuleState(shaped);
+      shaped.workers.set(workerKey, {
+        ...workerRecord,
+        status: current ? 'done' : 'stale',
+        completedAt: Date.now()
+      });
+      if(current){
+        commitHeatmapMaterialization(context, result);
+      }
+    }).catch(err => {
+      const cancelled = workerApi.isCancellationError?.(err) || runtime.token !== token;
+      shaped.workers.set(workerKey, {
+        ...workerRecord,
+        status: cancelled ? 'cancelled' : 'error',
+        completedAt: Date.now()
+      });
+      if(!cancelled && typeof global.alert === 'function'){
+        global.alert('Unable to apply the selected heatmap transformations.');
+      }
+    }).finally(() => {
+      if(runtime.task === task){ runtime.task = null; }
+    });
+    return true;
+  }
+
+  function materializeHeatmapSelectionToDataView(reason){
+    const session = ensureHeatmapSessionOwnershipShape(getActiveHeatmapSessionForState());
+    if(!session){
+      return false;
+    }
+    cancelHeatmapMaterialization(session, 'heatmap-transform-replaced');
+    const runtime = session.timers.materialization;
+    const token = runtime.token;
+    const scheduleNextFrame = callback => {
+      const handle = scheduleHeatmapAsyncFrame(reason || 'heatmap-transform', callback, {
+        tabId: session.tabId
+      });
+      return handle != null ? handle : global.setTimeout?.(callback, 0);
+    };
+    runtime.frameHandle = scheduleNextFrame(() => {
+      if(runtime.token !== token){ return; }
+      runtime.frameHandle = scheduleNextFrame(() => {
+        runtime.frameHandle = null;
+        runHeatmapMaterialization(reason, session, token);
+      });
     });
     return true;
   }
@@ -12575,6 +12778,7 @@
       : ownerSvg?.closest?.('.svgbox') || null;
 
     clearHiddenDrawFlushHandle(session);
+    cancelHeatmapMaterialization(session, meta?.reason || 'heatmap-tab-deactivated');
     scheduleHeatmapFontRefresh.clear(tabId);
     scheduleHeatmapResizeRefresh.clear(tabId);
     scheduleHeatmapCanvasLiveResizeProjection.clear(tabId);
@@ -12848,136 +13052,6 @@
     return null;
   }
 
-  function copyHeatmapCanvasPixels(sourceRoot, targetRoot){
-    const sourceCanvases = Array.from(sourceRoot?.querySelectorAll?.('canvas') || []);
-    const targetCanvases = Array.from(targetRoot?.querySelectorAll?.('canvas') || []);
-    if(!sourceCanvases.length || sourceCanvases.length !== targetCanvases.length){
-      return false;
-    }
-    for(let index = 0; index < sourceCanvases.length; index += 1){
-      const source = sourceCanvases[index];
-      const target = targetCanvases[index];
-      const width = Math.max(1, Number(source?.width) || 1);
-      const height = Math.max(1, Number(source?.height) || 1);
-      const ctx = target?.getContext?.('2d');
-      if(!ctx || typeof ctx.drawImage !== 'function'){
-        return false;
-      }
-      target.width = width;
-      target.height = height;
-      target.setAttribute?.('width', String(width));
-      target.setAttribute?.('height', String(height));
-      target.style.width = source.style?.width || target.style?.width || '100%';
-      target.style.height = source.style?.height || target.style?.height || '100%';
-      try{
-        ctx.clearRect?.(0, 0, width, height);
-        ctx.drawImage(source, 0, 0);
-      }catch(err){
-        debugLog('Debug: heatmap preview canvas copy failed', {
-          index,
-          message: err?.message || String(err)
-        });
-        return false;
-      }
-    }
-    return true;
-  }
-
-
-  function encodeHeatmapPreviewCanvas(canvas){
-    if(!canvas || typeof canvas.toDataURL !== 'function'){
-      return '';
-    }
-    try{
-      const webp = canvas.toDataURL('image/webp', 0.82);
-      if(typeof webp === 'string' && webp.startsWith('data:image/webp')){
-        return webp;
-      }
-    }catch(_err){ /* PNG fallback below */ }
-    try{
-      return canvas.toDataURL('image/png');
-    }catch(_err){
-      return '';
-    }
-  }
-
-  function heatmapCanvasToPreviewDataUrl(canvas, maxDimension = 180){
-    if(!canvas || typeof canvas.toDataURL !== 'function'){
-      return '';
-    }
-    const sourceWidth = Math.max(1, Number(canvas.width) || 1);
-    const sourceHeight = Math.max(1, Number(canvas.height) || 1);
-    const scale = Math.min(1, Math.max(1, Number(maxDimension) || 180) / Math.max(sourceWidth, sourceHeight));
-    if(scale >= 0.999){
-      return encodeHeatmapPreviewCanvas(canvas);
-    }
-    const doc = canvas.ownerDocument || global.document;
-    const previewCanvas = doc?.createElement?.('canvas') || null;
-    if(!previewCanvas){
-      return '';
-    }
-    previewCanvas.width = Math.max(1, Math.round(sourceWidth * scale));
-    previewCanvas.height = Math.max(1, Math.round(sourceHeight * scale));
-    const ctx = previewCanvas.getContext?.('2d');
-    if(!ctx || typeof ctx.drawImage !== 'function'){
-      return '';
-    }
-    try{
-      ctx.clearRect?.(0, 0, previewCanvas.width, previewCanvas.height);
-      ctx.drawImage(canvas, 0, 0, previewCanvas.width, previewCanvas.height);
-      return encodeHeatmapPreviewCanvas(previewCanvas);
-    }catch(_err){
-      return '';
-    }
-  }
-
-  function materializeHeatmapPreviewBitmaps(sourceRoot, cloneRoot){
-    if(!sourceRoot || !cloneRoot || typeof cloneRoot.querySelectorAll !== 'function'){
-      return 0;
-    }
-    const sourceCanvases = Array.from(sourceRoot.querySelectorAll?.('canvas') || []);
-    const cloneCanvases = Array.from(cloneRoot.querySelectorAll?.('canvas') || []);
-    const count = Math.min(sourceCanvases.length, cloneCanvases.length);
-    let materialized = 0;
-    for(let index = 0; index < count; index += 1){
-      const sourceCanvas = sourceCanvases[index];
-      const cloneCanvas = cloneCanvases[index];
-      const parent = cloneCanvas?.parentNode || null;
-      const dataUrl = heatmapCanvasToPreviewDataUrl(sourceCanvas);
-      if(!parent || !dataUrl){
-        continue;
-      }
-      const doc = cloneCanvas.ownerDocument || global.document;
-      const image = doc?.createElement?.('img') || null;
-      if(!image){
-        continue;
-      }
-      image.setAttribute('xmlns', 'http://www.w3.org/1999/xhtml');
-      image.setAttribute('src', dataUrl);
-      image.setAttribute('data-preview-canvas-bitmap', 'true');
-      image.setAttribute('width', cloneCanvas.getAttribute?.('width') || String(sourceCanvas.width || 1));
-      image.setAttribute('height', cloneCanvas.getAttribute?.('height') || String(sourceCanvas.height || 1));
-      const style = cloneCanvas.getAttribute?.('style');
-      if(style){ image.setAttribute('style', style); }
-      image.style.display = cloneCanvas.style?.display || 'block';
-      image.style.width = cloneCanvas.style?.width || '100%';
-      image.style.height = cloneCanvas.style?.height || '100%';
-      image.style.background = cloneCanvas.style?.background || 'transparent';
-      image.style.pointerEvents = 'none';
-      parent.replaceChild(image, cloneCanvas);
-      materialized += 1;
-    }
-    Array.from(cloneRoot.querySelectorAll?.('img[data-graphitix-render-cache-canvas-bitmap="true"]') || []).forEach(image => {
-      image.removeAttribute('data-graphitix-render-cache-canvas-bitmap');
-      image.setAttribute('data-preview-canvas-bitmap', 'true');
-      materialized += 1;
-    });
-    if(materialized){
-      cloneRoot.setAttribute?.('data-preview-canvas-bitmap', String(materialized));
-    }
-    return materialized;
-  }
-
   function readHeatmapLayerNumber(layer, name, fallback = NaN){
     const value = Number(layer?.getAttribute?.(name));
     return Number.isFinite(value) ? value : fallback;
@@ -13157,50 +13231,6 @@
     return true;
   }
 
-  function sampleHeatmapPreviewNodes(nodes, maxCount){
-    const items = Array.from(nodes || []);
-    const limit = Math.max(2, Math.floor(Number(maxCount) || 0));
-    if(items.length <= limit){
-      return 0;
-    }
-    const retained = new Set();
-    for(let sampleIndex = 0; sampleIndex < limit; sampleIndex += 1){
-      retained.add(Math.round((sampleIndex * (items.length - 1)) / (limit - 1)));
-    }
-    let removed = 0;
-    items.forEach((node, index) => {
-      if(retained.has(index)){
-        return;
-      }
-      node.remove?.();
-      removed += 1;
-    });
-    return removed;
-  }
-
-  function sampleHeatmapPreviewPathBranches(path, maxCount){
-    const d = String(path?.getAttribute?.('d') || '').trim();
-    const branches = d ? d.split(/(?=M\s*[-+.\d])/i).map(value => value.trim()).filter(Boolean) : [];
-    const limit = Math.max(2, Math.floor(Number(maxCount) || 0));
-    if(branches.length <= limit){
-      return 0;
-    }
-    const retained = [];
-    const seen = new Set();
-    for(let sampleIndex = 0; sampleIndex < limit; sampleIndex += 1){
-      const branchIndex = Math.round((sampleIndex * (branches.length - 1)) / Math.max(1, limit - 1));
-      if(!seen.has(branchIndex)){
-        seen.add(branchIndex);
-        retained.push(branches[branchIndex]);
-      }
-    }
-    path.setAttribute('d', retained.join(' '));
-    path.setAttribute('data-preview-source-branch-count', String(branches.length));
-    path.setAttribute('data-preview-branch-count', String(retained.length));
-    return branches.length - retained.length;
-  }
-
-
   function resolveHeatmapPreviewViewBox(svg){
     const raw = String(svg?.getAttribute?.('viewBox') || '').trim();
     const values = raw.split(/[\s,]+/).map(Number);
@@ -13210,43 +13240,6 @@
     const width = Number(svg?.getAttribute?.('width')) || Number(svg?.clientWidth) || 427;
     const height = Number(svg?.getAttribute?.('height')) || Number(svg?.clientHeight) || 427;
     return { x: 0, y: 0, width: Math.max(1, width), height: Math.max(1, height) };
-  }
-
-  function simplifyHeavyHeatmapPreview(svg){
-    const canvasCellLayer = svg?.querySelector?.('[data-export-layer="heatmap-cells"][data-render-mode="canvas"]');
-    if(!canvasCellLayer){
-      return false;
-    }
-    const removedRowLabels = sampleHeatmapPreviewNodes(
-      svg.querySelectorAll?.('[data-layer="row-labels"] > text'),
-      HEATMAP_PREVIEW_MAX_ROW_LABELS
-    );
-    const removedColumnLabels = sampleHeatmapPreviewNodes(
-      svg.querySelectorAll?.('[data-layer="column-labels"] > text'),
-      HEATMAP_PREVIEW_MAX_COLUMN_LABELS
-    );
-    let removedDendrogramPaths = 0;
-    let removedDendrogramBranches = 0;
-    Array.from(svg.querySelectorAll?.('.heatmap-dendrogram') || []).forEach(group => {
-      const paths = Array.from(group.querySelectorAll?.('path') || []);
-      if(paths.length === 1){
-        removedDendrogramBranches += sampleHeatmapPreviewPathBranches(
-          paths[0],
-          HEATMAP_PREVIEW_MAX_DENDROGRAM_SEGMENTS
-        );
-        return;
-      }
-      removedDendrogramPaths += sampleHeatmapPreviewNodes(
-        paths,
-        HEATMAP_PREVIEW_MAX_DENDROGRAM_SEGMENTS
-      );
-    });
-    svg.setAttribute('data-heatmap-preview-projection', 'canvas-sampled');
-    svg.setAttribute('data-heatmap-preview-removed-row-labels', String(removedRowLabels));
-    svg.setAttribute('data-heatmap-preview-removed-column-labels', String(removedColumnLabels));
-    svg.setAttribute('data-heatmap-preview-removed-dendrogram-paths', String(removedDendrogramPaths));
-    svg.setAttribute('data-heatmap-preview-removed-dendrogram-branches', String(removedDendrogramBranches));
-    return true;
   }
 
   function resolveHeatmapProjectionDimensions(sourceSvg){
@@ -13320,9 +13313,6 @@
     ).trim();
     if(ownerTabId){
       clone.setAttribute('data-workspace-tab-id', ownerTabId);
-      if(options.projectionType === 'preview'){
-        clone.setAttribute('data-preview-owner-tab-id', ownerTabId);
-      }
       if(clone.dataset){
         clone.dataset.fontTabId = ownerTabId;
         clone.dataset.workspaceTabId = ownerTabId;
@@ -13331,65 +13321,9 @@
     return clone;
   }
 
-  function sanitizeHeatmapPreviewInteractions(svg){
-    if(!svg || typeof svg.querySelectorAll !== 'function'){
-      return { removedOverlays: 0, sanitizedOwners: 0 };
-    }
-    let removedOverlays = 0;
-    let sanitizedOwners = 0;
-    Array.from(svg.querySelectorAll('[data-heatmap-cell-hit-layer="1"]')).forEach(node => {
-      node.remove?.();
-      removedOverlays += 1;
-    });
-    Array.from(svg.querySelectorAll('[data-dendrogram-control="1"]')).forEach(node => {
-      const tagName = String(node?.tagName || '').toLowerCase();
-      if(tagName === 'rect'){
-        node.remove?.();
-        removedOverlays += 1;
-        return;
-      }
-      node.removeAttribute?.('data-dendrogram-control');
-      if(node.style?.cursor === 'pointer'){
-        node.style.removeProperty('cursor');
-      }
-      if(!String(node.getAttribute?.('style') || '').trim()){
-        node.removeAttribute?.('style');
-      }
-      sanitizedOwners += 1;
-    });
-    return { removedOverlays, sanitizedOwners };
-  }
-
-  function buildHeatmapPreviewSvgFromSource(sourceSvg, options = {}){
-    const clone = cloneHeatmapSvgProjection(sourceSvg, {
-      ownerTabId: options.ownerTabId,
-      projectionType: 'preview'
-    });
-    if(!clone){
-      return null;
-    }
-    const previewBitmapCount = materializeHeatmapPreviewBitmaps(sourceSvg, clone);
-    if(previewBitmapCount){
-      clone.setAttribute('data-preview-canvas-bitmap', String(previewBitmapCount));
-    }else{
-      // Canvas pixels cannot survive XML serialization. Retain this copy only for callers
-      // that consume the DOM projection directly rather than serialized markup.
-      copyHeatmapCanvasPixels(sourceSvg, clone);
-    }
-    clone.setAttribute('data-preview-source', 'true');
-    const interactionCleanup = sanitizeHeatmapPreviewInteractions(clone);
-    clone.setAttribute('data-heatmap-preview-removed-interaction-overlays', String(interactionCleanup.removedOverlays));
-    clone.setAttribute('data-heatmap-preview-sanitized-interaction-owners', String(interactionCleanup.sanitizedOwners));
-    if(options.simplifyHeavy === true){
-      simplifyHeavyHeatmapPreview(clone);
-    }
-    return clone;
-  }
-
   function buildHeatmapExportSvgFromSource(sourceSvg, options = {}){
     const clone = cloneHeatmapSvgProjection(sourceSvg, {
-      ownerTabId: options.ownerTabId,
-      projectionType: 'export'
+      ownerTabId: options.ownerTabId
     });
     if(!clone){
       return null;
@@ -13429,12 +13363,7 @@
   }
 
   heatmap.getPreviewSvg = function getPreviewSvg(tab){
-    const sourceSvg = resolveHeatmapPreviewSourceSvg(tab);
-    if(!sourceSvg){ return null; }
-    return buildHeatmapPreviewSvgFromSource(sourceSvg, {
-      simplifyHeavy: true,
-      ownerTabId: tab?.id || sourceSvg.dataset?.fontTabId || sourceSvg.dataset?.workspaceTabId || null
-    });
+    return resolveHeatmapPreviewSourceSvg(tab);
   };
 
   heatmap.getExportSvg = function getExportSvg(){
@@ -13983,13 +13912,7 @@
     resolveHeavySceneLayout: options => resolveHeavyHeatmapSceneLayout(options),
     resolveCanvasBitmapSize: options => resolveHeatmapCanvasBitmapSize(options),
     appendCanvasCellLayer: (layer, cells, options) => appendHeatmapCanvasCellLayer(layer, cells, options),
-    buildPreviewSvgFromSource: (svg, options = {}) => buildHeatmapPreviewSvgFromSource(svg, {
-      simplifyHeavy: true,
-      ...(options || {})
-    }),
     buildExportSvgFromSource: (svg, options = {}) => buildHeatmapExportSvgFromSource(svg, options),
-    simplifyHeavyPreview: svg => simplifyHeavyHeatmapPreview(svg),
-    samplePreviewPathBranches: (path, maxCount) => sampleHeatmapPreviewPathBranches(path, maxCount),
     formatSvgNumber: value => formatHeatmapSvgNumber(value),
     compactDendrogramBranch: (orientation, a, nodeCoord, b) => {
       const segments = [];

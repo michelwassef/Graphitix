@@ -95,6 +95,7 @@ Graphitix has one document checkpoint transaction and one document restore trans
 
 1. `Main.sessionActions.createDocumentCheckpoint()` resolves the snapshot policy, waits for the active component's snapshot-ready contract, and captures the active live payload through `Main.session.persistActiveTabState()` with save-grade intent.
 2. `Main.sessionActions.buildScopeSnapshot()` clones the committed payload, layout, `uiState`, preview metadata, and only render caches whose owner, payload signature, and layout signature exactly match that detached checkpoint snapshot.
+   Pending heavy tab previews are awaited first. Their single PNG image is committed only when the owner, payload, layout, and generation still match.
 3. `Main.sessionActions.serializeDocumentCheckpoint()` is the only archive serialization entry for a detached checkpoint snapshot.
 4. Manual Save, Autosave, and recovery call those shared primitives. They reuse already-valid owner-scoped caches but never activate inactive tabs to manufacture caches. Omitting a cache changes only first-activation speed, never canonical document content.
 

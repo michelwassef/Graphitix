@@ -12427,8 +12427,7 @@
     const raw = settings[axis]?.tickInterval;
     const numeric = typeof raw === 'string' ? Number(raw) : raw;
     if(Number.isFinite(numeric) && numeric > 0){
-      const resolved = axis === 'x' ? Math.max(1, Math.round(numeric)) : numeric;
-      return resolved;
+      return numeric;
     }
     return null;
   }
@@ -12447,7 +12446,7 @@
     } else {
       const numeric = Number(value);
       if(Number.isFinite(numeric) && numeric > 0){
-        settings[axis].tickInterval = axis === 'x' ? Math.max(1, Math.round(numeric)) : numeric;
+        settings[axis].tickInterval = numeric;
       } else {
         settings[axis].tickInterval = null;
       }
@@ -12478,25 +12477,33 @@
     scheduleBoxViewRefresh(`axis-dataset-spacing-${axis}`);
   }
 
-  function syncDatasetSpacingAcrossFlip(previousFlip, nextFlip){
+  function syncAxisRoleSettingsAcrossFlip(previousFlip, nextFlip){
     if(previousFlip === nextFlip){
       return;
     }
-    const fromAxis = previousFlip ? 'y' : 'x';
-    const toAxis = nextFlip ? 'y' : 'x';
     const settings = ensureAxisSettings();
-    const fromValue = sanitizeXAxisDatasetSpacing(settings[fromAxis]?.datasetSpacing);
-    const toValue = sanitizeXAxisDatasetSpacing(settings[toAxis]?.datasetSpacing);
-    if(toValue === fromValue){
-      return;
-    }
-    settings[toAxis].datasetSpacing = fromValue;
-    boxDebug('Debug: box dataset spacing synced across flip',{
+    const previousValueAxis = previousFlip ? 'x' : 'y';
+    const nextValueAxis = nextFlip ? 'x' : 'y';
+    const previousCategoryAxis = previousFlip ? 'y' : 'x';
+    const nextCategoryAxis = nextFlip ? 'y' : 'x';
+    const valueSettings = settings[previousValueAxis];
+    settings[nextValueAxis].tickInterval = valueSettings.tickInterval;
+    settings[nextValueAxis].minorTicks = !!valueSettings.minorTicks;
+    settings[nextValueAxis].minorTickSubdivisions = clampMinorTickSubdivisions(valueSettings.minorTickSubdivisions);
+    settings[nextValueAxis].notation = sanitizeBoxAxisNotation(valueSettings.notation);
+    settings[nextValueAxis].additionalTicks = sanitizeAxisAdditionalTicksList(valueSettings.additionalTicks);
+    settings[nextCategoryAxis].datasetSpacing = sanitizeXAxisDatasetSpacing(
+      settings[previousCategoryAxis]?.datasetSpacing
+    );
+    boxDebug('Debug: box semantic axis settings synced across flip',{
       previousFlip,
       nextFlip,
-      fromAxis,
-      toAxis,
-      value: fromValue
+      previousValueAxis,
+      nextValueAxis,
+      tickInterval: settings[nextValueAxis].tickInterval,
+      previousCategoryAxis,
+      nextCategoryAxis,
+      datasetSpacing: settings[nextCategoryAxis].datasetSpacing
     });
   }
 
@@ -18596,7 +18603,7 @@
         const previousFlip = !!state.flipAxes;
         const nextFlip = !!els.boxFlipAxes.checked;
         state.flipAxes = nextFlip;
-        syncDatasetSpacingAcrossFlip(previousFlip, nextFlip);
+        syncAxisRoleSettingsAcrossFlip(previousFlip, nextFlip);
         const transitionResult = runBoxFlipTransition(previousFlip, nextFlip, { reason: 'flip-axes-change' });
         try{
           getBoxSessionLayoutManager(getActiveBoxSessionForState())?.syncPanels?.({ skipSchedule: true });
@@ -28912,16 +28919,16 @@ Technical analysis record (advanced)
         });
         hitLine?.setAttribute?.('data-axis-control', '1');
         if(axisControls && typeof axisControls.registerAxisElement === 'function'){
-          axisControls.registerAxisElement(hitLine, axisControlConfig('y', { min: yScale.min, max: yScale.max }));
+          axisControls.registerAxisElement(hitLine, axisControlConfig('y', { min: yScale.min, max: yScale.max, step: yScale.step }));
           if(primaryYAxisLine){
-            axisControls.registerAxisElement(primaryYAxisLine, axisControlConfig('y', { min: yScale.min, max: yScale.max }));
+            axisControls.registerAxisElement(primaryYAxisLine, axisControlConfig('y', { min: yScale.min, max: yScale.max, step: yScale.step }));
           }
         }
       }
     }else{
       // Standard continuous y-axis
       addAxisElement('line',{ x1: yAxisX, y1: axisYStart, x2: yAxisX, y2: axisYEnd, stroke: axisStroke, 'stroke-linecap': 'square', 'stroke-width': axisStrokeWidth, 'data-box-primary-axis': 'y' });
-      registerAxisHitLine(addAxisElement, { x1: yAxisX, y1: axisYStart, x2: yAxisX, y2: axisYEnd }, axisControlConfig('y', { min: yScale.min, max: yScale.max }));
+      registerAxisHitLine(addAxisElement, { x1: yAxisX, y1: axisYStart, x2: yAxisX, y2: axisYEnd }, axisControlConfig('y', { min: yScale.min, max: yScale.max, step: yScale.step }));
     }
     const yMajorTickLabels = [];
     let yTickFontCount = 0;
@@ -30166,12 +30173,12 @@ Technical analysis record (advanced)
           'data-export-ignore': '1'
         });
         if(axisControls && typeof axisControls.registerAxisElement === 'function'){
-          axisControls.registerAxisElement(hitLine, axisControlConfig('x', { min: yScale.min, max: yScale.max }));
+          axisControls.registerAxisElement(hitLine, axisControlConfig('x', { min: yScale.min, max: yScale.max, step: yScale.step }));
         }
       }
     }else{
       addAxisElement('line',{ x1: yAxisLeft, y1: xAxisBottom, x2: marginLocal.left + plotWLocal, y2: xAxisBottom, stroke: axisStroke, 'stroke-linecap': 'square', 'stroke-width': axisStrokeWidth, 'data-box-primary-axis': 'x' });
-      registerAxisHitLine(addAxisElement, { x1: yAxisLeft, y1: xAxisBottom, x2: marginLocal.left + plotWLocal, y2: xAxisBottom }, axisControlConfig('x', { min: yScale.min, max: yScale.max }));
+      registerAxisHitLine(addAxisElement, { x1: yAxisLeft, y1: xAxisBottom, x2: marginLocal.left + plotWLocal, y2: xAxisBottom }, axisControlConfig('x', { min: yScale.min, max: yScale.max, step: yScale.step }));
     }
     renderSharedPlotFrame({ margin: marginLocal, plotW: plotWLocal, plotH: plotHLocal, showFrame, sides: ['top', 'right'] });
     const defaultXLabelX = marginLocal.left + plotWLocal / 2;
@@ -31015,6 +31022,7 @@ Technical analysis record (advanced)
         return { min, max };
       },
       getTickInterval: () => getAxisTickInterval(axis),
+      getEffectiveTickInterval: () => isAxisNumeric(axis) ? axisBounds?.step : null,
         getMajorTickLength: () => getAxisMajorTickLength(axis),
         onMajorTickLengthChange: value => updateAxisMajorTickLength(axis, value),
         isMajorTickLengthSupported: () => true,
@@ -36479,7 +36487,7 @@ Technical analysis record (advanced)
       const tickCfg = axisCfg.tickInterval || {};
       const tickX = tickCfg.x;
       const tickY = tickCfg.y;
-      axisState.x.tickInterval = Number.isFinite(Number(tickX)) && Number(tickX) > 0 ? Math.max(1, Math.round(Number(tickX))) : null;
+      axisState.x.tickInterval = Number.isFinite(Number(tickX)) && Number(tickX) > 0 ? Number(tickX) : null;
       axisState.y.tickInterval = Number.isFinite(Number(tickY)) && Number(tickY) > 0 ? Number(tickY) : null;
       const majorTickLengthCfg = axisCfg.majorTickLength || {};
       const majorTickLengthX = majorTickLengthCfg.x ?? axisCfg.majorTickLengthX ?? axisCfg.xMajorTickLength;
@@ -37437,17 +37445,6 @@ Technical analysis record (advanced)
     return resolveBoxPlotSvgRoot();
   }
 
-  function removeBoxPreviewIgnoredNodes(root){
-    if(!root || typeof root.querySelectorAll !== 'function'){
-      return;
-    }
-    Array.from(root.querySelectorAll('[data-export-ignore="1"]')).forEach(node => {
-      if(node?.parentNode){
-        node.parentNode.removeChild(node);
-      }
-    });
-  }
-
   function parseBoxCanvasBitmapDimension(node, attrName, fallback){
     const direct = Number(node?.getAttribute?.(attrName));
     if(Number.isFinite(direct) && direct > 0){
@@ -37652,73 +37649,8 @@ Technical analysis record (advanced)
     });
   }
 
-  function resolveBoxPreviewPointGroupStyle(sourceGroup, renderState){
-    const snapshot = resolveBoxCanvasGroupStyleSnapshot(sourceGroup, renderState);
-    return {
-      style: {
-        fill: snapshot.fill,
-        stroke: snapshot.stroke,
-        fillOpacity: snapshot.fillOpacity,
-        strokeOpacity: snapshot.strokeOpacity,
-        strokeWidth: snapshot.strokeWidth
-      },
-      pointRadius: snapshot.pointRadius,
-      shape: snapshot.shape
-    };
-  }
-
-  function populateBoxPreviewPointGroupFromCanvas(sourceGroup, cloneGroup){
-    if(!sourceGroup || !cloneGroup){
-      return false;
-    }
-    const renderState = sourceGroup.__boxCanvasRenderState;
-    if(!renderState || typeof cloneGroup.ownerDocument?.createElementNS !== 'function'){
-      return false;
-    }
-    Array.from(cloneGroup.querySelectorAll('foreignObject, foreignobject, circle, rect, path, [data-point-proxy="1"], [data-box-point-hit-mask="1"], [data-box-export-geometry="1"], [data-export-ignore="1"]')).forEach(node => {
-      if(node?.parentNode){
-        node.parentNode.removeChild(node);
-      }
-    });
-    const doc = cloneGroup.ownerDocument;
-    const resolvedPreviewStyle = resolveBoxPreviewPointGroupStyle(sourceGroup, renderState);
-    return appendBoxCanvasPreviewVectorFallback(cloneGroup, renderState, resolvedPreviewStyle, doc);
-  }
-
-  function buildBoxPreviewSvgFromSource(sourceSvg){
-    if(!sourceSvg || typeof sourceSvg.cloneNode !== 'function'){
-      return null;
-    }
-    const clone = sourceSvg.cloneNode(true);
-    rehydrateBoxCanvasBitmapImages(clone);
-    const baseViewport = resolveBoxBaseViewportSize(sourceSvg);
-    if(Number.isFinite(baseViewport.width) && baseViewport.width > 0){
-      clone.setAttribute('width', String(baseViewport.width));
-      clone.setAttribute('data-box-base-width', String(baseViewport.width));
-    }
-    if(Number.isFinite(baseViewport.height) && baseViewport.height > 0){
-      clone.setAttribute('height', String(baseViewport.height));
-      clone.setAttribute('data-box-base-height', String(baseViewport.height));
-    }
-    if(!clone.getAttribute('viewBox') && Number.isFinite(baseViewport.width) && baseViewport.width > 0 && Number.isFinite(baseViewport.height) && baseViewport.height > 0){
-      clone.setAttribute('viewBox', `0 0 ${baseViewport.width} ${baseViewport.height}`);
-    }
-    removeBoxPreviewIgnoredNodes(clone);
-    const sourceGroups = Array.from(sourceSvg.querySelectorAll('g[data-export-layer="box-points"]'));
-    const cloneGroups = Array.from(clone.querySelectorAll('g[data-export-layer="box-points"]'));
-    const pairCount = Math.min(sourceGroups.length, cloneGroups.length);
-    for(let idx = 0; idx < pairCount; idx += 1){
-      populateBoxPreviewPointGroupFromCanvas(sourceGroups[idx], cloneGroups[idx]);
-    }
-    return clone;
-  }
-
   box.getPreviewSvg = function getPreviewSvg(tab){
-    const sourceSvg = resolveBoxPreviewSourceSvg(tab);
-    if(!sourceSvg){
-      return null;
-    }
-    return buildBoxPreviewSvgFromSource(sourceSvg);
+    return resolveBoxPreviewSourceSvg(tab);
   };
 
   box.getThumbnailSvg = function getThumbnailSvg(tab){

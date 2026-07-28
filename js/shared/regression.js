@@ -439,7 +439,7 @@
         const psiVal = psi[i] ?? 0;
         sumSq += psiVal * psiVal;
       }
-      variances.push(Math.max(0, sigmaSq * (1 + sumSq)));
+      variances.push(Math.max(0, sigmaSq * sumSq));
     }
     console.debug('Debug:', debugNs, 'computeForecastVariance', { horizon, sigmaSq, variances });
     return variances;
@@ -1543,6 +1543,9 @@
     const predict=x=>sigmoid(beta0+beta1*x);
     const predictions=logisticPoints.map(pt=>predict(pt.x));
     const residuals=predictions.map((p,i)=>ys[i]-p);
+    const sse=residuals.reduce((sum,value)=>sum+(value*value),0);
+    const rmse=Math.sqrt(sse/n);
+    const mae=residuals.reduce((sum,value)=>sum+Math.abs(value),0)/n;
     const eps=1e-15;
     const ll=logisticPoints.reduce((sum,pt,i)=>{const p=Math.max(eps,Math.min(1-eps,predictions[i]));return sum+pt.y*Math.log(p)+(1-pt.y)*Math.log(1-p);},0);
     const meanY=eventCount/n;
@@ -1619,7 +1622,7 @@
     }
     return {
       available:true, coefficients,
-      metrics:{sampleSize:n,predictors:1,logLikelihood:ll,deviance:-2*ll,nullDeviance:-2*nullLl,r2:pseudoR2,adjR2:NaN,logLoss:-ll/n,iterations:iteration+1,converged,inferenceAvailable:!!inferenceAvailable,aic:-2*ll+4,bic:-2*ll+2*Math.log(n)},
+      metrics:{sampleSize:n,predictors:1,sse,rmse,mae,logLikelihood:ll,deviance:-2*ll,nullDeviance:-2*nullLl,r2:pseudoR2,adjR2:NaN,logLoss:-ll/n,iterations:iteration+1,converged,inferenceAvailable:!!inferenceAvailable,aic:-2*ll+4,bic:-2*ll+2*Math.log(n)},
       residuals:summarizeResiduals(residuals), predictions, predict,
       diagnostics:buildExtendedRegressionDiagnostics({residuals,points:logisticPoints,predictions,parameterCount:2}),
       coefficientStats, coefficientCovariance:covariance,
@@ -2933,7 +2936,7 @@
     };
   };
 
-  const computeLinearThroughOriginModel = ({ points, xVals, yVals, sst, alpha, domain }) => {
+  const computeLinearThroughOriginModel = ({ points, xVals, yVals, alpha, domain }) => {
     const denominator = xVals.reduce((sum,x)=>sum + x * x, 0);
     if(denominator === 0){
       return null;
@@ -2943,7 +2946,8 @@
     const predictions = xVals.map(x => slope * x);
     const residuals = predictions.map((pred, idx) => yVals[idx] - pred);
     const sse = residuals.reduce((sum,val)=>sum + val * val, 0);
-    const r2 = sst === 0 ? 1 : 1 - (sse / sst);
+    const uncenteredSst = yVals.reduce((sum, y) => sum + y * y, 0);
+    const r2 = uncenteredSst === 0 ? 1 : 1 - (sse / uncenteredSst);
     const rmse = Math.sqrt(sse / Math.max(points.length, 1));
     const diagnostics = buildExtendedRegressionDiagnostics({
       residuals,
@@ -2979,9 +2983,10 @@
         sampleSize: points.length,
         predictors: 1,
         sse,
-        sst,
+        sst: uncenteredSst,
         r2,
-        adjR2: points.length > 2 ? 1 - (1 - r2) * ((points.length - 1) / (points.length - 2)) : r2,
+        r2Kind: 'uncentered',
+        adjR2: points.length > 1 ? 1 - (1 - r2) * (points.length / (points.length - 1)) : r2,
         rmse,
         mae: residuals.reduce((sum,val)=>sum + Math.abs(val),0) / Math.max(points.length, 1)
       },
@@ -3848,7 +3853,7 @@
       }else if(!model && mode === 'holtWinters'){
         model = computeHoltWintersModel({ points: cleanPoints, alpha, domain: domain || { minX: Math.min(...xVals), maxX: Math.max(...xVals) }, forecast: forecastOptions });
       }else if(!model && mode === 'linearThroughOrigin'){
-        model = computeLinearThroughOriginModel({ points: cleanPoints, xVals, yVals, sst, alpha, domain: domain || { minX: Math.min(...xVals), maxX: Math.max(...xVals) } });
+        model = computeLinearThroughOriginModel({ points: cleanPoints, xVals, yVals, alpha, domain: domain || { minX: Math.min(...xVals), maxX: Math.max(...xVals) } });
       }else if(!model && mode === 'logistic'){
         const preferDoseResponse = options.preferDoseResponse === true;
         if(preferDoseResponse && !isLikelyBinaryResponse(cleanPoints)){

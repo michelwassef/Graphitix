@@ -148,6 +148,7 @@
     let lastSnapshot = readValue();
     let mutationObserver = null;
     let mutationScheduled = false;
+    let projectedOpen = null;
 
     const ensureMarkedForFont = () => {
       if(!richText || markedForFont){
@@ -267,14 +268,20 @@
     editor.addEventListener('input', onInput);
 
     const onToggle = () => {
+      const open = !!details.open;
+      if(projectedOpen !== null && open === projectedOpen){
+        projectedOpen = null;
+        return;
+      }
+      projectedOpen = null;
       if(typeof opts.onToggle === 'function'){
         try{
-          opts.onToggle(!!details.open);
+          opts.onToggle(open);
         }catch(err){
           console.error('Shared.notes onToggle error', err);
         }
       }
-      debugLog('Debug: Shared.notes.toggle', { id: id || null, open: !!details.open });
+      debugLog('Debug: Shared.notes.toggle', { id: id || null, open });
     };
     details.addEventListener('toggle', onToggle);
 
@@ -324,10 +331,16 @@
       setValue: value => {
         writeValue(value);
         lastSnapshot = readValue();
-        emitChange();
       },
       isOpen: () => !!details.open,
-      setOpen: open => { details.open = !!open; },
+      setOpen: open => {
+        const nextOpen = !!open;
+        if(details.open === nextOpen){
+          return;
+        }
+        projectedOpen = nextOpen;
+        details.open = nextOpen;
+      },
       focus: () => { editor.focus(); },
       destroy: () => {
         if(destroyed){

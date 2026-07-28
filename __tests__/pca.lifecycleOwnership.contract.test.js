@@ -78,6 +78,20 @@ describe('PCA lifecycle ownership contract', () => {
     expect(source).not.toMatch(/\bschedulePcaBase\s*\(/);
   });
 
+  test('3D rotation keeps viewport and in-flight redraw state in the owning session', () => {
+    const source = pcaSource();
+    expect(source).toContain('rotationActive: !!src.rotationActive');
+    expect(source).toContain('rotationQueued: !!src.rotationQueued');
+    expect(source).toContain('rotationViewport: cloneSimple(src.rotationViewport) || null');
+    expect(source).toContain('runtime.rotationViewport = capturePcaRotationViewport(svg);');
+    expect(source).toContain("reason: 'pca-rotation-frame'");
+    expect(source).toContain('drawSession.refs.rotationRenderer = rotation =>');
+    expect(source).toContain("requestPcaViewRefresh('rotation-end'");
+    expect(source).toContain('if (!applyPcaRotationViewport(svg3, rotationViewport))');
+    expect(source).toContain('onAxisTickLabel: markPca3dAxisTickLabel');
+    expect(source).toContain("markFontEditable(node, 'axis3d', labelText)");
+  });
+
   test('superseded worker completions cannot replace the current owner worker record', () => {
     const source = pcaSource();
     expect(source).toContain('function isPcaWorkerInvocationCurrent(invocation)');

@@ -328,7 +328,7 @@ async function getTabState(page, tabId) {
       payloadSignatureLength: String(tab?.payloadSignature || '').length,
       layoutSignatureLength: String(tab?.layoutSignature || '').length,
       previewSignatureLength: String(tab?.previewSignature || '').length,
-      previewHasBitmap: typeof tab?.previewMarkup === 'string' ? tab.previewMarkup.includes('data-preview-canvas-bitmap="true"') : false,
+      previewHasBitmap: typeof tab?.previewMarkup === 'string' ? tab.previewMarkup.includes('data-tab-preview-format="png"') : false,
       hasRenderCache: !!tab?.renderCache,
       hasArchiveRenderCache: !!tab?.archiveRenderCache,
       renderCacheSignatureLength: String(tab?.renderCacheSignature || tab?.renderCache?.payloadSignature || '').length,
@@ -408,7 +408,7 @@ async function collectWorkspaceDiagnostics(page, label, targetTabId = null) {
         payloadSignatureLength: String(tab.payloadSignature || '').length,
         layoutSignatureLength: String(tab.layoutSignature || '').length,
         previewSignatureLength: String(tab.previewSignature || '').length,
-        previewHasBitmap: typeof tab.previewMarkup === 'string' ? tab.previewMarkup.includes('data-preview-canvas-bitmap="true"') : false,
+        previewHasBitmap: typeof tab.previewMarkup === 'string' ? tab.previewMarkup.includes('data-tab-preview-format="png"') : false,
         hasRenderCache: !!tab.renderCache,
         hasArchiveRenderCache: !!tab.archiveRenderCache,
         renderCacheSignatureLength: String(tab.renderCacheSignature || tab.renderCache?.payloadSignature || '').length,
@@ -460,7 +460,7 @@ async function summarizeArchiveBlobInPage(page, blobBase64, label) {
         hasArchiveRenderCache: !!tab?.archiveRenderCache,
         archiveRenderCacheSignatureLength: String(tab?.archiveRenderCacheSignature || '').length,
         archiveRenderCacheLayoutSignatureLength: String(tab?.archiveRenderCacheLayoutSignature || '').length,
-        previewHasBitmap: typeof tab?.previewMarkup === 'string' ? tab.previewMarkup.includes('data-preview-canvas-bitmap="true"') : false,
+        previewHasBitmap: typeof tab?.previewMarkup === 'string' ? tab.previewMarkup.includes('data-tab-preview-format="png"') : false,
         archiveRenderCache: summarizeCache(tab?.archiveRenderCache)
       }))
     };

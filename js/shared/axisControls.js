@@ -237,6 +237,35 @@
     return numeric;
   }
 
+  function resolveDisplayedTickInterval(config){
+    const storedValue = sanitizeTickValue(
+      typeof config?.getTickInterval === 'function'
+        ? config.getTickInterval(config.axis)
+        : null
+    );
+    if(storedValue !== null){
+      return { value: storedValue, automatic: false };
+    }
+    const effectiveValue = sanitizeTickValue(
+      typeof config?.getEffectiveTickInterval === 'function'
+        ? config.getEffectiveTickInterval(config.axis)
+        : null
+    );
+    return { value: effectiveValue, automatic: effectiveValue !== null };
+  }
+
+  function resolveTickInputMinimum(value){
+    const numeric = sanitizeTickValue(value);
+    if(numeric === null){
+      return 1;
+    }
+    const fractional = numeric - Math.floor(numeric);
+    if(fractional > 1e-12){
+      return Number.parseFloat(fractional.toPrecision(12));
+    }
+    return 1;
+  }
+
   function resolveDefaultMajorTickLength(config){
     const configuredDefault = typeof config?.getDefaultMajorTickLength === 'function'
       ? config.getDefaultMajorTickLength(config.axis)
@@ -1567,23 +1596,19 @@
       ? config.getTickIntervalDisabledMessage(config.axis)
       : (config.tickIntervalDisabledMessage || 'Tick interval available only for numeric axes.');
     if(tickSupported){
-      if(config.axis === 'x'){
-        tickInput.step = '1';
-        tickInput.min = '1';
-      }else{
-        tickInput.step = '0.1';
-        tickInput.min = '0';
-      }
+      const displayedTick = resolveDisplayedTickInterval(config);
+      tickInput.step = '1';
+      tickInput.min = String(resolveTickInputMinimum(displayedTick.value));
       tickInput.disabled = false;
       tickInput.placeholder = config.tickPlaceholder || 'Auto';
       tickInput.title = '';
       if(tickFieldEl){ tickFieldEl.dataset.disabled = '0'; }
-      const tickValueRaw = config.getTickInterval ? config.getTickInterval(config.axis) : null;
-      const tickValue = sanitizeTickValue(tickValueRaw);
-      tickInput.value = tickValue === null ? '' : String(tickValue);
+      tickInput.value = displayedTick.value === null ? '' : String(displayedTick.value);
+      tickInput.dataset.usesDefault = displayedTick.automatic ? '1' : '0';
     }else{
       tickInput.disabled = true;
       tickInput.value = '';
+      tickInput.dataset.usesDefault = '0';
       tickInput.placeholder = 'Not available';
       tickInput.title = tickDisabledMessage || '';
       if(tickFieldEl){ tickFieldEl.dataset.disabled = '1'; }
@@ -3534,6 +3559,7 @@
         axis: config.axis,
         scopeId: config.scopeId,
         getTickInterval: config.getTickInterval,
+        getEffectiveTickInterval: config.getEffectiveTickInterval,
         getMajorTickLength: config.getMajorTickLength,
         onMajorTickLengthChange: config.onMajorTickLengthChange,
         isMajorTickLengthSupported: config.isMajorTickLengthSupported,

@@ -5007,6 +5007,7 @@
       axis,
       scopeId: 'survival',
       getTickInterval: () => getAxisTickInterval(axis),
+      getEffectiveTickInterval: () => axis === 'x' ? xScale.step : yScale.step,
         getMajorTickLength: () => getAxisMajorTickLength(axis),
         onMajorTickLengthChange: value => updateAxisMajorTickLength(axis, value),
         isMajorTickLengthSupported: () => true,

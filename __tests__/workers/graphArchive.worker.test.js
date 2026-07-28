@@ -217,14 +217,15 @@ describe('graphArchive.worker — utility logic via build-archive', () => {
     expect(payload.panelId).toBe('workspace-42-plot');
   });
 
-  test('preview file is included when previewMarkup is provided', async () => {
+  test('single-image PNG preview and metadata are preserved in the archive', async () => {
     const msg = await send(ctx, '14', 'build-archive', {
       tabs: [{
         title: 'WithPreview',
         type: 'scatter',
         payload: null,
-        previewMarkup: '<svg>...</svg>',
-        previewSignature: 'abc123'
+        previewMarkup: '<img src="data:image/png;base64,cHJldmlldw==" data-tab-preview-format="png">',
+        previewSignature: 'abc123',
+        previewMeta: { format: 'png', rasterized: true, width: 220, height: 160 }
       }]
     });
     expect(msg.ok).toBe(true);
@@ -234,6 +235,13 @@ describe('graphArchive.worker — utility logic via build-archive', () => {
     expect(previewFile).not.toBeNull();
     const preview = JSON.parse(await previewFile.async('string'));
     expect(preview.signature).toBe('abc123');
+    expect(preview.markup).toContain('data-tab-preview-format="png"');
+    expect(preview.meta).toEqual({
+      format: 'png',
+      rasterized: true,
+      width: 220,
+      height: 160
+    });
   });
 
   test('sanitizes special characters in tab title for folder name', async () => {

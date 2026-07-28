@@ -353,13 +353,9 @@ test('scatter CSV import + box tab: save and reopen preserves data, render cache
       renderMode: layer?.getAttribute?.('data-render-mode') || null,
       canvasCount: layer?.querySelectorAll?.('foreignObject[data-point-renderer] canvas').length || 0,
       payloadSignature: tab.payloadSignature || null,
-      // canvas mode (≥12000 pts): preview uses data-preview-canvas-bitmap
-      // batched-circles/markers (< threshold): preview uses data-preview-canvas-simplified
-      previewHasCanvasBitmap: typeof tab.previewMarkup === 'string'
-        ? tab.previewMarkup.includes('data-preview-canvas-bitmap="true"')
-        : false,
-      previewHasCanvasSimplified: typeof tab.previewMarkup === 'string'
-        ? tab.previewMarkup.includes('data-preview-canvas-simplified')
+      previewFormat: tab.previewMeta?.format || null,
+      previewHasPngImage: typeof tab.previewMarkup === 'string'
+        ? tab.previewMarkup.includes('data-tab-preview-format="png"')
         : false,
       previewIsPlaceholder: typeof tab.previewMarkup === 'string'
         ? tab.previewMarkup.includes('data-preview-placeholder')
@@ -399,14 +395,11 @@ test('scatter CSV import + box tab: save and reopen preserves data, render cache
     'scatter preview markup is empty after reopen'
   ).toBeGreaterThan(500);
 
-  // Mode-specific preview content check:
-  // Canvas mode (≥12000 pts): preview has data-preview-canvas-bitmap
-  // Batched-circles/markers (< 12000 pts): preview has data-preview-canvas-simplified
-  const previewHasRealContent = afterReopen.previewHasCanvasBitmap || afterReopen.previewHasCanvasSimplified;
   expect(
-    previewHasRealContent,
-    `scatter preview has neither canvas-bitmap nor canvas-simplified marker — preview was not built from real render output. previewMarkupLength=${afterReopen.previewMarkupLength}`
+    afterReopen.previewHasPngImage,
+    `scatter preview is not the persisted PNG image. previewMarkupLength=${afterReopen.previewMarkupLength}`
   ).toBe(true);
+  expect(afterReopen.previewFormat).toBe('png');
 
   // ── Step 9: Verify box tab still renders ───────────────────────────────────
   const restoredBoxTabId = await page.evaluate(() => {

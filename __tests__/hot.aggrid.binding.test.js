@@ -993,6 +993,54 @@ describe('Shared.hot AG Grid binding', () => {
     expect(createModelSpy).toHaveBeenCalledTimes(1);
   });
 
+  test('re-editing a committed plain number preserves the editor value', () => {
+    const Shared = global.window.Shared;
+    const createModelSpy = jest.spyOn(Shared.formulaEngine, 'createModel');
+    const container = document.createElement('div');
+    container.id = 'plainNumberReEditAgHot';
+    document.body.appendChild(container);
+
+    Shared.hot.createStandardTable(
+      container,
+      { rows: 2, cols: 2 },
+      () => {},
+      {
+        debugLabel: 'plain-number-re-edit',
+        data: [
+          ['A', 'B'],
+          ['', '']
+        ]
+      }
+    );
+
+    const columnDef = capturedGridOptions.columnDefs.find(col => col.colId === 'c0');
+    const editorParams = value => ({
+      value,
+      data: { __rowIndex: 1 },
+      node: { rowIndex: 1, data: { __rowIndex: 1 } },
+      column: { getColId: () => 'c0' },
+      colDef: columnDef
+    });
+
+    const firstEditor = new columnDef.cellEditor();
+    firstEditor.init(editorParams(''));
+    firstEditor.getGui().value = '1';
+    expect(columnDef.valueSetter({
+      ...editorParams(''),
+      newValue: firstEditor.getValue()
+    })).toBe(true);
+    firstEditor.destroy();
+
+    expect(columnDef.valueGetter(editorParams(''))).toBe('1');
+
+    const secondEditor = new columnDef.cellEditor();
+    secondEditor.init(editorParams('1'));
+    expect(secondEditor.getGui().value).toBe('1');
+    expect(secondEditor.getValue()).toBe('1');
+    secondEditor.destroy();
+    expect(createModelSpy).not.toHaveBeenCalled();
+  });
+
   test('pinned first row leaves horizontal sync to AG Grid scroll authority', async () => {
     const Shared = global.window.Shared;
     const container = document.createElement('div');

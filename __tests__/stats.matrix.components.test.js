@@ -15,15 +15,18 @@ function expectClose(actual, expected, label, tolerance = {}) {
   const abs = isFiniteNumber(tolerance.abs) ? tolerance.abs : 1e-8;
   const rel = isFiniteNumber(tolerance.rel) ? tolerance.rel : 1e-6;
   if (expected == null) {
-    expect(actual == null || !Number.isFinite(actual)).toBe(true);
+    if (!(actual == null || !Number.isFinite(actual))) {
+      throw new Error(`${label}: expected no finite value, received ${actual}`);
+    }
     return;
   }
   if (typeof expected === 'number' && !Number.isFinite(expected)) {
     expect(typeof actual === 'number' && !Number.isFinite(actual)).toBe(true);
     return;
   }
-  expect(isFiniteNumber(actual)).toBe(true);
-  expect(isFiniteNumber(expected)).toBe(true);
+  if (!isFiniteNumber(actual) || !isFiniteNumber(expected)) {
+    throw new Error(`${label}: expected finite values, received actual=${actual}, expected=${expected}`);
+  }
   const diff = Math.abs(actual - expected);
   const limit = Math.max(abs, rel * Math.max(1, Math.abs(expected)));
   if (diff > limit) {
@@ -187,7 +190,9 @@ function compareRegressionMetrics(actual, expected, label, options = {}) {
 
 function compareLinearLikeRegression(actualRegression, expected, label, options = {}) {
   expect(actualRegression).toBeTruthy();
-  expect(expected?.valid).toBe(true);
+  if (expected?.valid !== true) {
+    throw new Error(`${label}: oracle did not return a valid regression result`);
+  }
   compareRegressionMetrics(actualRegression.metrics, expected.metrics, `${label}.metrics`, options);
   if (!options.skipCoefficients && Array.isArray(expected.coefficients) && expected.coefficients.length) {
     expect(Array.isArray(actualRegression.coefficients)).toBe(true);
@@ -556,7 +561,7 @@ describe('Generated component statistics matrix', () => {
       {
         mode: 'logistic',
         x: [-3, -2.5, -2, -1, -0.5, 0, 0.5, 1, 1.5, 2, 2.5, 3],
-        y: [0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1]
+        y: [0, 0, 0, 1, 0, 0, 1, 0, 1, 1, 0, 1]
       }
     ];
     const methods = ['pearson', 'spearman'];
@@ -742,7 +747,7 @@ describe('Generated component statistics matrix', () => {
       {
         mode: 'logistic',
         x: [-3, -2.5, -2, -1, -0.5, 0, 0.5, 1, 1.5, 2, 2.5, 3],
-        y: [0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1],
+        y: [0, 0, 0, 1, 0, 0, 1, 0, 1, 1, 0, 1],
         expectedAssociation: 'spearman',
         fitSpec: {}
       },

@@ -2829,7 +2829,8 @@ def roc_delong_diff(payload: Dict[str, Any]) -> Dict[str, Any]:
     sd = math.sqrt(var_diff)
     z = diff / sd
     p_value = float(2 * (1 - stats.norm.cdf(abs(z))))
-    ci = [diff - 1.96 * sd, diff + 1.96 * sd]
+    critical = float(stats.norm.ppf(0.975))
+    ci = [diff - critical * sd, diff + critical * sd]
     return {"available": True, "diff": diff, "p": p_value, "ci": ci}
 
 

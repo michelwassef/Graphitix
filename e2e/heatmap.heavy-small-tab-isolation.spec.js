@@ -101,7 +101,7 @@ test('heavy and ordinary Heatmap tabs retain exact owner DOM, fonts, geometry, a
   const ordinaryBefore = await captureActiveSignature(page);
   await page.evaluate(() => { window.__ordinaryHeatmapSvg = document.getElementById('heatmapSvg'); });
 
-  const inactiveHeavyPreview = await page.evaluate(tabId => {
+  const inactiveHeavyPreview = await page.evaluate(async tabId => {
     const tab = window.Main?.session?.workspaceState?.tabs?.find?.(entry => entry.id === tabId) || null;
     const preview = window.Components?.heatmap?.getPreviewSvg?.(tab) || null;
     window.Main?.previews?.updateTabPreviewFromWorkspace?.(
@@ -109,24 +109,21 @@ test('heavy and ordinary Heatmap tabs retain exact owner DOM, fonts, geometry, a
       window.Main?.components?.registry?.heatmap,
       { reason: 'heatmap-heavy-isolation-test', forceCapture: true }
     );
+    await window.Main?.previews?.awaitPendingCaptures?.([tabId]);
     return {
       owner: preview?.getAttribute?.('data-workspace-tab-id') || null,
-      source: preview?.getAttribute?.('data-preview-source') || null,
-      projection: preview?.getAttribute?.('data-heatmap-preview-projection') || null,
       hasCanvas: !!preview?.querySelector?.('canvas'),
       storedIsPlaceholder: /data-preview-placeholder|Preview simplified|Large dataset/.test(String(tab?.previewMarkup || '')),
-      storedHasBitmap: String(tab?.previewMarkup || '').includes('data-preview-canvas-bitmap'),
-      storedCanvasBitmapMeta: tab?.previewMeta?.canvasBitmap === true
+      storedHasPng: String(tab?.previewMarkup || '').includes('data-tab-preview-format="png"'),
+      storedFormat: tab?.previewMeta?.format || null
     };
   }, heavyTabId);
   expect(inactiveHeavyPreview).toEqual(expect.objectContaining({
     owner: heavyTabId,
-    source: 'true',
-    projection: 'canvas-sampled',
     hasCanvas: true,
     storedIsPlaceholder: false,
-    storedHasBitmap: true,
-    storedCanvasBitmapMeta: true
+    storedHasPng: true,
+    storedFormat: 'png'
   }));
 
   await switchToTab(page, heavyTabId);

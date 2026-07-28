@@ -98,12 +98,19 @@ test('large Data-values heatmap stays responsive and completes exact clustering'
       && workerRecords.some(record => record.itemCount === 7358 && record.status === 'done');
   }, null, { timeout: 90_000 });
 
-  const metrics = await page.evaluate(() => {
+  const metrics = await page.evaluate(async () => {
     window.clearInterval(window.__heatmapResponsivenessTimer);
     const heatmap = window.Components.heatmap;
     const state = heatmap.__getState();
     const sourceSvg = document.getElementById('heatmapSvg');
-    const previewSvg = heatmap.__testHooks?.buildPreviewSvgFromSource?.(sourceSvg) || null;
+    const activeTabId = window.Main?.session?.workspaceState?.activeTabId || null;
+    const activeTab = window.Main?.session?.workspaceState?.tabs?.find(tab => tab?.id === activeTabId) || null;
+    const previewConfig = window.Main?.components?.registry?.heatmap || null;
+    window.Main?.previews?.updateTabPreviewFromWorkspace?.(activeTab, previewConfig, {
+      forceCapture: true,
+      reason: 'e2e-heavy-heatmap-preview'
+    });
+    await window.Main?.previews?.awaitPendingCaptures?.([activeTabId]);
     const exportSvg = heatmap.__testHooks?.buildExportSvgFromSource?.(sourceSvg) || null;
     return {
       responsiveness: window.__heatmapResponsivenessProbe,
@@ -153,9 +160,9 @@ test('large Data-values heatmap stays responsive and completes exact clustering'
         ? document.querySelectorAll('#heatmapSvg linearGradient stop').length
         : 0,
       scaleWidth: document.querySelector('#heatmapSvg .heatmap-color-scale rect')?.getBoundingClientRect?.().width || 0,
-      previewProjection: previewSvg?.getAttribute?.('data-heatmap-preview-projection') || null,
-      previewOwnerTabId: previewSvg?.getAttribute?.('data-workspace-tab-id') || null,
-      activeTabId: window.Main?.session?.workspaceState?.activeTabId || null,
+      previewFormat: activeTab?.previewMeta?.format || null,
+      previewOwnerTabId: activeTab?.previewMarkup?.match?.(/data-preview-owner-tab-id="([^"]+)"/)?.[1] || null,
+      activeTabId,
       rowLabelVisualHeight: document.querySelector('#heatmapSvg [data-layer="row-labels"] > text')?.getBoundingClientRect?.().height || 0,
       rowLabelTransform: document.querySelector('#heatmapSvg [data-layer="row-labels"] > text')?.getAttribute?.('transform') || '',
       rowLabelScaleY: (() => {
@@ -164,13 +171,8 @@ test('large Data-values heatmap stays responsive and completes exact clustering'
         return match ? Number(match[1]) : NaN;
       })(),
       labelProjection: sourceSvg?.getAttribute?.('data-heatmap-label-projection') || null,
-      previewRowLabels: previewSvg?.querySelectorAll?.('[data-layer="row-labels"] > text')?.length || 0,
-      previewColumnLabels: previewSvg?.querySelectorAll?.('[data-layer="column-labels"] > text')?.length || 0,
-      previewOverlayBitmaps: previewSvg?.querySelectorAll?.('[data-heatmap-preview-overlay-bitmap]')?.length || 0,
-      previewInteractionLayers: previewSvg?.querySelectorAll?.('[data-dendrogram-control="1"], [data-heatmap-cell-hit-layer="1"]')?.length || 0,
-      previewRemovedDendrogramBranches: Number(previewSvg?.getAttribute?.('data-heatmap-preview-removed-dendrogram-branches') || 0),
-      previewDendrogramBranches: Number(previewSvg?.querySelector?.('.heatmap-dendrogram[data-dendrogram-orientation="vertical"] path')?.getAttribute?.('data-preview-branch-count') || 0),
-      previewMarkupLength: previewSvg?.outerHTML?.length || 0,
+      previewImageCount: (activeTab?.previewMarkup?.match?.(/<img/g) || []).length,
+      previewMarkupLength: activeTab?.previewMarkup?.length || 0,
       exportProjection: exportSvg?.getAttribute?.('data-heatmap-export-projection') || null,
       exportRowLabels: exportSvg?.querySelectorAll?.('[data-layer="row-labels"] > text')?.length || 0,
       exportColumnLabels: exportSvg?.querySelectorAll?.('[data-layer="column-labels"] > text')?.length || 0,
@@ -235,20 +237,13 @@ test('large Data-values heatmap stays responsive and completes exact clustering'
   expect(metrics.scaleWidth).toBeGreaterThan(2);
   expect(metrics.scaleWidth).toBeLessThan(80);
   expect(metrics.labelProjection).toBe('pixel-sampled');
-  expect(metrics.previewProjection).toBe('canvas-sampled');
+  expect(metrics.previewFormat).toBe('png');
   expect(metrics.previewOwnerTabId).toBe(metrics.activeTabId);
   expect(metrics.rowLabelVisualHeight).toBeLessThanOrEqual(2);
   expect(metrics.rowLabelTransform).toContain('matrix(');
   expect(metrics.rowLabelScaleY).toBeGreaterThan(0);
   expect(metrics.rowLabelScaleY).toBeLessThan(0.002);
-  expect(metrics.previewRowLabels).toBeGreaterThan(1);
-  expect(metrics.previewRowLabels).toBeLessThanOrEqual(24);
-  expect(metrics.previewColumnLabels).toBeLessThanOrEqual(24);
-  expect(metrics.previewOverlayBitmaps).toBe(0);
-  expect(metrics.previewInteractionLayers).toBe(0);
-  expect(metrics.previewRemovedDendrogramBranches).toBeGreaterThan(0);
-  expect(metrics.previewDendrogramBranches).toBeGreaterThan(1);
-  expect(metrics.previewDendrogramBranches).toBeLessThanOrEqual(320);
+  expect(metrics.previewImageCount).toBe(1);
   expect(metrics.previewMarkupLength).toBeLessThan(220000);
   expect(metrics.exportProjection).toBe('vector-matrix');
   expect(metrics.exportRowLabels).toBe(metrics.sourceRowLabels);

@@ -5825,6 +5825,9 @@
       resizeWarmupPending: !!src.resizeWarmupPending,
       rotationPending: !!src.rotationPending,
       rotationPendingLogged: !!src.rotationPendingLogged,
+      rotationActive: !!src.rotationActive,
+      rotationQueued: !!src.rotationQueued,
+      rotationViewport: cloneSimple(src.rotationViewport) || null,
       updatedAt: Date.now()
     };
   }
@@ -9362,6 +9365,7 @@
         });
         updatePcaDrawRuntime(target, runtime => {
           runtime.rotationPendingLogged = true;
+          runtime.rotationQueued = true;
         });
       }
       return;
@@ -9369,6 +9373,7 @@
     updatePcaDrawRuntime(target, runtime => {
       runtime.rotationPending = true;
       runtime.rotationPendingLogged = false;
+      runtime.rotationQueued = false;
     });
     pcaState.rotationPending = true;
     pcaState.rotationPendingLogged = false;
@@ -9376,13 +9381,63 @@
     debugLog('Debug: pca rotation redraw scheduled', {
       tabId: target?.tabId || null
     });
-    requestPcaViewRefresh('rotation', {
+    schedulePcaScopedFrame({
       tabId: target?.tabId || null,
-      force: true,
-      userInitiated: true,
-      silentOverlay: true,
-      rotationOnly: true
+      reason: 'pca-rotation-frame'
+    }, () => {
+      const renderer = target?.refs?.rotationRenderer;
+      updatePcaDrawRuntime(target, nextRuntime => {
+        nextRuntime.rotationPending = false;
+        nextRuntime.rotationPendingLogged = false;
+        nextRuntime.rotationQueued = false;
+      });
+      pcaState.rotationPending = false;
+      pcaState.rotationPendingLogged = false;
+      if (typeof renderer === 'function' && renderer(pcaState.rotation) === true) {
+        return;
+      }
+      requestPcaViewRefresh('rotation', {
+        tabId: target?.tabId || null,
+        force: true,
+        userInitiated: true,
+        silentOverlay: true,
+        rotationOnly: true
+      });
     });
+  }
+
+  function capturePcaRotationViewport(svg) {
+    if (!svg) {
+      return null;
+    }
+    const viewBox = svg.viewBox?.baseVal;
+    if (viewBox && Number.isFinite(viewBox.width) && viewBox.width > 0 && Number.isFinite(viewBox.height) && viewBox.height > 0) {
+      return {
+        x: Number(viewBox.x) || 0,
+        y: Number(viewBox.y) || 0,
+        width: viewBox.width,
+        height: viewBox.height
+      };
+    }
+    const raw = String(svg.getAttribute?.('viewBox') || '').trim().split(/\s+/).map(Number);
+    if (raw.length !== 4 || !raw.every(Number.isFinite) || raw[2] <= 0 || raw[3] <= 0) {
+      return null;
+    }
+    return {
+      x: raw[0],
+      y: raw[1],
+      width: raw[2],
+      height: raw[3]
+    };
+  }
+
+  function applyPcaRotationViewport(svg, viewport) {
+    if (!svg || !viewport) {
+      return false;
+    }
+    svg.setAttribute('viewBox', `${viewport.x} ${viewport.y} ${viewport.width} ${viewport.height}`);
+    svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+    return true;
   }
 
   function bindPca3dRotationControls(svg, debugLabel) {
@@ -9398,9 +9453,37 @@
     }
     plot3d.attachRotationControls(svg, {
       state: rotationState,
-      onStart: (_event, state) => commitPcaRotationState(state, rotationSession, 'pca-rotation-start'),
+      onStart: (_event, state) => {
+        updatePcaDrawRuntime(rotationSession, runtime => {
+          runtime.rotationActive = true;
+          runtime.rotationViewport = capturePcaRotationViewport(svg);
+        });
+        commitPcaRotationState(state, rotationSession, 'pca-rotation-start');
+      },
       onChange: (_event, state) => scheduleRotationRedraw(state, rotationSession),
-      onEnd: (_event, state) => commitPcaRotationState(state, rotationSession, 'pca-rotation-end'),
+      onEnd: (_event, state) => {
+        commitPcaRotationState(state, rotationSession, 'pca-rotation-end');
+        persistPcaSessionOwnedState(rotationSession, 'pca-rotation-end');
+        if (typeof rotationSession?.refs?.rotationRenderer === 'function') {
+          rotationSession.refs.rotationRenderer(state);
+        }
+        updatePcaDrawRuntime(rotationSession, runtime => {
+          runtime.rotationActive = false;
+          runtime.rotationPending = false;
+          runtime.rotationPendingLogged = false;
+          runtime.rotationQueued = false;
+          if (!runtime.rotationPending) {
+            runtime.rotationViewport = null;
+          }
+        });
+        requestPcaViewRefresh('rotation-end', {
+          tabId: rotationSession?.tabId || null,
+          force: true,
+          userInitiated: true,
+          silentOverlay: true,
+          viewOnly: true
+        });
+      },
       shouldIgnorePointer: (event) => {
         if (typeof plot3d.isInteractivePointerTarget === 'function') {
           return plot3d.isInteractivePointerTarget(event?.target);
@@ -11018,6 +11101,7 @@
     let loadingsComponents = 0;
     let loadingsTotalCount = 0;
     let loadingsTruncated = false;
+    let preprocessingMetadata = null;
     let statsSummaryLines = [];
     let eigenSummaryData = [];
     let screeData = [];
@@ -11068,15 +11152,6 @@
           return;
         }
       }
-      if (drawRuntime.rotationPending) {
-        debugLog('Debug: pca rotation pending reset at draw', {
-          tabId: drawSession?.tabId || null
-        });
-      }
-      updatePcaDrawRuntime(drawSession, runtime => {
-        runtime.rotationPending = false;
-        runtime.rotationPendingLogged = false;
-      });
       const debugStamp = Date.now();
       debugLog('Debug: drawPca invoked', {
         debugStamp
@@ -11330,6 +11405,7 @@
           loadingsComponents = Number(cached.loadingsComponents) || 0;
           loadingsTotalCount = Number.isFinite(cached.loadingsTotalCount) ? cached.loadingsTotalCount : loadingsRows.length;
           loadingsTruncated = !!cached.loadingsTruncated;
+          preprocessingMetadata = cloneSimple(cached.preprocessingMetadata) || null;
           sampleCountSnapshot = Number(cached.sampleCount) || points.length;
           featureCountSnapshot = Number(cached.featureCount) || 0;
           if (cached.axisIndices && typeof cached.axisIndices === 'object') {
@@ -11620,7 +11696,6 @@
         const preprocessingMode = method === 'pca' ?
           sanitizePcaPreprocessingMode(controls.preprocessing) :
           PCA_PREPROCESSING_NONE;
-        let preprocessingMetadata = null;
         if (preprocessingMode === PCA_PREPROCESSING_RNASEQ_LOG) {
           try {
             const preprocessed = preprocessPcaRnaSeqCounts(matrix, featureLabels);
@@ -13546,6 +13621,7 @@
         }
         svg3.appendChild(frontFrameLayer);
         contentRightBound = Math.max(contentRightBound, maxPointRight);
+        let legendGroup3d = null;
         if (legendVisible) {
           const horizontalBase = margin3.left + plotW3 + legendLayout.legendGapPx + appliedLegendAxisGap;
           const legendGapFor3d = legendLayout.legendGapPx;
@@ -13658,6 +13734,7 @@
             'data-role': 'pca-legend',
             transform: `translate(${legendX3},${legendStartY})`
           });
+          legendGroup3d = legendGroup;
           if (legendGroup) {
             plot3d.applyLegendPointerGuards(legendGroup, {
               label: 'pca-legend-3d'
@@ -13740,6 +13817,152 @@
           pointCount: projectedPoints.length,
           axisRanges: renderAxisRanges3d
         });
+        const rotationDynamicGroup = document.createElementNS(NS, 'g');
+        rotationDynamicGroup.setAttribute('data-layer', 'pca-3d-rotation-dynamic');
+        const rotationStaticNodes = new Set([title3d, legendGroup3d].filter(Boolean));
+        const rotationChildren = Array.from(svg3.children).filter(node => (
+          !rotationStaticNodes.has(node) &&
+          node.getAttribute?.('data-plot3d-rotation-hit-surface') !== '1'
+        ));
+        const rotationInsertBefore = title3d || legendGroup3d || null;
+        svg3.insertBefore(rotationDynamicGroup, rotationInsertBefore);
+        rotationChildren.forEach(node => rotationDynamicGroup.appendChild(node));
+        const fastPointDescriptors = renderPoints3d.map((point, idx) => {
+          const original = points3d[idx] || {};
+          const assignment = (groupMeta && Number.isInteger(point.index)) ? groupMeta.assignments[point.index] : null;
+          const style = (groupMeta && Number.isInteger(assignment)) ? groupMeta.styleByIndex?.[assignment] : null;
+          const label = point.label ? String(point.label) : '';
+          const labelPointStyle = label ? (pcaState.labelPointStyles[label] || null) : null;
+          const pointRadiusBase = Number.isFinite(Number(labelPointStyle?.size)) ? Number(labelPointStyle.size) : dotSizeRaw;
+          const pointTransparency = Number.isFinite(Number(labelPointStyle?.alpha)) ? Number(labelPointStyle.alpha) : alpha;
+          const pointBorderWidthBase = Number.isFinite(Number(labelPointStyle?.borderWidth)) ?
+            Number(labelPointStyle.borderWidth) :
+            (Number.isFinite(Number(labelPointStyle?.strokeWidth)) ? Number(labelPointStyle.strokeWidth) : borderWidthRaw);
+          const pointBorderWidth = chartStyle.scaleStrokeWidth(pointBorderWidthBase, styleScaleInfo, {
+            context: 'pca-border-label',
+            min: 0
+          });
+          return {
+            point,
+            original,
+            shape: style?.shape || (label ? pcaState.labelShapes[label] : null) || 'circle',
+            radius: chartStyle.scaleStrokeWidth(pointRadiusBase, styleScaleInfo, {
+              context: 'pca-dot-size-label',
+              min: 0.5
+            }),
+            fill: style?.color || (label ? (pcaState.labelColors[label] || DEFAULT_SCATTER_COLORS[0]) : fill),
+            stroke: pointBorderWidth > 0 ?
+              (labelPointStyle?.borderColor || labelPointStyle?.stroke || borderColor) :
+              'none',
+            strokeWidth: pointBorderWidth,
+            opacity: Math.min(Math.max(1 - pointTransparency, 0), 1),
+            label: original.isManualLabel ? label : ''
+          };
+        });
+        drawSession.refs.rotationRenderer = rotation => {
+          if (!rotationDynamicGroup.isConnected || svg3.dataset.viewMode !== '3d' || !isPcaSessionActiveForModuleState(drawSession)) {
+            return false;
+          }
+          rotationDynamicGroup.replaceChildren();
+          const fastRotate = point => plot3d.rotatePoint(point, rotation);
+          const fastRotatedCorners = allCorners.map(fastRotate);
+          const fastRotatedPoints = fastPointDescriptors.map(entry => fastRotate(entry.point));
+          const fastProjector = plot3d.createProjector({
+            rotatedPoints: fastRotatedPoints,
+            rotatedCorners: fastRotatedCorners,
+            width: W3,
+            height: H3,
+            margin: margin3,
+            shiftX: legendShiftX
+          });
+          const fastProject = point => fastProjector.project(point);
+          const fastAdd = (tag, attrs, text, target) => {
+            const node = document.createElementNS(NS, tag);
+            Object.keys(attrs || {}).forEach(key => node.setAttribute(key, String(attrs[key])));
+            if (text) {
+              node.textContent = text;
+            }
+            (target || rotationDynamicGroup).appendChild(node);
+            return node;
+          };
+          const fastFrontFrame = fastAdd('g', {
+            'data-layer': 'frame-front'
+          });
+          plot3d.renderAxesAndGrid({
+            svg: svg3,
+            project: fastProject,
+            rotatePoint: fastRotate,
+            axisRanges: renderAxisRanges3d,
+            axisTicks,
+            axisLabels: {
+              x: pcaXLabelText,
+              y: pcaYLabelText,
+              z: pcaZLabelText
+            },
+            fontSize: fs,
+            tickFontSize: pca3dTickFontSize,
+            axisStrokeWidth,
+            chartStyle,
+            showGrid,
+            showFrame,
+            axisTickFormatters: axisTickFormatters3d || undefined,
+            showPanes: showFrame,
+            paneFill: pcaThemeDark ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.03)',
+            paneOpacityRange: pcaThemeDark ? { min: 0.10, max: 0.22 } : { min: 0.01, max: 0.05 },
+            gridColor: gridStrokeStyle.color,
+            gridDash: gridDash || undefined,
+            gridOpacity,
+            gridStrokeWidth: gridStrokeStyle.thickness,
+            gridOutlineColors: {
+              primary: gridStrokeStyle.color,
+              secondary: gridStrokeStyle.color
+            },
+            frameColor: axisStroke,
+            axisColor: axisStroke,
+            tickTextColor: pcaThemeTextColor,
+            axisLabelColor: pcaThemeTextColor,
+            paneTarget: rotationDynamicGroup,
+            gridTarget: rotationDynamicGroup,
+            axisTarget: rotationDynamicGroup,
+            frontFrameTarget: fastFrontFrame,
+            debugLabel: 'pca-3d-rotation',
+            onAxisTickLabel: markPca3dAxisTickLabel,
+            onAxisLabel: (node, _axisKey, labelText) => {
+              markFontEditable(node, 'axis3d', labelText);
+            },
+            createElement: fastAdd
+          });
+          fastRotatedPoints.map((rotated, idx) => {
+            const projected = fastProject(rotated);
+            return {
+              ...projected,
+              descriptor: fastPointDescriptors[idx]
+            };
+          }).sort((a, b) => a.depth - b.depth).forEach(projected => {
+            const descriptor = projected.descriptor;
+            drawShape(fastAdd, descriptor.shape, {
+              cx: projected.x,
+              cy: projected.y,
+              radius: descriptor.radius,
+              fill: descriptor.fill,
+              stroke: descriptor.stroke,
+              strokeWidth: descriptor.strokeWidth,
+              opacity: descriptor.opacity
+            });
+            if (descriptor.label) {
+              fastAdd('text', {
+                x: projected.x + descriptor.radius + 2,
+                y: projected.y,
+                'font-size': Math.max(8, fs * 0.6),
+                'dominant-baseline': 'middle',
+                fill: pcaThemeTextColor,
+                'pointer-events': 'none'
+              }, descriptor.label);
+            }
+          });
+          rotationDynamicGroup.appendChild(fastFrontFrame);
+          return true;
+        };
         registerPcaGridControlTarget(svg3, {
           fallbackThickness: axisStrokeWidthBase
         });
@@ -13748,15 +13971,20 @@
         // "xMidYMid meet" (vs the 2D "none"/fill-distort default) prevents the SVG
         // from being non-uniformly stretched when the rendered box aspect differs
         // from the content aspect, on initial render, rotation, and resize.
-        ensureGraphViewport(svg3, {
-          padding: Math.max(fs, 18),
-          debugLabel: 'pca-3d-graph',
-          preserveAspectRatio: 'xMidYMid meet'
-        });
-        pcaLayout?.syncPanels?.({
-          skipSchedule: true
-        });
-        syncPcaAutoDrawNoticeWidth('draw');
+        const rotationViewport = drawOpts.reason === 'rotation' ?
+          getPcaDrawRuntime(drawSession)?.rotationViewport || null :
+          null;
+        if (!applyPcaRotationViewport(svg3, rotationViewport)) {
+          ensureGraphViewport(svg3, {
+            padding: Math.max(fs, 18),
+            debugLabel: 'pca-3d-graph',
+            preserveAspectRatio: 'xMidYMid meet'
+          });
+          pcaLayout?.syncPanels?.({
+            skipSchedule: true
+          });
+          syncPcaAutoDrawNoticeWidth('draw');
+        }
         return;
       }
 
@@ -14319,6 +14547,7 @@
         axis,
         scopeId: 'pca',
         getTickInterval: () => getAxisTickInterval(axis),
+        getEffectiveTickInterval: () => axis === 'x' ? xScale.step : yScale.step,
         getMajorTickLength: () => getAxisMajorTickLength(axis),
         onMajorTickLengthChange: value => updateAxisMajorTickLength(axis, value),
         isMajorTickLengthSupported: () => true,
@@ -15881,12 +16110,30 @@
 
   const runPcaDrawCycle = async (drawOpts = {}) => {
     let status = 'complete';
+    const drawSession = getPcaSessionForDrawOptions(drawOpts, {
+      create: true
+    });
     try {
       await drawPca(drawOpts);
     } catch (err) {
       status = 'error';
       throw err;
     } finally {
+      if (drawOpts?.reason === 'rotation' && drawSession) {
+        const drawRuntime = getPcaDrawRuntime(drawSession);
+        const rotationQueued = !!drawRuntime.rotationQueued;
+        updatePcaDrawRuntime(drawSession, runtime => {
+          runtime.rotationPending = false;
+          runtime.rotationPendingLogged = false;
+          runtime.rotationQueued = false;
+          if (!runtime.rotationActive) {
+            runtime.rotationViewport = null;
+          }
+        });
+        if (rotationQueued && status === 'complete') {
+          scheduleRotationRedraw(pcaState.rotation, drawSession);
+        }
+      }
       resolvePcaOverlay({ reason: status, status, tabId: drawOpts?.tabId || null });
     }
   };

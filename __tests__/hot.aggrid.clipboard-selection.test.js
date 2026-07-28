@@ -149,6 +149,129 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     expect(hot.getDataAtCell(0, 0)).toBe('X');
   });
 
+  test('new active tab pastes into its highlighted cell without grid focus', () => {
+    const Shared = global.window.Shared;
+    const activeTab = { id: 'workspace-new-paste', type: 'box' };
+    global.window.Main = {
+      session: {
+        workspaceState: { tabs: [activeTab] },
+        getActiveTab: () => activeTab
+      }
+    };
+    const container = document.createElement('div');
+    container.id = 'agNewTabPasteHot';
+    container.dataset.workspaceTabId = activeTab.id;
+    const tabButton = document.createElement('button');
+    tabButton.textContent = 'Distribution Charts';
+    document.body.append(container, tabButton);
+
+    const hot = createTable(
+      container,
+      { rows: 3, cols: 3 },
+      () => {},
+      {
+        debugLabel: 'ag-new-tab-paste',
+        data: Shared.createEmptyData(3, 3)
+      }
+    );
+    hot.selectCell(0, 0);
+    tabButton.focus();
+
+    const event = new global.window.Event('paste', { bubbles: true, cancelable: true });
+    event.clipboardData = { getData: () => 'A\tB\n1\t2' };
+    tabButton.dispatchEvent(event);
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(hot.getSourceData().slice(0, 2).map(row => row.slice(0, 2))).toEqual([
+      ['A', 'B'],
+      ['1', '2']
+    ]);
+  });
+
+  test('tab switch routes unfocused paste only to the active tab selection', () => {
+    const Shared = global.window.Shared;
+    const tabA = { id: 'workspace-paste-a', type: 'box' };
+    const tabB = { id: 'workspace-paste-b', type: 'box' };
+    let activeTab = tabB;
+    global.window.Main = {
+      session: {
+        workspaceState: { tabs: [tabA, tabB] },
+        getActiveTab: () => activeTab
+      }
+    };
+    const containerA = document.createElement('div');
+    containerA.dataset.workspaceTabId = tabA.id;
+    const containerB = document.createElement('div');
+    containerB.dataset.workspaceTabId = tabB.id;
+    const tabButton = document.createElement('button');
+    tabButton.textContent = 'Active workspace tab';
+    document.body.append(containerA, containerB, tabButton);
+
+    const hotA = createTable(
+      containerA,
+      { rows: 4, cols: 3 },
+      () => {},
+      { debugLabel: 'ag-tab-paste-a', data: Shared.createEmptyData(4, 3) }
+    );
+    const hotB = createTable(
+      containerB,
+      { rows: 4, cols: 3 },
+      () => {},
+      { debugLabel: 'ag-tab-paste-b', data: Shared.createEmptyData(4, 3) }
+    );
+    hotA.selectCell(1, 1);
+    hotB.selectCell(2, 0);
+    tabButton.focus();
+
+    const pasteB = new global.window.Event('paste', { bubbles: true, cancelable: true });
+    pasteB.clipboardData = { getData: () => 'B' };
+    tabButton.dispatchEvent(pasteB);
+
+    expect(pasteB.defaultPrevented).toBe(true);
+    expect(hotB.getDataAtCell(2, 0)).toBe('B');
+    expect(hotA.getDataAtCell(1, 1)).toBe('');
+
+    activeTab = tabA;
+    tabButton.focus();
+    const pasteA = new global.window.Event('paste', { bubbles: true, cancelable: true });
+    pasteA.clipboardData = { getData: () => 'A' };
+    tabButton.dispatchEvent(pasteA);
+
+    expect(pasteA.defaultPrevented).toBe(true);
+    expect(hotA.getDataAtCell(1, 1)).toBe('A');
+    expect(hotB.getDataAtCell(2, 0)).toBe('B');
+  });
+
+  test('active-tab routing does not intercept paste into an editable control', () => {
+    const Shared = global.window.Shared;
+    const activeTab = { id: 'workspace-editable-paste', type: 'box' };
+    global.window.Main = {
+      session: {
+        workspaceState: { tabs: [activeTab] },
+        getActiveTab: () => activeTab
+      }
+    };
+    const container = document.createElement('div');
+    container.dataset.workspaceTabId = activeTab.id;
+    const input = document.createElement('input');
+    document.body.append(container, input);
+    const hot = createTable(
+      container,
+      { rows: 2, cols: 2 },
+      () => {},
+      { debugLabel: 'ag-editable-paste', data: Shared.createEmptyData(2, 2) }
+    );
+    hot.selectCell(0, 0);
+    input.focus();
+
+    const event = new global.window.Event('paste', { bubbles: true, cancelable: true });
+    event.clipboardData = { getData: () => 'input text' };
+    input.dispatchEvent(event);
+
+    expect(event.defaultPrevented).toBe(false);
+    expect(hot.getDataAtCell(0, 0)).toBe('');
+  });
+
   test('first custom paste supersedes a pending projection and writes through to the owner payload', () => {
     const Shared = global.window.Shared;
     const clone = value => JSON.parse(JSON.stringify(value));
@@ -222,7 +345,8 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
       tab.payload.data.slice(0, 3).map(row => row.slice(0, 2))
     );
     expect(tab.userDirty).toBe(true);
-    expect(updateTabPayload).toHaveBeenCalledTimes(1);
+    expect(updateTabPayload).not.toHaveBeenCalled();
+    expect(global.window.Main.session.commitTabPayload).toHaveBeenCalledTimes(1);
     expect(scheduleDraw).toHaveBeenCalledTimes(1);
     expect(scheduleDraw).toHaveBeenCalledWith(expect.objectContaining({
       reason: 'afterPaste',

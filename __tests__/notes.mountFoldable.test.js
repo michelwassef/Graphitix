@@ -109,6 +109,17 @@ describe('Shared.notes.mountFoldable', () => {
     expect(ctrl.getValue()).toBe('new text');
   });
 
+  test('programmatic projection does not emit user callbacks', () => {
+    const onChange = jest.fn();
+    const onToggle = jest.fn();
+    const ctrl = notes.mountFoldable({ container, richText: false, onChange, onToggle });
+    ctrl.setValue('restored text');
+    ctrl.setOpen(true);
+    ctrl.details.dispatchEvent(new Event('toggle'));
+    expect(onChange).not.toHaveBeenCalled();
+    expect(onToggle).not.toHaveBeenCalled();
+  });
+
   test('setValue with null/undefined does not throw', () => {
     const ctrl = notes.mountFoldable({ container });
     expect(() => ctrl.setValue(null)).not.toThrow();

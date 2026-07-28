@@ -169,11 +169,11 @@ describe('Pie percentage labels', () => {
       }
     });
     const activeTab = window.Main.tabs.getActiveTab();
-    expect(window.Components.pie.draw({
+    await window.Components.pie.draw({
       force: true,
       reason: 'pie-percent-label-render-test',
       tabId: activeTab?.id
-    })).toBe(true);
+    });
     await flushAsyncWork(10);
 
     const svg = document.querySelector('#piePlot svg');
@@ -196,5 +196,78 @@ describe('Pie percentage labels', () => {
     percentLabels.forEach(node => {
       expect(node.parentNode).toBe(labelLayer);
     });
+  });
+
+  test('stacked axis tick length change preserves the manual tick interval', async () => {
+    await activateWorkspace('pie');
+    setFixedPiePlotDimensions(760, 360);
+
+    window.Components.pie.loadFromPayload({
+      type: 'pie',
+      data: [
+        ['Category', 'Observed', 'Expected'],
+        ['A', 25, 15],
+        ['B', 35, 30],
+        ['C', 20, 40]
+      ],
+      config: {
+        title: 'Stacked proportions',
+        chartType: 'stacked',
+        showPercents: true,
+        showFrame: false,
+        showLegend: true,
+        startAngle: '0',
+        fontSize: '12'
+      }
+    });
+    const activeTab = window.Main.tabs.getActiveTab();
+    await window.Components.pie.draw({
+      force: true,
+      reason: 'pie-stacked-axis-controls-test',
+      tabId: activeTab?.id
+    });
+    await flushAsyncWork(10);
+
+    const axisLines = Array.from(document.querySelectorAll(
+      '#piePlot svg g[data-layer="pie-axis"] line[data-axis-control="1"]'
+    ));
+    const yAxis = axisLines.find(line => {
+      const width = Math.abs(Number(line.getAttribute('x2')) - Number(line.getAttribute('x1')));
+      const height = Math.abs(Number(line.getAttribute('y2')) - Number(line.getAttribute('y1')));
+      return height > width;
+    });
+    expect(yAxis).toBeTruthy();
+    yAxis.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+    const panel = document.querySelector(
+      '.font-toolbar-host[data-font-toolbar-scope="pie"] .axis-controls-panel'
+    );
+    expect(panel).toBeTruthy();
+    const tickIntervalInput = panel.querySelector(
+      '.axis-controls-panel__field--numeric:not(.axis-controls-panel__field--major-tick-length) input[type="number"]'
+    );
+    const tickLengthInput = panel.querySelector(
+      '.axis-controls-panel__field--major-tick-length input[type="number"]'
+    );
+    expect(tickIntervalInput).toBeTruthy();
+    expect(tickLengthInput).toBeTruthy();
+
+    tickIntervalInput.value = '25';
+    tickIntervalInput.dispatchEvent(new Event('change', { bubbles: true }));
+    tickLengthInput.value = '9';
+    tickLengthInput.dispatchEvent(new Event('change', { bubbles: true }));
+    await flushAsyncWork(20);
+
+    const payload = window.Components.pie.getPayload();
+    expect(payload.config.axis.tickIntervalY).toBe(25);
+    expect(payload.config.axis.majorTickLengthY).toBe(9);
+
+    window.Components.pie.loadFromPayload(payload, {
+      source: 'pie-stacked-axis-controls-reopen-test',
+      skipDraw: true
+    });
+    const reopenedPayload = window.Components.pie.getPayload();
+    expect(reopenedPayload.config.axis.tickIntervalY).toBe(25);
+    expect(reopenedPayload.config.axis.majorTickLengthY).toBe(9);
   });
 });

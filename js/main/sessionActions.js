@@ -704,7 +704,7 @@
   }
 
 
-  function buildArchiveTabSnapshot(context, tab, options = {}) {
+  async function buildArchiveTabSnapshot(context, tab, options = {}) {
     const { session, workspaces } = context || {};
     if (!tab || tab.isWelcome || !tab.type) {
       return null;
@@ -790,7 +790,10 @@
     }
 
     const archiveRenderCache = cacheSnapshot?.cache || null;
-    if ((!tab.previewMarkup || !String(tab.previewMarkup).trim()) && archiveRenderCache && config && context?.previews?.updateTabPreviewFromWorkspace) {
+    const hasUsablePreview = typeof context?.previews?.hasUsableStoredPreview === 'function'
+      ? context.previews.hasUsableStoredPreview(tab)
+      : !!(tab.previewMarkup && String(tab.previewMarkup).trim());
+    if (!hasUsablePreview && archiveRenderCache && config && context?.previews?.updateTabPreviewFromWorkspace) {
       const previousRenderCache = tab.renderCache || null;
       const previousRenderCacheSignature = tab.renderCacheSignature || null;
       const previousRenderCacheLayoutSignature = tab.renderCacheLayoutSignature || null;
@@ -813,6 +816,9 @@
           forceCapture: true,
           allowPreviewClear: false
         });
+        if (typeof context.previews.awaitPendingCaptures === 'function') {
+          await context.previews.awaitPendingCaptures([tab.id]);
+        }
       } catch (err) {
         console.debug('Debug: archive preview fallback from render cache failed', {
           tabId: tab.id,
@@ -851,7 +857,7 @@
     };
   }
 
-  function buildScopeSnapshot(context, scope, options = {}) {
+  async function buildScopeSnapshot(context, scope, options = {}) {
     const { session, workspaceState, withSessionContext } = context || {};
     if (!session || !workspaceState || typeof withSessionContext !== 'function') {
       return null;
@@ -868,6 +874,12 @@
       preserveRenderCacheTabIds: options.preserveRenderCacheTabIds
       });
     }
+    if (typeof context?.previews?.awaitPendingCaptures === 'function') {
+      const pendingTabIds = scope === 'workspace'
+        ? getGraphTabsFromWorkspaceState(workspaceState).map(tab => tab.id)
+        : [options.targetTabId || activeTab?.id].filter(Boolean);
+      await context.previews.awaitPendingCaptures(pendingTabIds);
+    }
 
     if (scope === 'workspace') {
       const graphTabs = getGraphTabsFromWorkspaceState(workspaceState);
@@ -875,13 +887,13 @@
       const activeIndex = graphTabs.findIndex(tab => tab.id === activeId);
       return {
         activeIndex: activeIndex >= 0 ? activeIndex : (graphTabs.length ? 0 : -1),
-        tabs: graphTabs.map(tab => buildArchiveTabSnapshot(context, tab, options)).filter(Boolean)
+        tabs: (await Promise.all(graphTabs.map(tab => buildArchiveTabSnapshot(context, tab, options)))).filter(Boolean)
       };
     }
 
     const targetTabId = options.targetTabId || session.getActiveTab?.()?.id || null;
     const tab = findTabById(workspaceState, targetTabId);
-    const snapshot = buildArchiveTabSnapshot(context, tab, options);
+    const snapshot = await buildArchiveTabSnapshot(context, tab, options);
     if (!snapshot) {
       return null;
     }
@@ -1043,7 +1055,7 @@
     const preserveRenderCacheTabIds = policy.preserveRenderCacheTabScope === 'all'
       ? graphTabs.map(tab => tab?.id).filter(Boolean)
       : [activeTab?.id || null].filter(Boolean);
-    const snapshot = buildScopeSnapshot(context, scope, {
+    const snapshot = await buildScopeSnapshot(context, scope, {
       ...options,
       reason: options.reason || 'document-snapshot',
       snapshotKind: policy.snapshotKind || requestedSnapshotKind,

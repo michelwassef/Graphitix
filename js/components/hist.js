@@ -4973,18 +4973,7 @@
       }
       const axisConfig = config.axis || config.axisSettings;
       if(axisConfig){
-        applyAxisSettings({
-          strokeWidth: axisConfig.strokeWidth,
-          color: axisConfig.color,
-          tickIntervalX: axisConfig.tickIntervalX ?? axisConfig.xTickInterval ?? axisConfig?.x?.tickInterval ?? null,
-          tickIntervalY: axisConfig.tickIntervalY ?? axisConfig.yTickInterval ?? axisConfig?.y?.tickInterval ?? null,
-          minorTicksX: axisConfig.minorTicksX ?? axisConfig?.x?.minorTicks ?? false,
-          minorTicksY: axisConfig.minorTicksY ?? axisConfig?.y?.minorTicks ?? false,
-          minorTickSubdivisionsX: axisConfig.minorTickSubdivisionsX ?? axisConfig.minorSubdivisionsX ?? axisConfig?.x?.minorTickSubdivisions ?? axisConfig?.x?.minorSubdivisions ?? DEFAULT_MINOR_TICK_SUBDIVISIONS,
-          minorTickSubdivisionsY: axisConfig.minorTickSubdivisionsY ?? axisConfig.minorSubdivisionsY ?? axisConfig?.y?.minorTickSubdivisions ?? axisConfig?.y?.minorSubdivisions ?? DEFAULT_MINOR_TICK_SUBDIVISIONS,
-        notationX: axisConfig.notationX ?? axisConfig.axisNotationX ?? axisConfig?.x?.notation ?? 'decimal',
-        notationY: axisConfig.notationY ?? axisConfig.axisNotationY ?? axisConfig?.y?.notation ?? 'decimal'
-        });
+        applyAxisSettings(axisConfig);
         histDebug('Debug: hist axis settings restored',{ axis: ensureAxisSettings() });
       }
       if(!Array.isArray(state.distributionOptions) || !state.distributionOptions.length){
@@ -6896,6 +6885,7 @@
         axis,
         scopeId: 'hist',
         getTickInterval: () => getAxisTickInterval(axis),
+        getEffectiveTickInterval: () => axis === 'x' ? xScale.step : yScale.step,
         getMajorTickLength: () => getAxisMajorTickLength(axis),
         onMajorTickLengthChange: value => updateAxisMajorTickLength(axis, value),
         isMajorTickLengthSupported: () => true,

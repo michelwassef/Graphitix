@@ -5245,9 +5245,22 @@
       logDebug('svgElementToPngBlob skipped', { contextLabel: options.contextLabel, reason: 'no element' });
       return null;
     }
-    const xml = svgToXml(svgEl, options.contextLabel);
+    let xml = svgToXml(svgEl, options.contextLabel);
     if (!xml) return null;
-    const dims = resolveRasterDimensions(svgEl, xml, {
+    const requestedWidth = Number(options.width);
+    const requestedHeight = Number(options.height);
+    if (requestedWidth > 0 && requestedHeight > 0) {
+      const rasterSvg = parseSvgDocument(xml);
+      if (rasterSvg) {
+        rasterSvg.setAttribute('width', String(requestedWidth));
+        rasterSvg.setAttribute('height', String(requestedHeight));
+        rasterSvg.setAttribute('preserveAspectRatio', options.preserveAspectRatio || 'xMidYMid meet');
+        xml = new XMLSerializer().serializeToString(rasterSvg);
+      }
+    }
+    const dims = requestedWidth > 0 && requestedHeight > 0
+      ? { width: requestedWidth, height: requestedHeight }
+      : resolveRasterDimensions(svgEl, xml, {
       contextLabel: options.contextLabel,
       fallbackWidth: options.fallbackWidth,
       fallbackHeight: options.fallbackHeight
@@ -5261,7 +5274,8 @@
       dpi: options.dpi,
       dpiX: options.dpiX,
       dpiY: options.dpiY,
-      pngScale: options.pngScale
+      pngScale: options.pngScale,
+      backgroundColor: options.backgroundColor
     });
   }
 
@@ -6502,6 +6516,7 @@
   exporter.svgStringToEmfBlob = svgStringToEmfBlob;
   exporter.svgStringToPdfBlob = svgStringToPdfBlob;
   exporter.svgStringToTiffBlob = svgStringToTiffBlob;
+  exporter.blobToDataUrl = blobToDataUrl;
   exporter.canvasToEmfBlob = canvasToEmfBlob;
   exporter.canvasToPdfBlob = canvasToPdfBlob;
   exporter.canvasToTiffBlob = canvasToTiffBlob;

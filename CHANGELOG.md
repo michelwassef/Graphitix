@@ -1,3 +1,60 @@
+## 2026-07-28 — Full test runner
+
+- Added one PowerShell command for the complete Jest and Playwright suites.
+- Failures are retried serially and summarized with errors and raw-log paths.
+
+## 2026-07-28 — Cross-component statistics validation
+
+- Fixed PCA statistics redraw metadata ownership, ARIMA forecast variance, and through-origin regression metrics.
+- Standardized logistic error metrics and strict log-normal/exponential support validation.
+- Corrected the ROC DeLong oracle quantile and replaced non-estimable logistic fixtures.
+- Made all Python oracle dependencies explicit and capability-checked.
+- All 35 cross-component statistics tests now pass.
+
+## 2026-07-28 — Cross-component persistence matrix
+
+- Added one browser matrix that discovers scalar graph parameters in every component and verifies hydration, manual archive reopen, and crash recovery.
+- Safe fields are changed to non-default sentinels; remaining scalar fields are checked for exact round-trip preservation, with structured modes explicitly classified.
+- Fixed shared Notes projection so programmatic text/open restoration cannot emit user callbacks and overwrite canonical session state.
+
+## 2026-07-28 — Pie goodness-of-fit statistics
+
+- Removed a copied contingency-table loop that referenced undefined dimensions in Pie goodness-of-fit calculations.
+- Pearson chi-square and G statistics are now computed from the category vectors, and Cohen's w consistently uses the Pearson statistic.
+- Updated the existing oracle regression to assert the correct goodness-of-fit effect-size contract.
+
+## 2026-07-28 — Effective axis tick intervals
+
+- Axis toolbars now show the rendered automatic X/Y tick interval, so spinner changes start from the visible value and increment by ±1.
+- Box value-axis tick settings now follow the data axis across repeated flips and preserve decimal intervals in payloads.
+- Pie stacked-axis edits now commit directly to their owning tab, so changing tick length preserves a manual tick interval.
+- Scatter, Line, Histogram, and UpSet tick lengths now survive file reopen and crash recovery.
+
+## 2026-07-28 — Active-tab AG Grid paste routing
+
+- Paste now targets the highlighted cell in the visible AG Grid owned by the active workspace tab, even when tab creation or switching leaves DOM focus on the tab bar.
+- Replaced competing per-grid document paste listeners with one owner-aware shared router; editable controls retain native paste behavior.
+- Added new-tab, same-component switch, and cross-tab isolation regressions.
+
+## 2026-07-28 — AG Grid numeric re-editing
+
+- Plain numeric cells now reopen from the owning raw table matrix instead of a stale formula cache.
+- Added shared lifecycle and browser regressions for edit, blur, double-click re-edit, and unchanged Enter commit.
+
+## 2026-07-28 — Unified heavy tab previews
+
+- Lightweight previews remain SVG; oversized or canvas-backed graphs now become one native-size, 1× PNG through the shared exporter. Download/Save remains 2×.
+- Removed Box, Scatter, and Heatmap preview-only SVG/canvas composition and sampling paths.
+- PNG completion is tab-, payload-, layout-, and generation-scoped. Stale work is rejected.
+- Save, recovery, and reopen now persist and reuse the completed PNG, and checkpoints wait for pending conversion instead of archiving placeholders.
+
+## 2026-07-28 — Responsive Heatmap data adjustments
+
+- Moved Adjust data and Filter rows matrix materialization to a latest-only, tab-owned worker after the initiating control has painted.
+- Coalesced rapid threshold changes, cancelled stale work on tab deactivation, and removed the duplicate pre-materialization redraw.
+- Reduced full-matrix allocations and scans during parsing, filtering, empty-column pruning, and row normalization.
+- Added worker parity tests and a browser responsiveness regression using an 8,000 × 12 matrix.
+
 ## 2026-07-28 — Heatmap render transaction and document-open completion
 
 - Fixed the actual cause of Heatmap reopening/recovery never completing: label-clearance reflow recursively rendered a complete replacement frame, then the superseded outer render's `finally` block marked that frame incomplete. Heatmap now transfers render ownership explicitly during reflow so only the current transaction may publish or invalidate the graph.

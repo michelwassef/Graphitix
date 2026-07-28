@@ -132,11 +132,7 @@ describe('heavy canvas reopen/recovery regression guards', () => {
     expect(restoredCanvas || pendingBitmap).toBeTruthy();
   });
 
-  test('scatter preview rebuild keeps archived bitmap markers as preview bitmaps (no blank canvas)', () => {
-    // When the render-cache source has img[data-graphitix-render-cache-canvas-bitmap] elements
-    // (archived from a previous session), the preview path must NOT try to decode them into
-    // canvases synchronously (which produces blank bitmaps). Instead it should preserve them
-    // as img[data-preview-canvas-bitmap] so the downstream preview pipeline uses the actual data.
+  test('scatter preview exposes its owner-scoped archived bitmap source unchanged', () => {
     const scatter = window.Components?.scatter;
     expect(scatter).toBeTruthy();
 
@@ -154,15 +150,11 @@ describe('heavy canvas reopen/recovery regression guards', () => {
     window.Main.session.workspaceState.activeTabId = 'workspace-other';
     const preview = scatter.getPreviewSvg(tab);
     expect(preview).toBeTruthy();
-    // Original archive-bitmap marker must be consumed (renamed or converted).
-    expect(preview.querySelector('img[data-graphitix-render-cache-canvas-bitmap="true"]')).toBeNull();
-    // The bitmap must survive as either a restored canvas or a preview-bitmap img.
-    const hasCanvas = !!preview.querySelector('canvas[data-graphitix-render-cache-canvas-restored="true"]');
-    const hasPreviewBitmap = !!preview.querySelector('img[data-preview-canvas-bitmap="true"]');
-    expect(hasCanvas || hasPreviewBitmap).toBe(true);
+    expect(preview.querySelector('img[data-graphitix-render-cache-canvas-bitmap="true"]')).not.toBeNull();
+    expect(preview.querySelector('img[data-preview-canvas-bitmap="true"]')).toBeNull();
   });
 
-  test('box preview rebuild converts archived bitmap markers into canvas layers', () => {
+  test('box preview exposes its owner-scoped archived bitmap source unchanged', () => {
     const box = window.Components?.box;
     expect(box).toBeTruthy();
 
@@ -174,10 +166,8 @@ describe('heavy canvas reopen/recovery regression guards', () => {
     window.Main.session.workspaceState.activeTabId = 'workspace-other';
     const preview = box.getPreviewSvg(tab);
     expect(preview).toBeTruthy();
-    const restoredCanvas = preview.querySelector('canvas[data-graphitix-render-cache-canvas-restored="true"]');
-    const previewBitmap = preview.querySelector('img[data-preview-canvas-bitmap="true"]');
-    const pendingBitmap = preview.querySelector('img[data-graphitix-render-cache-canvas-pending-hydration="true"]');
-    expect(restoredCanvas || previewBitmap || pendingBitmap).toBeTruthy();
+    expect(preview.querySelector('img[data-graphitix-render-cache-canvas-bitmap="true"]')).not.toBeNull();
+    expect(preview.querySelector('img[data-preview-canvas-bitmap="true"]')).toBeNull();
   });
 
   // ─── Payload signature bloat regression ──────────────────────────────────
@@ -260,40 +250,6 @@ describe('heavy canvas reopen/recovery regression guards', () => {
 
     await window.Shared.componentLifecycle.waitForAnimationFrames(2);
     expect(scatter.isIdleForSnapshot()).toBe(true);
-  });
-
-  // ─── Preview archive-bitmap path ─────────────────────────────────────────
-  test('scatter getPreviewSvg on render-cache tab marks archive bitmaps as data-preview-canvas-bitmap (not blank canvas)', () => {
-    const scatter = window.Components?.scatter;
-    expect(scatter).toBeTruthy();
-
-    const tab = {
-      id: 'workspace-scatter-bitmap-preview',
-      type: 'scatter',
-      renderCache: {
-        cache: makeScatterCacheWithBitmapImage('workspace-scatter-bitmap-preview'),
-        tabId: 'workspace-scatter-bitmap-preview',
-        type: 'scatter',
-        payloadSignature: 'sig-bp',
-        layoutSignature: 'layout-bp'
-      }
-    };
-    window.Main.session.workspaceState.activeTabId = 'workspace-other';
-
-    const preview = scatter.getPreviewSvg(tab);
-    expect(preview).toBeTruthy();
-
-    // The archive bitmap img should be renamed to data-preview-canvas-bitmap (not stripped).
-    const previewBitmap = preview.querySelector('img[data-preview-canvas-bitmap="true"]');
-    const archiveBitmap = preview.querySelector('img[data-graphitix-render-cache-canvas-bitmap="true"]');
-
-    // Either the img was converted to a canvas (rehydration path) or kept as a preview bitmap.
-    // In both cases, the original archive marker must be gone.
-    expect(archiveBitmap).toBeNull();
-    // And there must be SOME bitmap representation (canvas OR preview-bitmap img).
-    const hasCanvas = !!preview.querySelector('canvas[data-graphitix-render-cache-canvas-restored="true"]');
-    const hasBitmapImg = !!previewBitmap;
-    expect(hasCanvas || hasBitmapImg).toBe(true);
   });
 
 });

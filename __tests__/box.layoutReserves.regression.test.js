@@ -356,6 +356,25 @@ async function setFlipAxesAndRedraw(enabled){
   await flushAsyncWork(50);
 }
 
+function openBoxAxisControls(axis){
+  const svg = getCommittedBoxSvg();
+  expect(svg).toBeTruthy();
+  const axisKey = axis === 'x' ? 'x' : 'y';
+  const candidates = Array.from(svg.querySelectorAll('line[data-axis-control="1"]'));
+  const target = candidates.find(line => {
+    const dx = Math.abs(Number(line.getAttribute('x2')) - Number(line.getAttribute('x1')));
+    const dy = Math.abs(Number(line.getAttribute('y2')) - Number(line.getAttribute('y1')));
+    return axisKey === 'x' ? dx > dy : dy > dx;
+  });
+  expect(target).toBeTruthy();
+  target.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  const input = document.querySelector(
+    '.font-toolbar-host[data-font-toolbar-scope="box"] .axis-controls-panel__field--numeric input[type="number"]'
+  );
+  expect(input).toBeTruthy();
+  return input;
+}
+
 async function ensureStatsAndSignificanceReady(){
   const computeButton = getBoxNodeById('boxComputeStats');
   const toggle = getBoxNodeById('boxShowSignificance');
@@ -564,6 +583,44 @@ describe('Box layout reserves under horizontal shrink', () => {
     expect(Math.abs(after.yAxisSpan - before.xAxisSpan)).toBeLessThanOrEqual(1.5);
     expect(Math.abs(after.plotWidthPx - after.xAxisSpan)).toBeLessThanOrEqual(1.5);
     expect(Math.abs(after.plotHeightPx - after.yAxisSpan)).toBeLessThanOrEqual(1.5);
+  });
+
+  test('manual value-axis tick interval follows repeated axis flips', async () => {
+    await activateWorkspace('box');
+    await loadBoxExample();
+
+    const automaticInput = openBoxAxisControls('y');
+    expect(Number(automaticInput.value)).toBeGreaterThan(0);
+    expect(automaticInput.dataset.usesDefault).toBe('1');
+
+    automaticInput.value = '2.5';
+    automaticInput.dispatchEvent(new Event('change', { bubbles: true }));
+    await flushAsyncWork(50);
+    expect(window.Components.box.__getState().axisSettings.y.tickInterval).toBe(2.5);
+
+    await setFlipAxesAndRedraw(true);
+    let state = window.Components.box.__getState();
+    expect(state.axisSettings.x.tickInterval).toBe(2.5);
+    expect(openBoxAxisControls('x').value).toBe('2.5');
+    const flippedPayload = window.Components.box.getPayload();
+    expect(flippedPayload.config.axis.tickInterval.x).toBe(2.5);
+
+    await Promise.resolve(window.Components.box.loadFromPayload(flippedPayload, {
+      source: 'test-tick-interval-reopen',
+      skipDraw: true
+    }));
+    await flushAsyncWork(30);
+    state = window.Components.box.__getState();
+    expect(state.flipAxes).toBe(true);
+    expect(state.axisSettings.x.tickInterval).toBe(2.5);
+
+    await setFlipAxesAndRedraw(false);
+    state = window.Components.box.__getState();
+    expect(state.axisSettings.y.tickInterval).toBe(2.5);
+    expect(window.Components.box.getPayload().config.axis.tickInterval).toEqual({
+      x: 2.5,
+      y: 2.5
+    });
   });
 
   test('flip axes keeps axis-length swap stable with significance brackets enabled', async () => {

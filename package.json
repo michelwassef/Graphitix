@@ -5,6 +5,7 @@
   "scripts": {
     "preinstall": "node -e \"const pkg=require('./package.json'); const deps=['dependencies','devDependencies','peerDependencies','optionalDependencies']; const illegal = deps.flatMap(k=>Object.keys(pkg[k]||{})).find(name=>name==='ag-grid-enterprise'); if(illegal){ console.error('AG Grid enterprise is not allowed. Remove ag-grid-enterprise from package.json.'); process.exit(1); }\"",
     "test": "jest",
+    "test:full": "powershell -ExecutionPolicy Bypass -File scripts/run-full-tests.ps1",
     "test:stats": "jest --runInBand __tests__/stats.differential.python.test.js __tests__/stats.component.differential.test.js __tests__/stats.matrix.components.test.js __tests__/stats.extended.coverage.test.js __tests__/stats.ui.presentation.branches.test.js __tests__/stats.ui.persistence.restore.test.js",
     "docs:arch-map": "node scripts/generate-architecture-map.js",
     "docs:component-contracts": "node scripts/generate-component-contracts.js",
@@ -26,6 +27,7 @@
     "test:e2e:contracts:firefox": "npm run test:e2e:contracts -- --project=firefox",
     "test:e2e:matrix": "playwright test e2e/workspace.exercise.spec.js",
     "test:e2e:matrix:firefox": "playwright test e2e/workspace.exercise.spec.js --project=firefox",
+    "test:persistence-matrix": "playwright test e2e/component.persistence-matrix.spec.js --project=chromium",
     "test:e2e:headed": "playwright test --headed",
     "test:e2e:debug": "playwright test --debug",
     "debug:browser:chromium": "playwright open --browser=chromium http://127.0.0.1:4173/index.html",

@@ -241,58 +241,6 @@ describe('Heatmap dendrogram and dense projection geometry', () => {
     expect(exported.getAttribute('data-heatmap-export-label-projection')).toBe('full');
   });
 
-  test('preview sanitization removes interaction overlays without removing dendrogram geometry', () => {
-    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-    svg.setAttribute('viewBox', '0 0 200 120');
-
-    const cellLayer = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-    cellLayer.setAttribute('data-export-layer', 'heatmap-cells');
-    cellLayer.setAttribute('data-render-mode', 'canvas');
-    const cellHitLayer = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-    cellHitLayer.setAttribute('data-heatmap-cell-hit-layer', '1');
-    cellLayer.appendChild(cellHitLayer);
-    svg.appendChild(cellLayer);
-
-    const dendrogram = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-    dendrogram.setAttribute('class', 'heatmap-dendrogram');
-    dendrogram.setAttribute('data-dendrogram-control', '1');
-    dendrogram.style.cursor = 'pointer';
-    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-    path.setAttribute('d', 'M10 10H20M20 10V30');
-    dendrogram.appendChild(path);
-    svg.appendChild(dendrogram);
-
-    const controlOverlay = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-    controlOverlay.setAttribute('data-dendrogram-control', '1');
-    controlOverlay.setAttribute('fill', 'transparent');
-    controlOverlay.setAttribute('pointer-events', 'fill');
-    svg.appendChild(controlOverlay);
-
-    const preview = window.Components.heatmap.__testHooks.buildPreviewSvgFromSource(svg);
-    const previewDendrogram = preview.querySelector('.heatmap-dendrogram');
-
-    expect(previewDendrogram).not.toBeNull();
-    expect(previewDendrogram.querySelector('path')?.getAttribute('d')).toBe('M10 10H20M20 10V30');
-    expect(previewDendrogram.hasAttribute('data-dendrogram-control')).toBe(false);
-    expect(previewDendrogram.style.cursor).toBe('');
-    expect(preview.querySelectorAll('[data-dendrogram-control="1"]')).toHaveLength(0);
-    expect(preview.querySelectorAll('[data-heatmap-cell-hit-layer="1"]')).toHaveLength(0);
-    expect(preview.getAttribute('data-heatmap-preview-removed-interaction-overlays')).toBe('2');
-    expect(preview.getAttribute('data-heatmap-preview-sanitized-interaction-owners')).toBe('1');
-  });
-
-
-  test('preview branch sampling parses compact SVG path commands', () => {
-    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-    path.setAttribute('d', Array.from({ length: 1000 }, (_value, index) => (
-      `M0 ${index}H1M1 ${index}V${index + 1}`
-    )).join(''));
-
-    const removed = window.Components.heatmap.__testHooks.samplePreviewPathBranches(path, 320);
-    expect(removed).toBe(1680);
-    expect(path.getAttribute('data-preview-source-branch-count')).toBe('2000');
-    expect(path.getAttribute('data-preview-branch-count')).toBe('320');
-  });
   test('table scheduling preserves heavy-paste overlay metadata', () => {
     const source = fs.readFileSync(
       path.join(__dirname, '../js/components/heatmap.js'),

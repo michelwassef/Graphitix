@@ -21360,6 +21360,7 @@ const isXValueVisible = value => {
           ? { min: xScale.min, max: xScale.max }
           : { min: yScale.min, max: yScale.max },
         getTickInterval: () => getScatterAxisTickInterval(axis),
+        getEffectiveTickInterval: () => axis === 'x' ? xScale.step : yScale.step,
         getMajorTickLength: () => getScatterAxisMajorTickLength(axis),
         onMajorTickLengthChange: value => updateScatterAxisMajorTickLength(axis, value),
         isMajorTickLengthSupported: () => true,
@@ -25914,22 +25915,7 @@ async function drawScatter(drawOptions = {}){
         });
       }
       if(c.axis){
-        applyScatterAxisSettings({
-          strokeWidth: c.axis.strokeWidth,
-          color: c.axis.color,
-          tickIntervalX: c.axis.tickIntervalX ?? c.axis.xTickInterval ?? c.axis?.x?.tickInterval ?? null,
-          tickIntervalY: c.axis.tickIntervalY ?? c.axis.yTickInterval ?? c.axis?.y?.tickInterval ?? null,
-          minorTicksX: c.axis.minorTicksX ?? c.axis?.x?.minorTicks ?? false,
-          minorTicksY: c.axis.minorTicksY ?? c.axis?.y?.minorTicks ?? false,
-          minorTickSubdivisionsX: c.axis.minorTickSubdivisionsX ?? c.axis.minorSubdivisionsX ?? c.axis?.x?.minorTickSubdivisions ?? c.axis?.x?.minorSubdivisions ?? DEFAULT_MINOR_TICK_SUBDIVISIONS,
-          minorTickSubdivisionsY: c.axis.minorTickSubdivisionsY ?? c.axis.minorSubdivisionsY ?? c.axis?.y?.minorTickSubdivisions ?? c.axis?.y?.minorSubdivisions ?? DEFAULT_MINOR_TICK_SUBDIVISIONS,
-          notationX: c.axis.notationX ?? c.axis.axisNotationX ?? c.axis?.x?.notation ?? 'decimal',
-          notationY: c.axis.notationY ?? c.axis.axisNotationY ?? c.axis?.y?.notation ?? 'decimal',
-          additionalTicks: c.axis.additionalTicks,
-          additionalTicksX: c.axis.additionalTicksX ?? c.axis?.x?.additionalTicks,
-          additionalTicksY: c.axis.additionalTicksY ?? c.axis?.y?.additionalTicks,
-          brokenAxis: c.axis.brokenAxis || {}
-        });
+        applyScatterAxisSettings(c.axis);
         console.debug('Debug: scatter axis settings restored',{ axis: ensureScatterAxisSettings() });
       }
       if(c.title !== undefined || c.xLabel !== undefined || c.yLabel !== undefined || c.zLabel !== undefined || c.labelPositions){
@@ -28009,36 +27995,6 @@ async function drawScatter(drawOptions = {}){
     });
   }
 
-  function copyScatterCanvasBitmaps(sourceRoot, cloneRoot){
-    if(!sourceRoot || !cloneRoot || typeof sourceRoot.querySelectorAll !== 'function' || typeof cloneRoot.querySelectorAll !== 'function'){
-      return 0;
-    }
-    const sourceCanvases = Array.from(sourceRoot.querySelectorAll('canvas'));
-    const cloneCanvases = Array.from(cloneRoot.querySelectorAll('canvas'));
-    const count = Math.min(sourceCanvases.length, cloneCanvases.length);
-    let copied = 0;
-    for(let idx = 0; idx < count; idx += 1){
-      const sourceCanvas = sourceCanvases[idx];
-      const cloneCanvas = cloneCanvases[idx];
-      const ctx = cloneCanvas?.getContext?.('2d');
-      if(!sourceCanvas || !cloneCanvas || !ctx || typeof ctx.drawImage !== 'function'){
-        continue;
-      }
-      const width = Math.max(1, Number(sourceCanvas.width) || 1);
-      const height = Math.max(1, Number(sourceCanvas.height) || 1);
-      cloneCanvas.width = width;
-      cloneCanvas.height = height;
-      cloneCanvas.setAttribute('width', String(width));
-      cloneCanvas.setAttribute('height', String(height));
-      try{
-        ctx.clearRect?.(0, 0, width, height);
-        ctx.drawImage(sourceCanvas, 0, 0);
-        copied += 1;
-      }catch(_err){}
-    }
-    return copied;
-  }
-
   function parseScatterCanvasBitmapDimension(node, attrName, fallback){
     const direct = Number(node?.getAttribute?.(attrName));
     if(Number.isFinite(direct) && direct > 0){
@@ -28256,48 +28212,6 @@ async function drawScatter(drawOptions = {}){
     return plot?.querySelector?.('#scatterSvg') || plot?.querySelector?.('svg') || null;
   }
 
-  function buildScatterPreviewSvgFromSource(sourceSvg){
-    if(!sourceSvg || typeof sourceSvg.cloneNode !== 'function'){
-      return null;
-    }
-    const clone = sourceSvg.cloneNode(true);
-    const copiedCanvases = copyScatterCanvasBitmaps(sourceSvg, clone);
-    if (!copiedCanvases) {
-      // Source came from an archived render-cache (img bitmap markers, not live canvas elements).
-      // Converting these to canvases requires async image loading which produces blank bitmaps
-      // in the preview pipeline. Instead, rename the attribute so hydrateCanvasBitmapsForPreview
-      // recognises them as ready bitmaps and skips synthetic glyph simplification.
-      Array.from(clone.querySelectorAll('img[data-graphitix-render-cache-canvas-bitmap="true"]')).forEach(img => {
-        img.removeAttribute('data-graphitix-render-cache-canvas-bitmap');
-        img.setAttribute('data-preview-canvas-bitmap', 'true');
-      });
-    } else {
-      rehydrateScatterCanvasBitmapImages(clone);
-    }
-    const baseViewport = resolveScatterBaseViewportSize(sourceSvg);
-    if(Number.isFinite(baseViewport.width) && baseViewport.width > 0){
-      clone.setAttribute('width', String(baseViewport.width));
-      clone.setAttribute('data-scatter-base-width', String(baseViewport.width));
-    }
-    if(Number.isFinite(baseViewport.height) && baseViewport.height > 0){
-      clone.setAttribute('height', String(baseViewport.height));
-      clone.setAttribute('data-scatter-base-height', String(baseViewport.height));
-    }
-    if(!clone.getAttribute('viewBox') && Number.isFinite(baseViewport.width) && baseViewport.width > 0 && Number.isFinite(baseViewport.height) && baseViewport.height > 0){
-      clone.setAttribute('viewBox', `0 0 ${baseViewport.width} ${baseViewport.height}`);
-    }
-    if(clone.style){
-      clone.style.position = '';
-      clone.style.left = '';
-      clone.style.top = '';
-      clone.style.zIndex = '';
-      clone.style.visibility = '';
-      clone.style.pointerEvents = '';
-    }
-    removeScatterPreviewIgnoredNodes(clone);
-    return clone;
-  }
-
   function populateScatterExportPointGroupFromCanvas(sourceGroup, cloneGroup){
     if(!sourceGroup || !cloneGroup){
       return false;
@@ -28428,11 +28342,7 @@ async function drawScatter(drawOptions = {}){
   }
 
   scatter.getPreviewSvg = function getPreviewSvg(tab){
-    const sourceSvg = resolveScatterPreviewSourceSvg(tab);
-    if(!sourceSvg){
-      return null;
-    }
-    return buildScatterPreviewSvgFromSource(sourceSvg);
+    return resolveScatterPreviewSourceSvg(tab);
   };
 
   scatter.getExportSvg = function getExportSvg(){

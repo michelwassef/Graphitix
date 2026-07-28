@@ -1046,16 +1046,22 @@
       label: 'Log-normal',
       color: CONTINUOUS_DISTRIBUTION_COLORS.lognormal,
       fit(values){
+        const finiteValues = values.filter(Number.isFinite);
+        if(finiteValues.some(value => value <= 0)){
+          return {
+            key: 'lognormal',
+            label: 'Log-normal',
+            color: CONTINUOUS_DISTRIBUTION_COLORS.lognormal,
+            valid: false,
+            message: 'Log-normal fitting requires all observations to be positive.',
+            warnings: ['Log-normal fitting requires all observations to be positive.']
+          };
+        }
         let count = 0;
         let logSum = 0;
         let logSumSq = 0;
-        let invalid = 0;
-        for(let i = 0; i < values.length; i++){
-          const v = values[i];
-          if(!Number.isFinite(v) || v <= 0){
-            invalid += 1;
-            continue;
-          }
+        for(let i = 0; i < finiteValues.length; i++){
+          const v = finiteValues[i];
           const logVal = Math.log(v);
           count += 1;
           logSum += logVal;
@@ -1081,9 +1087,6 @@
             ? (-count * (Math.log(sigma) + 0.5 * Math.log(2 * Math.PI)) - logSum - count / 2)
             : NaN
         };
-        if(invalid > 0){
-          result.warnings.push(`${invalid} value${invalid === 1 ? '' : 's'} ignored (non-positive).`);
-        }
         if(!result.valid){
           result.message = 'Log-scale variance is zero; unable to fit a log-normal distribution.';
           result.warnings.push(result.message);
@@ -1098,15 +1101,21 @@
       label: 'Exponential',
       color: CONTINUOUS_DISTRIBUTION_COLORS.exponential,
       fit(values){
+        const finiteValues = values.filter(Number.isFinite);
+        if(finiteValues.some(value => value < 0)){
+          return {
+            key: 'exponential',
+            label: 'Exponential',
+            color: CONTINUOUS_DISTRIBUTION_COLORS.exponential,
+            valid: false,
+            message: 'Exponential fitting requires all observations to be non-negative.',
+            warnings: ['Exponential fitting requires all observations to be non-negative.']
+          };
+        }
         let count = 0;
         let sum = 0;
-        let invalid = 0;
-        for(let i = 0; i < values.length; i++){
-          const v = values[i];
-          if(!Number.isFinite(v) || v < 0){
-            invalid += 1;
-            continue;
-          }
+        for(let i = 0; i < finiteValues.length; i++){
+          const v = finiteValues[i];
           count += 1;
           sum += v;
         }
@@ -1125,9 +1134,6 @@
           warnings: [],
           logLikelihood: lambda > 0 ? (count * Math.log(lambda) - lambda * sum) : NaN
         };
-        if(invalid > 0){
-          result.warnings.push(`${invalid} value${invalid === 1 ? '' : 's'} ignored (negative or invalid).`);
-        }
         if(!result.valid){
           result.message = 'Mean is zero; unable to fit an exponential distribution.';
           result.warnings.push(result.message);

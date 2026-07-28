@@ -263,4 +263,55 @@ describe('heatmap.worker — hierarchicalCluster', () => {
     expect(actual).toHaveLength(expected.length);
     actual.forEach((distance, index) => expect(distance).toBeCloseTo(expected[index], 10));
   });
+
+  test('materializes combined row filters and z-score adjustments in one task', async () => {
+    const msg = await send(ctx, '15', 'materializeDataTransform', {
+      data: [
+        ['Gene', 'A', 'B', 'C'],
+        ['keep', 1, 2, 3],
+        ['remove', 1, '', '']
+      ],
+      settings: {
+        filters: {
+          presentEnabled: true,
+          presentThreshold: 80
+        },
+        adjust: {
+          normalizeRows: true
+        }
+      }
+    });
+    expect(msg.ok).toBe(true);
+    expect(msg.result.ok).toBe(true);
+    expect(msg.result.data).toHaveLength(2);
+    expect(msg.result.data[1][0]).toBe('keep');
+    expect(msg.result.data[1].slice(1)).toEqual([-1, 0, 1]);
+    expect(msg.result.summary.rowsFiltered).toBe(1);
+    expect(msg.result.summary.finiteCount).toBe(3);
+  });
+
+  test('preserves adjustment order when centering and normalizing columns', async () => {
+    const msg = await send(ctx, '16', 'materializeDataTransform', {
+      data: [
+        ['Gene', 'A', 'B'],
+        ['one', 1, 10],
+        ['two', 3, 14],
+        ['three', 5, 18]
+      ],
+      settings: {
+        filters: {},
+        adjust: {
+          centerColumnsMode: 'median',
+          normalizeColumns: true
+        }
+      }
+    });
+    expect(msg.result.ok).toBe(true);
+    expect(msg.result.data.map(row => row.slice(1))).toEqual([
+      ['A', 'B'],
+      [-1, -1],
+      [0, 0],
+      [1, 1]
+    ]);
+  });
 });

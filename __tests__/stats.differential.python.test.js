@@ -67,17 +67,7 @@ function regressionStatsByTerm(summary) {
 }
 
 function getDistributionUsedCount(values, distribution) {
-  const key = String(distribution || '').toLowerCase();
   const finite = Array.isArray(values) ? values.filter(Number.isFinite) : [];
-  if (key === 'normal') {
-    return finite.length;
-  }
-  if (key === 'lognormal') {
-    return finite.filter(v => v > 0).length;
-  }
-  if (key === 'exponential') {
-    return finite.filter(v => v >= 0).length;
-  }
   return finite.length;
 }
 
@@ -110,7 +100,7 @@ function runJsCase(testCase, context) {
       alpha: payload.alpha
     });
     return {
-      valid: !!gof,
+      valid: gof?.available === true,
       n: gof?.n || 0,
       ksStatistic: gof?.ks?.statistic,
       adStatistic: gof?.ad?.statistic,

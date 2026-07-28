@@ -221,4 +221,33 @@ describe('Shared.plot3d helper', () => {
     });
   });
 
+  it('keeps axis titles and tick labels inside the requested label layer', () => {
+    const { plot3d } = global.Shared;
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    const labelLayer = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    svg.appendChild(labelLayer);
+
+    plot3d.renderAxesAndGrid({
+      svg,
+      rotatePoint: point => point,
+      project: point => ({ x: 100 + point.x * 25, y: 100 - point.y * 25, depth: point.z }),
+      axisRanges: {
+        x: { min: -1, max: 1 },
+        y: { min: -1, max: 1 },
+        z: { min: -1, max: 1 }
+      },
+      axisTicks: { x: [-1, 0, 1], y: [-1, 0, 1], z: [-1, 0, 1] },
+      axisLabels: { x: 'X', y: 'Y', z: 'Z' },
+      labelTarget: labelLayer,
+      showGrid: false,
+      showFrame: false,
+      showPanes: false
+    });
+
+    expect(labelLayer.querySelectorAll('[data-axis-label]').length).toBe(3);
+    expect(labelLayer.querySelectorAll('[data-axis-tick-label]').length).toBeGreaterThan(0);
+    expect(svg.querySelectorAll(':scope > [data-axis-label]').length).toBe(0);
+    expect(svg.querySelectorAll(':scope > [data-axis-tick-label]').length).toBe(0);
+  });
+
 });

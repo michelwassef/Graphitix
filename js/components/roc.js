@@ -4795,6 +4795,10 @@
       axis,
       scopeId: 'roc',
       getTickInterval: () => getAxisTickInterval(axis),
+      getEffectiveTickInterval: () => {
+        const ticks = axis === 'x' ? xTicks : yTicks;
+        return ticks.length > 1 ? Math.abs(Number(ticks[1]) - Number(ticks[0])) : null;
+      },
         getMajorTickLength: () => getAxisMajorTickLength(axis),
         onMajorTickLengthChange: value => updateAxisMajorTickLength(axis, value),
         isMajorTickLengthSupported: () => true,

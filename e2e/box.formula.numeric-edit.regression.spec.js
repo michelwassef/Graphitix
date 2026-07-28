@@ -43,9 +43,12 @@ test('box plain numeric edit persists and remains visible with formula engine en
   });
 
   const editorInput = page.locator('#hot input.ag-text-field-input').first();
+  const targetCell = page.locator(`#hot .ag-center-cols-container .ag-row[row-index="${targetRow}"] .ag-cell[col-id="c0"]`).first();
+  const adjacentCell = page.locator(`#hot .ag-center-cols-container .ag-row[row-index="${targetRow}"] .ag-cell[col-id="c1"]`).first();
   await expect(editorInput).toBeVisible();
   await editorInput.fill('7');
-  await editorInput.press('Enter');
+  await adjacentCell.click();
+  await expect(editorInput).toBeHidden();
 
   await expect.poll(async () => {
     return await page.evaluate((rowIndex) => {
@@ -62,21 +65,36 @@ test('box plain numeric edit persists and remains visible with formula engine en
       }
       const display = api.getValue('c0', node);
       const dataAtCell = hot.getDataAtCell?.(rowIndex, 0);
-      const physicalRow = typeof hot.toPhysicalRow === 'function' ? hot.toPhysicalRow(rowIndex) : rowIndex;
-      const model = state?.formulaModel || null;
-      const modelRaw = model?.getRawAt?.(physicalRow, 0);
-      const modelResolved = model?.getResolvedAt?.(physicalRow, 0);
       return {
         display: display == null ? '' : String(display),
-        dataAtCell: dataAtCell == null ? '' : String(dataAtCell),
-        modelRaw: modelRaw == null ? '' : String(modelRaw),
-        modelResolved: modelResolved == null ? '' : String(modelResolved)
+        dataAtCell: dataAtCell == null ? '' : String(dataAtCell)
       };
     }, targetRow);
   }, {
     timeout: 15_000,
     intervals: [200, 400, 800]
-  }).toEqual({ display: '7', dataAtCell: '7', modelRaw: '7', modelResolved: '7' });
+  }).toEqual({ display: '7', dataAtCell: '7' });
+
+  await targetCell.dblclick();
+  await expect(editorInput).toBeVisible();
+  await expect(editorInput).toHaveValue('7');
+  await editorInput.press('Enter');
+  await expect(editorInput).toBeHidden();
+
+  await expect.poll(async () => {
+    return await page.evaluate((rowIndex) => {
+      const box = window.Components?.box;
+      const state = box?.__getState?.();
+      const hot = state?.ensureHotForActiveTab?.() || state?.hot;
+      const physicalRow = typeof hot?.toPhysicalRow === 'function' ? hot.toPhysicalRow(rowIndex) : rowIndex;
+      const model = state?.formulaModel || null;
+      return {
+        dataAtCell: hot?.getDataAtCell?.(rowIndex, 0),
+        modelRaw: model?.getRawAt?.(physicalRow, 0),
+        modelResolved: model?.getResolvedAt?.(physicalRow, 0)
+      };
+    }, targetRow);
+  }).toEqual({ dataAtCell: '7', modelRaw: '7', modelResolved: '7' });
 
   expect(issues.critical).toEqual([]);
 });

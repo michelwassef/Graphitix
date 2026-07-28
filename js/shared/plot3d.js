@@ -1356,7 +1356,7 @@
       if(readableAngle !== angleDeg){
         axisLabelAttrs['data-axis-flipped'] = '1';
       }
-      const axisLabelEl = createElement('text', axisLabelAttrs, def.label, svg);
+      const axisLabelEl = createElement('text', axisLabelAttrs, def.label, labelTarget);
       debugLog('Debug: plot3d axis label orientation', {
         label: debugLabel,
         axis: def.key,

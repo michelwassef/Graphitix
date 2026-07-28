@@ -194,13 +194,6 @@ describe('Heatmap stats formatting', () => {
     expect(layout.dataStartY + layout.heatmapHeight + layout.columnDendroHeight + layout.dendrogramPadding)
       .toBeLessThanOrEqual(layout.totalHeight);
 
-    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-    path.setAttribute('d', Array.from({ length: 1000 }, (_value, index) => (
-      `M 0 ${index} H 1 V ${index + 1} H 0`
-    )).join(' '));
-    expect(hooks.samplePreviewPathBranches(path, 320)).toBe(680);
-    expect((path.getAttribute('d').match(/M\s/g) || []).length).toBe(320);
-    expect(path.getAttribute('data-preview-source-branch-count')).toBe('1000');
   });
 
   test('render-runtime ownership clones cached models unless live retention is explicit', () => {
@@ -315,27 +308,6 @@ describe('Heatmap stats formatting', () => {
     expect(heavy.columnLabel).toBeGreaterThan(0.9);
     expect(heavy.graphTitle).toBe(1);
     expect(heavy.scaleTick).toBe(1);
-  });
-
-  test('detached Heatmap preview projections retain their exact owner tab token', () => {
-    const hooks = window.Components?.heatmap?.__testHooks;
-    expect(hooks?.buildPreviewSvgFromSource).toBeTruthy();
-    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-    svg.setAttribute('viewBox', '0 0 400 300');
-    svg.dataset.fontTabId = 'workspace-heavy-1';
-    const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-    group.setAttribute('data-layer', 'row-labels');
-    const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-    label.textContent = 'Row 1';
-    group.appendChild(label);
-    svg.appendChild(group);
-
-    const preview = hooks.buildPreviewSvgFromSource(svg, { ownerTabId: 'workspace-heavy-1' });
-    expect(preview).toBeTruthy();
-    expect(preview.getAttribute('data-preview-source')).toBe('true');
-    expect(preview.getAttribute('data-workspace-tab-id')).toBe('workspace-heavy-1');
-    expect(preview.getAttribute('data-preview-owner-tab-id')).toBe('workspace-heavy-1');
-    expect(preview.dataset.fontTabId).toBe('workspace-heavy-1');
   });
 
   test('heavy Data-values export replaces the live canvas with complete SVG-safe matrix content', () => {
@@ -551,7 +523,7 @@ describe('Heatmap stats formatting', () => {
     }
   });
 
-  test('data transform controls create a derived data tab while keeping raw tab', () => {
+  test('data transform controls create a derived data tab while keeping raw tab', async () => {
     const hot = global.__LAST_HEATMAP_HOT__;
     expect(hot).toBeTruthy();
     const matrix = [
@@ -568,11 +540,14 @@ describe('Heatmap stats formatting', () => {
     const initialTabCount = document.querySelectorAll('#heatmapHotWrapper .data-view-tabs__tab').length;
     centerGenes.checked = true;
     centerGenes.dispatchEvent(new Event('change'));
+    expect(document.querySelectorAll('#heatmapHotWrapper .data-view-tabs__tab')).toHaveLength(initialTabCount);
+    await flushAsyncWork(4);
 
     let tabs = Array.from(document.querySelectorAll('#heatmapHotWrapper .data-view-tabs__tab'));
 
     normalizeGenes.checked = true;
     normalizeGenes.dispatchEvent(new Event('change'));
+    await flushAsyncWork(4);
 
     tabs = Array.from(document.querySelectorAll('#heatmapHotWrapper .data-view-tabs__tab'));
     if(tabs.length){
@@ -664,7 +639,7 @@ describe('Heatmap stats formatting', () => {
     }
   });
 
-  test('closing materialized transform tab clears adjust/filter selections', () => {
+  test('closing materialized transform tab clears adjust/filter selections', async () => {
     const hot = global.__LAST_HEATMAP_HOT__;
     expect(hot).toBeTruthy();
     hot.loadData([
@@ -682,6 +657,7 @@ describe('Heatmap stats formatting', () => {
     centerGenes.dispatchEvent(new Event('change'));
     filterPresent.checked = true;
     filterPresent.dispatchEvent(new Event('change'));
+    await flushAsyncWork(4);
 
     const activeClose = document.querySelector('#heatmapHotWrapper .data-view-tabs__item--active .data-view-tabs__close');
     if(activeClose){
@@ -812,13 +788,13 @@ describe('Heatmap stats formatting', () => {
       { x: 1.23456, y: 2.34567 },
       { x: 3.45678, y: 4.56789 },
       { x: 5.67891, y: 6.78912 }
-    )).toBe('M1.23 2.35H3.46V6.79H5.68');
+    )).toBe('M1.2346 2.3457H3.4568M3.4568 6.7891H5.6789M3.4568 2.3457V6.7891');
     expect(hooks?.compactDendrogramBranch(
       'horizontal',
       { x: 1.23456, y: 2.34567 },
       { x: 3.45678, y: 4.56789 },
       { x: 5.67891, y: 6.78912 }
-    )).toBe('M1.23 2.35V4.57H3.46V6.79');
+    )).toBe('M1.2346 4.5679H5.6789M1.2346 2.3457V4.5679M5.6789 4.5679V6.7891');
   });
 
 });

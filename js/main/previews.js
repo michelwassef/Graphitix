@@ -7,15 +7,13 @@
   const TAB_PREVIEW_MIN_HEIGHT = 120;
   const TAB_PREVIEW_MAX_HEIGHT = 220;
   const TAB_PREVIEW_MAX_CHARS = 120000;
-  const TAB_PREVIEW_MAX_CHARS_HYBRID = 600000;
   const TAB_PREVIEW_NS = 'http://www.w3.org/2000/svg';
-  const TAB_PREVIEW_CANVAS_BITMAP_MAX_DIMENSION = 180;
 
   let tabPreviewTooltipEl = null;
   let tabPreviewActiveId = null;
   let tabPreviewMeasureRaf = null;
   let tabPreviewLastAnchorRect = null;
-  const tabPreviewHybridRequests = new Map();
+  const tabPreviewPngRequests = new Map();
 
   function getElementTabToken(node) {
     let current = node || null;
@@ -123,6 +121,19 @@
       || markup.includes('Preview too large')
       || markup.includes('Preview simplified')
       || markup.includes('Large dataset');
+  }
+
+  function hasUsableStoredPreview(tab) {
+    const markup = typeof tab?.previewMarkup === 'string' ? tab.previewMarkup.trim() : '';
+    if (!markup
+      || isPreviewPlaceholderMarkup(markup)
+      || tab?.previewMeta?.format === 'pending-png'
+      || markup.includes('data-preview-canvas-bitmap')
+      || markup.includes('data-preview-canvas-simplified')) {
+      return false;
+    }
+    return markup.startsWith('<svg')
+      || (markup.startsWith('<img') && markup.includes('data-tab-preview-format="png"'));
   }
 
   function parsePreviewViewBox(svg) {
@@ -283,485 +294,180 @@
     });
   }
 
-  function getHybridPreviewOptions(type) {
-    if (type === 'scatter') {
-      return {
-        label: 'SVG (points as PNG)',
-        fileNameSuffix: '-light',
-        rasterScale: 1,
-        pngScale: 1,
-        layers: [
-          {
-            selector: '[data-export-layer="scatter-points"]',
-            label: 'scatter-points',
-            padding: 2,
-            scale: 1
-          }
-        ]
-      };
-    }
-    if (type === 'box') {
-      return {
-        label: 'SVG (points as PNG)',
-        fileNameSuffix: '-light',
-        rasterScale: 1,
-        pngScale: 1,
-        layers: [
-          {
-            selector: '[data-export-layer="box-points"]',
-            label: 'box-points',
-            padding: 2,
-            scale: 1
-          }
-        ]
-      };
-    }
-    if (type === 'heatmap') {
-      return {
-        label: 'SVG (matrix as PNG)',
-        fileNameSuffix: '-light',
-        rasterScale: 1,
-        pngScale: 1,
-        layers: [
-          {
-            selector: '[data-export-layer="heatmap-cells"]',
-            label: 'heatmap-cells',
-            padding: 2,
-            scale: 1
-          }
-        ]
-      };
-    }
-    return null;
-  }
-
-  function shouldForceHybridPreviewCapture(svg, type) {
-    if (!svg || typeof svg.querySelector !== 'function') {
-      return false;
-    }
-    if (!getHybridPreviewOptions(type)) {
-      return false;
-    }
-    return !!svg.querySelector('foreignObject[data-point-renderer], foreignobject[data-point-renderer]');
-  }
-
-  function readPreviewNumber(node, attr, fallback) {
-    const raw = node?.getAttribute ? Number.parseFloat(node.getAttribute(attr)) : NaN;
-    return Number.isFinite(raw) ? raw : fallback;
-  }
-
-  function appendScatterCanvasPreviewGlyphs(layer, box) {
-    const doc = layer?.ownerDocument || document;
-    const width = Math.max(1, Number(box.width) || 1);
-    const height = Math.max(1, Number(box.height) || 1);
-    const minX = Number(box.x) || 0;
-    const minY = Number(box.y) || 0;
-    const count = 56;
-    const group = doc.createElementNS(TAB_PREVIEW_NS, 'g');
-    group.setAttribute('data-preview-canvas-simplified', 'scatter');
-    group.setAttribute('opacity', '0.75');
-    for (let idx = 0; idx < count; idx += 1) {
-      const t = count <= 1 ? 0 : idx / (count - 1);
-      const wave = Math.sin(idx * 2.17) * 0.18 + Math.cos(idx * 0.73) * 0.12;
-      const cx = minX + width * (0.08 + 0.84 * t);
-      const cy = minY + height * Math.max(0.08, Math.min(0.92, 0.66 - 0.38 * t + wave));
-      const dot = doc.createElementNS(TAB_PREVIEW_NS, 'circle');
-      dot.setAttribute('cx', String(cx));
-      dot.setAttribute('cy', String(cy));
-      dot.setAttribute('r', String(Math.max(0.8, Math.min(width, height) * 0.009)));
-      dot.setAttribute('fill', '#4f7fd9');
-      group.appendChild(dot);
-    }
-    layer.appendChild(group);
-  }
-
-  function appendBoxCanvasPreviewGlyph(layer, box) {
-    const doc = layer?.ownerDocument || document;
-    const width = Math.max(1, Number(box.width) || 1);
-    const height = Math.max(1, Number(box.height) || 1);
-    const minX = Number(box.x) || 0;
-    const minY = Number(box.y) || 0;
-    const midY = minY + height * 0.5;
-    const path = doc.createElementNS(TAB_PREVIEW_NS, 'path');
-    path.setAttribute('data-preview-canvas-simplified', 'box');
-    path.setAttribute('d', `M ${minX} ${midY} C ${minX + width * 0.22} ${minY + height * 0.18} ${minX + width * 0.78} ${minY + height * 0.82} ${minX + width} ${midY}`);
-    path.setAttribute('fill', 'none');
-    path.setAttribute('stroke', '#4f7fd9');
-    path.setAttribute('stroke-width', String(Math.max(1, Math.min(width, height) * 0.018)));
-    path.setAttribute('stroke-linecap', 'round');
-    path.setAttribute('opacity', '0.78');
-    layer.appendChild(path);
-  }
-
-  function collectPreviewCanvases(node) {
-    if (!node) {
-      return [];
-    }
-    const nodes = [];
-    if (String(node.tagName || '').toLowerCase() === 'canvas') {
-      nodes.push(node);
-    }
-    if (typeof node.querySelectorAll === 'function') {
-      nodes.push(...Array.from(node.querySelectorAll('canvas')));
-    }
-    return nodes;
-  }
-
-  function canvasToPreviewDataUrl(canvas) {
-    if (!canvas || typeof canvas.toDataURL !== 'function') {
-      return '';
-    }
-    const width = Math.max(1, Number(canvas.width) || 1);
-    const height = Math.max(1, Number(canvas.height) || 1);
-    const maxDim = TAB_PREVIEW_CANVAS_BITMAP_MAX_DIMENSION;
-    const scale = Math.min(1, maxDim / Math.max(width, height));
-    if (scale >= 0.999) {
-      try {
-        return canvas.toDataURL('image/png');
-      } catch (_err) {
-        return '';
-      }
-    }
-    const doc = canvas.ownerDocument || document;
-    const previewCanvas = doc.createElement('canvas');
-    previewCanvas.width = Math.max(1, Math.round(width * scale));
-    previewCanvas.height = Math.max(1, Math.round(height * scale));
-    const ctx = previewCanvas.getContext?.('2d');
-    if (!ctx || typeof ctx.clearRect !== 'function' || typeof ctx.drawImage !== 'function') {
-      try {
-        return canvas.toDataURL('image/png');
-      } catch (_err) {
-        return '';
-      }
-    }
-    ctx.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
-    ctx.drawImage(canvas, 0, 0, previewCanvas.width, previewCanvas.height);
-    try {
-      return previewCanvas.toDataURL('image/png');
-    } catch (_err) {
-      return '';
-    }
-  }
-
-  function hydrateCanvasBitmapsForPreview(sourceSvg, cloneSvg) {
-    if (!sourceSvg || !cloneSvg) {
-      return 0;
-    }
-    const sourceCanvases = collectPreviewCanvases(sourceSvg);
-    const cloneCanvases = collectPreviewCanvases(cloneSvg);
-    const count = Math.min(sourceCanvases.length, cloneCanvases.length);
-    let hydrated = 0;
-    for (let idx = 0; idx < count; idx += 1) {
-      const sourceCanvas = sourceCanvases[idx];
-      const cloneCanvas = cloneCanvases[idx];
-      const dataUrl = canvasToPreviewDataUrl(sourceCanvas);
-      if (!dataUrl || !cloneCanvas?.parentNode) {
-        continue;
-      }
-      const doc = cloneCanvas.ownerDocument || document;
-      const img = doc.createElement('img');
-      img.setAttribute('xmlns', 'http://www.w3.org/1999/xhtml');
-      img.setAttribute('src', dataUrl);
-      img.setAttribute('data-preview-canvas-bitmap', 'true');
-      img.setAttribute('width', cloneCanvas.getAttribute('width') || String(sourceCanvas.width || 1));
-      img.setAttribute('height', cloneCanvas.getAttribute('height') || String(sourceCanvas.height || 1));
-      const style = cloneCanvas.getAttribute('style');
-      if (style) {
-        img.setAttribute('style', style);
-      }
-      img.style.display = cloneCanvas.style?.display || 'block';
-      img.style.width = cloneCanvas.style?.width || `${sourceCanvas.width || 1}px`;
-      img.style.height = cloneCanvas.style?.height || `${sourceCanvas.height || 1}px`;
-      img.style.background = cloneCanvas.style?.background || 'transparent';
-      img.style.pointerEvents = 'none';
-      cloneCanvas.parentNode.replaceChild(img, cloneCanvas);
-      hydrated += 1;
-    }
-    if (hydrated) {
-      cloneSvg.setAttribute('data-preview-canvas-bitmap', String(hydrated));
-    }
-    // Handle archived render-cache bitmap markers that are already present in the clone
-    // (e.g. when the source SVG came from a restored render-cache with img elements rather
-    // than live canvas elements). Rename the attribute so the downstream preview pipeline
-    // treats them as ready bitmaps and skips synthetic glyph replacement.
-    if (!hydrated && typeof cloneSvg.querySelectorAll === 'function') {
-      const archiveBitmaps = Array.from(
-        cloneSvg.querySelectorAll(
-          'img[data-graphitix-render-cache-canvas-bitmap="true"], '
-          + 'image[data-graphitix-render-cache-canvas-bitmap="true"]'
-        )
-      );
-      archiveBitmaps.forEach(image => {
-        image.removeAttribute('data-graphitix-render-cache-canvas-bitmap');
-        image.setAttribute('data-preview-canvas-bitmap', 'true');
-      });
-      const readyBitmaps = Array.from(cloneSvg.querySelectorAll(
-        'img[data-preview-canvas-bitmap="true"], image[data-preview-canvas-bitmap="true"]'
-      ));
-      const declaredBitmapCount = Math.max(0, Number(cloneSvg.getAttribute?.('data-preview-canvas-bitmap')) || 0);
-      hydrated = Math.max(readyBitmaps.length, declaredBitmapCount);
-      if (hydrated) {
-        cloneSvg.setAttribute('data-preview-canvas-bitmap', String(hydrated));
-      }
-    }
-    return hydrated;
-  }
-
-  function resolvePreviewFallbackBox(svg, sizing) {
-    const source = sizing || resolvePreviewSizing(svg);
-    const minX = Number.isFinite(source?.minX) ? source.minX : 0;
-    const minY = Number.isFinite(source?.minY) ? source.minY : 0;
-    const width = Number.isFinite(source?.boxW) && source.boxW > 0 ? source.boxW : TAB_PREVIEW_TARGET_WIDTH;
-    const height = Number.isFinite(source?.boxH) && source.boxH > 0 ? source.boxH : TAB_PREVIEW_MIN_HEIGHT;
-    return {
-      x: minX + width * 0.14,
-      y: minY + height * 0.17,
-      width: Math.max(1, width * 0.64),
-      height: Math.max(1, height * 0.58)
-    };
-  }
-
-  function resolvePreviewNodeBox(node, svg, sizing) {
-    if (node && typeof node.getBBox === 'function') {
-      try {
-        const box = node.getBBox();
-        if (Number.isFinite(box?.x) && Number.isFinite(box?.y) && Number.isFinite(box?.width) && Number.isFinite(box?.height) && box.width > 0 && box.height > 0) {
-          return { x: box.x, y: box.y, width: box.width, height: box.height };
-        }
-      } catch (_err) {
-        // Detached preview clones often cannot report getBBox; fall back to viewport proportions.
-      }
-    }
-    const foreignObject = node?.querySelector?.('foreignObject[data-point-renderer], foreignobject[data-point-renderer]') || null;
-    if (foreignObject) {
-      return {
-        x: readPreviewNumber(foreignObject, 'x', 0),
-        y: readPreviewNumber(foreignObject, 'y', 0),
-        width: Math.max(1, readPreviewNumber(foreignObject, 'width', 1)),
-        height: Math.max(1, readPreviewNumber(foreignObject, 'height', 1))
-      };
-    }
-    return resolvePreviewFallbackBox(svg, sizing);
-  }
-
-  function getPreviewPointLayerSelector(type) {
-    if (type === 'box') {
-      return '[data-export-layer="box-points"]';
-    }
-    if (type === 'scatter') {
-      return '[data-export-layer="scatter-points"]';
-    }
-    return '';
-  }
-
-  function measurePreviewPointLayerComplexity(layer) {
-    if (!layer || typeof layer.querySelectorAll !== 'function') {
-      return { nodeCount: 0, pathChars: 0, hasCanvasRenderer: false };
-    }
-    const nodes = Array.from(layer.querySelectorAll('circle, rect, path, use, foreignObject, foreignobject'));
-    let pathChars = 0;
-    nodes.forEach(node => {
-      if (String(node.tagName || '').toLowerCase() === 'path') {
-        const d = node.getAttribute?.('d') || '';
-        pathChars += d.length;
-      }
-    });
-    return {
-      nodeCount: nodes.length,
-      pathChars,
-      hasCanvasRenderer: !!layer.querySelector('foreignObject[data-point-renderer], foreignobject[data-point-renderer]')
-    };
-  }
-
-  function shouldSimplifyPreviewPointLayer(layer, type, options = {}) {
-    if (options.force) {
-      return true;
-    }
-    if (!layer || layer.querySelector?.('[data-preview-canvas-simplified]')) {
-      return false;
-    }
-    if (layer.querySelector?.('[data-preview-canvas-bitmap]')) {
-      return false;
-    }
-    const complexity = measurePreviewPointLayerComplexity(layer);
-    return complexity.hasCanvasRenderer
-      || (type === 'scatter' && complexity.nodeCount > 400)
-      || complexity.nodeCount > 7000
-      || complexity.pathChars > 20000
-      || (type === 'box' && !!layer.querySelector?.('[data-box-export-geometry="1"], [data-box-approx-symbol-geometry="1"]'));
-  }
-
-  function simplifyPointLayerForPreview(layer, type, svg, sizing) {
-    if (!layer || typeof layer.appendChild !== 'function') {
-      return false;
-    }
-    // For scatter with real circles, down-sample rather than replacing with
-    // synthetic glyphs — preserves accurate spatial distribution in the preview.
-    if (type === 'scatter') {
-      const circles = Array.from(layer.querySelectorAll('circle'));
-      if (circles.length > 0) {
-        const targetCount = 300;
-        const stride = Math.max(1, Math.floor(circles.length / targetCount));
-        const sampled = circles.filter((_, i) => i % stride === 0).slice(0, targetCount);
-        while (layer.firstChild) {
-          layer.removeChild(layer.firstChild);
-        }
-        sampled.forEach(c => layer.appendChild(c));
-        layer.setAttribute('data-preview-canvas-simplified', '1');
-        return true;
-      }
-    }
-    const box = resolvePreviewNodeBox(layer, svg, sizing);
-    while (layer.firstChild) {
-      layer.removeChild(layer.firstChild);
-    }
-    if (type === 'box') {
-      appendBoxCanvasPreviewGlyph(layer, box);
-    } else {
-      appendScatterCanvasPreviewGlyphs(layer, box);
-    }
-    return true;
-  }
-
-  function simplifyHeavyPointLayersForPreview(svg, type, sizing, options = {}) {
-    const selector = getPreviewPointLayerSelector(type);
-    if (!svg || !selector || typeof svg.querySelectorAll !== 'function') {
-      return 0;
-    }
-    const layers = Array.from(svg.querySelectorAll(selector));
-    let simplified = 0;
-    layers.forEach(layer => {
-      if (!shouldSimplifyPreviewPointLayer(layer, type, options)) {
-        return;
-      }
-      if (simplifyPointLayerForPreview(layer, type, svg, sizing)) {
-        simplified += 1;
-      }
-    });
-    if (simplified) {
-      svg.setAttribute('data-preview-canvas-simplified', String(simplified));
-    }
-    return simplified;
-  }
-
-  function simplifyCanvasLayersForPreview(svg, type) {
-    if (!svg || typeof svg.querySelectorAll !== 'function') {
-      return 0;
-    }
-    const objects = Array.from(svg.querySelectorAll('foreignObject[data-point-renderer], foreignobject[data-point-renderer]'));
-    let simplified = 0;
-    objects.forEach(node => {
-      const layer = node.closest?.('[data-export-layer]') || node.parentNode;
-      if (!layer || typeof layer.appendChild !== 'function') {
-        return;
-      }
-      const box = {
-        x: readPreviewNumber(node, 'x', 0),
-        y: readPreviewNumber(node, 'y', 0),
-        width: Math.max(1, readPreviewNumber(node, 'width', 1)),
-        height: Math.max(1, readPreviewNumber(node, 'height', 1))
-      };
-      if (node.parentNode) {
-        node.parentNode.removeChild(node);
-      }
-      if (type === 'box') {
-        appendBoxCanvasPreviewGlyph(layer, box);
-      } else {
-        appendScatterCanvasPreviewGlyphs(layer, box);
-      }
-      simplified += 1;
-    });
-    if (simplified) {
-      svg.setAttribute('data-preview-canvas-simplified', String(simplified));
-    }
-    return simplified;
-  }
-
   function getRenderCacheSequence(tab) {
     const seq = Number(tab?.renderCache?.captureSequence);
     return Number.isFinite(seq) && seq > 0 ? seq : 0;
   }
 
-  function scheduleHybridPreviewCapture(tab, svg, sizing, meta = {}) {
+  function buildPngPreviewMarkup(dataUrl, tab, sizing) {
+    if (!dataUrl || !tab?.id || !sizing) {
+      return '';
+    }
+    const escapedUrl = String(dataUrl).replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+    const escapedTabId = String(tab.id).replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+    const escapedType = String(tab.type || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+    return `<img src="${escapedUrl}" width="${sizing.targetWidth}" height="${sizing.targetHeight}" alt="" data-tab-preview-format="png" data-preview-owner-tab-id="${escapedTabId}" data-preview-component="${escapedType}">`;
+  }
+
+  function resolveCurrentPreviewOwner(tab) {
+    const tabs = Main.session?.workspaceState?.tabs;
+    if (!tab?.id || !Array.isArray(tabs)) {
+      return tab || null;
+    }
+    return tabs.find(candidate => candidate?.id === tab.id) || null;
+  }
+
+  function previewRequestStillMatches(tab, request) {
+    const currentTab = resolveCurrentPreviewOwner(tab);
+    return !!(
+      currentTab === tab
+      && currentTab.type === request.type
+      && (currentTab.payloadSignature || null) === request.payloadSignature
+      && (currentTab.layoutSignature || null) === request.layoutSignature
+      && Number(currentTab.payloadVersion || 0) === request.payloadVersion
+      && Number(currentTab.layoutVersion || 0) === request.layoutVersion
+      && tabPreviewPngRequests.get(tab.id)?.id === request.id
+    );
+  }
+
+  function updateVisiblePreviewTooltip(tab, markup) {
+    if (!tabPreviewTooltipEl
+      || tabPreviewTooltipEl.dataset.tabId !== tab.id
+      || tabPreviewTooltipEl.style.display === 'none') {
+      return;
+    }
+    renderTabPreviewTooltipContent(tabPreviewTooltipEl, markup);
+    if (tabPreviewMeasureRaf) {
+      cancelAnimationFrame(tabPreviewMeasureRaf);
+    }
+    tabPreviewMeasureRaf = requestAnimationFrame(() => {
+      positionTabPreviewTooltip(tab, tabPreviewLastAnchorRect);
+    });
+  }
+
+  function schedulePngPreviewCapture(tab, svg, sizing, meta = {}) {
     const Shared = window.Shared || {};
     const exporter = Shared.exporter;
-    const doc = svg?.ownerDocument || document;
-    if (!tab || !svg || !exporter || typeof exporter.buildHybridSvg !== 'function' || !doc?.body) {
+    if (!tab
+      || !svg
+      || !exporter
+      || typeof exporter.svgElementToPngBlob !== 'function'
+      || typeof exporter.blobToDataUrl !== 'function') {
       return false;
     }
-    const hybridOptions = getHybridPreviewOptions(tab.type);
-    if (!hybridOptions) {
-      return false;
-    }
-    const signature = meta.payloadSignature || tab.payloadSignature || null;
-    const existing = tabPreviewHybridRequests.get(tab.id);
-    if (existing && existing.signature === signature) {
+    const request = {
+      id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      tab,
+      type: tab.type || null,
+      payloadSignature: meta.payloadSignature ?? tab.payloadSignature ?? null,
+      layoutSignature: meta.layoutSignature ?? tab.layoutSignature ?? null,
+      payloadVersion: Number(meta.payloadVersion ?? tab.payloadVersion ?? 0),
+      layoutVersion: Number(meta.layoutVersion ?? tab.layoutVersion ?? 0),
+      renderCacheSequence: Number(meta.renderCacheSequence ?? getRenderCacheSequence(tab)),
+      sizing,
+      reason: meta.reason || 'png'
+    };
+    const existing = tabPreviewPngRequests.get(tab.id);
+    if (existing
+      && existing.payloadSignature === request.payloadSignature
+      && existing.layoutSignature === request.layoutSignature
+      && existing.payloadVersion === request.payloadVersion
+      && existing.layoutVersion === request.layoutVersion
+      && existing.renderCacheSequence === request.renderCacheSequence) {
       return true;
     }
-    const requestId = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-    tabPreviewHybridRequests.set(tab.id, { id: requestId, signature });
-    exporter.buildHybridSvg(svg, {
-      ...hybridOptions,
-      baseFileName: 'tab-preview',
-      contextLabel: `tab-preview-${tab.type || 'unknown'}`
-    }).then(hybrid => {
-      const current = tabPreviewHybridRequests.get(tab.id);
-      if (!current || current.id !== requestId) {
-        return;
-      }
-      tabPreviewHybridRequests.delete(tab.id);
-      if (!hybrid?.svg) {
-        console.debug('Debug: preview hybrid missing svg', { tabId: tab.id, type: tab.type });
-        return;
-      }
-      const hybridSvg = hybrid.svg;
-      const sizingResolved = sizing || resolvePreviewSizing(hybridSvg);
-      applyPreviewSizing(hybridSvg, sizingResolved);
-      ensurePreviewBackground(hybridSvg, sizingResolved);
-      ensurePreviewImageLinks(hybridSvg);
-      const serializer = new XMLSerializer();
-      const markup = serializer.serializeToString(hybridSvg);
-      if (!markup || markup.length > TAB_PREVIEW_MAX_CHARS_HYBRID) {
-        console.debug('Debug: preview hybrid oversize', {
+    tabPreviewPngRequests.set(tab.id, request);
+    request.promise = new Promise(resolve => setTimeout(resolve, 0))
+      .then(async () => {
+        if (!previewRequestStillMatches(tab, request)) {
+          return null;
+        }
+        const fontsReady = svg.ownerDocument?.fonts?.ready;
+        if (fontsReady && typeof fontsReady.then === 'function') {
+          await fontsReady;
+        }
+        if (!previewRequestStillMatches(tab, request)) {
+          return null;
+        }
+        return exporter.svgElementToPngBlob(svg, {
+          pngScale: 1,
+          backgroundColor: '#ffffff',
+          contextLabel: `tab-preview-${tab.type || 'unknown'}`
+        });
+      })
+      .then(blob => blob ? exporter.blobToDataUrl(blob) : null)
+      .then(dataUrl => {
+        if (!dataUrl || !previewRequestStillMatches(tab, request)) {
+          return false;
+        }
+        const markup = buildPngPreviewMarkup(dataUrl, tab, sizing);
+        if (!markup) {
+          return false;
+        }
+        tab.previewMarkup = markup;
+        tab.previewSignature = request.payloadSignature;
+        tab.previewMeta = {
+          width: sizing.targetWidth,
+          height: sizing.targetHeight,
+          size: markup.length,
+          format: 'png',
+          rasterized: true,
+          renderCacheSequence: getRenderCacheSequence(tab),
+          layoutSignature: request.layoutSignature,
+          payloadVersion: request.payloadVersion,
+          layoutVersion: request.layoutVersion,
+          updatedAt: Date.now(),
+          reason: request.reason
+        };
+        syncTabPreviewIndicator(tab);
+        updateVisiblePreviewTooltip(tab, markup);
+        try {
+          Main.session?.markTabRenderCommitted?.(tab, { reason: request.reason });
+        } catch (err) {
+          console.debug('Debug: PNG preview render commit mark skipped', {
+            tabId: tab.id,
+            type: tab.type,
+            message: err?.message || String(err)
+          });
+        }
+        console.debug('Debug: PNG preview stored', {
           tabId: tab.id,
           type: tab.type,
-          length: markup ? markup.length : 0
+          length: markup.length,
+          width: sizing.targetWidth,
+          height: sizing.targetHeight
         });
+        return true;
+      })
+      .catch(err => {
+        console.debug('Debug: PNG preview error', {
+          tabId: tab.id,
+          type: tab.type,
+          message: err?.message || String(err)
+        });
+        return false;
+      })
+      .finally(() => {
+        if (tabPreviewPngRequests.get(tab.id)?.id === request.id) {
+          tabPreviewPngRequests.delete(tab.id);
+        }
+      });
+    tabPreviewPngRequests.set(tab.id, request);
+    return true;
+  }
+
+  async function awaitPendingCaptures(tabIds = null) {
+    const filter = Array.isArray(tabIds) ? new Set(tabIds.map(String)) : null;
+    while (true) {
+      const pending = Array.from(tabPreviewPngRequests.entries())
+        .filter(([tabId]) => !filter || filter.has(String(tabId)))
+        .map(([, request]) => request.promise)
+        .filter(Boolean);
+      if (!pending.length) {
         return;
       }
-      tab.previewMarkup = markup;
-      tab.previewSignature = signature;
-      tab.previewMeta = {
-        width: sizingResolved.targetWidth,
-        height: sizingResolved.targetHeight,
-        size: markup.length,
-        hybrid: true,
-        renderCacheSequence: getRenderCacheSequence(tab),
-        updatedAt: Date.now(),
-        reason: meta.reason || 'hybrid'
-      };
-      syncTabPreviewIndicator(tab);
-      if (tabPreviewTooltipEl && tabPreviewTooltipEl.dataset.tabId === tab.id && tabPreviewTooltipEl.style.display !== 'none') {
-        renderTabPreviewTooltipContent(tabPreviewTooltipEl, markup);
-        if (tabPreviewMeasureRaf) {
-          cancelAnimationFrame(tabPreviewMeasureRaf);
-        }
-        tabPreviewMeasureRaf = requestAnimationFrame(() => {
-          positionTabPreviewTooltip(tab, tabPreviewLastAnchorRect);
-        });
-      }
-      console.debug('Debug: preview hybrid stored', {
-        tabId: tab.id,
-        type: tab.type,
-        length: markup.length,
-        width: sizingResolved.targetWidth,
-        height: sizingResolved.targetHeight
-      });
-    }).catch(err => {
-      tabPreviewHybridRequests.delete(tab.id);
-      console.debug('Debug: preview hybrid error', { tabId: tab.id, type: tab.type, err: err?.message || String(err) });
-    });
-    return true;
+      await Promise.allSettled(pending);
+    }
   }
 
   function captureWorkspacePreview(config, tab, meta = {}) {
@@ -916,107 +622,49 @@
     }
     const sizing = resolvePreviewSizing(svg);
     const clone = svg.cloneNode(true);
-    const hydratedCanvasLayers = hydrateCanvasBitmapsForPreview(svg, clone);
-    const simplifiedCanvasLayers = hydratedCanvasLayers ? 0 : simplifyCanvasLayersForPreview(clone, config.type);
-    const simplifiedHeavyPointLayers = hydratedCanvasLayers ? 0 : simplifyHeavyPointLayersForPreview(clone, config.type, sizing);
-    const simplifiedLayerCount = simplifiedCanvasLayers + simplifiedHeavyPointLayers;
-    const forceHybrid = !hydratedCanvasLayers && !simplifiedLayerCount && shouldForceHybridPreviewCapture(clone, config.type);
-    if (forceHybrid) {
-      const scheduled = scheduleHybridPreviewCapture(tab, svg, sizing, {
-        reason: 'canvas-layer',
-        payloadSignature: tab?.payloadSignature || null
-      });
-      const placeholder = buildPreviewPlaceholder(sizing.targetWidth, sizing.targetHeight, {
-        message: scheduled ? 'Preparing preview' : 'Preview simplified',
-        detail: scheduled ? 'Rendering composite' : 'Canvas layer'
-      });
-      if (placeholder) {
-        console.debug('Debug: preview hybrid forced', {
-          tabId: tab?.id || null,
-          type: config.type,
-          hybridScheduled: scheduled
-        });
-        return { markup: placeholder, width: sizing.targetWidth, height: sizing.targetHeight, size: placeholder.length, simplified: true };
-      }
-    }
     applyPreviewSizing(clone, sizing);
     ensurePreviewBackground(clone, sizing);
+    ensurePreviewImageLinks(clone);
     const serializer = new XMLSerializer();
-    let markup = serializer.serializeToString(clone);
-    let previewSimplified = simplifiedLayerCount > 0;
+    const markup = serializer.serializeToString(clone);
     if (!markup) {
       console.debug('Debug: preview capture skipped', { reason: 'serialize-empty', type: config.type, tabId: tab?.id || null });
       return null;
     }
-    if (markup.length > TAB_PREVIEW_MAX_CHARS) {
-      console.debug('Debug: preview oversize detected', { length: markup.length, type: config.type, tabId: tab?.id || null });
-      if (hydratedCanvasLayers) {
-        // A verified bitmap-backed preview is already bounded by the canvas downsampling
-        // contract. Its serialized length is dominated by the embedded PNG data URL, not
-        // by SVG node complexity, so the vector-markup character budget is not applicable.
-        console.debug('Debug: preview canvas bitmap accepted above vector budget', {
-          tabId: tab?.id || null,
-          type: config.type,
-          length: markup.length,
-          bitmapLayers: hydratedCanvasLayers
-        });
-        return {
-          markup,
-          width: sizing.targetWidth,
-          height: sizing.targetHeight,
-          size: markup.length,
-          simplified: previewSimplified,
-          canvasSimplified: false,
-          canvasBitmap: true
-        };
-      }
-      const forcedSimplified = hydratedCanvasLayers ? 0 : simplifyHeavyPointLayersForPreview(clone, config.type, sizing, { force: true });
-      if (forcedSimplified) {
-        markup = serializer.serializeToString(clone);
-        previewSimplified = true;
-        if (markup && markup.length <= TAB_PREVIEW_MAX_CHARS) {
-          console.debug('Debug: preview oversize simplified', {
-            tabId: tab?.id || null,
-            type: config.type,
-            length: markup.length,
-            simplifiedLayers: forcedSimplified
-          });
-          return { markup, width: sizing.targetWidth, height: sizing.targetHeight, size: markup.length, simplified: true, canvasSimplified: true, canvasBitmap: hydratedCanvasLayers > 0 };
-        }
-      }
-      const simplifiedPlaceholder = buildPreviewPlaceholder(sizing.targetWidth, sizing.targetHeight, {
-        message: 'Preview simplified',
-        detail: 'Large dataset'
-      });
-      if (simplifiedPlaceholder) {
-        return {
-          markup: simplifiedPlaceholder,
-          width: sizing.targetWidth,
-          height: sizing.targetHeight,
-          size: simplifiedPlaceholder.length,
-          simplified: true,
-          canvasSimplified: true,
-          canvasBitmap: false
-        };
-      }
-      const scheduled = scheduleHybridPreviewCapture(tab, svg, sizing, {
-        reason: 'oversize',
-        payloadSignature: tab?.payloadSignature || null
+    const hasCanvas = !!svg.querySelector?.('canvas, foreignObject[data-point-renderer], foreignobject[data-point-renderer]');
+    const hasArchivedCanvasBitmap = !!svg.querySelector?.(
+      '[data-graphitix-render-cache-canvas-bitmap="true"], [data-preview-canvas-bitmap="true"]'
+    );
+    if (hasCanvas || hasArchivedCanvasBitmap || markup.length > TAB_PREVIEW_MAX_CHARS) {
+      const reason = hasCanvas || hasArchivedCanvasBitmap ? 'canvas-backed-svg' : 'oversized-svg';
+      const scheduled = schedulePngPreviewCapture(tab, svg, sizing, {
+        reason,
+        payloadSignature: tab?.payloadSignature || null,
+        layoutSignature: tab?.layoutSignature || null,
+        payloadVersion: Number(tab?.payloadVersion || 0),
+        layoutVersion: Number(tab?.layoutVersion || 0),
+        renderCacheSequence: getRenderCacheSequence(tab)
       });
       const placeholder = buildPreviewPlaceholder(sizing.targetWidth, sizing.targetHeight, {
         message: scheduled ? 'Preparing preview' : 'Preview too large',
-        detail: scheduled ? 'Rendering composite' : 'Large dataset'
+        detail: scheduled ? 'Rendering image' : 'Large dataset'
       });
       if (placeholder) {
-        console.debug('Debug: preview capture placeholder', {
+        console.debug('Debug: PNG preview scheduled', {
           tabId: tab?.id || null,
           type: config.type,
-          length: placeholder.length,
-          hybridScheduled: scheduled
+          sourceLength: markup.length,
+          scheduled,
+          reason
         });
-        return { markup: placeholder, width: sizing.targetWidth, height: sizing.targetHeight, size: placeholder.length, simplified: scheduled };
+        return {
+          markup: placeholder,
+          width: sizing.targetWidth,
+          height: sizing.targetHeight,
+          size: placeholder.length,
+          pendingPng: scheduled
+        };
       }
-      console.debug('Debug: preview capture skipped', { reason: 'oversize', length: markup.length, type: config.type, tabId: tab?.id || null });
       return null;
     }
     console.debug('Debug: preview capture success', {
@@ -1031,9 +679,7 @@
       width: sizing.targetWidth,
       height: sizing.targetHeight,
       size: markup.length,
-      simplified: previewSimplified,
-      canvasSimplified: simplifiedLayerCount > 0,
-      canvasBitmap: hydratedCanvasLayers > 0
+      format: 'svg'
     };
   }
 
@@ -1360,42 +1006,34 @@
     const renderCacheSequence = getRenderCacheSequence(tab);
     const payloadVersion = Number(tab.payloadVersion || 0);
     const layoutVersion = Number(tab.layoutVersion || 0);
-    const needsHybridRefresh = shouldForceHybridPreviewCapture(liveSvg || rootSvg || null, config.type)
-      && !tab.previewMeta?.hybrid
-      && !tab.previewMeta?.canvasBitmap
-      && !tab.previewMeta?.canvasSimplified;
     const needsRenderCacheRefresh = renderCacheSequence > 0
       && Number(tab.previewMeta?.renderCacheSequence || 0) !== renderCacheSequence;
     const needsLayoutRefresh = layoutSignature
       && tab.previewMeta?.layoutSignature !== layoutSignature;
     const needsPayloadVersionRefresh = Number(tab.previewMeta?.payloadVersion || 0) !== payloadVersion;
     const needsLayoutVersionRefresh = Number(tab.previewMeta?.layoutVersion || 0) !== layoutVersion;
-    const liveProjection = liveSvg?.getAttribute?.('data-heatmap-preview-projection') || null;
-    const hasCompactComponentProjection = liveProjection === 'canvas-sampled';
     const needsPlaceholderRefresh = isPreviewPlaceholderMarkup(tab.previewMarkup)
+      && hasLivePreviewSource
+      && !tabPreviewPngRequests.has(tab.id);
+    const needsLegacyMixedPreviewRefresh = !!tab.previewMarkup
+      && tab.previewMeta?.format !== 'png'
       && (
-        hasCompactComponentProjection
-        || (tab.type === 'heatmap' && hasLivePreviewSource)
-        || (!tab.previewMeta?.hybrid
-          && !tab.previewMeta?.canvasBitmap
-          && !tab.previewMeta?.canvasSimplified)
+        tab.previewMarkup.includes('data-preview-canvas-bitmap')
+        || tab.previewMarkup.includes('data-preview-canvas-simplified')
+        || tab.previewMeta?.hybrid
+        || tab.previewMeta?.canvasBitmap
+        || tab.previewMeta?.canvasSimplified
       );
-    const needsLegacyCanvasGlyphRefresh = !!tab.previewMeta?.canvasSimplified
-      && !tab.previewMeta?.canvasBitmap
-      && typeof tab.previewMarkup === 'string'
-      && tab.previewMarkup.includes('data-preview-canvas-simplified')
-      && (tab.type === 'box' || tab.type === 'scatter');
     const shouldCapture = meta.forceCapture
       || !tab.previewMarkup
       || !tab.previewSignature
       || (payloadSignature && tab.previewSignature !== payloadSignature)
-      || needsHybridRefresh
       || needsRenderCacheRefresh
       || needsLayoutRefresh
       || needsPayloadVersionRefresh
       || needsLayoutVersionRefresh
       || needsPlaceholderRefresh
-      || needsLegacyCanvasGlyphRefresh;
+      || needsLegacyMixedPreviewRefresh;
     if (shouldCapture && shouldPreserveExistingPreviewWithoutLiveSource(tab, meta, { hasLivePreviewSource })) {
       console.debug('Debug: preview refresh skipped to preserve existing tab preview', {
         tabId: tab.id,
@@ -1420,10 +1058,8 @@
         width: preview.width,
         height: preview.height,
         size: preview.size,
-        simplified: !!preview.simplified,
-        canvasSimplified: !!preview.canvasSimplified,
-        canvasBitmap: !!preview.canvasBitmap,
-        hybrid: !!preview.hybrid,
+        format: preview.format || (preview.pendingPng ? 'pending-png' : 'svg'),
+        pendingPng: !!preview.pendingPng,
         renderCacheSequence,
         layoutSignature,
         payloadVersion,
@@ -1532,6 +1168,22 @@
     svg.style.flex = '0 0 auto';
   }
 
+  function fitTooltipPreviewImage(img) {
+    if (!img?.style) {
+      return;
+    }
+    const width = Number.parseFloat(img.getAttribute?.('width')) || TAB_PREVIEW_TARGET_WIDTH;
+    const height = Number.parseFloat(img.getAttribute?.('height')) || TAB_PREVIEW_MIN_HEIGHT;
+    const scale = Math.min(1, TAB_PREVIEW_TARGET_WIDTH / width, TAB_PREVIEW_MAX_HEIGHT / height);
+    img.style.display = 'block';
+    img.style.width = `${Math.max(1, Math.round(width * scale))}px`;
+    img.style.height = `${Math.max(1, Math.round(height * scale))}px`;
+    img.style.maxWidth = `${TAB_PREVIEW_TARGET_WIDTH}px`;
+    img.style.maxHeight = `${TAB_PREVIEW_MAX_HEIGHT}px`;
+    img.style.objectFit = 'contain';
+    img.style.flex = '0 0 auto';
+  }
+
   function renderTabPreviewTooltipContent(tooltip, markup) {
     if (!tooltip) {
       return;
@@ -1568,6 +1220,7 @@
     tooltip.innerHTML = trimmed;
     const svg = tooltip.querySelector?.('svg') || null;
     fitTooltipPreviewSvg(svg);
+    fitTooltipPreviewImage(tooltip.querySelector?.('img[data-tab-preview-format="png"]') || null);
   }
 
   function hideTabPreviewTooltip(reason = 'hide') {
@@ -1706,6 +1359,8 @@
   namespace.captureWorkspacePreview = captureWorkspacePreview;
   namespace.syncTabPreviewIndicator = syncTabPreviewIndicator;
   namespace.updateTabPreviewFromWorkspace = updateTabPreviewFromWorkspace;
+  namespace.awaitPendingCaptures = awaitPendingCaptures;
+  namespace.hasUsableStoredPreview = hasUsableStoredPreview;
   namespace.ensureTabPreviewTooltipElement = ensureTabPreviewTooltipElement;
   namespace.hideTabPreviewTooltip = hideTabPreviewTooltip;
   namespace.showTabPreviewTooltip = showTabPreviewTooltip;
@@ -1717,6 +1372,5 @@
     TAB_PREVIEW_MAX_HEIGHT,
     TAB_PREVIEW_MAX_CHARS
   };
-  namespace.__testSimplifyHeavyPointLayers = simplifyHeavyPointLayersForPreview;
   console.debug('Debug: Main previews module initialized', { constants: namespace.constants });
 })();

@@ -63,6 +63,11 @@ Defined in `js/main/session.js`.
 }
 ```
 
+`previewMarkup` is either a bounded SVG thumbnail or one `<img>` containing a PNG data URL.
+Canvas-backed graphs and SVGs above the shared size limit use the PNG form. `previewMeta.format`
+is `svg` or `png`; PNG metadata also records `rasterized: true`. Checkpoints await pending PNG
+work and validate tab owner, payload, layout, and generation before persisting it.
+
 `uiState` carries non-component UI state that the user expects to round-trip across save/reopen but that does not belong in the component payload:
 
 ```js
@@ -219,7 +224,13 @@ Current save/load supports two scopes via `Main.sessionActions`:
 
 The last used scope is tracked in `workspaceState.sessionFileScope` and influences default save behavior.
 
-## 8. Safe Change Checklist (Persistence)
+## 8. Cross-Component Persistence Validation
+
+Run `npm run test:persistence-matrix` after payload, session, archive, recovery, or shared-control changes.
+
+The browser matrix opens every component, discovers scalar graph parameters from its canonical payload roots, applies safe non-default sentinels, and checks the real manual-save and recovery archive paths. It then resets the component and verifies file reopen and recovery restoration. Structured modes and complex collections are explicitly classified because they require component-specific semantic tests.
+
+## 9. Safe Change Checklist (Persistence)
 
 When adding/changing persisted fields:
 

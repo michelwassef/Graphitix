@@ -2319,17 +2319,19 @@
             </fieldset>
             <fieldset>
               <legend>Options</legend>
-              <div class="control idx-inline-031">
-                <label class="idx-inline-023"><input type="checkbox" id="pieShowPercents" /> Show percentages</label>
-                <label class="idx-inline-023"><input type="checkbox" id="pieShowFrame" /> Show frame</label>
-                <label class="idx-inline-023"><input type="checkbox" id="pieShowLegend" checked /> Show legend</label>
-                <label class="idx-inline-023">
+              <div class="control">
+                <label><input type="checkbox" id="pieShowPercents" /> Show percentages</label>
+                <label><input type="checkbox" id="pieShowFrame" /> Show frame</label>
+                <label><input type="checkbox" id="pieShowLegend" checked /> Show legend</label>
+              </div>
+              <div class="control pie-radial-options" data-pie-radial-options="1">
+                <label>
                   Start Angle <input type="number" id="pieStartAngle" value="0" />
                 </label>
-                <label class="idx-inline-052">
+                <label>
                   Border
                   <input type="color" id="pieBorderColor" value="#ffffff" aria-label="Slice border color" />
-                  <input type="number" id="pieBorderWidth" value="0" min="0" step="0.5" class="idx-inline-027" aria-label="Slice border thickness" />
+                  <input type="number" id="pieBorderWidth" value="0" min="0" step="0.5" aria-label="Slice border thickness" />
                 </label>
               </div>
             </fieldset>

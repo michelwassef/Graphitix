@@ -1199,11 +1199,10 @@
     return !!owner;
   };
 
-  // Keyboard shortcut routing is intentionally shared and transient. AG Grid
-  // may move DOM focus after row-header modifier clicks, while the logical
-  // selection remains owned by this adapter. A document-level router keeps
-  // Ctrl/Cmd+C and Ctrl/Cmd+X attached to the last table the user interacted
-  // with, without making DOM focus or a module-global table singleton canonical.
+  // Clipboard routing is intentionally shared and transient. AG Grid may move
+  // DOM focus while the logical selection remains owned by this adapter. The
+  // document router resolves the visible table owned by the active workspace
+  // tab; the owning instance remains the source of selection and data state.
   const hotKeyboardShortcutRouters = hotNS.__keyboardShortcutRouters instanceof WeakMap
     ? hotNS.__keyboardShortcutRouters
     : new WeakMap();
@@ -1295,6 +1294,20 @@
     return null;
   };
 
+  const isDocumentPasteTargetEditable = target => {
+    const element = resolveKeyboardEventElement(target);
+    if(!element){
+      return false;
+    }
+    if(element.isContentEditable){
+      return true;
+    }
+    if(typeof element.closest !== 'function'){
+      return false;
+    }
+    return !!element.closest('input,textarea,select,[contenteditable]:not([contenteditable="false"]),[role="textbox"],.ag-cell-inline-editing,.ag-popup-editor,.ag-cell-editor,.ag-input-field-input');
+  };
+
   const ensureHotKeyboardShortcutRouter = doc => {
     if(!doc || typeof doc.addEventListener !== 'function'){
       return null;
@@ -1310,7 +1323,8 @@
       destroyed: false,
       handlePointerDown: null,
       handleFocusIn: null,
-      handleKeyDown: null
+      handleKeyDown: null,
+      handlePaste: null
     };
     router.handlePointerDown = event => {
       const directEntry = findKeyboardShortcutEntryForNode(router, event?.target || null);
@@ -1350,10 +1364,40 @@
         router.activeEntry = entry;
       }
     };
+    router.handlePaste = event => {
+      if(!event || event.defaultPrevented || isDocumentPasteTargetEditable(event.target)){
+        return;
+      }
+      const directEntry = findKeyboardShortcutEntryForNode(router, event.target);
+      if(directEntry){
+        return;
+      }
+      const candidates = Array.from(router.entries || [])
+        .filter(entry => isKeyboardShortcutEntryEligible(entry)
+          && typeof entry.handlePaste === 'function'
+          && (typeof entry.canHandlePaste !== 'function' || entry.canHandlePaste(event) === true));
+      const activeEntry = candidates.includes(router.activeEntry) ? router.activeEntry : null;
+      const entry = activeEntry || (candidates.length === 1 ? candidates[0] : null);
+      if(!entry){
+        return;
+      }
+      try{
+        Promise.resolve(entry.handlePaste(event)).catch(err=>{
+          console.error('Shared.hot document paste routing failed', {
+            message: err?.message || String(err)
+          });
+        });
+      }catch(err){
+        console.error('Shared.hot document paste routing failed', {
+          message: err?.message || String(err)
+        });
+      }
+    };
     doc.addEventListener('pointerdown', router.handlePointerDown, true);
     doc.addEventListener('mousedown', router.handlePointerDown, true);
     doc.addEventListener('focusin', router.handleFocusIn, true);
     doc.addEventListener('keydown', router.handleKeyDown, true);
+    doc.addEventListener('paste', router.handlePaste, true);
     hotKeyboardShortcutRouters.set(doc, router);
     return router;
   };
@@ -1370,6 +1414,8 @@
       instance,
       container,
       handleShortcut: options.handleShortcut,
+      handlePaste: typeof options.handlePaste === 'function' ? options.handlePaste : null,
+      canHandlePaste: typeof options.canHandlePaste === 'function' ? options.canHandlePaste : null,
       hasSelection: typeof options.hasSelection === 'function' ? options.hasSelection : null,
       destroyed: false
     };
@@ -1399,6 +1445,7 @@
         try{ doc.removeEventListener('mousedown', router.handlePointerDown, true); }catch(err){}
         try{ doc.removeEventListener('focusin', router.handleFocusIn, true); }catch(err){}
         try{ doc.removeEventListener('keydown', router.handleKeyDown, true); }catch(err){}
+        try{ doc.removeEventListener('paste', router.handlePaste, true); }catch(err){}
         hotKeyboardShortcutRouters.delete(doc);
       }
     };
@@ -2650,6 +2697,15 @@
         return markDataRevision(reason || 'dataHandle');
       }
     };
+    const resolveCurrentRawCellValue = (physicalRow, physicalCol)=>{
+      const row = Number(physicalRow);
+      const col = Number(physicalCol);
+      if(!Number.isInteger(row) || row < 0 || !Number.isInteger(col) || col < 0){
+        return undefined;
+      }
+      const rowValues = Array.isArray(dataHandle.current?.[row]) ? dataHandle.current[row] : null;
+      return rowValues ? rowValues[col] : undefined;
+    };
     stampMatrixSignature(data, 'initial');
     const formulaEvaluationState = {
       enabled: !!enableFormulaEvaluation,
@@ -2872,7 +2928,7 @@
       }
     };
     const resolveFormulaRawValue = (physicalRow, physicalCol, fallbackValue)=>{
-      if(!formulaEvaluationState.enabled){
+      if(!formulaEvaluationState.enabled || !formulaEvaluationState.active){
         return fallbackValue;
       }
       const row = Number(physicalRow);
@@ -8480,9 +8536,12 @@
       const physicalRow = Number(params?.data?.__rowIndex ?? params?.node?.data?.__rowIndex ?? params?.node?.rowIndex);
       const colId = params?.column?.getColId?.() || params?.colDef?.colId || '';
       const physicalCol = typeof colId === 'string' && colId.startsWith('c') ? Number(colId.slice(1)) : null;
-      const rawModelValue = (Number.isInteger(physicalRow) && physicalRow >= 0 && Number.isInteger(physicalCol) && physicalCol >= 0)
-        ? resolveFormulaRawValue(physicalRow, physicalCol, params?.value ?? '')
-        : (params?.value ?? '');
+      const canonicalRawValue = (Number.isInteger(physicalRow) && physicalRow >= 0 && Number.isInteger(physicalCol) && physicalCol >= 0)
+        ? resolveCurrentRawCellValue(physicalRow, physicalCol)
+        : undefined;
+      const rawCellValue = typeof canonicalRawValue === 'undefined'
+        ? (params?.value ?? '')
+        : canonicalRawValue;
       const typedChar = typeof params?.charPress === 'string' && params.charPress.length === 1
         ? params.charPress
         : '';
@@ -8494,7 +8553,7 @@
       const clearOnEditStart = eventKey === 'Backspace' || eventKey === 'Delete';
       const initialTypedValue = typedChar || inferredTypedKey;
       this._startedWithTyping = !!initialTypedValue;
-      input.value = initialTypedValue || (clearOnEditStart ? '' : (rawModelValue == null ? '' : String(rawModelValue)));
+      input.value = initialTypedValue || (clearOnEditStart ? '' : (rawCellValue == null ? '' : String(rawCellValue)));
       this.eInput = input;
       this.fnSuggestions = [];
       this.fnSuggestionIndex = 0;
@@ -13462,15 +13521,6 @@
         colId
       };
     };
-    const resolveCurrentRawCellValue = (physicalRow, physicalCol)=>{
-      const row = Number(physicalRow);
-      const col = Number(physicalCol);
-      if(!Number.isInteger(row) || row < 0 || !Number.isInteger(col) || col < 0){
-        return undefined;
-      }
-      const rowValues = Array.isArray(dataHandle.current?.[row]) ? dataHandle.current[row] : null;
-      return rowValues ? rowValues[col] : undefined;
-    };
     const gridOptions = {
       rowData,
       pinnedTopRowData: usePinnedRows ? getPinnedTopRowData() : null,
@@ -16592,7 +16642,7 @@
         return normalizeDecimalSeparators(rows, delimiter);
       };
 
-      const handlePaste = async (event)=>{
+      const handlePaste = async (event, options = {})=>{
         if(!event || event.defaultPrevented){
           return;
         }
@@ -16608,7 +16658,7 @@
         const targetNode = event?.target && event.target.nodeType === 1 ? event.target : null;
         if(targetNode && !container.contains(targetNode)){
           const activeEl = doc?.activeElement && doc.activeElement.nodeType === 1 ? doc.activeElement : null;
-          if(!activeEl || !container.contains(activeEl)){
+          if(options.documentRouted !== true && (!activeEl || !container.contains(activeEl))){
             if(typeof Shared?.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
               hotDebug('Debug: hot.handlePaste ignored (outside container)', {
                 debugLabel,
@@ -16977,6 +17027,8 @@
         handleShortcut: (event, key)=>handleClipboardShortcutKeyDown(event, key, {
           fireBeforeKeyDown: true
         }),
+        handlePaste: event=>handlePaste(event, { documentRouted: true }),
+        canHandlePaste: event=>!isEditableTarget(event?.target) && !isInlineEditorActive(),
         hasSelection: hasClipboardSelection
       });
 
@@ -17003,12 +17055,6 @@
       container.addEventListener('contextmenu', handleHeaderContextMenuProxy, true);
       if(!disableBuiltInPaste){
         container.addEventListener('paste', handlePaste, true);
-        try{
-          document.addEventListener('paste', handlePaste, true);
-          hotDebug('Debug: hot.js registered document paste listener for hot container', { containerId: container?.id || null });
-        }catch(e){
-          hotDebug('Debug: hot.js failed to register document paste listener', { message: e?.message || String(e) });
-        }
       }else{
         const handleDocumentPasteRelay = (event)=>{
           if(!event || event.defaultPrevented){
@@ -17098,7 +17144,6 @@
         }
         if(!disableBuiltInPaste){
           container.removeEventListener('paste', handlePaste, true);
-          try{ document.removeEventListener('paste', handlePaste, true); }catch(e){}
         }
       });
     }

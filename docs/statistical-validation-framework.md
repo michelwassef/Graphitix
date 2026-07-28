@@ -233,7 +233,8 @@ Currently excluded from oracle coverage:
 ## Environment Requirements
 
 - Python 3.10+ recommended
-- `scipy` and `numpy` available in the Python environment used by `python` (or `PYTHON_BIN`)
+- Install the oracle dependencies with `python -m pip install -r requirements-stats.txt`.
+- The required packages are `numpy`, `scipy`, and `statsmodels`.
 
 The Jest helper tries, in order:
 

@@ -616,6 +616,8 @@
         Shared: window.Shared,
         session,
         workspaceState,
+        previews,
+        workspaces,
         sessionFileTypes,
         withSessionContext,
         dom,

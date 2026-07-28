@@ -21,7 +21,7 @@ async function activateWelcomeTab(page) {
 }
 
 async function captureActiveTabPreview(page) {
-  return page.evaluate(() => {
+  return page.evaluate(async () => {
     const state = window.Main?.session?.workspaceState;
     const tab = state?.tabs?.find(item => item?.id === state.activeTabId);
     const config = tab?.type ? window.Main?.components?.registry?.[tab.type] : null;
@@ -32,6 +32,7 @@ async function captureActiveTabPreview(page) {
       forceCapture: true,
       reason: 'e2e-canvas-preview'
     });
+    await window.Main.previews.awaitPendingCaptures?.([tab.id]);
     return {
       tabId: tab.id,
       type: tab.type,
@@ -50,19 +51,18 @@ async function hoverStoredPreview(page, tabId) {
     return !!tooltip
       && tooltip.dataset.tabId === targetId
       && tooltip.style.display !== 'none'
-      && tooltip.querySelector('[data-preview-canvas-bitmap="true"]');
+      && tooltip.querySelector('img[data-tab-preview-format="png"]');
   }, tabId, { timeout: 20000 });
   return page.evaluate(() => {
     const tooltip = document.querySelector('.workspace-tab__preview-tooltip');
-    const svg = tooltip?.querySelector('svg') || null;
-    const image = tooltip?.querySelector('[data-preview-canvas-bitmap="true"]') || null;
+    const image = tooltip?.querySelector('img[data-tab-preview-format="png"]') || null;
     return {
       text: tooltip?.textContent || '',
-      width: Number(svg?.getAttribute('width') || tooltip?.offsetWidth || 0),
-      height: Number(svg?.getAttribute('height') || tooltip?.offsetHeight || 0),
-      canvasBitmapCount: Number(svg?.getAttribute('data-preview-canvas-bitmap') || 0),
+      width: Number(image?.getAttribute('width') || tooltip?.offsetWidth || 0),
+      height: Number(image?.getAttribute('height') || tooltip?.offsetHeight || 0),
+      naturalWidth: Number(image?.naturalWidth || 0),
+      naturalHeight: Number(image?.naturalHeight || 0),
       imageSrc: image?.getAttribute('src') || '',
-      hasSyntheticGlyph: !!tooltip?.querySelector('[data-preview-canvas-simplified]'),
       hasPlaceholder: !!tooltip?.querySelector('[data-preview-placeholder]')
     };
   });
@@ -72,23 +72,23 @@ async function assertCanvasPreview(page, preview, type) {
   expect(preview, `${type} preview capture should return metadata`).toBeTruthy();
   expect(preview.type).toBe(type);
   expect(preview.hasPreview).toBe(true);
-  expect(preview.meta?.canvasBitmap).toBe(true);
-  expect(preview.meta?.canvasSimplified).toBe(false);
-  expect(preview.markup).toContain('data-preview-canvas-bitmap="true"');
-  expect(preview.markup).not.toContain('data-preview-canvas-simplified');
+  expect(preview.meta?.format).toBe('png');
+  expect(preview.meta?.rasterized).toBe(true);
+  expect(preview.markup).toContain('data-tab-preview-format="png"');
+  expect(preview.markup).not.toContain('<svg');
   expect(preview.markup).not.toContain('data-preview-placeholder');
   expect(preview.markup).not.toContain('Preparing preview');
-  // Allow richer canvas previews while still guarding against runaway payload growth.
-  expect(preview.markup.length).toBeLessThan(220000);
+  // Native graph resolution is intentionally larger than the displayed tooltip.
+  expect(preview.markup.length).toBeLessThan(2000000);
 
   await activateWelcomeTab(page);
   const tooltip = await hoverStoredPreview(page, preview.tabId);
   expect(tooltip.width).toBeGreaterThan(0);
   expect(tooltip.height).toBeGreaterThan(0);
-  expect(tooltip.canvasBitmapCount).toBeGreaterThan(0);
+  expect(tooltip.naturalWidth).toBeGreaterThan(tooltip.width);
+  expect(tooltip.naturalHeight).toBeGreaterThan(tooltip.height);
   expect(tooltip.imageSrc).toMatch(/^data:image\/png;base64,/);
   expect(tooltip.imageSrc.length).toBeGreaterThan(100);
-  expect(tooltip.hasSyntheticGlyph).toBe(false);
   expect(tooltip.hasPlaceholder).toBe(false);
   expect(tooltip.text).not.toContain('Preparing preview');
   return tooltip;
@@ -298,10 +298,7 @@ test.describe('Canvas-backed tab previews', () => {
 
     const preview = await captureActiveTabPreview(page);
     const firstTooltip = await assertCanvasPreview(page, preview, 'heatmap');
-    expect(preview.markup).toContain('data-heatmap-preview-projection="canvas-sampled"');
-    expect(preview.markup).toContain('data-heatmap-preview-overlay-rasterized="true"');
-    expect(preview.markup).toContain('data-heatmap-preview-row-label-bitmap="true"');
-    expect(preview.markup).toMatch(/<(?:img|image)\b[^>]*data-preview-canvas-bitmap="true"/);
+    expect(preview.markup.match(/<img/g)).toHaveLength(1);
     expect(preview.meta?.size).toBeGreaterThan(0);
 
     await openComponentFromWelcome(
@@ -321,7 +318,7 @@ test.describe('Canvas-backed tab previews', () => {
     const firstTooltipAfterSecondCapture = await hoverStoredPreview(page, preview.tabId);
     expect(firstTooltipAfterSecondCapture.imageSrc).toBe(firstTooltip.imageSrc);
 
-    const refreshedInactivePreview = await page.evaluate(firstTabId => {
+    const refreshedInactivePreview = await page.evaluate(async firstTabId => {
       const state = window.Main?.session?.workspaceState;
       const tab = state?.tabs?.find(item => item?.id === firstTabId);
       const config = window.Main?.components?.registry?.heatmap || null;
@@ -342,15 +339,16 @@ test.describe('Canvas-backed tab previews', () => {
       window.Main.previews.updateTabPreviewFromWorkspace(tab, config, {
         reason: 'e2e-inactive-heatmap-placeholder-refresh'
       });
+      await window.Main.previews.awaitPendingCaptures?.([tab.id]);
       return {
         markup: tab.previewMarkup || '',
         meta: tab.previewMeta || null
       };
     }, preview.tabId);
-    expect(refreshedInactivePreview?.markup).toContain('data-preview-canvas-bitmap="true"');
+    expect(refreshedInactivePreview?.markup).toContain('data-tab-preview-format="png"');
     expect(refreshedInactivePreview?.markup).not.toContain('data-preview-placeholder');
     expect(refreshedInactivePreview?.markup).not.toContain('Preview simplified');
-    expect(refreshedInactivePreview?.meta?.canvasBitmap).toBe(true);
+    expect(refreshedInactivePreview?.meta?.format).toBe('png');
   });
 
 });
