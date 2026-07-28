@@ -81,6 +81,11 @@ Optional but already supported:
 
 - `activateTab(tab, meta)`
 - `captureRenderCache(meta)` / `restoreRenderCache(cache, meta)`
+- `hasRenderedGraph(meta)` for an authoritative publication check scoped to the component's primary graph surface and, where available, its component-owned data marks. Axes, grids, statistics plots, toolbar icons, scree plots, and other auxiliary SVG/canvas content must not satisfy this contract.
+
+Passive DOM projection is valid only after a component has completed full initialization for an owner session. Component ensure and activation both enforce this boundary: a newly imported or otherwise uninitialized component must create its table, layout, schedulers, and owner-scoped runtime first; draw suppression during restore does not permit marking a partial bind as `ready`.
+
+An authoritative `draw(meta)` must return its real synchronous result or Promise. Registry wrappers must not detach completion behind a second scheduler. When a renderer replaces its own frame recursively (for example, a layout reflow), the superseded render must transfer ownership explicitly so its cleanup cannot invalidate the replacement frame.
 
 ## 5. Persistence Flow
 
@@ -100,7 +105,7 @@ Graphitix has one document checkpoint transaction and one document restore trans
 3. `Main.session.applySessionData()` stages new, non-colliding tab owners while the current document remains recoverable.
 4. Only the archive's saved active tab is activated and hydrated. Inactive tabs remain canonical payload/session records and hydrate lazily on first selection.
 5. The staged document commits only after active-workspace readiness. Activation failure restores the previous tabs and file metadata.
-6. Cache restoration requires exact owner, payload-signature, and layout-signature parity. A rejected or absent cache falls back to the component's normal live draw.
+6. Cache restoration requires exact owner, payload-signature, and layout-signature parity. A rejected or absent cache falls back to the component's normal live draw. Restore completion validates the primary graph publication contract rather than scanning the entire workspace root for unrelated SVG/canvas content.
 7. The caller then applies the only legitimate source-specific state: a normal file open may retain a file handle and is clean; crash recovery clears any trusted destination and marks the restored document dirty.
 
 `Shared.hot` exclusion mutations are owner-scoped payload transactions. Cell, row, and column exclusions immediately update only the owning tab's canonical `payload.exclusions`, invalidate that tab's caches, increment the session revision, and schedule recovery. Archive/recovery hydration applies exclusions silently.

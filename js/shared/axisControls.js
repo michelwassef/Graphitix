@@ -10,6 +10,8 @@
   let panelTitleEl = null;
   let tickFieldEl = null;
   let tickInput = null;
+  let majorTickLengthFieldEl = null;
+  let majorTickLengthInput = null;
   let axisLengthFieldEl = null;
   let axisLengthInput = null;
   let axisLengthUnitSelect = null;
@@ -232,6 +234,25 @@
     if(value === null || value === undefined || value === ''){ return null; }
     const numeric = Number(value);
     if(!Number.isFinite(numeric) || numeric <= 0){ return null; }
+    return numeric;
+  }
+
+  function resolveDefaultMajorTickLength(config){
+    const configuredDefault = typeof config?.getDefaultMajorTickLength === 'function'
+      ? config.getDefaultMajorTickLength(config.axis)
+      : config?.defaultMajorTickLength;
+    const sanitizedConfiguredDefault = sanitizeMajorTickLengthValue(configuredDefault);
+    if(sanitizedConfiguredDefault !== null){
+      return sanitizedConfiguredDefault;
+    }
+    const sharedDefault = sanitizeMajorTickLengthValue(Shared.chartStyle?.DEFAULT_MAJOR_TICK_LENGTH);
+    return sharedDefault === null ? 6 : sharedDefault;
+  }
+
+  function sanitizeMajorTickLengthValue(value){
+    if(value === null || value === undefined || value === ''){ return null; }
+    const numeric = Number(value);
+    if(!Number.isFinite(numeric) || numeric < 0 || numeric > 100){ return null; }
     return numeric;
   }
 
@@ -1569,6 +1590,27 @@
       logDebug('tick interval disabled',{ axis: config.axis, scopeId: config.scopeId, reason: tickDisabledMessage });
     }
 
+    const majorTickLengthSupported = (
+      typeof config.getMajorTickLength === 'function' &&
+      typeof config.onMajorTickLengthChange === 'function' &&
+      (typeof config.isMajorTickLengthSupported !== 'function' || config.isMajorTickLengthSupported(config.axis) !== false)
+    );
+    if(majorTickLengthFieldEl && majorTickLengthInput){
+      majorTickLengthFieldEl.hidden = !majorTickLengthSupported;
+      majorTickLengthInput.disabled = !majorTickLengthSupported;
+      majorTickLengthFieldEl.dataset.disabled = majorTickLengthSupported ? '0' : '1';
+      if(majorTickLengthSupported){
+        const storedMajorTickLength = sanitizeMajorTickLengthValue(config.getMajorTickLength(config.axis));
+        const displayedMajorTickLength = storedMajorTickLength ?? resolveDefaultMajorTickLength(config);
+        majorTickLengthInput.value = String(displayedMajorTickLength);
+        majorTickLengthInput.placeholder = config.majorTickLengthPlaceholder || 'Auto';
+        majorTickLengthInput.dataset.usesDefault = storedMajorTickLength === null ? '1' : '0';
+      }else{
+        majorTickLengthInput.value = '';
+        majorTickLengthInput.dataset.usesDefault = '0';
+      }
+    }
+
     const datasetSpacingSupported = (
       typeof config.getDatasetSpacing === 'function' &&
       typeof config.onDatasetSpacingChange === 'function' &&
@@ -1596,7 +1638,7 @@
         datasetSpacingInput.placeholder = config.datasetSpacingPlaceholder || '1';
         const requestedLabel = typeof config.datasetSpacingLabel === 'string' && config.datasetSpacingLabel.trim()
           ? config.datasetSpacingLabel.trim()
-          : 'Dataset Spacing';
+          : 'Dataset spacing';
         if(datasetSpacingLabelEl){
           datasetSpacingLabelEl.textContent = requestedLabel;
         }
@@ -1950,7 +1992,7 @@
     tickField.classList.add('axis-controls-panel__field--numeric');
     const tickLabel = doc.createElement('span');
     tickLabel.className = 'axis-controls-panel__field-label additional-line-controls-panel__field-label';
-    tickLabel.textContent = 'Tick Interval';
+    tickLabel.textContent = 'Tick interval';
     tickInput = doc.createElement('input');
     tickInput.type = 'number';
     tickInput.min = '0';
@@ -1964,12 +2006,31 @@
     fieldsRowEl.appendChild(tickField);
     tickFieldEl = tickField;
 
+    const majorTickLengthField = doc.createElement('label');
+    majorTickLengthField.className = 'axis-controls-panel__field additional-line-controls-panel__field axis-controls-panel__field--numeric axis-controls-panel__field--major-tick-length';
+    const majorTickLengthLabel = doc.createElement('span');
+    majorTickLengthLabel.className = 'axis-controls-panel__field-label additional-line-controls-panel__field-label';
+    majorTickLengthLabel.textContent = 'Tick length';
+    majorTickLengthInput = doc.createElement('input');
+    majorTickLengthInput.type = 'number';
+    majorTickLengthInput.min = '0';
+    majorTickLengthInput.max = '100';
+    majorTickLengthInput.step = '1';
+    majorTickLengthInput.placeholder = 'Auto';
+    majorTickLengthInput.className = 'axis-controls-panel__input additional-line-controls-panel__input axis-controls-panel__input--small';
+    majorTickLengthInput.setAttribute('aria-label', 'Tick length in pixels');
+    majorTickLengthInput.setAttribute('data-undo-ignore', '1');
+    majorTickLengthField.appendChild(majorTickLengthLabel);
+    majorTickLengthField.appendChild(majorTickLengthInput);
+    fieldsRowEl.appendChild(majorTickLengthField);
+    majorTickLengthFieldEl = majorTickLengthField;
+
     const axisLengthField = doc.createElement('div');
     axisLengthField.className = 'axis-controls-panel__field additional-line-controls-panel__field axis-controls-panel__field--length';
     axisLengthField.hidden = true;
     const axisLengthLabel = doc.createElement('span');
     axisLengthLabel.className = 'axis-controls-panel__field-label additional-line-controls-panel__field-label';
-    axisLengthLabel.textContent = 'Axis Length';
+    axisLengthLabel.textContent = 'Axis length';
     axisLengthField.appendChild(axisLengthLabel);
 
     const axisLengthRow = doc.createElement('div');
@@ -2017,7 +2078,7 @@
     datasetSpacingField.hidden = true;
     const datasetSpacingLabel = doc.createElement('span');
     datasetSpacingLabel.className = 'axis-controls-panel__field-label additional-line-controls-panel__field-label';
-    datasetSpacingLabel.textContent = 'Dataset Spacing';
+    datasetSpacingLabel.textContent = 'Dataset spacing';
     datasetSpacingInput = doc.createElement('input');
     datasetSpacingInput.type = 'number';
     datasetSpacingInput.min = '0.05';
@@ -2036,7 +2097,7 @@
     minorTicksField.className = 'axis-controls-panel__field additional-line-controls-panel__field axis-controls-panel__field--toggle';
     const minorTicksLabel = doc.createElement('span');
     minorTicksLabel.className = 'axis-controls-panel__field-label additional-line-controls-panel__field-label';
-    minorTicksLabel.textContent = 'Minor Ticks';
+    minorTicksLabel.textContent = 'Minor ticks';
     minorTicksField.appendChild(minorTicksLabel);
 
     const minorToggleRow = doc.createElement('div');
@@ -2115,7 +2176,7 @@
     notationField.className = 'axis-controls-panel__field additional-line-controls-panel__field axis-controls-panel__field--notation';
     const notationLabel = doc.createElement('span');
     notationLabel.className = 'axis-controls-panel__field-label additional-line-controls-panel__field-label';
-    notationLabel.textContent = 'Number Format';
+    notationLabel.textContent = 'Number format';
     notationField.appendChild(notationLabel);
 
     notationComboWrapper = doc.createElement('div');
@@ -2464,6 +2525,27 @@
         }
       );
     });
+
+    if(majorTickLengthInput){
+      majorTickLengthInput.addEventListener('change', () => {
+        if(applyingFromUndo){ return; }
+        if(!activeConfig || majorTickLengthInput.disabled){ return; }
+        const config = activeConfig;
+        if(typeof config.onMajorTickLengthChange !== 'function'){ return; }
+        const previousValue = sanitizeMajorTickLengthValue(config.getMajorTickLength ? config.getMajorTickLength(config.axis) : null);
+        const requestedValue = sanitizeMajorTickLengthValue(majorTickLengthInput.value);
+        config.onMajorTickLengthChange(requestedValue, config.axis);
+        const nextValue = sanitizeMajorTickLengthValue(config.getMajorTickLength ? config.getMajorTickLength(config.axis) : requestedValue);
+        syncPanelInputsFromConfig(config);
+        recordAxisStateChange(
+          config,
+          'majorTickLength',
+          previousValue,
+          nextValue,
+          value => config.onMajorTickLengthChange(sanitizeMajorTickLengthValue(value), config.axis)
+        );
+      });
+    }
 
     if(datasetSpacingInput){
       datasetSpacingInput.addEventListener('change', () => {
@@ -3452,6 +3534,10 @@
         axis: config.axis,
         scopeId: config.scopeId,
         getTickInterval: config.getTickInterval,
+        getMajorTickLength: config.getMajorTickLength,
+        onMajorTickLengthChange: config.onMajorTickLengthChange,
+        isMajorTickLengthSupported: config.isMajorTickLengthSupported,
+        majorTickLengthPlaceholder: config.majorTickLengthPlaceholder,
         getThickness: config.getThickness,
         getColor: config.getColor,
         isTickIntervalEnabled: config.isTickIntervalEnabled,

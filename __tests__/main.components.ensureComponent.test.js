@@ -48,6 +48,85 @@ describe('Main.components.ensureComponent', () => {
     expect(component.ensure).toHaveBeenCalled();
   });
 
+  test('promotes an uninitialized passive ensure to full initialization while preserving draw suppression', () => {
+    global.window.Components = {};
+    global.window.Shared = { debounceFrame: fn => fn };
+    const component = { ready: false, ensure: jest.fn(() => null) };
+    global.window.Components.venn = component;
+    require('../js/main/components.js');
+
+    window.Main.components.ensureComponent('venn', {
+      ensureOptions: {
+        tabId: 'workspace-3',
+        passiveControls: true,
+        liveDomFastPath: true,
+        liveDomReuse: true,
+        skipInitialDraw: true,
+        suppressDraw: true,
+        reason: 'recovery-restore'
+      }
+    });
+
+    expect(component.ensure).toHaveBeenCalledWith(expect.objectContaining({
+      tabId: 'workspace-3',
+      passiveControls: false,
+      liveDomFastPath: false,
+      liveDomReuse: false,
+      skipInitialDraw: true,
+      suppressDraw: true,
+      reason: 'recovery-restore'
+    }));
+  });
+
+  test('preserves passive projection options for an already initialized component', () => {
+    global.window.Components = {};
+    global.window.Shared = { debounceFrame: fn => fn };
+    const component = { ready: true, ensure: jest.fn(() => null) };
+    global.window.Components.pca = component;
+    require('../js/main/components.js');
+
+    window.Main.components.ensureComponent('pca', {
+      ensureOptions: {
+        tabId: 'workspace-4',
+        passiveControls: true,
+        liveDomFastPath: true,
+        reason: 'tab-switch'
+      }
+    });
+
+    expect(component.ensure).toHaveBeenCalledWith(expect.objectContaining({
+      tabId: 'workspace-4',
+      passiveControls: true,
+      liveDomFastPath: true,
+      reason: 'tab-switch'
+    }));
+  });
+
+  test('registry publication validators scope checks to the primary graph surface', () => {
+    const hasRenderableGraphContent = jest.fn(() => false);
+    global.window.Components = {};
+    global.window.Shared = {
+      debounceFrame: fn => fn,
+      componentLifecycle: { hasRenderableGraphContent }
+    };
+    require('../js/main/components.js');
+    const root = document.createElement('div');
+
+    expect(window.Main.components.registry.pca.hasRenderedGraph({ root })).toBe(false);
+    expect(hasRenderableGraphContent).toHaveBeenLastCalledWith(root, {
+      selectors: ['#pcaPlot'],
+      contentSelectors: ['[data-plot-point="1"]', 'canvas.pca-fast-points-layer'],
+      allowText: false
+    });
+
+    expect(window.Main.components.registry.venn.hasRenderedGraph({ root })).toBe(false);
+    expect(hasRenderableGraphContent).toHaveBeenLastCalledWith(root, {
+      selectors: ['#stage'],
+      contentSelectors: ['[data-venn-trace-id]', '[data-upset-trace-kind]'],
+      allowText: false
+    });
+  });
+
   test('compatibility fallbacks do not advertise persistence capabilities', () => {
     global.window.Components = {};
     global.window.Shared = { debounceFrame: fn => fn };

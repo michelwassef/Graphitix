@@ -1199,6 +1199,29 @@
         return meaningfulChildren.length > 0 || String(svg.textContent || '').trim().length > 0;
       });
     };
+    const hasPublishedWorkspaceGraphContent = (root, reason = 'workspace-graph-publication-check') => {
+      if (typeof config.hasRenderedGraph !== 'function') {
+        return hasRenderableGraphContent(root);
+      }
+      try {
+        return config.hasRenderedGraph({
+          tab,
+          tabId: tab.id,
+          type: tab.type,
+          root,
+          payload: tab.payload || null,
+          reason
+        }) === true;
+      } catch (err) {
+        console.warn('workspace rendered-graph validation error', {
+          tabId: tab.id,
+          type: tab.type,
+          reason,
+          err
+        });
+        return false;
+      }
+    };
     const tabExpectsRenderedGraph = () => {
       if (!tab || config.perTabDomInstances !== true) {
         return false;
@@ -1216,7 +1239,10 @@
       const mountedTabRoot = config.perTabDomInstances === true
         ? (Shared.workspaceTabs?.getMountedRoot?.(tab, tab.type) || activeWorkspaceElement || null)
         : null;
-      const mountedTabRootHasGraph = hasRenderableGraphContent(mountedTabRoot);
+      const mountedTabRootHasGraph = hasPublishedWorkspaceGraphContent(
+        mountedTabRoot,
+        'workspace-reuse-publication-check'
+      );
       if (!mountedTabRootHasGraph && config.perTabDomInstances === true) {
         console.debug('Debug: workspace reuse blocked because mounted graph is empty', {
           tabId: tab.id,
@@ -1433,7 +1459,7 @@
             || activeWorkspaceElement
             || Shared.workspaceTabs?.getSessionRecord?.(tab, tab.type)?.dom?.root
             || null;
-          if (!hasRenderableGraphContent(liveRoot)) {
+          if (!hasPublishedWorkspaceGraphContent(liveRoot, 'workspace-live-dom-fast-path-publication-check')) {
             console.warn('workspace live DOM fast path rejected: missing renderable graph content', {
               tabId: tab.id,
               type: tab.type,
@@ -1803,24 +1829,15 @@
           });
           if (restored && config.perTabDomInstances === true) {
             const restoredRoot = Shared.workspaceTabs?.getMountedRoot?.(tab, tab.type) || activeWorkspaceElement || null;
-            const componentRendered = typeof config.hasRenderedGraph === 'function'
-              ? config.hasRenderedGraph({
-                  tab,
-                  tabId: tab.id,
-                  type: tab.type,
-                  root: restoredRoot,
-                  payload: tab.payload || null,
-                  reason: 'workspace-render-cache-post-restore-validation'
-                })
-              : null;
-            const graphReady = componentRendered === true
-              || (componentRendered == null && hasRenderableGraphContent(restoredRoot));
+            const graphReady = hasPublishedWorkspaceGraphContent(
+              restoredRoot,
+              'workspace-render-cache-post-restore-validation'
+            );
             if (!graphReady) {
               console.warn('workspace render cache restore produced invalid graph; falling back to draw', {
                 tabId: tab.id,
                 type: tab.type,
-                reason: options.reason || 'workspace-view',
-                componentValidation: componentRendered
+                reason: options.reason || 'workspace-view'
               });
               restored = false;
             }
@@ -1905,24 +1922,7 @@
 
     const isWorkspaceGraphPublished = () => {
       const root = resolveMountedWorkspaceRoot();
-      if (typeof config.hasRenderedGraph === 'function') {
-        try {
-          const result = config.hasRenderedGraph({
-            tab,
-            tabId: tab.id,
-            type: tab.type,
-            root,
-            payload: tab.payload || null,
-            reason: 'workspace-post-restore-publication-check'
-          });
-          if (result != null) {
-            return result === true;
-          }
-        } catch (err) {
-          console.warn('workspace rendered-graph validation error', { tabId: tab.id, type: tab.type, err });
-        }
-      }
-      return hasRenderableGraphContent(root);
+      return hasPublishedWorkspaceGraphContent(root, 'workspace-post-restore-publication-check');
     };
 
     const tabHasRecoverableData = () => {

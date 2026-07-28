@@ -631,8 +631,8 @@
     return {
       strokeWidth: 1,
       color: DEFAULT_AXIS_COLOR,
-      x: { tickInterval: null, minorTicks: false, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS },
-      y: { tickInterval: null, minorTicks: false, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS }
+      x: { tickInterval: null, majorTickLength: null, minorTicks: false, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS },
+      y: { tickInterval: null, majorTickLength: null, minorTicks: false, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS }
     };
   }
 
@@ -1355,10 +1355,10 @@
       state.axisSettings = createDefaultAxisSettings();
     }
     if(!state.axisSettings.x || typeof state.axisSettings.x !== 'object'){
-      state.axisSettings.x = { tickInterval: null, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS };
+      state.axisSettings.x = { tickInterval: null, majorTickLength: null, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS };
     }
     if(!state.axisSettings.y || typeof state.axisSettings.y !== 'object'){
-      state.axisSettings.y = { tickInterval: null, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS };
+      state.axisSettings.y = { tickInterval: null, majorTickLength: null, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS };
     }
     if(typeof state.axisSettings.x.minorTicks !== 'boolean'){
       state.axisSettings.x.minorTicks = false;
@@ -1441,6 +1441,29 @@
     logDebug('axis tick interval updated',{ axis, tickInterval: settings[axis].tickInterval });
     syncSurvivalStateToSession(getSurvivalProjectionSession({ reason: 'survival-projection-mutation' }), { axisSettings: settings });
     scheduleActiveSurvivalDraw({ reason: `axis-${axis}-tick-interval`, tabId: getSurvivalProjectionTabId() || null });
+  }
+
+  function getAxisMajorTickLength(axis){
+    if(axis !== 'x' && axis !== 'y'){ return null; }
+    const settings = ensureAxisSettings();
+    const storedValue = settings[axis]?.majorTickLength;
+    if(storedValue === null || storedValue === undefined || storedValue === ''){ return null; }
+    const numeric = Number(storedValue);
+    return Number.isFinite(numeric) && numeric >= 0 && numeric <= 100 ? numeric : null;
+  }
+
+  function updateAxisMajorTickLength(axis, value){
+    if(axis !== 'x' && axis !== 'y'){ return; }
+    const settings = ensureAxisSettings();
+    const numeric = Number(value);
+    const nextValue = value === null || value === undefined || value === ''
+      ? null
+      : (Number.isFinite(numeric) && numeric >= 0 && numeric <= 100 ? numeric : null);
+    if(settings[axis].majorTickLength === nextValue){ return; }
+    settings[axis].majorTickLength = nextValue;
+    logDebug('Debug: survival major tick length updated',{ axis, majorTickLength: nextValue });
+    syncSurvivalStateToSession(getSurvivalProjectionSession({ reason: 'survival-projection-mutation' }), { axisSettings: settings });
+    scheduleActiveSurvivalDraw({ reason: `axis-${axis}-major-tick-length`, tabId: getSurvivalProjectionTabId() || null });
   }
 
   function getAxisMinorTicksEnabled(axis){
@@ -1550,6 +1573,10 @@
       const yInterval = settings.tickIntervalY ?? settings.yTickInterval ?? settings?.y?.tickInterval ?? null;
       base.x.tickInterval = xInterval === '' ? null : xInterval;
       base.y.tickInterval = yInterval === '' ? null : yInterval;
+      const xMajorTickLength = settings.majorTickLengthX ?? settings.xMajorTickLength ?? settings?.x?.majorTickLength ?? null;
+      const yMajorTickLength = settings.majorTickLengthY ?? settings.yMajorTickLength ?? settings?.y?.majorTickLength ?? null;
+      base.x.majorTickLength = chartStyle.normalizeOptionalMajorTickLength(xMajorTickLength);
+      base.y.majorTickLength = chartStyle.normalizeOptionalMajorTickLength(yMajorTickLength);
       base.x.minorTicks = !!(settings.minorTicksX ?? settings.x?.minorTicks ?? false);
       base.y.minorTicks = !!(settings.minorTicksY ?? settings.y?.minorTicks ?? false);
       const xMinorSubdiv = settings.minorTickSubdivisionsX ?? settings.minorSubdivisionsX ?? settings.x?.minorTickSubdivisions ?? settings.x?.minorSubdivisions ?? null;
@@ -4745,6 +4772,8 @@
 
     const axisMetrics = chartStyle.createAxisMetrics ? chartStyle.createAxisMetrics(fontInfo.px, styleScaleInfo) : { tickLength: 6, tickLabelGap: 6, axisTitleGap: 8, outerPadding: 8 };
     const tickLen = axisMetrics.tickLength ?? 6;
+    const xMajorTickLength = getAxisMajorTickLength('x') ?? tickLen;
+    const yMajorTickLength = getAxisMajorTickLength('y') ?? tickLen;
     const tickGap = axisMetrics.tickLabelGap ?? 6;
     const xLabelText = controls.xLabel?.trim() || 'Time';
     const yLabelText = controls.yLabel?.trim() || 'Survival Probability';
@@ -4978,6 +5007,10 @@
       axis,
       scopeId: 'survival',
       getTickInterval: () => getAxisTickInterval(axis),
+        getMajorTickLength: () => getAxisMajorTickLength(axis),
+        onMajorTickLengthChange: value => updateAxisMajorTickLength(axis, value),
+        isMajorTickLengthSupported: () => true,
+        majorTickLengthPlaceholder: 'Auto',
       getThickness: () => getAxisStrokeWidthBase(),
       getColor: () => getAxisColor(),
       isTickIntervalEnabled: () => true,
@@ -5025,11 +5058,11 @@
     }
     xScale.ticks.forEach(value => {
       const x = x2px(value);
-      add('line', { x1: x, y1: xAxisY, x2: x, y2: xAxisY + tickLen, stroke: axisStroke, 'stroke-width': axisStrokeWidth });
-      const extra = Shared.computeAxisLabelYOffset ? Shared.computeAxisLabelYOffset(fs, tickLen, tickGap) : 0;
+      add('line', { x1: x, y1: xAxisY, x2: x, y2: xAxisY + xMajorTickLength, stroke: axisStroke, 'stroke-width': axisStrokeWidth });
+      const extra = Shared.computeAxisLabelYOffset ? Shared.computeAxisLabelYOffset(fs, xMajorTickLength, tickGap) : 0;
       const text = add('text', {
         x,
-        y: xAxisY + tickLen + tickGap + extra,
+        y: xAxisY + xMajorTickLength + tickGap + extra,
         'font-size': fs,
         'text-anchor': 'middle',
         fill: chartStyle.TEXT_COLOR || '#000'
@@ -5058,9 +5091,9 @@
     }
     yScale.ticks.forEach(value => {
       const y = y2px(value);
-      add('line', { x1: yAxisX - tickLen, y1: y, x2: yAxisX, y2: y, stroke: axisStroke, 'stroke-width': axisStrokeWidth });
+      add('line', { x1: yAxisX - yMajorTickLength, y1: y, x2: yAxisX, y2: y, stroke: axisStroke, 'stroke-width': axisStrokeWidth });
       const text = add('text', {
-        x: yAxisX - (tickLen + tickGap),
+        x: yAxisX - (yMajorTickLength + tickGap),
         y,
         'font-size': fs,
         'text-anchor': 'end',
@@ -5140,7 +5173,7 @@
       });
     }
 
-    const yLabelOffsetSpan = (maxYLabelWidth + tickLen + tickGap + axisMetrics.axisTitleGap + fs * 0.5);
+    const yLabelOffsetSpan = (maxYLabelWidth + yMajorTickLength + tickGap + axisMetrics.axisTitleGap + fs * 0.5);
     const defaultYTitleX = margin.left - yLabelOffsetSpan;
     const defaultYTitleY = margin.top + plotH / 2;
     const yLabelPos = state.labelPositions?.yLabel;
@@ -6013,6 +6046,8 @@
           color: axisSettings.color,
           tickIntervalX: axisSettings.x?.tickInterval ?? null,
           tickIntervalY: axisSettings.y?.tickInterval ?? null,
+          majorTickLengthX: axisSettings.x?.majorTickLength ?? null,
+          majorTickLengthY: axisSettings.y?.majorTickLength ?? null,
           minorTicksX: axisSettings.x?.minorTicks ?? false,
           minorTicksY: axisSettings.y?.minorTicks ?? false,
           minorTickSubdivisionsX: clampMinorTickSubdivisions(axisSettings.x?.minorTickSubdivisions),

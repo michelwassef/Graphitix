@@ -1984,48 +1984,160 @@
     return (Number.isFinite(width) && width > 0) || (Number.isFinite(height) && height > 0);
   }
 
-  namespace.hasRenderableGraphContent = function hasRenderableGraphContent(root){
-    if(!root || typeof root.querySelector !== 'function'){
+  function normalizeGraphContentSelectors(selectors){
+    if(typeof selectors === 'string'){
+      const value = selectors.trim();
+      return value ? [value] : [];
+    }
+    if(!Array.isArray(selectors)){
+      return [];
+    }
+    return selectors
+      .map(selector => String(selector || '').trim())
+      .filter(Boolean);
+  }
+
+  function collectGraphContentScopes(root, selectors){
+    const normalizedSelectors = normalizeGraphContentSelectors(selectors);
+    if(normalizedSelectors.length === 0){
+      return [root];
+    }
+    const scopes = [];
+    const seen = new Set();
+    const addScope = scope => {
+      if(!scope || seen.has(scope)){
+        return;
+      }
+      seen.add(scope);
+      scopes.push(scope);
+    };
+    normalizedSelectors.forEach(selector => {
+      try{
+        if(typeof root.matches === 'function' && root.matches(selector)){
+          addScope(root);
+        }
+      }catch(_err){}
+      try{
+        Array.from(root.querySelectorAll(selector)).forEach(addScope);
+      }catch(_err){}
+    });
+    return scopes;
+  }
+
+  function collectScopeElements(scope, selector){
+    const elements = [];
+    const seen = new Set();
+    const addElement = element => {
+      if(!element || seen.has(element)){
+        return;
+      }
+      seen.add(element);
+      elements.push(element);
+    };
+    try{
+      if(typeof scope.matches === 'function' && scope.matches(selector)){
+        addElement(scope);
+      }
+    }catch(_err){}
+    try{
+      Array.from(scope.querySelectorAll(selector)).forEach(addElement);
+    }catch(_err){}
+    return elements;
+  }
+
+  function hasRenderableCanvasContent(canvas){
+    if(!canvas || !isElementChainVisible(canvas)){
       return false;
     }
-    if(!isElementChainVisible(root)){
-      return false;
-    }
-    const rootBox = hasRenderableBox(root);
-    if(rootBox === false){
-      return false;
-    }
-    const canvases = Array.from(root.querySelectorAll('canvas'));
-    for(let i = 0; i < canvases.length; i += 1){
-      const canvas = canvases[i];
-      if(!isElementChainVisible(canvas)){
+    const box = hasRenderableBox(canvas);
+    const pixelWidth = Number(canvas.width) || 0;
+    const pixelHeight = Number(canvas.height) || 0;
+    return (box !== false && pixelWidth > 1 && pixelHeight > 1) || box === true;
+  }
+
+  function hasRenderableSelectedContent(scope, contentSelectors){
+    const candidates = [];
+    const seen = new Set();
+    contentSelectors.forEach(selector => {
+      collectScopeElements(scope, selector).forEach(candidate => {
+        if(!seen.has(candidate)){
+          seen.add(candidate);
+          candidates.push(candidate);
+        }
+      });
+    });
+    for(let i = 0; i < candidates.length; i += 1){
+      const candidate = candidates[i];
+      if(!isElementChainVisible(candidate)){
         continue;
       }
-      const box = hasRenderableBox(canvas);
-      const pixelWidth = Number(canvas.width) || 0;
-      const pixelHeight = Number(canvas.height) || 0;
-      if((box !== false && pixelWidth > 1 && pixelHeight > 1) || box === true){
+      const tag = String(candidate.tagName || '').toLowerCase();
+      if(tag === 'canvas'){
+        if(hasRenderableCanvasContent(candidate)){
+          return true;
+        }
+        continue;
+      }
+      if(hasSvgNodeGeometry(candidate)){
         return true;
       }
     }
-    const svgs = Array.from(root.querySelectorAll('.svgbox svg, [id$="Plot"] svg, svg'));
-    for(let i = 0; i < svgs.length; i += 1){
-      const svg = svgs[i];
-      if(!svg || !isElementChainVisible(svg)){
+    return false;
+  }
+
+  namespace.hasRenderableGraphContent = function hasRenderableGraphContent(root, options = {}){
+    if(!root || typeof root.querySelector !== 'function'){
+      return false;
+    }
+    const scopes = collectGraphContentScopes(root, options.selectors);
+    if(scopes.length === 0){
+      return false;
+    }
+    const contentSelectors = normalizeGraphContentSelectors(options.contentSelectors);
+    const allowText = options.allowText !== false;
+    const svgCandidateSelector = allowText
+      ? 'path,circle,ellipse,rect,line,polyline,polygon,text,image,foreignObject,foreignobject,use'
+      : 'path,circle,ellipse,rect,line,polyline,polygon,image,foreignObject,foreignobject,use';
+    for(let scopeIndex = 0; scopeIndex < scopes.length; scopeIndex += 1){
+      const scope = scopes[scopeIndex];
+      if(!isElementChainVisible(scope)){
         continue;
       }
-      const svgBox = hasRenderableBox(svg);
-      if(svgBox === false){
+      const scopeBox = hasRenderableBox(scope);
+      if(scopeBox === false){
         continue;
       }
-      const candidates = Array.from(svg.querySelectorAll('path,circle,ellipse,rect,line,polyline,polygon,text,image,foreignObject,foreignobject,use'));
-      for(let j = 0; j < candidates.length; j += 1){
-        const node = candidates[j];
-        if(!isElementChainVisible(node)){
+      if(contentSelectors.length > 0){
+        if(hasRenderableSelectedContent(scope, contentSelectors)){
+          return true;
+        }
+        continue;
+      }
+      const canvases = collectScopeElements(scope, 'canvas');
+      for(let i = 0; i < canvases.length; i += 1){
+        if(hasRenderableCanvasContent(canvases[i])){
+          return true;
+        }
+      }
+      const svgs = collectScopeElements(scope, 'svg');
+      for(let i = 0; i < svgs.length; i += 1){
+        const svg = svgs[i];
+        if(!isElementChainVisible(svg)){
           continue;
         }
-        if(hasSvgNodeGeometry(node)){
-          return true;
+        const svgBox = hasRenderableBox(svg);
+        if(svgBox === false){
+          continue;
+        }
+        const candidates = Array.from(svg.querySelectorAll(svgCandidateSelector));
+        for(let j = 0; j < candidates.length; j += 1){
+          const node = candidates[j];
+          if(!isElementChainVisible(node)){
+            continue;
+          }
+          if(hasSvgNodeGeometry(node)){
+            return true;
+          }
         }
       }
     }
@@ -2054,6 +2166,10 @@
     function sharedActivateTab(tab, meta = {}){
       const targetTabId = extractTabId(tab, meta);
       const prepareRuntimeTargetOnly = meta?.prepareRuntimeTarget === true || meta?.bindOnly === true;
+      const componentWasReady = component?.ready === true;
+      const passiveProjectionRequested = meta?.liveDomFastPath === true
+        || meta?.liveDomReuse === true
+        || meta?.passiveControls === true;
       if(component){
         component.__boundTabId = targetTabId || component.__boundTabId || null;
       }
@@ -2072,6 +2188,18 @@
             prepareRuntimeTargetOnly
           });
         }
+      }
+      const passiveRebindFalselyPublishedReadiness = !!component
+        && !componentWasReady
+        && passiveProjectionRequested
+        && component.ready === true;
+      if(passiveRebindFalselyPublishedReadiness){
+        component.ready = false;
+        debug('Debug: passive activation rebind could not satisfy first initialization', {
+          componentKey,
+          tabId: targetTabId,
+          reason: meta.reason || 'activate-tab'
+        });
       }
       if(component && !component.ready && typeof options.init === 'function'){
         options.init({ root: root || undefined, tabId: targetTabId || undefined, reason: meta.reason || 'activate-tab' });

@@ -2028,3 +2028,184 @@ describe('componentLifecycle — draw option sanitation', () => {
     });
   });
 });
+
+describe('componentLifecycle — passive activation initialization', () => {
+  beforeEach(loadFresh);
+
+  test('a passive rebind cannot mark an uninitialized component ready without full init', () => {
+    const component = { ready: false };
+    const ensureBindings = jest.fn(() => {
+      component.ready = true;
+      return true;
+    });
+    const init = jest.fn(() => {
+      component.ready = true;
+    });
+    const activate = lc.bindTabActivation({
+      component,
+      componentKey: 'venn',
+      resolveRoot: () => document.body,
+      ensureBindings,
+      init
+    });
+
+    expect(activate({ id: 'workspace-3' }, {
+      prepareRuntimeTarget: true,
+      passiveControls: true,
+      reason: 'recovery-restore:prepare-runtime-target'
+    })).toBe(true);
+
+    expect(ensureBindings).toHaveBeenCalledTimes(1);
+    expect(init).toHaveBeenCalledWith(expect.objectContaining({
+      root: document.body,
+      tabId: 'workspace-3',
+      reason: 'recovery-restore:prepare-runtime-target'
+    }));
+    expect(component.ready).toBe(true);
+  });
+
+  test('an already initialized component may use a passive rebind without reinitializing', () => {
+    const component = { ready: true };
+    const ensureBindings = jest.fn(() => true);
+    const init = jest.fn();
+    const activate = lc.bindTabActivation({
+      component,
+      componentKey: 'pca',
+      resolveRoot: () => document.body,
+      ensureBindings,
+      init
+    });
+
+    expect(activate({ id: 'workspace-4' }, {
+      prepareRuntimeTarget: true,
+      passiveControls: true,
+      reason: 'tab-switch:prepare-runtime-target'
+    })).toBe(true);
+
+    expect(ensureBindings).toHaveBeenCalledTimes(1);
+    expect(init).not.toHaveBeenCalled();
+  });
+});
+
+describe('componentLifecycle — primary graph publication detection', () => {
+  beforeEach(loadFresh);
+
+  function markRenderable(element, width = 320, height = 240) {
+    element.getBoundingClientRect = jest.fn(() => ({
+      x: 0,
+      y: 0,
+      top: 0,
+      left: 0,
+      right: width,
+      bottom: height,
+      width,
+      height
+    }));
+    return element;
+  }
+
+  test('scoped validation ignores auxiliary SVG content outside the primary graph surface', () => {
+    const root = markRenderable(document.createElement('div'));
+    const primary = markRenderable(document.createElement('div'));
+    primary.id = 'primaryPlot';
+    const primarySvg = markRenderable(document.createElementNS('http://www.w3.org/2000/svg', 'svg'));
+    primary.appendChild(primarySvg);
+
+    const auxiliary = markRenderable(document.createElement('div'));
+    const auxiliarySvg = markRenderable(document.createElementNS('http://www.w3.org/2000/svg', 'svg'));
+    const auxiliaryPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    auxiliaryPath.setAttribute('d', 'M0 0 L20 20');
+    auxiliarySvg.appendChild(auxiliaryPath);
+    auxiliary.appendChild(auxiliarySvg);
+
+    root.append(primary, auxiliary);
+    document.body.appendChild(root);
+
+    expect(lc.hasRenderableGraphContent(root)).toBe(true);
+    expect(lc.hasRenderableGraphContent(root, {
+      selectors: ['#primaryPlot'],
+      allowText: false
+    })).toBe(false);
+
+    const primaryCircle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+    primaryCircle.setAttribute('r', '5');
+    primarySvg.appendChild(primaryCircle);
+
+    expect(lc.hasRenderableGraphContent(root, {
+      selectors: ['#primaryPlot'],
+      allowText: false
+    })).toBe(true);
+
+    root.remove();
+  });
+
+  test('content selectors reject axes until a component data mark is published', () => {
+    const root = markRenderable(document.createElement('div'));
+    const plot = markRenderable(document.createElement('div'));
+    plot.id = 'rocPlot';
+    const svg = markRenderable(document.createElementNS('http://www.w3.org/2000/svg', 'svg'));
+    const axis = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    axis.setAttribute('x1', '0');
+    axis.setAttribute('y1', '10');
+    axis.setAttribute('x2', '100');
+    axis.setAttribute('y2', '10');
+    svg.appendChild(axis);
+    plot.appendChild(svg);
+    root.appendChild(plot);
+    document.body.appendChild(root);
+
+    const options = {
+      selectors: ['#rocPlot'],
+      contentSelectors: ['path[data-series]'],
+      allowText: false
+    };
+    expect(lc.hasRenderableGraphContent(root, options)).toBe(false);
+
+    const curve = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    curve.setAttribute('data-series', 'Example');
+    curve.setAttribute('d', 'M0 10 L100 0');
+    svg.appendChild(curve);
+    expect(lc.hasRenderableGraphContent(root, options)).toBe(true);
+
+    root.remove();
+  });
+
+  test('a selected SVG root is validated directly instead of only through descendants', () => {
+    const root = markRenderable(document.createElement('div'));
+    const surfaceSvg = markRenderable(document.createElementNS('http://www.w3.org/2000/svg', 'svg'));
+    surfaceSvg.id = 'surfaceSvg';
+    const polygon = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+    polygon.setAttribute('points', '0,0 20,0 10,15');
+    surfaceSvg.appendChild(polygon);
+    root.appendChild(surfaceSvg);
+    document.body.appendChild(root);
+
+    expect(lc.hasRenderableGraphContent(root, {
+      selectors: ['#surfaceSvg'],
+      allowText: false
+    })).toBe(true);
+
+    root.remove();
+  });
+
+  test('text-only placeholders do not publish a primary graph when text is excluded', () => {
+    const root = markRenderable(document.createElement('div'));
+    const plot = markRenderable(document.createElement('div'));
+    plot.id = 'plot';
+    const svg = markRenderable(document.createElementNS('http://www.w3.org/2000/svg', 'svg'));
+    const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    text.textContent = 'Preparing graph';
+    svg.appendChild(text);
+    plot.appendChild(svg);
+    root.appendChild(plot);
+    document.body.appendChild(root);
+
+    expect(lc.hasRenderableGraphContent(root, { selectors: ['#plot'] })).toBe(true);
+    expect(lc.hasRenderableGraphContent(root, {
+      selectors: ['#plot'],
+      allowText: false
+    })).toBe(false);
+
+    root.remove();
+  });
+});

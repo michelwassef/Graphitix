@@ -22,6 +22,8 @@ const KNOWN_HOOKS = new Set([
   'applyRuntimeState',
   'captureRenderCache',
   'restoreRenderCache',
+  'canRestoreRenderCache',
+  'hasRenderedGraph',
   'getLayoutState',
   'getDefaultLayoutState',
   'applyLayoutState'

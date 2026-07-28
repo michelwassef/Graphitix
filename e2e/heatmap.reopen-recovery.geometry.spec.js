@@ -26,8 +26,21 @@ const TMP_DIR = path.resolve(__dirname, '.tmp');
 
 async function waitForHeatmapCells(page) {
   await page.waitForFunction(() => {
-    const cells = document.querySelectorAll('#heatmapSvg [data-export-layer="heatmap-cells"] rect');
-    return cells.length >= 9;
+    const tab = window.Main?.session?.getActiveTab?.() || null;
+    const root = window.Shared?.workspaceTabs?.getMountedRoot?.(tab?.id || null, 'heatmap')
+      || document.querySelector('#heatmapPage:not([hidden])');
+    const svg = root?.querySelector?.('#heatmapSvg') || null;
+    const cells = svg?.querySelectorAll?.('[data-export-layer="heatmap-cells"] rect') || [];
+    const published = window.Main?.components?.get?.('heatmap')?.hasRenderedGraph?.({
+      tab,
+      tabId: tab?.id || null,
+      root,
+      reason: 'e2e-heatmap-publication-check'
+    });
+    return cells.length >= 9
+      && svg?.getAttribute?.('data-heatmap-render-complete') === 'true'
+      && svg?.getAttribute?.('data-heatmap-render-state') === 'complete'
+      && published === true;
   }, null, { timeout: 60_000 });
 }
 
@@ -190,11 +203,28 @@ async function captureWorkspaceArchive(page, fileStem) {
   return { archivePath, byteLength: archive.byteLength };
 }
 
+async function assertDocumentOpenSettled(page, timeoutMs = 30_000) {
+  await waitForDocumentOpenComplete(page, timeoutMs);
+  const state = await page.evaluate(() => {
+    const overlay = document.getElementById('documentOpenOverlay');
+    return {
+      overlayPresent: !!overlay,
+      overlayHidden: overlay?.hidden === true,
+      documentOperation: window.Main?.session?.workspaceState?.documentOperation || null,
+      bodyBusy: document.body?.getAttribute('aria-busy') || null
+    };
+  });
+  expect(state.overlayPresent).toBe(true);
+  expect(state.overlayHidden).toBe(true);
+  expect(state.documentOperation).toBeNull();
+  expect(state.bodyBusy).toBeNull();
+}
+
 async function loadWorkspaceArchiveFromPath(page, archivePath) {
   const input = page.locator('#workspaceSessionInput');
   await expect(input).toHaveCount(1, { timeout: 20_000 });
   await input.setInputFiles(archivePath);
-  await waitForDocumentOpenComplete(page);
+  await assertDocumentOpenSettled(page);
   await page.waitForTimeout(1_000);
 }
 
@@ -343,6 +373,7 @@ test('Heatmap correlation geometry survives recovery while restored in the backg
   await activateWelcomeOrNewTab(page);
   await seedRecoverySnapshot(page);
   await reloadAndAcceptRecovery(page);
+  await assertDocumentOpenSettled(page);
   await activateHeatmapTab(page);
   await waitForHeatmapCells(page);
   await page.waitForTimeout(1200);
@@ -360,6 +391,7 @@ test('Heatmap correlation geometry survives crash-recovery restore', async ({ pa
   const initial = await buildCorrelationHeatmap(page, { resize: true });
   await seedRecoverySnapshot(page);
   await reloadAndAcceptRecovery(page);
+  await assertDocumentOpenSettled(page);
   await page.waitForSelector('#heatmapPage:not([hidden])', { timeout: 30_000 });
   await waitForHeatmapCells(page);
   await page.waitForTimeout(900);

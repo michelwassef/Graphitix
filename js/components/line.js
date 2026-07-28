@@ -2188,8 +2188,8 @@
     return {
       strokeWidth: 1,
       color: DEFAULT_AXIS_COLOR,
-      x: { tickInterval: null, minorTicks: false, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'decimal', additionalTicks: [], brokenAxis: { enabled: false, segments: [] } },
-      y: { tickInterval: null, minorTicks: false, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'decimal', additionalTicks: [], brokenAxis: { enabled: false, segments: [] } }
+      x: { tickInterval: null, majorTickLength: null, minorTicks: false, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'decimal', additionalTicks: [], brokenAxis: { enabled: false, segments: [] } },
+      y: { tickInterval: null, majorTickLength: null, minorTicks: false, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'decimal', additionalTicks: [], brokenAxis: { enabled: false, segments: [] } }
     };
   }
 
@@ -2316,10 +2316,10 @@
       ? (target.state.axisSettings && typeof target.state.axisSettings === 'object' ? target.state.axisSettings : createLineAxisSettings())
       : (lineAxisSettings && typeof lineAxisSettings === 'object' ? lineAxisSettings : createLineAxisSettings());
     if(!settings.x || typeof settings.x !== 'object'){
-      settings.x = { tickInterval: null, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'decimal', additionalTicks: [], brokenAxis: { enabled: false, segments: [] } };
+      settings.x = { tickInterval: null, majorTickLength: null, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'decimal', additionalTicks: [], brokenAxis: { enabled: false, segments: [] } };
     }
     if(!settings.y || typeof settings.y !== 'object'){
-      settings.y = { tickInterval: null, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'decimal', additionalTicks: [], brokenAxis: { enabled: false, segments: [] } };
+      settings.y = { tickInterval: null, majorTickLength: null, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'decimal', additionalTicks: [], brokenAxis: { enabled: false, segments: [] } };
     }
     if(typeof settings.x.minorTicks !== 'boolean'){
       settings.x.minorTicks = false;
@@ -2411,6 +2411,29 @@
     if(canScheduleActiveLineDraw()){
       scheduleActiveLineDraw();
     }
+  }
+
+  function getLineAxisMajorTickLength(axis){
+    if(axis !== 'x' && axis !== 'y'){ return null; }
+    const settings = ensureLineAxisSettings();
+    const storedValue = settings[axis]?.majorTickLength;
+    if(storedValue === null || storedValue === undefined || storedValue === ''){ return null; }
+    const numeric = Number(storedValue);
+    return Number.isFinite(numeric) && numeric >= 0 && numeric <= 100 ? numeric : null;
+  }
+
+  function updateLineAxisMajorTickLength(axis, value){
+    if(axis !== 'x' && axis !== 'y'){ return; }
+    const settings = ensureLineAxisSettings();
+    const numeric = Number(value);
+    const nextValue = value === null || value === undefined || value === ''
+      ? null
+      : (Number.isFinite(numeric) && numeric >= 0 && numeric <= 100 ? numeric : null);
+    if(settings[axis].majorTickLength === nextValue){ return; }
+    settings[axis].majorTickLength = nextValue;
+    console.debug('Debug: line major tick length updated',{ axis, majorTickLength: nextValue });
+    setLineAxisSettingsState(getLineProjectionSession({ reason: 'line-projection-mutation' }), settings, { reason: 'line-axis-major-tick-length' });
+    if(canScheduleActiveLineDraw()){ scheduleActiveLineDraw(); }
   }
 
   function getLineAxisMinorTicksEnabled(axis, session = null){
@@ -3651,6 +3674,10 @@
       const yInterval = settings.tickIntervalY ?? settings.yTickInterval ?? settings?.y?.tickInterval ?? null;
       base.x.tickInterval = xInterval === '' ? null : xInterval;
       base.y.tickInterval = yInterval === '' ? null : yInterval;
+      const xMajorTickLength = settings.majorTickLengthX ?? settings.xMajorTickLength ?? settings?.x?.majorTickLength ?? null;
+      const yMajorTickLength = settings.majorTickLengthY ?? settings.yMajorTickLength ?? settings?.y?.majorTickLength ?? null;
+      base.x.majorTickLength = chartStyle.normalizeOptionalMajorTickLength(xMajorTickLength);
+      base.y.majorTickLength = chartStyle.normalizeOptionalMajorTickLength(yMajorTickLength);
       const xMinorTicks = settings.minorTicksX ?? settings.x?.minorTicks ?? false;
       const yMinorTicks = settings.minorTicksY ?? settings.y?.minorTicks ?? false;
       base.x.minorTicks = !!xMinorTicks;
@@ -11275,6 +11302,8 @@
           color: axisSettings.color,
           tickIntervalX: axisSettings.x?.tickInterval ?? null,
           tickIntervalY: axisSettings.y?.tickInterval ?? null,
+          majorTickLengthX: axisSettings.x?.majorTickLength ?? null,
+          majorTickLengthY: axisSettings.y?.majorTickLength ?? null,
           minorTicksX: axisSettings.x?.minorTicks ?? false,
           minorTicksY: axisSettings.y?.minorTicks ?? false,
           minorTickSubdivisionsX: clampMinorTickSubdivisions(axisSettings.x?.minorTickSubdivisions),
@@ -13651,6 +13680,8 @@
       const tickFont=yTickMeasureFont;
       const hasYTitle = String(lineLabelsState.y == null ? '' : lineLabelsState.y).trim().length > 0;
       const tickLen=axisMetrics.tickLength;
+      const xMajorTickLength = getLineAxisMajorTickLength('x') ?? tickLen;
+      const yMajorTickLength = getLineAxisMajorTickLength('y') ?? tickLen;
       const tickGap=axisMetrics.tickLabelGap;
       let margin=stabilizeLineMarginForAxisResize(
         chartStyle.computeBaseMargins({fontSize:fs,legendWidth,maxYLabelWidth:0,hasYTitle,axisMetrics})
@@ -13757,7 +13788,7 @@
         margin=stabilizeLineMarginForAxisResize(
           chartStyle.computeBaseMargins({fontSize:fs,legendWidth,maxYLabelWidth,hasYTitle,axisMetrics})
         );
-        margin.left=Math.max(margin.left,maxYLabelWidth+tickLen+tickGap+fs*0.5);
+        margin.left=Math.max(margin.left,maxYLabelWidth+yMajorTickLength+tickGap+fs*0.5);
         plotW=Math.max(20,W-margin.left-margin.right);
         plotH=Math.max(20,H-margin.top-margin.bottom);
         bottomLayout=chartStyle.computeBottomLayout({labels:xTickLabels,fontSize:fs,labelMeasureFont:xTickMeasureFont,plotWidth:plotW,baseBottom:margin.bottom,axisMetrics});
@@ -14107,6 +14138,10 @@
           ? { min: xScale.min, max: xScale.max }
           : { min: yScale.min, max: yScale.max },
         getTickInterval: () => getLineAxisTickInterval(axis),
+        getMajorTickLength: () => getLineAxisMajorTickLength(axis),
+        onMajorTickLengthChange: value => updateLineAxisMajorTickLength(axis, value),
+        isMajorTickLengthSupported: () => true,
+        majorTickLengthPlaceholder: 'Auto',
         getThickness: () => getLineAxisStrokeWidth(),
         getColor: () => getLineAxisColor(),
         isTickIntervalEnabled: () => axis === 'x' ? !logX : !logY,
@@ -14330,13 +14365,13 @@
           lineDebug('Debug: line x-axis tick mark hidden at axis crossing',{ value: t, pixel: x, crossingPixel: yAxisX });
           return;
         }
-        add('line',{x1:x,y1:xAxisY,x2:x,y2:xAxisY+tickLen,stroke:axisStroke,'stroke-width':axisStrokeWidth});
+        add('line',{x1:x,y1:xAxisY,x2:x,y2:xAxisY+xMajorTickLength,stroke:axisStroke,'stroke-width':axisStrokeWidth});
         if(shouldHideXAxisTickLabel(x)){
           lineDebug('Debug: line x-axis tick label hidden at axis crossing',{ value: t, pixel: x, crossingPixel: yAxisX });
           return;
         }
-        const extra = Shared.computeAxisLabelYOffset ? Shared.computeAxisLabelYOffset(fs, tickLen, tickGap) : 0;
-        const txt=add('text',{x,y:xAxisY+tickLen+tickGap+extra,'font-size':fs,'text-anchor':'middle',fill:lineThemeTextColor});
+        const extra = Shared.computeAxisLabelYOffset ? Shared.computeAxisLabelYOffset(fs, xMajorTickLength, tickGap) : 0;
+        const txt=add('text',{x,y:xAxisY+xMajorTickLength+tickGap+extra,'font-size':fs,'text-anchor':'middle',fill:lineThemeTextColor});
         txt.textContent=formatTickX(logX?Math.pow(10,t):t);
         Shared.applyTextBaseline && Shared.applyTextBaseline(txt,'hanging',fs);
         markFontEditable(txt,'xTick');
@@ -14398,7 +14433,7 @@
                 x1: pixel,
                 y1: xAxisY,
                 x2: pixel,
-                y2: xAxisY + tickLen,
+                y2: xAxisY + xMajorTickLength,
                 stroke: axisStroke,
                 'stroke-width': axisStrokeWidth
               });
@@ -14411,10 +14446,10 @@
               if(nearMajor && replaceMajorTickLabel(xMajorTickLabels, pixel, label)){
                 return;
               }
-              const extra = Shared.computeAxisLabelYOffset ? Shared.computeAxisLabelYOffset(fs, tickLen, tickGap) : 0;
+              const extra = Shared.computeAxisLabelYOffset ? Shared.computeAxisLabelYOffset(fs, xMajorTickLength, tickGap) : 0;
               const txt = add('text',{
                 x: pixel,
-                y: xAxisY + tickLen + tickGap + extra + Math.max(2, fs * 0.85),
+                y: xAxisY + xMajorTickLength + tickGap + extra + Math.max(2, fs * 0.85),
                 'font-size': fs,
                 'text-anchor': 'middle',
                 fill: chartStyle.TEXT_COLOR
@@ -14457,12 +14492,12 @@
           lineDebug('Debug: line y-axis tick mark hidden at axis crossing',{ value: t, pixel: y, crossingPixel: xAxisY });
           return;
         }
-        add('line',{x1:yAxisX - tickLen,y1:y,x2:yAxisX,y2:y,stroke:axisStroke,'stroke-width':axisStrokeWidth});
+        add('line',{x1:yAxisX - yMajorTickLength,y1:y,x2:yAxisX,y2:y,stroke:axisStroke,'stroke-width':axisStrokeWidth});
         if(shouldHideYAxisTickLabel(y)){
           lineDebug('Debug: line y-axis tick label hidden at axis crossing',{ value: t, pixel: y, crossingPixel: xAxisY });
           return;
         }
-        const txt=add('text',{x:yAxisX-(tickLen+tickGap),y,'font-size':fs,'text-anchor':'end','dominant-baseline':'middle',fill:lineThemeTextColor});
+        const txt=add('text',{x:yAxisX-(yMajorTickLength+tickGap),y,'font-size':fs,'text-anchor':'end','dominant-baseline':'middle',fill:lineThemeTextColor});
         txt.textContent=formatTickY(logY?Math.pow(10,t):t);
         markFontEditable(txt,'yTick');
         yTickFontCount+=1;
@@ -14519,7 +14554,7 @@
                 return;
               }
               add('line',{
-                x1: yAxisX - tickLen,
+                x1: yAxisX - yMajorTickLength,
                 y1: pixel,
                 x2: yAxisX,
                 y2: pixel,
@@ -14536,7 +14571,7 @@
                 return;
               }
               const txt = add('text',{
-                x: yAxisX - (tickLen + tickGap),
+                x: yAxisX - (yMajorTickLength + tickGap),
                 y: pixel,
                 'font-size': fs,
                 'text-anchor': 'end',
@@ -15146,7 +15181,7 @@
           }
         });
       }
-      const yLabelOffsetSpan = (maxYLabelWidth + tickLen + tickGap + axisMetrics.axisTitleGap + fs * 0.5);
+      const yLabelOffsetSpan = (maxYLabelWidth + yMajorTickLength + tickGap + axisMetrics.axisTitleGap + fs * 0.5);
       const defaultYX = margin.left - yLabelOffsetSpan;
       const defaultYY = margin.top+plotH/2;
       const yLabelPos = lineLabelsState.positions?.yLabel;

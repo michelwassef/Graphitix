@@ -616,6 +616,33 @@
     return component;
   }
 
+  function normalizeComponentEnsureOptions(component, ensureOptions) {
+    const source = ensureOptions && typeof ensureOptions === 'object'
+      ? ensureOptions
+      : {};
+    if (component?.ready === true) {
+      return source;
+    }
+    const requestedPassiveProjection = source.liveDomFastPath === true
+      || source.liveDomReuse === true
+      || source.passiveControls === true;
+    if (!requestedPassiveProjection) {
+      return source;
+    }
+    const normalized = {
+      ...source,
+      liveDomFastPath: false,
+      liveDomReuse: false,
+      passiveControls: false
+    };
+    console.debug('Debug: uninitialized component passive projection promoted to full initialization', {
+      component: component?.__componentKey || null,
+      tabId: source.tabId || source.tab?.id || null,
+      reason: source.reason || 'component-ensure'
+    });
+    return normalized;
+  }
+
   function ensureComponent(name, options = {}) {
     const component = installComponentLifecycleDefaults(name, resolveComponentFromGlobal(name));
     if (component && WORKSPACES?.[name]) {
@@ -624,10 +651,11 @@
     if (component && !options.forceReload) {
       try {
         let ensureResult = null;
+        const ensureOptions = normalizeComponentEnsureOptions(component, options.ensureOptions);
         if (typeof component.ensure === 'function') {
-          ensureResult = component.ensure(options.ensureOptions);
+          ensureResult = component.ensure(ensureOptions);
         } else if (typeof component.init === 'function') {
-          ensureResult = component.init(options.ensureOptions);
+          ensureResult = component.init(ensureOptions);
         }
         if (ensureResult && typeof ensureResult.then === 'function') {
           return ensureResult.then(() => {
@@ -656,10 +684,11 @@
         return null;
       }
       let ensureResult = null;
+      const ensureOptions = normalizeComponentEnsureOptions(loadedComponent, options.ensureOptions);
       if (typeof loadedComponent.ensure === 'function') {
-        ensureResult = loadedComponent.ensure(options.ensureOptions);
+        ensureResult = loadedComponent.ensure(ensureOptions);
       } else if (typeof loadedComponent.init === 'function') {
-        ensureResult = loadedComponent.init(options.ensureOptions);
+        ensureResult = loadedComponent.init(ensureOptions);
       }
       return Promise.resolve(ensureResult).then(() => {
         console.debug('Debug: ensureComponent resolved', { name, ready: !!loadedComponent.ready }); // Debug: ensure completion
@@ -812,11 +841,34 @@
       || null;
   }
 
+  function createPrimaryGraphPublicationValidator(type, selectors, contentSelectors = null) {
+    const scopedSelectors = Array.isArray(selectors)
+      ? selectors.slice()
+      : [selectors];
+    const scopedContentSelectors = Array.isArray(contentSelectors)
+      ? contentSelectors.slice()
+      : (contentSelectors ? [contentSelectors] : []);
+    return meta => {
+      const validator = Shared.componentLifecycle?.hasRenderableGraphContent;
+      if (typeof validator !== 'function') {
+        return null;
+      }
+      const root = meta?.root
+        || Shared.workspaceTabs?.getMountedRoot?.(meta?.tab || meta?.tabId || null, type)
+        || null;
+      return validator(root, {
+        selectors: scopedSelectors,
+        contentSelectors: scopedContentSelectors,
+        allowText: false
+      });
+    };
+  }
+
   const scheduleDrawBoxplot = createRegistryDrawScheduler('box', 'box');
   const scheduleDrawScatter = createRegistryDrawScheduler('scatter', 'scatter');
   const scheduleDrawPca = createRegistryDrawScheduler('pca', 'pca');
   const scheduleDrawLine = createRegistryDrawScheduler('line', 'line');
-  const scheduleDrawHeatmap = createRegistryDrawScheduler('heatmap', 'heatmap');
+  const scheduleDrawHeatmap = options => window.Components?.heatmap?.scheduleDraw?.(options || {});
   const scheduleDrawSurface = createRegistryDrawScheduler('surface', 'surface');
   const scheduleDrawHist = createRegistryDrawScheduler('hist', 'hist');
   const scheduleDrawPie = createRegistryDrawScheduler('pie', 'pie');
@@ -842,6 +894,7 @@
       ensure: options => ensureWorkspaceComponent('venn', options),
       draw: meta => window.Components?.venn?.draw?.(meta || {}),
       getPreviewSvg: tab => window.Components?.venn?.getThumbnailSvg?.(tab) || window.Components?.venn?.getPreviewSvg?.(tab),
+      hasRenderedGraph: createPrimaryGraphPublicationValidator('venn', ['#stage'], ['[data-venn-trace-id]', '[data-upset-trace-kind]']),
       getPayload: (meta) => window.Components?.venn?.getPayload?.(meta || {}),
       loadFromFile: blob => window.Components?.venn?.loadFromFile?.(blob),
       loadFromPayload: (payload, options) => window.Components?.venn?.loadFromPayload?.(payload, options),
@@ -909,6 +962,7 @@
       ensure: options => ensureWorkspaceComponent('pca', options),
       draw: meta => scheduleDrawPca(meta || {}),
       getPreviewSvg: tab => resolveWorkspacePreviewSvg('pca', tab),
+      hasRenderedGraph: createPrimaryGraphPublicationValidator('pca', ['#pcaPlot'], ['[data-plot-point="1"]', 'canvas.pca-fast-points-layer']),
       getPayload: (meta) => window.Components?.pca?.getPayload?.(meta || {}),
       getColorSchemeContext: (meta) => window.Components?.pca?.getColorSchemeContext?.(meta || {}),
       loadFromFile: blob => window.Components?.pca?.loadFromFile?.(blob),
@@ -933,6 +987,7 @@
       ensure: options => ensureWorkspaceComponent('line', options),
       draw: meta => scheduleDrawLine(meta || {}),
       getPreviewSvg: tab => window.Components?.line?.getPreviewSvg?.(tab) || window.Components?.line?.getThumbnailSvg?.(tab) || resolveWorkspacePreviewSvg('line', tab),
+      hasRenderedGraph: createPrimaryGraphPublicationValidator('line', ['#linePlot'], ['#lineSvg [data-series]', 'canvas']),
       getPayload: (meta) => window.Components?.line?.getPayload?.(meta || {}),
       loadFromFile: blob => window.Components?.line?.loadFromFile?.(blob),
       loadFromPayload: (payload, options) => window.Components?.line?.loadFromPayload?.(payload, options),
@@ -954,7 +1009,7 @@
       perTabDomInstances: true,
       element: document.getElementById('heatmapPage'),
       ensure: options => ensureWorkspaceComponent('heatmap', options),
-      draw: meta => scheduleDrawHeatmap(meta || {}),
+      draw: meta => window.Components?.heatmap?.draw?.(meta || {}),
       getPreviewSvg: tab => window.Components?.heatmap?.getPreviewSvg?.(tab) || resolveWorkspacePreviewSvg('heatmap', tab),
       getPayload: (meta) => window.Components?.heatmap?.getPayload?.(meta || {}),
       loadFromFile: blob => window.Components?.heatmap?.loadFromFile?.(blob),
@@ -964,7 +1019,15 @@
       captureRenderCache: meta => window.Components?.heatmap?.captureRenderCache?.(meta),
       canRestoreRenderCache: (cache, meta) => window.Components?.heatmap?.canRestoreRenderCache?.(cache, meta),
       restoreRenderCache: (cache, meta) => window.Components?.heatmap?.restoreRenderCache?.(cache, meta),
-      hasRenderedGraph: meta => window.Components?.heatmap?.hasRenderedGraph?.(meta),
+      hasRenderedGraph: createPrimaryGraphPublicationValidator('heatmap', ['#heatmapSvg'], [
+        '[data-export-layer="heatmap-cells"] rect:not([data-heatmap-cell-hit-layer])',
+        '[data-export-layer="heatmap-cells"] path[data-heatmap-vector-cell-bucket]',
+        '[data-export-layer="heatmap-cells"] [data-heatmap-cell-value]',
+        '[data-export-layer="heatmap-cells"] canvas',
+        '[data-export-layer="heatmap-cells"] img[data-graphitix-render-cache-canvas-bitmap="true"]',
+        '[data-export-layer="heatmap-cells"] img[data-graphitix-render-cache-canvas-restored="true"]',
+        '[data-export-layer="heatmap-cells"] image[data-heatmap-raster-export="1"]'
+      ]),
       captureUiState: (meta) => window.Components?.heatmap?.captureUiState?.(meta || {}) || null,
       applyUiState: (state, meta) => window.Components?.heatmap?.applyUiState?.(state, meta || {}),
       getLayoutState: options => componentLayout.captureStateFor?.('heatmap', options || {}),
@@ -979,6 +1042,7 @@
       ensure: options => ensureWorkspaceComponent('surface', options),
       draw: meta => scheduleDrawSurface(meta || {}),
       getPreviewSvg: tab => resolveWorkspacePreviewSvg('surface', tab),
+      hasRenderedGraph: createPrimaryGraphPublicationValidator('surface', ['#surfaceSvg'], ['.surface-face', '.surface-point']),
       getPayload: (meta) => window.Components?.surface?.getPayload?.(meta || {}),
       loadFromFile: blob => window.Components?.surface?.loadFromFile?.(blob),
       loadFromPayload: (payload, options) => window.Components?.surface?.loadFromPayload?.(payload, options),
@@ -1001,6 +1065,7 @@
       ensure: options => ensureWorkspaceComponent('roc', options),
       draw: meta => window.Components?.roc?.draw?.(meta || {}),
       getPreviewSvg: tab => resolveWorkspacePreviewSvg('roc', tab),
+      hasRenderedGraph: createPrimaryGraphPublicationValidator('roc', ['#rocPlot'], ['#rocSvg path[data-series]']),
       getPayload: (meta) => window.Components?.roc?.getPayload?.(meta || {}),
       loadFromFile: blob => window.Components?.roc?.loadFromFile?.(blob),
       loadFromPayload: (payload, options) => window.Components?.roc?.loadFromPayload?.(payload, options),
@@ -1023,6 +1088,7 @@
       ensure: options => ensureWorkspaceComponent('survival', options),
       draw: meta => scheduleDrawSurvival(meta || {}),
       getPreviewSvg: tab => resolveWorkspacePreviewSvg('survival', tab),
+      hasRenderedGraph: createPrimaryGraphPublicationValidator('survival', ['#survivalPlot'], ['#survivalSvg path[data-group]']),
       getPayload: (meta) => window.Components?.survival?.getPayload?.(meta || {}),
       loadFromFile: blob => window.Components?.survival?.loadFromFile?.(blob),
       loadFromPayload: (payload, options) => window.Components?.survival?.loadFromPayload?.(payload, options),
@@ -1045,6 +1111,7 @@
       ensure: options => ensureWorkspaceComponent('hist', options),
       draw: meta => scheduleDrawHist(meta || {}),
       getPreviewSvg: tab => resolveWorkspacePreviewSvg('hist', tab),
+      hasRenderedGraph: createPrimaryGraphPublicationValidator('hist', ['#histPlot'], ['#histSvg [data-hist-bar="1"]']),
       getPayload: (meta) => window.Components?.hist?.getPayload?.(meta || {}),
       loadFromFile: blob => window.Components?.hist?.loadFromFile?.(blob),
       loadFromPayload: (payload, options) => window.Components?.hist?.loadFromPayload?.(payload, options),
@@ -1067,6 +1134,7 @@
       ensure: options => ensureWorkspaceComponent('pie', options),
       draw: meta => scheduleDrawPie(meta || {}),
       getPreviewSvg: tab => window.Components?.pie?.getThumbnailSvg?.(tab) || window.Components?.pie?.getPreviewSvg?.(tab) || resolveWorkspacePreviewSvg('pie', tab),
+      hasRenderedGraph: createPrimaryGraphPublicationValidator('pie', ['#piePlot'], ['#pieSvg [data-pie-trace="1"]']),
       getPayload: (meta) => window.Components?.pie?.getPayload?.(meta || {}),
       loadFromFile: blob => window.Components?.pie?.loadFromFile?.(blob),
       loadFromPayload: (payload, options) => window.Components?.pie?.loadFromPayload?.(payload, options),

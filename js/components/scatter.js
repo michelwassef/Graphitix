@@ -9630,8 +9630,8 @@
     return {
       strokeWidth: 1,
       color: DEFAULT_AXIS_COLOR,
-      x: { tickInterval: null, minorTicks: false, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'decimal', additionalTicks: [], brokenAxis: { enabled: false, segments: [] } },
-      y: { tickInterval: null, minorTicks: false, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'decimal', additionalTicks: [], brokenAxis: { enabled: false, segments: [] } }
+      x: { tickInterval: null, majorTickLength: null, minorTicks: false, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'decimal', additionalTicks: [], brokenAxis: { enabled: false, segments: [] } },
+      y: { tickInterval: null, majorTickLength: null, minorTicks: false, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'decimal', additionalTicks: [], brokenAxis: { enabled: false, segments: [] } }
     };
   }
 
@@ -9699,10 +9699,10 @@
       scatterAxisSettings = createScatterAxisSettings();
     }
     if(!scatterAxisSettings.x || typeof scatterAxisSettings.x !== 'object'){
-      scatterAxisSettings.x = { tickInterval: null, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'decimal', additionalTicks: [], brokenAxis: { enabled: false, segments: [] } };
+      scatterAxisSettings.x = { tickInterval: null, majorTickLength: null, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'decimal', additionalTicks: [], brokenAxis: { enabled: false, segments: [] } };
     }
     if(!scatterAxisSettings.y || typeof scatterAxisSettings.y !== 'object'){
-      scatterAxisSettings.y = { tickInterval: null, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'decimal', additionalTicks: [], brokenAxis: { enabled: false, segments: [] } };
+      scatterAxisSettings.y = { tickInterval: null, majorTickLength: null, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'decimal', additionalTicks: [], brokenAxis: { enabled: false, segments: [] } };
     }
     if(typeof scatterAxisSettings.x.minorTicks !== 'boolean'){
       scatterAxisSettings.x.minorTicks = false;
@@ -9785,6 +9785,28 @@
     }
     console.debug('Debug: scatter axis tick interval updated',{ axis, tickInterval: settings[axis].tickInterval });
     scheduleScatterViewRefresh(`axis-ticks-${axis}`);
+  }
+
+  function getScatterAxisMajorTickLength(axis){
+    if(axis !== 'x' && axis !== 'y'){ return null; }
+    const settings = ensureScatterAxisSettings();
+    const storedValue = settings[axis]?.majorTickLength;
+    if(storedValue === null || storedValue === undefined || storedValue === ''){ return null; }
+    const numeric = Number(storedValue);
+    return Number.isFinite(numeric) && numeric >= 0 && numeric <= 100 ? numeric : null;
+  }
+
+  function updateScatterAxisMajorTickLength(axis, value){
+    if(axis !== 'x' && axis !== 'y'){ return; }
+    const settings = ensureScatterAxisSettings();
+    const numeric = Number(value);
+    const nextValue = value === null || value === undefined || value === ''
+      ? null
+      : (Number.isFinite(numeric) && numeric >= 0 && numeric <= 100 ? numeric : null);
+    if(settings[axis].majorTickLength === nextValue){ return; }
+    settings[axis].majorTickLength = nextValue;
+    console.debug('Debug: scatter major tick length updated',{ axis, majorTickLength: nextValue });
+    scheduleScatterViewRefresh(`axis-major-tick-length-${axis}`);
   }
 
   function getScatterAxisMinorTicksEnabled(axis){
@@ -10040,6 +10062,10 @@
       const yInterval = settings.tickIntervalY ?? settings.yTickInterval ?? settings?.y?.tickInterval ?? null;
       base.x.tickInterval = xInterval === '' ? null : xInterval;
       base.y.tickInterval = yInterval === '' ? null : yInterval;
+      const xMajorTickLength = settings.majorTickLengthX ?? settings.xMajorTickLength ?? settings?.x?.majorTickLength ?? null;
+      const yMajorTickLength = settings.majorTickLengthY ?? settings.yMajorTickLength ?? settings?.y?.majorTickLength ?? null;
+      base.x.majorTickLength = chartStyle.normalizeOptionalMajorTickLength(xMajorTickLength);
+      base.y.majorTickLength = chartStyle.normalizeOptionalMajorTickLength(yMajorTickLength);
       base.x.minorTicks = !!(settings.minorTicksX ?? settings.x?.minorTicks ?? false);
       base.y.minorTicks = !!(settings.minorTicksY ?? settings.y?.minorTicks ?? false);
       const xMinorSubdiv = settings.minorTickSubdivisionsX ?? settings.minorSubdivisionsX ?? settings.x?.minorTickSubdivisions ?? settings.x?.minorSubdivisions ?? null;
@@ -19673,6 +19699,7 @@
         scatterHot,
         maxYLabelWidth,
         tickLen,
+        yMajorTickLength,
         tickGap,
         yTitleSeparation,
         info
@@ -19779,7 +19806,7 @@
         });
       }
 
-      const yLabelOffsetSpan = maxYLabelWidth + tickLen + tickGap + yTitleSeparation;
+      const yLabelOffsetSpan = maxYLabelWidth + yMajorTickLength + tickGap + yTitleSeparation;
       const yPosition = resolveScatterSavedLabelPosition(
         positions.yLabel,
         { x: margin.left - yLabelOffsetSpan, y: margin.top + (plotH / 2) },
@@ -21079,6 +21106,8 @@
         svgLayoutPerf,
         tickGap,
         tickLen,
+        xMajorTickLength,
+        yMajorTickLength,
         token,
         xMax,
         xMaxT,
@@ -21331,6 +21360,10 @@ const isXValueVisible = value => {
           ? { min: xScale.min, max: xScale.max }
           : { min: yScale.min, max: yScale.max },
         getTickInterval: () => getScatterAxisTickInterval(axis),
+        getMajorTickLength: () => getScatterAxisMajorTickLength(axis),
+        onMajorTickLengthChange: value => updateScatterAxisMajorTickLength(axis, value),
+        isMajorTickLengthSupported: () => true,
+        majorTickLengthPlaceholder: 'Auto',
         getThickness: () => getScatterAxisStrokeWidth(),
         getColor: () => getScatterAxisColor(),
         isTickIntervalEnabled: () => axis === 'x' ? !logX : !logY,
@@ -21541,13 +21574,13 @@ const isXValueVisible = value => {
           debug('Debug: scatter x-axis tick mark hidden at axis crossing',{ value: t, pixel: x, crossingPixel: yAxisX });
           return;
         }
-        add('line',{x1:x,y1:xAxisY,x2:x,y2:xAxisY+tickLen,stroke:axisStroke,'stroke-width':axisStrokeWidth});
+        add('line',{x1:x,y1:xAxisY,x2:x,y2:xAxisY+xMajorTickLength,stroke:axisStroke,'stroke-width':axisStrokeWidth});
         if(shouldHideXAxisTickLabel(x)){
           debug('Debug: scatter x-axis tick label hidden at axis crossing',{ value: t, pixel: x, crossingPixel: yAxisX });
           return;
         }
-        const extra = Shared.computeAxisLabelYOffset ? Shared.computeAxisLabelYOffset(fs, tickLen, tickGap) : 0;
-        const txt = add('text',{x, y: xAxisY + tickLen + tickGap + extra, 'font-size': fs, 'text-anchor':'middle', fill: scatterThemeTextColor});
+        const extra = Shared.computeAxisLabelYOffset ? Shared.computeAxisLabelYOffset(fs, xMajorTickLength, tickGap) : 0;
+        const txt = add('text',{x, y: xAxisY + xMajorTickLength + tickGap + extra, 'font-size': fs, 'text-anchor':'middle', fill: scatterThemeTextColor});
         txt.textContent = formatTickX(logX ? Math.pow(10, t) : t);
         Shared.applyTextBaseline && Shared.applyTextBaseline(txt,'hanging',fs);
         markFontEditable(txt,'xTick');
@@ -21609,7 +21642,7 @@ const isXValueVisible = value => {
                 x1: pixel,
                 y1: xAxisY,
                 x2: pixel,
-                y2: xAxisY + tickLen,
+                y2: xAxisY + xMajorTickLength,
                 stroke: axisStroke,
                 'stroke-width': axisStrokeWidth
               });
@@ -21622,10 +21655,10 @@ const isXValueVisible = value => {
               if(nearMajor && replaceMajorTickLabel(xMajorTickLabels, pixel, label)){
                 return;
               }
-              const extra = Shared.computeAxisLabelYOffset ? Shared.computeAxisLabelYOffset(fs, tickLen, tickGap) : 0;
+              const extra = Shared.computeAxisLabelYOffset ? Shared.computeAxisLabelYOffset(fs, xMajorTickLength, tickGap) : 0;
               const txt = add('text',{
                 x: pixel,
-                y: xAxisY + tickLen + tickGap + extra + Math.max(2, fs * 0.85),
+                y: xAxisY + xMajorTickLength + tickGap + extra + Math.max(2, fs * 0.85),
                 'font-size': fs,
                 'text-anchor': 'middle',
                 fill: scatterThemeTextColor
@@ -21669,12 +21702,12 @@ const isXValueVisible = value => {
           debug('Debug: scatter y-axis tick mark hidden at axis crossing',{ value: t, pixel: y, crossingPixel: xAxisY });
           return;
         }
-        add('line',{x1:yAxisX - tickLen,y1:y,x2:yAxisX,y2:y,stroke:axisStroke,'stroke-width':axisStrokeWidth});
+        add('line',{x1:yAxisX - yMajorTickLength,y1:y,x2:yAxisX,y2:y,stroke:axisStroke,'stroke-width':axisStrokeWidth});
         if(shouldHideYAxisTickLabel(y)){
           debug('Debug: scatter y-axis tick label hidden at axis crossing',{ value: t, pixel: y, crossingPixel: xAxisY });
           return;
         }
-        const txt=add('text',{x:yAxisX-(tickLen+tickGap),y,'font-size':fs,'text-anchor':'end','dominant-baseline':'middle',fill:scatterThemeTextColor});
+        const txt=add('text',{x:yAxisX-(yMajorTickLength+tickGap),y,'font-size':fs,'text-anchor':'end','dominant-baseline':'middle',fill:scatterThemeTextColor});
         txt.textContent=formatTickY(logY?Math.pow(10,t):t);
         markFontEditable(txt,'yTick');
         yTickFontCount+=1;
@@ -21732,7 +21765,7 @@ const isXValueVisible = value => {
                 return;
               }
               add('line',{
-                x1: yAxisX - tickLen,
+                x1: yAxisX - yMajorTickLength,
                 y1: pixel,
                 x2: yAxisX,
                 y2: pixel,
@@ -21749,7 +21782,7 @@ const isXValueVisible = value => {
                 return;
               }
               const txt = add('text',{
-                x: yAxisX - (tickLen + tickGap),
+                x: yAxisX - (yMajorTickLength + tickGap),
                 y: pixel,
                 'font-size': fs,
                 'text-anchor': 'end',
@@ -24581,6 +24614,8 @@ async function drawScatter(drawOptions = {}){
       const tickFont=yTickMeasureFont;
       const hasYTitle = String(scatterLabelsState?.y == null ? '' : scatterLabelsState.y).trim().length > 0;
       const tickLen=axisMetrics.tickLength;
+      const xMajorTickLength = getScatterAxisMajorTickLength('x') ?? tickLen;
+      const yMajorTickLength = getScatterAxisMajorTickLength('y') ?? tickLen;
       const tickGap=axisMetrics.tickLabelGap;
       let margin=stabilizeScatterMarginForAxisResize(
         chartStyle.computeBaseMargins({fontSize:fs,legendWidth,maxYLabelWidth:0,hasYTitle,axisMetrics,xTickFontSize,yTickFontSize})
@@ -24667,7 +24702,7 @@ async function drawScatter(drawOptions = {}){
         margin=stabilizeScatterMarginForAxisResize(
           chartStyle.computeBaseMargins({fontSize:fs,legendWidth,maxYLabelWidth,hasYTitle,axisMetrics,xTickFontSize,yTickFontSize})
         );
-        margin.left=Math.max(margin.left,maxYLabelWidth+tickLen+tickGap+yTitleSeparation);
+        margin.left=Math.max(margin.left,maxYLabelWidth+yMajorTickLength+tickGap+yTitleSeparation);
         plotW=Math.max(20,W-margin.left-margin.right);
         plotH=Math.max(20,H-margin.top-margin.bottom);
         bottomLayout=chartStyle.computeBottomLayout({labels:xTickLabels,fontSize:fs,labelMeasureFont:xTickMeasureFont,labelFontSizePx:xTickFontSize,plotWidth:plotW,baseBottom:margin.bottom,axisMetrics});
@@ -24831,6 +24866,8 @@ async function drawScatter(drawOptions = {}){
         svgLayoutPerf,
         tickGap,
         tickLen,
+        xMajorTickLength,
+        yMajorTickLength,
         token,
         xMax,
         xMaxT,
@@ -24940,6 +24977,7 @@ async function drawScatter(drawOptions = {}){
         scatterHot,
         maxYLabelWidth,
         tickLen,
+        yMajorTickLength,
         tickGap,
         yTitleSeparation,
         info
@@ -25474,6 +25512,8 @@ async function drawScatter(drawOptions = {}){
             color: axisSettings.color,
             tickIntervalX: axisSettings.x?.tickInterval ?? null,
           tickIntervalY: axisSettings.y?.tickInterval ?? null,
+          majorTickLengthX: axisSettings.x?.majorTickLength ?? null,
+          majorTickLengthY: axisSettings.y?.majorTickLength ?? null,
           minorTicksX: axisSettings.x?.minorTicks ?? false,
           minorTicksY: axisSettings.y?.minorTicks ?? false,
           minorTickSubdivisionsX: clampMinorTickSubdivisions(axisSettings.x?.minorTickSubdivisions),

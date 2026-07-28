@@ -33,6 +33,8 @@ const KNOWN_HOOKS = new Set([
   'applyRuntimeState',
   'captureRenderCache',
   'restoreRenderCache',
+  'canRestoreRenderCache',
+  'hasRenderedGraph',
   'getLayoutState',
   'getDefaultLayoutState',
   'applyLayoutState'
@@ -148,7 +150,7 @@ function toMarkdown(entries) {
   lines.push('## Shared Contract');
   lines.push('');
   lines.push('- `Main` expects each workspace entry to provide `ensure`, `draw`, `getPayload`, `loadFromPayload`, and `createEmptyPayload`.');
-  lines.push('- Optional hooks (`activateTab`, `captureRuntimeState`, `applyRuntimeState`, `captureRenderCache`, `restoreRenderCache`, layout helpers) are consumed when present.');
+  lines.push('- Optional hooks (`activateTab`, `captureRuntimeState`, `applyRuntimeState`, `captureRenderCache`, `restoreRenderCache`, `canRestoreRenderCache`, `hasRenderedGraph`, layout helpers) are consumed when present.');
   lines.push('- Payload objects must stay JSON-serializable so session/archive persistence remains stable.');
   lines.push('');
   lines.push('## Registry Coverage');

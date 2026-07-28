@@ -483,8 +483,8 @@
     return {
       strokeWidth: 1,
       color: DEFAULT_AXIS_COLOR,
-      x: { tickInterval: null, minorTicks: false, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS },
-      y: { tickInterval: null, minorTicks: false, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS }
+      x: { tickInterval: null, majorTickLength: null, minorTicks: false, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS },
+      y: { tickInterval: null, majorTickLength: null, minorTicks: false, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS }
     };
   }
 
@@ -493,10 +493,10 @@
       state.axisSettings = createDefaultAxisSettings();
     }
     if(!state.axisSettings.x || typeof state.axisSettings.x !== 'object'){
-      state.axisSettings.x = { tickInterval: null, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS };
+      state.axisSettings.x = { tickInterval: null, majorTickLength: null, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS };
     }
     if(!state.axisSettings.y || typeof state.axisSettings.y !== 'object'){
-      state.axisSettings.y = { tickInterval: null, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS };
+      state.axisSettings.y = { tickInterval: null, majorTickLength: null, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS };
     }
     if(typeof state.axisSettings.x.minorTicks !== 'boolean'){
       state.axisSettings.x.minorTicks = false;
@@ -536,6 +536,28 @@
     }
     pieDebug('Debug: pie axis tick interval updated',{ axis, tickInterval: settings[axis].tickInterval });
     scheduleActivePieDraw({ reason: `pie-${axis}-tick-interval-change` });
+  }
+
+  function getAxisMajorTickLength(axis){
+    if(axis !== 'x' && axis !== 'y'){ return null; }
+    const settings = ensureAxisSettings();
+    const storedValue = settings[axis]?.majorTickLength;
+    if(storedValue === null || storedValue === undefined || storedValue === ''){ return null; }
+    const numeric = Number(storedValue);
+    return Number.isFinite(numeric) && numeric >= 0 && numeric <= 100 ? numeric : null;
+  }
+
+  function updateAxisMajorTickLength(axis, value){
+    if(axis !== 'x' && axis !== 'y'){ return; }
+    const settings = ensureAxisSettings();
+    const numeric = Number(value);
+    const nextValue = value === null || value === undefined || value === ''
+      ? null
+      : (Number.isFinite(numeric) && numeric >= 0 && numeric <= 100 ? numeric : null);
+    if(settings[axis].majorTickLength === nextValue){ return; }
+    settings[axis].majorTickLength = nextValue;
+    pieDebug('Debug: pie major tick length updated',{ axis, majorTickLength: nextValue });
+    scheduleActivePieDraw({ reason: `pie-${axis}-major-tick-length-change` });
   }
 
   function getAxisMinorTicksEnabled(axis){
@@ -615,6 +637,10 @@
       const yInterval = settings.tickIntervalY ?? settings.yTickInterval ?? settings?.y?.tickInterval ?? null;
       base.x.tickInterval = xInterval === '' ? null : xInterval;
       base.y.tickInterval = yInterval === '' ? null : yInterval;
+      const xMajorTickLength = settings.majorTickLengthX ?? settings.xMajorTickLength ?? settings?.x?.majorTickLength ?? null;
+      const yMajorTickLength = settings.majorTickLengthY ?? settings.yMajorTickLength ?? settings?.y?.majorTickLength ?? null;
+      base.x.majorTickLength = chartStyle.normalizeOptionalMajorTickLength(xMajorTickLength);
+      base.y.majorTickLength = chartStyle.normalizeOptionalMajorTickLength(yMajorTickLength);
       base.x.minorTicks = !!(settings.minorTicksX ?? settings.x?.minorTicks ?? false);
       base.y.minorTicks = !!(settings.minorTicksY ?? settings.y?.minorTicks ?? false);
       const xMinorSubdiv = settings.minorTickSubdivisionsX ?? settings.minorSubdivisionsX ?? settings.x?.minorTickSubdivisions ?? settings.x?.minorSubdivisions ?? null;
@@ -5547,6 +5573,8 @@ let state = {
           color: axisSettings.color,
           tickIntervalX: axisSettings.x?.tickInterval ?? null,
           tickIntervalY: axisSettings.y?.tickInterval ?? null,
+          majorTickLengthX: axisSettings.x?.majorTickLength ?? null,
+          majorTickLengthY: axisSettings.y?.majorTickLength ?? null,
           minorTicksX: axisSettings.x?.minorTicks ?? false,
           minorTicksY: axisSettings.y?.minorTicks ?? false,
           minorTickSubdivisionsX: clampMinorTickSubdivisions(axisSettings.x?.minorTickSubdivisions),
@@ -6133,6 +6161,8 @@ let state = {
         applied: !!extensionUpdate?.applied
       });
       const tickLen=axisMetrics.tickLength;
+      const xMajorTickLength = getAxisMajorTickLength('x') ?? tickLen;
+      const yMajorTickLength = getAxisMajorTickLength('y') ?? tickLen;
       const tickGap=axisMetrics.tickLabelGap;
       const axis=document.createElementNS(NS,'g');
       const axisHost = axisLayer || svg;
@@ -6154,6 +6184,10 @@ let state = {
         axis: axisName,
         scopeId: 'pie',
         getTickInterval: () => getAxisTickInterval(axisName),
+        getMajorTickLength: () => getAxisMajorTickLength(axisName),
+        onMajorTickLengthChange: value => updateAxisMajorTickLength(axisName, value),
+        isMajorTickLengthSupported: () => true,
+        majorTickLengthPlaceholder: 'Auto',
         getThickness: () => getAxisStrokeWidthBase(),
         getColor: () => getAxisColor(),
         isTickIntervalEnabled: () => axisName === 'y',
@@ -6191,7 +6225,7 @@ let state = {
       percentTicks.forEach(t=>{
         const y=margin.top+chartHeight-(chartHeight*t/100);
         const tick=document.createElementNS(NS,'line');
-        tick.setAttribute('x1',margin.left-tickLen);
+        tick.setAttribute('x1',margin.left-yMajorTickLength);
         tick.setAttribute('y1',y);
         tick.setAttribute('x2',margin.left);
         tick.setAttribute('y2',y);
@@ -6199,7 +6233,7 @@ let state = {
         tick.setAttribute('stroke-width',axisStrokeWidth);
         axis.appendChild(tick);
         const txt=document.createElementNS(NS,'text');
-        txt.setAttribute('x',margin.left-(tickLen+tickGap));
+        txt.setAttribute('x',margin.left-(yMajorTickLength+tickGap));
         txt.setAttribute('y',y);
         txt.setAttribute('text-anchor','end');
         txt.setAttribute('dominant-baseline','middle');
@@ -6209,7 +6243,7 @@ let state = {
         stackedYTickCount+=1;
         axis.appendChild(txt);
       });
-      const yTitleX=margin.left-(maxYLabelWidth+tickLen+tickGap+axisMetrics.axisTitleGap+fs*0.5);
+      const yTitleX=margin.left-(maxYLabelWidth+yMajorTickLength+tickGap+axisMetrics.axisTitleGap+fs*0.5);
       const yTitle=document.createElementNS(NS,'text');
       yTitle.setAttribute('x',yTitleX);
       yTitle.setAttribute('y',margin.top+chartHeight/2);
@@ -6316,8 +6350,16 @@ let state = {
         });
         const lbl=document.createElementNS(NS,'text');
         const lx=margin.left+barGap+j*(barWidth+barGap)+barWidth/2;
-        const extra = Shared.computeAxisLabelYOffset ? Shared.computeAxisLabelYOffset(fs, tickLen, tickGap) : 0;
-        const ly=margin.top+chartHeight+tickLen+tickGap+extra;
+        const xTick=document.createElementNS(NS,'line');
+        xTick.setAttribute('x1',lx);
+        xTick.setAttribute('y1',margin.top+chartHeight);
+        xTick.setAttribute('x2',lx);
+        xTick.setAttribute('y2',margin.top+chartHeight+xMajorTickLength);
+        xTick.setAttribute('stroke',axisStroke);
+        xTick.setAttribute('stroke-width',axisStrokeWidth);
+        axis.appendChild(xTick);
+        const extra = Shared.computeAxisLabelYOffset ? Shared.computeAxisLabelYOffset(fs, xMajorTickLength, tickGap) : 0;
+        const ly=margin.top+chartHeight+xMajorTickLength+tickGap+extra;
         lbl.setAttribute('x',lx);
         lbl.setAttribute('y',ly);
         lbl.setAttribute('text-anchor','middle');

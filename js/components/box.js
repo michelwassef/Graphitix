@@ -5988,8 +5988,8 @@
     return {
       strokeWidth: 1,
       color: DEFAULT_AXIS_COLOR,
-      x: { tickInterval: null, datasetSpacing: DEFAULT_X_DATASET_SPACING, minorTicks: false, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'decimal', additionalTicks: [] },
-      y: { tickInterval: null, datasetSpacing: DEFAULT_X_DATASET_SPACING, minorTicks: false, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'decimal', additionalTicks: [], brokenAxis: { enabled: false, segments: [] } }
+      x: { tickInterval: null, majorTickLength: null, datasetSpacing: DEFAULT_X_DATASET_SPACING, minorTicks: false, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'decimal', additionalTicks: [] },
+      y: { tickInterval: null, majorTickLength: null, datasetSpacing: DEFAULT_X_DATASET_SPACING, minorTicks: false, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'decimal', additionalTicks: [], brokenAxis: { enabled: false, segments: [] } }
     };
   }
 
@@ -12248,8 +12248,8 @@
 
   function ensureAxisSettings(){
     const settings = state.axisSettings && typeof state.axisSettings === 'object' ? state.axisSettings : createDefaultAxisSettings();
-    if(!settings.x || typeof settings.x !== 'object'){ settings.x = { tickInterval: null, datasetSpacing: DEFAULT_X_DATASET_SPACING, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'decimal', additionalTicks: [] }; }
-    if(!settings.y || typeof settings.y !== 'object'){ settings.y = { tickInterval: null, datasetSpacing: DEFAULT_X_DATASET_SPACING, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'decimal', additionalTicks: [], brokenAxis: { enabled: false, segments: [] } }; }
+    if(!settings.x || typeof settings.x !== 'object'){ settings.x = { tickInterval: null, majorTickLength: null, datasetSpacing: DEFAULT_X_DATASET_SPACING, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'decimal', additionalTicks: [] }; }
+    if(!settings.y || typeof settings.y !== 'object'){ settings.y = { tickInterval: null, majorTickLength: null, datasetSpacing: DEFAULT_X_DATASET_SPACING, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'decimal', additionalTicks: [], brokenAxis: { enabled: false, segments: [] } }; }
     if(settings.x.tickInterval === undefined){ settings.x.tickInterval = null; }
     if(settings.y.tickInterval === undefined){ settings.y.tickInterval = null; }
     settings.x.datasetSpacing = sanitizeXAxisDatasetSpacing(settings.x.datasetSpacing);
@@ -12351,6 +12351,28 @@
       return false;
     }
     return !isAxisNumeric(axis);
+  }
+
+  function getAxisMajorTickLength(axis){
+    if(axis !== 'x' && axis !== 'y'){ return null; }
+    const settings = ensureAxisSettings();
+    const storedValue = settings[axis]?.majorTickLength;
+    if(storedValue === null || storedValue === undefined || storedValue === ''){ return null; }
+    const numeric = Number(storedValue);
+    return Number.isFinite(numeric) && numeric >= 0 && numeric <= 100 ? numeric : null;
+  }
+
+  function updateAxisMajorTickLength(axis, value){
+    if(axis !== 'x' && axis !== 'y'){ return; }
+    const settings = ensureAxisSettings();
+    const numeric = Number(value);
+    const nextValue = value === null || value === undefined || value === ''
+      ? null
+      : (Number.isFinite(numeric) && numeric >= 0 && numeric <= 100 ? numeric : null);
+    if(settings[axis].majorTickLength === nextValue){ return; }
+    settings[axis].majorTickLength = nextValue;
+    boxLog('Debug: box major tick length updated',{ axis, majorTickLength: nextValue });
+    scheduleBoxViewRefresh(`axis-major-tick-length-${axis}`);
   }
 
   function getAxisMinorTicksEnabled(axis){
@@ -28428,6 +28450,8 @@ Technical analysis record (advanced)
     const xTickFontSize = Number.isFinite(Number(xTickMeasureProfile.fontSizePx)) ? Number(xTickMeasureProfile.fontSizePx) : fs;
     const hasYTitle = String(state.yLabelText == null ? '' : state.yLabelText).trim().length > 0;
     const tickLen = axisMetrics.tickLength;
+    const xMajorTickLength = getAxisMajorTickLength('x') ?? tickLen;
+    const yMajorTickLength = getAxisMajorTickLength('y') ?? tickLen;
     const tickGap = axisMetrics.tickLabelGap;
     const existingViewportExtension = 0;
     const shouldInlineBottomViewportReserve = !showSignificance;
@@ -28470,7 +28494,7 @@ Technical analysis record (advanced)
     let titleBaselineY = null;
     const resolveBottomLayoutForVerticalShift = (plotWidth, baseBottom) => {
       const compactLabelMargin = Math.max(8, Math.round(xTickFontSize * 0.5));
-      const compactBaseBottom = Math.ceil(tickLen + tickGap + xTickFontSize + compactLabelMargin);
+      const compactBaseBottom = Math.ceil(xMajorTickLength + tickGap + xTickFontSize + compactLabelMargin);
       const requestedBaseBottom = Number.isFinite(Number(baseBottom)) ? Number(baseBottom) : compactBaseBottom;
       const safeBaseBottom = Math.min(Math.max(0, requestedBaseBottom), compactBaseBottom);
       const previousRotate = state.xTickRotateVertical === true;
@@ -28608,7 +28632,7 @@ Technical analysis record (advanced)
       tickLabels = yScale.ticks.map(t => formatTick(logScale ? Math.pow(10, t) : t));
       tickWidths = tickLabels.map(lbl => chartStyle.measureText(lbl, tickFont));
       maxTickWidth = Math.max(...tickWidths, 0);
-      yLabelGap = maxTickWidth + tickLen + tickGap;
+      yLabelGap = maxTickWidth + yMajorTickLength + tickGap;
       marginLocal = chartStyle.computeBaseMargins({ fontSize: fs, maxYLabelWidth: maxTickWidth, hasYTitle, axisMetrics, legendWidth: legendWidthForMargin, yTickFontSize: yTickMeasureProfile.fontSizePx, xTickFontSize: xTickMeasureProfile.fontSizePx });
       const normalTitleReserveTop = Number.isFinite(Number(marginLocal.top)) ? Math.max(0, Number(marginLocal.top)) : 0;
       titleBaselineY = normalTitleReserveTop / 2;
@@ -28922,8 +28946,8 @@ Technical analysis record (advanced)
         return; // Skip ticks that fall in gaps
       }
       const y = y2px(t);
-      addAxisElement('line',{ x1: yAxisX - tickLen, y1: y, x2: yAxisX, y2: y, stroke: axisStroke, 'stroke-width': axisStrokeWidth });
-      const txt = addAxisElement('text',{ x: yAxisX - (tickLen + tickGap), y, 'font-size': fs, 'text-anchor': 'end', 'dominant-baseline': 'middle', fill: chartStyle.TEXT_COLOR });
+      addAxisElement('line',{ x1: yAxisX - yMajorTickLength, y1: y, x2: yAxisX, y2: y, stroke: axisStroke, 'stroke-width': axisStrokeWidth });
+      const txt = addAxisElement('text',{ x: yAxisX - (yMajorTickLength + tickGap), y, 'font-size': fs, 'text-anchor': 'end', 'dominant-baseline': 'middle', fill: chartStyle.TEXT_COLOR });
       txt.setAttribute('data-box-axis-tick', 'y');
       txt.textContent = formatTick(logScale ? Math.pow(10, t) : t);
       markFontEditable(txt,'yTick');
@@ -28979,7 +29003,7 @@ Technical analysis record (advanced)
           },
           onTick: ({ pixel }) => {
             addAxisElement('line',{
-              x1: yAxisX - tickLen,
+              x1: yAxisX - yMajorTickLength,
               y1: pixel,
               x2: yAxisX,
               y2: pixel,
@@ -28992,7 +29016,7 @@ Technical analysis record (advanced)
               return;
             }
             const txt = addAxisElement('text',{
-              x: yAxisX - (tickLen + tickGap),
+              x: yAxisX - (yMajorTickLength + tickGap),
               y: pixel,
               'font-size': fs,
               'text-anchor': 'end',
@@ -29032,7 +29056,7 @@ Technical analysis record (advanced)
     registerAxisHitLine(addAxisElement, { x1: yAxisX, y1: xAxisY, x2: axisXEnd, y2: xAxisY }, axisControlConfig('x'));
     boxLog('Debug: box axes stroke scaled',{ axisStrokeWidth });
     renderSharedPlotFrame({ margin: marginLocal, plotW: plotWUsed, plotH: plotHLocal, showFrame, sides: ['top', 'right'] });
-    const xLabelOffset = tickLen + tickGap;
+    const xLabelOffset = xMajorTickLength + tickGap;
     const xLabels = [];
     let xTickFontCount = 0;
     let renderedXTicks = 0;
@@ -29041,9 +29065,9 @@ Technical analysis record (advanced)
         return;
       }
       const x = separatedSpacing ? separatedSpacing.centers[i] : marginLocal.left + i * (bandW + datasetGapPx) + bandW / 2;
-      addAxisElement('line',{ x1: x, y1: xAxisY, x2: x, y2: xAxisY + tickLen, stroke: axisStroke, 'stroke-width': axisStrokeWidth });
+      addAxisElement('line',{ x1: x, y1: xAxisY, x2: x, y2: xAxisY + xMajorTickLength, stroke: axisStroke, 'stroke-width': axisStrokeWidth });
       const labelText = lab || `Category ${i + 1}`;
-      const extra = Shared.computeAxisLabelYOffset ? Shared.computeAxisLabelYOffset(fs, tickLen, tickGap) : 0;
+      const extra = Shared.computeAxisLabelYOffset ? Shared.computeAxisLabelYOffset(fs, xMajorTickLength, tickGap) : 0;
       const t = addAxisElement('text',{ x, y: xAxisY + xLabelOffset + extra, 'font-size': fs, 'text-anchor': 'middle', fill: chartStyle.TEXT_COLOR });
       t.setAttribute('data-box-x-tick-label', '1');
       t.setAttribute('data-box-axis-tick', 'x');
@@ -29100,7 +29124,7 @@ Technical analysis record (advanced)
     if(xInterval && axisLabels.length){
       boxLog('Debug: box x-axis tick filter',{ interval: xInterval, rendered: renderedXTicks, total: axisLabels.length });
     }
-    const yLabelOffsetSpan = (maxTickWidth + tickLen + tickGap + axisMetrics.axisTitleGap + fs * 0.5);
+    const yLabelOffsetSpan = (maxTickWidth + yMajorTickLength + tickGap + axisMetrics.axisTitleGap + fs * 0.5);
     const defaultYX = marginLocal.left - yLabelOffsetSpan;
     const defaultYY = marginLocal.top + plotHLocal / 2;
     const yLabelPos = state.labelPositions?.yLabel;
@@ -29631,6 +29655,8 @@ Technical analysis record (advanced)
     const categoryWidths = labelTexts.map(lbl => chartStyle.measureText(lbl, categoryTickFont));
     const maxCategoryWidth = Math.max(...categoryWidths, 0);
     const tickLen = axisMetrics.tickLength;
+    const xMajorTickLength = getAxisMajorTickLength('x') ?? tickLen;
+    const yMajorTickLength = getAxisMajorTickLength('y') ?? tickLen;
     const tickGap = axisMetrics.tickLabelGap;
     const storedHorizontalFrameReserve = readBoxAppliedSignificanceFrameReservePx('x', els.svgBox);
     const storedHorizontalBottomViewportExtension = Math.max(0, Number(storedBottomViewportExtension) || 0);
@@ -29693,7 +29719,7 @@ Technical analysis record (advanced)
     marginLocal.top = Math.max(marginLocal.top, fs * 2);
     marginLocal.left = categoryMargin.marginLeft;
     marginLocal.right = Math.max(baseMarginRight, fs) + rightSignificanceReservePx;
-    marginLocal.bottom = Math.max(marginLocal.bottom, tickLen + tickGap + valueTickFontSize + axisMetrics.axisTitleGap + valueTitleFontSize);
+    marginLocal.bottom = Math.max(marginLocal.bottom, xMajorTickLength + tickGap + valueTickFontSize + axisMetrics.axisTitleGap + valueTitleFontSize);
     marginLocal = stabilizeBoxMarginForAxisResize(marginLocal, { exactRightPx: marginLocal.right });
     const flipAxisSpanTarget = getBoxFlipAxisSpanTarget('horizontal');
     let canvasWidthLocal = Math.max(50, baseCanvasWidth + leftLabelReservePx + rightSignificanceReservePx);
@@ -29933,7 +29959,7 @@ Technical analysis record (advanced)
         return;
       }
       const y = categoryTickCenters[i];
-      addAxisElement('line',{ x1: yAxisLeft, y1: y, x2: yAxisLeft - tickLen, y2: y, stroke: axisStroke, 'stroke-width': axisStrokeWidth });
+      addAxisElement('line',{ x1: yAxisLeft, y1: y, x2: yAxisLeft - yMajorTickLength, y2: y, stroke: axisStroke, 'stroke-width': axisStrokeWidth });
       const labelText = lab || `Category ${i + 1}`;
       const labelAnchorX = yAxisLeft - categoryMargin.labelOffset;
       const t = addAxisElement('text',{
@@ -29995,9 +30021,9 @@ Technical analysis record (advanced)
         return;
       }
       const x = valueToX(t);
-      addAxisElement('line',{ x1: x, y1: xAxisBottom, x2: x, y2: xAxisBottom + tickLen, stroke: axisStroke, 'stroke-width': axisStrokeWidth });
-      const extra = Shared.computeAxisLabelYOffset ? Shared.computeAxisLabelYOffset(valueTickFontSize, tickLen, tickGap) : 0;
-      const txt = addAxisElement('text',{ x, y: xAxisBottom + tickLen + tickGap + extra, 'font-size': valueTickFontSize, 'text-anchor': 'middle', fill: chartStyle.TEXT_COLOR });
+      addAxisElement('line',{ x1: x, y1: xAxisBottom, x2: x, y2: xAxisBottom + xMajorTickLength, stroke: axisStroke, 'stroke-width': axisStrokeWidth });
+      const extra = Shared.computeAxisLabelYOffset ? Shared.computeAxisLabelYOffset(valueTickFontSize, xMajorTickLength, tickGap) : 0;
+      const txt = addAxisElement('text',{ x, y: xAxisBottom + xMajorTickLength + tickGap + extra, 'font-size': valueTickFontSize, 'text-anchor': 'middle', fill: chartStyle.TEXT_COLOR });
       txt.setAttribute('data-box-axis-tick', 'x');
       txt.textContent = formatTick(logScale ? Math.pow(10, t) : t);
       markFontEditable(txt, 'yTick');
@@ -30056,7 +30082,7 @@ Technical analysis record (advanced)
               x1: pixel,
               y1: xAxisBottom,
               x2: pixel,
-              y2: xAxisBottom + tickLen,
+              y2: xAxisBottom + xMajorTickLength,
               stroke: axisStroke,
               'stroke-width': axisStrokeWidth
             });
@@ -30065,10 +30091,10 @@ Technical analysis record (advanced)
             if(nearMajor && replaceMajorTickLabel(xMajorTickLabels, pixel, label)){
               return;
             }
-            const extra = Shared.computeAxisLabelYOffset ? Shared.computeAxisLabelYOffset(valueTickFontSize, tickLen, tickGap) : 0;
+            const extra = Shared.computeAxisLabelYOffset ? Shared.computeAxisLabelYOffset(valueTickFontSize, xMajorTickLength, tickGap) : 0;
             const txt = addAxisElement('text',{
               x: pixel,
-              y: xAxisBottom + tickLen + tickGap + extra + Math.max(2, valueTickFontSize * 0.85),
+              y: xAxisBottom + xMajorTickLength + tickGap + extra + Math.max(2, valueTickFontSize * 0.85),
               'font-size': valueTickFontSize,
               'text-anchor': 'middle',
               fill: chartStyle.TEXT_COLOR
@@ -30150,7 +30176,7 @@ Technical analysis record (advanced)
     renderSharedPlotFrame({ margin: marginLocal, plotW: plotWLocal, plotH: plotHLocal, showFrame, sides: ['top', 'right'] });
     const defaultXLabelX = marginLocal.left + plotWLocal / 2;
     const defaultXLabelY = xAxisBottom
-      + tickLen
+      + xMajorTickLength
       + tickGap
       + valueTickFontSize
       + axisMetrics.axisTitleGap
@@ -30989,6 +31015,10 @@ Technical analysis record (advanced)
         return { min, max };
       },
       getTickInterval: () => getAxisTickInterval(axis),
+        getMajorTickLength: () => getAxisMajorTickLength(axis),
+        onMajorTickLengthChange: value => updateAxisMajorTickLength(axis, value),
+        isMajorTickLengthSupported: () => true,
+        majorTickLengthPlaceholder: 'Auto',
       getThickness: () => getAxisStrokeWidthBase(),
       getColor: () => getAxisColor(),
       isTickIntervalEnabled: () => isAxisNumeric(axis),
@@ -33926,6 +33956,8 @@ Technical analysis record (advanced)
       color: axisSettings.color,
       tickIntervalX: axisSettings.x?.tickInterval || null,
       tickIntervalY: axisSettings.y?.tickInterval || null,
+      majorTickLengthX: axisSettings.x?.majorTickLength ?? null,
+      majorTickLengthY: axisSettings.y?.majorTickLength ?? null,
       datasetSpacingX: axisSettings.x?.datasetSpacing ?? DEFAULT_X_DATASET_SPACING,
       datasetSpacingY: axisSettings.y?.datasetSpacing ?? DEFAULT_X_DATASET_SPACING
     });
@@ -35609,6 +35641,10 @@ Technical analysis record (advanced)
             x: axisSnapshot.x?.tickInterval ?? null,
             y: axisSnapshot.y?.tickInterval ?? null
           },
+          majorTickLength: {
+            x: axisSnapshot.x?.majorTickLength ?? null,
+            y: axisSnapshot.y?.majorTickLength ?? null
+          },
           datasetSpacing: {
             x: axisSnapshot.x?.datasetSpacing ?? DEFAULT_X_DATASET_SPACING,
             y: axisSnapshot.y?.datasetSpacing ?? DEFAULT_X_DATASET_SPACING
@@ -36445,6 +36481,11 @@ Technical analysis record (advanced)
       const tickY = tickCfg.y;
       axisState.x.tickInterval = Number.isFinite(Number(tickX)) && Number(tickX) > 0 ? Math.max(1, Math.round(Number(tickX))) : null;
       axisState.y.tickInterval = Number.isFinite(Number(tickY)) && Number(tickY) > 0 ? Number(tickY) : null;
+      const majorTickLengthCfg = axisCfg.majorTickLength || {};
+      const majorTickLengthX = majorTickLengthCfg.x ?? axisCfg.majorTickLengthX ?? axisCfg.xMajorTickLength;
+      const majorTickLengthY = majorTickLengthCfg.y ?? axisCfg.majorTickLengthY ?? axisCfg.yMajorTickLength;
+      axisState.x.majorTickLength = chartStyle.normalizeOptionalMajorTickLength(majorTickLengthX);
+      axisState.y.majorTickLength = chartStyle.normalizeOptionalMajorTickLength(majorTickLengthY);
       const datasetSpacingCfg = axisCfg.datasetSpacing || {};
       const datasetSpacingX = datasetSpacingCfg.x ?? axisCfg.datasetSpacingX;
       const datasetSpacingY = datasetSpacingCfg.y ?? axisCfg.datasetSpacingY;

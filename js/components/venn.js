@@ -4408,6 +4408,8 @@
       gridColor: sanitizeColor(ui.gridColor?.value, defaults.gridColor),
       axisColor: sanitizeColor(axisState.color, defaults.axisColor),
       axisWidth: clampNumber(axisState.width, defaults.axisWidth, 0.25, 10),
+      xMajorTickLength: chartStyle.normalizeOptionalMajorTickLength(axisState.xMajorTickLength),
+      yMajorTickLength: chartStyle.normalizeOptionalMajorTickLength(axisState.yMajorTickLength),
       traceStyles: cloneUpSetTraceStyles(state.analysis?.upsetTraceStyles)
     };
     debug('Debug: venn upset settings resolved', settings);
@@ -4423,7 +4425,19 @@
     const width = Object.prototype.hasOwnProperty.call(next, 'width')
       ? clampNumber(next.width, current.width || defaults.axisWidth, 0.25, 10)
       : clampNumber(current.width, defaults.axisWidth, 0.25, 10);
-    state.analysis.upsetAxis = { color, width };
+    const sanitizeMajorTickLength = value => {
+      const numeric = Number(value);
+      return value === null || value === undefined || value === ''
+        ? null
+        : (Number.isFinite(numeric) && numeric >= 0 && numeric <= 100 ? numeric : null);
+    };
+    const xMajorTickLength = Object.prototype.hasOwnProperty.call(next, 'xMajorTickLength')
+      ? sanitizeMajorTickLength(next.xMajorTickLength)
+      : sanitizeMajorTickLength(current.xMajorTickLength);
+    const yMajorTickLength = Object.prototype.hasOwnProperty.call(next, 'yMajorTickLength')
+      ? sanitizeMajorTickLength(next.yMajorTickLength)
+      : sanitizeMajorTickLength(current.yMajorTickLength);
+    state.analysis.upsetAxis = { color, width, xMajorTickLength, yMajorTickLength };
     debug('Debug: venn upset axis style updated', state.analysis.upsetAxis);
     requestScheduledDraw('upset-axis-style');
     syncActiveVennPayload('venn-upset-axis-style');
@@ -4434,6 +4448,15 @@
       axis,
       scopeId: 'venn',
       getTickInterval: () => null,
+      getMajorTickLength: () => {
+        const value = axis === 'x' ? state.analysis?.upsetAxis?.xMajorTickLength : state.analysis?.upsetAxis?.yMajorTickLength;
+        if(value === null || value === undefined || value === ''){ return null; }
+        const numeric = Number(value);
+        return Number.isFinite(numeric) && numeric >= 0 ? numeric : null;
+      },
+      onMajorTickLengthChange: value => updateUpSetAxisStyle(axis === 'x' ? { xMajorTickLength: value } : { yMajorTickLength: value }),
+      isMajorTickLengthSupported: () => true,
+      majorTickLengthPlaceholder: 'Auto',
       getThickness: () => clampNumber(state.analysis?.upsetAxis?.width, DEFAULT_UPSET_SETTINGS.axisWidth, 0.25, 10),
       getColor: () => sanitizeColor(state.analysis?.upsetAxis?.color, DEFAULT_UPSET_SETTINGS.axisColor),
       isTickIntervalEnabled: () => false,
@@ -8424,6 +8447,8 @@
           axisTitleGap: Math.max(4, Math.round(style.fontSizePx * 0.75))
         };
     const tickLength = axisMetrics.tickLength ?? 6;
+    const xMajorTickLength = settings.xMajorTickLength ?? tickLength;
+    const yMajorTickLength = settings.yMajorTickLength ?? tickLength;
     const tickLabelGap = axisMetrics.tickLabelGap ?? Math.max(3, Math.round(style.fontSizePx * 0.35));
     const axisTitleGap = axisMetrics.axisTitleGap ?? Math.max(4, Math.round(style.fontSizePx * 0.75));
     const axisWidthBase = clampNumber(settings.axisWidth, DEFAULT_UPSET_SETTINGS.axisWidth, 0.25, 10);
@@ -8442,14 +8467,14 @@
     const setTitleGap = Math.max(2, Math.round((axisTitleGap + 1) * 0.4));
     const setTickTextHeight = Math.max(8, Math.round(setTickFontSize * 0.95));
     const setAxisLabelHeight = Math.max(9, Math.round(setAxisLabelFontSize * 0.95));
-    const requiredSetAxisBottomSpace = tickLength + setTickOffset + setTickTextHeight + setTitleGap + setAxisLabelHeight + 4;
+    const requiredSetAxisBottomSpace = xMajorTickLength + setTickOffset + setTickTextHeight + setTitleGap + setAxisLabelHeight + 4;
     const axisYPreferred = matrixBottom + setAxisHeight * 0.35;
     const axisYMin = matrixBottom + Math.max(2, Math.round(style.fontSizePx * 0.2));
     const axisYMax = stageHeight - requiredSetAxisBottomSpace;
     const axisY = axisYMax >= axisYMin
       ? Math.min(axisYMax, Math.max(axisYMin, axisYPreferred))
       : axisYMin;
-    let setTickLabelY = axisY + tickLength + setTickOffset;
+    let setTickLabelY = axisY + xMajorTickLength + setTickOffset;
     let setAxisLabelY = setTickLabelY + setTickTextHeight + setTitleGap;
     const maxSetAxisLabelY = stageHeight - setAxisLabelHeight - 2;
     if (setAxisLabelY > maxSetAxisLabelY) {
@@ -8490,7 +8515,7 @@
     const tickValues = buildIntegerTicks(maxIntersection, intersectionTickIntervals);
     const tickLabels = tickValues.map(v => formatCount(v));
     const maxTickLabelWidth = Math.max(...tickLabels.map(lbl => measure(lbl, countFont)), 0);
-    const axisX = Math.max(pad + 6, matrixX - (tickLength + tickLabelGap + maxTickLabelWidth + 6));
+    const axisX = Math.max(pad + 6, matrixX - (yMajorTickLength + tickLabelGap + maxTickLabelWidth + 6));
     const intersectionLayout = intersections.map((entry, idx) => {
       const columnCenter = matrixX + columnWidth * (idx + 0.5);
       const barWidth = Math.max(0.75, columnWidth * 0.6);
@@ -8530,7 +8555,7 @@
       makeEl('line', {
         x1: axisX,
         y1: y,
-        x2: axisX - tickLength,
+        x2: axisX - yMajorTickLength,
         y2: y,
         stroke: axisColor,
         'stroke-width': axisWidth
@@ -8598,7 +8623,7 @@
         });
       }
       const tickText = makeEl('text', {
-        x: axisX - tickLength - tickLabelGap,
+        x: axisX - yMajorTickLength - tickLabelGap,
         y,
         'text-anchor': 'end',
         'dominant-baseline': 'middle',
@@ -8610,7 +8635,7 @@
 
     const axisLabelX = Math.max(
       pad * 0.5,
-      axisX - (tickLength + tickLabelGap + maxTickLabelWidth + axisTitleGap + style.fontSizePx * 0.2)
+      axisX - (yMajorTickLength + tickLabelGap + maxTickLabelWidth + axisTitleGap + style.fontSizePx * 0.2)
     );
     const intersectionAxisLabelY = barTop + barChartHeight / 2;
     const axisLabel = makeEl('text', {
@@ -8917,7 +8942,7 @@
         x1: x,
         y1: axisY,
         x2: x,
-        y2: axisY + tickLength,
+        y2: axisY + xMajorTickLength,
         stroke: axisColor,
         'stroke-width': axisWidth
       });

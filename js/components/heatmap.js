@@ -977,8 +977,15 @@
   function createDefaultHeatmapDrawRuntime(source = {}){
     const src = source && typeof source === 'object' ? source : {};
     const rawToken = Number(src.token ?? src.drawToken);
+    const rawCycleId = Number(src.cycleId);
+    const rawCompletedCycleId = Number(src.completedCycleId);
     return {
       token: Number.isFinite(rawToken) && rawToken >= 0 ? rawToken : 0,
+      cycleId: Number.isFinite(rawCycleId) && rawCycleId >= 0 ? rawCycleId : 0,
+      completedCycleId: Number.isFinite(rawCompletedCycleId) && rawCompletedCycleId >= 0 ? rawCompletedCycleId : 0,
+      inProgress: src.inProgress === true,
+      lastStatus: typeof src.lastStatus === 'string' ? src.lastStatus : 'idle',
+      lastReason: typeof src.lastReason === 'string' ? src.lastReason : null,
       pendingDrawOptions: sanitizeHeatmapDrawOptions(src.pendingDrawOptions || src.pendingOptions || null),
       deferredHiddenDrawOptions: sanitizeHeatmapDrawOptions(src.deferredHiddenDrawOptions || null),
       hiddenDrawFlushHandle: null,
@@ -1442,6 +1449,7 @@
     if(shaped?.timers){
       if(options.seedFromActive === true){
         shaped.timers.drawRuntime = createDefaultHeatmapDrawRuntime({
+          ...(shaped.timers.drawRuntime || {}),
           token: state.drawToken,
           pendingDrawOptions: shaped.timers.drawRuntime?.pendingDrawOptions || {},
           deferredHiddenDrawOptions: shaped.timers.drawRuntime?.deferredHiddenDrawOptions || null,
@@ -1598,6 +1606,7 @@
       settingsSignature: existingRenderRuntime.settingsSignature || null
     }, { retainModel: true });
     shaped.timers.drawRuntime = createDefaultHeatmapDrawRuntime({
+      ...(shaped.timers.drawRuntime || {}),
       token: state.drawToken,
       pendingDrawOptions: shaped.timers.drawRuntime?.pendingDrawOptions || {},
       deferredHiddenDrawOptions: shaped.timers.drawRuntime?.deferredHiddenDrawOptions || null,
@@ -9537,6 +9546,37 @@
     svg.setAttribute?.(HEATMAP_RENDER_STATE_ATTRIBUTE, 'incomplete');
   }
 
+  function createHeatmapRenderTransaction(svg){
+    let settled = false;
+    let handedOff = false;
+    markHeatmapRenderStarted(svg);
+    return {
+      complete(meta = {}){
+        markHeatmapRenderCompleted(svg, meta);
+        settled = true;
+      },
+      release(){
+        settled = true;
+      },
+      handOff(renderNext){
+        if(typeof renderNext !== 'function'){
+          throw new TypeError('Heatmap render hand-off requires a render function.');
+        }
+        const result = renderNext();
+        handedOff = true;
+        return result;
+      },
+      finalize(activeSvg){
+        if(!settled && !handedOff && activeSvg === svg){
+          markHeatmapRenderIncomplete(svg);
+        }
+      },
+      get status(){
+        return settled ? 'settled' : (handedOff ? 'handed-off' : 'active');
+      }
+    };
+  }
+
   function drawHeatmap({
     orderedRowLabels,
     orderedColumnLabels,
@@ -9560,8 +9600,7 @@
   }){
     state.isRendering = true;
     const renderTargetSvg = state.svg || null;
-    let renderCompleted = false;
-    markHeatmapRenderStarted(renderTargetSvg);
+    const renderTransaction = createHeatmapRenderTransaction(renderTargetSvg);
     const renderStartedAt = nowMs();
     let previousRenderStageAt = renderStartedAt;
     const renderStages = {};
@@ -9585,7 +9624,7 @@
     });
     if(rowCount === 0 || columnCount === 0){
       renderEmpty(Shared.getEmptyPlotNoticeMessage ? Shared.getEmptyPlotNoticeMessage() : null, ownerSession);
-      renderCompleted = true;
+      renderTransaction.release();
       return;
     }
     const doc = global.document;
@@ -10416,7 +10455,7 @@
           nextExtraColumn,
           nextExtraRow
         });
-        drawHeatmap({
+        return renderTransaction.handOff(() => drawHeatmap({
           orderedRowLabels,
           orderedColumnLabels,
           orderedCells,
@@ -10440,8 +10479,7 @@
             extraLabelRowHeight: nextExtraRow,
             reflowed: reflowCount + 1
           }
-        });
-        return;
+        }));
       }
     }
     const isSymmetricCorrelationMatrix = rowCount === columnCount
@@ -10598,11 +10636,10 @@
     if(modelType === 'values' && resizerAspectLocked){
       svgBox?.__sharedResizableBoxApi?.calibrateLockedGeometryConstraint?.();
     }
-    markHeatmapRenderCompleted(state.svg, {
+    renderTransaction.complete({
       rows: rowCount,
       columns: columnCount
     });
-    renderCompleted = true;
     debugLog('Debug: heatmap drawHeatmap complete', {
       rows: rowCount,
       columns: columnCount,
@@ -10618,9 +10655,7 @@
       columns: columnCount
     });
     } finally {
-      if(!renderCompleted && state.svg === renderTargetSvg){
-        markHeatmapRenderIncomplete(renderTargetSvg);
-      }
+      renderTransaction.finalize(state.svg);
       state.isRendering = false;
     }
   }
@@ -11968,6 +12003,37 @@
       || drawOptions.forceOverlay === true
       || reason === 'workspace-draw-fallback';
     const tabId = drawOptions.tabId || getHeatmapProjectionTabId() || null;
+    const ownerSession = getHeatmapSession(tabId, {
+      ...(drawOptions || {}),
+      tabId,
+      reason: `${reason}-cycle-owner`
+    }, { create: false }) || getActiveHeatmapSessionForState();
+    const cycleRuntime = updateHeatmapDrawRuntime(ownerSession, runtime => {
+      runtime.cycleId = (Number(runtime.cycleId) || 0) + 1;
+      runtime.inProgress = true;
+      runtime.lastStatus = 'running';
+      runtime.lastReason = reason;
+    }, { seedFromActive: true });
+    const cycleId = Number(cycleRuntime?.cycleId) || 0;
+    const finishCycle = (status, error = null) => {
+      let current = !ownerSession;
+      updateHeatmapDrawRuntime(ownerSession, runtime => {
+        current = Number(runtime.cycleId) === cycleId;
+        runtime.completedCycleId = Math.max(Number(runtime.completedCycleId) || 0, cycleId);
+        if(current){
+          runtime.inProgress = false;
+          runtime.lastStatus = status;
+          runtime.lastReason = reason;
+        }
+      });
+      if(current){
+        resolveHeatmapOverlay(error
+          ? { reason: 'error', status: 'error', error, tabId }
+          : { reason: status, tabId });
+      }
+      return current;
+    };
+
     if(forceOverlay){
       forceHeatmapOverlay(reason, {
         tabId,
@@ -11980,22 +12046,25 @@
       const result = draw(drawOptions);
       if(result && typeof result.then === 'function'){
         return result.then(value => {
-          resolveHeatmapOverlay({ reason: 'complete', tabId });
+          finishCycle('complete');
           return value;
         }, err => {
-          resolveHeatmapOverlay({ reason: 'error', status: 'error', error: err, tabId });
+          finishCycle('error', err);
           throw err;
         });
       }
-      resolveHeatmapOverlay({ reason: 'complete', tabId });
+      finishCycle('complete');
       return result;
     }catch(err){
-      resolveHeatmapOverlay({ reason: 'error', status: 'error', error: err, tabId });
+      finishCycle('error', err);
       throw err;
     }
   }
 
   heatmap.draw = runHeatmapDrawCycle;
+  heatmap.scheduleDraw = function scheduleHeatmapDraw(options = {}){
+    return scheduleDrawHeatmap(options);
+  };
   heatmap.cancelCurrentDraw = function cancelCurrentDraw(meta = {}){
     const tabId = meta?.tabId || getHeatmapProjectionTabId() || null;
     const session = tabId ? getHeatmapSession(tabId, { ...(meta || {}), tabId, reason: 'heatmap-cancel-current-draw' }, { create: false }) : getActiveHeatmapSessionForState();
@@ -12004,6 +12073,11 @@
       runtime.pendingDrawOptions = {};
       runtime.deferredHiddenDrawOptions = null;
       runtime.token = (Number(runtime.token) || 0) + 1;
+      runtime.cycleId = (Number(runtime.cycleId) || 0) + 1;
+      runtime.completedCycleId = runtime.cycleId;
+      runtime.inProgress = false;
+      runtime.lastStatus = 'cancelled';
+      runtime.lastReason = meta?.reason || 'heatmap-draw-cancel';
     }, { seedFromActive: true });
     try{ heatmap.__asyncScope?.cancelAllForTab?.(tabId, meta?.reason || 'heatmap-draw-cancel'); }catch(_err){}
     try{ heatmap.__drawAsyncScope?.cancelAllForTab?.(tabId, meta?.reason || 'heatmap-draw-cancel'); }catch(_err){}
@@ -13459,7 +13533,7 @@
       });
       return null;
     }
-    if(svg?.childElementCount > 0 && !hasRenderedHeatmapGraph(requestedSession)){
+    if(svg?.childElementCount > 0 && !hasCompleteHeatmapRenderFrame(svg)){
       debugLog('Debug: heatmap render cache capture skipped for incomplete frame', {
         tabId: requestedSession?.tabId || null,
         renderState: svg.getAttribute?.(HEATMAP_RENDER_STATE_ATTRIBUTE) || null
@@ -13530,31 +13604,10 @@
     return Number.isFinite(rectValue) && rectValue > 0 ? rectValue : NaN;
   }
 
-  function isHeatmapPaintedCanvas(canvas){
-    if(!canvas || !(Number(canvas.width) > 1) || !(Number(canvas.height) > 1)){
-      return false;
-    }
-    const ctx = canvas.getContext?.('2d', { willReadFrequently: true });
-    if(!ctx || typeof ctx.getImageData !== 'function'){
-      return false;
-    }
-    const width = Math.max(1, Number(canvas.width) || 1);
-    const height = Math.max(1, Number(canvas.height) || 1);
-    const points = [
-      [0, 0],
-      [Math.floor((width - 1) / 2), Math.floor((height - 1) / 2)],
-      [width - 1, height - 1],
-      [Math.floor((width - 1) * 0.25), Math.floor((height - 1) * 0.75)],
-      [Math.floor((width - 1) * 0.75), Math.floor((height - 1) * 0.25)]
-    ];
-    try{
-      return points.some(([x, y]) => {
-        const pixel = ctx.getImageData(x, y, 1, 1)?.data;
-        return !!pixel && Number(pixel[3]) > 0;
-      });
-    }catch(_err){
-      return false;
-    }
+  function isHeatmapCanvasSurfaceReady(canvas){
+    return !!canvas
+      && Number(canvas.width) > 1
+      && Number(canvas.height) > 1;
   }
 
   function isHeatmapRestorableBitmapImage(image){
@@ -13592,7 +13645,7 @@
         + 'img[data-graphitix-render-cache-canvas-restored="true"], '
         + 'image[data-heatmap-raster-export="1"]'
       ) || []);
-      return canvases.some(isHeatmapPaintedCanvas)
+      return canvases.some(isHeatmapCanvasSurfaceReady)
         || bitmapImages.some(isHeatmapRestorableBitmapImage);
     }
     return !!cellLayer.querySelector?.(
@@ -13615,13 +13668,38 @@
     return { owner, ownerRoot, svg };
   }
 
-  function hasRenderedHeatmapGraph(session = null){
-    const { svg } = resolveHeatmapOwnerSvg(session);
-    if(!svg || svg.getAttribute?.(HEATMAP_RENDER_COMPLETE_ATTRIBUTE) !== 'true'){
+  function hasCommittedHeatmapMatrix(svg){
+    if(!svg
+      || svg.getAttribute?.(HEATMAP_RENDER_COMPLETE_ATTRIBUTE) !== 'true'
+      || svg.getAttribute?.(HEATMAP_RENDER_STATE_ATTRIBUTE) !== 'complete'){
+      return false;
+    }
+    const rowCount = Number(svg.getAttribute?.('data-heatmap-render-row-count'));
+    const columnCount = Number(svg.getAttribute?.('data-heatmap-render-column-count'));
+    if(!(rowCount > 0) || !(columnCount > 0)){
       return false;
     }
     const cellLayer = svg.querySelector?.('[data-export-layer="heatmap-cells"]') || null;
+    if(!cellLayer){
+      return false;
+    }
+    const layerRows = Number(cellLayer.getAttribute?.('data-heatmap-row-count'));
+    const layerColumns = Number(cellLayer.getAttribute?.('data-heatmap-column-count'));
+    return layerRows === rowCount && layerColumns === columnCount;
+  }
+
+  function hasPublishedHeatmapSvg(svg){
+    const cellLayer = svg?.querySelector?.('[data-export-layer="heatmap-cells"]') || null;
     return isHeatmapMatrixLayerVisuallyReady(cellLayer);
+  }
+
+  function hasCompleteHeatmapRenderFrame(svg){
+    return hasCommittedHeatmapMatrix(svg) && hasPublishedHeatmapSvg(svg);
+  }
+
+  function hasRenderedHeatmapGraph(session = null){
+    const { svg } = resolveHeatmapOwnerSvg(session);
+    return hasPublishedHeatmapSvg(svg);
   }
 
   function resolveHeatmapRenderCachePayload(cache){
@@ -13656,7 +13734,8 @@
     const hasDeferredOptions = !!runtime?.deferredHiddenDrawOptions;
     const hasFlushHandle = !!runtime?.hiddenDrawFlushHandle;
     const isActiveOwner = !!session && isHeatmapSessionActiveForModuleState(session);
-    return !(isActiveOwner && state.isRendering)
+    return !runtime?.inProgress
+      && !(isActiveOwner && state.isRendering)
       && !hasFlushHandle
       && !hasDeferredOptions
       && !hasPendingOptions;
@@ -13805,7 +13884,7 @@
       delete svg.__heatmapLabelProjection;
     }
 
-    const restored = !!(restoredSvg && restoredStats && restoredState && hasRenderedHeatmapGraph(restoreSession));
+    const restored = !!(restoredSvg && restoredStats && restoredState && hasCompleteHeatmapRenderFrame(svg));
     if(!restored){
       while(svg.firstChild){
         svg.removeChild(svg.firstChild);
@@ -13833,8 +13912,11 @@
   };
 
   heatmap.hasRenderedGraph = function hasRenderedGraph(meta = {}){
-    const session = resolveHeatmapRenderCacheSession(meta, { create: false, fallbackActive: true });
-    return !!session && hasRenderedHeatmapGraph(session);
+    const { svg } = resolveHeatmapRenderCacheTargets(meta, {
+      create: false,
+      fallbackActive: false
+    });
+    return hasPublishedHeatmapSvg(svg);
   };
 
   heatmap.__getState = () => ({
@@ -13929,6 +14011,11 @@
       return session;
     },
     getSession: tabId => getHeatmapSession(tabId, { tabId, reason: 'heatmap-test-session' }, { create: false }),
+    getDrawRuntime: tabId => {
+      const session = getHeatmapSession(tabId, { tabId, reason: 'heatmap-test-draw-runtime' }, { create: false });
+      return cloneSimple(getHeatmapDrawRuntime(session, { seedFromActive: false }));
+    },
+    createRenderTransaction: svg => createHeatmapRenderTransaction(svg),
     getSessionRefs: tabId => {
       const session = getHeatmapSession(tabId, { tabId, reason: 'heatmap-test-session-refs' }, { create: false });
       return session?.refs || null;

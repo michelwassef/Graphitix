@@ -1556,12 +1556,23 @@
     };
   };
 
+  const DEFAULT_MAJOR_TICK_LENGTH = 6;
+  chartStyle.DEFAULT_MAJOR_TICK_LENGTH = DEFAULT_MAJOR_TICK_LENGTH;
+
+  chartStyle.normalizeOptionalMajorTickLength = function normalizeOptionalMajorTickLength(value){
+    if(value === null || value === undefined || value === ''){
+      return null;
+    }
+    const numeric = Number(value);
+    return Number.isFinite(numeric) && numeric >= 0 && numeric <= 100 ? numeric : null;
+  };
+
   chartStyle.createAxisMetrics = function createAxisMetrics(fontSize, scaleInfo){
     const safeFont = Number(fontSize) || BASE_FONT_SIZE_PX;
     const hasScaleInfo = !!(scaleInfo && (Number.isFinite(scaleInfo.styleScale) || Number.isFinite(scaleInfo.scale)));
     const resizeScale = hasScaleInfo ? clampScale(resolveStyleScale(scaleInfo)) : 1;
     const baseMetrics = {
-      tickLength: 6,
+      tickLength: DEFAULT_MAJOR_TICK_LENGTH,
       tickLabelGap: Math.max(3, Math.round(safeFont * 0.35)),
       axisTitleGap: Math.max(4, Math.round(safeFont * 0.75)),
       outerPadding: Math.max(6, Math.round(safeFont * 0.6)),
@@ -1597,7 +1608,7 @@
     const fontSize = options?.fontSize || 12;
     const plotWidth = options?.plotWidth || 0;
     const axisMetrics = options?.axisMetrics || chartStyle.createAxisMetrics(fontSize);
-    const tickLength = axisMetrics.tickLength ?? 6;
+    const tickLength = axisMetrics.tickLength ?? DEFAULT_MAJOR_TICK_LENGTH;
     const tickLabelGap = axisMetrics.tickLabelGap ?? Math.max(3, Math.round(fontSize * 0.35));
     const axisTitleGap = axisMetrics.axisTitleGap ?? Math.max(4, Math.round(fontSize * 0.75));
     const outerPadding = axisMetrics.outerPadding ?? Math.max(6, Math.round(fontSize * 0.6));
@@ -2291,7 +2302,7 @@
     const xTickFontSizeRaw = Number(options?.xTickFontSize);
     const xTickFontSize = Number.isFinite(xTickFontSizeRaw) && xTickFontSizeRaw > 0 ? xTickFontSizeRaw : fontSize;
     const axisMetrics = options?.axisMetrics || chartStyle.createAxisMetrics(fontSize);
-    const tickLength = axisMetrics.tickLength ?? 6;
+    const tickLength = axisMetrics.tickLength ?? DEFAULT_MAJOR_TICK_LENGTH;
     const tickLabelGap = axisMetrics.tickLabelGap ?? Math.max(3, Math.round(fontSize * 0.35));
     const axisTitleGap = axisMetrics.axisTitleGap ?? Math.max(4, Math.round(fontSize * 0.75));
     const outerPadding = axisMetrics.outerPadding ?? Math.max(6, Math.round(fontSize * 0.6));

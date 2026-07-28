@@ -2,24 +2,26 @@ const { initializeWorkspaceHarness } = require('./setup/workspaceHarness');
 const fs = require('fs');
 const path = require('path');
 
+function loadHeatmapHarness() {
+  jest.resetModules();
+  initializeWorkspaceHarness();
+  require('../js/vendor.js');
+  require('../js/shared/chartStyle.js');
+  require('../js/shared/debounce.js');
+  require('../js/shared/componentLifecycle.js');
+  require('../js/shared/resizer.js');
+  require('../js/shared/colorPicker.js');
+  require('../js/shared/hot.js');
+  require('../js/shared/componentLayout.js');
+  require('../js/shared/dataTransforms.js');
+  require('../js/shared/dataViews.js');
+  require('../js/shared/workspaceToolbar.js');
+  require('../js/shared/workspaceToolbarAccess.js');
+  require('../js/components/heatmap.js');
+}
+
 describe('Heatmap dendrogram and dense projection geometry', () => {
-  beforeEach(() => {
-    jest.resetModules();
-    initializeWorkspaceHarness();
-    require('../js/vendor.js');
-    require('../js/shared/chartStyle.js');
-    require('../js/shared/debounce.js');
-    require('../js/shared/componentLifecycle.js');
-    require('../js/shared/resizer.js');
-    require('../js/shared/colorPicker.js');
-    require('../js/shared/hot.js');
-    require('../js/shared/componentLayout.js');
-    require('../js/shared/dataTransforms.js');
-    require('../js/shared/dataViews.js');
-    require('../js/shared/workspaceToolbar.js');
-    require('../js/shared/workspaceToolbarAccess.js');
-    require('../js/components/heatmap.js');
-  });
+  beforeEach(loadHeatmapHarness);
 
   function leaf(index) {
     return { indices: [index], distance: 0 };
@@ -307,6 +309,8 @@ describe('Heatmap dendrogram and dense projection geometry', () => {
 
 
 describe('heatmap draw scheduling lifecycle', () => {
+  beforeEach(loadHeatmapHarness);
+
   test('retries a stale owner-scoped draw frame while the Heatmap tab remains active', () => {
     const source = fs.readFileSync(path.join(__dirname, '../js/components/heatmap.js'), 'utf8');
     expect(source).toContain('retryOnStale: true');
@@ -335,7 +339,28 @@ describe('heatmap draw scheduling lifecycle', () => {
     expect(applyTitleSource).not.toContain('draw(');
   });
 
-  test('partial title or dendrogram frames are never accepted as a recovered Heatmap', () => {
+  test('nested Heatmap reflow hands render ownership to the committed inner frame', () => {
+    const hooks = window.Components.heatmap.__testHooks;
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    const outer = hooks.createRenderTransaction(svg);
+
+    const result = outer.handOff(() => {
+      const inner = hooks.createRenderTransaction(svg);
+      inner.complete({ rows: 2, columns: 3 });
+      inner.finalize(svg);
+      return 'reflow-complete';
+    });
+    outer.finalize(svg);
+
+    expect(result).toBe('reflow-complete');
+    expect(outer.status).toBe('handed-off');
+    expect(svg.getAttribute('data-heatmap-render-complete')).toBe('true');
+    expect(svg.getAttribute('data-heatmap-render-state')).toBe('complete');
+    expect(svg.getAttribute('data-heatmap-render-row-count')).toBe('2');
+    expect(svg.getAttribute('data-heatmap-render-column-count')).toBe('3');
+  });
+
+  test('partial title or dendrogram frames are rejected until a real Heatmap matrix is published', () => {
     const hooks = window.Components.heatmap.__testHooks;
     const root = document.createElement('div');
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -366,10 +391,89 @@ describe('heatmap draw scheduling lifecycle', () => {
     cells.appendChild(rect);
     svg.appendChild(cells);
 
-    expect(hooks.hasRenderedGraph(session)).toBe(false);
+    expect(hooks.hasRenderedGraph(session)).toBe(true);
+  });
+
+  test('post-restore validation reads the exact mounted root instead of stale session refs', () => {
+    const heatmap = window.Components.heatmap;
+    const tabId = 'workspace-recovery-mounted-root';
+    const staleRoot = document.createElement('div');
+    const staleSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    staleSvg.id = 'heatmapSvg';
+    staleRoot.appendChild(staleSvg);
+    document.body.appendChild(staleRoot);
+    heatmap.__testHooks.bindDomProjection(tabId, staleRoot);
+
+    const mountedRoot = document.createElement('div');
+    const mountedSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    mountedSvg.id = 'heatmapSvg';
+    const cells = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    cells.setAttribute('data-export-layer', 'heatmap-cells');
+    cells.setAttribute('data-render-mode', 'svg');
+    cells.setAttribute('data-heatmap-row-count', '1');
+    cells.setAttribute('data-heatmap-column-count', '1');
+    const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    rect.setAttribute('width', '10');
+    rect.setAttribute('height', '10');
+    cells.appendChild(rect);
+    mountedSvg.appendChild(cells);
+    mountedRoot.appendChild(mountedSvg);
+    document.body.appendChild(mountedRoot);
+
+    expect(heatmap.hasRenderedGraph({ tabId, root: mountedRoot })).toBe(true);
+    expect(heatmap.__testHooks.getSessionRefs(tabId)?.svg).toBe(mountedSvg);
+  });
+
+  test('canvas Heatmap publication is validated structurally without reading pixels', () => {
+    const heatmap = window.Components.heatmap;
+    const root = document.createElement('div');
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.id = 'heatmapSvg';
+    const cells = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    cells.setAttribute('data-export-layer', 'heatmap-cells');
+    cells.setAttribute('data-render-mode', 'canvas');
+    cells.setAttribute('data-heatmap-row-count', '2');
+    cells.setAttribute('data-heatmap-column-count', '2');
+    const canvas = document.createElement('canvas');
+    canvas.width = 32;
+    canvas.height = 32;
+    canvas.getContext = jest.fn(() => {
+      throw new Error('publication validation must not read canvas pixels');
+    });
+    cells.appendChild(canvas);
+    svg.appendChild(cells);
+    root.appendChild(svg);
+    document.body.appendChild(root);
+
+    expect(heatmap.hasRenderedGraph({ tabId: 'workspace-canvas-publication', root })).toBe(true);
+    expect(canvas.getContext).not.toHaveBeenCalled();
+  });
+
+  test('live publication requires matrix data marks while cache validation keeps the strict commit contract', () => {
+    const heatmap = window.Components.heatmap;
+    const root = document.createElement('div');
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.id = 'heatmapSvg';
     svg.setAttribute('data-heatmap-render-complete', 'true');
     svg.setAttribute('data-heatmap-render-state', 'complete');
-    expect(hooks.hasRenderedGraph(session)).toBe(true);
+    svg.setAttribute('data-heatmap-render-row-count', '3');
+    svg.setAttribute('data-heatmap-render-column-count', '4');
+    const cells = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    cells.setAttribute('data-export-layer', 'heatmap-cells');
+    cells.setAttribute('data-render-mode', 'svg');
+    cells.setAttribute('data-heatmap-row-count', '3');
+    cells.setAttribute('data-heatmap-column-count', '4');
+    svg.appendChild(cells);
+    root.appendChild(svg);
+    document.body.appendChild(root);
+
+    expect(heatmap.hasRenderedGraph({ tabId: 'workspace-live-publication', root })).toBe(false);
+
+    const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    rect.setAttribute('width', '10');
+    rect.setAttribute('height', '10');
+    cells.appendChild(rect);
+    expect(heatmap.hasRenderedGraph({ tabId: 'workspace-live-publication', root })).toBe(true);
   });
 
   test('render-cache validation requires a completed matrix layer, not incidental SVG content', () => {
@@ -411,22 +515,26 @@ describe('heatmap draw scheduling lifecycle', () => {
     expect(restoreSource).toContain('resolveHeatmapRenderCacheTargets(meta');
     expect(restoreSource).toContain('isHeatmapOwnerContextCurrent(restoreSession');
     expect(restoreSource).toContain('isHeatmapExplicitOwnerOperation(meta)');
-    expect(restoreSource).toContain('hasRenderedHeatmapGraph(restoreSession)');
+    expect(restoreSource).toContain('hasCompleteHeatmapRenderFrame(svg)');
     expect(restoreSource).not.toContain("state.svg || $('heatmapSvg')");
     expect(restoreSource).not.toContain('getActiveHeatmapSessionForState()');
     expect(restoreSource).not.toContain('renderModelWithView');
     expect(restoreSource).not.toContain('suppressNextSchedule');
   });
 
-  test('Heatmap exposes strict post-restore graph validation to the shared workspace owner', () => {
+  test('Heatmap uses the shared primary-graph publication contract and an awaitable authoritative draw', () => {
     const heatmapSource = fs.readFileSync(path.join(__dirname, '..', 'js', 'components', 'heatmap.js'), 'utf8');
     const componentsSource = fs.readFileSync(path.join(__dirname, '..', 'js', 'main', 'components.js'), 'utf8');
     const domControlsSource = fs.readFileSync(path.join(__dirname, '..', 'js', 'main', 'domControls.js'), 'utf8');
     expect(heatmapSource).toContain('heatmap.hasRenderedGraph = function hasRenderedGraph');
-    expect(componentsSource).toContain('hasRenderedGraph: meta => window.Components?.heatmap?.hasRenderedGraph?.(meta)');
-    expect(domControlsSource).toContain("reason: 'workspace-render-cache-post-restore-validation'");
-    expect(domControlsSource).toContain('componentRendered === true');
-    expect(domControlsSource).toContain('componentRendered == null && hasRenderableGraphContent(restoredRoot)');
+    expect(heatmapSource).toContain('return hasPublishedHeatmapSvg(svg);');
+    expect(heatmapSource).toContain('heatmap.scheduleDraw = function scheduleHeatmapDraw');
+    expect(componentsSource).toContain("draw: meta => window.Components?.heatmap?.draw?.(meta || {})");
+    expect(componentsSource).toContain("hasRenderedGraph: createPrimaryGraphPublicationValidator('heatmap'");
+    expect(componentsSource).not.toContain('draw: meta => scheduleDrawHeatmap(meta || {})');
+    expect(domControlsSource).toContain('const hasPublishedWorkspaceGraphContent =');
+    expect(domControlsSource).toContain("'workspace-render-cache-post-restore-validation'");
+    expect(domControlsSource).toContain("return hasPublishedWorkspaceGraphContent(root, 'workspace-post-restore-publication-check');");
   });
 
 

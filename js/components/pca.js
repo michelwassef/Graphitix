@@ -7876,12 +7876,12 @@
       strokeWidth: 1,
       color: DEFAULT_AXIS_COLOR,
       x: {
-        tickInterval: null,
+        tickInterval: null, majorTickLength: null,
         minorTicks: false,
         minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS
       },
       y: {
-        tickInterval: null,
+        tickInterval: null, majorTickLength: null,
         minorTicks: false,
         minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS
       }
@@ -7906,13 +7906,13 @@
     }
     if (!pcaState.axisSettings.x || typeof pcaState.axisSettings.x !== 'object') {
       pcaState.axisSettings.x = {
-        tickInterval: null,
+        tickInterval: null, majorTickLength: null,
         minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS
       };
     }
     if (!pcaState.axisSettings.y || typeof pcaState.axisSettings.y !== 'object') {
       pcaState.axisSettings.y = {
-        tickInterval: null,
+        tickInterval: null, majorTickLength: null,
         minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS
       };
     }
@@ -8007,6 +8007,28 @@
       tickInterval: settings[axis].tickInterval
     });
     requestPcaViewRefresh(`axis-ticks-${axis}`);
+  }
+
+  function getAxisMajorTickLength(axis){
+    if(axis !== 'x' && axis !== 'y'){ return null; }
+    const settings = ensureAxisSettings();
+    const storedValue = settings[axis]?.majorTickLength;
+    if(storedValue === null || storedValue === undefined || storedValue === ''){ return null; }
+    const numeric = Number(storedValue);
+    return Number.isFinite(numeric) && numeric >= 0 && numeric <= 100 ? numeric : null;
+  }
+
+  function updateAxisMajorTickLength(axis, value){
+    if(axis !== 'x' && axis !== 'y'){ return; }
+    const settings = ensureAxisSettings();
+    const numeric = Number(value);
+    const nextValue = value === null || value === undefined || value === ''
+      ? null
+      : (Number.isFinite(numeric) && numeric >= 0 && numeric <= 100 ? numeric : null);
+    if(settings[axis].majorTickLength === nextValue){ return; }
+    settings[axis].majorTickLength = nextValue;
+    debugLog('Debug: pca major tick length updated',{ axis, majorTickLength: nextValue });
+    requestPcaViewRefresh(`axis-major-tick-length-${axis}`);
   }
 
   function getAxisMinorTicksEnabled(axis) {
@@ -8128,6 +8150,10 @@
       const yInterval = settings.tickIntervalY ?? settings.yTickInterval ?? settings?.y?.tickInterval ?? null;
       base.x.tickInterval = xInterval === '' ? null : xInterval;
       base.y.tickInterval = yInterval === '' ? null : yInterval;
+      const xMajorTickLength = settings.majorTickLengthX ?? settings.xMajorTickLength ?? settings?.x?.majorTickLength ?? null;
+      const yMajorTickLength = settings.majorTickLengthY ?? settings.yMajorTickLength ?? settings?.y?.majorTickLength ?? null;
+      base.x.majorTickLength = chartStyle.normalizeOptionalMajorTickLength(xMajorTickLength);
+      base.y.majorTickLength = chartStyle.normalizeOptionalMajorTickLength(yMajorTickLength);
       base.x.minorTicks = !!(settings.minorTicksX ?? settings.x?.minorTicks ?? false);
       base.y.minorTicks = !!(settings.minorTicksY ?? settings.y?.minorTicks ?? false);
       const xMinorSubdiv = settings.minorTickSubdivisionsX ?? settings.minorSubdivisionsX ?? settings.x?.minorTickSubdivisions ?? settings.x?.minorSubdivisions ?? null;
@@ -13874,6 +13900,8 @@
       const tickFont = yTickMeasureFont;
       const hasYTitle = String(pcaYLabelText == null ? '' : pcaYLabelText).trim().length > 0;
       const tickLen = axisMetrics.tickLength;
+    const xMajorTickLength = getAxisMajorTickLength('x') ?? tickLen;
+    const yMajorTickLength = getAxisMajorTickLength('y') ?? tickLen;
       const tickGap = axisMetrics.tickLabelGap;
       let margin = chartStyle.computeBaseMargins({
         fontSize: fs,
@@ -13944,7 +13972,7 @@
           hasYTitle,
           axisMetrics
         });
-        margin.left = Math.max(margin.left, maxYLabelWidth + tickLen + tickGap + fs * 0.5);
+        margin.left = Math.max(margin.left, maxYLabelWidth + yMajorTickLength + tickGap + fs * 0.5);
         plotW = Math.max(20, W - margin.left - margin.right);
         plotH = Math.max(20, H - margin.top - margin.bottom);
         bottomLayout = chartStyle.computeBottomLayout({
@@ -14291,6 +14319,10 @@
         axis,
         scopeId: 'pca',
         getTickInterval: () => getAxisTickInterval(axis),
+        getMajorTickLength: () => getAxisMajorTickLength(axis),
+        onMajorTickLengthChange: value => updateAxisMajorTickLength(axis, value),
+        isMajorTickLengthSupported: () => true,
+        majorTickLengthPlaceholder: 'Auto',
         getThickness: () => getAxisStrokeWidthBase(),
         getColor: () => getAxisColor(),
         isTickIntervalEnabled: () => true,
@@ -14381,16 +14413,16 @@
           x1: x,
           y1: margin.top + plotH,
           x2: x,
-          y2: margin.top + plotH + tickLen,
+          y2: margin.top + plotH + xMajorTickLength,
           stroke: axisStroke,
           'stroke-width': axisStrokeWidth,
           'data-axis-tick': '1',
           'data-axis-key': 'x'
         });
-        const extra = Shared.computeAxisLabelYOffset ? Shared.computeAxisLabelYOffset(fs, tickLen, tickGap) : 0;
+        const extra = Shared.computeAxisLabelYOffset ? Shared.computeAxisLabelYOffset(fs, xMajorTickLength, tickGap) : 0;
         const txt = add('text', {
           x,
-          y: margin.top + plotH + tickLen + tickGap + extra,
+          y: margin.top + plotH + xMajorTickLength + tickGap + extra,
           'font-size': fs,
           'text-anchor': 'middle',
           fill: chartStyle.TEXT_COLOR,
@@ -14429,7 +14461,7 @@
       yScale.ticks.forEach((t, i) => {
         const y = y2px(t);
         add('line', {
-          x1: margin.left - tickLen,
+          x1: margin.left - yMajorTickLength,
           y1: y,
           x2: margin.left,
           y2: y,
@@ -14439,7 +14471,7 @@
           'data-axis-key': 'y'
         });
         const txt = add('text', {
-          x: margin.left - (tickLen + tickGap),
+          x: margin.left - (yMajorTickLength + tickGap),
           y,
           'font-size': fs,
           'text-anchor': 'end',
@@ -14580,7 +14612,7 @@
         debugLog('Debug: pca x-axis title overlap auto-shift skipped (custom position retained)');
       }
 
-      const yLabelOffsetSpan = (maxYLabelWidth + tickLen + tickGap + axisMetrics.axisTitleGap + fs * 0.5);
+      const yLabelOffsetSpan = (maxYLabelWidth + yMajorTickLength + tickGap + axisMetrics.axisTitleGap + fs * 0.5);
       const defaultYLabelX = margin.left - yLabelOffsetSpan;
       const defaultYLabelY = margin.top + plotH / 2;
       const yLabelPos = pcaLabelPositionsState?.yLabel;
@@ -15214,6 +15246,8 @@
         color: axisSettings?.color,
         tickIntervalX: axisSettings?.x?.tickInterval ?? null,
         tickIntervalY: axisSettings?.y?.tickInterval ?? null,
+        majorTickLengthX: axisSettings?.x?.majorTickLength ?? null,
+        majorTickLengthY: axisSettings?.y?.majorTickLength ?? null,
         minorTicksX: axisSettings?.x?.minorTicks ?? false,
         minorTicksY: axisSettings?.y?.minorTicks ?? false,
         minorTickSubdivisionsX: clampMinorTickSubdivisions(axisSettings?.x?.minorTickSubdivisions),

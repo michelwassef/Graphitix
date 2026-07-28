@@ -3,7 +3,8 @@ const { test, expect } = require('@playwright/test');
 const {
   installLocalCdnOverrides,
   registerIssueCollectors,
-  openComponentFromWelcome
+  openComponentFromWelcome,
+  waitForDocumentOpenComplete
 } = require('./helpers/workspaceHarness');
 
 const LARGE_VALUES_CSV = path.resolve(__dirname, '..', '__tests__', 'test-scatter-medium.csv');
@@ -216,6 +217,7 @@ test('heavy Heatmap publishes one complete graph after crash recovery', async ({
   await waitForPublishedHeatmap(page);
   await seedRecoverySnapshot(page);
   await reloadAndAcceptRecovery(page);
+  await waitForDocumentOpenComplete(page, 45_000);
 
   await page.waitForSelector('#heatmapPage:not([hidden])', { timeout: 60_000 });
   await waitForPublishedHeatmap(page);
@@ -223,12 +225,17 @@ test('heavy Heatmap publishes one complete graph after crash recovery', async ({
   const restored = await page.evaluate(() => {
     const svg = document.querySelector('#heatmapPage:not([hidden]) #heatmapSvg');
     const layer = svg?.querySelector('[data-export-layer="heatmap-cells"]');
+    const documentOverlay = document.getElementById('documentOpenOverlay');
     return {
       complete: svg?.getAttribute('data-heatmap-render-complete') || null,
       title: svg?.querySelector('text[data-font-role="graphTitle"]')?.textContent || '',
       rectCount: layer?.querySelectorAll('rect').length || 0,
       canvasCount: layer?.querySelectorAll('canvas').length || 0,
       overlaySeen: window.__heatmapRecoveryOverlaySeen === true,
+      documentOverlayPresent: !!documentOverlay,
+      documentOverlayHidden: documentOverlay?.hidden === true,
+      documentOperation: window.Main?.session?.workspaceState?.documentOperation || null,
+      bodyBusy: document.body?.getAttribute('aria-busy') || null,
       activationError: window.Main?.session?.workspaceState?.tabs?.find(tab => tab?.type === 'heatmap')?.activationError || null
     };
   });
@@ -247,6 +254,10 @@ test('heavy Heatmap publishes one complete graph after crash recovery', async ({
   expect(restored.title).toBe('Recovered heavy heatmap');
   expect(restored.rectCount + restored.canvasCount).toBeGreaterThan(0);
   expect(restored.overlaySeen).toBe(true);
+  expect(restored.documentOverlayPresent).toBe(true);
+  expect(restored.documentOverlayHidden).toBe(true);
+  expect(restored.documentOperation).toBeNull();
+  expect(restored.bodyBusy).toBeNull();
   expect(restored.activationError).toBeNull();
   expect(recoveryPerformance.draw?.renderModelCacheReused).toBe(true);
   expect(recoveryPerformance.workers).toEqual([]);
