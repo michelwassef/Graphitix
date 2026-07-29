@@ -58,6 +58,14 @@ async function configureHistogramFrequencyTab(page) {
   await page.evaluate(() => {
     const root = document.querySelector('#histPage:not([hidden])');
     if (!root) throw new Error('active hist root not found');
+    const currentPayload = window.Components.hist.getPayload?.() || { type: 'hist', config: {} };
+    window.Components.hist.loadFromPayload({
+      ...currentPayload,
+      config: {
+        ...(currentPayload.config || {}),
+        traceOpacity: 0.42
+      }
+    }, { source: 'e2e-frequency-trace-opacity', skipDraw: true });
     const setValue = (id, value, eventName = 'change') => {
       const el = root.querySelector(`#${id}`);
       if (!el) throw new Error(`${id} not found`);
@@ -122,7 +130,8 @@ async function configureDensityManualTab(page) {
       activeDataViewId: undefined,
       config: {
         ...(currentPayload.config || {}),
-        plotMode: 'density'
+        plotMode: 'density',
+        traceOpacity: 0.78
       }
     }, { source: 'e2e-large-density-load', skipDraw: true });
     const setValue = (id, value) => {
@@ -193,6 +202,7 @@ async function snapshotHist(page) {
       showCdf: !!root?.querySelector?.('#histShowCdf')?.checked,
       showLegend: !!root?.querySelector?.('#histShowLegend')?.checked,
       showGrid: !!root?.querySelector?.('#histShowGrid')?.checked,
+      traceOpacity: payload?.config?.traceOpacity ?? null,
       statsDiagnostics: root?.querySelector?.('#histStatsDiagnosticsMode')?.value || null,
       selectedDistributions,
       payloadFrequency: payload?.config?.frequency || null,
@@ -340,6 +350,7 @@ function expectFrequencySnapshot(snapshot) {
   expect(snapshot.showPdf).toBe(false);
   expect(snapshot.showCdf).toBe(true);
   expect(snapshot.showLegend).toBe(false);
+  expect(snapshot.traceOpacity).toBeCloseTo(0.42, 6);
   expect(snapshot.statsDiagnostics).toBe('normal-fit');
   expect(snapshot.selectedDistributions).toEqual(['normal']);
   expect(snapshot.payloadFrequency.createMode).toBe('cumulative');
@@ -359,6 +370,7 @@ function expectDensitySnapshot(snapshot) {
   expect(snapshot.showPdf).toBe(true);
   expect(snapshot.showCdf).toBe(false);
   expect(snapshot.showLegend).toBe(true);
+  expect(snapshot.traceOpacity).toBeCloseTo(0.78, 6);
   expect(snapshot.showGrid).toBe(true);
   expect(snapshot.statsDiagnostics).toBe('normal-vs-lognormal');
   expect(snapshot.selectedDistributions).toEqual(['lognormal', 'normal']);
@@ -369,6 +381,104 @@ function expectDensitySnapshot(snapshot) {
   expect(snapshot.hasFrequencyView).toBe(false);
   expect(snapshot.svgText + snapshot.statsText).toMatch(/Density plot|Distribution shape|Log-normal|Descriptive statistics/i);
 }
+
+test('Histogram sparse bins omit baseline artifacts and paint shared separators once', async ({ page }) => {
+  test.setTimeout(90_000);
+  await installLocalCdnOverrides(page);
+  await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
+  await openHistExampleTab(page, { first: true });
+
+  const geometry = await page.evaluate(async () => {
+    const component = window.Components?.hist;
+    const tab = window.Main?.tabs?.getActiveTab?.();
+    const payload = component?.createEmptyPayload?.();
+    payload.data = [['Values'], [0], [0], [0], [1], [1], [2], [10]];
+    payload.config.frequency = {
+      ...(payload.config.frequency || {}),
+      binningMode: 'width',
+      manualBinWidth: 1,
+      firstCenterAuto: false,
+      firstCenter: 0,
+      lastCenterAuto: false,
+      lastCenter: 10
+    };
+    component.loadFromPayload(payload, {
+      source: 'e2e-hist-border-geometry',
+      tab,
+      tabId: tab.id,
+      skipDraw: true
+    });
+    await component.draw({ reason: 'e2e-hist-border-geometry', tabId: tab.id });
+
+    const root = document.querySelector('#histPage:not([hidden])');
+    const bars = Array.from(root.querySelectorAll(
+      '#histSvg [data-hist-bar="1"][data-series-role="hist-fill"]'
+    ));
+    const borders = Array.from(root.querySelectorAll(
+      '#histSvg [data-series-role="hist-border"][data-series-key="col-0"]'
+    ));
+    const horizontalBars = bars.filter(bar => {
+      const points = Array.from(String(bar.getAttribute('d') || '').matchAll(
+        /[ML]\s+(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)/g
+      ));
+      return new Set(points.map(match => Number(match[2]).toFixed(6))).size <= 1;
+    });
+    const commands = Array.from(String(borders[0]?.getAttribute('d') || '').matchAll(
+      /([ML])\s+(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)/g
+    )).map(match => ({
+      command: match[1],
+      x: Number(match[2]),
+      y: Number(match[3])
+    }));
+    const verticalSegments = [];
+    let previousPoint = null;
+    commands.forEach(command => {
+      if(command.command === 'L' && previousPoint && previousPoint.x === command.x){
+        verticalSegments.push({
+          x: command.x,
+          start: Math.min(previousPoint.y, command.y),
+          end: Math.max(previousPoint.y, command.y)
+        });
+      }
+      previousPoint = command;
+    });
+    const verticalKeys = verticalSegments.map(segment => (
+      `${segment.x.toFixed(6)}:${segment.start.toFixed(6)}:${segment.end.toFixed(6)}`
+    ));
+    const segmentsByX = verticalSegments.reduce((groups, segment) => {
+      const key = segment.x.toFixed(6);
+      if(!groups[key]) groups[key] = [];
+      groups[key].push(segment);
+      return groups;
+    }, {});
+    let overlapCount = 0;
+    Object.values(segmentsByX).forEach(segments => {
+      const ordered = segments.slice().sort((left, right) => left.start - right.start);
+      for(let index = 1; index < ordered.length; index += 1){
+        if(ordered[index].start < ordered[index - 1].end - 1e-6){
+          overlapCount += 1;
+        }
+      }
+    });
+    return {
+      barCount: bars.length,
+      strokedBarCount: bars.filter(bar => bar.hasAttribute('stroke') && bar.getAttribute('stroke') !== 'none').length,
+      horizontalBarCount: horizontalBars.length,
+      borderCount: borders.length,
+      verticalCount: verticalSegments.length,
+      uniqueVerticalCount: new Set(verticalKeys).size,
+      overlapCount
+    };
+  });
+
+  expect(geometry.barCount).toBe(1);
+  expect(geometry.strokedBarCount).toBe(0);
+  expect(geometry.horizontalBarCount).toBe(0);
+  expect(geometry.borderCount).toBe(1);
+  expect(geometry.verticalCount).toBeGreaterThan(0);
+  expect(geometry.uniqueVerticalCount).toBe(geometry.verticalCount);
+  expect(geometry.overlapCount).toBe(0);
+});
 
 test('Histogram frequency, distribution, and manual-render state stay isolated across same-type tabs and reopen', async ({ page }) => {
   test.setTimeout(300_000);

@@ -345,7 +345,7 @@
       showGrid: false,
       showFrame: false,
       logY: false,
-      xMin: '0',
+      xMin: '',
       xMax: '',
       yMax: '',
       fontSize: '12'
@@ -624,6 +624,28 @@
   const HIST_DEFAULT_DENSITY_FILL_OPACITY = 0.18;
   const HIST_DEFAULT_DENSITY_STROKE_WIDTH = 1.5;
 
+  function normalizeHistTraceOpacity(value, fallback = null){
+    if(value == null || value === ''){
+      return fallback;
+    }
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? Math.max(0, Math.min(1, numeric)) : fallback;
+  }
+
+  function normalizeHistSeriesOpacities(value){
+    if(!value || typeof value !== 'object' || Array.isArray(value)){
+      return {};
+    }
+    return Object.entries(value).reduce((result, [seriesKey, opacity]) => {
+      const key = String(seriesKey || '').trim();
+      const normalized = normalizeHistTraceOpacity(opacity);
+      if(key && normalized != null){
+        result[key] = normalized;
+      }
+      return result;
+    }, {});
+  }
+
   let state = {
     hot: null,
     scheduleDraw: null,
@@ -638,6 +660,8 @@
     showLegend: true,
     seriesColors: {},
     densityLineColors: {},
+    traceOpacity: null,
+    seriesOpacities: {},
     barFill: HIST_DEFAULT_FILL,
     barBorder: HIST_DEFAULT_BORDER,
     barBorderWidth: HIST_DEFAULT_BORDER_WIDTH,
@@ -727,6 +751,8 @@
     return {
       series: cloneSimple(src.series) || {},
       densityLines: cloneSimple(src.densityLines) || {},
+      traceOpacity: normalizeHistTraceOpacity(src.traceOpacity),
+      seriesOpacities: normalizeHistSeriesOpacities(src.seriesOpacities),
       fill: typeof src.fill === 'string' && src.fill.trim() ? src.fill : HIST_DEFAULT_FILL,
       border: typeof src.border === 'string' && src.border.trim() ? src.border : HIST_DEFAULT_BORDER,
       borderWidth: Number.isFinite(Number(src.borderWidth)) ? Number(src.borderWidth) : HIST_DEFAULT_BORDER_WIDTH
@@ -770,6 +796,8 @@
       : {
           series: src.seriesColors,
           densityLines: src.densityLineColors,
+          traceOpacity: src.traceOpacity,
+          seriesOpacities: src.seriesOpacities,
           fill: src.barFill,
           border: src.barBorder,
           borderWidth: src.barBorderWidth
@@ -935,6 +963,7 @@
       autoDrawNotice: null,
       plotMode: null,
       showLegend: null,
+      legendControl: null,
       showGrid: null,
       showFrame: null,
       logY: null,
@@ -1378,6 +1407,7 @@
       autoDrawNotice: histAutoDrawNoticeEl || queryHistRoot('#histAutoDrawNotice'),
       plotMode: queryHistRoot('#histPlotMode'),
       showLegend: queryHistRoot('#histShowLegend'),
+      legendControl: queryHistRoot('#histShowLegend')?.closest?.('label') || null,
       showGrid: queryHistRoot('#histShowGrid'),
       showFrame: queryHistRoot('#histShowFrame'),
       logY: queryHistRoot('#histLogY'),
@@ -1502,6 +1532,8 @@
     const colors = createDefaultHistColorState({
       series: state.seriesColors,
       densityLines: state.densityLineColors,
+      traceOpacity: state.traceOpacity,
+      seriesOpacities: state.seriesOpacities,
       fill: state.barFill,
       border: state.barBorder,
       borderWidth: state.barBorderWidth
@@ -1557,6 +1589,8 @@
     state.showLegend = durable.showLegend !== false;
     state.seriesColors = cloneSimple(colors.series) || {};
     state.densityLineColors = cloneSimple(colors.densityLines) || {};
+    state.traceOpacity = normalizeHistTraceOpacity(colors.traceOpacity);
+    state.seriesOpacities = normalizeHistSeriesOpacities(colors.seriesOpacities);
     state.barFill = colors.fill || HIST_DEFAULT_FILL;
     state.barBorder = colors.border || HIST_DEFAULT_BORDER;
     state.barBorderWidth = Number.isFinite(Number(colors.borderWidth)) ? Number(colors.borderWidth) : HIST_DEFAULT_BORDER_WIDTH;
@@ -1756,6 +1790,8 @@
       showLegend: true,
       seriesColors: {},
       densityLineColors: {},
+      traceOpacity: null,
+      seriesOpacities: {},
       colorScheme: Shared.colorSchemes?.getDefaultSchemeId?.('hist') || 'scientific',
       fill: HIST_DEFAULT_FILL,
       border: HIST_DEFAULT_BORDER,
@@ -1768,7 +1804,7 @@
       logY: false,
       fontSize: '12',
       axis: createDefaultAxisSettings(),
-      axisLimits: { xMin: 0, xMax: null, yMax: null },
+      axisLimits: { xMin: null, xMax: null, yMax: null },
       distributions: {
         selected: Object.keys(distributionSelections).filter(key => distributionSelections[key]),
         showPdf: !!defaultDistributionSettings.showPdf,
@@ -2362,6 +2398,28 @@
 
     projectHistDistributionControlsFromState({ rebuild: false });
     syncHistStatsControls(seriesCount);
+  }
+
+  function ensureHistLegendControlPlacement(session = null){
+    const owner = ensureHistSessionOwnershipShape(session || getActiveHistSessionForState());
+    if(owner?.tabId && !isHistSessionActiveOrActivating(owner)){
+      return null;
+    }
+    const svgBox = state.svgBox || state.layout?.elements?.svgBox || queryHistRoot('#histGraphPanel .svgbox');
+    const legendControl = getHistNodeById('histShowLegend')?.closest?.('label') || null;
+    if(!svgBox || !legendControl || typeof Shared.resizer?.ensureLegendControlPlacement !== 'function'){
+      return null;
+    }
+    const menu = Shared.resizer.ensureLegendControlPlacement({
+      svgBox,
+      control: legendControl,
+      debugLabel: 'hist-legend'
+    });
+    if(owner?.refs){
+      owner.refs.showLegend = getHistNodeById('histShowLegend');
+      owner.refs.legendControl = legendControl;
+    }
+    return menu;
   }
 
   let histNoticeBoundWidth = null;
@@ -3300,6 +3358,24 @@
     return ensureAxisSettings().strokeWidth;
   }
 
+  function syncHistAxisSettingsToOwner(reason){
+    captureHistSessionStateFromActive(
+      getHistProjectionSession({ reason: reason || 'hist-axis-style-change' }),
+      { reason: reason || 'hist-axis-style-change', captureStatsPanel: false }
+    );
+  }
+
+  function projectHistAxisStyle(attributes){
+    const tabId = normalizeHistSessionTabId(getHistProjectionTabId() || getHistActiveTabId() || null, {});
+    const svg = getHistNodeById('histSvg', tabId) || getHistNodeById('histSvg');
+    return !!Shared.visualProjection?.apply?.(svg, {
+      component: 'hist',
+      channel: 'axis',
+      tabId,
+      attributes
+    });
+  }
+
   function updateAxisStrokeWidth(value){
     const settings = ensureAxisSettings();
     if(value === null || value === undefined || value === ''){
@@ -3309,7 +3385,10 @@
       settings.strokeWidth = Number.isFinite(numeric) && numeric > 0 ? numeric : 1;
     }
     histDebug('Debug: hist axis stroke width updated',{ strokeWidth: settings.strokeWidth });
-    scheduleActiveHistDraw({ reason: 'hist-axis-stroke-width-change' });
+    syncHistAxisSettingsToOwner('hist-axis-stroke-width-change');
+    if(!projectHistAxisStyle({ strokeWidth: settings.strokeWidth })){
+      scheduleHistViewRefresh('hist-axis-stroke-width-change');
+    }
   }
 
   function getAxisColor(){
@@ -3320,7 +3399,10 @@
     const settings = ensureAxisSettings();
     settings.color = typeof value === 'string' && value.trim() ? value : DEFAULT_AXIS_COLOR;
     histDebug('Debug: hist axis color updated',{ color: settings.color });
-    scheduleActiveHistDraw({ reason: 'hist-axis-color-change' });
+    syncHistAxisSettingsToOwner('hist-axis-color-change');
+    if(!projectHistAxisStyle({ stroke: settings.color })){
+      scheduleHistViewRefresh('hist-axis-color-change');
+    }
   }
 
   function registerHistGridControlTarget(target, options){
@@ -3337,12 +3419,24 @@
         if(input){
           input.checked = !!value;
         }
+        captureHistSessionStateFromActive(
+          getHistProjectionSession({ reason: 'hist-grid-visibility-change' }),
+          { reason: 'hist-grid-visibility-change', captureStatsPanel: false }
+        );
         scheduleActiveHistDraw({ reason: 'hist-grid-visibility-change' });
       },
       getStyle: () => getGridStyle(fallbackThickness),
       onStyleChange: style => {
         setGridStyle(style, fallbackThickness);
-        scheduleActiveHistDraw({ reason: 'hist-grid-style-change' });
+        captureHistSessionStateFromActive(
+          getHistProjectionSession({ reason: 'hist-grid-style-change' }),
+          { reason: 'hist-grid-style-change', captureStatsPanel: false }
+        );
+        if(!gridControls.applyStyleToTarget?.(target, getGridStyle(fallbackThickness), {
+          defaults: createDefaultGridStyle(fallbackThickness)
+        })){
+          scheduleHistViewRefresh('hist-grid-style-change');
+        }
       },
       defaults: createDefaultGridStyle(fallbackThickness)
     });
@@ -3421,30 +3515,6 @@
     }
   };
 
-  function getHistLegendGuardWidth(requiredWidth){
-    const numeric = Number(requiredWidth);
-    return Number.isFinite(numeric) && numeric > 0 ? Math.max(0, Math.round(numeric)) : 0;
-  }
-
-  function applyHistLegendGuardWidth(requiredWidth){
-    const effectiveWidth = getHistLegendGuardWidth(requiredWidth);
-    if(effectiveWidth === state.minSvgWidth){
-      return;
-    }
-    state.minSvgWidth = effectiveWidth;
-    try{
-      state.layout?.updateMinSvgWidth?.(effectiveWidth);
-    }catch(err){
-      console.error('hist legend guard width update error', err);
-    }
-    try{
-      state.layout?.syncPanels?.({ skipSchedule: true, reason: 'legend-guard' });
-    }catch(err){
-      console.error('hist legend guard sync error', err);
-    }
-    histDebug('Debug: hist legend guard width applied', { width: effectiveWidth });
-  }
-
   function getHistCategoricalPalette(){
     const selectedSchemeId = Shared.colorSchemes?.getSelectedSchemeId?.('hist') || Shared.colorSchemes?.getDefaultSchemeId?.('hist') || 'scientific';
     const schemes = Shared.colorSchemes?.getSchemes?.() || {};
@@ -3495,6 +3565,78 @@
     }
     state.densityLineColors = state.densityLineColors && typeof state.densityLineColors === 'object' ? state.densityLineColors : {};
     state.densityLineColors[key] = nextColor;
+  }
+
+  function getHistConfiguredTraceOpacity(seriesKey){
+    const key = String(seriesKey == null ? '' : seriesKey).trim();
+    const seriesOpacity = key ? normalizeHistTraceOpacity(state.seriesOpacities?.[key]) : null;
+    if(seriesOpacity != null){
+      return seriesOpacity;
+    }
+    return normalizeHistTraceOpacity(state.traceOpacity);
+  }
+
+  function getHistTraceOpacity(seriesKey, fallback = 1){
+    return getHistConfiguredTraceOpacity(seriesKey) ?? normalizeHistTraceOpacity(fallback, 1);
+  }
+
+  function setHistTraceOpacity(seriesKey, opacity){
+    const normalized = normalizeHistTraceOpacity(opacity, 1);
+    const key = String(seriesKey == null ? '' : seriesKey).trim();
+    if(key){
+      state.seriesOpacities = normalizeHistSeriesOpacities(state.seriesOpacities);
+      state.seriesOpacities[key] = normalized;
+      return normalized;
+    }
+    state.traceOpacity = normalized;
+    state.seriesOpacities = {};
+    return normalized;
+  }
+
+  function buildHistBarFillPath(barGeometries){
+    return (Array.isArray(barGeometries) ? barGeometries : [])
+      .filter(bar => bar?.visible)
+      .map(bar => (
+        `M ${bar.left} ${bar.baselineY} `
+        + `L ${bar.left} ${bar.topY} `
+        + `L ${bar.right} ${bar.topY} `
+        + `L ${bar.right} ${bar.baselineY} Z`
+      ))
+      .join(' ');
+  }
+
+  function buildHistBarBorderPath(barGeometries){
+    const bars = Array.isArray(barGeometries) ? barGeometries : [];
+    const outlines = [];
+    const separators = [];
+    let index = 0;
+    while(index < bars.length){
+      while(index < bars.length && !bars[index]?.visible){
+        index += 1;
+      }
+      if(index >= bars.length){
+        break;
+      }
+      const first = bars[index];
+      const outline = [`M ${first.left} ${first.baselineY}`, `L ${first.left} ${first.topY}`];
+      while(index < bars.length && bars[index]?.visible){
+        const current = bars[index];
+        const next = index + 1 < bars.length ? bars[index + 1] : null;
+        outline.push(`L ${current.right} ${current.topY}`);
+        if(next?.visible){
+          const shorterTop = Math.max(current.topY, next.topY);
+          separators.push(`M ${current.right} ${current.baselineY} L ${current.right} ${shorterTop}`);
+          if(next.topY !== current.topY){
+            outline.push(`L ${current.right} ${next.topY}`);
+          }
+        }else{
+          outline.push(`L ${current.right} ${current.baselineY}`);
+        }
+        index += 1;
+      }
+      outlines.push(outline.join(' '));
+    }
+    return outlines.concat(separators).join(' ');
   }
 
   function collectHistSeries(options = {}){
@@ -3613,7 +3755,9 @@
         : 'global';
       const resolveBars = () => {
         const root = state.svgBox || doc;
-        const nodes = Array.from(root.querySelectorAll('#histSvg [data-hist-bar="1"], #histSvg .hist-bar'));
+        const nodes = Array.from(root.querySelectorAll(
+          '#histSvg [data-hist-bar="1"], #histSvg .hist-bar, #histSvg [data-series-role="legend-swatch"]'
+        ));
         return nodes.length ? nodes : (target ? [target] : []);
       };
       const resolveSeriesNodes = seriesKey => {
@@ -3628,14 +3772,44 @@
         const nodes = resolveSeriesNodes(normalized).filter(node => String(node?.getAttribute?.('data-series-role') || '').trim() === 'density-line');
         return nodes;
       };
+      const resolveHistogramBorderNodes = seriesKey => {
+        const root = state.svgBox || doc;
+        const normalized = String(seriesKey == null ? '' : seriesKey).trim();
+        return Array.from(root.querySelectorAll('#histSvg [data-series-role="hist-border"]'))
+          .filter(node => !normalized || String(node?.getAttribute?.('data-series-key') || '').trim() === normalized);
+      };
+      const resolveHistogramTraceGroups = seriesKey => {
+        const root = state.svgBox || doc;
+        const normalized = String(seriesKey == null ? '' : seriesKey).trim();
+        return Array.from(root.querySelectorAll('#histSvg [data-series-role="hist-trace"]'))
+          .filter(node => !normalized || String(node?.getAttribute?.('data-series-key') || '').trim() === normalized);
+      };
+      const densityTraceMode = normalizeHistPlotMode(state.plotMode) === HIST_PLOT_MODE_DENSITY;
+      const projectTraceBorder = (seriesKey, attributes) => {
+        return !!Shared.visualProjection?.apply?.(getHistNodeById('histSvg', owner.tabId), {
+          component: 'hist',
+          channel: 'trace-border',
+          tabId: owner.tabId,
+          key: String(seriesKey == null ? '' : seriesKey).trim(),
+          attributes
+        });
+      };
+      const resolveTraceNodes = seriesKey => {
+        return densityTraceMode
+          ? resolveSeriesNodes(seriesKey)
+          : resolveHistogramTraceGroups(seriesKey);
+      };
       const resolveScopedSeriesKey = context => {
         const ctx = context && typeof context === 'object' ? context : {};
-        if(String(ctx.scope || '').trim() === 'series' && String(ctx.scopeDataset || '').trim()){
-          return String(ctx.scopeDataset).trim();
+        const scope = String(ctx.scope || '').trim();
+        if(scope === 'global'){
+          return '';
+        }
+        if(scope === 'series'){
+          return String(ctx.scopeDataset || '').trim() || targetSeriesKey || '';
         }
         return targetSeriesKey || '';
       };
-      const densityTraceMode = normalizeHistPlotMode(state.plotMode) === HIST_PLOT_MODE_DENSITY;
       Shared.symbolToolbar.show({
         document: doc,
         target,
@@ -3676,22 +3850,32 @@
             if(scopedSeriesKey){
               setHistSeriesColor(scopedSeriesKey, nextValue);
               resolveSeriesNodes(scopedSeriesKey).forEach(node => node.setAttribute('fill', nextValue));
+              commitHistActiveStateToOwner(owner, { reason: 'hist-bar-fill-input' });
               return;
             }
             state.barFill = nextValue;
+            activeSeries.forEach(entry => setHistSeriesColor(entry.key, nextValue));
             resolveBars().forEach(node => node.setAttribute('fill', nextValue));
+            commitHistActiveStateToOwner(owner, { reason: 'hist-bar-fill-input' });
           },
           onColorChange(value, context){
             if(!isHistCallbackOwnerActive(owner)){ return; }
             const nextValue = value || HIST_DEFAULT_FILL;
             const scopedSeriesKey = resolveScopedSeriesKey(context);
+            let projectedNodes = [];
             if(scopedSeriesKey){
               setHistSeriesColor(scopedSeriesKey, nextValue);
-              scheduleHistOwnerDraw(owner, { reason: 'hist-bar-fill-change' });
-              return;
+              projectedNodes = resolveSeriesNodes(scopedSeriesKey);
+            }else{
+              state.barFill = nextValue;
+              activeSeries.forEach(entry => setHistSeriesColor(entry.key, nextValue));
+              projectedNodes = resolveBars();
             }
-            state.barFill = nextValue;
-            scheduleHistOwnerDraw(owner, { reason: 'hist-bar-fill-change' });
+            projectedNodes.forEach(node => node.setAttribute('fill', nextValue));
+            commitHistActiveStateToOwner(owner, { reason: 'hist-bar-fill-change' });
+            if(!projectedNodes.length){
+              scheduleHistOwnerDraw(owner, { viewOnly: true, reason: 'hist-bar-fill-change' });
+            }
           }
         },
         border: {
@@ -3702,31 +3886,47 @@
               const seriesIndex = seriesIndexByKey.get(scopedSeriesKey) || 0;
               return getHistDensityLineColor(scopedSeriesKey, seriesIndex, getHistSeriesColor(scopedSeriesKey, seriesIndex));
             }
+            if(densityTraceMode && activeSeries.length){
+              return getHistDensityLineColor(activeSeries[0].key, 0, getHistSeriesColor(activeSeries[0].key, 0));
+            }
             return state.barBorder || target?.getAttribute?.('stroke') || HIST_DEFAULT_BORDER;
           },
           onColorInput(value, context){
             if(!isHistCallbackOwnerActive(owner)){ return; }
             const nextValue = value || HIST_DEFAULT_BORDER;
             const scopedSeriesKey = resolveScopedSeriesKey(context);
-            if(densityTraceMode && scopedSeriesKey){
-              setHistDensityLineColor(scopedSeriesKey, nextValue);
-              resolveSeriesDensityLineNodes(scopedSeriesKey).forEach(node => node.setAttribute('stroke', nextValue));
+            if(densityTraceMode){
+              const targets = scopedSeriesKey ? [scopedSeriesKey] : activeSeries.map(entry => entry.key);
+              targets.forEach(key => setHistDensityLineColor(key, nextValue));
+              projectTraceBorder(scopedSeriesKey, { stroke: nextValue });
+              commitHistActiveStateToOwner(owner, { reason: 'hist-bar-border-input' });
               return;
             }
             state.barBorder = nextValue;
-            resolveBars().forEach(node => node.setAttribute('stroke', nextValue));
+            projectTraceBorder('', { stroke: nextValue });
+            commitHistActiveStateToOwner(owner, { reason: 'hist-bar-border-input' });
           },
           onColorChange(value, context){
             if(!isHistCallbackOwnerActive(owner)){ return; }
             const nextValue = value || HIST_DEFAULT_BORDER;
             const scopedSeriesKey = resolveScopedSeriesKey(context);
-            if(densityTraceMode && scopedSeriesKey){
-              setHistDensityLineColor(scopedSeriesKey, nextValue);
-              scheduleHistOwnerDraw(owner, { reason: 'hist-bar-border-change' });
-              return;
+            let projectedNodes = [];
+            if(densityTraceMode){
+              const targets = scopedSeriesKey ? [scopedSeriesKey] : activeSeries.map(entry => entry.key);
+              targets.forEach(key => setHistDensityLineColor(key, nextValue));
+              projectedNodes = resolveSeriesDensityLineNodes(scopedSeriesKey);
+            }else{
+              state.barBorder = nextValue;
+              projectedNodes = resolveHistogramBorderNodes();
             }
-            state.barBorder = nextValue;
-            scheduleHistOwnerDraw(owner, { reason: 'hist-bar-border-change' });
+            const projected = projectTraceBorder(
+              densityTraceMode && scopedSeriesKey ? scopedSeriesKey : '',
+              { stroke: nextValue }
+            );
+            commitHistActiveStateToOwner(owner, { reason: 'hist-bar-border-change' });
+            if(!projected || !projectedNodes.length){
+              scheduleHistOwnerDraw(owner, { viewOnly: true, reason: 'hist-bar-border-change' });
+            }
           },
           getWidth(){
             const inputWidth = Number(state.barBorderWidth);
@@ -3734,21 +3934,21 @@
             const nodeWidth = Number(target?.getAttribute?.('stroke-width'));
             return Number.isFinite(nodeWidth) ? nodeWidth : 0;
           },
-          onWidthChange(value){
+          onWidthChange(value, context){
             if(!isHistCallbackOwnerActive(owner)){ return; }
             const numeric = Number(value);
             const normalized = Number.isFinite(numeric) ? Math.max(0, numeric) : 0;
             state.barBorderWidth = normalized;
-            resolveBars().forEach(node => {
-              if(normalized > 0){
-                node.setAttribute('stroke', state.barBorder || HIST_DEFAULT_BORDER);
-                node.setAttribute('stroke-width', String(normalized));
-              }else{
-                node.removeAttribute('stroke');
-                node.removeAttribute('stroke-width');
-              }
+            const borderNodes = densityTraceMode
+              ? resolveSeriesDensityLineNodes('')
+              : resolveHistogramBorderNodes();
+            const projected = projectTraceBorder('', {
+              strokeWidth: normalized
             });
-            scheduleHistOwnerDraw(owner, { reason: 'hist-bar-border-width-change' });
+            commitHistActiveStateToOwner(owner, { reason: 'hist-bar-border-width-change' });
+            if(!projected || !borderNodes.length){
+              scheduleHistOwnerDraw(owner, { viewOnly: true, reason: 'hist-bar-border-width-change' });
+            }
           }
         },
         size: {
@@ -3757,7 +3957,55 @@
           onChange(){ return; }
         },
         transparency: {
-          enabled: false
+          label: 'Transparency',
+          scale: 'percent',
+          get(context){
+            const scopedSeriesKey = String(context?.scope || '').trim() === 'series'
+              ? (String(context?.scopeDataset || '').trim() || targetSeriesKey)
+              : '';
+            const configured = scopedSeriesKey
+              ? normalizeHistTraceOpacity(state.seriesOpacities?.[scopedSeriesKey])
+              : normalizeHistTraceOpacity(state.traceOpacity);
+            if(configured != null){
+              return Math.round((1 - configured) * 100);
+            }
+            const representative = scopedSeriesKey
+              ? (resolveSeriesNodes(scopedSeriesKey)[0] || target)
+              : (resolveBars()[0] || target);
+            const role = String(representative?.getAttribute?.('data-series-role') || '').trim();
+            const attributeName = role === 'density-line' ? 'stroke-opacity' : 'fill-opacity';
+            const renderedOpacity = normalizeHistTraceOpacity(representative?.getAttribute?.(attributeName), 1);
+            return Math.round((1 - renderedOpacity) * 100);
+          },
+          onChange(value, context){
+            if(!isHistCallbackOwnerActive(owner)){ return; }
+            const bounded = Math.min(100, Math.max(0, Number(value) || 0));
+            const opacity = 1 - (bounded / 100);
+            const scopedSeriesKey = String(context?.scope || '').trim() === 'series'
+              ? (String(context?.scopeDataset || '').trim() || targetSeriesKey)
+              : '';
+            const nodes = resolveTraceNodes(scopedSeriesKey);
+            nodes.forEach(node => {
+              if(densityTraceMode){
+                node.setAttribute('fill-opacity', String(opacity));
+                node.setAttribute('stroke-opacity', String(opacity));
+              }else{
+                node.setAttribute('opacity', String(opacity));
+                node.querySelectorAll('[data-series-role="hist-fill"]').forEach(fillNode => {
+                  fillNode.setAttribute('fill-opacity', '1');
+                });
+              }
+            });
+            setHistTraceOpacity(scopedSeriesKey, opacity);
+            commitHistActiveStateToOwner(owner, { reason: 'hist-trace-transparency-change' });
+            if(!nodes.length){
+              scheduleHistOwnerDraw(owner, {
+                viewOnly: true,
+                reason: 'hist-trace-transparency-change',
+                tabId: owner.tabId || undefined
+              });
+            }
+          }
         }
       });
       if(targetSeriesLabel){
@@ -4779,6 +5027,8 @@
         showLegend: state.showLegend !== false,
         seriesColors: state.seriesColors && typeof state.seriesColors === 'object' ? { ...state.seriesColors } : {},
         densityLineColors: state.densityLineColors && typeof state.densityLineColors === 'object' ? { ...state.densityLineColors } : {},
+        traceOpacity: normalizeHistTraceOpacity(state.traceOpacity),
+        seriesOpacities: normalizeHistSeriesOpacities(state.seriesOpacities),
         colorScheme: Shared.colorSchemes?.getSelectedSchemeId?.('hist') || 'scientific',
         fill:state.barFill,
         border:state.barBorder,
@@ -4949,6 +5199,8 @@
       if(histShowLegendInput){ histShowLegendInput.checked = state.showLegend; }
       state.seriesColors = config.seriesColors && typeof config.seriesColors === 'object' ? { ...config.seriesColors } : {};
       state.densityLineColors = config.densityLineColors && typeof config.densityLineColors === 'object' ? { ...config.densityLineColors } : {};
+      state.traceOpacity = normalizeHistTraceOpacity(config.traceOpacity);
+      state.seriesOpacities = normalizeHistSeriesOpacities(config.seriesOpacities);
       const histShowGridInput = getHistNodeById('histShowGrid');
       if(histShowGridInput){ histShowGridInput.checked = !!config.showGrid; }
       setGridStyle(config.gridStyle, config.axis?.strokeWidth);
@@ -4957,7 +5209,7 @@
       const histLogYInput = getHistNodeById('histLogY');
       if(histLogYInput){ histLogYInput.checked = !!config.logY; }
       applyHistAxisLimitsToInputs({
-        xMin: config.axisLimits?.xMin ?? config.xMin ?? 0,
+        xMin: config.axisLimits?.xMin ?? config.xMin ?? null,
         xMax: config.axisLimits?.xMax ?? config.xMax ?? null,
         yMax: config.axisLimits?.yMax ?? config.yMax ?? null
       });
@@ -6370,7 +6622,8 @@
       component: 'hist',
       tabId: drawSession?.tabId || getHistProjectionTabId() || null,
       kind: 'graph',
-      budgetMs: 10
+      budgetMs: 10,
+      drawOptions: options
     }) || null;
     const checkpoint = async () => {
       try{
@@ -6381,12 +6634,13 @@
         throw err;
       }
     };
+    let framePublication = null;
+    try{
     const seriesEntries = await collectHistSeriesCooperatively({ matrix: viewContext.sourceData, checkpoint });
     if(!seriesEntries){ return false; }
     const values = seriesEntries.flatMap(entry => entry.values);
-    const plotEl=getHistNodeById('histPlot'); while(plotEl.firstChild) plotEl.removeChild(plotEl.firstChild);
+    const plotEl=getHistNodeById('histPlot');
     if(!seriesEntries.length || !values.length){
-      applyHistLegendGuardWidth(0);
       syncHistFrequencyTableDataView(null, frequencySettings, {
         context: viewContext,
         reason: 'hist-frequency-view-clear-empty'
@@ -6426,12 +6680,12 @@
     const manualAxisLimits = readHistAxisLimitsFromInputs();
     const hasManualXMin = Number.isFinite(manualAxisLimits.xMin);
     const hasManualXMax = Number.isFinite(manualAxisLimits.xMax);
-    let xMin = hasManualXMin ? manualAxisLimits.xMin : 0;
+    let xMin = hasManualXMin ? manualAxisLimits.xMin : rawXMin;
     let xMax = hasManualXMax ? manualAxisLimits.xMax : rawXMax;
     if(!(xMax > xMin)){
       if(drawDebugEnabled){
         histDebug('Debug: hist X bounds reset to data range because max <= min', {
-          requestedXMin: hasManualXMin ? manualAxisLimits.xMin : 0,
+          requestedXMin: hasManualXMin ? manualAxisLimits.xMin : rawXMin,
           requestedXMax: hasManualXMax ? manualAxisLimits.xMax : rawXMax,
           rawXMin,
           rawXMax
@@ -6538,25 +6792,31 @@
               }
             });
           }
-        })
+      })
       : null;
-    applyHistLegendGuardWidth(legendVisible ? legendLayout?.minSvgWidth || 0 : 0);
-    const W=Math.max(baseWidth, legendVisible ? Math.ceil(legendLayout?.minSvgWidth || 0) : 0);
-    if(!hasManualXMax){
+    const W=baseWidth;
+    if(!hasManualXMin || !hasManualXMax){
+      let paddedXMin = xMin;
       let paddedXMax = xMax;
       fitSets.forEach(entry => {
         const densityInfo = computeHistDensitySeries(entry.values, {
           sampleCount: Math.min(240, Math.max(64, Math.round(W)))
         });
-        if(Number.isFinite(densityInfo.domainMax) && densityInfo.domainMax > paddedXMax){
+        if(!hasManualXMin && Number.isFinite(densityInfo.domainMin) && densityInfo.domainMin < paddedXMin){
+          paddedXMin = densityInfo.domainMin;
+        }
+        if(!hasManualXMax && Number.isFinite(densityInfo.domainMax) && densityInfo.domainMax > paddedXMax){
           paddedXMax = densityInfo.domainMax;
         }
       });
-      if(Number.isFinite(paddedXMax) && paddedXMax > xMax){
+      if(!hasManualXMin && Number.isFinite(paddedXMin) && paddedXMin < xMin){
+        xMin = paddedXMin;
+      }
+      if(!hasManualXMax && Number.isFinite(paddedXMax) && paddedXMax > xMax){
         xMax = paddedXMax;
       }
       if(drawDebugEnabled){
-        histDebug('Debug: hist auto X max padded from density domain', { xMax });
+        histDebug('Debug: hist automatic X bounds padded from density domains', { xMin, xMax });
       }
     }
     const axisTickTools = chartStyle.axisTicks || null;
@@ -6564,8 +6824,14 @@
       if(axisTickTools && typeof axisTickTools.buildScale === 'function'){
         return axisTickTools.buildScale(opts);
       }
-      const min = Number.isFinite(opts?.manualMin) ? opts.manualMin : Number(opts?.dataMin) || 0;
-      const max = Number.isFinite(opts?.manualMax) ? opts.manualMax : Number(opts?.dataMax) || min + 1;
+      const dataMin = Number(opts?.dataMin);
+      const dataMax = Number(opts?.dataMax);
+      const min = Number.isFinite(opts?.manualMin)
+        ? opts.manualMin
+        : (Number.isFinite(dataMin) ? dataMin : 0);
+      const max = Number.isFinite(opts?.manualMax)
+        ? opts.manualMax
+        : (Number.isFinite(dataMax) ? dataMax : min + 1);
       return { min, max, ticks: [min, max], step: Math.max((max - min) || 1, 1) };
     };
     const requestedBins=Math.max(1,Math.floor(Number(controls.bins)||10));
@@ -6578,7 +6844,16 @@
       histDebug('Debug: hist manual interval suppressed',{ axis: 'y', reason: 'log-scale', stored: storedManualIntervalY });
     }
     plotEl.style.position='relative';
-    const svg=document.createElementNS(NS,'svg'); svg.setAttribute('id','histSvg'); svg.setAttribute('width',String(W)); svg.setAttribute('height',String(H)); svg.setAttribute('viewBox',`0 0 ${W} ${H}`); svg.setAttribute('font-family',chartStyle.FONT_FAMILY); chartStyle.prepareSvg(svg, { scopeId: 'hist' }); plotEl.appendChild(svg);
+    const svg=document.createElementNS(NS,'svg'); svg.setAttribute('width',String(W)); svg.setAttribute('height',String(H)); svg.setAttribute('viewBox',`0 0 ${W} ${H}`); svg.setAttribute('font-family',chartStyle.FONT_FAMILY); chartStyle.prepareSvg(svg, { scopeId: 'hist' });
+    framePublication = Shared.framePublication.stage({
+      container: plotEl,
+      frame: svg,
+      publishedId: 'histSvg',
+      component: 'hist',
+      tabId: drawSession?.tabId || getHistProjectionTabId() || null,
+      canCommit: () => execution?.isCurrent?.() !== false
+        && (!drawSession || isHistSessionActiveOrActivating(drawSession))
+    });
     const histNotationX = getAxisNotation('x');
     const histNotationY = getAxisNotation('y');
     const formatTickX = v => chartStyle.formatAxisValue(v,{ notation: histNotationX, maxDecimals: 2 });
@@ -6644,7 +6919,14 @@
     margin=stabilizeHistMarginForAxisResize(margin);
     plotW=Math.max(20,W-margin.left-margin.right);
     plotH=Math.max(20,H-margin.top-margin.bottom);
-    let xScale=buildAxisScale({ dataMin: xMin, dataMax: xMax, targetTickCount: xTickTarget });
+    const buildXAxisScale = () => buildAxisScale({
+      dataMin: xMin,
+      dataMax: xMax,
+      manualMin: hasManualXMin ? xMin : null,
+      manualMax: hasManualXMax ? xMax : null,
+      targetTickCount: xTickTarget
+    });
+    let xScale=buildXAxisScale();
     let yScale=buildAxisScale({ dataMin: 0, dataMax: 1, targetTickCount: yTickTarget, manualMin: 0 });
     let xTickLabels=[];
     let yTickLabels=[];
@@ -6660,7 +6942,7 @@
     let yMaxT=0;
     let maxYLabelWidth = 0;
     for(let pass=0;pass<2;pass++){
-      xScale=buildAxisScale({ dataMin: xMin, dataMax: xMax, targetTickCount: xTickTarget });
+      xScale=buildXAxisScale();
       if(densityMode){
         densitySeriesByKey=new Map();
         binWidth = 0;
@@ -6936,13 +7218,14 @@
             stroke: axisStroke,
             'stroke-width': minorTickStyle.strokeWidth,
             'stroke-linecap': 'round',
-            opacity: minorTickStyle.opacity
+            opacity: minorTickStyle.opacity,
+            'data-hist-axis-minor-target': '1'
           });
         });
       }
       xScale.ticks.forEach((t,i)=>{
         const x=x2px(t);
-        add('line',{x1:x,y1:margin.top+plotH,x2:x,y2:margin.top+plotH+xMajorTickLength,stroke:axisStroke,'stroke-width':axisStrokeWidth});
+        add('line',{x1:x,y1:margin.top+plotH,x2:x,y2:margin.top+plotH+xMajorTickLength,stroke:axisStroke,'stroke-width':axisStrokeWidth,'data-hist-axis-style-target':'1'});
         const extra = Shared.computeAxisLabelYOffset ? Shared.computeAxisLabelYOffset(fs, xMajorTickLength, tickGap) : 0;
         const txt=add('text',{x,y:margin.top+plotH+xMajorTickLength+tickGap+extra,'font-size':fs,'text-anchor':'middle',fill:chartStyle.TEXT_COLOR});
         txt.textContent=formatTickX(t);
@@ -6964,13 +7247,14 @@
             stroke: axisStroke,
             'stroke-width': minorTickStyle.strokeWidth,
             'stroke-linecap': 'round',
-            opacity: minorTickStyle.opacity
+            opacity: minorTickStyle.opacity,
+            'data-hist-axis-minor-target': '1'
           });
         });
       }
       yScale.ticks.forEach((t,i)=>{
         const y=y2px(t);
-        add('line',{x1:margin.left-yMajorTickLength,y1:y,x2:margin.left,y2:y,stroke:axisStroke,'stroke-width':axisStrokeWidth});
+        add('line',{x1:margin.left-yMajorTickLength,y1:y,x2:margin.left,y2:y,stroke:axisStroke,'stroke-width':axisStrokeWidth,'data-hist-axis-style-target':'1'});
         const txt=add('text',{x:margin.left-(yMajorTickLength+tickGap),y,'font-size':fs,'text-anchor':'end','dominant-baseline':'middle',fill:chartStyle.TEXT_COLOR});
         txt.textContent=formatTickY(logY?Math.pow(10,t):t);
         markFontEditable(txt,'yTick');
@@ -7000,6 +7284,11 @@
           return;
         }
         const fill = getHistSeriesColor(entry.key, seriesIndex);
+        const densityFillOpacity = getHistTraceOpacity(
+          entry.key,
+          seriesEntries.length > 1 ? HIST_DEFAULT_DENSITY_FILL_OPACITY : 0.24
+        );
+        const densityStrokeOpacity = getHistTraceOpacity(entry.key, 1);
         const areaPath = [`M ${points[0][0]} ${y2px(baselineDomain)}`]
           .concat(points.map(point => `L ${point[0]} ${point[1]}`))
           .concat([`L ${points[points.length - 1][0]} ${y2px(baselineDomain)}`, 'Z'])
@@ -7007,7 +7296,7 @@
         const area = add('path',{
           d: areaPath,
           fill,
-          'fill-opacity': seriesEntries.length > 1 ? HIST_DEFAULT_DENSITY_FILL_OPACITY : 0.24,
+          'fill-opacity': densityFillOpacity,
           stroke: 'none',
           'class': 'hist-bar hist-density-shape',
           'data-hist-bar': '1',
@@ -7021,6 +7310,7 @@
           fill: 'none',
           stroke: lineColor,
           'stroke-width': Math.max(borderWidthPx, chartStyle.scaleStrokeWidth(HIST_DEFAULT_DENSITY_STROKE_WIDTH, styleScaleInfo, { context: 'hist-density-line', min: 1 })),
+          'stroke-opacity': densityStrokeOpacity,
           'stroke-linejoin': 'round',
           'stroke-linecap': 'round',
           'class': 'hist-bar hist-density-line',
@@ -7030,43 +7320,95 @@
           'data-series-role': 'density-line'
         });
         [area, line].forEach(node => {
-          try{
-            node.style.cursor='pointer';
-            node.addEventListener('click', evt=>{
-              try{ evt.stopPropagation(); }catch(e){}
-              showHistBarFormatControls(evt.currentTarget);
-            });
-          }catch(e){}
+          node.style.cursor='pointer';
+          node.addEventListener('click', evt=>{
+            evt.stopPropagation();
+            showHistBarFormatControls(evt.currentTarget);
+          });
         });
       });
     }else{
       histogramSeries.forEach((entry, seriesIndex) => {
         const fill = getHistSeriesColor(entry.key, seriesIndex);
-        entry.counts.forEach((count, binIndex) => {
-          const xStart=x2px(sharedEdges[binIndex]);
-          const xEnd=x2px(sharedEdges[binIndex+1]);
-          const barW=Math.max(0,xEnd-xStart);
-          const val=logY?Math.log10(Math.max(count,yMin)):count;
-          const y=y2px(val);
-          const baselineY=margin.top+plotH;
-          const strokeInset=borderWidthPx>0?borderWidthPx/2:0;
-          const topY=Math.min(baselineY, y + strokeInset);
-          const barPath=chartStyle.buildOpenRectPath
-            ? chartStyle.buildOpenRectPath({ left:xStart, top:topY, right:xStart+barW, bottom:baselineY }, 'bottom')
-            : `M ${xStart} ${baselineY} L ${xStart} ${topY} L ${xStart+barW} ${topY} L ${xStart+barW} ${baselineY}`;
-          const barShape=add('path',{
-            d:barPath,
-            fill,
-            'fill-opacity': seriesEntries.length > 1 ? HIST_DEFAULT_SERIES_FILL_OPACITY : 0.72,
-            'class':'hist-bar',
-            'data-hist-bar':'1',
-            'data-series-key': entry.key,
-            'data-series': entry.label,
-            'data-series-role': 'hist-bar'
-          });
-          if(borderWidthPx>0){barShape.setAttribute('stroke',borderColor); barShape.setAttribute('stroke-width',borderWidthPx);}
-          try{ barShape.style.cursor='pointer'; barShape.addEventListener('click', evt=>{ try{ evt.stopPropagation(); }catch(e){} showHistBarFormatControls(evt.currentTarget); }); }catch(e){}
+        const configuredTraceOpacity = getHistConfiguredTraceOpacity(entry.key);
+        const defaultFillOpacity = seriesEntries.length > 1 ? HIST_DEFAULT_SERIES_FILL_OPACITY : 0.72;
+        const traceOpacity = configuredTraceOpacity ?? 1;
+        const fillOpacity = configuredTraceOpacity == null ? defaultFillOpacity : 1;
+        const barGeometries = entry.counts.map((count, binIndex) => {
+          const numericCount = Number(count);
+          const xStart = x2px(sharedEdges[binIndex]);
+          const xEnd = x2px(sharedEdges[binIndex + 1]);
+          const baselineY = margin.top + plotH;
+          if(!(numericCount > 0) || !(xEnd > xStart)){
+            return {
+              visible: false,
+              left: xStart,
+              right: xEnd,
+              topY: baselineY,
+              baselineY
+            };
+          }
+          const value = logY ? Math.log10(Math.max(numericCount, yMin)) : numericCount;
+          const strokeInset = borderWidthPx > 0 ? borderWidthPx / 2 : 0;
+          return {
+            visible: true,
+            left: xStart,
+            right: xEnd,
+            topY: Math.min(baselineY, y2px(value) + strokeInset),
+            baselineY
+          };
         });
+        const fillPath = buildHistBarFillPath(barGeometries);
+        if(!fillPath){
+          return;
+        }
+        const traceGroup = add('g',{
+          opacity: traceOpacity,
+          'class': 'hist-trace',
+          'data-series-key': entry.key,
+          'data-series': entry.label,
+          'data-series-role': 'hist-trace'
+        });
+        const fillShape=add('path',{
+          d:fillPath,
+          fill,
+          'fill-opacity': fillOpacity,
+          stroke: 'none',
+          'class':'hist-bar hist-trace-fill',
+          'data-hist-bar':'1',
+          'data-series-key': entry.key,
+          'data-series': entry.label,
+          'data-series-role': 'hist-fill'
+        }, traceGroup);
+        fillShape.style.cursor='pointer';
+        fillShape.addEventListener('click', evt=>{
+          evt.stopPropagation();
+          showHistBarFormatControls(evt.currentTarget);
+        });
+        if(borderWidthPx > 0){
+          const borderPath = buildHistBarBorderPath(barGeometries);
+          if(borderPath){
+            const borderShape = add('path',{
+              d: borderPath,
+              fill: 'none',
+              stroke: borderColor,
+              'stroke-width': borderWidthPx,
+              'stroke-linecap': 'butt',
+              'stroke-linejoin': 'miter',
+              'stroke-miterlimit': 2,
+              'shape-rendering': 'geometricPrecision',
+              'class': 'hist-trace-border',
+              'data-series-key': entry.key,
+              'data-series': entry.label,
+              'data-series-role': 'hist-border'
+            }, traceGroup);
+            borderShape.style.cursor='pointer';
+            borderShape.addEventListener('click', evt=>{
+              evt.stopPropagation();
+              showHistBarFormatControls(evt.currentTarget);
+            });
+          }
+        }
       });
     }
     if((includePdf || includeCdf) && fitSets.some(entry => entry.fits.length)){
@@ -7313,8 +7655,55 @@
         });
       }
     }
+    const traceStrokeScale = chartStyle.scaleStrokeWidth(1, styleScaleInfo, { context: 'hist-trace-live-style', min: 0 });
+    const densityStrokeMinimum = chartStyle.scaleStrokeWidth(
+      HIST_DEFAULT_DENSITY_STROKE_WIDTH,
+      styleScaleInfo,
+      { context: 'hist-density-line-live-style', min: 1 }
+    );
+    const traceBorderRoles = new Set(['hist-border', 'density-line', 'legend-swatch']);
+    seriesEntries.forEach(entry => {
+      const traceBorderTargets = Array.from(svg.querySelectorAll('[data-series-key][data-series-role]'))
+        .filter(node => String(node.getAttribute('data-series-key') || '') === entry.key
+          && traceBorderRoles.has(String(node.getAttribute('data-series-role') || '')));
+      traceBorderTargets.forEach(node => {
+        const role = String(node.getAttribute('data-series-role') || '');
+        Shared.visualProjection?.bind?.(node, {
+          component: 'hist',
+          channel: 'trace-border',
+          tabId: drawSession?.tabId || getHistProjectionTabId() || getHistActiveTabId() || null,
+          key: entry.key,
+          strokeWidthFactor: traceStrokeScale,
+          strokeWidthMinimum: role === 'density-line' ? densityStrokeMinimum : 0,
+          strokeWidthZeroFallback: role === 'legend-swatch' ? 1 : undefined,
+          properties: ['stroke', 'strokeWidth']
+        });
+      });
+    });
+    const histAxisMainTargets = svg.querySelectorAll('[data-axis-control="1"], [data-frame-edge], [data-hist-axis-style-target="1"]');
+    Shared.visualProjection?.bind?.(histAxisMainTargets, {
+      component: 'hist',
+      channel: 'axis',
+      tabId: drawSession?.tabId || getHistProjectionTabId() || getHistActiveTabId() || null,
+      strokeWidthBase: axisStrokeWidthBase,
+      renderedStrokeWidth: axisStrokeWidth
+    });
+    Shared.visualProjection?.bind?.(svg.querySelectorAll('[data-hist-axis-minor-target="1"]'), {
+      component: 'hist',
+      channel: 'axis',
+      tabId: drawSession?.tabId || getHistProjectionTabId() || getHistActiveTabId() || null,
+      strokeWidthBase: axisStrokeWidthBase,
+      renderedStrokeWidth: minorTickStyle.strokeWidth
+    });
     registerHistGridControlTarget(svg, { fallbackThickness: axisStrokeWidthBase });
-    ensureGraphViewport(svg, { padding: Math.max(fs, 14), debugLabel: 'hist-graph' });
+    ensureGraphViewport(svg, {
+      padding: Math.max(fs, 14),
+      debugLabel: 'hist-graph',
+      baseViewport: { width: W, height: H }
+    });
+    if(!(await checkpoint()) || !framePublication.commit()){
+      return false;
+    }
     state.layout?.syncPanels?.({ skipSchedule: true });
     syncHistAutoDrawNoticeWidth('draw');
     updateHistStats(fitSets.map((entry, seriesIndex) => ({
@@ -7356,6 +7745,9 @@
     }
     histDebug('Debug: drawHistogram complete', { mode: plotMode, seriesCount: seriesEntries.length });
     return true;
+    }finally{
+      framePublication?.cleanup();
+    }
   }
 
   // Public API
@@ -7487,6 +7879,7 @@
       }
     });
     state.svgBox = state.layout?.elements?.svgBox || state.svgBox;
+    ensureHistLegendControlPlacement(getActiveHistSessionForState());
     syncHistSessionManagersFromActive();
     syncHistSessionRefsFromActive();
     state.layout?.setScheduleDraw?.(options => scheduleActiveHistDraw(options && typeof options === 'object' ? options : {}));

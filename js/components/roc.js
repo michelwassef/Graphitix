@@ -112,6 +112,12 @@
 
   function showRocStrokeFormatControls(target){
     if(target && additionalLineControls && typeof additionalLineControls.show === 'function'){
+      const ownerSession = getRocSessionForEvent(null, {
+        target,
+        reason: 'roc-curve-format-owner'
+      }, { create: true });
+      const ownerTabId = ownerSession?.tabId || getRocProjectionTabId() || null;
+      const canEditOwner = () => !ownerSession || isRocSessionActive(ownerSession);
       let seriesKey = target.getAttribute('data-series') || null;
       const knownSeriesKeys = () => {
         const keys = new Set();
@@ -126,7 +132,7 @@
         Object.keys(state.labelStrokeWidth || {}).forEach(addKey);
         Object.keys(state.labelOpacity || {}).forEach(addKey);
         Object.keys(state.labelLinePattern || {}).forEach(addKey);
-        const svg = getRocNodeById('rocSvg');
+        const svg = getRocNodeById('rocSvg', ownerTabId);
         if(svg && svg.querySelectorAll){
           svg.querySelectorAll('path[data-series]').forEach(node => addKey(node.getAttribute('data-series')));
         }
@@ -166,12 +172,21 @@
         return options;
       })();
       const resolveTargets = scopeValue => {
-        const svg = getRocNodeById('rocSvg');
+        const svg = getRocNodeById('rocSvg', ownerTabId);
         if(!svg){ return target ? [target] : []; }
         if(scopeValue === 'series' && seriesKey){
-          return Array.from(svg.querySelectorAll(`path[data-series="${seriesKey.replace(/"/g, '\\"')}"]`));
+          return Array.from(svg.querySelectorAll('path[data-series]'))
+            .filter(node => node.getAttribute('data-series') === seriesKey);
         }
         return Array.from(svg.querySelectorAll('path[data-series]'));
+      };
+      const resolveLegendTargets = scopeValue => {
+        const svg = getRocNodeById('rocSvg', ownerTabId);
+        if(!svg){ return []; }
+        return Array.from(svg.querySelectorAll('[data-legend-key]')).filter(node => {
+          if(String(node.tagName || '').toLowerCase() === 'text'){ return false; }
+          return scopeValue !== 'series' || !seriesKey || String(node.dataset?.legendKey || '').trim() === seriesKey;
+        });
       };
       additionalLineControls.show({
         scopeId: 'roc',
@@ -239,9 +254,11 @@
           return Math.round((1 - bounded) * 100);
         },
         onColorInput: (value, ctx) => {
+          if(!canEditOwner()){ return; }
           const scopeValue = ctx?.scope === 'series' ? 'series' : 'global';
           const nodes = resolveTargets(scopeValue);
-          nodes.forEach(node => { try{ node.setAttribute('stroke', value); }catch(e){} });
+          nodes.forEach(node => node.setAttribute('stroke', value));
+          resolveLegendTargets(scopeValue).forEach(node => node.setAttribute('fill', value));
           if(scopeValue === 'series' && seriesKey){
             state.labelColors[seriesKey] = value;
           }else{
@@ -250,12 +267,18 @@
               if(key){ state.labelColors[key] = value; }
             });
           }
-          scheduleActiveRocDraw({ reason: 'roc-line-color-input' });
+          captureRocSessionStateFromActive(ownerSession, {
+            reason: 'roc-line-color-input',
+            captureStatsPanel: false
+          });
+          if(!nodes.length){ scheduleRocViewRefresh('roc-line-color-input', { tabId: ownerTabId }); }
         },
         onColorChange: (value, ctx) => {
+          if(!canEditOwner()){ return; }
           const scopeValue = ctx?.scope === 'series' ? 'series' : 'global';
           const nodes = resolveTargets(scopeValue);
-          nodes.forEach(node => { try{ node.setAttribute('stroke', value); }catch(e){} });
+          nodes.forEach(node => node.setAttribute('stroke', value));
+          resolveLegendTargets(scopeValue).forEach(node => node.setAttribute('fill', value));
           if(scopeValue === 'series' && seriesKey){
             state.labelColors[seriesKey] = value;
           }else{
@@ -264,14 +287,19 @@
               if(key){ state.labelColors[key] = value; }
             });
           }
-          scheduleActiveRocDraw({ reason: 'roc-line-color-change' });
+          captureRocSessionStateFromActive(ownerSession, {
+            reason: 'roc-line-color-change',
+            captureStatsPanel: false
+          });
+          if(!nodes.length){ scheduleRocViewRefresh('roc-line-color-change', { tabId: ownerTabId }); }
         },
         onThicknessChange: (value, ctx) => {
+          if(!canEditOwner()){ return; }
           const next = Number(value);
           if(!Number.isFinite(next)){ return; }
           const scopeValue = ctx?.scope === 'series' ? 'series' : 'global';
           const nodes = resolveTargets(scopeValue);
-          nodes.forEach(node => { try{ node.setAttribute('stroke-width', String(next)); }catch(e){} });
+          nodes.forEach(node => node.setAttribute('stroke-width', String(next)));
           if(scopeValue === 'series' && seriesKey){
             state.labelStrokeWidth[seriesKey] = next;
           }else{
@@ -280,9 +308,14 @@
               if(key){ state.labelStrokeWidth[key] = next; }
             });
           }
-          scheduleActiveRocDraw({ reason: 'roc-line-thickness-change' });
+          captureRocSessionStateFromActive(ownerSession, {
+            reason: 'roc-line-thickness-change',
+            captureStatsPanel: false
+          });
+          if(!nodes.length){ scheduleRocViewRefresh('roc-line-thickness-change', { tabId: ownerTabId }); }
         },
         onPatternChange: (value, ctx) => {
+          if(!canEditOwner()){ return; }
           const pattern = sanitizeRocLinePattern(value);
           const scopeValue = ctx?.scope === 'series' ? 'series' : 'global';
           const nodes = resolveTargets(scopeValue);
@@ -295,15 +328,20 @@
               if(key){ state.labelLinePattern[key] = pattern; }
             });
           }
-          scheduleActiveRocDraw({ reason: 'roc-line-pattern-change' });
+          captureRocSessionStateFromActive(ownerSession, {
+            reason: 'roc-line-pattern-change',
+            captureStatsPanel: false
+          });
+          if(!nodes.length){ scheduleRocViewRefresh('roc-line-pattern-change', { tabId: ownerTabId }); }
         },
         onTransparencyChange: (value, ctx) => {
+          if(!canEditOwner()){ return; }
           const pct = Number(value);
           const bounded = Number.isFinite(pct) ? Math.max(0, Math.min(100, pct)) : 0;
           const opacity = 1 - (bounded / 100);
           const scopeValue = ctx?.scope === 'series' ? 'series' : 'global';
           const nodes = resolveTargets(scopeValue);
-          nodes.forEach(node => { try{ node.setAttribute('stroke-opacity', String(opacity)); }catch(e){} });
+          nodes.forEach(node => node.setAttribute('stroke-opacity', String(opacity)));
           if(scopeValue === 'series' && seriesKey){
             state.labelOpacity[seriesKey] = opacity;
           }else{
@@ -312,7 +350,11 @@
               if(key){ state.labelOpacity[key] = opacity; }
             });
           }
-          scheduleActiveRocDraw({ reason: 'roc-line-transparency-change' });
+          captureRocSessionStateFromActive(ownerSession, {
+            reason: 'roc-line-transparency-change',
+            captureStatsPanel: false
+          });
+          if(!nodes.length){ scheduleRocViewRefresh('roc-line-transparency-change', { tabId: ownerTabId }); }
         }
       });
       return;
@@ -2477,6 +2519,24 @@
     return ensureAxisSettings().strokeWidth;
   }
 
+  function syncRocAxisSettingsToOwner(reason){
+    captureRocSessionStateFromActive(
+      getRocProjectionSession({ reason: reason || 'roc-axis-style-change' }),
+      { reason: reason || 'roc-axis-style-change', captureStatsPanel: false }
+    );
+  }
+
+  function projectRocAxisStyle(attributes){
+    const tabId = normalizeRocSessionTabId(getRocProjectionTabId() || null, {});
+    const svg = getRocNodeById('rocSvg', tabId) || getRocNodeById('rocSvg');
+    return !!Shared.visualProjection?.apply?.(svg, {
+      component: 'roc',
+      channel: 'axis',
+      tabId,
+      attributes
+    });
+  }
+
   function updateAxisStrokeWidth(value){
     const settings = ensureAxisSettings();
     if(value === null || value === undefined || value === ''){
@@ -2486,7 +2546,10 @@
       settings.strokeWidth = Number.isFinite(numeric) && numeric > 0 ? numeric : 1;
     }
     console.debug('Debug: roc axis stroke width updated', { strokeWidth: settings.strokeWidth });
-    scheduleActiveRocDraw({ reason: 'roc-axis-stroke-width-change' });
+    syncRocAxisSettingsToOwner('roc-axis-stroke-width-change');
+    if(!projectRocAxisStyle({ strokeWidth: settings.strokeWidth })){
+      scheduleRocViewRefresh('roc-axis-stroke-width-change');
+    }
   }
 
   function getAxisColor(){
@@ -2497,7 +2560,10 @@
     const settings = ensureAxisSettings();
     settings.color = typeof value === 'string' && value.trim() ? value : DEFAULT_AXIS_COLOR;
     console.debug('Debug: roc axis color updated', { color: settings.color });
-    scheduleActiveRocDraw({ reason: 'roc-axis-color-change' });
+    syncRocAxisSettingsToOwner('roc-axis-color-change');
+    if(!projectRocAxisStyle({ stroke: settings.color })){
+      scheduleRocViewRefresh('roc-axis-color-change');
+    }
   }
 
   function registerRocGridControlTarget(target, options){
@@ -2513,12 +2579,24 @@
         if(refs.showGrid){
           refs.showGrid.checked = !!value;
         }
+        captureRocSessionStateFromActive(
+          getRocProjectionSession({ reason: 'roc-grid-visibility-change' }),
+          { reason: 'roc-grid-visibility-change', captureStatsPanel: false }
+        );
         scheduleActiveRocDraw({ reason: 'roc-grid-visibility-change' });
       },
       getStyle: () => getGridStyle(fallbackThickness),
       onStyleChange: style => {
         setGridStyle(style, fallbackThickness);
-        scheduleActiveRocDraw({ reason: 'roc-grid-style-change' });
+        captureRocSessionStateFromActive(
+          getRocProjectionSession({ reason: 'roc-grid-style-change' }),
+          { reason: 'roc-grid-style-change', captureStatsPanel: false }
+        );
+        if(!gridControls.applyStyleToTarget?.(target, getGridStyle(fallbackThickness), {
+          defaults: createDefaultGridStyle(fallbackThickness)
+        })){
+          scheduleRocViewRefresh('roc-grid-style-change');
+        }
       },
       defaults: createDefaultGridStyle(fallbackThickness)
     });
@@ -3701,7 +3779,6 @@
     const total = m + n;
     const minRankSum = (m * (m + 1)) / 2;
     const maxRankSum = (m * ((2 * total) - m + 1)) / 2;
-    const targetRankSum = observedU + minRankSum;
     const dp = Array.from({ length: m + 1 }, () => Array(maxRankSum + 1).fill(0n));
     dp[0][0] = 1n;
     for(let rank = 1; rank <= total; rank += 1){
@@ -4405,7 +4482,10 @@
     }, { apply: false });
     let status = 'complete';
     try{
-      await drawRoc({ ...(meta || {}), tabId: drawSession?.tabId || meta?.tabId || undefined }, drawSession);
+      const result = await drawRoc({ ...(meta || {}), tabId: drawSession?.tabId || meta?.tabId || undefined }, drawSession);
+      if(result === false){
+        status = 'cancelled';
+      }
     }catch(err){
       status = 'error';
       throw err;
@@ -4419,6 +4499,13 @@
         }
       }
       resolveRocOverlay({ reason: status, status, tabId: drawSession?.tabId || meta?.tabId || null });
+      Shared.componentLifecycle?.emitLifecycleEvent?.({
+        componentKey: 'roc',
+        tabId: drawSession?.tabId || meta?.tabId || null,
+        action: 'draw-settled',
+        reason: meta?.reason || 'roc-draw',
+        phase: status
+      });
     }
   }
 
@@ -4438,7 +4525,8 @@
       component: 'roc',
       tabId: drawTabId || '',
       kind: 'graph',
-      budgetMs: 10
+      budgetMs: 10,
+      drawOptions: meta
     }) || null;
     const checkpoint = async () => {
       try{
@@ -4452,6 +4540,8 @@
       return execution?.isCurrent?.() !== false
         && Number(drawSession?.timers?.drawGeneration || 0) === Number(meta?.drawGeneration || 0);
     };
+    let framePublication = null;
+    try{
     const drawRefs = Object.assign(createDefaultRocRefs(drawSession?.root || state.root || null), drawSession?.refs || {}, refs || {});
     drawRefs.root = drawSession?.root || drawRefs.root || state.root || resolveRocRoot(drawTabId) || null;
     drawRefs.plotDiv = getRocNodeById('rocPlot', drawTabId) || drawRefs.plotDiv || refs.plotDiv || null;
@@ -4608,14 +4698,10 @@
 
     const plotEl = drawRefs.plotDiv;
     plotEl.style.display = 'block';
-    while(plotEl.firstChild){
-      plotEl.removeChild(plotEl.firstChild);
-    }
     const width = Math.max(50, Math.floor(drawableFrame.width || 50));
     const height = Math.max(40, Math.floor(drawableFrame.height || 40));
     plotEl.style.position = 'relative';
     const svg = document.createElementNS(NS, 'svg');
-    svg.setAttribute('id', 'rocSvg');
     svg.setAttribute('width', String(width));
     svg.setAttribute('height', String(height));
     svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
@@ -4623,7 +4709,16 @@
     svg.dataset.fontScope = 'roc';
     console.debug('Debug: roc svg dataset scope assigned', { scope: svg.dataset.fontScope }); // Debug: svg font scope tagging
     chartStyle.prepareSvg(svg, { scopeId: 'roc' });
-    plotEl.appendChild(svg);
+    framePublication = Shared.framePublication.stage({
+      container: plotEl,
+      frame: svg,
+      publishedId: 'rocSvg',
+      component: 'roc',
+      tabId: drawTabId,
+      canCommit: () => execution?.isCurrent?.() !== false
+        && Number(drawSession?.timers?.drawGeneration || 0) === Number(meta?.drawGeneration || 0)
+        && (!drawSession || isRocSessionActiveOrActivating(drawSession))
+    });
 
     ensureRocLegendControlPlacement();
     const showLegend = controls.showLegend !== false;
@@ -4882,13 +4977,14 @@
           stroke: axisStroke,
           'stroke-width': minorTickStyle.strokeWidth,
           'stroke-linecap': 'round',
-          opacity: minorTickStyle.opacity
+          opacity: minorTickStyle.opacity,
+          'data-roc-axis-minor-target': '1'
         });
       });
     }
     xTicks.forEach(tick => {
       const x = xToPx(tick);
-      add('line', {x1: x, y1: margin.top + plotHeight, x2: x, y2: margin.top + plotHeight + xMajorTickLength, stroke: axisStroke, 'stroke-width': axisStrokeWidth});
+      add('line', {x1: x, y1: margin.top + plotHeight, x2: x, y2: margin.top + plotHeight + xMajorTickLength, stroke: axisStroke, 'stroke-width': axisStrokeWidth, 'data-roc-axis-style-target': '1'});
       const extra = Shared.computeAxisLabelYOffset ? Shared.computeAxisLabelYOffset(fontSize, xMajorTickLength, tickGap) : 0;
       const txt = add('text', {x, y: margin.top + plotHeight + xMajorTickLength + tickGap + extra, 'text-anchor': 'middle', 'font-size': fontSize, fill: chartStyle.TEXT_COLOR}, formatTick(tick), { role: 'xTick' });
       Shared.applyTextBaseline && Shared.applyTextBaseline(txt, 'hanging', fontSize);
@@ -4906,13 +5002,14 @@
           stroke: axisStroke,
           'stroke-width': minorTickStyle.strokeWidth,
           'stroke-linecap': 'round',
-          opacity: minorTickStyle.opacity
+          opacity: minorTickStyle.opacity,
+          'data-roc-axis-minor-target': '1'
         });
       });
     }
     yTicks.forEach(tick => {
       const y = yToPx(tick);
-      add('line', {x1: margin.left - yMajorTickLength, y1: y, x2: margin.left, y2: y, stroke: axisStroke, 'stroke-width': axisStrokeWidth});
+      add('line', {x1: margin.left - yMajorTickLength, y1: y, x2: margin.left, y2: y, stroke: axisStroke, 'stroke-width': axisStrokeWidth, 'data-roc-axis-style-target': '1'});
       add('text', {x: margin.left - (yMajorTickLength + tickGap), y, 'text-anchor': 'end', 'font-size': fontSize, 'dominant-baseline': 'middle', fill: chartStyle.TEXT_COLOR}, formatTick(tick), { role: 'yTick' });
     });
     console.debug('Debug: roc ticks stroke scaled',{xTickCount: xTicks.length, yTickCount: yTicks.length, axisStrokeWidth});
@@ -5282,15 +5379,39 @@
       reason: 'roc-draw-complete',
       captureStatsPanel: false
     });
+    const rocAxisOwnerTabId = drawSession?.tabId || drawTabId || getRocProjectionTabId() || null;
+    Shared.visualProjection?.bind?.(
+      svg.querySelectorAll('[data-axis-control="1"], [data-frame-edge], [data-roc-axis-style-target="1"]'),
+      {
+        component: 'roc',
+        channel: 'axis',
+        tabId: rocAxisOwnerTabId,
+        strokeWidthBase: axisStrokeWidthBase,
+        renderedStrokeWidth: axisStrokeWidth
+      }
+    );
+    Shared.visualProjection?.bind?.(svg.querySelectorAll('[data-roc-axis-minor-target="1"]'), {
+      component: 'roc',
+      channel: 'axis',
+      tabId: rocAxisOwnerTabId,
+      strokeWidthBase: axisStrokeWidthBase,
+      renderedStrokeWidth: minorTickStyle.strokeWidth
+    });
     registerRocGridControlTarget(svg, { fallbackThickness: axisStrokeWidthBase });
     ensureGraphViewport(svg, {
       padding: Math.max(fontSize, 16),
       debugLabel: 'roc-graph',
       baseViewport: { width, height }
     });
+    if(!(await checkpoint()) || !framePublication.commit()){
+      return false;
+    }
     state.layout?.syncPanels?.({ skipSchedule: true });
     syncRocAutoDrawNoticeWidth('draw');
     return true;
+    }finally{
+      framePublication?.cleanup();
+    }
   }
 
   // PART: PERSISTENCE
@@ -6360,7 +6481,7 @@
       drawSession.updatedAt = Date.now();
       return;
     }
-    void runRocDrawCycle({ ...(meta || {}), tabId: drawSession?.tabId || meta?.tabId || undefined, reason: nextReason });
+    return runRocDrawCycle({ ...(meta || {}), tabId: drawSession?.tabId || meta?.tabId || undefined, reason: nextReason });
   };
   roc.cancelCurrentDraw = function cancelCurrentDraw(meta = {}){
     const tabId = meta?.tabId || getRocProjectionTabId() || null;

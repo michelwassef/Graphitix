@@ -4,7 +4,6 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
-const url = require('url');
 
 const root = path.resolve(__dirname, '..');
 const args = process.argv.slice(2);
@@ -44,7 +43,7 @@ function sendNotFound(res) {
 
 const server = http.createServer((req, res) => {
   try {
-    const parsed = url.parse(req.url || '/');
+    const parsed = new URL(req.url || '/', 'http://127.0.0.1');
     const filePath = safeResolvePath(parsed.pathname || '/');
     if (!filePath) {
       sendNotFound(res);

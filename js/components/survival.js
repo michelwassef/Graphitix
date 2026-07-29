@@ -150,6 +150,7 @@
         reason: 'survival-curve-format-owner'
       }, { create: true });
       const ownerTabId = ownerSession?.tabId || getSurvivalProjectionTabId() || null;
+      const canEditOwner = () => !ownerSession || isSurvivalSessionActive(ownerSession);
       let seriesKey = target.getAttribute('data-group') || null;
       const knownSeriesKeys = () => {
         const keys = new Set();
@@ -164,7 +165,7 @@
         Object.keys(state.labelStrokeWidth || {}).forEach(addKey);
         Object.keys(state.labelOpacity || {}).forEach(addKey);
         Object.keys(state.labelLinePattern || {}).forEach(addKey);
-        const svg = getSurvivalNodeById('survivalSvg');
+        const svg = getSurvivalNodeById('survivalSvg', ownerTabId);
         if(svg && svg.querySelectorAll){
           svg.querySelectorAll('path[data-group]').forEach(node => addKey(node.getAttribute('data-group')));
         }
@@ -204,12 +205,21 @@
         return options;
       })();
       const resolveTargets = scopeValue => {
-        const svg = getSurvivalNodeById('survivalSvg');
+        const svg = getSurvivalNodeById('survivalSvg', ownerTabId);
         if(!svg){ return target ? [target] : []; }
         if(scopeValue === 'series' && seriesKey){
-          return Array.from(svg.querySelectorAll(`path[data-group="${seriesKey.replace(/"/g, '\\"')}"]`));
+          return Array.from(svg.querySelectorAll('path[data-group]'))
+            .filter(node => node.getAttribute('data-group') === seriesKey);
         }
         return Array.from(svg.querySelectorAll('path[data-group]'));
+      };
+      const resolveLegendTargets = scopeValue => {
+        const svg = getSurvivalNodeById('survivalSvg', ownerTabId);
+        if(!svg){ return []; }
+        return Array.from(svg.querySelectorAll('[data-legend-key]')).filter(node => {
+          if(String(node.tagName || '').toLowerCase() === 'text'){ return false; }
+          return scopeValue !== 'series' || !seriesKey || String(node.dataset?.legendKey || '').trim() === seriesKey;
+        });
       };
       additionalLineControls.show({
         scopeId: 'survival',
@@ -277,9 +287,11 @@
           return Math.round((1 - bounded) * 100);
         },
         onColorInput: (value, ctx) => {
+          if(!canEditOwner()){ return; }
           const scopeValue = ctx?.scope === 'series' ? 'series' : 'global';
           const nodes = resolveTargets(scopeValue);
-          nodes.forEach(node => { try{ node.setAttribute('stroke', value); }catch(e){} });
+          nodes.forEach(node => node.setAttribute('stroke', value));
+          resolveLegendTargets(scopeValue).forEach(node => node.setAttribute('fill', value));
           if(scopeValue === 'series' && seriesKey){
             state.labelColors[seriesKey] = value;
           }else{
@@ -289,12 +301,16 @@
             });
           }
           syncSurvivalStateToSession(ownerSession, { labelColors: state.labelColors });
-          scheduleSurvivalDrawForSession(ownerSession, { reason: 'survival-curve-color-input', tabId: ownerTabId });
+          if(!nodes.length){
+            scheduleSurvivalViewRefresh('survival-curve-color-input', { tabId: ownerTabId });
+          }
         },
         onColorChange: (value, ctx) => {
+          if(!canEditOwner()){ return; }
           const scopeValue = ctx?.scope === 'series' ? 'series' : 'global';
           const nodes = resolveTargets(scopeValue);
-          nodes.forEach(node => { try{ node.setAttribute('stroke', value); }catch(e){} });
+          nodes.forEach(node => node.setAttribute('stroke', value));
+          resolveLegendTargets(scopeValue).forEach(node => node.setAttribute('fill', value));
           if(scopeValue === 'series' && seriesKey){
             state.labelColors[seriesKey] = value;
           }else{
@@ -304,14 +320,17 @@
             });
           }
           syncSurvivalStateToSession(ownerSession, { labelColors: state.labelColors });
-          scheduleSurvivalDrawForSession(ownerSession, { reason: 'survival-curve-color-change', tabId: ownerTabId });
+          if(!nodes.length){
+            scheduleSurvivalViewRefresh('survival-curve-color-change', { tabId: ownerTabId });
+          }
         },
         onThicknessChange: (value, ctx) => {
+          if(!canEditOwner()){ return; }
           const next = Number(value);
           if(!Number.isFinite(next)){ return; }
           const scopeValue = ctx?.scope === 'series' ? 'series' : 'global';
           const nodes = resolveTargets(scopeValue);
-          nodes.forEach(node => { try{ node.setAttribute('stroke-width', String(next)); }catch(e){} });
+          nodes.forEach(node => node.setAttribute('stroke-width', String(next)));
           if(scopeValue === 'series' && seriesKey){
             state.labelStrokeWidth[seriesKey] = next;
           }else{
@@ -321,9 +340,12 @@
             });
           }
           syncSurvivalStateToSession(ownerSession, { labelStrokeWidth: state.labelStrokeWidth });
-          scheduleSurvivalDrawForSession(ownerSession, { reason: 'survival-curve-thickness-change', tabId: ownerTabId });
+          if(!nodes.length){
+            scheduleSurvivalViewRefresh('survival-curve-thickness-change', { tabId: ownerTabId });
+          }
         },
         onPatternChange: (value, ctx) => {
+          if(!canEditOwner()){ return; }
           const pattern = sanitizeSurvivalLinePattern(value);
           const scopeValue = ctx?.scope === 'series' ? 'series' : 'global';
           const nodes = resolveTargets(scopeValue);
@@ -337,15 +359,18 @@
             });
           }
           syncSurvivalStateToSession(ownerSession, { labelLinePattern: state.labelLinePattern });
-          scheduleSurvivalDrawForSession(ownerSession, { reason: 'survival-curve-pattern-change', tabId: ownerTabId });
+          if(!nodes.length){
+            scheduleSurvivalViewRefresh('survival-curve-pattern-change', { tabId: ownerTabId });
+          }
         },
         onTransparencyChange: (value, ctx) => {
+          if(!canEditOwner()){ return; }
           const pct = Number(value);
           const bounded = Number.isFinite(pct) ? Math.max(0, Math.min(100, pct)) : 0;
           const opacity = 1 - (bounded / 100);
           const scopeValue = ctx?.scope === 'series' ? 'series' : 'global';
           const nodes = resolveTargets(scopeValue);
-          nodes.forEach(node => { try{ node.setAttribute('stroke-opacity', String(opacity)); }catch(e){} });
+          nodes.forEach(node => node.setAttribute('stroke-opacity', String(opacity)));
           if(scopeValue === 'series' && seriesKey){
             state.labelOpacity[seriesKey] = opacity;
           }else{
@@ -355,7 +380,9 @@
             });
           }
           syncSurvivalStateToSession(ownerSession, { labelOpacity: state.labelOpacity });
-          scheduleSurvivalDrawForSession(ownerSession, { reason: 'survival-curve-opacity-change', tabId: ownerTabId });
+          if(!nodes.length){
+            scheduleSurvivalViewRefresh('survival-curve-opacity-change', { tabId: ownerTabId });
+          }
         }
       });
       return;
@@ -564,7 +591,6 @@
       }
     }
   }
-  const COX_MAX_OBSERVATIONS = 20000;
   const palette = Shared.palette = Shared.palette || {};
   if(typeof palette.ensureDefaultScatterColors !== 'function' && typeof require === 'function'){
     try{
@@ -1517,8 +1543,19 @@
       settings.strokeWidth = Number.isFinite(numeric) && numeric > 0 ? numeric : 1;
     }
     logDebug('axis stroke width updated',{ strokeWidth: settings.strokeWidth });
-    syncSurvivalStateToSession(getSurvivalProjectionSession({ reason: 'survival-projection-mutation' }), { axisSettings: settings });
-    scheduleActiveSurvivalDraw({ reason: 'axis-stroke-width', tabId: getSurvivalProjectionTabId() || null });
+    const ownerSession = getSurvivalProjectionSession({ reason: 'survival-axis-stroke-width' });
+    const tabId = ownerSession?.tabId || getSurvivalProjectionTabId() || null;
+    syncSurvivalStateToSession(ownerSession, { axisSettings: settings });
+    const svg = getSurvivalNodeById('survivalSvg', tabId) || getSurvivalNodeById('survivalSvg');
+    const projected = Shared.visualProjection?.apply?.(svg, {
+      component: 'survival',
+      channel: 'axis',
+      tabId,
+      attributes: { strokeWidth: settings.strokeWidth }
+    });
+    if(!projected){
+      scheduleSurvivalViewRefresh('axis-stroke-width', { tabId });
+    }
   }
 
   function getAxisColor(){
@@ -1529,8 +1566,19 @@
     const settings = ensureAxisSettings();
     settings.color = typeof value === 'string' && value.trim() ? value : DEFAULT_AXIS_COLOR;
     logDebug('axis color updated',{ color: settings.color });
-    syncSurvivalStateToSession(getSurvivalProjectionSession({ reason: 'survival-projection-mutation' }), { axisSettings: settings });
-    scheduleActiveSurvivalDraw({ reason: 'axis-color', tabId: getSurvivalProjectionTabId() || null });
+    const ownerSession = getSurvivalProjectionSession({ reason: 'survival-axis-color' });
+    const tabId = ownerSession?.tabId || getSurvivalProjectionTabId() || null;
+    syncSurvivalStateToSession(ownerSession, { axisSettings: settings });
+    const svg = getSurvivalNodeById('survivalSvg', tabId) || getSurvivalNodeById('survivalSvg');
+    const projected = Shared.visualProjection?.apply?.(svg, {
+      component: 'survival',
+      channel: 'axis',
+      tabId,
+      attributes: { stroke: settings.color }
+    });
+    if(!projected){
+      scheduleSurvivalViewRefresh('axis-color', { tabId });
+    }
   }
 
   function registerSurvivalGridControlTarget(target, options){
@@ -1553,7 +1601,11 @@
       getStyle: () => getGridStyle(fallbackThickness),
       onStyleChange: style => {
         setGridStyle(style, fallbackThickness);
-        scheduleActiveSurvivalDraw({ reason: 'grid-style-change', tabId: getSurvivalProjectionTabId() || null });
+        if(!gridControls.applyStyleToTarget?.(target, getGridStyle(fallbackThickness), {
+          defaults: createDefaultGridStyle(fallbackThickness)
+        })){
+          scheduleSurvivalViewRefresh('grid-style-change', { tabId: getSurvivalProjectionTabId() || null });
+        }
       },
       defaults: createDefaultGridStyle(fallbackThickness)
     });
@@ -3507,7 +3559,6 @@
     if(!data.length){
       return { available: false, message: 'No valid observations to fit Cox model.' };
     }
-    const originalCount = data.length;
     const truncated = false;
     data.sort((a, b) => a.time - b.time);
     const eventCount = data.reduce((sum, rec) => sum + (rec.event ? 1 : 0), 0);
@@ -4654,7 +4705,13 @@
       return false;
     }
     const drawTabId = drawSession?.tabId || options?.tabId || getSurvivalProjectionTabId() || null;
-    const execution = Shared.jobs?.createExecutionContext?.({ component: 'survival', tabId: drawTabId || '', kind: 'graph', budgetMs: 10 }) || null;
+    const execution = Shared.jobs?.createExecutionContext?.({
+      component: 'survival',
+      tabId: drawTabId || '',
+      kind: 'graph',
+      budgetMs: 10,
+      drawOptions: options
+    }) || null;
     const checkpoint = async () => {
       try{ await execution?.checkpoint?.(); }
       catch(err){
@@ -4663,6 +4720,8 @@
       }
       return execution?.isCurrent?.() !== false;
     };
+    let framePublication = null;
+    try{
     const plotDiv = getSurvivalNodeById('survivalPlot', drawTabId) || refs.plotDiv || getSurvivalNodeById('survivalPlot');
     if(!plotDiv){
       if(drawSession){
@@ -4675,9 +4734,6 @@
     const debugStamp = Date.now();
     const controls = syncSurvivalRuntimeControlsFromDom();
     logDebug('draw start', { debugStamp });
-    while(refs.plotDiv.firstChild){
-      refs.plotDiv.removeChild(refs.plotDiv.firstChild);
-    }
     const summary = collectSeries();
     if(!(await checkpoint())){
       return false;
@@ -4737,7 +4793,6 @@
     const height = Math.max(200, Math.floor(drawableFrame.height || 320));
     logDebug('draw dimensions resolved', { width, height });
     const svg = document.createElementNS(NS, 'svg');
-    svg.setAttribute('id', 'survivalSvg');
     svg.setAttribute('width', String(width));
     svg.setAttribute('height', String(height));
     svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
@@ -4745,7 +4800,15 @@
     if(svg.dataset){
       svg.dataset.fontScope = 'survival';
     }
-    refs.plotDiv.appendChild(svg);
+    framePublication = Shared.framePublication.stage({
+      container: refs.plotDiv,
+      frame: svg,
+      publishedId: 'survivalSvg',
+      component: 'survival',
+      tabId: drawTabId,
+      canCommit: () => execution?.isCurrent?.() !== false
+        && (!drawSession || isSurvivalSessionActiveOrActivating(drawSession))
+    });
 
     const fontInfo = chartStyle.resolveScaledFontSize ? chartStyle.resolveScaledFontSize({
       rawSize: controls.fontSize,
@@ -5053,13 +5116,14 @@
           stroke: axisStroke,
           'stroke-width': minorTickStyle.strokeWidth,
           'stroke-linecap': 'round',
-          opacity: minorTickStyle.opacity
+          opacity: minorTickStyle.opacity,
+          'data-survival-axis-minor-target': '1'
         });
       });
     }
     xScale.ticks.forEach(value => {
       const x = x2px(value);
-      add('line', { x1: x, y1: xAxisY, x2: x, y2: xAxisY + xMajorTickLength, stroke: axisStroke, 'stroke-width': axisStrokeWidth });
+      add('line', { x1: x, y1: xAxisY, x2: x, y2: xAxisY + xMajorTickLength, stroke: axisStroke, 'stroke-width': axisStrokeWidth, 'data-survival-axis-style-target': '1' });
       const extra = Shared.computeAxisLabelYOffset ? Shared.computeAxisLabelYOffset(fs, xMajorTickLength, tickGap) : 0;
       const text = add('text', {
         x,
@@ -5086,13 +5150,14 @@
           stroke: axisStroke,
           'stroke-width': minorTickStyle.strokeWidth,
           'stroke-linecap': 'round',
-          opacity: minorTickStyle.opacity
+          opacity: minorTickStyle.opacity,
+          'data-survival-axis-minor-target': '1'
         });
       });
     }
     yScale.ticks.forEach(value => {
       const y = y2px(value);
-      add('line', { x1: yAxisX - yMajorTickLength, y1: y, x2: yAxisX, y2: y, stroke: axisStroke, 'stroke-width': axisStrokeWidth });
+      add('line', { x1: yAxisX - yMajorTickLength, y1: y, x2: yAxisX, y2: y, stroke: axisStroke, 'stroke-width': axisStrokeWidth, 'data-survival-axis-style-target': '1' });
       const text = add('text', {
         x: yAxisX - (yMajorTickLength + tickGap),
         y,
@@ -5358,7 +5423,8 @@
             x2: x + markerSize / 2,
             y2: y,
             stroke: group.color,
-            'stroke-width': axisStrokeWidth
+            'stroke-width': axisStrokeWidth,
+            'data-survival-axis-width-target': '1'
           });
           add('line', {
             x1: x,
@@ -5366,7 +5432,8 @@
             x2: x,
             y2: y + markerSize / 2,
             stroke: group.color,
-            'stroke-width': axisStrokeWidth
+            'stroke-width': axisStrokeWidth,
+            'data-survival-axis-width-target': '1'
           });
         });
       }
@@ -5384,12 +5451,44 @@
       logDebug('legend skipped', { showLegend, entryCount: legendRenderer.entries.length });
     }
 
-    updateStats({ ...summary, series: groupsForDraw });
+    const survivalAxisOwnerTabId = drawSession?.tabId || drawTabId || getSurvivalProjectionTabId() || null;
+    Shared.visualProjection?.bind?.(
+      svg.querySelectorAll('[data-axis-control="1"], [data-frame-edge], [data-survival-axis-style-target="1"]'),
+      {
+        component: 'survival',
+        channel: 'axis',
+        tabId: survivalAxisOwnerTabId,
+        strokeWidthBase: axisStrokeWidthBase,
+        renderedStrokeWidth: axisStrokeWidth
+      }
+    );
+    Shared.visualProjection?.bind?.(svg.querySelectorAll('[data-survival-axis-minor-target="1"]'), {
+      component: 'survival',
+      channel: 'axis',
+      tabId: survivalAxisOwnerTabId,
+      strokeWidthBase: axisStrokeWidthBase,
+      renderedStrokeWidth: minorTickStyle.strokeWidth
+    });
+    Shared.visualProjection?.bind?.(svg.querySelectorAll('[data-survival-axis-width-target="1"]'), {
+      component: 'survival',
+      channel: 'axis',
+      tabId: survivalAxisOwnerTabId,
+      strokeWidthBase: axisStrokeWidthBase,
+      renderedStrokeWidth: axisStrokeWidth,
+      properties: ['strokeWidth']
+    });
     registerSurvivalGridControlTarget(svg, { fallbackThickness: axisStrokeWidthBase });
     autoResizeSvgHelper(svg);
+    if(!(await checkpoint()) || !framePublication.commit()){
+      return false;
+    }
+    updateStats({ ...summary, series: groupsForDraw });
     state.layout?.syncPanels?.({ skipSchedule: true });
     logDebug('draw complete', { debugStamp });
     return true;
+    }finally{
+      framePublication?.cleanup();
+    }
   }
 
   function updateStats(summary){
@@ -7399,10 +7498,25 @@
       await Shared.jobs?.nextFrame?.();
     }
     let result;
+    let status = 'complete';
     try{
       result = await drawSurvival({ ...(options || {}), tabId: drawSession?.tabId || options?.tabId || undefined, reason: nextReason }, drawSession);
+      if(result === false){
+        status = 'cancelled';
+      }
+    }catch(err){
+      status = 'error';
+      throw err;
     }finally{
-      survivalOverlayController?.resolve({ reason: 'complete', tabId: drawSession?.tabId || options?.tabId || null });
+      const drawTabId = drawSession?.tabId || options?.tabId || null;
+      survivalOverlayController?.resolve({ reason: status, status, tabId: drawTabId });
+      Shared.componentLifecycle?.emitLifecycleEvent?.({
+        componentKey: 'survival',
+        tabId: drawTabId,
+        action: 'draw-settled',
+        reason: nextReason,
+        phase: status
+      });
     }
     captureSurvivalSessionStateFromActive(getSurvivalProjectionSession({ reason: 'survival-projection-mutation' }), {
       reason: nextReason,

@@ -97,8 +97,45 @@
 
   function buildContext(config, targetOverride){
     return {
-      target: targetOverride || config?.target || null
+      target: targetOverride || config?.target || null,
+      tabId: config?.ownerTabId || null
     };
+  }
+
+  function normalizeTabId(value){
+    const text = String(value || '').trim();
+    return text || null;
+  }
+
+  function resolveOwnerTabId(node){
+    let cursor = node || null;
+    while(cursor && cursor !== global.document){
+      const tabId = normalizeTabId(
+        cursor.dataset?.workspaceTabId
+        || cursor.dataset?.tabId
+        || cursor.getAttribute?.('data-workspace-tab-id')
+        || cursor.getAttribute?.('data-tab-id')
+      );
+      if(tabId){
+        return tabId;
+      }
+      cursor = cursor.parentElement || cursor.parentNode || null;
+    }
+    return null;
+  }
+
+  function getActiveTabId(){
+    try{
+      return normalizeTabId(global.Main?.session?.getActiveTab?.()?.id);
+    }catch(_err){
+      return null;
+    }
+  }
+
+  function isOwnerActive(config){
+    const ownerTabId = normalizeTabId(config?.ownerTabId);
+    const activeTabId = getActiveTabId();
+    return !ownerTabId || !activeTabId || ownerTabId === activeTabId;
   }
 
   function syncPanelFromConfigIfOpen(config){
@@ -662,6 +699,42 @@
     }
   }
 
+  function applyStyleToTarget(root, style, options = {}){
+    if(!root || root.isConnected === false || typeof root.querySelectorAll !== 'function'){
+      return false;
+    }
+    const sourceNodes = Array.from(root.querySelectorAll('[data-grid-control="1"]'))
+      .filter(node => node.getAttribute?.('data-grid-hit-overlay') !== '1');
+    if(!sourceNodes.length){
+      return false;
+    }
+    const factor = Number.isFinite(Number(root.__gridControlStrokeFactor))
+      ? Math.max(0, Number(root.__gridControlStrokeFactor))
+      : 1;
+    const normalized = sanitizeStyle(style, options.defaults);
+    const renderedStyle = {
+      ...normalized,
+      thickness: normalized.thickness * factor
+    };
+    const attrs = buildStrokeAttributes(renderedStyle, options);
+    sourceNodes.forEach(node => {
+      node.setAttribute('stroke', String(attrs.stroke));
+      node.setAttribute('stroke-width', String(attrs['stroke-width']));
+      if(attrs['stroke-dasharray']){
+        node.setAttribute('stroke-dasharray', String(attrs['stroke-dasharray']));
+      }else{
+        node.removeAttribute('stroke-dasharray');
+      }
+      if(attrs['stroke-opacity'] != null){
+        node.setAttribute('stroke-opacity', String(attrs['stroke-opacity']));
+      }else{
+        node.removeAttribute('stroke-opacity');
+      }
+    });
+    ensureGridHitLayer(root);
+    return true;
+  }
+
   function resolveControls(config){
     const controls = (config && typeof config.controls === 'object') ? config.controls : {};
     return {
@@ -1172,6 +1245,27 @@
       skipHideAll: true,
       keepOpenWithinHost: true
     }, config);
+    mergedConfig.ownerTabId = normalizeTabId(config.ownerTabId || resolveOwnerTabId(element));
+    ['getStyle', 'getVisible', 'onStyleChange', 'onVisibleChange'].forEach(methodName => {
+      const callback = mergedConfig[methodName];
+      if(typeof callback !== 'function'){
+        return;
+      }
+      mergedConfig[methodName] = (...args) => {
+        if(!isOwnerActive(mergedConfig)){
+          return undefined;
+        }
+        return callback(...args);
+      };
+    });
+    const sourceNode = element.querySelector?.('[data-grid-control="1"]:not([data-grid-hit-overlay="1"])') || null;
+    const renderedThickness = Number(sourceNode?.getAttribute?.('stroke-width'));
+    const configuredThickness = Number(mergedConfig.getStyle?.({ target: element })?.thickness);
+    element.__gridControlStrokeFactor = Number.isFinite(renderedThickness)
+      && Number.isFinite(configuredThickness)
+      && configuredThickness > 0
+      ? Math.max(0, renderedThickness / configuredThickness)
+      : 1;
     element.__gridControlConfig = mergedConfig;
     const previousHandler = element.__gridControlHandler;
     if(previousHandler){
@@ -1236,4 +1330,5 @@
   gridControls.patternToDasharray = patternToDasharray;
   gridControls.transparencyToOpacity = transparencyToOpacity;
   gridControls.getStrokeAttributes = buildStrokeAttributes;
+  gridControls.applyStyleToTarget = applyStyleToTarget;
 })(typeof window !== 'undefined' ? window : globalThis);

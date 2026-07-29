@@ -91,4 +91,72 @@ describe('graphArchive payload lite load', () => {
     expect(payload.dataViews.views[1].data.length).toBe(2);
     expect(transformsApi.applyTransform).toHaveBeenCalled();
   });
+
+  test('replays a sparse PCA RNA-seq filtered view from canonical raw data', async () => {
+    jest.resetModules();
+    window.Shared = {};
+    require('../js/shared/dataTransforms.js');
+    const transformsApi = window.Shared.dataTransforms;
+    const files = {
+      'manifest.json': JSON.stringify({
+        format: 'venn-graph-archive',
+        version: 2,
+        scope: 'tab',
+        activeIndex: 0,
+        tabCount: 1,
+        tabs: [{
+          index: 0,
+          title: 'PCA',
+          type: 'pca',
+          payloadMode: 'lite',
+          rawDataMode: 'matrix',
+          files: {
+            payload: 'tabs/PCA/payload.json',
+            rawCsv: 'tabs/PCA/raw/data.csv'
+          }
+        }]
+      }),
+      'tabs/PCA/payload.json': JSON.stringify({
+        type: 'pca',
+        dataViews: {
+          version: 3,
+          activeViewId: 'view-2',
+          views: [
+            { id: 'raw', kind: 'raw', title: 'Raw' },
+            {
+              id: 'view-2',
+              kind: 'derived',
+              title: 'RNA-seq log (filtered genes)',
+              sourceViewId: 'raw',
+              transformSpec: {
+                type: 'rnaSeqNormalizedLog',
+                headerRows: 2,
+                startCol: 1,
+                labelCol: 0,
+                topFeatureLimit: 2
+              }
+            }
+          ]
+        },
+        activeDataViewId: 'view-2'
+      }),
+      'tabs/PCA/raw/data.csv': [
+        'Label point,true,false,false',
+        'Variable,S1,S2,S3',
+        'stable-a,10,10,10',
+        'variable-b,10,20,40',
+        'stable-c,20,20,20',
+        'variable-d,10,40,160'
+      ].join('\r\n')
+    };
+    const graphArchive = installGraphArchiveWithZipLoadMock(files, transformsApi);
+
+    const parsed = await graphArchive.parseArchiveBuffer(new Uint8Array([0x50, 0x4b, 0x03, 0x04]).buffer);
+    const payload = parsed.session.tabs[0].payload;
+    expect(payload.data).toHaveLength(6);
+    expect(payload.dataViews.views[0].data).toEqual(payload.data);
+    expect(payload.dataViews.views[1].data).toHaveLength(4);
+    expect(payload.dataViews.views[1].data.slice(2).map(row => row[0]))
+      .toEqual(['variable-d', 'variable-b']);
+  });
 });

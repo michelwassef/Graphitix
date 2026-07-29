@@ -246,6 +246,7 @@
     }
     if(type === 'normalizerows'){ return 'Normalize Rows'; }
     if(type === 'normalizecolumns'){ return 'Normalize Columns'; }
+    if(type === 'rnaseqnormalizedlog'){ return 'RNA-seq log (filtered genes)'; }
     return type || 'Derived';
   }
 
@@ -989,6 +990,9 @@
         sourceViewId: sourceView.id,
         transformSpec: transformResult.spec,
         summary: transformResult.summary || null,
+        shareExclusions: options?.shareExclusions,
+        exclusions: options?.exclusions || null,
+        filters: options?.filters || null,
         activate: options?.activate !== false,
         reason: options?.reason || 'transform'
       });
@@ -1053,6 +1057,9 @@
           specs: normalizedSpecs
         },
         summary,
+        shareExclusions: options?.shareExclusions,
+        exclusions: options?.exclusions || null,
+        filters: options?.filters || null,
         activate: options?.activate !== false,
         reason: options?.reason || 'pipeline'
       });

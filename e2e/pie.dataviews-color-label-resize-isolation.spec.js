@@ -65,7 +65,7 @@ async function waitForPieRender(page, expectedTitle) {
 }
 
 async function configurePieTab(page, variant) {
-  await page.evaluate(variant => {
+  await page.evaluate(async variant => {
     const root = document.querySelector('#piePage:not([hidden])');
     if (!root) throw new Error('active Pie root not found');
     const payload = {
@@ -116,10 +116,10 @@ async function configurePieTab(page, variant) {
     if (!view || manager.getActiveView?.()?.title !== variant.viewTitle) {
       throw new Error('Pie derived view did not become active');
     }
-    window.Components.pie.draw({ reason: 'e2e-pie-configured-draw' });
+    await window.Components.pie.draw({ reason: 'e2e-pie-configured-draw' });
   }, variant);
   await waitForPieRender(page, variant.title);
-  await page.evaluate(variant => {
+  await page.evaluate(async variant => {
     const root = document.querySelector('#piePage:not([hidden])');
     const box = root?.querySelector?.('#pieGraphPanel .svgbox');
     if (!box || typeof window.Shared?.applyResizableBoxSize !== 'function') {
@@ -133,7 +133,7 @@ async function configurePieTab(page, variant) {
       preserveAspectLock: true,
       reason: 'e2e-pie-final-resize'
     });
-    window.Components.pie.draw({ reason: 'e2e-pie-after-final-resize' });
+    await window.Components.pie.draw({ reason: 'e2e-pie-after-final-resize' });
   }, variant);
   await waitForPieRender(page, variant.title);
 }
@@ -377,6 +377,12 @@ test('Pie DataViews, colors, labels, and finalized resize stay isolated across s
   const reopened = [];
   for (const tabId of reopenedIds) {
     await activateTab(page, tabId);
+    await page.waitForFunction(() => {
+      const payload = window.Components?.pie?.getPayload?.();
+      const title = String(payload?.config?.title || '');
+      const svgText = document.querySelector('#piePage:not([hidden]) #pieSvg')?.textContent || '';
+      return !!title && svgText.includes(title);
+    }, null, { timeout: 60_000 });
     const snapshot = await snapshotPie(page);
     reopened.push(snapshot);
   }

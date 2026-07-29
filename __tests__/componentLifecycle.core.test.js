@@ -352,6 +352,40 @@ describe('componentLifecycle — lifecycle events', () => {
     const [ev1, ev2] = lc.getLifecycleEvents(cursor);
     expect(ev2.index).toBe(ev1.index + 1);
   });
+
+  test('waitForLifecycleEvent resolves only for the requested owner and action', async () => {
+    const cursor = lc.getLifecycleEventCursor();
+    const pending = lc.waitForLifecycleEvent({
+      componentKey: 'line',
+      tabId: 'tab-a',
+      action: 'draw-settled',
+      afterCursor: cursor
+    });
+    lc.emitLifecycleEvent({ componentKey: 'line', tabId: 'tab-b', action: 'draw-settled' });
+    lc.emitLifecycleEvent({ componentKey: 'line', tabId: 'tab-a', action: 'draw-executed' });
+    const expected = lc.emitLifecycleEvent({
+      componentKey: 'line',
+      tabId: 'tab-a',
+      action: 'draw-settled',
+      reason: 'test-draw'
+    });
+    await expect(pending).resolves.toEqual(expected);
+  });
+
+  test('waitForLifecycleEvent sees a matching event emitted after its cursor', async () => {
+    const cursor = lc.getLifecycleEventCursor();
+    const expected = lc.emitLifecycleEvent({
+      componentKey: 'roc',
+      tabId: 'tab-a',
+      action: 'draw-settled'
+    });
+    await expect(lc.waitForLifecycleEvent({
+      componentKey: 'roc',
+      tabId: 'tab-a',
+      action: 'draw-settled',
+      afterCursor: cursor
+    })).resolves.toEqual(expected);
+  });
 });
 
 describe('componentLifecycle — shouldSuppressDraw', () => {

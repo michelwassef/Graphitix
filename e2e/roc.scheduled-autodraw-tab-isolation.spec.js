@@ -108,6 +108,10 @@ async function configureLargeManualPrTab(page) {
       && payload.data.length > 5000
       && root?.querySelector?.('#rocRenderRow')?.hidden === false;
   }, null, { timeout: 60_000 });
+  const renderButton = page.locator('#rocPage:not([hidden]) #rocRenderButton');
+  await expect(renderButton).toBeEnabled();
+  await renderButton.click();
+  await waitForRocGraphType(page, 'pr');
 }
 
 async function scheduleFirstTabThenSwitch(page, targetTabId) {

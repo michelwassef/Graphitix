@@ -1068,9 +1068,6 @@
       return null;
     }
     const id = idOwner.id;
-    if (id === 'welcomeOpenButton' || id === 'welcomeOpenGraph') {
-      return { action: 'open-welcome', element: idOwner };
-    }
     if (/^open[A-Z].*Graph$/.test(id)) {
       return { action: 'open', element: idOwner };
     }
@@ -1180,10 +1177,6 @@
     event.preventDefault();
     event.stopImmediatePropagation();
     const action = actionTarget.action;
-    if (action === 'open-welcome') {
-      void handleWelcomeGraphOpen();
-      return;
-    }
     if (action === 'open') {
       void handleSessionLoadClick({ reason: 'toolbar-open' });
       return;
@@ -1209,12 +1202,6 @@
         const policy = sessionButton.dataset.sessionActionNewWindow;
         void handleSessionLoadClick({ openInNewWindowIfDirty: policy === 'dirty' });
       }
-      return;
-    }
-    const welcomeGraphItem = findClosestInteractive(target, '#welcomeOpenButton, #welcomeOpenGraph');
-    if (welcomeGraphItem) {
-      event.preventDefault();
-      void handleWelcomeGraphOpen();
       return;
     }
     const styleSyncTrigger = findClosestInteractive(target, '[data-style-sync-trigger]');

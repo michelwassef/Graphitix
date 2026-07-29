@@ -1204,6 +1204,60 @@
   namespace.getLifecycleEventCursor = function getLifecycleEventCursor(){
     return lifecycleEventLog.length;
   };
+  namespace.waitForLifecycleEvent = function waitForLifecycleEvent(criteria = {}){
+    const source = criteria && typeof criteria === 'object' ? criteria : {};
+    const componentKey = normalizeLifecycleComponentKey(source.componentKey || source.type || source.component || '');
+    const tabId = String(source.tabId || source.workspaceTabId || source.tab?.id || '').trim();
+    const actions = new Set(
+      (Array.isArray(source.actions) ? source.actions : [source.action])
+        .filter(Boolean)
+        .map(action => String(action))
+    );
+    const afterCursor = Math.max(0, Number(source.afterCursor) || 0);
+    const predicate = typeof source.predicate === 'function' ? source.predicate : null;
+    const timeoutMs = Number.isFinite(Number(source.timeoutMs))
+      ? Math.max(1, Number(source.timeoutMs))
+      : 30000;
+    const matches = event => {
+      if(componentKey && event.componentKey !== componentKey){ return false; }
+      if(tabId && String(event.tabId || '') !== tabId){ return false; }
+      if(actions.size && !actions.has(String(event.action || ''))){ return false; }
+      return !predicate || predicate(event) === true;
+    };
+    const existing = lifecycleEventLog.slice(afterCursor).find(matches);
+    if(existing){
+      return Promise.resolve(existing);
+    }
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      let timer = null;
+      const finish = (event, error) => {
+        if(settled){ return; }
+        settled = true;
+        lifecycleEventListeners.delete(listener);
+        if(timer != null && typeof global.clearTimeout === 'function'){
+          global.clearTimeout(timer);
+        }
+        if(error){
+          reject(error);
+        }else{
+          resolve(event);
+        }
+      };
+      const listener = event => {
+        if(matches(event)){
+          finish(event, null);
+        }
+      };
+      lifecycleEventListeners.add(listener);
+      if(typeof global.setTimeout === 'function'){
+        timer = global.setTimeout(() => {
+          const label = [componentKey, tabId, Array.from(actions).join('|')].filter(Boolean).join(':') || 'lifecycle event';
+          finish(null, new Error(`Timed out waiting for ${label}.`));
+        }, timeoutMs);
+      }
+    });
+  };
 
   const renderRestoreTransactionStack = namespace.__renderRestoreTransactionStack || [];
   namespace.__renderRestoreTransactionStack = renderRestoreTransactionStack;

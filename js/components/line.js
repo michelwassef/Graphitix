@@ -2605,7 +2605,17 @@
     }
     setLineAxisSettingsState(getLineProjectionSession({ reason: 'line-projection-mutation' }), settings, { reason: 'line-axis-stroke-width' });
     console.debug('Debug: line axis stroke width updated',{ strokeWidth: settings.strokeWidth });
-    scheduleLineViewRefresh('axis-stroke-width');
+    const tabId = getLineProjectionTabId() || null;
+    const svg = getLineNodeById('lineSvg', tabId) || getLineNodeById('lineSvg');
+    const projected = Shared.visualProjection?.apply?.(svg, {
+      component: 'line',
+      channel: 'axis',
+      tabId,
+      attributes: { strokeWidth: settings.strokeWidth }
+    });
+    if(!projected){
+      scheduleLineViewRefresh('axis-stroke-width', { tabId });
+    }
   }
 
   function getLineAxisColor(session = null){
@@ -2624,7 +2634,17 @@
     settings.color = typeof value === 'string' && value.trim() ? value : DEFAULT_AXIS_COLOR;
     setLineAxisSettingsState(getLineProjectionSession({ reason: 'line-projection-mutation' }), settings, { reason: 'line-axis-color' });
     console.debug('Debug: line axis color updated',{ color: settings.color });
-    scheduleLineViewRefresh('axis-color');
+    const tabId = getLineProjectionTabId() || null;
+    const svg = getLineNodeById('lineSvg', tabId) || getLineNodeById('lineSvg');
+    const projected = Shared.visualProjection?.apply?.(svg, {
+      component: 'line',
+      channel: 'axis',
+      tabId,
+      attributes: { stroke: getLineAxisColor() }
+    });
+    if(!projected){
+      scheduleLineViewRefresh('axis-color', { tabId });
+    }
   }
 
   function registerLineGridControlTarget(target, options){
@@ -2646,7 +2666,11 @@
       getStyle: () => getLineGridStyle(fallbackThickness),
       onStyleChange: style => {
         setLineGridStyle(style, fallbackThickness);
-        scheduleActiveLineDraw();
+        if(!gridControls.applyStyleToTarget?.(target, getLineGridStyle(fallbackThickness), {
+          defaults: createDefaultLineGridStyle(fallbackThickness)
+        })){
+          scheduleLineViewRefresh('line-grid-style-change');
+        }
       },
       defaults: createDefaultLineGridStyle(fallbackThickness)
     });
@@ -4277,6 +4301,24 @@
     return true;
   }
 
+  function setLineDrawPending(session = null, pending = false, generation = null){
+    const target = ensureLineSessionOwnershipShape(session);
+    if(!target){
+      return false;
+    }
+    if(Number.isFinite(Number(generation)) && Number(generation) > 0){
+      target.timers.drawGeneration = Number(generation);
+    }
+    const autoDrawState = getLineAutoDrawState(target);
+    autoDrawState.drawPending = pending === true;
+    target.state.autoDrawState = autoDrawState;
+    target.state.autoDraw = autoDrawState;
+    target.state.drawPending = pending === true;
+    target.state.updatedAt = Date.now();
+    target.updatedAt = Date.now();
+    return true;
+  }
+
   function setLineSessionDataViewsManager(session = null, manager = null, options = {}){
     const nextManager = manager || null;
     const shaped = ensureLineSessionOwnershipShape(session);
@@ -4612,9 +4654,12 @@
       return undefined;
     }
     const sourceOptions = options && typeof options === 'object' ? options : {};
+    const drawGeneration = Number(target?.timers?.drawGeneration || 0) + 1;
     const scheduleOptions = Shared.componentLifecycle?.sanitizeDrawOptions
       ? Shared.componentLifecycle.sanitizeDrawOptions(sourceOptions, { tabId: target?.tabId || sourceOptions.tabId || null, reason: 'line-session-draw' })
       : { ...sourceOptions, tabId: target?.tabId || sourceOptions.tabId || undefined, reason: sourceOptions.reason || 'line-session-draw' };
+    scheduleOptions.drawGeneration = drawGeneration;
+    setLineDrawPending(target, true, drawGeneration);
     return scheduler(scheduleOptions);
   }
 
@@ -4690,6 +4735,7 @@
     session.managers.layout = session.managers.layout || session.layout || null;
     session.timers.drawScheduler = session.timers.drawScheduler || session.scheduleDraw || null;
     session.timers.rawDrawScheduler = session.timers.rawDrawScheduler || session.scheduleDrawRaw || null;
+    session.timers.drawGeneration = Number(session.timers.drawGeneration) || 0;
     delete session.hot;
     delete session.dataViewsManager;
     delete session.autoDrawManager;
@@ -6151,6 +6197,76 @@
     return true;
   }
 
+  function projectLineSeriesStyle(seriesKey, patch, session = null){
+    const key = String(seriesKey == null ? '' : seriesKey).trim();
+    if(!key || !patch || typeof patch !== 'object'){
+      return false;
+    }
+    const owner = resolveLineStateSession(session || getLineActiveSessionForState());
+    const tabId = owner?.tabId || getLineProjectionTabId() || null;
+    const svg = getLineNodeById('lineSvg', tabId) || getLineNodeById('lineSvg');
+    if(!svg){
+      return false;
+    }
+    const seriesNodes = Array.from(svg.querySelectorAll('[data-series]'))
+      .filter(node => String(node.dataset?.series || node.getAttribute?.('data-series') || '').trim() === key);
+    const lineNodes = seriesNodes.filter(node => node.dataset?.lineStyleRole === 'line');
+    const areaNodes = seriesNodes.filter(node => node.dataset?.lineStyleRole === 'area');
+    const markerGroups = seriesNodes.filter(node => node.dataset?.lineStyleRole === 'markers');
+    const markerNodes = markerGroups.flatMap(group => Array.from(group.querySelectorAll('circle, ellipse, path, polygon, rect')));
+    const legendNodes = Array.from(svg.querySelectorAll('[data-legend-key]'))
+      .filter(node => String(node.dataset?.legendKey || '').trim() === key);
+    const legendLines = legendNodes.filter(node => node.dataset?.legendLine === '1');
+    const legendMarkers = legendNodes.filter(node => node.dataset?.legendMarker === '1' || node.dataset?.legendSwatch === '1');
+    let applied = false;
+    const setAttribute = (nodes, name, value) => {
+      if(value === undefined){ return; }
+      nodes.forEach(node => {
+        if(value === null || value === ''){
+          node.removeAttribute(name);
+        }else{
+          node.setAttribute(name, String(value));
+        }
+      });
+      applied = applied || nodes.length > 0;
+    };
+    const markerFill = patch.markerFill ?? patch.fill;
+    const markerStroke = patch.markerStroke ?? patch.stroke ?? patch.borderColor;
+    const markerStrokeWidth = patch.markerStrokeWidth ?? patch.strokeWidth;
+    const lineStroke = patch.lineStroke;
+    const lineStrokeWidth = patch.lineStrokeWidth;
+    const lineAlpha = patch.lineAlpha ?? patch.alpha;
+    const markerAlpha = patch.markerAlpha ?? patch.alpha;
+    setAttribute(lineNodes, 'stroke', lineStroke);
+    setAttribute(areaNodes, 'fill', lineStroke);
+    setAttribute(legendLines, 'stroke', lineStroke);
+    setAttribute(lineNodes, 'stroke-width', lineStrokeWidth);
+    setAttribute(legendLines, 'stroke-width', lineStrokeWidth);
+    if(lineAlpha !== undefined){
+      const opacity = Math.max(0, Math.min(1, 1 - Number(lineAlpha || 0)));
+      setAttribute(lineNodes, 'stroke-opacity', opacity);
+      setAttribute(areaNodes, 'fill-opacity', opacity * 0.35);
+      setAttribute(legendLines, 'stroke-opacity', opacity);
+    }
+    setAttribute(markerNodes, 'fill', markerFill);
+    setAttribute(legendMarkers, 'fill', markerFill);
+    setAttribute(markerNodes, 'stroke', markerStroke);
+    setAttribute(legendMarkers, 'stroke', markerStroke);
+    setAttribute(markerNodes, 'stroke-width', markerStrokeWidth);
+    setAttribute(legendMarkers, 'stroke-width', markerStrokeWidth);
+    if(markerAlpha !== undefined){
+      const opacity = Math.max(0, Math.min(1, 1 - Number(markerAlpha || 0)));
+      setAttribute(markerNodes, 'fill-opacity', opacity);
+      setAttribute(markerNodes, 'stroke-opacity', opacity);
+      setAttribute(legendMarkers, 'opacity', opacity);
+    }
+    const supportedKeys = new Set([
+      'alpha', 'borderColor', 'fill', 'lineAlpha', 'lineStroke', 'lineStrokeWidth',
+      'markerAlpha', 'markerFill', 'markerStroke', 'markerStrokeWidth', 'stroke', 'strokeWidth'
+    ]);
+    return applied && Object.keys(patch).every(property => supportedKeys.has(property));
+  }
+
   function applyLineSelectedTransforms(){
     const toolbarApi = Shared.workspaceToolbar || null;
     const selected = toolbarApi?.getSelectedTransforms?.('line') || [];
@@ -6491,6 +6607,8 @@
     if(!doc){ return; }
     try{ if(typeof Shared.hideAllFormatControls === 'function') Shared.hideAllFormatControls({ force: true }); }catch(e){}
     if(Shared.symbolToolbar && typeof Shared.symbolToolbar.show === 'function'){
+      const toolbarSession = getLineProjectionSession({ reason: 'line-series-toolbar-open' });
+      const canEditToolbarOwner = () => !toolbarSession || isLineSessionActive(toolbarSession);
       const dotSizeInput = getLineNodeById('lineDotSize');
       const strokeInput = getLineNodeById('lineBorder');
       const strokeWidthInput = getLineNodeById('lineBorderWidth');
@@ -6527,10 +6645,15 @@
         inputEl.dispatchEvent(new Event(type, { bubbles: true }));
       };
       const applySeriesPatch = (patch, keyOverride) => {
+        if(!canEditToolbarOwner()){
+          return;
+        }
         const resolvedKey = String(keyOverride == null ? seriesKey : keyOverride).trim();
         if(!resolvedKey){ return; }
-        patchLineSeriesStyleState(getLineProjectionSession({ reason: 'line-projection-mutation' }), resolvedKey, patch, { reason: 'line-series-style-change' });
-        scheduleActiveLineDraw();
+        patchLineSeriesStyleState(toolbarSession, resolvedKey, patch, { reason: 'line-series-style-change' });
+        if(!projectLineSeriesStyle(resolvedKey, patch, toolbarSession)){
+          scheduleLineViewRefresh('line-series-style-change', { tabId: toolbarSession?.tabId || undefined });
+        }
       };
       const knownSeriesKeys = () => {
         const keys = new Set(Object.keys(lineSeriesStyles || {}));
@@ -6581,24 +6704,29 @@
         return String(seriesKey || '').trim();
       };
       const applyGlobalPatch = (key, value) => {
+        if(!canEditToolbarOwner()){
+          return;
+        }
         const keys = knownSeriesKeys();
-        const activeSession = getLineActiveSessionForState();
-        const currentStyles = getLineStylesState(activeSession);
+        const currentStyles = getLineStylesState(toolbarSession);
         const nextSeries = cloneLineRuntimeValue(currentStyles.series, {}) || {};
         keys.forEach(k => {
           nextSeries[k] = Object.assign({}, nextSeries[k] || {}, { [key]: value });
         });
-        patchLineStylesState(activeSession, { series: nextSeries }, { reason: 'line-series-style-global-change' });
-        scheduleActiveLineDraw();
+        patchLineStylesState(toolbarSession, { series: nextSeries }, { reason: 'line-series-style-global-change' });
+        const projected = keys.length > 0 && keys.every(seriesName => projectLineSeriesStyle(seriesName, { [key]: value }, toolbarSession));
+        if(!projected){
+          scheduleLineViewRefresh('line-series-style-global-change', { tabId: toolbarSession?.tabId || undefined });
+        }
       };
       const resolveSeriesStyle = scopedSeriesKey => {
         if(!scopedSeriesKey){ return {}; }
-        const state = getLineStylesState(getLineActiveSessionForState());
+        const state = getLineStylesState(toolbarSession);
         return state.series?.[scopedSeriesKey] || {};
       };
       const resolveAggregateSeriesStyleValue = key => {
         const keys = knownSeriesKeys();
-        const stylesState = getLineStylesState(getLineActiveSessionForState());
+        const stylesState = getLineStylesState(toolbarSession);
         let resolved = null;
         for(let i = 0; i < keys.length; i += 1){
           const value = stylesState.series?.[keys[i]]?.[key];
@@ -8858,6 +8986,66 @@
       'stroke-width': strokeWidth,
       'stroke-opacity': strokeOpacity
     });
+  }
+
+  function createLineLegendEntry(seriesEntry, index, options){
+    const opts = options || {};
+    const name = String(seriesEntry?.name || '');
+    const color = typeof opts.color === 'string' && opts.color ? opts.color : '#000000';
+    const style = opts.styles?.series?.[name] || {};
+    const fallbackAlpha = clampLineAlpha(opts.alpha);
+    const lineAlpha = style.lineAlpha != null
+      ? clampLineAlpha(style.lineAlpha)
+      : (style.alpha != null ? clampLineAlpha(style.alpha) : fallbackAlpha);
+    const markerAlpha = style.markerAlpha != null
+      ? clampLineAlpha(style.markerAlpha)
+      : (style.alpha != null ? clampLineAlpha(style.alpha) : fallbackAlpha);
+    const lineStrokeWidth = Number.isFinite(Number(style.lineStrokeWidth))
+      ? Number(style.lineStrokeWidth)
+      : (Number.isFinite(Number(style.strokeWidth)) ? Number(style.strokeWidth) : Number(opts.lineStrokeWidth));
+    const markerStrokeWidth = Number.isFinite(Number(style.markerStrokeWidth))
+      ? Number(style.markerStrokeWidth)
+      : (Number.isFinite(Number(style.strokeWidth)) ? Number(style.strokeWidth) : 0);
+    const markerSize = Number.isFinite(Number(style.dotSize))
+      ? Number(style.dotSize)
+      : Number(opts.markerSize);
+    const lineStroke = (typeof style.lineStroke === 'string' && style.lineStroke)
+      ? style.lineStroke
+      : color;
+    const markerFill = (typeof style.markerFill === 'string' && style.markerFill)
+      || (typeof style.fill === 'string' && style.fill)
+      || color;
+    const markerStroke = (typeof style.markerStroke === 'string' && style.markerStroke)
+      || (typeof style.stroke === 'string' && style.stroke)
+      || (typeof style.borderColor === 'string' && style.borderColor)
+      || opts.markerStroke
+      || color;
+    return {
+      label: name,
+      fill: color,
+      key: name,
+      editable: true,
+      shape: opts.shape,
+      seriesIndex: Number.isInteger(opts.seriesIndex)
+        ? opts.seriesIndex
+        : (Number.isInteger(seriesEntry?.seriesIndex) ? seriesEntry.seriesIndex : index),
+      swatch: {
+        type: 'line-marker',
+        line: {
+          stroke: lineStroke,
+          strokeWidth: Number.isFinite(lineStrokeWidth) ? Math.max(0, lineStrokeWidth) : 1,
+          opacity: Math.max(0, 1 - lineAlpha)
+        },
+        marker: {
+          visible: Number.isFinite(markerSize) ? markerSize > 0 : true,
+          shape: opts.shape,
+          fill: markerFill,
+          stroke: markerStroke,
+          strokeWidth: Math.max(0, markerStrokeWidth),
+          opacity: Math.max(0, 1 - markerAlpha)
+        }
+      }
+    };
   }
 
   function buildLineReplicateMatrix(matrix, sourceReplicates, targetReplicates, options){
@@ -12085,7 +12273,8 @@
       component: 'line',
       tabId: invocation.session?.tabId || drawOpts.tabId || getLineProjectionTabId() || '',
       kind: 'graph',
-      budgetMs: 10
+      budgetMs: 10,
+      drawOptions: drawOpts
     }) || null;
     const checkpoint = async () => {
       try{
@@ -12098,6 +12287,7 @@
       }
       return execution?.isCurrent?.() !== false;
     };
+    let svgPublication = null;
     try{
       const debugStamp = Date.now();
       console.debug('Debug: drawLine3d start', { debugStamp });
@@ -12298,13 +12488,14 @@
         s.shape = resolvedShape;
         return resolvedShape;
       });
-      const legendEntries = seriesWithData.map((s, i) => ({
-        label: s.name,
-        fill: colors[i],
-        key: s.name,
-        editable: true,
+      const legendEntries = seriesWithData.map((s, i) => createLineLegendEntry(s, i, {
+        color: colors[i],
         shape: seriesShapes[i],
-        seriesIndex: Number.isInteger(s.seriesIndex) ? s.seriesIndex : i
+        styles: lineStylesState,
+        alpha,
+        lineStrokeWidth: borderWidthPx,
+        markerSize: dotSizePx,
+        markerStroke: borderColor
       }));
       const legendLayout = chartStyle.computeLegendLayout({
         entries: showLegend ? legendEntries : [],
@@ -12417,13 +12608,6 @@
       applyLineLegendGuardWidth(legendLayout.minSvgWidth);
 
       const plotEl = refs.plot;
-      const existingSvg = plotEl.querySelector('#lineSvg');
-      const reuse3dSvg = existingSvg && existingSvg.dataset.viewMode === '3d';
-      if(!reuse3dSvg){
-        while(plotEl.firstChild){
-          plotEl.removeChild(plotEl.firstChild);
-        }
-      }
       const targetAspect = Number.isFinite(LINE_3D_DEFAULTS.aspectRatio) && LINE_3D_DEFAULTS.aspectRatio > 0 ? LINE_3D_DEFAULTS.aspectRatio : (4 / 3);
       const fallbackWidth = 460;
       const fallbackHeight = Math.round(fallbackWidth / targetAspect);
@@ -12456,11 +12640,7 @@
       plotEl.style.padding = plotEl.style.padding || '12px';
       plotEl.style.backgroundColor = '';
       plotEl.style.boxSizing = 'border-box';
-      const svg3 = reuse3dSvg ? existingSvg : global.document.createElementNS(NS, 'svg');
-      if(!reuse3dSvg){
-        svg3.setAttribute('id', 'lineSvg');
-        plotEl.appendChild(svg3);
-      }
+      const svg3 = global.document.createElementNS(NS, 'svg');
       svg3.setAttribute('width', String(W3));
       svg3.setAttribute('height', String(H3));
       svg3.setAttribute('viewBox', `0 0 ${W3} ${H3}`);
@@ -12475,6 +12655,15 @@
         : '';
       svg3.style.pointerEvents = 'all';
       svg3.setAttribute('data-color-scheme', lineThemeState.colorScheme || 'scientific');
+      svgPublication = Shared.framePublication.stage({
+        container: plotEl,
+        frame: svg3,
+        publishedId: 'lineSvg',
+        component: 'line',
+        tabId: invocation.session?.tabId || getLineProjectionTabId() || null,
+        canCommit: () => execution?.isCurrent?.() !== false
+          && (!invocation.session || isLineSessionActive(invocation.session))
+      });
       appendLine3dBackground(svg3, W3, H3, invocation.session);
       svg3.addEventListener('mouseleave', handleLinePlotMouseLeave);
       bindLine3dRotationControls(svg3, 'line-3d');
@@ -12853,11 +13042,14 @@
           path.setAttribute('stroke-width', String(seriesStrokeWidth));
           path.setAttribute('stroke-opacity', String(Math.max(0, 1 - (seriesLineAlpha != null ? seriesLineAlpha : alpha))));
           path.dataset.series = s.name || '';
+          path.dataset.lineStyleRole = 'line';
           path.dataset.viewMode = '3d';
           path.style.cursor = 'pointer';
           path.addEventListener('click', handleLinePathClick);
           lineLayer.appendChild(path);
           const mGroup = global.document.createElementNS(NS, 'g');
+          mGroup.dataset.series = s.name || '';
+          mGroup.dataset.lineStyleRole = 'markers';
           markerLayer.appendChild(mGroup);
           if(seriesDotSize > 0){
             const markerEntries = [];
@@ -13036,11 +13228,17 @@
       // render, rotation, and resize. Without it, a content bbox whose aspect differs
       // from the rendered box stretches the whole plot vertically/horizontally.
       ensureGraphViewport(svg3, { padding: Math.max(fs, 18), debugLabel: 'line-3d-graph', preserveAspectRatio: 'xMidYMid meet' });
+      if(!(await checkpoint()) || (invocation.session && !isLineSessionActive(invocation.session))){
+        return false;
+      }
+      svgPublication.commit();
       getActiveLineLayoutManager()?.syncPanels?.({ skipSchedule: true });
       scheduleLineNoticeWidth('draw-3d');
       console.debug('Debug: drawLine3d complete', { debugStamp });
     }catch(err){
       console.error('drawLine3d error', err);
+    }finally{
+      svgPublication?.cleanup();
     }
   }
 
@@ -13059,7 +13257,8 @@
       component: 'line',
       tabId: invocation.session?.tabId || drawOpts.tabId || getLineProjectionTabId() || '',
       kind: 'graph',
-      budgetMs: 10
+      budgetMs: 10,
+      drawOptions: drawOpts
     }) || null;
     const checkpoint = async () => {
       try{
@@ -13072,6 +13271,7 @@
       }
       return execution?.isCurrent?.() !== false;
     };
+    let svgPublication = null;
     try{
       const debugStamp=Date.now();
       console.debug('Debug: drawLine start',{debugStamp}); // Debug: draw entry
@@ -13414,13 +13614,15 @@
         s.shape = resolvedShape;
         return resolvedShape;
       });
-      const legendEntries=seriesWithData.map((s,i)=>({
-        label:s.name,
-        fill:colors[i],
-        key:s.name,
-        editable:true,
-        shape: seriesShapes[i],
-        seriesIndex: (()=>{ const idx = series.indexOf(s); return Number.isInteger(idx) && idx >= 0 ? idx : i; })()
+      const legendEntries=seriesWithData.map((s,i)=>createLineLegendEntry(s,i,{
+        color:colors[i],
+        shape:seriesShapes[i],
+        seriesIndex:series.indexOf(s),
+        styles:lineStylesState,
+        alpha,
+        lineStrokeWidth:borderWidthPx,
+        markerSize:dotSizePx,
+        markerStroke:borderColor
       }));
       const legendLayout=chartStyle.computeLegendLayout({
         entries:showLegend ? legendEntries : [],
@@ -13593,12 +13795,10 @@
         }
       const plotEl=refs.plot;
       plotEl.style.display='block';
-      while(plotEl.firstChild) plotEl.removeChild(plotEl.firstChild);
       const W=Math.max(50,Math.floor(drawableFrame.width||50));
       const H=Math.max(40,Math.floor(drawableFrame.height||40));
       plotEl.style.position='relative';
       const svg=document.createElementNS(NS,'svg');
-      svg.setAttribute('id','lineSvg');
       svg.setAttribute('width',String(W));
       svg.setAttribute('height',String(H));
       svg.setAttribute('viewBox',`0 0 ${W} ${H}`);
@@ -13619,7 +13819,15 @@
         svg.style.backgroundColor = '';
         svg.removeAttribute('data-color-scheme-bg-color');
       }
-      plotEl.appendChild(svg);
+      svgPublication = Shared.framePublication.stage({
+        container: plotEl,
+        frame: svg,
+        publishedId: 'lineSvg',
+        component: 'line',
+        tabId: invocation.session?.tabId || getLineProjectionTabId() || null,
+        canCommit: () => execution?.isCurrent?.() !== false
+          && (!invocation.session || isLineSessionActive(invocation.session))
+      });
       svg.addEventListener('mouseleave', handleLinePlotMouseLeave);
       let xMinT=logX?Math.log10(xMin):xMin;
       let xMaxT=logX?Math.log10(xMax):xMax;
@@ -14194,7 +14402,8 @@
             y2: xAxisY,
             stroke: axisStroke,
             'stroke-linecap': 'square',
-            'stroke-width': axisStrokeWidth
+            'stroke-width': axisStrokeWidth,
+            'data-line-axis-style-target': '1'
           });
           if(segIndex > 0){
             const breakCapHalfLen = Math.max(0.5, tickLen * 0.9);
@@ -14204,7 +14413,8 @@
               x2: segLeft,
               y2: xAxisY + breakCapHalfLen,
               stroke: axisStroke,
-              'stroke-width': axisStrokeWidth
+              'stroke-width': axisStrokeWidth,
+              'data-line-axis-style-target': '1'
             });
             xBreakCapCount += 1;
           }
@@ -14216,7 +14426,8 @@
               x2: segRight,
               y2: xAxisY + breakCapHalfLen,
               stroke: axisStroke,
-              'stroke-width': axisStrokeWidth
+              'stroke-width': axisStrokeWidth,
+              'data-line-axis-style-target': '1'
             });
             xBreakCapCount += 1;
           }
@@ -14264,7 +14475,8 @@
             y2: segBottom,
             stroke: axisStroke,
             'stroke-linecap': 'square',
-            'stroke-width': axisStrokeWidth
+            'stroke-width': axisStrokeWidth,
+            'data-line-axis-style-target': '1'
           });
           if(segIndex > 0){
             const breakCapHalfLen = Math.max(0.5, tickLen * 0.9);
@@ -14274,7 +14486,8 @@
               x2: yAxisX + breakCapHalfLen,
               y2: segBottom,
               stroke: axisStroke,
-              'stroke-width': axisStrokeWidth
+              'stroke-width': axisStrokeWidth,
+              'data-line-axis-style-target': '1'
             });
             yBreakCapCount += 1;
           }
@@ -14286,7 +14499,8 @@
               x2: yAxisX + breakCapHalfLen,
               y2: segTop,
               stroke: axisStroke,
-              'stroke-width': axisStrokeWidth
+              'stroke-width': axisStrokeWidth,
+              'data-line-axis-style-target': '1'
             });
             yBreakCapCount += 1;
           }
@@ -14338,7 +14552,8 @@
             stroke: axisStroke,
             'stroke-width': minorTickStyle.strokeWidth,
             'stroke-linecap': 'round',
-            opacity: minorTickStyle.opacity
+            opacity: minorTickStyle.opacity,
+            'data-line-axis-minor-target': '1'
           });
         });
       }
@@ -14351,7 +14566,7 @@
           lineDebug('Debug: line x-axis tick mark hidden at axis crossing',{ value: t, pixel: x, crossingPixel: yAxisX });
           return;
         }
-        add('line',{x1:x,y1:xAxisY,x2:x,y2:xAxisY+xMajorTickLength,stroke:axisStroke,'stroke-width':axisStrokeWidth});
+        add('line',{x1:x,y1:xAxisY,x2:x,y2:xAxisY+xMajorTickLength,stroke:axisStroke,'stroke-width':axisStrokeWidth,'data-line-axis-style-target':'1'});
         if(shouldHideXAxisTickLabel(x)){
           lineDebug('Debug: line x-axis tick label hidden at axis crossing',{ value: t, pixel: x, crossingPixel: yAxisX });
           return;
@@ -14421,7 +14636,8 @@
                 x2: pixel,
                 y2: xAxisY + xMajorTickLength,
                 stroke: axisStroke,
-                'stroke-width': axisStrokeWidth
+                'stroke-width': axisStrokeWidth,
+                'data-line-axis-style-target': '1'
               });
             },
             onLabel: ({ pixel, label, nearMajor }) => {
@@ -14465,7 +14681,8 @@
             stroke: axisStroke,
             'stroke-width': minorTickStyle.strokeWidth,
             'stroke-linecap': 'round',
-            opacity: minorTickStyle.opacity
+            opacity: minorTickStyle.opacity,
+            'data-line-axis-minor-target': '1'
           });
         });
       }
@@ -14478,7 +14695,7 @@
           lineDebug('Debug: line y-axis tick mark hidden at axis crossing',{ value: t, pixel: y, crossingPixel: xAxisY });
           return;
         }
-        add('line',{x1:yAxisX - yMajorTickLength,y1:y,x2:yAxisX,y2:y,stroke:axisStroke,'stroke-width':axisStrokeWidth});
+        add('line',{x1:yAxisX - yMajorTickLength,y1:y,x2:yAxisX,y2:y,stroke:axisStroke,'stroke-width':axisStrokeWidth,'data-line-axis-style-target':'1'});
         if(shouldHideYAxisTickLabel(y)){
           lineDebug('Debug: line y-axis tick label hidden at axis crossing',{ value: t, pixel: y, crossingPixel: xAxisY });
           return;
@@ -14946,6 +15163,7 @@
           areaPathEl.setAttribute('fill-opacity',String(areaFillOpacity));
           areaPathEl.setAttribute('stroke','none');
           areaPathEl.dataset.series=s.name;
+          areaPathEl.dataset.lineStyleRole='area';
           areaPathEl.dataset.renderMode='area-fill';
           areaPathEl.style.pointerEvents='none';
           svg.appendChild(areaPathEl);
@@ -14964,9 +15182,12 @@
         pathAttrs['data-render-mode']=displayModeCurrent;
         const path=add('path',pathAttrs);
         path.dataset.series = s.name || '';
+        path.dataset.lineStyleRole = 'line';
         path.style.cursor = 'pointer';
         path.addEventListener('click', handleLinePathClick);
         const mGroup=add('g',{});
+        mGroup.dataset.series = s.name || '';
+        mGroup.dataset.lineStyleRole = 'markers';
         mGroup.appendChild(markerFrag);
         let forecastPathEl=null;
         const forecastPointsRaw = Array.isArray(s.regression?.forecast?.points) ? s.regression.forecast.points.slice() : null;
@@ -15285,6 +15506,24 @@
         });
       }
       renderLineStatsAdvisor(seriesWithData, statsContext);
+      const lineAxisOwnerTabId = invocation.session?.tabId || getLineProjectionTabId() || null;
+      Shared.visualProjection?.bind?.(
+        svg.querySelectorAll('[data-axis-control="1"]:not([stroke="transparent"]), [data-frame-edge], [data-line-axis-style-target="1"]'),
+        {
+          component: 'line',
+          channel: 'axis',
+          tabId: lineAxisOwnerTabId,
+          strokeWidthBase: axisStrokeWidthBase,
+          renderedStrokeWidth: axisStrokeWidth
+        }
+      );
+      Shared.visualProjection?.bind?.(svg.querySelectorAll('[data-line-axis-minor-target="1"]'), {
+        component: 'line',
+        channel: 'axis',
+        tabId: lineAxisOwnerTabId,
+        strokeWidthBase: axisStrokeWidthBase,
+        renderedStrokeWidth: minorTickStyle.strokeWidth
+      });
       registerLineGridControlTarget(svg, { fallbackThickness: axisStrokeWidthBase });
       applyLineResizeViewportLockToDom(invocation.session);
       const lineResizeLockActive = (() => {
@@ -15299,10 +15538,18 @@
         baseViewport: { width: W, height: H },
         remeasure: !lineResizeLockActive
       });
+      if(!(await checkpoint()) || (invocation.session && !isLineSessionActive(invocation.session))){
+        return false;
+      }
+      svgPublication.commit();
       getActiveLineLayoutManager()?.syncPanels?.({ skipSchedule: true });
       scheduleLineNoticeWidth('draw');
       console.debug('Debug: drawLine complete',{debugStamp}); // Debug: draw exit
-    }catch(err){ console.error('drawLine error',err); }
+    }catch(err){
+      console.error('drawLine error',err);
+    }finally{
+      svgPublication?.cleanup();
+    }
   }
 
   function initNotes(){
@@ -16752,14 +16999,33 @@
     });
 
     const runLineDrawCycle = async (drawOpts = {}) => {
+      const drawSession = getLineSession(drawOpts?.tabId || getLineProjectionTabId() || null, {
+        tabId: drawOpts?.tabId || getLineProjectionTabId() || null,
+        reason: drawOpts?.reason || 'line-draw-cycle'
+      }, { create: false }) || projectedLineSession || getLineActiveSessionForState();
+      const drawGeneration = Number(drawOpts?.drawGeneration || 0);
       let status = 'complete';
       try{
-        await drawLine(projectedLineSession || getLineActiveSessionForState(), drawOpts);
+        const result = await drawLine(drawSession, drawOpts);
+        if(result === false){
+          status = 'cancelled';
+        }
       }catch(err){
         status = 'error';
         throw err;
       }finally{
-        resolveLineOverlay({ reason: status, status, tabId: drawOpts?.tabId || null });
+        const drawTabId = drawSession?.tabId || drawOpts?.tabId || getLineProjectionTabId() || null;
+        if(!drawGeneration || drawGeneration === Number(drawSession?.timers?.drawGeneration || 0)){
+          setLineDrawPending(drawSession, false, drawGeneration || null);
+        }
+        resolveLineOverlay({ reason: status, status, tabId: drawTabId });
+        Shared.componentLifecycle?.emitLifecycleEvent?.({
+          componentKey: 'line',
+          tabId: drawTabId,
+          action: 'draw-settled',
+          reason: drawOpts?.reason || 'line-draw',
+          phase: status
+        });
       }
     };
     const scheduleLineBase = Shared.componentLifecycle?.createTabScopedFrameDebouncer

@@ -4,6 +4,52 @@ const {
   openComponentFromWelcome
 } = require('./helpers/workspaceHarness');
 
+test('welcome file and graph finder tools share one responsive row', async ({ page }) => {
+  await installLocalCdnOverrides(page);
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
+
+  const fileTool = page.locator('#welcomeFileDropZone');
+  const finder = page.locator('.welcome-graph-finder');
+  await expect(fileTool).toContainText('Open or drop a file');
+  await expect(fileTool.locator('[data-file-formats-label="welcome"]')).toHaveText(
+    '.graph, .prism, .pzfx, .csv, .tsv, .txt, .xls, .xlsx, .ods'
+  );
+  await expect(page.locator('#welcomeOpenButton')).toHaveCount(0);
+
+  const desktopLayout = await page.locator('.welcome-hero__tools').evaluate(node => {
+    const file = node.querySelector('#welcomeFileDropZone').getBoundingClientRect();
+    const graphFinder = node.querySelector('.welcome-graph-finder').getBoundingClientRect();
+    return {
+      aligned: Math.abs(file.top - graphFinder.top) < 1,
+      ordered: file.right < graphFinder.left
+    };
+  });
+  expect(desktopLayout).toEqual({ aligned: true, ordered: true });
+
+  await page.evaluate(() => {
+    window.__welcomeOpenCalls = 0;
+    window.Shared.fileIO.openGraphFile = async () => {
+      window.__welcomeOpenCalls += 1;
+      return { status: 'cancelled' };
+    };
+  });
+  await fileTool.click();
+  await expect.poll(() => page.evaluate(() => window.__welcomeOpenCalls)).toBe(1);
+
+  await page.locator('#welcomeGraphSearch').fill('scatter');
+  await expect(page.locator('#welcomeGraphResults')).toBeVisible();
+  await expect(page.locator('#welcomeGraphResults .welcome-picker__option').first()).toContainText('Scatter');
+
+  await page.setViewportSize({ width: 640, height: 900 });
+  const mobileLayout = await page.locator('.welcome-hero__tools').evaluate(node => {
+    const file = node.querySelector('#welcomeFileDropZone').getBoundingClientRect();
+    const graphFinder = node.querySelector('.welcome-graph-finder').getBoundingClientRect();
+    return graphFinder.top > file.bottom;
+  });
+  expect(mobileLayout).toBe(true);
+});
+
 test('workspace loads and opens a graph tab from welcome screen', async ({ page }) => {
   await installLocalCdnOverrides(page);
   await page.goto('/index.html', { waitUntil: 'domcontentloaded' });

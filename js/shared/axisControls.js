@@ -3556,6 +3556,9 @@
         });
       };
       const openConfig = {
+        target: element,
+        tabId: resolveAxisControlsTabId({ ...config, target: element }),
+        componentKey: resolveAxisControlsComponentKey(config, element),
         axis: config.axis,
         scopeId: config.scopeId,
         getTickInterval: config.getTickInterval,
@@ -3634,6 +3637,20 @@
           openConfig.onBrokenAxisRemoveSegment = config.onBrokenAxisRemoveSegment;
         }
       }
+      const ownerTabId = normalizeAxisControlsTabId(openConfig.tabId);
+      Object.keys(openConfig).forEach(key => {
+        if(!/^(get|is|on)/.test(key) || typeof openConfig[key] !== 'function'){
+          return;
+        }
+        const callback = openConfig[key];
+        openConfig[key] = (...args) => {
+          const activeTabId = resolveAxisControlsActiveTabId();
+          if(ownerTabId && activeTabId && ownerTabId !== activeTabId){
+            return undefined;
+          }
+          return callback(...args);
+        };
+      });
       openPanel(openConfig);
     };
     element.addEventListener('click', handler);

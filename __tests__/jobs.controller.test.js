@@ -56,6 +56,30 @@ describe('Shared.jobs and loading overlay integration', () => {
     await expect(execution.checkpoint()).rejects.toThrow('Task cancelled');
   });
 
+  test('live resize checkpoints preserve cancellation without yielding a painted frame', async () => {
+    const nextFrame = jest.spyOn(window.Shared.jobs, 'nextFrame').mockResolvedValue();
+    const liveResize = window.Shared.jobs.createExecutionContext({
+      component: 'hist',
+      tabId: 'tab-hist',
+      kind: 'graph',
+      budgetMs: 4,
+      drawOptions: { reason: 'resize', resizePhase: 'move', viewOnly: true }
+    });
+
+    await expect(liveResize.checkpoint()).resolves.toBe(false);
+    expect(liveResize.liveResize).toBe(true);
+    expect(nextFrame).not.toHaveBeenCalled();
+
+    const settledDraw = window.Shared.jobs.createExecutionContext({
+      component: 'hist',
+      tabId: 'tab-hist',
+      kind: 'graph',
+      budgetMs: 4,
+      drawOptions: { reason: 'resize', resizePhase: 'programmatic', viewOnly: true }
+    });
+    expect(settledDraw.liveResize).toBe(false);
+  });
+
   test('replacement aborts only the previous graph job for the same owner', () => {
     const first = window.Shared.jobs.start({ kind: 'graph', component: 'box', tabId: 'tab-a' });
     const unrelated = window.Shared.jobs.start({ kind: 'graph', component: 'box', tabId: 'tab-b' });

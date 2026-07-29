@@ -2904,6 +2904,95 @@
     return notice;
   }
 
+  function stageGraphFrame(options = {}){
+    const container = options.container || null;
+    const frame = options.frame || null;
+    const publishedNode = options.publishedNode || frame;
+    if(!container || !frame || !publishedNode){
+      throw new TypeError('Graph frame publication requires a container, frame, and published node.');
+    }
+    if(frame.parentNode){
+      throw new Error('Graph frame must be detached before staging.');
+    }
+    if(publishedNode !== frame && !frame.contains(publishedNode)){
+      throw new Error('Published graph node must belong to the staged frame.');
+    }
+
+    const previousNodes = Array.from(container.childNodes || []);
+    const styleProperties = ['visibility', 'pointer-events', 'position', 'left', 'top', 'z-index'];
+    const previousStyles = new Map(styleProperties.map(property => [
+      property,
+      {
+        value: frame.style?.getPropertyValue?.(property) || '',
+        priority: frame.style?.getPropertyPriority?.(property) || ''
+      }
+    ]));
+    let state = 'staged';
+
+    frame.dataset.graphFramePublication = 'staged';
+    if(options.component){
+      frame.dataset.graphFrameComponent = String(options.component);
+    }
+    if(options.tabId){
+      frame.dataset.graphFrameOwnerTabId = String(options.tabId);
+    }
+    frame.setAttribute?.('aria-hidden', 'true');
+    frame.style?.setProperty?.('visibility', 'hidden');
+    frame.style?.setProperty?.('pointer-events', 'none');
+    frame.style?.setProperty?.('position', 'absolute');
+    frame.style?.setProperty?.('left', '0');
+    frame.style?.setProperty?.('top', '0');
+    frame.style?.setProperty?.('z-index', '1');
+    container.appendChild(frame);
+
+    const restoreFrameStyles = () => {
+      previousStyles.forEach((entry, property) => {
+        if(entry.value){
+          frame.style.setProperty(property, entry.value, entry.priority);
+        }else{
+          frame.style.removeProperty(property);
+        }
+      });
+    };
+
+    return {
+      get state(){
+        return state;
+      },
+      commit(){
+        if(state !== 'staged' || frame.parentNode !== container){
+          return false;
+        }
+        if(typeof options.canCommit === 'function' && options.canCommit() !== true){
+          return false;
+        }
+        previousNodes.forEach(node => {
+          if(node.parentNode === container){
+            container.removeChild(node);
+          }
+        });
+        if(options.publishedId){
+          publishedNode.setAttribute('id', String(options.publishedId));
+        }
+        frame.dataset.graphFramePublication = 'committed';
+        frame.removeAttribute?.('aria-hidden');
+        restoreFrameStyles();
+        state = 'committed';
+        return true;
+      },
+      cleanup(){
+        if(state !== 'staged'){
+          return false;
+        }
+        if(frame.parentNode === container){
+          container.removeChild(frame);
+        }
+        state = 'discarded';
+        return true;
+      }
+    };
+  }
+
   Shared.makeEditable = makeEditable;
   Shared.enableLabelDrag = enableLabelDrag;
   Shared.enableLegendDrag = enableLegendDrag;
@@ -2919,6 +3008,8 @@
   Shared.DEFAULT_EMPTY_PLOT_NOTICE = DEFAULT_EMPTY_PLOT_NOTICE;
   Shared.getEmptyPlotNoticeMessage = getEmptyPlotNoticeMessage;
   Shared.renderPlotNotice = renderPlotNotice;
+  Shared.framePublication = Shared.framePublication || {};
+  Shared.framePublication.stage = stageGraphFrame;
 
   if (typeof global.makeEditable !== 'function') {
     global.makeEditable = makeEditable;

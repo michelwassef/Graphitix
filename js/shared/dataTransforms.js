@@ -60,6 +60,34 @@
     return fallback;
   }
 
+  function normalizeIndexList(values){
+    const source = Array.isArray(values) ? values : [];
+    const unique = new Set();
+    for(let i = 0; i < source.length; i += 1){
+      const value = Number(source[i]);
+      if(Number.isInteger(value) && value >= 0){
+        unique.add(value);
+      }
+    }
+    return Array.from(unique).sort((left, right)=>left - right);
+  }
+
+  function normalizeCellIndexList(values){
+    const source = Array.isArray(values) ? values : [];
+    const unique = new Set();
+    for(let i = 0; i < source.length; i += 1){
+      const entry = source[i];
+      const row = Number(Array.isArray(entry) ? entry[0] : entry?.row);
+      const col = Number(Array.isArray(entry) ? entry[1] : entry?.col);
+      if(Number.isInteger(row) && row >= 0 && Number.isInteger(col) && col >= 0){
+        unique.add(`${row}:${col}`);
+      }
+    }
+    return Array.from(unique)
+      .map(key=>key.split(':').map(Number))
+      .sort((left, right)=>(left[0] - right[0]) || (left[1] - right[1]));
+  }
+
   function normalizeTransformSpec(spec){
     const input = (spec && typeof spec === 'object') ? spec : { type: spec };
     const rawType = String(input.type || '').trim().toLowerCase();
@@ -148,6 +176,18 @@
     }
     if(normalizedType === 'normalizecolumns'){
       return { type: 'normalizeColumns' };
+    }
+    if(normalizedType === 'rnaseqnormalizedlog' || normalizedType === 'rna-seq-normalized-log'){
+      return {
+        type: 'rnaSeqNormalizedLog',
+        headerRows: normalizeIndex(input.headerRows, 1),
+        startCol: normalizeIndex(input.startCol, 1),
+        labelCol: normalizeIndex(input.labelCol, 0),
+        topFeatureLimit: Math.max(1, Math.floor(Number(input.topFeatureLimit) || 500)),
+        excludedRows: normalizeIndexList(input.excludedRows),
+        excludedCols: normalizeIndexList(input.excludedCols),
+        excludedCells: normalizeCellIndexList(input.excludedCells)
+      };
     }
     return { type: normalizedType };
   }
@@ -819,6 +859,205 @@
     return { data: output, stats, warnings };
   }
 
+  function medianOfSortedValues(sortedValues){
+    const length = Array.isArray(sortedValues) ? sortedValues.length : 0;
+    if(!length){
+      return NaN;
+    }
+    const midpoint = Math.floor(length / 2);
+    return length % 2 === 0
+      ? (sortedValues[midpoint - 1] + sortedValues[midpoint]) / 2
+      : sortedValues[midpoint];
+  }
+
+  function calculateMedianRatioSizeFactors(matrix){
+    const sampleCount = Array.isArray(matrix) ? matrix.length : 0;
+    const featureCount = sampleCount && Array.isArray(matrix[0]) ? matrix[0].length : 0;
+    if(sampleCount < 2 || featureCount < 1){
+      throw new Error('RNA-seq normalization requires at least two samples and one gene.');
+    }
+    const logGeometricMeans = new Array(featureCount).fill(NaN);
+    let eligibleFeatureCount = 0;
+    for(let featureIndex = 0; featureIndex < featureCount; featureIndex += 1){
+      let logSum = 0;
+      let eligible = true;
+      for(let sampleIndex = 0; sampleIndex < sampleCount; sampleIndex += 1){
+        const value = Number(matrix[sampleIndex]?.[featureIndex]);
+        if(!Number.isFinite(value) || value < 0 || Math.abs(value - Math.round(value)) > 1e-9){
+          throw new Error('RNA-seq normalized log counts requires finite, non-negative integer raw counts.');
+        }
+        if(value === 0){
+          eligible = false;
+          break;
+        }
+        logSum += Math.log(value);
+      }
+      if(eligible){
+        logGeometricMeans[featureIndex] = logSum / sampleCount;
+        eligibleFeatureCount += 1;
+      }
+    }
+    if(!eligibleFeatureCount){
+      throw new Error('DESeq2 median-ratio normalization could not be calculated because no gene has positive counts in every sample.');
+    }
+    const sizeFactors = new Array(sampleCount);
+    for(let sampleIndex = 0; sampleIndex < sampleCount; sampleIndex += 1){
+      const logRatios = [];
+      for(let featureIndex = 0; featureIndex < featureCount; featureIndex += 1){
+        const logGeometricMean = logGeometricMeans[featureIndex];
+        if(Number.isFinite(logGeometricMean)){
+          logRatios.push(Math.log(matrix[sampleIndex][featureIndex]) - logGeometricMean);
+        }
+      }
+      logRatios.sort((left, right)=>left - right);
+      const sizeFactor = Math.exp(medianOfSortedValues(logRatios));
+      if(!Number.isFinite(sizeFactor) || sizeFactor <= 0){
+        throw new Error(`DESeq2 median-ratio normalization produced an invalid size factor for sample ${sampleIndex + 1}.`);
+      }
+      sizeFactors[sampleIndex] = sizeFactor;
+    }
+    return { sizeFactors, eligibleFeatureCount };
+  }
+
+  function preprocessRnaSeqCounts(matrix, featureLabels, options){
+    const topFeatureLimit = Math.max(1, Math.floor(Number(options?.topFeatureLimit) || 500));
+    const sampleCount = Array.isArray(matrix) ? matrix.length : 0;
+    const featureCount = sampleCount && Array.isArray(matrix[0]) ? matrix[0].length : 0;
+    if(!featureCount || matrix.some(row=>!Array.isArray(row) || row.length !== featureCount)){
+      throw new Error('RNA-seq normalization requires a complete rectangular count matrix.');
+    }
+    const { sizeFactors, eligibleFeatureCount } = calculateMedianRatioSizeFactors(matrix);
+    const transformed = Array.from({ length: sampleCount }, ()=>new Array(featureCount));
+    const rankedFeatures = new Array(featureCount);
+    for(let featureIndex = 0; featureIndex < featureCount; featureIndex += 1){
+      let mean = 0;
+      for(let sampleIndex = 0; sampleIndex < sampleCount; sampleIndex += 1){
+        const value = Math.log2((matrix[sampleIndex][featureIndex] / sizeFactors[sampleIndex]) + 1);
+        transformed[sampleIndex][featureIndex] = value;
+        mean += value;
+      }
+      mean /= sampleCount;
+      let varianceSum = 0;
+      for(let sampleIndex = 0; sampleIndex < sampleCount; sampleIndex += 1){
+        const delta = transformed[sampleIndex][featureIndex] - mean;
+        varianceSum += delta * delta;
+      }
+      rankedFeatures[featureIndex] = {
+        index: featureIndex,
+        variance: sampleCount > 1 ? varianceSum / (sampleCount - 1) : 0
+      };
+    }
+    rankedFeatures.sort((left, right)=>(right.variance - left.variance) || (left.index - right.index));
+    const selectedIndices = rankedFeatures
+      .slice(0, Math.min(topFeatureLimit, featureCount))
+      .map(entry=>entry.index);
+    return {
+      matrix: transformed.map(row=>selectedIndices.map(featureIndex=>row[featureIndex])),
+      featureLabels: selectedIndices.map(featureIndex=>featureLabels[featureIndex]),
+      metadata: {
+        mode: 'rna-seq-normalized-log',
+        sizeFactors,
+        eligibleFeatureCount,
+        inputFeatureCount: featureCount,
+        selectedFeatureCount: selectedIndices.length,
+        selectedFeatureIndices: selectedIndices,
+        selectedFeatureLabels: selectedIndices.map(featureIndex=>featureLabels[featureIndex]),
+        topFeatureLimit
+      }
+    };
+  }
+
+  function runRnaSeqNormalizedLogTransform(matrix, spec){
+    const input = Array.isArray(matrix) ? matrix : [];
+    const shape = matrixShape(input);
+    const headerRows = Math.min(shape.rows, normalizeIndex(spec.headerRows, 1));
+    const startCol = normalizeIndex(spec.startCol, 1);
+    const labelCol = normalizeIndex(spec.labelCol, 0);
+    const excludedRows = new Set(normalizeIndexList(spec.excludedRows));
+    const excludedCols = new Set(normalizeIndexList(spec.excludedCols));
+    const excludedCells = new Set(normalizeCellIndexList(spec.excludedCells).map(entry=>`${entry[0]}:${entry[1]}`));
+    const headerRow = headerRows > 0 && Array.isArray(input[headerRows - 1]) ? input[headerRows - 1] : [];
+    const sampleColumns = [];
+    for(let col = startCol; col < shape.cols; col += 1){
+      if(excludedCols.has(col)){
+        continue;
+      }
+      let hasContent = String(headerRow[col] ?? '').trim().length > 0;
+      for(let row = headerRows; !hasContent && row < input.length; row += 1){
+        if(excludedRows.has(row)){
+          continue;
+        }
+        hasContent = String(input[row]?.[col] ?? '').trim().length > 0;
+      }
+      if(hasContent){
+        sampleColumns.push(col);
+      }
+    }
+    if(sampleColumns.length < 2){
+      throw new Error('RNA-seq normalization requires at least two samples and one gene.');
+    }
+
+    const geneRows = [];
+    const featureLabels = [];
+    const matrixBySample = Array.from({ length: sampleColumns.length }, ()=>[]);
+    for(let row = headerRows; row < input.length; row += 1){
+      if(excludedRows.has(row)){
+        continue;
+      }
+      const sourceRow = Array.isArray(input[row]) ? input[row] : [];
+      if(!sourceRow.some(cell=>String(cell ?? '').trim().length > 0)){
+        continue;
+      }
+      if(sampleColumns.some(col=>excludedCells.has(`${row}:${col}`))){
+        continue;
+      }
+      const values = new Array(sampleColumns.length);
+      for(let sampleIndex = 0; sampleIndex < sampleColumns.length; sampleIndex += 1){
+        const col = sampleColumns[sampleIndex];
+        const raw = sourceRow[col];
+        if(raw === null || raw === undefined || String(raw).trim() === ''){
+          throw new Error(`RNA-seq raw counts contain a blank value at gene row ${row + 1}, sample "${String(headerRow[col] || `Condition ${sampleIndex + 1}`)}".`);
+        }
+        const value = Number(String(raw).trim());
+        if(!Number.isFinite(value)){
+          throw new Error(`RNA-seq raw counts contain a non-numeric value at gene row ${row + 1}, sample "${String(headerRow[col] || `Condition ${sampleIndex + 1}`)}".`);
+        }
+        values[sampleIndex] = value;
+      }
+      const featureIndex = geneRows.length;
+      geneRows.push(row);
+      featureLabels.push(String(sourceRow[labelCol] ?? '').trim() || `Var ${featureIndex + 1}`);
+      for(let sampleIndex = 0; sampleIndex < values.length; sampleIndex += 1){
+        matrixBySample[sampleIndex].push(values[sampleIndex]);
+      }
+    }
+
+    const preprocessed = preprocessRnaSeqCounts(matrixBySample, featureLabels, {
+      topFeatureLimit: spec.topFeatureLimit
+    });
+    const output = input.slice(0, headerRows).map(row=>Array.isArray(row) ? row.slice() : []);
+    for(let selectedIndex = 0; selectedIndex < preprocessed.metadata.selectedFeatureIndices.length; selectedIndex += 1){
+      const sourceFeatureIndex = preprocessed.metadata.selectedFeatureIndices[selectedIndex];
+      const sourceRowIndex = geneRows[sourceFeatureIndex];
+      const targetRow = Array.isArray(input[sourceRowIndex]) ? input[sourceRowIndex].slice() : [];
+      for(let sampleIndex = 0; sampleIndex < sampleColumns.length; sampleIndex += 1){
+        targetRow[sampleColumns[sampleIndex]] = preprocessed.matrix[sampleIndex][selectedIndex];
+      }
+      output.push(targetRow);
+    }
+    const changedCells = preprocessed.metadata.selectedFeatureCount * sampleColumns.length;
+    return {
+      data: output,
+      stats: {
+        changedCells,
+        skippedCells: Math.max(0, shape.rows - headerRows - geneRows.length),
+        numericCells: changedCells
+      },
+      warnings: [],
+      metadata: preprocessed.metadata
+    };
+  }
+
   function applyTransform(matrix, transformSpec, options){
     const spec = normalizeTransformSpec(transformSpec);
     const shape = matrixShape(matrix);
@@ -861,6 +1100,8 @@
         || spec.type === 'normalizeRows'
         || spec.type === 'normalizeColumns'){
         result = runCenterOrNormalizeTransform(matrix, spec, options);
+      }else if(spec.type === 'rnaSeqNormalizedLog'){
+        result = runRnaSeqNormalizedLogTransform(matrix, spec);
       }else{
         throw new Error(`Unsupported transform type "${spec.type}".`);
       }
@@ -880,6 +1121,11 @@
       warnings.push(...result.warnings);
     }
     const summary = summarizeResult(spec, shape, result?.stats || { changedCells: 0, skippedCells: 0, numericCells: 0 }, warnings);
+    if(result?.metadata){
+      summary.preprocessingMetadata = result.metadata;
+      summary.rows = matrixShape(result.data).rows;
+      summary.cols = matrixShape(result.data).cols;
+    }
     debugLog('transform applied', summary);
     return {
       ok: true,
@@ -887,6 +1133,7 @@
       data: result?.data || cloneMatrix(Array.isArray(matrix) ? matrix : []),
       stats: result?.stats || { changedCells: 0, skippedCells: 0, numericCells: 0 },
       warnings,
+      metadata: result?.metadata || null,
       summary
     };
   }
@@ -919,6 +1166,8 @@
   dataTransforms.matrixShape = matrixShape;
   dataTransforms.normalizeTransformSpec = normalizeTransformSpec;
   dataTransforms.compileCustomExpression = compileCustomExpression;
+  dataTransforms.calculateMedianRatioSizeFactors = calculateMedianRatioSizeFactors;
+  dataTransforms.preprocessRnaSeqCounts = preprocessRnaSeqCounts;
   dataTransforms.applyTransform = applyTransform;
   dataTransforms.applyPipeline = applyPipeline;
 })(window);

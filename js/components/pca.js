@@ -263,8 +263,9 @@
   const PCA_BIPLOT_VECTOR_LIMIT = 8;
   const PCA_PREPROCESSING_NONE = 'none';
   const PCA_PREPROCESSING_RNASEQ_LOG = 'rna-seq-normalized-log';
+  const PCA_RNASEQ_TRANSFORM_TYPE = 'rnaSeqNormalizedLog';
+  const PCA_RNASEQ_VIEW_TITLE = 'RNA-seq log (filtered genes)';
   const PCA_RNASEQ_TOP_VARIABLE_FEATURES = 500;
-  const PCA_COUNT_INTEGER_TOLERANCE = 1e-9;
   const PCA_COMPONENT_SELECTION_RULES = Object.freeze([{
     value: 'parallel',
     label: 'Parallel analysis'
@@ -2106,7 +2107,8 @@
               create: false
             }) ||
             getActivePcaSessionForState();
-          markPcaDataDirty('data-view-switch');
+          syncPcaPreprocessingModeForDataView(view, viewSession);
+          markPcaDataDirty('data-view-switch', viewSession);
           markPcaOverlayPending('data-view-switch');
           schedulePcaDrawForSession(viewSession, {
             reason: 'data-view-switch',
@@ -2166,6 +2168,97 @@
     if (reason === 'afterLoadData') {
       manager.refresh?.();
     }
+  }
+
+  function isPcaRnaSeqDataView(view) {
+    return String(view?.transformSpec?.type || '').trim().toLowerCase() ===
+      PCA_RNASEQ_TRANSFORM_TYPE.toLowerCase();
+  }
+
+  function syncPcaPreprocessingModeForDataView(view, session = null) {
+    const mode = isPcaRnaSeqDataView(view) ?
+      PCA_PREPROCESSING_RNASEQ_LOG :
+      PCA_PREPROCESSING_NONE;
+    const owner = getPcaSessionOwnedState(session);
+    owner.state.controls = normalizePcaRuntimeControls({
+      ...(owner.state.controls || {}),
+      preprocessing: mode,
+      scale: mode === PCA_PREPROCESSING_RNASEQ_LOG ? false : owner.state.controls?.scale
+    });
+    persistPcaSessionOwnedState(owner.session, 'pca-data-view-preprocessing');
+    if (shouldMirrorPcaSessionToActive(owner.session)) {
+      pcaState.controls = normalizePcaRuntimeControls({
+        ...(pcaState.controls || {}),
+        preprocessing: mode,
+        scale: mode === PCA_PREPROCESSING_RNASEQ_LOG ? false : pcaState.controls?.scale
+      });
+      const preprocessingInput = getPcaNodeById('pcaPreprocessing');
+      if (preprocessingInput) {
+        preprocessingInput.value = mode;
+      }
+      if (mode === PCA_PREPROCESSING_RNASEQ_LOG && pcaScale) {
+        pcaScale.checked = false;
+      }
+      syncPcaPreprocessingUiState();
+    }
+    return mode;
+  }
+
+  function buildPcaRnaSeqTransformSpec(hot) {
+    const exclusions = hot?.exportExclusions?.() || Shared.hot.exportExclusions?.(hot) || {};
+    return {
+      type: PCA_RNASEQ_TRANSFORM_TYPE,
+      headerRows: getPcaPinnedMetaRowCountForMode(),
+      startCol: 1,
+      labelCol: 0,
+      topFeatureLimit: PCA_RNASEQ_TOP_VARIABLE_FEATURES,
+      excludedRows: Array.isArray(exclusions.rows) ? exclusions.rows : [],
+      excludedCols: Array.isArray(exclusions.cols) ? exclusions.cols : [],
+      excludedCells: Array.isArray(exclusions.cells) ? exclusions.cells : []
+    };
+  }
+
+  function materializePcaRnaSeqDataView(options = {}) {
+    const hot = options.hot || ensurePcaHotForActiveTab?.() || pcaHotInstance;
+    if (!hot) {
+      return false;
+    }
+    const manager = ensurePcaDataViewsForHot(hot, {
+      wrapper: getPcaNodeById('pcaHotWrapper'),
+      container: hot.__pcaHostContainer || getPcaNodeById('pcaHot')
+    });
+    if (!manager || typeof manager.applyTransform !== 'function') {
+      return false;
+    }
+    const activeView = manager.getActiveView?.() || null;
+    if (isPcaRnaSeqDataView(activeView)) {
+      syncPcaPreprocessingModeForDataView(activeView, getPcaSessionForHot(hot, {}, { create: false }));
+      return true;
+    }
+    syncPcaActiveDataViewFromHot(hot, 'rna-seq-transform-before');
+    const transformSpec = buildPcaRnaSeqTransformSpec(hot);
+    const result = manager.applyTransform(transformSpec, {
+      title: PCA_RNASEQ_VIEW_TITLE,
+      reason: options.reason || 'pca-rna-seq-transform',
+      shareExclusions: false,
+      exclusions: {
+        rows: [],
+        cols: transformSpec.excludedCols,
+        cells: []
+      }
+    });
+    if (!result?.ok) {
+      syncPcaPreprocessingModeForDataView(activeView, getPcaSessionForHot(hot, {}, { create: false }));
+      if (options.alertOnError !== false && typeof global.alert === 'function') {
+        global.alert(`Unable to transform data: ${result?.error || 'RNA-seq normalization failed.'}`);
+      }
+      return false;
+    }
+    if (options.userInitiated !== false) {
+      markActivePcaPayloadDirty(options.reason || 'pca-rna-seq-transform');
+    }
+    activatePcaDataToolbar('rna-seq-transform-applied');
+    return true;
   }
 
   function applyPcaTransformToNewView(transformSpec, options = {}) {
@@ -5257,117 +5350,6 @@
     return String(value || '').trim().toLowerCase() === PCA_PREPROCESSING_RNASEQ_LOG ?
       PCA_PREPROCESSING_RNASEQ_LOG :
       PCA_PREPROCESSING_NONE;
-  }
-
-  function medianOfSortedPcaValues(sortedValues) {
-    const length = Array.isArray(sortedValues) ? sortedValues.length : 0;
-    if (!length) {
-      return NaN;
-    }
-    const midpoint = Math.floor(length / 2);
-    return length % 2 === 0 ?
-      (sortedValues[midpoint - 1] + sortedValues[midpoint]) / 2 :
-      sortedValues[midpoint];
-  }
-
-  function calculatePcaMedianRatioSizeFactors(matrix) {
-    const sampleCount = Array.isArray(matrix) ? matrix.length : 0;
-    const featureCount = sampleCount && Array.isArray(matrix[0]) ? matrix[0].length : 0;
-    if (sampleCount < 2 || featureCount < 1) {
-      throw new Error('RNA-seq normalization requires at least two samples and one gene.');
-    }
-    const logGeometricMeans = new Array(featureCount).fill(NaN);
-    let eligibleFeatureCount = 0;
-    for (let featureIndex = 0; featureIndex < featureCount; featureIndex += 1) {
-      let logSum = 0;
-      let eligible = true;
-      for (let sampleIndex = 0; sampleIndex < sampleCount; sampleIndex += 1) {
-        const value = Number(matrix[sampleIndex]?.[featureIndex]);
-        if (!Number.isFinite(value) || value < 0 || Math.abs(value - Math.round(value)) > PCA_COUNT_INTEGER_TOLERANCE) {
-          throw new Error('RNA-seq normalized log counts requires finite, non-negative integer raw counts.');
-        }
-        if (value === 0) {
-          eligible = false;
-          break;
-        }
-        logSum += Math.log(value);
-      }
-      if (eligible) {
-        logGeometricMeans[featureIndex] = logSum / sampleCount;
-        eligibleFeatureCount += 1;
-      }
-    }
-    if (!eligibleFeatureCount) {
-      throw new Error('DESeq2 median-ratio normalization could not be calculated because no gene has positive counts in every sample.');
-    }
-    const sizeFactors = new Array(sampleCount);
-    for (let sampleIndex = 0; sampleIndex < sampleCount; sampleIndex += 1) {
-      const logRatios = [];
-      for (let featureIndex = 0; featureIndex < featureCount; featureIndex += 1) {
-        const logGeometricMean = logGeometricMeans[featureIndex];
-        if (!Number.isFinite(logGeometricMean)) {
-          continue;
-        }
-        logRatios.push(Math.log(matrix[sampleIndex][featureIndex]) - logGeometricMean);
-      }
-      logRatios.sort((left, right) => left - right);
-      const medianLogRatio = medianOfSortedPcaValues(logRatios);
-      const sizeFactor = Math.exp(medianLogRatio);
-      if (!Number.isFinite(sizeFactor) || sizeFactor <= 0) {
-        throw new Error(`DESeq2 median-ratio normalization produced an invalid size factor for sample ${sampleIndex + 1}.`);
-      }
-      sizeFactors[sampleIndex] = sizeFactor;
-    }
-    return {
-      sizeFactors,
-      eligibleFeatureCount
-    };
-  }
-
-  function preprocessPcaRnaSeqCounts(matrix, featureLabels, options = {}) {
-    const topFeatureLimit = Math.max(1, Math.floor(Number(options.topFeatureLimit) || PCA_RNASEQ_TOP_VARIABLE_FEATURES));
-    const sampleCount = Array.isArray(matrix) ? matrix.length : 0;
-    const featureCount = sampleCount && Array.isArray(matrix[0]) ? matrix[0].length : 0;
-    if (!featureCount || matrix.some(row => !Array.isArray(row) || row.length !== featureCount)) {
-      throw new Error('RNA-seq normalization requires a complete rectangular count matrix.');
-    }
-    const { sizeFactors, eligibleFeatureCount } = calculatePcaMedianRatioSizeFactors(matrix);
-    const transformed = Array.from({ length: sampleCount }, () => new Array(featureCount));
-    const rankedFeatures = new Array(featureCount);
-    for (let featureIndex = 0; featureIndex < featureCount; featureIndex += 1) {
-      let mean = 0;
-      for (let sampleIndex = 0; sampleIndex < sampleCount; sampleIndex += 1) {
-        const value = Math.log2((matrix[sampleIndex][featureIndex] / sizeFactors[sampleIndex]) + 1);
-        transformed[sampleIndex][featureIndex] = value;
-        mean += value;
-      }
-      mean /= sampleCount;
-      let varianceSum = 0;
-      for (let sampleIndex = 0; sampleIndex < sampleCount; sampleIndex += 1) {
-        const delta = transformed[sampleIndex][featureIndex] - mean;
-        varianceSum += delta * delta;
-      }
-      rankedFeatures[featureIndex] = {
-        index: featureIndex,
-        variance: sampleCount > 1 ? varianceSum / (sampleCount - 1) : 0
-      };
-    }
-    rankedFeatures.sort((left, right) => (right.variance - left.variance) || (left.index - right.index));
-    const selectedIndices = rankedFeatures.slice(0, Math.min(topFeatureLimit, featureCount)).map(entry => entry.index);
-    return {
-      matrix: transformed.map(row => selectedIndices.map(featureIndex => row[featureIndex])),
-      featureLabels: selectedIndices.map(featureIndex => featureLabels[featureIndex]),
-      metadata: {
-        mode: PCA_PREPROCESSING_RNASEQ_LOG,
-        sizeFactors,
-        eligibleFeatureCount,
-        inputFeatureCount: featureCount,
-        selectedFeatureCount: selectedIndices.length,
-        selectedFeatureIndices: selectedIndices,
-        selectedFeatureLabels: selectedIndices.map(featureIndex => featureLabels[featureIndex]),
-        topFeatureLimit
-      }
-    };
   }
 
   function createDefaultPcaRuntimeControls() {
@@ -9126,6 +9108,17 @@
     }
   }
 
+  function projectPcaViewMode(viewMode, reason = 'view-mode-projection') {
+    const mode = String(viewMode || DEFAULT_VIEW_MODE).trim().toLowerCase() === '3d' ? '3d' : '2d';
+    if (pcaViewMode) {
+      pcaViewMode.value = mode;
+    }
+    lastPcaViewMode = mode;
+    applyAxisVisibility(mode);
+    syncPcaAspectControls(reason);
+    return mode;
+  }
+
   function syncPcaPreprocessingUiState() {
     const preprocessingInput = getPcaNodeById('pcaPreprocessing');
     const mode = sanitizePcaPreprocessingMode(preprocessingInput?.value || pcaState.controls?.preprocessing);
@@ -11446,6 +11439,7 @@
         }
       } else {
         const hot = ensurePcaHotForActiveTab();
+        const activeDataView = hot?.__pcaDataViewsManager?.getActiveView?.() || null;
         const analysis = hot?.getAnalysisData?.() || Shared.hot.getAnalysisData(hot);
         const data = Array.isArray(analysis?.data) ? analysis.data : (hot?.getData?.() || []);
         const labelRowIndex = resolvePcaLabelRowIndex(data);
@@ -11532,8 +11526,6 @@
           length: conditionLabels.length
         }, () => []);
         const featureLabelsAccumulator = [];
-        const strictRnaSeqInput = preprocessingModeForDraw === PCA_PREPROCESSING_RNASEQ_LOG;
-        let rnaSeqInputError = null;
 
         for (let r = dataStartRow; r < data.length; r++) {
           if (analysis.isRowExcluded?.(r)) {
@@ -11568,21 +11560,15 @@
             const cell = row[colIndex];
             if (cell === null || typeof cell === 'undefined' || (typeof cell === 'string' && cell.trim() === '')) {
               rowValid = false;
-              if (strictRnaSeqInput) {
-                rnaSeqInputError = `RNA-seq raw counts contain a blank value at gene row ${r + 1}, sample "${conditionLabels[i]}".`;
-              }
               debugLog('Debug: pca row skipped due to blank cell', {
                 rowIndex: r,
                 colIndex
               });
               break;
             }
-            const v = strictRnaSeqInput ? Number(String(cell).trim()) : parseFloat(cell);
+            const v = parseFloat(cell);
             if (!Number.isFinite(v)) {
               rowValid = false;
-              if (strictRnaSeqInput) {
-                rnaSeqInputError = `RNA-seq raw counts contain a non-numeric value at gene row ${r + 1}, sample "${conditionLabels[i]}".`;
-              }
               debugLog('Debug: pca row skipped due to NaN', {
                 rowIndex: r,
                 colIndex,
@@ -11599,20 +11585,6 @@
               matrixByCondition[i].push(vals[i]);
             }
           }
-          if (rnaSeqInputError) {
-            break;
-          }
-        }
-
-        if (rnaSeqInputError) {
-          if (typeof Shared.renderPlotNotice === 'function') {
-            Shared.renderPlotNotice(pcaPlotDiv, rnaSeqInputError, { resetAspect: true, show: true });
-          } else {
-            pcaPlotDiv.textContent = rnaSeqInputError;
-          }
-          resetStatsPanel();
-          updateAxisSelectOptions({ dimensionMeta: [], viewMode: requestedViewMode, method });
-          return;
         }
 
         if (numericColIndices.length < 2) {
@@ -11693,34 +11665,8 @@
           method,
           statsOutputsEnabled
         });
-        const preprocessingMode = method === 'pca' ?
-          sanitizePcaPreprocessingMode(controls.preprocessing) :
-          PCA_PREPROCESSING_NONE;
-        if (preprocessingMode === PCA_PREPROCESSING_RNASEQ_LOG) {
-          try {
-            const preprocessed = preprocessPcaRnaSeqCounts(matrix, featureLabels);
-            matrix.length = 0;
-            preprocessed.matrix.forEach(row => matrix.push(row));
-            featureLabels = preprocessed.featureLabels;
-            preprocessingMetadata = preprocessed.metadata;
-          } catch (error) {
-            const message = error?.message || 'RNA-seq normalization failed.';
-            if (typeof Shared.renderPlotNotice === 'function') {
-              Shared.renderPlotNotice(pcaPlotDiv, message, {
-                resetAspect: true,
-                show: true
-              });
-            } else {
-              pcaPlotDiv.textContent = message;
-            }
-            resetStatsPanel();
-            updateAxisSelectOptions({
-              dimensionMeta: [],
-              viewMode: requestedViewMode,
-              method
-            });
-            return;
-          }
+        if (isPcaRnaSeqDataView(activeDataView)) {
+          preprocessingMetadata = cloneSimple(activeDataView?.summary?.preprocessingMetadata) || null;
         }
         const nSamples = matrix.length;
         const nFeatures = matrix[0].length;
@@ -15343,6 +15289,9 @@
       includeData: true
     }) || null;
     const includeDataViews = !!(dataViewsPayload && Array.isArray(dataViewsPayload.views) && dataViewsPayload.views.length > 1);
+    const rawDataView = includeDataViews ?
+      dataViewsPayload.views.find(view => view?.kind === 'raw' || view?.id === 'raw') :
+      null;
     const payloadSession = getActivePcaSessionForState();
     const payloadRenderRuntime = getPcaRenderRuntime(payloadSession, {
       seedFromActive: true
@@ -15361,7 +15310,7 @@
     });
     return {
       type: 'pca',
-      data: Shared.hot.trimTrailingEmptyCols(activeHot?.getData?.() || []),
+      data: Shared.hot.trimTrailingEmptyCols(rawDataView?.data || activeHot?.getData?.() || []),
       exclusions: activeHot?.exportExclusions?.() || Shared.hot.exportExclusions(activeHot),
       filters: activeHot?.exportFilters?.() || Shared.hot.exportFilters(activeHot),
       dataViews: includeDataViews ? dataViewsPayload : undefined,
@@ -15857,9 +15806,7 @@
         fontSize: restoredFontSize
       });
       if (pcaViewMode) {
-        const restoredView = c.viewMode || DEFAULT_VIEW_MODE;
-        pcaViewMode.value = restoredView;
-        pcaViewMode.dispatchEvent(new Event('change'));
+        const restoredView = projectPcaViewMode(c.viewMode || DEFAULT_VIEW_MODE, 'payload-view-mode');
         debugLog('Debug: pca view mode restored', {
           restoredView
         });
@@ -15992,6 +15939,17 @@
           reason: 'pca-projection-mutation'
         }), c.labelPositions, {
           reason: 'pca-payload-label-positions'
+        });
+      }
+      const activeRestoredDataView = dataManager?.getActiveView?.() || null;
+      if (!skipDataLoad &&
+        sanitizePcaPreprocessingMode(c.preprocessing) === PCA_PREPROCESSING_RNASEQ_LOG &&
+        !isPcaRnaSeqDataView(activeRestoredDataView)) {
+        materializePcaRnaSeqDataView({
+          hot,
+          reason: 'pca-payload-rna-seq-migration',
+          userInitiated: false,
+          alertOnError: false
         });
       }
       syncPcaRuntimeControlsFromDom();
@@ -17863,12 +17821,10 @@
         if (event?.isTrusted && mode === '3d' && lastPcaViewMode !== '3d') {
           resetPcaRotation('view-mode-change');
         }
-        lastPcaViewMode = mode;
         debugLog('Debug: pca viewMode change', {
           mode
         }); // Debug: view mode toggle listener
-        applyAxisVisibility(mode);
-        syncPcaAspectControls('view-mode-change');
+        projectPcaViewMode(mode, 'view-mode-change');
         requestPcaViewRefresh('view-mode-change', Shared.componentLifecycle.createStructuralDrawOptions('view-mode-change', { viewOnly: true }));
       });
     }
@@ -17963,12 +17919,30 @@
       bindPcaControlHandler(pcaPreprocessing, 'change', 'preprocessing', () => {
         const mode = sanitizePcaPreprocessingMode(pcaPreprocessing.value);
         pcaPreprocessing.value = mode;
-        if (mode === PCA_PREPROCESSING_RNASEQ_LOG && pcaScale) {
-          pcaScale.checked = false;
+        const hot = ensurePcaHotForActiveTab?.() || pcaHotInstance;
+        const manager = hot?.__pcaDataViewsManager || null;
+        const activeView = manager?.getActiveView?.() || null;
+        if (mode === PCA_PREPROCESSING_RNASEQ_LOG) {
+          if (pcaScale) {
+            pcaScale.checked = false;
+          }
+          if (!materializePcaRnaSeqDataView({
+            hot,
+            reason: 'preprocessing-change',
+            userInitiated: true
+          })) {
+            pcaPreprocessing.value = PCA_PREPROCESSING_NONE;
+          }
+        } else if (isPcaRnaSeqDataView(activeView)) {
+          manager.activateView(activeView.sourceViewId || 'raw', {
+            reason: 'preprocessing-none'
+          });
+        } else {
+          syncPcaPreprocessingModeForDataView(activeView, getPcaSessionForHot(hot, {}, { create: false }));
+          requestPcaDataRefresh('preprocessing-change');
         }
         syncPcaPreprocessingUiState();
         debugLog('Debug: pca preprocessing changed', { mode });
-        requestPcaDataRefresh('preprocessing-change');
       });
     }
     if (pcaScale) {
@@ -18189,8 +18163,9 @@
   pca.__testHooks = Object.assign({}, pca.__testHooks, {
     benchmarkLoad: opts => benchmarkPcaLoad(opts),
     resolveDrawableFrame: plotEl => resolvePcaDrawableFrame(plotEl),
-    calculateMedianRatioSizeFactors: matrix => calculatePcaMedianRatioSizeFactors(matrix),
-    preprocessRnaSeqCounts: (matrix, labels, options) => preprocessPcaRnaSeqCounts(matrix, labels, options),
+    calculateMedianRatioSizeFactors: matrix => dataTransformsApi.calculateMedianRatioSizeFactors(matrix),
+    preprocessRnaSeqCounts: (matrix, labels, options) => dataTransformsApi.preprocessRnaSeqCounts(matrix, labels, options),
+    materializeRnaSeqDataView: options => materializePcaRnaSeqDataView(options),
     getPerformance: () => ({
       performance: cloneSimple(pcaState.performance),
       lastAutoDrawEvaluation: cloneSimple(pcaState.lastAutoDrawEvaluation),

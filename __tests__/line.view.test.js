@@ -10,6 +10,19 @@ describe('Line view labels', () => {
       await flush();
     }
   };
+  const waitForLineLifecycle = (afterCursor, options = {}) => {
+    const activeTabId = options.tabId || window.Main?.session?.getActiveTab?.()?.id || null;
+    return window.Shared.componentLifecycle.waitForLifecycleEvent({
+      componentKey: 'line',
+      tabId: activeTabId,
+      actions: options.actions || ['draw-settled'],
+      afterCursor,
+      timeoutMs: options.timeoutMs || 4000,
+      predicate: options.reason
+        ? event => event.reason === options.reason
+        : null
+    });
+  };
   const activateWorkspace = async (type) => {
     const graphSelection = window.Main?.tabs?.handleGraphSelection;
     expect(typeof graphSelection).toBe('function');
@@ -31,12 +44,13 @@ describe('Line view labels', () => {
   const loadLineExampleAndComputeStats = async () => {
     const exampleBtn = document.getElementById('lineLoadExample');
     expect(exampleBtn).toBeTruthy();
+    const drawCursor = window.Shared.componentLifecycle.getLifecycleEventCursor();
     exampleBtn.click();
-    await flushAll(30);
+    await waitForLineLifecycle(drawCursor, { reason: 'line-example-load' });
     const computeBtn = document.getElementById('lineComputeStats');
     expect(computeBtn).toBeTruthy();
     computeBtn.click();
-    await flushAll(50);
+    await Promise.resolve();
     expect(document.getElementById('lineStatsStatus')?.textContent || '').toMatch(/up to date/i);
   };
   const enableLineRegressionOverlays = async () => {
@@ -45,15 +59,17 @@ describe('Line view labels', () => {
     const prediction = document.getElementById('lineShowPredictionIntervals');
     [trend, confidence, prediction].forEach(control => expect(control).toBeTruthy());
     expect(trend.disabled).toBe(false);
+    let drawCursor = window.Shared.componentLifecycle.getLifecycleEventCursor();
     trend.checked = true;
     trend.dispatchEvent(new window.Event('change', { bubbles: true }));
-    await flushAll(15);
+    await waitForLineLifecycle(drawCursor, { reason: 'line-show-trend-change' });
+    drawCursor = window.Shared.componentLifecycle.getLifecycleEventCursor();
     [confidence, prediction].forEach(control => {
       expect(control.disabled).toBe(false);
       control.checked = true;
       control.dispatchEvent(new window.Event('change', { bubbles: true }));
     });
-    await flushAll(50);
+    await waitForLineLifecycle(drawCursor, { reason: 'line-prediction-intervals-toggle' });
   };
   const getLineOverlayCounts = () => {
     const root = document.querySelector('#linePage:not([hidden])') || document;
@@ -91,6 +107,7 @@ describe('Line view labels', () => {
 
     require('../js/vendor.js');
     require('../js/shared/debounce.js');
+    require('../js/shared/componentLifecycle.js');
     require('../js/shared/resizer.js');
     require('../js/shared/colorPicker.js');
     require('../js/shared/editHighlight.js');
@@ -161,6 +178,59 @@ describe('Line view labels', () => {
       'West',
       'Central'
     ]);
+  });
+
+  test('legend represents each line with a centered marker and exports it', async () => {
+    const exampleBtn = document.getElementById('lineLoadExample');
+    expect(exampleBtn).toBeTruthy();
+
+    exampleBtn.click();
+    await flushAll(20);
+
+    const swatch = document.querySelector('#lineSvg [data-legend-swatch="1"][data-legend-key="North"]');
+    const lineSegment = swatch?.querySelector('[data-legend-line="1"]');
+    const marker = swatch?.querySelector('[data-legend-marker="1"]');
+
+    expect(swatch).toBeTruthy();
+    expect(lineSegment).toBeTruthy();
+    expect(marker).toBeTruthy();
+    expect(Number(lineSegment.getAttribute('x1'))).toBeLessThan(Number(marker.getAttribute('cx')));
+    expect(Number(lineSegment.getAttribute('x2'))).toBeGreaterThan(Number(marker.getAttribute('cx')));
+    expect(Number(lineSegment.getAttribute('y1'))).toBe(Number(marker.getAttribute('cy')));
+    expect(Number(lineSegment.getAttribute('y2'))).toBe(Number(marker.getAttribute('cy')));
+    const renderedLine = document.querySelector('#lineSvg path[data-series="North"][data-render-mode="line"]');
+    const renderedMarker = Array.from(document.querySelectorAll('#lineSvg circle, #lineSvg rect, #lineSvg path'))
+      .find(node => node.__linePointData?.seriesName === 'North');
+    expect(lineSegment.getAttribute('stroke')).toBe(renderedLine?.getAttribute('stroke'));
+    expect(lineSegment.getAttribute('stroke-width')).toBe(renderedLine?.getAttribute('stroke-width'));
+    expect(marker.getAttribute('fill')).toBe(renderedMarker?.getAttribute('fill'));
+
+    const exported = window.Components?.line?.buildExportSvg?.();
+    const exportedSwatch = exported?.querySelector('[data-legend-swatch="1"][data-legend-key="North"]');
+    expect(exportedSwatch?.querySelector('[data-legend-line="1"]')).toBeTruthy();
+    expect(exportedSwatch?.querySelector('[data-legend-marker="1"]')).toBeTruthy();
+  });
+
+  test('3D legend uses the shared line and centered-marker representation', async () => {
+    const tableFormat = document.getElementById('lineTableFormat');
+    const viewMode = document.getElementById('lineViewMode');
+    expect(tableFormat).toBeTruthy();
+    expect(viewMode).toBeTruthy();
+
+    tableFormat.value = '3d';
+    tableFormat.dispatchEvent(new Event('change', { bubbles: true }));
+    viewMode.value = '3d';
+    viewMode.dispatchEvent(new Event('change', { bubbles: true }));
+    await flushAll(20);
+
+    document.getElementById('lineLoadExample').click();
+    await flushAll(30);
+
+    const svg = document.querySelector('#linePlot svg[data-view-mode="3d"]');
+    const swatch = svg?.querySelector('[data-legend-swatch="1"]');
+    expect(svg).toBeTruthy();
+    expect(swatch?.querySelector('[data-legend-line="1"]')).toBeTruthy();
+    expect(swatch?.querySelector('[data-legend-marker="1"]')).toBeTruthy();
   });
 
   test('3D conversion from grouped replicates keeps custom X headers stable', async () => {
@@ -329,11 +399,6 @@ describe('Line view labels', () => {
     expect(counts.trend).toBeGreaterThan(0);
     expect(counts.confidence).toBeGreaterThan(0);
     expect(counts.prediction).toBeGreaterThan(0);
-    main.session.persistActiveTabState(tabA, {
-      workspaces: main.components.registry,
-      previews: main.previews,
-      reason: 'test-line-overlay-persist-a'
-    });
 
     main.tabs.handleAddTabClick();
     await flushAll(10);
@@ -343,17 +408,13 @@ describe('Line view labels', () => {
     const tabB = main.session.getActiveTab();
     expect(tabB?.id).not.toBe(tabA?.id);
 
-    const switchToB = main.tabs.activateTab(tabB.id, { reason: 'test-line-overlay-switch-b' });
-    if(switchToB && typeof switchToB.then === 'function'){
-      await switchToB;
-    }
-    await flushAll(25);
-
-    const switchToA = main.tabs.activateTab(tabA.id, { reason: 'test-line-overlay-switch-a' });
-    if(switchToA && typeof switchToA.then === 'function'){
-      await switchToA;
-    }
-    await flushAll(80);
+    const activationCursor = window.Shared.componentLifecycle.getLifecycleEventCursor();
+    main.tabs.activateTab(tabA.id, { reason: 'test-line-overlay-switch-a' });
+    await waitForLineLifecycle(activationCursor, {
+      tabId: tabA.id,
+      actions: ['draw-settled'],
+      reason: 'test-line-overlay-switch-a'
+    });
 
     expect(document.getElementById('lineShowTrendLine').checked).toBe(true);
     expect(document.getElementById('lineShowIntervals').checked).toBe(true);

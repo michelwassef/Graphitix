@@ -92,4 +92,48 @@ describe('Shared.dataTransforms', () => {
     expect(result.data[1][2]).toBe(0);
     expect(result.data[1][3]).toBe(90);
   });
+
+  test('materializes filtered RNA-seq normalized log counts as a replayable table transform', () => {
+    const api = window.Shared.dataTransforms;
+    const matrix = [
+      ['Label point', true, false, false],
+      ['Variable', 'S1', 'S2', 'S3'],
+      ['stable-a', 10, 10, 10],
+      ['variable-b', 10, 20, 40],
+      ['stable-c', 20, 20, 20],
+      ['variable-d', 10, 40, 160]
+    ];
+    const spec = {
+      type: 'rnaSeqNormalizedLog',
+      headerRows: 2,
+      startCol: 1,
+      labelCol: 0,
+      topFeatureLimit: 2
+    };
+    const result = api.applyTransform(matrix, spec);
+    expect(result.ok).toBe(true);
+    expect(result.data.slice(0, 2)).toEqual(matrix.slice(0, 2));
+    expect(result.data.slice(2).map(row => row[0])).toEqual(['variable-d', 'variable-b']);
+    expect(result.summary.preprocessingMetadata.selectedFeatureCount).toBe(2);
+    expect(result.data[2].slice(1).every(Number.isFinite)).toBe(true);
+
+    const replay = api.applyTransform(matrix, result.spec);
+    expect(replay.ok).toBe(true);
+    expect(replay.data).toEqual(result.data);
+  });
+
+  test('RNA-seq table transform rejects invalid raw counts', () => {
+    const api = window.Shared.dataTransforms;
+    const result = api.applyTransform([
+      ['Variable', 'S1', 'S2'],
+      ['g1', 1, 2],
+      ['g2', 1.5, 3]
+    ], {
+      type: 'rnaSeqNormalizedLog',
+      headerRows: 1,
+      startCol: 1
+    });
+    expect(result.ok).toBe(false);
+    expect(result.error).toMatch(/non-negative integer raw counts/i);
+  });
 });

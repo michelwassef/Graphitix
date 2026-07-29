@@ -1,6 +1,59 @@
+## 2026-07-29 — Atomic graph publication
+
+- Line, Histogram, ROC, Survival, Pie, and stacked-bar now build replacement SVG frames invisibly, finalize their viewport, and swap them into view in one step.
+- Added one shared owner-aware frame-publication contract instead of component-specific staging copies.
+- Cancelled or stale draws discard only the unpublished replacement and retain the last valid graph.
+- Added focused publication, cancellation, live-resize, 3D-aspect, and tab-isolation coverage across the migrated renderers.
+
+## 2026-07-29 — Owner-scoped draw completion
+
+- PCA payload hydration now projects view mode silently instead of firing user control callbacks.
+- Line, ROC, and Survival publish owner-scoped settled draw events; ROC and Survival public draws can be awaited directly.
+- Replaced timer-based Line overlay, ROC statistics, and Survival Cox assertions with settled-render checks.
+
+## 2026-07-29 — Flicker-free live graph styling
+
+- Histogram, ROC, Survival, Line, and stacked-bar axis, grid, and trace style edits now update the committed SVG directly instead of starting a full redraw.
+- Added one shared owner-scoped visual projection contract with resize-aware stroke scaling and stale-tab rejection.
+- Cooperative cancellation remains unchanged for structural and data renders.
+- Added unit and browser regressions for live publication, persistence, undo, and same-component tab isolation.
+
+## 2026-07-29 — Canonical Line legends
+
+- Line legends now show a short series line crossing the centered marker in 2D, 3D, and exported SVGs.
+- Legend symbols inherit the rendered series line and marker styles through the shared legend renderer.
+
+## 2026-07-29 — Histogram graph options and trace rendering
+
+- Moved Histogram's legend toggle into the shared graph-options menu.
+- Added global and per-series Trace transparency with tab-isolated archive persistence.
+- Rebuilt histogram traces as one compound fill and one joint border per series; empty bins emit no baseline, adjacent bars share one separator up to the taller bar, and group-level transparency prevents doubled alpha at joins.
+
+## 2026-07-29 — Smooth live graph resizing
+
+- Restored uninterrupted live redraws for Histogram, ROC, Survival, Line, and stacked-bar graphs.
+- Shared cooperative draw checkpoints no longer yield a blank painted frame during active resize phases; cancellation and normal long-render yielding remain intact.
+- Added a cross-component browser regression using Scatter as the smooth-resize reference.
+
+## 2026-07-29 — Histogram axis and multi-series layout
+
+- Histogram X-min now defaults to Auto in the UI, session, payload, hydration, and renderer, so negative observations remain visible.
+- Automatic density-domain padding now covers both X bounds; explicit manual limits remain exact.
+- Multi-series legends now use the same fixed base viewport contract as ROC and Survival, preserving uniform graph and font scaling.
+- Removed Histogram's duplicate legend minimum-width authority, which reduced the entire rendered graph when extra series were present.
+
+## 2026-07-29 — E2E server URL parsing
+
+- Replaced the deprecated Node URL parser in the local Playwright server.
+
+## 2026-07-29 — PCA RNA-seq filtered data view
+
+- RNA-seq normalized log preprocessing now creates a persisted AG Grid DataView containing the filtered, normalized genes.
+- Moved the transformation math into the shared replayable data-transform contract.
+
 ## 2026-07-28 — Full test runner
 
-- Added one PowerShell command for the complete Jest and Playwright suites.
+- Added one PowerShell command for the complete Jest and Chromium Playwright suites.
 - Failures are retried serially and summarized with errors and raw-log paths.
 
 ## 2026-07-28 — Cross-component statistics validation

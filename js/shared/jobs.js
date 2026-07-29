@@ -436,16 +436,25 @@
     }
     const job = jobs.getActiveFor({ component, tabId, kind });
     const signal = job?.signal || null;
-    const yieldController = jobs.createYieldController({
-      signal,
-      budgetMs: options.budgetMs
-    });
+    const drawReason = String(options.drawOptions?.reason || '').trim().toLowerCase();
+    const resizePhase = String(options.drawOptions?.resizePhase || '').trim().toLowerCase();
+    // Match Scatter's established resize contract: a live frame must finish
+    // before the browser paints, otherwise cleared/rebuilt SVGs visibly disappear.
+    const liveResize = drawReason === 'resize'
+      && (resizePhase === 'start' || resizePhase === 'move' || resizePhase === 'end');
+    const yieldController = liveResize
+      ? null
+      : jobs.createYieldController({
+          signal,
+          budgetMs: options.budgetMs
+        });
     return {
       component,
       tabId,
       kind,
       job,
       signal,
+      liveResize,
       isCurrent(){
         if(signal?.aborted){
           return false;
@@ -456,7 +465,10 @@
         return jobs.getActiveFor({ component, tabId, kind })?.id === job.id;
       },
       async checkpoint(){
-        const yielded = await yieldController.checkpoint(signal || job || {});
+        jobs.throwIfCancelled(signal || job || {});
+        const yielded = yieldController
+          ? await yieldController.checkpoint(signal || job || {})
+          : false;
         if(job && jobs.getActiveFor({ component, tabId, kind })?.id !== job.id){
           throw new Error('Task cancelled');
         }

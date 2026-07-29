@@ -141,6 +141,61 @@ describe('axisControls — effective tick interval', () => {
   });
 });
 
+describe('axisControls — tab ownership', () => {
+  beforeEach(() => {
+    document.body.innerHTML = '';
+  });
+
+  test('an open toolbar cannot mutate a different active tab', () => {
+    jest.resetModules();
+    delete window.Shared;
+    let activeTabId = 'tab-a';
+    window.Main = {
+      session: {
+        getActiveTab: () => ({ id: activeTabId })
+      }
+    };
+    require('../js/shared/workspaceToolbarAccess.js');
+    require('../js/shared/workspaceToolbar.js');
+    require('../js/shared/axisControls.js');
+
+    const host = document.createElement('div');
+    host.className = 'font-toolbar-host';
+    host.dataset.fontToolbarScope = 'test';
+    document.body.appendChild(host);
+    const ownerRoot = document.createElement('div');
+    ownerRoot.dataset.workspaceTabId = 'tab-a';
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    const axis = document.createElementNS(svg.namespaceURI, 'line');
+    svg.appendChild(axis);
+    ownerRoot.appendChild(svg);
+    document.body.appendChild(ownerRoot);
+
+    let thickness = 1;
+    window.Shared.axisControls.registerAxisElement(axis, {
+      axis: 'x',
+      scopeId: 'test',
+      getThickness: () => thickness,
+      getColor: () => '#000000',
+      onThicknessChange: value => { thickness = value; },
+      onColorChange: () => {}
+    });
+    axis.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    const input = host.querySelector('.axis-controls-panel__field--style input[type="number"]');
+    expect(input).toBeTruthy();
+
+    activeTabId = 'tab-b';
+    input.value = '4';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    expect(thickness).toBe(1);
+
+    activeTabId = 'tab-a';
+    input.value = '3';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    expect(thickness).toBe(3);
+  });
+});
+
 describe('axisControls — safe calls with no DOM panel', () => {
   let ac;
   beforeEach(() => { ac = loadModule(); });

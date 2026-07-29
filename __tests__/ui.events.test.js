@@ -1203,6 +1203,245 @@ describe('UI events and example loaders', () => {
     await flushAsyncWork();
   });
 
+  test('Histogram: automatic X range includes negative values', async () => {
+    await activateWorkspace('hist');
+    await flushAsyncWork(20);
+
+    const component = window.Components?.hist;
+    const xMinInput = document.getElementById('histXMin');
+    expect(component).toBeTruthy();
+    expect(xMinInput?.value).toBe('');
+
+    const tab = window.Main?.tabs?.getActiveTab?.();
+    const payload = component.createEmptyPayload();
+    expect(payload.config?.axisLimits?.xMin).toBeNull();
+    payload.data = [
+      ['Values'],
+      [-8],
+      [-4],
+      [2]
+    ];
+    component.loadFromPayload(payload, {
+      source: 'test-negative-auto-x-range',
+      tab,
+      tabId: tab?.id
+    });
+    expect(xMinInput?.value).toBe('');
+    await component.draw({ reason: 'test-negative-auto-x-range' });
+    await flushAsyncWork(20);
+
+    const tickValues = Array.from(document.querySelectorAll('#histSvg text'))
+      .map(node => Number(node.textContent))
+      .filter(Number.isFinite);
+    expect(Math.min(...tickValues)).toBeLessThanOrEqual(-8);
+    expect(component.getPayload()?.config?.axisLimits?.xMin).toBeNull();
+  });
+
+  test('Histogram: manual X minimum still overrides automatic range', async () => {
+    await activateWorkspace('hist');
+    await flushAsyncWork(20);
+
+    const component = window.Components?.hist;
+    const tab = window.Main?.tabs?.getActiveTab?.();
+    const payload = component.createEmptyPayload();
+    payload.data = [['Values'], [-8], [-4], [2]];
+    payload.config.axisLimits.xMin = -3.3;
+    component.loadFromPayload(payload, {
+      source: 'test-manual-x-minimum',
+      tab,
+      tabId: tab?.id
+    });
+    await component.draw({ reason: 'test-manual-x-minimum' });
+    await flushAsyncWork(20);
+
+    expect(document.getElementById('histXMin')?.value).toBe('-3.3');
+    expect(component.getPayload()?.config?.axisLimits?.xMin).toBe(-3.3);
+    const tickValues = Array.from(document.querySelectorAll('#histSvg text'))
+      .map(node => Number(node.textContent))
+      .filter(Number.isFinite);
+    expect(Math.min(...tickValues)).toBeCloseTo(-3.3, 10);
+  });
+
+  test('Histogram: multi-series legend preserves the SVG aspect ratio', async () => {
+    await activateWorkspace('hist');
+    await flushAsyncWork(20);
+
+    const component = window.Components?.hist;
+    const tab = window.Main?.tabs?.getActiveTab?.();
+    const payload = component.createEmptyPayload();
+    payload.data = [
+      ['Control', 'Treatment'],
+      [38, 41],
+      [42, 46],
+      [50, 55],
+      [62, 70]
+    ];
+    component.loadFromPayload(payload, {
+      source: 'test-multi-series-legend-aspect',
+      tab,
+      tabId: tab?.id
+    });
+    await component.draw({ reason: 'test-multi-series-legend-aspect' });
+    await flushAsyncWork(20);
+
+    const svg = document.getElementById('histSvg');
+    expect(svg?.querySelectorAll('[data-font-role="legend"]').length).toBe(2);
+    expect(svg?.getAttribute('preserveAspectRatio')).toBe('xMidYMid meet');
+  });
+
+  test('Histogram: empty bins and shared separators render no duplicate strokes', async () => {
+    await activateWorkspace('hist');
+    await flushAsyncWork(20);
+
+    const component = window.Components?.hist;
+    const tab = window.Main?.tabs?.getActiveTab?.();
+    const payload = component.createEmptyPayload();
+    payload.data = [['Values'], [0], [0], [0], [1], [1], [2], [10]];
+    payload.config.frequency = {
+      ...(payload.config.frequency || {}),
+      binningMode: 'width',
+      manualBinWidth: 1,
+      firstCenterAuto: false,
+      firstCenter: 0,
+      lastCenterAuto: false,
+      lastCenter: 10
+    };
+    component.loadFromPayload(payload, {
+      source: 'test-empty-bin-baseline',
+      tab,
+      tabId: tab?.id,
+      skipDraw: true
+    });
+    await component.draw({ reason: 'test-empty-bin-baseline' });
+    await flushAsyncWork(20);
+
+    const activeRoot = window.Shared?.workspaceTabs?.getMountedRoot?.(tab, 'hist') || document;
+    const bars = Array.from(activeRoot.querySelectorAll(
+      '#histSvg [data-hist-bar="1"][data-series-role="hist-fill"]'
+    ));
+    expect(bars.length).toBeGreaterThan(0);
+    expect(bars.every(bar => {
+      const points = Array.from(String(bar.getAttribute('d') || '').matchAll(
+        /[ML]\s+(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)/g
+      ));
+      const yValues = new Set(points.map(match => Number(match[2]).toFixed(6)));
+      return yValues.size > 1;
+    })).toBe(true);
+    expect(bars.every(bar => !bar.hasAttribute('stroke') || bar.getAttribute('stroke') === 'none')).toBe(true);
+    const borders = activeRoot.querySelectorAll(
+      '#histSvg [data-series-role="hist-border"][data-series-key="col-0"]'
+    );
+    expect(borders).toHaveLength(1);
+    const borderCommands = Array.from(String(borders[0].getAttribute('d') || '').matchAll(
+      /([ML])\s+(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)/g
+    )).map(match => ({
+      command: match[1],
+      x: Number(match[2]),
+      y: Number(match[3])
+    }));
+    const verticalSegments = [];
+    let previousPoint = null;
+    borderCommands.forEach(command => {
+      if(command.command === 'L' && previousPoint && previousPoint.x === command.x){
+        verticalSegments.push({
+          x: command.x,
+          start: Math.min(previousPoint.y, command.y),
+          end: Math.max(previousPoint.y, command.y)
+        });
+      }
+      previousPoint = command;
+    });
+    const segmentKeys = verticalSegments.map(segment => (
+      `${segment.x.toFixed(6)}:${segment.start.toFixed(6)}:${segment.end.toFixed(6)}`
+    ));
+    expect(new Set(segmentKeys).size).toBe(segmentKeys.length);
+    const segmentsByX = verticalSegments.reduce((groups, segment) => {
+      const key = segment.x.toFixed(6);
+      if(!groups.has(key)){
+        groups.set(key, []);
+      }
+      groups.get(key).push(segment);
+      return groups;
+    }, new Map());
+    let touchingJointCount = 0;
+    segmentsByX.forEach(segments => {
+      const ordered = segments.slice().sort((left, right) => left.start - right.start);
+      for(let index = 1; index < ordered.length; index += 1){
+        expect(ordered[index - 1].end).toBeLessThanOrEqual(ordered[index].start + 1e-6);
+        if(Math.abs(ordered[index - 1].end - ordered[index].start) <= 1e-6){
+          touchingJointCount += 1;
+        }
+      }
+    });
+    expect(touchingJointCount).toBeGreaterThan(0);
+  });
+
+  test('Histogram: graph options own the legend toggle and Trace transparency round-trips', async () => {
+    await activateWorkspace('hist');
+    await flushAsyncWork(20);
+
+    const component = window.Components?.hist;
+    const tab = window.Main?.tabs?.getActiveTab?.();
+    const legendToggle = document.getElementById('histShowLegend');
+    expect(component).toBeTruthy();
+    expect(legendToggle?.closest('.resizer-options-menu')).toBeTruthy();
+    expect(legendToggle?.closest('.config-panel')).toBeNull();
+
+    const payload = component.createEmptyPayload();
+    payload.data = [
+      ['Control', 'Treatment'],
+      [38, 41],
+      [42, 46],
+      [50, 55],
+      [62, 70]
+    ];
+    component.loadFromPayload(payload, {
+      source: 'test-trace-transparency',
+      tab,
+      tabId: tab?.id
+    });
+    await component.draw({ reason: 'test-trace-transparency' });
+    await flushAsyncWork(20);
+
+    const controlBar = document.querySelector('#histSvg [data-series-key="col-0"][data-series-role="hist-fill"]');
+    expect(controlBar).toBeTruthy();
+    controlBar.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    await flushAsyncWork(5);
+
+    const transparencyInput = document.querySelector(
+      '[aria-label="Trace"] .additional-line-controls-panel__transparency-input'
+    );
+    expect(transparencyInput).toBeTruthy();
+    transparencyInput.value = '45';
+    transparencyInput.dispatchEvent(new Event('input', { bubbles: true }));
+    await flushAsyncWork(20);
+
+    const saved = component.getPayload();
+    expect(saved?.config?.seriesOpacities?.['col-0']).toBeCloseTo(0.55, 6);
+    expect(
+      Number(document.querySelector('#histSvg [data-series-key="col-0"][data-series-role="hist-trace"]')?.getAttribute('opacity'))
+    ).toBeCloseTo(0.55, 6);
+    expect(
+      document.querySelector('#histSvg [data-series-key="col-0"][data-series-role="hist-fill"]')?.getAttribute('fill-opacity')
+    ).toBe('1');
+    expect(
+      document.querySelector('#histSvg [data-series-key="col-0"][data-series-role="hist-border"]')?.hasAttribute('stroke-opacity')
+    ).toBe(false);
+
+    component.loadFromPayload(saved, {
+      source: 'test-trace-transparency-reload',
+      tab,
+      tabId: tab?.id
+    });
+    await component.draw({ reason: 'test-trace-transparency-reload' });
+    await flushAsyncWork(20);
+
+    expect(component.getPayload()?.config?.seriesOpacities?.['col-0']).toBeCloseTo(0.55, 6);
+    expect(
+      Number(document.querySelector('#histSvg [data-series-key="col-0"][data-series-role="hist-trace"]')?.getAttribute('opacity'))
+    ).toBeCloseTo(0.55, 6);
+  });
+
   test('Proportion Graph: Load Example populates data', async () => {
     await activateWorkspace('pie');
     const btn = document.getElementById('pieLoadExample');
@@ -1305,7 +1544,7 @@ describe('UI events and example loaders', () => {
         target[1] = row[1];
       });
 
-      window.Components.roc.draw();
+      await window.Components.roc.draw({ reason: 'test-roc-html-series-stats' });
 
       const statsResults = document.getElementById('rocStatsResults');
       expect(statsResults).toBeTruthy();
@@ -1360,11 +1599,10 @@ describe('UI events and example loaders', () => {
     const directSummary = window.Components.survival.__testHooks?.collectSeries?.();
     expect(directSummary?.series?.length).toBeGreaterThan(1);
     const start = Date.now();
-    window.Components.survival.draw();
+    await window.Components.survival.draw({ reason: 'test-survival-large-cox' });
     const elapsed = Date.now() - start;
     expect(elapsed).toBeLessThan(2500);
     const summary = state.lastSummary;
-    await flushAsyncWork();
     expect(Array.isArray(summary?.series)).toBe(true);
     expect(summary.series.length).toBeGreaterThan(1);
     expect(summary?.flags?.coxEnabled).toBe(true);

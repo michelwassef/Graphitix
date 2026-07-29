@@ -70,6 +70,23 @@ function Invoke-TestCommand {
   return $exitCode
 }
 
+function Get-JsonProperty {
+  param(
+    [object]$InputObject,
+    [string]$Name,
+    [object]$Default = $null
+  )
+
+  if ($null -eq $InputObject) {
+    return $Default
+  }
+  $property = $InputObject.PSObject.Properties[$Name]
+  if ($null -eq $property) {
+    return $Default
+  }
+  return $property.Value
+}
+
 function Get-JestFailures {
   param([string]$JsonPath)
 
@@ -79,26 +96,32 @@ function Get-JestFailures {
   }
 
   $payload = Get-Content $JsonPath -Raw | ConvertFrom-Json
-  foreach ($suite in @($payload.testResults)) {
-    $suiteFailures = @($suite.assertionResults | Where-Object { $_.status -eq "failed" })
+  foreach ($suite in @(Get-JsonProperty $payload "testResults" @())) {
+    $suiteFailures = @(Get-JsonProperty $suite "assertionResults" @() | Where-Object {
+      (Get-JsonProperty $_ "status" "") -eq "failed"
+    })
     foreach ($test in $suiteFailures) {
-      $messages = @($test.failureMessages | Where-Object { $_ }) -join "`n"
+      $messages = @(Get-JsonProperty $test "failureMessages" @() | Where-Object { $_ }) -join "`n"
+      $suiteName = [string](Get-JsonProperty $suite "name" "")
+      $testName = [string](Get-JsonProperty $test "fullName" "")
       $failures += [pscustomobject]@{
-        Key = "jest|$($suite.name)|$($test.fullName)"
+        Key = "jest|$suiteName|$testName"
         Framework = "Jest"
-        Name = $test.fullName
-        Location = $suite.name
+        Name = $testName
+        Location = $suiteName
         Error = $messages
       }
     }
 
-    if ($suite.status -eq "failed" -and $suiteFailures.Count -eq 0) {
+    $suiteStatus = [string](Get-JsonProperty $suite "status" "")
+    if ($suiteStatus -eq "failed" -and $suiteFailures.Count -eq 0) {
+      $suiteName = [string](Get-JsonProperty $suite "name" "")
       $failures += [pscustomobject]@{
-        Key = "jest|$($suite.name)|suite"
+        Key = "jest|$suiteName|suite"
         Framework = "Jest"
         Name = "Suite setup or execution failure"
-        Location = $suite.name
-        Error = [string]$suite.message
+        Location = $suiteName
+        Error = [string](Get-JsonProperty $suite "message" "")
       }
     }
   }
@@ -113,19 +136,23 @@ function Add-PlaywrightSuiteFailures {
   )
 
   $path = @($Parents)
-  if ($Suite.title) {
-    $path += [string]$Suite.title
+  $suiteTitle = [string](Get-JsonProperty $Suite "title" "")
+  if ($suiteTitle) {
+    $path += $suiteTitle
   }
 
-  foreach ($spec in @($Suite.specs)) {
-    $name = (@($path) + [string]$spec.title) -join " > "
-    foreach ($test in @($spec.tests)) {
-      $projectName = [string]$test.projectName
-      $failedResults = @($test.results | Where-Object {
-        $_.status -in @("failed", "timedOut", "interrupted")
+  foreach ($spec in @(Get-JsonProperty $Suite "specs" @())) {
+    $specTitle = [string](Get-JsonProperty $spec "title" "")
+    $name = (@($path) + $specTitle) -join " > "
+    foreach ($test in @(Get-JsonProperty $spec "tests" @())) {
+      $projectName = [string](Get-JsonProperty $test "projectName" "")
+      $testResults = @(Get-JsonProperty $test "results" @())
+      $failedResults = @($testResults | Where-Object {
+        (Get-JsonProperty $_ "status" "") -in @("failed", "timedOut", "interrupted")
       })
-      if ($test.status -eq "unexpected" -and $failedResults.Count -eq 0) {
-        $failedResults = @($test.results)
+      $testStatus = [string](Get-JsonProperty $test "status" "")
+      if ($testStatus -eq "unexpected" -and $failedResults.Count -eq 0) {
+        $failedResults = $testResults
       }
       if ($failedResults.Count -eq 0) {
         continue
@@ -133,18 +160,17 @@ function Add-PlaywrightSuiteFailures {
 
       $errorParts = @()
       foreach ($result in $failedResults) {
-        foreach ($errorItem in @($result.errors)) {
-          if ($errorItem.message) { $errorParts += [string]$errorItem.message }
-          if ($errorItem.stack) { $errorParts += [string]$errorItem.stack }
-          if ($errorItem.snippet) { $errorParts += [string]$errorItem.snippet }
-        }
-        if ($result.error) {
-          if ($result.error.message) { $errorParts += [string]$result.error.message }
-          if ($result.error.stack) { $errorParts += [string]$result.error.stack }
+        foreach ($errorItem in @(Get-JsonProperty $result "errors" @())) {
+          $errorMessage = [string](Get-JsonProperty $errorItem "message" "")
+          if ($errorMessage) {
+            $errorParts += $errorMessage
+          }
         }
       }
 
-      $location = "$($spec.file):$($spec.line)"
+      $specFile = [string](Get-JsonProperty $spec "file" "")
+      $specLine = [string](Get-JsonProperty $spec "line" "")
+      $location = if ($specLine) { "${specFile}:$specLine" } else { $specFile }
       $Failures.Value += [pscustomobject]@{
         Key = "playwright|$projectName|$location|$name"
         Framework = "Playwright/$projectName"
@@ -155,7 +181,7 @@ function Add-PlaywrightSuiteFailures {
     }
   }
 
-  foreach ($child in @($Suite.suites)) {
+  foreach ($child in @(Get-JsonProperty $Suite "suites" @())) {
     Add-PlaywrightSuiteFailures -Suite $child -Parents $path -Failures $Failures
   }
 }
@@ -169,7 +195,7 @@ function Get-PlaywrightFailures {
   }
 
   $payload = Get-Content $JsonPath -Raw | ConvertFrom-Json
-  foreach ($suite in @($payload.suites)) {
+  foreach ($suite in @(Get-JsonProperty $payload "suites" @())) {
     Add-PlaywrightSuiteFailures -Suite $suite -Parents @() -Failures ([ref]$failures)
   }
   return $failures
@@ -201,6 +227,11 @@ function Add-FailureSection {
     } else {
       [string]$failure.Error
     }
+    $errorText = [regex]::Replace(
+      $errorText,
+      "$([char]27)\[[0-?]*[ -/]*[@-~]",
+      ""
+    )
     foreach ($line in ($errorText -split "`r?`n")) {
       $Lines.Add("     $line")
     }
@@ -234,10 +265,10 @@ $playwrightInitialLog = Join-Path $runDirectory "playwright-initial.log"
 $playwrightRetryJson = Join-Path $runDirectory "playwright-retry.json"
 $playwrightRetryLog = Join-Path $runDirectory "playwright-retry.log"
 
-Write-Host "`nRunning the full Playwright suite..."
+Write-Host "`nRunning the full Chromium Playwright E2E suite..."
 $env:PLAYWRIGHT_JSON_OUTPUT_NAME = $playwrightInitialJson
 $playwrightInitialExit = Invoke-TestCommand -Arguments @(
-  "playwright", "test", "--reporter=list,json"
+  "playwright", "test", "--project=chromium", "--reporter=list,json"
 ) -LogPath $playwrightInitialLog
 $playwrightInitialFailures = @(Get-PlaywrightFailures $playwrightInitialJson)
 
@@ -247,7 +278,7 @@ if ($playwrightInitialExit -ne 0) {
   Write-Host "`nRe-running failed Playwright tests in one worker..."
   $env:PLAYWRIGHT_JSON_OUTPUT_NAME = $playwrightRetryJson
   $playwrightRetryExit = Invoke-TestCommand -Arguments @(
-    "playwright", "test", "--last-failed", "--workers=1", "--reporter=list,json"
+    "playwright", "test", "--project=chromium", "--last-failed", "--workers=1", "--reporter=list,json"
   ) -LogPath $playwrightRetryLog
   $playwrightRetryFailures = @(Get-PlaywrightFailures $playwrightRetryJson)
 }
@@ -257,24 +288,46 @@ $retryFailureKeys = @{}
 foreach ($failure in @($jestRetryFailures) + @($playwrightRetryFailures)) {
   $retryFailureKeys[$failure.Key] = $true
 }
-$flakyFailures = @(@($jestInitialFailures) + @($playwrightInitialFailures) | Where-Object {
-  !$retryFailureKeys.ContainsKey($_.Key)
-})
+$flakyFailures = @()
+if ($jestRetryExit -eq 0 -or $jestRetryFailures.Count -gt 0) {
+  $flakyFailures += @($jestInitialFailures | Where-Object {
+    !$retryFailureKeys.ContainsKey($_.Key)
+  })
+}
+if ($playwrightRetryExit -eq 0 -or $playwrightRetryFailures.Count -gt 0) {
+  $flakyFailures += @($playwrightInitialFailures | Where-Object {
+    !$retryFailureKeys.ContainsKey($_.Key)
+  })
+}
 $persistentFailures = @($jestRetryFailures) + @($playwrightRetryFailures)
 
 $infrastructureFailures = @()
-if ($jestRetryExit -ne 0 -and $jestRetryFailures.Count -eq 0) {
+if ($jestInitialExit -ne 0 -and $jestInitialFailures.Count -eq 0) {
   $infrastructureFailures += [pscustomobject]@{
     Framework = "Jest"
-    Name = "Unstructured runner failure"
+    Name = "Initial runner or setup failure"
+    Location = $jestInitialLog
+    Error = Get-Content $jestInitialLog -Raw
+  }
+} elseif ($jestRetryExit -ne 0 -and $jestRetryFailures.Count -eq 0) {
+  $infrastructureFailures += [pscustomobject]@{
+    Framework = "Jest"
+    Name = "Retry runner or setup failure"
     Location = $jestRetryLog
     Error = Get-Content $jestRetryLog -Raw
   }
 }
-if ($playwrightRetryExit -ne 0 -and $playwrightRetryFailures.Count -eq 0) {
+if ($playwrightInitialExit -ne 0 -and $playwrightInitialFailures.Count -eq 0) {
   $infrastructureFailures += [pscustomobject]@{
-    Framework = "Playwright"
-    Name = "Unstructured runner failure"
+    Framework = "Playwright/Chromium"
+    Name = "Initial runner or setup failure"
+    Location = $playwrightInitialLog
+    Error = Get-Content $playwrightInitialLog -Raw
+  }
+} elseif ($playwrightRetryExit -ne 0 -and $playwrightRetryFailures.Count -eq 0) {
+  $infrastructureFailures += [pscustomobject]@{
+    Framework = "Playwright/Chromium"
+    Name = "Retry runner or setup failure"
     Location = $playwrightRetryLog
     Error = Get-Content $playwrightRetryLog -Raw
   }
@@ -286,7 +339,7 @@ $reportLines.Add("Generated: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss zzz')")
 $reportLines.Add("Run artifacts: $runDirectory")
 $reportLines.Add("")
 $reportLines.Add("Jest initial exit: $jestInitialExit; retry exit: $jestRetryExit")
-$reportLines.Add("Playwright initial exit: $playwrightInitialExit; retry exit: $playwrightRetryExit")
+$reportLines.Add("Playwright Chromium initial exit: $playwrightInitialExit; retry exit: $playwrightRetryExit")
 $reportLines.Add("Persistent failures: $($persistentFailures.Count + $infrastructureFailures.Count)")
 $reportLines.Add("Passed on single-worker retry: $($flakyFailures.Count)")
 

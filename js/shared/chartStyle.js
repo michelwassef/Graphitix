@@ -2567,13 +2567,21 @@
       const keyRaw = entry.key ?? entry.id ?? label;
       const key = keyRaw == null ? '' : String(keyRaw);
       const editable = entry.editable === true;
-      normalizedEntries.push({ label, fill, stroke, strokeWidth, sourceIndex: index, key, editable, raw: entry });
+      const seriesIndex = Number.isInteger(entry.seriesIndex) ? entry.seriesIndex : null;
+      const swatch = entry.swatch && typeof entry.swatch === 'object'
+        ? entry.swatch
+        : null;
+      normalizedEntries.push({ label, fill, stroke, strokeWidth, sourceIndex: index, key, editable, seriesIndex, swatch, raw: entry });
     });
     const fontSize = Math.max(4, Number(opts.fontSize) || 12);
     const rowGap = Number.isFinite(opts.rowGap) ? Number(opts.rowGap) : Math.max(4, Math.round(fontSize * 0.3));
     // Keep legend symbols compact by default while scaling with legend font size.
     const swatchSize = Number.isFinite(opts.swatchSize) ? Number(opts.swatchSize) : Math.max(4, Math.round(fontSize * 0.6));
-    const swatchWidth = Number.isFinite(opts.swatchWidth) ? Math.max(1, Number(opts.swatchWidth)) : swatchSize;
+    const hasLineMarkerSwatch = normalizedEntries.some(entry => entry.swatch?.type === 'line-marker');
+    const defaultSwatchWidth = hasLineMarkerSwatch
+      ? Math.max(swatchSize, Math.round(fontSize * 1.6))
+      : swatchSize;
+    const swatchWidth = Number.isFinite(opts.swatchWidth) ? Math.max(1, Number(opts.swatchWidth)) : defaultSwatchWidth;
     const swatchHeight = Number.isFinite(opts.swatchHeight) ? Math.max(1, Number(opts.swatchHeight)) : swatchSize;
     const swatchGap = Number.isFinite(opts.swatchGap) ? Number(opts.swatchGap) : Math.max(8, Math.round(fontSize * 0.4));
     const minWidth = Number.isFinite(opts.minWidth) ? Number(opts.minWidth) : Math.max(60, Math.round(fontSize * 5.5));
@@ -2608,13 +2616,33 @@
       maxLabelWidth
     };
     console.debug('Debug: chartStyle.createLegendRenderer metrics', debugSummary);
-    const createLegendSwatch = (doc, entry, idx, swatchCenterY) => {
-      const rawShape = entry?.raw?.shape;
+    const applyLegendIdentity = (node, entry, idx, role) => {
+      if(entry.key){
+        node.dataset.legendKey = entry.key;
+      }
+      if(role){
+        node.dataset[role] = '1';
+      }
+      node.dataset.legendIndex = String(idx);
+      return node;
+    };
+    const createLegendMarker = (doc, entry, idx, options) => {
+      const markerOptions = options || {};
+      const rawShape = markerOptions.shape ?? entry?.raw?.shape;
       const shape = typeof rawShape === 'string' ? rawShape : 'square';
-      const swatchTop = swatchCenterY - (swatchHeight / 2);
-      const centerX = swatchWidth / 2;
-      const centerY = swatchCenterY;
-      const radius = Math.max(1, Math.min(swatchWidth, swatchHeight) * 0.42);
+      const centerX = Number.isFinite(markerOptions.centerX) ? markerOptions.centerX : swatchWidth / 2;
+      const centerY = Number.isFinite(markerOptions.centerY) ? markerOptions.centerY : 0;
+      const radius = Number.isFinite(markerOptions.radius)
+        ? Math.max(1, markerOptions.radius)
+        : Math.max(1, Math.min(swatchWidth, swatchHeight) * 0.42);
+      const markerFill = typeof markerOptions.fill === 'string' ? markerOptions.fill : entry.fill;
+      const markerStroke = typeof markerOptions.stroke === 'string' ? markerOptions.stroke : entry.stroke;
+      const markerStrokeWidth = Number.isFinite(markerOptions.strokeWidth)
+        ? Math.max(0, Number(markerOptions.strokeWidth))
+        : Math.max(0, entry.strokeWidth);
+      const markerOpacity = Number.isFinite(markerOptions.opacity)
+        ? Math.max(0, Math.min(1, Number(markerOptions.opacity)))
+        : 1;
       let node = null;
       if(shape === 'circle'){
         node = doc.createElementNS(NS, 'circle');
@@ -2676,32 +2704,89 @@
         node.setAttribute('d', d);
       }else if(shape === 'rect' || shape === 'rectangle'){
         node = doc.createElementNS(NS, 'rect');
-        node.setAttribute('x', '0');
-        node.setAttribute('y', String(swatchTop));
-        node.setAttribute('width', String(swatchWidth));
-        node.setAttribute('height', String(swatchHeight));
+        if(markerOptions.legacySizing === true){
+          node.setAttribute('x', '0');
+          node.setAttribute('y', String(centerY - (swatchHeight / 2)));
+          node.setAttribute('width', String(swatchWidth));
+          node.setAttribute('height', String(swatchHeight));
+        }else{
+          node.setAttribute('x', String(centerX - radius));
+          node.setAttribute('y', String(centerY - radius));
+          node.setAttribute('width', String(radius * 2));
+          node.setAttribute('height', String(radius * 2));
+        }
       }else{
         node = doc.createElementNS(NS, 'rect');
-        node.setAttribute('x', '0');
-        node.setAttribute('y', String(swatchCenterY - (swatchSize / 2)));
-        node.setAttribute('width', String(swatchSize));
-        node.setAttribute('height', String(swatchSize));
+        if(markerOptions.legacySizing === true){
+          node.setAttribute('x', '0');
+          node.setAttribute('y', String(centerY - (swatchSize / 2)));
+          node.setAttribute('width', String(swatchSize));
+          node.setAttribute('height', String(swatchSize));
+        }else{
+          node.setAttribute('x', String(centerX - radius));
+          node.setAttribute('y', String(centerY - radius));
+          node.setAttribute('width', String(radius * 2));
+          node.setAttribute('height', String(radius * 2));
+        }
       }
-      if(entry.key){
-        node.dataset.legendKey = entry.key;
-      }
-      node.dataset.legendSwatch = '1';
-      node.dataset.legendIndex = String(idx);
-      node.setAttribute('fill', entry.fill);
-      const effectiveStrokeWidth = entry.strokeWidth > 0 ? entry.strokeWidth : 0;
+      node.setAttribute('fill', markerFill);
+      node.setAttribute('opacity', String(markerOpacity));
+      const effectiveStrokeWidth = markerStrokeWidth > 0 ? markerStrokeWidth : 0;
       if(effectiveStrokeWidth > 0){
-        node.setAttribute('stroke', entry.stroke || entry.fill);
+        node.setAttribute('stroke', markerStroke || markerFill);
         node.setAttribute('stroke-width', effectiveStrokeWidth);
-      }else if(entry.stroke){
-        node.setAttribute('stroke', entry.stroke);
+      }else if(markerStroke){
+        node.setAttribute('stroke', markerStroke);
         node.setAttribute('stroke-width', '0');
       }
       return node;
+    };
+    const createLegendSwatch = (doc, entry, idx, swatchCenterY) => {
+      if(entry.swatch?.type === 'line-marker'){
+        const swatch = doc.createElementNS(NS, 'g');
+        applyLegendIdentity(swatch, entry, idx, 'legendSwatch');
+        const lineOptions = entry.swatch.line && typeof entry.swatch.line === 'object'
+          ? entry.swatch.line
+          : {};
+        const markerOptions = entry.swatch.marker && typeof entry.swatch.marker === 'object'
+          ? entry.swatch.marker
+          : {};
+        const line = doc.createElementNS(NS, 'line');
+        line.setAttribute('x1', '0');
+        line.setAttribute('x2', String(swatchWidth));
+        line.setAttribute('y1', String(swatchCenterY));
+        line.setAttribute('y2', String(swatchCenterY));
+        line.setAttribute('stroke', typeof lineOptions.stroke === 'string' ? lineOptions.stroke : entry.fill);
+        line.setAttribute('stroke-width', String(
+          Number.isFinite(lineOptions.strokeWidth) ? Math.max(0, Number(lineOptions.strokeWidth)) : Math.max(1, entry.strokeWidth)
+        ));
+        line.setAttribute('stroke-opacity', String(
+          Number.isFinite(lineOptions.opacity) ? Math.max(0, Math.min(1, Number(lineOptions.opacity))) : 1
+        ));
+        if(typeof lineOptions.dasharray === 'string' && lineOptions.dasharray.trim()){
+          line.setAttribute('stroke-dasharray', lineOptions.dasharray.trim());
+        }
+        applyLegendIdentity(line, entry, idx, 'legendLine');
+        swatch.appendChild(line);
+        if(markerOptions.visible !== false){
+          const marker = createLegendMarker(doc, entry, idx, {
+            ...markerOptions,
+            centerX: swatchWidth / 2,
+            centerY: swatchCenterY,
+            radius: Math.max(1, Math.min(swatchHeight, swatchSize) * 0.42)
+          });
+          applyLegendIdentity(marker, entry, idx, 'legendMarker');
+          swatch.appendChild(marker);
+        }
+        return swatch;
+      }
+      const marker = createLegendMarker(doc, entry, idx, {
+        centerX: swatchWidth / 2,
+        centerY: swatchCenterY,
+        legacySizing: true
+      });
+      applyLegendIdentity(marker, entry, idx, 'legendSwatch');
+      return marker;
     };
     const renderer = {
       entries: normalizedEntries,

@@ -2,6 +2,7 @@ describe('data view tab export menu', () => {
   beforeEach(() => {
     jest.resetModules();
     require('../js/vendor.js');
+    require('../js/shared/dataTransforms.js');
     require('../js/shared/dataViews.js');
     window.Shared.disableDebugLogging?.();
     window.Main = window.Main || {};
@@ -184,6 +185,24 @@ describe('data view tab export menu', () => {
     expect(restored.getViews().every(view => (
       JSON.stringify(view.exclusions) === JSON.stringify({ rows: [1], cols: [0], cells: [[1, 1]] })
     ))).toBe(true);
+  });
+
+  test('applies transform-owned exclusions to schema-changing derived views', () => {
+    const manager = window.Shared.dataViews.createManager({
+      componentKey: 'unit',
+      initialData: [
+        ['Gene', 'A', 'B'],
+        ['g1', 1, 2]
+      ]
+    });
+    const result = manager.applyTransform({ type: 'add', value: 1 }, {
+      shareExclusions: false,
+      exclusions: { rows: [], cols: [2], cells: [] },
+      transformOptions: { headerRows: 1, startCol: 1 }
+    });
+    expect(result.ok).toBe(true);
+    expect(result.view.shareExclusions).toBe(false);
+    expect(result.view.exclusions).toEqual({ rows: [], cols: [2], cells: [] });
   });
 
 
