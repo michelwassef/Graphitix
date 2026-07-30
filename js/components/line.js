@@ -10462,6 +10462,13 @@
       onEnd: (_event, state) => {
         commitLineRotationState(state, rotationSession, 'line-rotation-end');
         persistLineRotationState(rotationSession, 'line-rotation-end');
+        scheduleLineDrawForSession(rotationSession, {
+          viewOnly: true,
+          silentOverlay: true,
+          force: true,
+          userInitiated: true,
+          reason: 'rotation-settle'
+        });
       },
       shouldIgnorePointer: (event) => {
         if(typeof plot3d.isInteractivePointerTarget === 'function'){
@@ -12276,7 +12283,11 @@
       budgetMs: 10,
       drawOptions: drawOpts
     }) || null;
+    const liveRotationDraw = drawOpts?.reason === 'rotation';
     const checkpoint = async () => {
+      if(liveRotationDraw){
+        return execution?.isCurrent?.() !== false;
+      }
       try{
         await execution?.checkpoint?.();
       }catch(err){
@@ -12640,32 +12651,42 @@
       plotEl.style.padding = plotEl.style.padding || '12px';
       plotEl.style.backgroundColor = '';
       plotEl.style.boxSizing = 'border-box';
-      const svg3 = global.document.createElementNS(NS, 'svg');
+      const existingLineSvg = plotEl.querySelector?.('#lineSvg') || null;
+      const reuse3dSvg = liveRotationDraw
+        && existingLineSvg
+        && existingLineSvg.dataset?.viewMode === '3d';
+      const svg3 = reuse3dSvg
+        ? existingLineSvg
+        : global.document.createElementNS(NS, 'svg');
       svg3.setAttribute('width', String(W3));
       svg3.setAttribute('height', String(H3));
       svg3.setAttribute('viewBox', `0 0 ${W3} ${H3}`);
       svg3.setAttribute('font-family', chartStyle.FONT_FAMILY);
       svg3.dataset.viewMode = '3d';
       chartStyle.prepareSvg(svg3, { scopeId: 'line' });
-      while(svg3.firstChild){
-        svg3.removeChild(svg3.firstChild);
+      if(reuse3dSvg){
+        svg3.replaceChildren();
       }
       svg3.style.backgroundColor = lineThemeDark
         ? normalizeLineThemeColor(lineThemeState.backgroundColor, '#000000')
         : '';
       svg3.style.pointerEvents = 'all';
       svg3.setAttribute('data-color-scheme', lineThemeState.colorScheme || 'scientific');
-      svgPublication = Shared.framePublication.stage({
-        container: plotEl,
-        frame: svg3,
-        publishedId: 'lineSvg',
-        component: 'line',
-        tabId: invocation.session?.tabId || getLineProjectionTabId() || null,
-        canCommit: () => execution?.isCurrent?.() !== false
-          && (!invocation.session || isLineSessionActive(invocation.session))
-      });
+      if(!reuse3dSvg){
+        svgPublication = Shared.framePublication.stage({
+          container: plotEl,
+          frame: svg3,
+          publishedId: 'lineSvg',
+          component: 'line',
+          tabId: invocation.session?.tabId || getLineProjectionTabId() || null,
+          canCommit: () => execution?.isCurrent?.() !== false
+            && (!invocation.session || isLineSessionActive(invocation.session))
+        });
+      }
       appendLine3dBackground(svg3, W3, H3, invocation.session);
-      svg3.addEventListener('mouseleave', handleLinePlotMouseLeave);
+      if(!reuse3dSvg){
+        svg3.addEventListener('mouseleave', handleLinePlotMouseLeave);
+      }
       bindLine3dRotationControls(svg3, 'line-3d');
 
       const legendAxisGap = Math.max(fs * 0.9, 18);
@@ -13231,7 +13252,9 @@
       if(!(await checkpoint()) || (invocation.session && !isLineSessionActive(invocation.session))){
         return false;
       }
-      svgPublication.commit();
+      if(svgPublication){
+        svgPublication.commit();
+      }
       getActiveLineLayoutManager()?.syncPanels?.({ skipSchedule: true });
       scheduleLineNoticeWidth('draw-3d');
       console.debug('Debug: drawLine3d complete', { debugStamp });

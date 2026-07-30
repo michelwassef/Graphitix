@@ -8,6 +8,13 @@ const {
 
 const CASES = [
   {
+    type: 'line',
+    pageId: 'linePage',
+    viewModeId: 'lineViewMode',
+    exampleButtonId: 'lineLoadExample',
+    svgSelector: '#linePage:not([hidden]) #linePlot #lineSvg'
+  },
+  {
     type: 'scatter',
     pageId: 'scatterPage',
     viewModeId: 'scatterViewMode',
@@ -119,6 +126,41 @@ function maxRotationDelta(before, after) {
 }
 
 async function dragSvg(page, selector) {
+  const token = `rotation-${Date.now()}-${Math.random()}`;
+  await page.evaluate(({ svgSelector, identityToken }) => {
+    const svg = document.querySelector(svgSelector);
+    if (!svg) {
+      return;
+    }
+    svg.dataset.e2eRotationIdentity = identityToken;
+    window.__rotationFrameProbe = {
+      running: true,
+      samples: 0,
+      minChildCount: Number.POSITIVE_INFINITY,
+      minMarkCount: Number.POSITIVE_INFINITY,
+      minViewBoxWidth: Number.POSITIVE_INFINITY,
+      minViewBoxHeight: Number.POSITIVE_INFINITY
+    };
+    const sample = () => {
+      const probe = window.__rotationFrameProbe;
+      if (!probe?.running) {
+        return;
+      }
+      const activeSvg = document.querySelector(svgSelector);
+      probe.samples += 1;
+      probe.minChildCount = Math.min(probe.minChildCount, activeSvg?.childElementCount || 0);
+      probe.minMarkCount = Math.min(
+        probe.minMarkCount,
+        activeSvg?.querySelectorAll('path,polyline,line,circle,polygon').length || 0
+      );
+      const viewBox = activeSvg?.viewBox?.baseVal;
+      probe.minViewBoxWidth = Math.min(probe.minViewBoxWidth, Number(viewBox?.width) || 0);
+      probe.minViewBoxHeight = Math.min(probe.minViewBoxHeight, Number(viewBox?.height) || 0);
+      requestAnimationFrame(sample);
+    };
+    requestAnimationFrame(sample);
+  }, { svgSelector: selector, identityToken: token });
+
   const box = await page.locator(selector).boundingBox();
   expect(box, `${selector} should have a bounding box`).toBeTruthy();
   const startX = box.x + box.width / 2;
@@ -128,6 +170,28 @@ async function dragSvg(page, selector) {
   await page.mouse.move(startX + 100, startY + 40, { steps: 8 });
   await page.mouse.up();
   await page.waitForTimeout(800);
+
+  const rotationFrameResult = await page.evaluate(({ svgSelector, identityToken }) => {
+    const probe = window.__rotationFrameProbe;
+    if (probe) {
+      probe.running = false;
+    }
+    const svg = document.querySelector(svgSelector);
+    return {
+      retainedIdentity: svg?.dataset?.e2eRotationIdentity === identityToken,
+      samples: probe?.samples || 0,
+      minChildCount: Number.isFinite(probe?.minChildCount) ? probe.minChildCount : 0,
+      minMarkCount: Number.isFinite(probe?.minMarkCount) ? probe.minMarkCount : 0,
+      minViewBoxWidth: Number.isFinite(probe?.minViewBoxWidth) ? probe.minViewBoxWidth : 0,
+      minViewBoxHeight: Number.isFinite(probe?.minViewBoxHeight) ? probe.minViewBoxHeight : 0
+    };
+  }, { svgSelector: selector, identityToken: token });
+  expect(rotationFrameResult.retainedIdentity, `${selector} should retain the active SVG throughout a drag`).toBe(true);
+  expect(rotationFrameResult.samples, `${selector} should be sampled across painted rotation frames`).toBeGreaterThan(2);
+  expect(rotationFrameResult.minChildCount, `${selector} should never publish a blank rotation frame`).toBeGreaterThan(0);
+  expect(rotationFrameResult.minMarkCount, `${selector} should keep graph marks visible throughout rotation`).toBeGreaterThan(0);
+  expect(rotationFrameResult.minViewBoxWidth, `${selector} should retain a measurable viewport during rotation`).toBeGreaterThan(100);
+  expect(rotationFrameResult.minViewBoxHeight, `${selector} should retain a measurable viewport during rotation`).toBeGreaterThan(100);
 }
 
 async function expectRotationAfterTabSwitch(page, component, tabId, awayComponent, label) {
@@ -147,7 +211,7 @@ async function expectRotationAfterTabSwitch(page, component, tabId, awayComponen
   expect(
     maxRotationDelta(before, after),
     `${component.type} payload rotation should change after dragging restored 3D graph (${label})`
-  ).toBeGreaterThan(1e-4);
+  ).toBeGreaterThan(0.25);
   expect(afterSvg, `${component.type} SVG should visually redraw after restored 3D drag (${label})`).not.toBe(beforeSvg);
 }
 

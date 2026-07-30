@@ -1,4 +1,18 @@
+## 2026-07-30 — Smooth Line 3D live rotation
+
+- Kept Line's mounted 3D SVG as the live rotation surface so pointer capture remains uninterrupted.
+- Suppressed cooperative rendering yields only for the bounded, view-only rotation frame, preventing the reused SVG from being painted between clear and rebuild.
+- Removed detached-SVG rotation staging because SVG geometry measurement on an unmounted frame collapsed its viewport to the padding-only fallback.
+- Extended the Line/Scatter browser regression to require non-empty marks and a valid measurable viewport in every sampled animation frame.
+
+## 2026-07-30 — Smooth Line 3D rotation publication
+
+- Line 3D rotation now renders each replacement frame off-DOM and atomically transfers it into the still-mounted owner SVG, preserving pointer capture without exposing a cleared intermediate frame.
+- A final normal atomic publication after pointer release restores the full interaction bindings without changing the saved tab-owned rotation state.
+- Expanded Line/Scatter 3D rotation coverage to sample painted animation frames and fail if graph marks disappear during a drag.
+
 ## 2026-07-30 — Small-viewport layout stability
+- Fixed Line 3D rotation being interrupted after each small pointer movement by reusing the mounted owner-scoped SVG during rotation redraws, matching Scatter behavior; expanded 3D rotation tests to require continuous full-distance drags and stable SVG identity.
 
 - Stopped `ResizeObserver` panel synchronization from forcing graph redraws when shared panel geometry did not change, eliminating the ROC redraw loop and page blinking on narrow/mobile viewports.
 - Preserved reporting-panel and nested technical-record disclosure state across statistics re-render, tab capture, and restore, so Surface reporting sections no longer close after opening on constrained screens.
