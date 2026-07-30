@@ -36,15 +36,16 @@ describe('SVG export remains visually stable when Inkscape ungroups the paste wr
     const parsed = new DOMParser().parseFromString(xml, 'image/svg+xml');
     const root = parsed.documentElement;
 
-    expect(root.querySelector(':scope > g#export-group')).not.toBeNull();
+    const exportGroup = root.querySelector('g#export-group');
+    expect(exportGroup).not.toBeNull();
+    expect(exportGroup.parentElement).toBe(root);
     expect(root.querySelector('line[stroke-dasharray]')).toBeNull();
 
-    const dottedGroup = root.querySelector('g[data-export-dotted-line="true"]');
+    const dottedGroup = root.querySelector('g.graphitix-dotted-line');
     expect(dottedGroup).not.toBeNull();
-    expect(dottedGroup.getAttribute('data-export-object')).toBe('dotted-line');
     expect(dottedGroup.classList.contains('graphitix-dotted-line')).toBe(true);
     expect(dottedGroup.classList.contains('zero-reference-line')).toBe(true);
-    expect(dottedGroup.parentElement).toBe(root.querySelector(':scope > g#export-group'));
+    expect(dottedGroup.parentElement).toBe(exportGroup);
     expect(dottedGroup.querySelectorAll(':scope > circle')).toHaveLength(6);
     expect(dottedGroup.querySelector('circle').getAttribute('r')).toBe('1');
     expect(dottedGroup.querySelector('circle').getAttribute('fill')).toBe('#123456');

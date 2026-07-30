@@ -39,7 +39,7 @@ async function activateTabById(page, tabId) {
     await page.evaluate(id => window.Main?.tabs?.activateTab?.(id, { reason: 'e2e-venn-upset-numeric-activate' }), tabId);
     await page.waitForFunction(id => window.Main?.session?.workspaceState?.activeTabId === id, tabId, { timeout: 20_000 });
   }
-  await page.waitForSelector('#vennPage:not([hidden]) #stage', { timeout: 30_000 });
+  await page.waitForFunction(id => !!window.Shared?.workspaceTabs?.getMountedRoot?.(id, 'venn')?.querySelector?.('#stage'), tabId, { timeout: 30_000 });
   await page.waitForTimeout(250);
 }
 
@@ -59,7 +59,8 @@ async function installSpeciesMock(page) {
 
 async function configureUpSetListTab(page) {
   await page.evaluate(() => {
-    const root = document.querySelector('#vennPage:not([hidden])');
+    const activeId = window.Main?.session?.workspaceState?.activeTabId;
+    const root = window.Shared?.workspaceTabs?.getMountedRoot?.(activeId, 'venn');
     if (!root) throw new Error('Active Venn root not found');
     const setValue = (selector, value, events = ['input', 'change']) => {
       const node = root.querySelector(selector);
@@ -96,12 +97,14 @@ async function configureUpSetListTab(page) {
     window.Components.venn.draw({ reason: 'e2e-upset-configure', force: true, userInitiated: true });
   });
   await page.waitForFunction(() => {
-    const root = document.querySelector('#vennPage:not([hidden])');
+    const activeId = window.Main?.session?.workspaceState?.activeTabId;
+    const root = window.Shared?.workspaceTabs?.getMountedRoot?.(activeId, 'venn');
     const regionValues = Array.from(root?.querySelectorAll?.('#regionSelect option') || []).map(option => option.value);
     return root?.querySelector?.('#stage [data-upset-trace-kind]') && regionValues.some(value => value.includes('A') && value.includes('B'));
   }, null, { timeout: 20_000 });
   await page.evaluate(() => {
-    const root = document.querySelector('#vennPage:not([hidden])');
+    const activeId = window.Main?.session?.workspaceState?.activeTabId;
+    const root = window.Shared?.workspaceTabs?.getMountedRoot?.(activeId, 'venn');
     const region = root.querySelector('#regionSelect');
     const target = Array.from(region.options).map(option => option.value).find(value => value.includes('A') && value.includes('B')) || region.options[0]?.value || '';
     region.value = target;
@@ -111,13 +114,17 @@ async function configureUpSetListTab(page) {
     species.dispatchEvent(new Event('change', { bubbles: true }));
     window.Components.venn.recognizeSpeciesFromInput({ reason: 'e2e-upset-species' }).catch(() => {});
   });
-  await page.waitForFunction(() => document.querySelector('#vennPage:not([hidden]) #speciesSelect')?.value === 'hsapiens', null, { timeout: 20_000 });
+  await page.waitForFunction(() => {
+    const activeId = window.Main?.session?.workspaceState?.activeTabId;
+    return window.Shared?.workspaceTabs?.getMountedRoot?.(activeId, 'venn')?.querySelector?.('#speciesSelect')?.value === 'hsapiens';
+  }, null, { timeout: 20_000 });
   await page.waitForTimeout(300);
 }
 
 async function configureNumericVennTab(page) {
   await page.evaluate(() => {
-    const root = document.querySelector('#vennPage:not([hidden])');
+    const activeId = window.Main?.session?.workspaceState?.activeTabId;
+    const root = window.Shared?.workspaceTabs?.getMountedRoot?.(activeId, 'venn');
     if (!root) throw new Error('Active Venn root not found');
     const setValue = (selector, value, events = ['input', 'change']) => {
       const node = root.querySelector(selector);
@@ -152,7 +159,8 @@ async function configureNumericVennTab(page) {
     root.querySelector('#calcSignificance')?.click();
   });
   await page.waitForFunction(() => {
-    const root = document.querySelector('#vennPage:not([hidden])');
+    const activeId = window.Main?.session?.workspaceState?.activeTabId;
+    const root = window.Shared?.workspaceTabs?.getMountedRoot?.(activeId, 'venn');
     return /hypergeometric|p-value|Overlap/i.test(root?.querySelector?.('#significanceResults')?.textContent || '');
   }, null, { timeout: 20_000 });
 }
@@ -278,7 +286,10 @@ async function reopenArchive(page, archivePath) {
   await page.locator('#workspaceSessionInput').setInputFiles(archivePath);
   await waitForDocumentOpenComplete(page);
   await page.waitForTimeout(1000);
-  await page.waitForSelector('#vennPage:not([hidden]) #stage', { timeout: 30_000 });
+  await page.waitForFunction(() => {
+    const activeId = window.Main?.session?.workspaceState?.activeTabId;
+    return !!window.Shared?.workspaceTabs?.getMountedRoot?.(activeId, 'venn')?.querySelector?.('#stage');
+  }, null, { timeout: 30_000 });
   await page.waitForTimeout(1000);
 }
 

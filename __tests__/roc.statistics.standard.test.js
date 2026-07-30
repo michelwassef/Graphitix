@@ -1,6 +1,3 @@
-const fs = require('fs');
-const path = require('path');
-
 describe('ROC statistical standardization', () => {
   beforeEach(() => {
     jest.resetModules();
@@ -20,11 +17,17 @@ describe('ROC statistical standardization', () => {
   });
 
   function referencePairs() {
-    const csv = fs.readFileSync(path.join(__dirname, 'fixtures', 'roc.reference.dataset.csv'), 'utf8').trim().split(/\r?\n/);
-    return csv.slice(1).map((line, observationIndex) => {
-      const [label, score] = line.split(',').map(Number);
-      return { label, score, observationIndex };
-    });
+    const rows = [
+      ...Array.from({ length: 17 }, (_, index) => [1, 20 - index]),
+      [0, 3],
+      [1, 2],
+      [1, 1],
+      [1, -1.739706],
+      [0, -2],
+      [1, -3],
+      ...Array.from({ length: 9 }, (_, index) => [0, -4 - index])
+    ];
+    return rows.map(([label, score], observationIndex) => ({ label, score, observationIndex }));
   }
 
   test('matches the reference AUC, DeLong interval, exact Mann–Whitney p value, and Youden cutoff', () => {

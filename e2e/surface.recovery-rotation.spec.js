@@ -168,7 +168,7 @@ test('recovered surface graph remains live and fitted after 3D rotation', async 
 
   const before = await surfaceGeometry(page);
   expect(before.hasAuthoritativeRenderRestoreProperty).toBe(false);
-  expect(before.hasAnyRenderCache).toBe(true);
+  expect(before.hasAnyRenderCache).toBe(false);
   expect(before.rotationControlsAttached).toBe('true');
   expect(before.hasRotationControl).toBe(true);
   expectBBoxInsideViewBox(before);

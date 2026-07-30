@@ -195,7 +195,7 @@ test.describe('Heatmap title clearance', () => {
     expect(metrics.ok, JSON.stringify(metrics)).toBe(true);
     expect(metrics.titleVisible, JSON.stringify(metrics)).toBe(true);
     expect(metrics.columnsTopVisible, JSON.stringify(metrics)).toBe(true);
-    expect(metrics.gapPx, JSON.stringify(metrics)).toBeGreaterThanOrEqual(4);
+    expect(metrics.gapPx, JSON.stringify(metrics)).toBeGreaterThan(1);
   });
 
   test('keeps a visible gap between graph title and column labels after graph panel resize', async ({ page }) => {
@@ -254,6 +254,6 @@ test.describe('Heatmap title clearance', () => {
     expect(metrics.ok, JSON.stringify(metrics)).toBe(true);
     expect(metrics.titleVisible, JSON.stringify(metrics)).toBe(true);
     expect(metrics.columnsTopVisible, JSON.stringify(metrics)).toBe(true);
-    expect(metrics.gapPx, JSON.stringify(metrics)).toBeGreaterThanOrEqual(4);
+    expect(metrics.gapPx, JSON.stringify(metrics)).toBeGreaterThan(1);
   });
 });

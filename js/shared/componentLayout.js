@@ -687,7 +687,6 @@
         width: size.width,
         height: size.height,
         forceExact: true,
-        simulateAspectLock: size.aspectLocked,
         preserveAspectLock: true,
         updateAspectRatio: true,
         updateDefaults: true,
@@ -1225,7 +1224,7 @@
         panelResizer: elements.panelResizer,
         skipSchedule,
         preserveGraphContent,
-        forceSchedule: options.forceSchedule === true || options.source === 'observer'
+        forceSchedule: options.forceSchedule === true
       });
       let syncResult = null;
       panelState.programmaticSyncDepth += 1;
@@ -1299,7 +1298,7 @@
         }
         panelState.lastObservedTableSize = nextSize;
         console.debug('Debug: componentLayout ResizeObserver triggered', { component: componentName, nextSize });
-        syncPanels({ source: 'observer', forceSchedule: true });
+        syncPanels({ source: 'observer' });
       });
       panelState.lastObservedTableSize = readObservedSize(elements.tablePanel);
       panelState.resizeObserver.observe(elements.tablePanel);

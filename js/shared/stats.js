@@ -1807,7 +1807,9 @@
       resultsText: renderStatsReportTextParts(resultsParts, { scientific: DEFAULT_PVALUE_FORMAT_SCIENTIFIC }),
       methodsParts,
       resultsParts,
-      analysisSpec: cloneStatsReportingValue(source.analysisSpec || options?.analysisSpecFallback || null)
+      analysisSpec: cloneStatsReportingValue(source.analysisSpec || options?.analysisSpecFallback || null),
+      open: source.open === true || options?.open === true,
+      advancedOpen: source.advancedOpen === true || options?.advancedOpen === true
     };
   }
 
@@ -1816,7 +1818,20 @@
     if(!target || !report || !documentRef || !documentRef.createElement){
       return;
     }
-    const reportModel = normalizeReportModel(report, options || {});
+    const existingHost = resolveReportingHost(target);
+    const existingPanel = existingHost?.classList?.contains('stats-report-panel')
+      ? existingHost
+      : (existingHost?.querySelector?.('.stats-report-panel') || null);
+    const existingAdvanced = existingPanel?.querySelector?.(':scope > .stats-report-panel__advanced') || null;
+    const reportModel = normalizeReportModel({
+      ...(report && typeof report === 'object' ? report : {}),
+      open: Object.prototype.hasOwnProperty.call(report || {}, 'open')
+        ? report.open === true
+        : existingPanel?.open === true,
+      advancedOpen: Object.prototype.hasOwnProperty.call(report || {}, 'advancedOpen')
+        ? report.advancedOpen === true
+        : existingAdvanced?.open === true
+    }, options || {});
     if(typeof reporting.clearReportHost === 'function' && options?.replaceExisting !== false){
       reporting.clearReportHost(target);
     }
@@ -1837,6 +1852,7 @@
     panel.className = 'stats-report-panel';
     panel.dataset.statsReporting = '1';
     panel.__statsReportModel = cloneStatsReportingValue(reportModel);
+    panel.open = reportModel.open === true;
     const summary = documentRef.createElement('summary');
     summary.textContent = reportModel.title;
     panel.appendChild(summary);
@@ -1866,6 +1882,7 @@
     if(displaySpec){
       const advanced = documentRef.createElement('details');
       advanced.className = 'stats-report-panel__advanced';
+      advanced.open = reportModel.advancedOpen === true;
       const advancedSummary = documentRef.createElement('summary');
       advancedSummary.textContent = reportModel.specLabel;
       advanced.appendChild(advancedSummary);
@@ -1885,9 +1902,18 @@
       console.debug('Debug: statsReporting.appendReportPanel',{ title: reportModel.title, hasMethods: !!reportModel.methodsText, hasResults: !!reportModel.resultsText, hasAnalysisSpec: !!displaySpec });
     }
     reportTarget.appendChild(panel);
-    if(reportTarget && typeof reportTarget === 'object'){
-      reportTarget.__statsReportModel = cloneStatsReportingValue(reportModel);
-    }
+    const syncDisclosureState = () => {
+      reportModel.open = panel.open === true;
+      const advancedPanel = panel.querySelector?.(':scope > .stats-report-panel__advanced') || null;
+      reportModel.advancedOpen = advancedPanel?.open === true;
+      panel.__statsReportModel = cloneStatsReportingValue(reportModel);
+      if(reportTarget && typeof reportTarget === 'object'){
+        reportTarget.__statsReportModel = cloneStatsReportingValue(reportModel);
+      }
+    };
+    panel.addEventListener?.('toggle', syncDisclosureState);
+    panel.querySelector?.(':scope > .stats-report-panel__advanced')?.addEventListener?.('toggle', syncDisclosureState);
+    syncDisclosureState();
     if(typeof reporting.pinReportHostLast === 'function'){
       reporting.pinReportHostLast(target);
     }
@@ -2764,7 +2790,12 @@
     }
     const storedModel = panel.__statsReportModel;
     if(storedModel && typeof storedModel === 'object'){
-      return normalizeReportModel(storedModel, storedModel);
+      const advancedPanel = panel.querySelector?.(':scope > .stats-report-panel__advanced') || null;
+      return normalizeReportModel({
+        ...storedModel,
+        open: panel.open === true,
+        advancedOpen: advancedPanel?.open === true
+      }, storedModel);
     }
     if(!panel.classList?.contains('stats-report-panel')){
       return null;
@@ -2785,22 +2816,36 @@
     if(!methodsText && !resultsText && !analysisSpec){
       return null;
     }
-    return normalizeReportModel({ title, methodsText, resultsText, analysisSpec }, { title });
+    const advancedPanel = panel.querySelector?.(':scope > .stats-report-panel__advanced') || null;
+    return normalizeReportModel({
+      title,
+      methodsText,
+      resultsText,
+      analysisSpec,
+      open: panel.open === true,
+      advancedOpen: advancedPanel?.open === true
+    }, { title });
   }
 
   function captureReportModelFromHost(reportHost){
     if(!reportHost || reportHost.nodeType !== 1){
       return null;
     }
-    const storedModel = reportHost.__statsReportModel;
-    if(storedModel && typeof storedModel === 'object'){
-      return storedModel.kind === 'stats-report'
-        ? normalizeReportModel(storedModel, storedModel)
-        : normalizeStatsPanelModel(storedModel);
-    }
     const reportPanel = reportHost.classList?.contains('stats-report-panel')
       ? reportHost
       : (reportHost.querySelector?.('.stats-report-panel') || null);
+    const storedModel = reportHost.__statsReportModel;
+    if(storedModel && typeof storedModel === 'object'){
+      if(storedModel.kind === 'stats-report'){
+        const liveModel = reportPanel ? extractReportModelFromPanel(reportPanel) : null;
+        return normalizeReportModel({
+          ...storedModel,
+          open: liveModel?.open === true,
+          advancedOpen: liveModel?.advancedOpen === true
+        }, storedModel);
+      }
+      return normalizeStatsPanelModel(storedModel);
+    }
     return extractReportModelFromPanel(reportPanel);
   }
 

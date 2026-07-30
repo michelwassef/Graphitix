@@ -195,7 +195,12 @@ async function snapshotPie(page) {
         height: Number(boxRect?.height || 0),
         styleWidth: svgBox?.style?.width || '',
         styleHeight: svgBox?.style?.height || '',
-        resized: svgBox?.dataset?.resizerResized || ''
+        resized: svgBox?.dataset?.resizerResized || '',
+        layoutWidth: active?.layoutState?.svgBox?.style?.width || '',
+        layoutHeight: active?.layoutState?.svgBox?.style?.height || '',
+        baseWidth: svgBox?.dataset?.resizerBaseWidth || '',
+        baseHeight: svgBox?.dataset?.resizerBaseHeight || '',
+        lastAxis: svgBox?.dataset?.resizerLastAxis || ''
       },
       svgText: String(svg?.textContent || '')
     };
@@ -254,8 +259,8 @@ function expectPieSnapshot(snapshot, expected) {
   expect(snapshot.activeViewTitle || snapshot.serializedActiveTitle).toBe(expected.viewTitle);
   expect(snapshot.viewTitles.concat(snapshot.serializedViewTitles)).toContain(expected.viewTitle);
   expect(snapshot.size.resized).toBe('true');
-  expectClose(snapshot.size.width, expected.size.width, 8, `${expected.label} graph width`);
-  expectClose(snapshot.size.height, expected.size.height, 8, `${expected.label} graph height`);
+  expectClose(snapshot.size.width, expected.size.width, 8, `${expected.label} graph width ${JSON.stringify(snapshot.size)}`);
+  expectClose(snapshot.size.height, expected.size.height, 8, `${expected.label} graph height ${JSON.stringify(snapshot.size)}`);
   expect(snapshot.data[1][1]).toBeCloseTo(Number(expected.data[1][1]) + expected.numericOffset, 3);
   for (const [label, color] of Object.entries(expected.colors)) {
     expect(String(snapshot.colors[label] || '').toLowerCase(), `${expected.label} payload color ${label}`).toBe(color);

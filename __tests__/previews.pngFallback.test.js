@@ -80,10 +80,12 @@ describe('tab preview PNG fallback', () => {
     await window.Main.previews.awaitPendingCaptures([tab.id]);
 
     expect(window.Shared.exporter.svgElementToPngBlob).toHaveBeenCalledWith(svg, expect.objectContaining({
-      pngScale: 1
+      pngScale: 1,
+      width: expect.any(Number),
+      height: expect.any(Number)
     }));
-    expect(window.Shared.exporter.svgElementToPngBlob.mock.calls[0][1]).not.toHaveProperty('width');
-    expect(window.Shared.exporter.svgElementToPngBlob.mock.calls[0][1]).not.toHaveProperty('height');
+    expect(window.Shared.exporter.svgElementToPngBlob.mock.calls[0][1].width).toBeLessThanOrEqual(320);
+    expect(window.Shared.exporter.svgElementToPngBlob.mock.calls[0][1].height).toBeLessThanOrEqual(220);
     expect(tab.previewMarkup).toContain('<img');
     expect(tab.previewMarkup).toContain('data-tab-preview-format="png"');
     expect(tab.previewMarkup).not.toContain('<svg');

@@ -843,7 +843,7 @@ describe('Box swarm offset constraints', () => {
     expect(d).toContain('M 222 116 L 258 116');
   });
 
-  test('box preview svg rebuilds canvas-backed point groups from cached render state', () => {
+  test('box preview svg returns the inactive owner cache source', () => {
     expect(window.Components?.box?.getPreviewSvg).toBeDefined();
     const frag = document.createDocumentFragment();
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -877,12 +877,11 @@ describe('Box swarm offset constraints', () => {
         }
       }
     });
-    expect(previewSvg).toBeTruthy();
-    expect(previewSvg.querySelector('foreignObject')).toBeNull();
-    expect(previewSvg.querySelector('path')).toBeTruthy();
+    expect(previewSvg).toBe(svg);
+    expect(previewSvg.querySelector('foreignObject')).toBe(foreignObject);
   });
 
-  test('box preview svg rebuilds canvas-backed point groups from the active plot svg', () => {
+  test('box preview svg returns the active owner plot source', () => {
     expect(window.Components?.box?.getPreviewSvg).toBeDefined();
     document.body.innerHTML = '<div id="boxPlot"></div>';
     const plot = document.getElementById('boxPlot');
@@ -919,11 +918,10 @@ describe('Box swarm offset constraints', () => {
     plot.appendChild(svg);
     bindBoxWorkspaceRoot(document.body);
     const previewSvg = window.Components.box.getPreviewSvg();
-    expect(previewSvg).toBeTruthy();
-    expect(previewSvg.querySelector('foreignObject')).toBeNull();
-    expect(previewSvg.getAttribute('width')).toBe('480');
-    expect(previewSvg.getAttribute('height')).toBe('360');
-    expect(previewSvg.querySelectorAll('g[data-export-layer="box-points"] path').length).toBeGreaterThan(0);
+    expect(previewSvg).toBe(svg);
+    expect(previewSvg.querySelector('foreignObject')).toBe(foreignObject);
+    expect(previewSvg.getAttribute('width')).toBe('100%');
+    expect(previewSvg.getAttribute('height')).toBe('100%');
     document.body.innerHTML = '';
   });
 
@@ -1039,9 +1037,8 @@ describe('Box swarm offset constraints', () => {
     bindBoxWorkspaceRoot(document.body);
 
     const previewSvg = window.Components.box.getPreviewSvg();
-    const rebuiltPath = previewSvg.querySelector('g[data-export-layer="box-points"] path:not([data-point-proxy="1"])');
-    expect(rebuiltPath).toBeTruthy();
-    expect(rebuiltPath.getAttribute('fill')).toBe('#ff0000');
+    expect(previewSvg).toBe(liveSvg);
+    expect(previewSvg.querySelector('[data-point-proxy="1"]')?.getAttribute('data-point-fill')).toBe('#ff0000');
     document.body.innerHTML = '';
   });
 
@@ -1089,17 +1086,11 @@ describe('Box swarm offset constraints', () => {
         }
       }
     });
-    const rebuiltPath = previewSvg.querySelector('g[data-export-layer="box-points"] path:not([data-point-proxy="1"])');
-    expect(rebuiltPath).toBeTruthy();
-    expect(rebuiltPath.getAttribute('fill')).toBe('#ff0000');
-    expect(rebuiltPath.getAttribute('stroke')).toBe('#00ff00');
-    expect(rebuiltPath.getAttribute('fill-opacity')).toBe('0.9');
-    expect(rebuiltPath.getAttribute('stroke-opacity')).toBe('0.8');
-    expect(rebuiltPath.getAttribute('stroke-width')).toBe('3');
-    expect(rebuiltPath.getAttribute('data-shape')).toBe('square');
+    expect(previewSvg).toBe(svg);
+    expect(previewSvg.querySelector('[data-point-proxy="1"]')).toBe(proxy);
   });
 
-  test('box preview svg rebuilds large canvas-density traces from group style metadata', () => {
+  test('box preview source preserves large canvas-density group metadata for shared rasterization', () => {
     expect(window.Components?.box?.getPreviewSvg).toBeDefined();
     const frag = document.createDocumentFragment();
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -1153,15 +1144,12 @@ describe('Box swarm offset constraints', () => {
         }
       }
     });
-    const rebuiltPaths = Array.from(previewSvg.querySelectorAll('g[data-export-layer="box-points"] path:not([data-point-proxy="1"])'));
-    expect(rebuiltPaths.length).toBeGreaterThan(0);
-    expect(rebuiltPaths.some(node => node.getAttribute('fill') === '#ff0000')).toBe(true);
-    expect(rebuiltPaths.some(node => node.getAttribute('fill') === '#111111')).toBe(false);
-    const rebuiltPathData = rebuiltPaths.map(node => node.getAttribute('d') || '').join(' ');
-    expect((rebuiltPathData.match(/ a /g) || []).length).toBe(coords.length * 2);
+    expect(previewSvg).toBe(svg);
+    expect(previewSvg.querySelector('foreignObject')).toBe(foreignObject);
+    expect(group.getAttribute('data-point-fill')).toBe('#ff0000');
   });
 
-  test('box preview svg ignores stale hidden export geometry styles for large canvas-density traces', () => {
+  test('box preview source leaves hidden export geometry cleanup to the shared preview pipeline', () => {
     expect(window.Components?.box?.getPreviewSvg).toBeDefined();
     const frag = document.createDocumentFragment();
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -1210,13 +1198,12 @@ describe('Box swarm offset constraints', () => {
         }
       }
     });
-    const rebuiltPaths = Array.from(previewSvg.querySelectorAll('g[data-export-layer="box-points"] path:not([data-point-proxy="1"])'));
-    expect(rebuiltPaths.length).toBeGreaterThan(0);
-    expect(rebuiltPaths.some(node => node.getAttribute('fill') === '#ff0000')).toBe(true);
-    expect(rebuiltPaths.some(node => node.getAttribute('d') === 'M 10 10 L 20 20')).toBe(false);
+    expect(previewSvg).toBe(svg);
+    expect(staleExportPath.style.display).toBe('none');
+    expect(group.getAttribute('data-point-fill')).toBe('#ff0000');
   });
 
-  test('box preview svg omits large-trace outline geometry when symbol border width is zero', () => {
+  test('box preview source preserves zero-border group metadata for shared rasterization', () => {
     expect(window.Components?.box?.getPreviewSvg).toBeDefined();
     const frag = document.createDocumentFragment();
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -1259,13 +1246,12 @@ describe('Box swarm offset constraints', () => {
         }
       }
     });
-    const rebuiltPaths = Array.from(previewSvg.querySelectorAll('g[data-export-layer="box-points"] path:not([data-point-proxy="1"])'));
-    expect(rebuiltPaths.length).toBe(1);
-    expect(rebuiltPaths[0].getAttribute('fill')).toBe('#ff0000');
-    expect(rebuiltPaths[0].getAttribute('stroke')).toBeNull();
+    expect(previewSvg).toBe(svg);
+    expect(group.getAttribute('data-point-fill')).toBe('#ff0000');
+    expect(group.getAttribute('data-point-stroke-width')).toBe('0');
   });
 
-  test('box preview svg ignores child geometry styles for canvas-density and uses group attrs when border is zero', () => {
+  test('box preview source keeps canonical zero-border group attributes', () => {
     expect(window.Components?.box?.getPreviewSvg).toBeDefined();
     const frag = document.createDocumentFragment();
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -1313,10 +1299,9 @@ describe('Box swarm offset constraints', () => {
         }
       }
     });
-    const rebuiltPaths = Array.from(previewSvg.querySelectorAll('g[data-export-layer="box-points"] path:not([data-point-proxy="1"])'));
-    expect(rebuiltPaths.length).toBe(1);
-    expect(rebuiltPaths[0].getAttribute('fill')).toBe('#ff0000');
-    expect(rebuiltPaths[0].getAttribute('stroke')).toBeNull();
+    expect(previewSvg).toBe(svg);
+    expect(group.getAttribute('data-point-fill')).toBe('#ff0000');
+    expect(group.getAttribute('data-point-stroke-width')).toBe('0');
   });
 
   test('fast strip auto-size estimator activates for dense datasets', () => {

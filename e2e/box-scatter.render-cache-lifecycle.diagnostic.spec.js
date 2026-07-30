@@ -257,12 +257,6 @@ async function loadLineData(page, size, marker) {
 }
 
 async function waitForComponentRenderer(page, type, size) {
-  const selector = type === 'scatter'
-    ? '#scatterPage:not([hidden]) #scatterPlot svg'
-    : type === 'box'
-      ? '#boxPage:not([hidden]) #boxPlot svg'
-      : '#linePage:not([hidden]) #linePlot svg';
-  await page.waitForSelector(selector, { timeout: 60_000 });
   await page.waitForFunction(({ componentType, expectedSize }) => {
     const hasPaintedCanvas = (canvas) => {
       if (!canvas || !canvas.width || !canvas.height) return false;
@@ -287,11 +281,9 @@ async function waitForComponentRenderer(page, type, size) {
       const src = String(image.getAttribute?.('src') || '').trim();
       return !!src && image.complete !== false && (Number(image.naturalWidth) || 0) > 0 && (Number(image.naturalHeight) || 0) > 0;
     };
-    const root = componentType === 'scatter'
-      ? document.querySelector('#scatterPage:not([hidden]) #scatterPlot svg')
-      : componentType === 'box'
-        ? document.querySelector('#boxPage:not([hidden]) #boxPlot svg')
-        : document.querySelector('#linePage:not([hidden]) #linePlot svg');
+    const activeId = window.Main?.session?.workspaceState?.activeTabId;
+    const mountedRoot = window.Shared?.workspaceTabs?.getMountedRoot?.(activeId, componentType) || null;
+    const root = mountedRoot?.querySelector?.(`#${componentType}Plot svg`) || null;
     if (!root) return false;
     const canvases = Array.from(root.querySelectorAll('foreignObject canvas, foreignobject canvas'));
     const bitmaps = Array.from(root.querySelectorAll('foreignObject img[data-graphitix-render-cache-canvas-bitmap="true"], foreignobject img[data-graphitix-render-cache-canvas-bitmap="true"]'));
@@ -371,13 +363,8 @@ async function collectWorkspaceDiagnostics(page, label, targetTabId = null) {
     const domSummary = (() => {
       const active = tabs.find(tab => tab && tab.id === activeTabId) || null;
       const type = active?.type || null;
-      const root = type === 'scatter'
-        ? document.querySelector('#scatterPage:not([hidden]) #scatterPlot svg')
-        : type === 'box'
-          ? document.querySelector('#boxPage:not([hidden]) #boxPlot svg')
-          : type === 'line'
-            ? document.querySelector('#linePage:not([hidden]) #linePlot svg')
-            : null;
+      const mountedRoot = window.Shared?.workspaceTabs?.getMountedRoot?.(activeTabId, type) || null;
+      const root = mountedRoot?.querySelector?.(`#${type}Plot svg`) || null;
       if (!root) return { type, present: false };
       const canvases = Array.from(root.querySelectorAll('foreignObject canvas, foreignobject canvas'));
       const bitmaps = Array.from(root.querySelectorAll('foreignObject img[data-graphitix-render-cache-canvas-bitmap="true"], foreignobject img[data-graphitix-render-cache-canvas-bitmap="true"]'));
@@ -665,12 +652,14 @@ async function performUserGraphEditAndCollect(page, testInfo, tabId, component, 
   });
 
   const editResult = await page.evaluate((type) => {
+    const activeId = window.Main?.session?.workspaceState?.activeTabId;
+    const root = window.Shared?.workspaceTabs?.getMountedRoot?.(activeId, type) || null;
     const selectors = type === 'scatter'
-      ? ['#scatterPage:not([hidden]) #scatterFill', '#scatterPage:not([hidden]) #scatterShowGrid', '#scatterPage:not([hidden]) #scatterFontSize', '#scatterPage:not([hidden]) #scatterDotSize']
+      ? ['#scatterFill', '#scatterShowGrid', '#scatterFontSize', '#scatterDotSize']
       : type === 'box'
-        ? ['#boxPage:not([hidden]) #boxShowGrid', '#boxPage:not([hidden]) #boxFontSize', '#boxPage:not([hidden]) #boxGraphType', '#boxPage:not([hidden]) #boxYMax']
-        : ['#linePage:not([hidden]) #lineShowGrid', '#linePage:not([hidden]) #lineFontSize', '#linePage:not([hidden]) #lineYMax', '#linePage:not([hidden]) #lineOriginMode'];
-    const input = selectors.map(selector => document.querySelector(selector)).find(Boolean) || null;
+        ? ['#boxShowGrid', '#boxFontSize', '#boxGraphType', '#boxYMax']
+        : ['#lineShowGrid', '#lineFontSize', '#lineYMax', '#lineOriginMode'];
+    const input = selectors.map(selector => root?.querySelector?.(selector)).find(Boolean) || null;
     if (!input) return { edited: false, reason: 'missing-control', selectors };
     const flag = window.Main?.session?.__USER_TRUSTED_FLAG__ || '__graphitixUserTrusted';
     const dispatchTrusted = (eventType) => {
@@ -803,14 +792,14 @@ async function runLifecycleScenario(page, testInfo, scenario, issues) {
   expect(edit.editResult.edited, `${label}: graph edit control unavailable`).toBe(true);
   expect(edit.invalidated, `${label}: restored/render cache was not cleared after graph-changing user edit`).toBe(true);
 
-  if (scenario.size === 'heavy') {
+  if (scenario.mode === 'reopen' && scenario.size === 'heavy') {
     expect(summary.snapshotTargetCache?.hasArchiveRenderCache, `${label}: heavy target cache missing from ${scenario.mode} snapshot`).toBe(true);
+  }
+  if (scenario.mode === 'recovery') {
+    expect(summary.snapshotTargetCache?.hasArchiveRenderCache, `${label}: lean recovery must not embed a render cache`).toBe(false);
   }
   if (scenario.mode === 'reopen' && scenario.size === 'heavy') {
     expect(summary.afterRenderWaitTargetCache.hasAnyCache, `${label}: normal reopen heavy target did not retain cache through activation`).toBe(true);
-  }
-  if (scenario.mode === 'recovery' && scenario.size === 'heavy') {
-    expect(summary.afterRenderWaitTargetCache.hasAnyCache, `${label}: recovery heavy target did not retain cache through activation; inspect lifecycle JSON to see where it disappeared`).toBe(true);
   }
 }
 

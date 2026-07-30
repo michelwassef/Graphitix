@@ -42,7 +42,7 @@ async function activateSelectionTab(page) {
 }
 
 async function forcePreviewCaptureForActiveTab(page) {
-  return page.evaluate(() => {
+  return page.evaluate(async () => {
     const state = window.Main?.session?.workspaceState;
     const tab = state?.tabs?.find(item => item?.id === state?.activeTabId);
     const config = tab?.type ? window.Main?.components?.registry?.[tab.type] : null;
@@ -53,11 +53,28 @@ async function forcePreviewCaptureForActiveTab(page) {
       forceCapture: true,
       reason: 'e2e-same-type-dual-preview'
     });
+    await window.Main.previews.awaitPendingCaptures?.([tab.id]);
+    const componentState = window.Components?.[tab.type]?.__getState?.() || null;
+    const stateHot = componentState?.hot || componentState?.ui?.hot || null;
     return {
       ok: true,
       tabId: tab.id,
       hasPreview: !!tab.previewMarkup,
-      signature: tab.previewSignature || null
+      signature: tab.previewSignature || null,
+      payloadRows: Array.isArray(tab.payload?.data) ? tab.payload.data.length : 0,
+      hotRows: config.getHot?.()?.getData?.()?.length || 0,
+      stateHotRows: stateHot?.getData?.()?.length || 0,
+      stateHotTabId: stateHot?.__workspaceTabId || stateHot?.__surfaceTabId || null,
+      boundTabId: window.Components?.[tab.type]?.__boundTabId || null,
+      rootTabId: componentState?.root?.closest?.('[data-workspace-tab-id]')?.dataset?.workspaceTabId || null,
+      drawPending: componentState?.tabContext?.drawPending ?? componentState?.drawPending ?? null,
+      hasScheduler: typeof componentState?.scheduleDraw === 'function',
+      message: componentState?.messageEl?.textContent || '',
+      lifecycle: (window.Shared?.componentLifecycle?.getLifecycleEvents?.() || [])
+        .filter(event => event?.componentKey === tab.type)
+        .slice(-8)
+        .map(event => `${event.action}:${event.reason}`),
+      svgChildren: config.getPreviewSvg?.(tab)?.children?.length || config.getThumbnailSvg?.(tab)?.children?.length || 0
     };
   });
 }
@@ -131,7 +148,7 @@ for (const component of COMPONENTS_WITH_DUAL_PREVIEW_COVERAGE) {
 
     const beforeFirst = new Set(await getWorkspaceTabIds(page));
     await openComponentTab(page, component, { first: true });
-    await clickExampleButtonIfPresent(page, component.exampleButtonId);
+    expect(await clickExampleButtonIfPresent(page, component.exampleButtonId)).toBe(true);
     await page.waitForTimeout(300);
     const afterFirst = await getWorkspaceTabIds(page);
     const firstId = afterFirst.find(id => !beforeFirst.has(id) && id !== 'welcome');
@@ -139,7 +156,7 @@ for (const component of COMPONENTS_WITH_DUAL_PREVIEW_COVERAGE) {
 
     const beforeSecond = new Set(afterFirst);
     await openComponentTab(page, component, { first: false });
-    await clickExampleButtonIfPresent(page, component.exampleButtonId);
+    expect(await clickExampleButtonIfPresent(page, component.exampleButtonId)).toBe(true);
     await page.waitForTimeout(300);
     const afterSecond = await getWorkspaceTabIds(page);
     const secondId = afterSecond.find(id => !beforeSecond.has(id) && id !== 'welcome');
@@ -150,7 +167,7 @@ for (const component of COMPONENTS_WITH_DUAL_PREVIEW_COVERAGE) {
     const secondCapture = await ensurePreviewForActiveTab(page);
     expect(secondCapture.ok).toBe(true);
     expect(secondCapture.tabId).toBe(secondId);
-    expect(secondCapture.hasPreview).toBe(true);
+    expect(secondCapture.hasPreview, JSON.stringify(secondCapture)).toBe(true);
 
     await activateTabById(page, firstId);
     const firstCapture = await ensurePreviewForActiveTab(page);

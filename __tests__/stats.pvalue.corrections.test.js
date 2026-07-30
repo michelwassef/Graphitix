@@ -121,15 +121,9 @@ describe('stats.adjustPValues — reference-value correctness', () => {
     expect(adj1[0]).toBe(1);
   });
 
-  test('non-finite/out-of-range values are sanitized', () => {
-    // sanitizeP: non-finite (incl. Infinity) or < 0 → 0; > 1 → 1
-    // Note: Infinity is non-finite, so it maps to 0, not 1
+  test('non-finite/out-of-range values remain missing', () => {
     const adj = stats.adjustPValues([NaN, Infinity, -0.1, 0.05, 1.5], { method: 'none' });
-    expect(adj[0]).toBe(0);  // NaN → non-finite → 0
-    expect(adj[1]).toBe(0);  // Infinity → non-finite → 0
-    expect(adj[2]).toBe(0);  // -0.1 < 0 → 0
-    expect(Math.abs(adj[3] - 0.05)).toBeLessThan(TOL); // valid → preserved
-    expect(adj[4]).toBe(1);  // 1.5 > 1 → clamped to 1
+    expect(adj).toEqual([null, null, null, 0.05, null]);
   });
 
   test('unknown method falls back to bonferroni', () => {

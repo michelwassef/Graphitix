@@ -1,0 +1,746 @@
+diff -ruN '--exclude=node_modules' '--exclude=test-results' '--exclude=playwright-report' '--exclude=artifacts' graphitix_base/CHANGELOG.md graphitix_work/CHANGELOG.md
+--- graphitix_base/CHANGELOG.md	2026-07-29 13:12:32.000000000 +0000
++++ graphitix_work/CHANGELOG.md	2026-07-30 03:35:38.471236815 +0000
+@@ -1,3 +1,9 @@
++## 2026-07-30 — Small-viewport layout stability
++
++- Stopped `ResizeObserver` panel synchronization from forcing graph redraws when shared panel geometry did not change, eliminating the ROC redraw loop and page blinking on narrow/mobile viewports.
++- Preserved reporting-panel and nested technical-record disclosure state across statistics re-render, tab capture, and restore, so Surface reporting sections no longer close after opening on constrained screens.
++- Added shared unit coverage and a Chromium small-viewport regression for ROC settling and Surface disclosure stability.
++
+ ## 2026-07-29 — Atomic graph publication
+ 
+ - Line, Histogram, ROC, Survival, Pie, and stacked-bar now build replacement SVG frames invisibly, finalize their viewport, and swap them into view in one step.
+@@ -109,183 +115,183 @@
+ - Added worker parity tests and a browser responsiveness regression using an 8,000 × 12 matrix.
+ 
+ ## 2026-07-28 — Heatmap render transaction and document-open completion
+-
+-- Fixed the actual cause of Heatmap reopening/recovery never completing: label-clearance reflow recursively rendered a complete replacement frame, then the superseded outer render's `finally` block marked that frame incomplete. Heatmap now transfers render ownership explicitly during reflow so only the current transaction may publish or invalidate the graph.
+-- Normalized the workspace contract to call Heatmap's owner-scoped draw cycle directly and await its real result. The main registry no longer wraps Heatmap in a second detached frame scheduler.
+-- Normalized live graph publication to the shared primary-data-mark validator used by sibling components. Heatmap's stricter atomic completion and matrix-dimension checks remain confined to render-cache capture/restoration, where partial frames must be rejected.
+-- Added owner-scoped draw-cycle state so completion, cancellation, loading state, and snapshot readiness can only be settled by the current tab's current draw.
+-- Added unit coverage for nested render handoff and live/cache publication separation, and strengthened reopen/recovery browser coverage to require a committed frame, canonical graph publication, completed session application, and a cleared document overlay.
+-
+-## 2026-07-27 — Export and axis refinements
+-
+-- Exported dotted reference lines are now retained as one dedicated SVG subgroup per line, so a first Inkscape ungroup keeps each dotted line selectable as a single logical object.
+-- Fixed major tick-length defaults across axis-enabled components: an unset tab-owned value is no longer coerced from `null` to `0`, so new and legacy graphs retain their normal nonzero publication-style tick length until the user explicitly sets a custom value.
+-- Fixed Box axis font persistence across axis flipping: categorical x-axis labels, numeric y-axis labels, and the y-axis title now retain their saved semantic font styles after moving to the opposite physical axis.
+-
+-## 2026-07-27 — AG Grid column sizing persistence
+-
+-- Fixed major tick-length regressions across Cartesian components: Scatter now passes resolved X/Y tick lengths into its extracted axes renderer, and persisted unset values are normalized without `Number(null) -> 0`, restoring the canonical nonzero default in Line, Histogram, PCA, stacked Pie, ROC, Survival, Scatter, and UpSet axes.
+-- Normalized X/Y axis toolbar layout so every item uses its intrinsic widest label/control width with one consistent inter-item gap; renamed axis labels to sentence case, including “Tick length”.
+-
+-- Auto-sizing a fully selected table now covers every titled column, including virtualized off-screen columns.
+-- Manual and automatic column widths now persist per tab through save, reopen, autosave, and crash recovery.
+-
+-## 2026-07-27 — Atomic, interruption-safe document opening
+-
+-- Replaced visible post-load tab activation and cache warming with lazy hydration: only the archive's saved active tab is restored during open.
+-- Added one full-application opening transaction with clear file-aware progress, accessible busy state, and locked tab/add/close/drag interactions.
+-- Session replacement now stages non-colliding tab owners, commits only after active-workspace readiness, and rolls back the prior tabs and file metadata on failure.
+-- Failed opens keep the current document intact and present concise recovery actions instead of console-only feedback.
+-- Removed obsolete warmup APIs, delays, overlay wording, and test waits; save/recovery snapshots reuse valid caches without navigating inactive tabs.
+-- Normalized save/recovery snapshot intent flags so the persistence contract and its tests use one explicit shape.
+-- Made the restored active tab’s side delimiters explicit CSS borders and projected the preceding-tab separator class directly, avoiding stale shadow/`:has()` painting after the opening lock clears.
+-- ROC hydration now suppresses initialization, payload, and resize redraws when a valid saved render cache is restored.
+-- Resizable graphs now ignore the ResizeObserver's unchanged first measurement, preventing false post-restore redraws across components.
+-- Added a mixed Scatter/Box/ROC archive regression proving Box and ROC reuse their saved graph caches without fallback redraws.
+-
+-## 2026-07-27 — Explicit ROC classification setup
+-
+-- ROC and precision–recall analyses now use an explicit positive class and global score direction.
+-- All curve, cutoff, inference, resampling, and comparison paths consume canonical higher-is-positive analysis pairs while retaining original-scale cutoff reporting.
+-- Classification settings persist per tab and are included in reports and cache signatures; low AUC values now warn without automatic reversal.
+-- Positive-class and score-direction controls now commit on `input` before recovery capture, and class options use stable typed identities so session projection cannot reinterpret class 0 as class 1.
+-- ROC statistics are now committed from the completed owner-scoped draw instead of being reconstructed from visible DOM during save, tab switching, reopen, or recovery.
+-- Draw generations and snapshot readiness prevent an older ROC/PR calculation from publishing or persisting statistics after a newer settings change.
+-- Every analysis-setting change invalidates its prior statistics model before payload persistence, and restored models are validated against the exact included analysis matrix.
+-- Removed ROC's duplicate activation-time runtime replay, which could overwrite the newly hydrated owner session with an older statistics snapshot.
+-
+-## 2026-07-27 — Palette matching for custom dataset colors
+-
+-- Named palette selection now offers a compact, contextual choice when custom dataset colors exist.
+-- The recommended action maps custom colors to distinct perceptually nearest colors in the selected palette; full replacement remains available.
+-- Equal-colored datasets are matched as one visual group, even when one occurrence coincides with its old positional palette default.
+-- Box Unified point colors now retain their global and indexed override precedence during the immediate palette projection, matching the subsequent full renderer.
+-- Palette matching, replacement, and exact restoration remain single owner-scoped undo actions.
+-
+-## 2026-07-27 — Heatmap recovery redraw
+-
+-- Invalid or missing Heatmap render caches now trigger one owner-scoped redraw from the authoritative payload after hydration settles.
+-- Recovery awaits graph publication, including heavy canvas Heatmaps, instead of leaving a blank graph.
+-- Restore hydration suppresses automatic component draws, preventing duplicate Heatmap work and removing the 12-second readiness timeout before fallback redraw.
+-- Heavy Heatmap recovery now persists the completed render model, validates it against the full processed matrix, reuses its clustering during the single fallback repaint, and keeps the loading spinner visible until publication.
+-- Recovery redraws now use the standard owner-scoped scheduler and lifecycle transaction; duplicate overlay and timer-based suppression paths were removed.
+-
+-## 2026-07-24 — Cross-component statistical standards overhaul
+-
+-- Preserved missing/invalid p-values through multiplicity adjustment instead of converting failures to significance.
+-- Replaced the ad hoc finite-df studentized-range scaling and corrected Games–Howell standardization.
+-- Renamed approximation-based Box procedures and the MAD/BH outlier screen to match their actual calculations.
+-- Enforced coherent expected totals and corrected effect-size definitions in Pie statistics.
+-- Removed silent PCA method fallback and restricted Kaiser selection to standardized PCA.
+-- Rejected invalid Cox covariates and removed silent first-20,000-row truncation.
+-- Added Holm adjustment to Venn overlap-enrichment families.
+-- Replaced binary logistic regression with a validated-likelihood IRLS/Newton workflow and disabled invalid Gaussian grouped-logistic comparisons.
+-- Fixed owner-scoped frame debouncing silently dropping a current Heatmap draw when payload commit or lifecycle invalidation advanced the async generation between the overlay frame and the render frame. Heatmap now requeues the latest pending draw only while its owner tab remains active, preserving cancellation on tab disposal while allowing the first heavy paste to render without a tab switch.
+-- Fixed first heavy Heatmap paste rendering: owner-scoped overlay paint frames now report lifecycle invalidation and Heatmap requeues the still-current draw instead of silently losing it until a tab switch.
+-- Fixed the first large Heatmap paste being lost or left permanently behind the loading overlay when a table-import projection transaction was still pending. Shared paste handling now cancels the stale projection, commits the custom and native AG Grid paste paths through one owner-payload transaction, schedules one final heavy draw, and preserves the pasted matrix across tab switches.
+-- Fixed native AG Grid paste transactions so thousands of per-cell change events are committed as one payload update, one undo step, one filter refresh, and one graph schedule. This prevents heavy Heatmap paste draws from being repeatedly invalidated after the loading overlay appears.
+-- Fixed AG Grid clipboard marquee ownership for full-table, row, and column copy/cut selections by emitting the adapter's canonical `{ from, to }` range shape; the previous header-selection builders produced an incompatible range schema that was discarded before rendering.
+-- Heatmap now forwards shared table scheduling metadata unchanged, so heavy pastes retain `forceOverlay`/`heavy` flags and paint the cancellable loading overlay before drawing.
+-- Removed Scatter's call to the nonexistent `chartStyle.clearSvg` API; excluded-axis redraws now clear their owned plot container directly.
+-- Completed a professional cleanup of Heatmap's owner-sensitive rendering stack after the mixed canvas/SVG work: removed the duplicate SVG-number formatter and dead transform helper, separated compact on-screen coordinates from high-precision export coordinates, extracted deterministic label/layout/cell-value geometry helpers, and removed redundant projection and payload-session lookups.
+-- Normalized Heatmap lifecycle ownership: font/resize observers and live-resize frame work are now tab-scoped, are torn down only for their owning root, are reattached on activation, and are cleared together with hidden draws and resize markers on deactivation. Closing a Heatmap tab now releases its session, listeners, worker records, and toolbar activation state.
+-- Split Heatmap preview and export projection preparation so SVG export no longer performs discarded preview bitmap work, made render-model cloning explicit across owner boundaries, and added regression coverage for model isolation, deterministic logical geometry, session disposal, compact dendrogram coordinates, and existing heavy-render behavior.
+-
+-
+-- Reduced heavy Heatmap tab-preview payloads without weakening the shared preview size guard: preview-only matrix, dense-label and dendrogram rasters now use compact WebP encoding with PNG fallback, and SVG preview images store the bitmap URL only once instead of duplicating it in both `href` and `xlink:href`.
+-- Fixed heavy Heatmap tab previews being downgraded to the large-dataset placeholder because the shared preview pipeline recognized HTML `img` bitmap markers but not SVG `image` markers. Verified bitmap-backed previews now bypass the vector SVG character budget after canvas downsampling, while ordinary oversized vector previews retain the existing limit.
+-- Fixed Heatmap activation/capture crashes caused by treating the tab-owned notes controller as a DOM Node during root-membership checks. Ownership validation now resolves controller roots before calling `Node.contains`, preventing cascading workspace binding, payload persistence, and async draw failures.
+-
+-## 2026-07-23 - Heatmap activation binding recursion fix
+-
+-- Removed DOM projection as a side effect of `bindHeatmapSessionForTab`; session ownership and visible-DOM projection are separate lifecycle steps again.
+-- Passive same-component Heatmap activation now binds the target root and table manager before projecting durable controls.
+-- Prevented partial Heatmap initialization from throwing through `workspaceTabs.ensureActiveDomBindings` and `bindPerTabRootIfNeeded`.
+-# Changelog
+-
+-All notable changes to this project should be documented in this file.
+-
+-The format is based on Keep a Changelog and this project follows Semantic Versioning.
+-
+-## [Unreleased]
+-
+-### Fixed
+-- Crash recovery now validates publication against each component's primary graph surface and component-owned data marks instead of accepting axes, grids, or unrelated SVG/canvas content elsewhere in the workspace. PCA, Pie, ROC, Survival, Surface, Venn, Line, and Histogram therefore fall back to their authoritative payload draw when a lean recovery has no usable graph cache, matching Scatter's existing behavior.
+-- Component ensure and activation no longer permit a passive restore bind to mark an uninitialized component as ready. Full owner-scoped table/layout/scheduler initialization now occurs under the shared draw-suppression transaction, fixing Venn recovery states where the graph stayed blank and resize redraw requests had no scheduler.
+-- Flipped Box/Distribution charts now position categorical labels, ticks, points, and drag targets from the same canonical band-layout centers, eliminating the cumulative label-to-point offset caused by ignoring inter-category gaps.
+-- Fixed heavy Heatmap paste rendering being stranded behind the loading-wheel hand-off. Heatmap now treats the overlay as a passive visual layer and sends the committed paste directly to its single owner-scoped draw frame, removing the redundant overlay animation-frame gate that could prevent the renderer from ever starting.
+-- AG Grid clipboard marquees now use the visible selection perimeter for ordinary ranges, full-table selections, and row/column-header selections, including virtualized or scrolled endpoints. Contiguous header selections are coalesced into one marching outline instead of fragmented per-row or per-column borders.
+-- Large clipboard pastes now mark their shared table redraw request as heavy before component scheduling, so owner-scoped graph overlays paint before expensive rendering starts instead of appearing only for file imports.
+-- Box bar charts now keep the categorical axis at the lower value-axis boundary while every bar still starts at zero. Linear bar plots that cross zero render the same dotted zero reference used by the other distribution graphs. One-sided error bars now extend away from zero for negative as well as positive means, including stacked bars, and automatic limits include the displayed directional interval.
+-- Shared AG Grid analysis now ignores titled columns with no body data, preserves those table edits without invalidating graph caches, and schedules one redraw only when a mutation changes the effective analysis matrix. PCA no longer maintains a competing local table scheduler.
+-- Double-clicking one header separator now auto-sizes every data column when the complete column set is selected, including pinned first-row content.
+-- Data exclusions now persist across Raw and shape-compatible derived Data Views. Schema-changing analytical views retain isolated exclusion state so positional exclusions cannot leak into correlation or frequency tables.
+-- AG Grid copy, cut, and delete now support contiguous and non-contiguous multi-row header selections in current display order, including sorted tables. Adapter-owned row/column header selections are no longer overwritten by AG Grid selection-change callbacks that report no replacement cell range. Ctrl/Cmd+C and Ctrl/Cmd+X are routed by the table's logical selection owner when AG Grid moves DOM focus after modifier-click row selection; routing remains active-tab scoped, stops after outside interaction, and starts Clipboard API access synchronously within the keyboard event.
+-- Recovery checkpoints now use a 2.5-second trailing debounce with a 10-second maximum deferral during continuous editing. Periodic recovery no longer bypasses a pending debounce. Archive serialization remains worker-backed; owner/session capture stays on the owner-aware main thread.
+-- Heatmap dendrogram rendering now builds complete three-segment merges for both orientations, computes geometry iteratively, normalizes non-monotonic linkage heights only in display geometry, and unions overlapping collinear segments before emitting one precision-preserving SVG path. Column branches no longer terminate at the merge midpoint, and dense row dendrograms no longer darken through repeated overdraw.
+-- Heavy Data-values Heatmaps now publish a bounded pixel-aware live label projection while retaining the complete owner-scoped render model. Explicit export reconstructs every row and column label with the live aspect-correction transform, so on-screen responsiveness no longer trades away export fidelity.
+-- Heatmap rendering now yields through the owner-scoped graph execution context after worker clustering and before live DOM publication. Stop/retry can therefore cancel the post-worker render phase instead of waiting for a monolithic dense-label commit.
+-- Heavy Heatmap tab previews now rasterize only the matrix canvas. Row labels, column labels, color scales, and dendrograms remain sampled vector overlays; preview interaction rectangles and ownership markers are stripped without removing dendrogram geometry, compact SVG path commands are parsed correctly, and thumbnail label density is capped to prevent black overdraw bands.
+-- Updated the Heatmap vector-export regression to validate the canonical fill-bucket path representation through `data-heatmap-vector-cell-count`; the previous assertion incorrectly required one `<rect>` per cell after the exporter had deliberately compacted cells into paths.
+-
+-### Added
+-- Shared graph-options toggles for graph-title and contextually relevant axis-title visibility across all graph types, persisted per tab and through `.graph` reopen. Empty title edits now hide reversibly without erasing text or formatting.
+-- Publication governance files: `SECURITY.md`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`.
+-- CI workflow for Jest unit tests on push/PR.
+-- GitHub Pages build and deployment workflow for the static web app.
+-- Publication-readiness scripts for validating runtime references and building `_site/`.
+-
+-### Changed
+-- Lean recovery now snapshots canonical tab state without live DOM capture, defers archive normalization to the worker, rejects stale revisions, and captures render caches only after explicit Hi-Fi opt-in. Desktop recovery sends binary data without main-thread base64 conversion.
+-- Shared loading overlays are now owner-tab scoped, including completion after same-component tab switches.
+-- Test contracts updated to match current PCA auto-draw and line toolbar behavior.
+-- Heatmap regression tests made resilient to current correlation/data-view flow.
+-- Repository cleanup rules now ignore generated coverage, Playwright artifacts, temporary scratch files, and local assistant/editor settings.
+-- UpSet color controls now use a compact two-column layout.
+-
+-### Fixed
+-- Heavy Data-values Heatmap previews now rebuild directly from the owning inactive tab's render-cache fragment even when optional SVG root metadata is absent. The matrix canvas is downsampled into a real preview bitmap before shared serialization, and stale "Preview simplified / Large dataset" placeholders are invalidated as soon as an owner-scoped Heatmap source is available.
+-- Heavy Data-values Heatmaps now keep their full mixed canvas/SVG projection strictly owner-tab scoped. Same-component activation rebinds the exact tab root, controls, grid, layout, render state, and font store before any projection work; inactive previews retain their owner token and replace stale large-dataset placeholders with a real sampled bitmap. The existing normal label-font contract is unchanged, while only normalized huge matrices derive row/column fit from their actual cell dimensions. Live resize reuses the current canvas and SVG nodes without stretching text, then performs one owner-scoped redraw on release.
+-- Heavy Data-values heatmaps now render only the matrix through a tab-owned canvas while retaining every SVG row/column label plus SVG dendrograms, titles, and legends. Their live scene uses bounded display geometry shared by the raster and every SVG overlay, preventing large logical row counts from displacing the color scale or dendrograms; preview-only sampling bounds unreadable thumbnail detail, and each dendrogram is emitted as one SVG path without losing branch geometry. During resize the existing mixed canvas/SVG scene scales with the resize box, then one release redraw regenerates both projections. PNG export uses complete matrix content, standard SVG export converts the matrix to compact fill-batched vector paths, rasterized SVG export embeds the exact matrix bitmap, and clipboard generation is deferred until after the browser clipboard write begins so heavy copies retain user activation.
+-- Font-control diagnostic traces now honor the canonical debug gate, preventing per-label console work from becoming a large-Heatmap rendering cost when ordinary debug logging is disabled.
+-- Structural graph/view changes now use one owner-scoped overlay request across components. The overlay appears before heavy Box, Heatmap, Scatter, Histogram, Line, PCA, Pie, Surface, and Venn redraws without forcing reusable analysis geometry to be recomputed.
+-- Stop/retry is now owner-tab scoped across every graph component. Long Box, Line, ROC, Histogram, Surface, Pie, Survival, and Venn draws yield cooperatively; PCA, Heatmap, Scatter, and Box workers inherit the same cancellation signal and terminate without restarting synchronous fallback work.
+-- Shared table analysis now reads ordinary owner data directly while preserving formulas and exclusions, avoiding repeated per-cell display projection during large graph draws.
+-- Large Data-values heatmaps now keep exact clustering cancellable in an owner-scoped worker, reuse the canonical render model without repeated deep clones, build unchanged SVG geometry off-DOM, and preserve visible dendrogram height and stroke thickness at every dataset size.
+-- Retrying a stopped graph draw now preserves one owner-scoped overlay controller, restores the wheel before work resumes, and clears it when the new draw settles; stale replaced handles cannot orphan the overlay. Scatter imports request the wheel before parsing instead of waiting for the populated-table threshold.
+-- Full-table imports now run as one owner-scoped transaction: canonical grid/session state commits once, intermediate graph requests are suppressed, AG Grid receives two paint frames, and only the still-active owner receives the final graph projection. Import renames and inactive completion remain owner-safe.
+-- Large PCA import and recovery coverage now verifies 75,440-row grid-first latency, final graph parity, canonical recovery parity, one final projection, stale-owner rejection, and same-component tab isolation.
+-- Large AG Grid dataset loads no longer rebuild the formula engine for plain data; formula evaluation now stays dormant until a formula is imported or entered.
+-- PCA point-label toggles now update only tab-owned label metadata, color schemes recolor semantic SVG paint targets in place without exposing axis hit areas, dark themes cover frames, ticks, and label leaders, and 3D rotation reuses cached analysis while leaving unchanged statistics mounted.
+-- Owner-tab table edits and color-scheme changes now use structural payload updates, avoiding full large-matrix clones and redundant single-view DataViews serialization.
+-- AG Grid full-table selection now shows a continuous top border after Ctrl+A and during copy/cut.
+-- AG Grid paste now preserves Excel/LibreOffice table structure, converts decimal commas to dots, and still splits plain comma-delimited CSV text into columns.
+-- Lock ratio is now geometry-neutral when toggled and preserves rendered x/y axis lengths across Cartesian components, including UpSet and Pie Stacked bar. ROC no longer forces a square plot. The current SVG viewport now enforces the ratio during the canonical render, including staged SVGs, with no delayed box-correction redraws. Heatmap Data values separately preserves its visible matrix ratio without axis semantics. Ratio geometry remains tab-owned and survives `.graph` reopen.
+-- Lock/unlock transitions now preserve the renderer's exact style baseline, and clicking a resize handle without moving it no longer starts a resize or redraws the graph.
+-- Component resize phases now have one draw-request owner; component-specific resize callbacks replace the former duplicate generic schedule.
+-- AG Grid selection outlines that include a pinned top row now scroll beneath the vertical scrollbar like normal-row selections.
+-- AG Grid’s top-right scrollbar gutter now matches the bottom scrollbar spacer instead of leaving an empty corner.
+-- Box adaptive pairwise whiskers now use a stable shared stack anchor and each endpoint's actual lower obstacles, so partial sets fill unobstructed gaps without stretching obstructed whiskers.
+-- Box significance asterisks are optically centered against regular `ns` labels; bracket clearance now uses visible ink bounds instead of SVG font boxes.
+-- Box significance labels now sit 50% closer to their corresponding bracket line in both graph orientations.
+-- Box significance stacks now keep about 13 px above labels, retaining compact levels while preventing label-clamped adaptive whiskers from becoming too short.
+-- Box significance stacks now start 13 px from the rendered data envelope, shifting the full annotation block closer to points without touching them.
+-- Box plot frames now expand around rendered significance lines and labels, including flipped-axis layouts.
+-- Box flipped adaptive significance levels now use each preceding bracket's rendered position, keeping P-value whiskers correctly shortened after wide labels shift the stack.
+-- Component-tab table imports now open the shared preview/options wizard immediately, with the current tab’s graph type fixed and import settings captured reliably before asynchronous parsing.
+-- UpSet resizing now uses tab-owned render data, atomic live frames, a coordinated two-panel layout, and collision-aware narrow-width labels, eliminating transient jumps and overlap between set names and matrix dots.
+-- UpSet now defaults to an unlocked ratio while preserving a user-selected ratio lock across mode changes, tabs, and archive reopen.
+-- Hiding graph or axis titles now preserves the user-set graph geometry and proportions across all graph types; Heatmap no longer shifts, clips column labels, or shrinks text after tab return.
+-- Inline title editing now keeps renderer-replaced text projections hidden, preventing Heatmap’s unchanged title from appearing behind the editor.
+-- Removed unreleased `.session` file support and its obsolete multi-tab JSON loader; the welcome importer no longer advertises JSON workspace files.
+-- Removed unused production dependency `puppeteer-core` to eliminate critical transitive vulnerability path.
+-- Removed obsolete generated output, duplicate/unused Prism fixtures, scratch debug files, redundant desktop icon output, and the placeholder adder test/module.
+-
+-- Fixed SVG copy/download fidelity after ungrouping in Inkscape: export-time relative text offsets are resolved to user units, and round-cap zero-dash dotted lines are materialized as vector dots while retaining the top-level export group.
+-
+-- Added per-axis **Major Tick Length** controls to every 2D component that exposes clickable X/Y axes (Box, Scatter, Line, PCA, ROC, Histogram, Survival, Pie stacked bars, and Venn UpSet). Values are owned by each tab's component session, persisted in `.graph` payloads, restored on reopen, and applied independently to X- and Y-axis tick geometry and label spacing.
+-- Major Tick Length editors now display the renderer's current nonzero default when no custom value is stored, so native up/down steppers begin from that default instead of zero while the underlying tab-owned state remains unset until the user changes it.
+-- Axis length controls now use a minimal top bracket around the section title, visually grouping the length value, unit, and preserve-ratio control without adding a full box.
+-- Axis length toolbar brackets now use square corners and terminate exactly at the compound control row edges, with no extra horizontal overhang.
+-
+-- Axis-toolbar Number format dropdowns now use the canonical 26 px control height and border-box sizing, matching and vertically aligning with Thickness and adjacent action controls.
++
++- Fixed the actual cause of Heatmap reopening/recovery never completing: label-clearance reflow recursively rendered a complete replacement frame, then the superseded outer render's `finally` block marked that frame incomplete. Heatmap now transfers render ownership explicitly during reflow so only the current transaction may publish or invalidate the graph.
++- Normalized the workspace contract to call Heatmap's owner-scoped draw cycle directly and await its real result. The main registry no longer wraps Heatmap in a second detached frame scheduler.
++- Normalized live graph publication to the shared primary-data-mark validator used by sibling components. Heatmap's stricter atomic completion and matrix-dimension checks remain confined to render-cache capture/restoration, where partial frames must be rejected.
++- Added owner-scoped draw-cycle state so completion, cancellation, loading state, and snapshot readiness can only be settled by the current tab's current draw.
++- Added unit coverage for nested render handoff and live/cache publication separation, and strengthened reopen/recovery browser coverage to require a committed frame, canonical graph publication, completed session application, and a cleared document overlay.
++
++## 2026-07-27 — Export and axis refinements
++
++- Exported dotted reference lines are now retained as one dedicated SVG subgroup per line, so a first Inkscape ungroup keeps each dotted line selectable as a single logical object.
++- Fixed major tick-length defaults across axis-enabled components: an unset tab-owned value is no longer coerced from `null` to `0`, so new and legacy graphs retain their normal nonzero publication-style tick length until the user explicitly sets a custom value.
++- Fixed Box axis font persistence across axis flipping: categorical x-axis labels, numeric y-axis labels, and the y-axis title now retain their saved semantic font styles after moving to the opposite physical axis.
++
++## 2026-07-27 — AG Grid column sizing persistence
++
++- Fixed major tick-length regressions across Cartesian components: Scatter now passes resolved X/Y tick lengths into its extracted axes renderer, and persisted unset values are normalized without `Number(null) -> 0`, restoring the canonical nonzero default in Line, Histogram, PCA, stacked Pie, ROC, Survival, Scatter, and UpSet axes.
++- Normalized X/Y axis toolbar layout so every item uses its intrinsic widest label/control width with one consistent inter-item gap; renamed axis labels to sentence case, including “Tick length”.
++
++- Auto-sizing a fully selected table now covers every titled column, including virtualized off-screen columns.
++- Manual and automatic column widths now persist per tab through save, reopen, autosave, and crash recovery.
++
++## 2026-07-27 — Atomic, interruption-safe document opening
++
++- Replaced visible post-load tab activation and cache warming with lazy hydration: only the archive's saved active tab is restored during open.
++- Added one full-application opening transaction with clear file-aware progress, accessible busy state, and locked tab/add/close/drag interactions.
++- Session replacement now stages non-colliding tab owners, commits only after active-workspace readiness, and rolls back the prior tabs and file metadata on failure.
++- Failed opens keep the current document intact and present concise recovery actions instead of console-only feedback.
++- Removed obsolete warmup APIs, delays, overlay wording, and test waits; save/recovery snapshots reuse valid caches without navigating inactive tabs.
++- Normalized save/recovery snapshot intent flags so the persistence contract and its tests use one explicit shape.
++- Made the restored active tab’s side delimiters explicit CSS borders and projected the preceding-tab separator class directly, avoiding stale shadow/`:has()` painting after the opening lock clears.
++- ROC hydration now suppresses initialization, payload, and resize redraws when a valid saved render cache is restored.
++- Resizable graphs now ignore the ResizeObserver's unchanged first measurement, preventing false post-restore redraws across components.
++- Added a mixed Scatter/Box/ROC archive regression proving Box and ROC reuse their saved graph caches without fallback redraws.
++
++## 2026-07-27 — Explicit ROC classification setup
++
++- ROC and precision–recall analyses now use an explicit positive class and global score direction.
++- All curve, cutoff, inference, resampling, and comparison paths consume canonical higher-is-positive analysis pairs while retaining original-scale cutoff reporting.
++- Classification settings persist per tab and are included in reports and cache signatures; low AUC values now warn without automatic reversal.
++- Positive-class and score-direction controls now commit on `input` before recovery capture, and class options use stable typed identities so session projection cannot reinterpret class 0 as class 1.
++- ROC statistics are now committed from the completed owner-scoped draw instead of being reconstructed from visible DOM during save, tab switching, reopen, or recovery.
++- Draw generations and snapshot readiness prevent an older ROC/PR calculation from publishing or persisting statistics after a newer settings change.
++- Every analysis-setting change invalidates its prior statistics model before payload persistence, and restored models are validated against the exact included analysis matrix.
++- Removed ROC's duplicate activation-time runtime replay, which could overwrite the newly hydrated owner session with an older statistics snapshot.
++
++## 2026-07-27 — Palette matching for custom dataset colors
++
++- Named palette selection now offers a compact, contextual choice when custom dataset colors exist.
++- The recommended action maps custom colors to distinct perceptually nearest colors in the selected palette; full replacement remains available.
++- Equal-colored datasets are matched as one visual group, even when one occurrence coincides with its old positional palette default.
++- Box Unified point colors now retain their global and indexed override precedence during the immediate palette projection, matching the subsequent full renderer.
++- Palette matching, replacement, and exact restoration remain single owner-scoped undo actions.
++
++## 2026-07-27 — Heatmap recovery redraw
++
++- Invalid or missing Heatmap render caches now trigger one owner-scoped redraw from the authoritative payload after hydration settles.
++- Recovery awaits graph publication, including heavy canvas Heatmaps, instead of leaving a blank graph.
++- Restore hydration suppresses automatic component draws, preventing duplicate Heatmap work and removing the 12-second readiness timeout before fallback redraw.
++- Heavy Heatmap recovery now persists the completed render model, validates it against the full processed matrix, reuses its clustering during the single fallback repaint, and keeps the loading spinner visible until publication.
++- Recovery redraws now use the standard owner-scoped scheduler and lifecycle transaction; duplicate overlay and timer-based suppression paths were removed.
++
++## 2026-07-24 — Cross-component statistical standards overhaul
++
++- Preserved missing/invalid p-values through multiplicity adjustment instead of converting failures to significance.
++- Replaced the ad hoc finite-df studentized-range scaling and corrected Games–Howell standardization.
++- Renamed approximation-based Box procedures and the MAD/BH outlier screen to match their actual calculations.
++- Enforced coherent expected totals and corrected effect-size definitions in Pie statistics.
++- Removed silent PCA method fallback and restricted Kaiser selection to standardized PCA.
++- Rejected invalid Cox covariates and removed silent first-20,000-row truncation.
++- Added Holm adjustment to Venn overlap-enrichment families.
++- Replaced binary logistic regression with a validated-likelihood IRLS/Newton workflow and disabled invalid Gaussian grouped-logistic comparisons.
++- Fixed owner-scoped frame debouncing silently dropping a current Heatmap draw when payload commit or lifecycle invalidation advanced the async generation between the overlay frame and the render frame. Heatmap now requeues the latest pending draw only while its owner tab remains active, preserving cancellation on tab disposal while allowing the first heavy paste to render without a tab switch.
++- Fixed first heavy Heatmap paste rendering: owner-scoped overlay paint frames now report lifecycle invalidation and Heatmap requeues the still-current draw instead of silently losing it until a tab switch.
++- Fixed the first large Heatmap paste being lost or left permanently behind the loading overlay when a table-import projection transaction was still pending. Shared paste handling now cancels the stale projection, commits the custom and native AG Grid paste paths through one owner-payload transaction, schedules one final heavy draw, and preserves the pasted matrix across tab switches.
++- Fixed native AG Grid paste transactions so thousands of per-cell change events are committed as one payload update, one undo step, one filter refresh, and one graph schedule. This prevents heavy Heatmap paste draws from being repeatedly invalidated after the loading overlay appears.
++- Fixed AG Grid clipboard marquee ownership for full-table, row, and column copy/cut selections by emitting the adapter's canonical `{ from, to }` range shape; the previous header-selection builders produced an incompatible range schema that was discarded before rendering.
++- Heatmap now forwards shared table scheduling metadata unchanged, so heavy pastes retain `forceOverlay`/`heavy` flags and paint the cancellable loading overlay before drawing.
++- Removed Scatter's call to the nonexistent `chartStyle.clearSvg` API; excluded-axis redraws now clear their owned plot container directly.
++- Completed a professional cleanup of Heatmap's owner-sensitive rendering stack after the mixed canvas/SVG work: removed the duplicate SVG-number formatter and dead transform helper, separated compact on-screen coordinates from high-precision export coordinates, extracted deterministic label/layout/cell-value geometry helpers, and removed redundant projection and payload-session lookups.
++- Normalized Heatmap lifecycle ownership: font/resize observers and live-resize frame work are now tab-scoped, are torn down only for their owning root, are reattached on activation, and are cleared together with hidden draws and resize markers on deactivation. Closing a Heatmap tab now releases its session, listeners, worker records, and toolbar activation state.
++- Split Heatmap preview and export projection preparation so SVG export no longer performs discarded preview bitmap work, made render-model cloning explicit across owner boundaries, and added regression coverage for model isolation, deterministic logical geometry, session disposal, compact dendrogram coordinates, and existing heavy-render behavior.
++
++
++- Reduced heavy Heatmap tab-preview payloads without weakening the shared preview size guard: preview-only matrix, dense-label and dendrogram rasters now use compact WebP encoding with PNG fallback, and SVG preview images store the bitmap URL only once instead of duplicating it in both `href` and `xlink:href`.
++- Fixed heavy Heatmap tab previews being downgraded to the large-dataset placeholder because the shared preview pipeline recognized HTML `img` bitmap markers but not SVG `image` markers. Verified bitmap-backed previews now bypass the vector SVG character budget after canvas downsampling, while ordinary oversized vector previews retain the existing limit.
++- Fixed Heatmap activation/capture crashes caused by treating the tab-owned notes controller as a DOM Node during root-membership checks. Ownership validation now resolves controller roots before calling `Node.contains`, preventing cascading workspace binding, payload persistence, and async draw failures.
++
++## 2026-07-23 - Heatmap activation binding recursion fix
++
++- Removed DOM projection as a side effect of `bindHeatmapSessionForTab`; session ownership and visible-DOM projection are separate lifecycle steps again.
++- Passive same-component Heatmap activation now binds the target root and table manager before projecting durable controls.
++- Prevented partial Heatmap initialization from throwing through `workspaceTabs.ensureActiveDomBindings` and `bindPerTabRootIfNeeded`.
++# Changelog
++
++All notable changes to this project should be documented in this file.
++
++The format is based on Keep a Changelog and this project follows Semantic Versioning.
++
++## [Unreleased]
++
++### Fixed
++- Crash recovery now validates publication against each component's primary graph surface and component-owned data marks instead of accepting axes, grids, or unrelated SVG/canvas content elsewhere in the workspace. PCA, Pie, ROC, Survival, Surface, Venn, Line, and Histogram therefore fall back to their authoritative payload draw when a lean recovery has no usable graph cache, matching Scatter's existing behavior.
++- Component ensure and activation no longer permit a passive restore bind to mark an uninitialized component as ready. Full owner-scoped table/layout/scheduler initialization now occurs under the shared draw-suppression transaction, fixing Venn recovery states where the graph stayed blank and resize redraw requests had no scheduler.
++- Flipped Box/Distribution charts now position categorical labels, ticks, points, and drag targets from the same canonical band-layout centers, eliminating the cumulative label-to-point offset caused by ignoring inter-category gaps.
++- Fixed heavy Heatmap paste rendering being stranded behind the loading-wheel hand-off. Heatmap now treats the overlay as a passive visual layer and sends the committed paste directly to its single owner-scoped draw frame, removing the redundant overlay animation-frame gate that could prevent the renderer from ever starting.
++- AG Grid clipboard marquees now use the visible selection perimeter for ordinary ranges, full-table selections, and row/column-header selections, including virtualized or scrolled endpoints. Contiguous header selections are coalesced into one marching outline instead of fragmented per-row or per-column borders.
++- Large clipboard pastes now mark their shared table redraw request as heavy before component scheduling, so owner-scoped graph overlays paint before expensive rendering starts instead of appearing only for file imports.
++- Box bar charts now keep the categorical axis at the lower value-axis boundary while every bar still starts at zero. Linear bar plots that cross zero render the same dotted zero reference used by the other distribution graphs. One-sided error bars now extend away from zero for negative as well as positive means, including stacked bars, and automatic limits include the displayed directional interval.
++- Shared AG Grid analysis now ignores titled columns with no body data, preserves those table edits without invalidating graph caches, and schedules one redraw only when a mutation changes the effective analysis matrix. PCA no longer maintains a competing local table scheduler.
++- Double-clicking one header separator now auto-sizes every data column when the complete column set is selected, including pinned first-row content.
++- Data exclusions now persist across Raw and shape-compatible derived Data Views. Schema-changing analytical views retain isolated exclusion state so positional exclusions cannot leak into correlation or frequency tables.
++- AG Grid copy, cut, and delete now support contiguous and non-contiguous multi-row header selections in current display order, including sorted tables. Adapter-owned row/column header selections are no longer overwritten by AG Grid selection-change callbacks that report no replacement cell range. Ctrl/Cmd+C and Ctrl/Cmd+X are routed by the table's logical selection owner when AG Grid moves DOM focus after modifier-click row selection; routing remains active-tab scoped, stops after outside interaction, and starts Clipboard API access synchronously within the keyboard event.
++- Recovery checkpoints now use a 2.5-second trailing debounce with a 10-second maximum deferral during continuous editing. Periodic recovery no longer bypasses a pending debounce. Archive serialization remains worker-backed; owner/session capture stays on the owner-aware main thread.
++- Heatmap dendrogram rendering now builds complete three-segment merges for both orientations, computes geometry iteratively, normalizes non-monotonic linkage heights only in display geometry, and unions overlapping collinear segments before emitting one precision-preserving SVG path. Column branches no longer terminate at the merge midpoint, and dense row dendrograms no longer darken through repeated overdraw.
++- Heavy Data-values Heatmaps now publish a bounded pixel-aware live label projection while retaining the complete owner-scoped render model. Explicit export reconstructs every row and column label with the live aspect-correction transform, so on-screen responsiveness no longer trades away export fidelity.
++- Heatmap rendering now yields through the owner-scoped graph execution context after worker clustering and before live DOM publication. Stop/retry can therefore cancel the post-worker render phase instead of waiting for a monolithic dense-label commit.
++- Heavy Heatmap tab previews now rasterize only the matrix canvas. Row labels, column labels, color scales, and dendrograms remain sampled vector overlays; preview interaction rectangles and ownership markers are stripped without removing dendrogram geometry, compact SVG path commands are parsed correctly, and thumbnail label density is capped to prevent black overdraw bands.
++- Updated the Heatmap vector-export regression to validate the canonical fill-bucket path representation through `data-heatmap-vector-cell-count`; the previous assertion incorrectly required one `<rect>` per cell after the exporter had deliberately compacted cells into paths.
++
++### Added
++- Shared graph-options toggles for graph-title and contextually relevant axis-title visibility across all graph types, persisted per tab and through `.graph` reopen. Empty title edits now hide reversibly without erasing text or formatting.
++- Publication governance files: `SECURITY.md`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`.
++- CI workflow for Jest unit tests on push/PR.
++- GitHub Pages build and deployment workflow for the static web app.
++- Publication-readiness scripts for validating runtime references and building `_site/`.
++
++### Changed
++- Lean recovery now snapshots canonical tab state without live DOM capture, defers archive normalization to the worker, rejects stale revisions, and captures render caches only after explicit Hi-Fi opt-in. Desktop recovery sends binary data without main-thread base64 conversion.
++- Shared loading overlays are now owner-tab scoped, including completion after same-component tab switches.
++- Test contracts updated to match current PCA auto-draw and line toolbar behavior.
++- Heatmap regression tests made resilient to current correlation/data-view flow.
++- Repository cleanup rules now ignore generated coverage, Playwright artifacts, temporary scratch files, and local assistant/editor settings.
++- UpSet color controls now use a compact two-column layout.
++
++### Fixed
++- Heavy Data-values Heatmap previews now rebuild directly from the owning inactive tab's render-cache fragment even when optional SVG root metadata is absent. The matrix canvas is downsampled into a real preview bitmap before shared serialization, and stale "Preview simplified / Large dataset" placeholders are invalidated as soon as an owner-scoped Heatmap source is available.
++- Heavy Data-values Heatmaps now keep their full mixed canvas/SVG projection strictly owner-tab scoped. Same-component activation rebinds the exact tab root, controls, grid, layout, render state, and font store before any projection work; inactive previews retain their owner token and replace stale large-dataset placeholders with a real sampled bitmap. The existing normal label-font contract is unchanged, while only normalized huge matrices derive row/column fit from their actual cell dimensions. Live resize reuses the current canvas and SVG nodes without stretching text, then performs one owner-scoped redraw on release.
++- Heavy Data-values heatmaps now render only the matrix through a tab-owned canvas while retaining every SVG row/column label plus SVG dendrograms, titles, and legends. Their live scene uses bounded display geometry shared by the raster and every SVG overlay, preventing large logical row counts from displacing the color scale or dendrograms; preview-only sampling bounds unreadable thumbnail detail, and each dendrogram is emitted as one SVG path without losing branch geometry. During resize the existing mixed canvas/SVG scene scales with the resize box, then one release redraw regenerates both projections. PNG export uses complete matrix content, standard SVG export converts the matrix to compact fill-batched vector paths, rasterized SVG export embeds the exact matrix bitmap, and clipboard generation is deferred until after the browser clipboard write begins so heavy copies retain user activation.
++- Font-control diagnostic traces now honor the canonical debug gate, preventing per-label console work from becoming a large-Heatmap rendering cost when ordinary debug logging is disabled.
++- Structural graph/view changes now use one owner-scoped overlay request across components. The overlay appears before heavy Box, Heatmap, Scatter, Histogram, Line, PCA, Pie, Surface, and Venn redraws without forcing reusable analysis geometry to be recomputed.
++- Stop/retry is now owner-tab scoped across every graph component. Long Box, Line, ROC, Histogram, Surface, Pie, Survival, and Venn draws yield cooperatively; PCA, Heatmap, Scatter, and Box workers inherit the same cancellation signal and terminate without restarting synchronous fallback work.
++- Shared table analysis now reads ordinary owner data directly while preserving formulas and exclusions, avoiding repeated per-cell display projection during large graph draws.
++- Large Data-values heatmaps now keep exact clustering cancellable in an owner-scoped worker, reuse the canonical render model without repeated deep clones, build unchanged SVG geometry off-DOM, and preserve visible dendrogram height and stroke thickness at every dataset size.
++- Retrying a stopped graph draw now preserves one owner-scoped overlay controller, restores the wheel before work resumes, and clears it when the new draw settles; stale replaced handles cannot orphan the overlay. Scatter imports request the wheel before parsing instead of waiting for the populated-table threshold.
++- Full-table imports now run as one owner-scoped transaction: canonical grid/session state commits once, intermediate graph requests are suppressed, AG Grid receives two paint frames, and only the still-active owner receives the final graph projection. Import renames and inactive completion remain owner-safe.
++- Large PCA import and recovery coverage now verifies 75,440-row grid-first latency, final graph parity, canonical recovery parity, one final projection, stale-owner rejection, and same-component tab isolation.
++- Large AG Grid dataset loads no longer rebuild the formula engine for plain data; formula evaluation now stays dormant until a formula is imported or entered.
++- PCA point-label toggles now update only tab-owned label metadata, color schemes recolor semantic SVG paint targets in place without exposing axis hit areas, dark themes cover frames, ticks, and label leaders, and 3D rotation reuses cached analysis while leaving unchanged statistics mounted.
++- Owner-tab table edits and color-scheme changes now use structural payload updates, avoiding full large-matrix clones and redundant single-view DataViews serialization.
++- AG Grid full-table selection now shows a continuous top border after Ctrl+A and during copy/cut.
++- AG Grid paste now preserves Excel/LibreOffice table structure, converts decimal commas to dots, and still splits plain comma-delimited CSV text into columns.
++- Lock ratio is now geometry-neutral when toggled and preserves rendered x/y axis lengths across Cartesian components, including UpSet and Pie Stacked bar. ROC no longer forces a square plot. The current SVG viewport now enforces the ratio during the canonical render, including staged SVGs, with no delayed box-correction redraws. Heatmap Data values separately preserves its visible matrix ratio without axis semantics. Ratio geometry remains tab-owned and survives `.graph` reopen.
++- Lock/unlock transitions now preserve the renderer's exact style baseline, and clicking a resize handle without moving it no longer starts a resize or redraws the graph.
++- Component resize phases now have one draw-request owner; component-specific resize callbacks replace the former duplicate generic schedule.
++- AG Grid selection outlines that include a pinned top row now scroll beneath the vertical scrollbar like normal-row selections.
++- AG Grid’s top-right scrollbar gutter now matches the bottom scrollbar spacer instead of leaving an empty corner.
++- Box adaptive pairwise whiskers now use a stable shared stack anchor and each endpoint's actual lower obstacles, so partial sets fill unobstructed gaps without stretching obstructed whiskers.
++- Box significance asterisks are optically centered against regular `ns` labels; bracket clearance now uses visible ink bounds instead of SVG font boxes.
++- Box significance labels now sit 50% closer to their corresponding bracket line in both graph orientations.
++- Box significance stacks now keep about 13 px above labels, retaining compact levels while preventing label-clamped adaptive whiskers from becoming too short.
++- Box significance stacks now start 13 px from the rendered data envelope, shifting the full annotation block closer to points without touching them.
++- Box plot frames now expand around rendered significance lines and labels, including flipped-axis layouts.
++- Box flipped adaptive significance levels now use each preceding bracket's rendered position, keeping P-value whiskers correctly shortened after wide labels shift the stack.
++- Component-tab table imports now open the shared preview/options wizard immediately, with the current tab’s graph type fixed and import settings captured reliably before asynchronous parsing.
++- UpSet resizing now uses tab-owned render data, atomic live frames, a coordinated two-panel layout, and collision-aware narrow-width labels, eliminating transient jumps and overlap between set names and matrix dots.
++- UpSet now defaults to an unlocked ratio while preserving a user-selected ratio lock across mode changes, tabs, and archive reopen.
++- Hiding graph or axis titles now preserves the user-set graph geometry and proportions across all graph types; Heatmap no longer shifts, clips column labels, or shrinks text after tab return.
++- Inline title editing now keeps renderer-replaced text projections hidden, preventing Heatmap’s unchanged title from appearing behind the editor.
++- Removed unreleased `.session` file support and its obsolete multi-tab JSON loader; the welcome importer no longer advertises JSON workspace files.
++- Removed unused production dependency `puppeteer-core` to eliminate critical transitive vulnerability path.
++- Removed obsolete generated output, duplicate/unused Prism fixtures, scratch debug files, redundant desktop icon output, and the placeholder adder test/module.
++
++- Fixed SVG copy/download fidelity after ungrouping in Inkscape: export-time relative text offsets are resolved to user units, and round-cap zero-dash dotted lines are materialized as vector dots while retaining the top-level export group.
++
++- Added per-axis **Major Tick Length** controls to every 2D component that exposes clickable X/Y axes (Box, Scatter, Line, PCA, ROC, Histogram, Survival, Pie stacked bars, and Venn UpSet). Values are owned by each tab's component session, persisted in `.graph` payloads, restored on reopen, and applied independently to X- and Y-axis tick geometry and label spacing.
++- Major Tick Length editors now display the renderer's current nonzero default when no custom value is stored, so native up/down steppers begin from that default instead of zero while the underlying tab-owned state remains unset until the user changes it.
++- Axis length controls now use a minimal top bracket around the section title, visually grouping the length value, unit, and preserve-ratio control without adding a full box.
++- Axis length toolbar brackets now use square corners and terminate exactly at the compound control row edges, with no extra horizontal overhang.
++
++- Axis-toolbar Number format dropdowns now use the canonical 26 px control height and border-box sizing, matching and vertically aligning with Thickness and adjacent action controls.
+diff -ruN '--exclude=node_modules' '--exclude=test-results' '--exclude=playwright-report' '--exclude=artifacts' graphitix_base/__tests__/componentLayout.zoomBehavior.test.js graphitix_work/__tests__/componentLayout.zoomBehavior.test.js
+--- graphitix_base/__tests__/componentLayout.zoomBehavior.test.js	2026-07-24 00:29:14.000000000 +0000
++++ graphitix_work/__tests__/componentLayout.zoomBehavior.test.js	2026-07-30 03:34:04.423233727 +0000
+@@ -329,3 +329,74 @@
+     expect(frame.constrained).toBe(true);
+   });
+ });
++
++describe('componentLayout observer scheduling contract', () => {
++  test('observer sync does not redraw when panel geometry did not change', () => {
++    jest.resetModules();
++    document.body.innerHTML = `
++      <div id="rocTablePanel"></div>
++      <div id="rocGraphPanel"><div id="rocSvgBox"></div><div id="rocConfigPanel"></div></div>
++    `;
++    let observerCallback = null;
++    window.ResizeObserver = class ResizeObserver {
++      constructor(callback){ observerCallback = callback; }
++      observe(){}
++      disconnect(){}
++    };
++    window.Shared = {
++      chartStyle: {
++        DEFAULT_WIDTH: 320,
++        DEFAULT_HEIGHT: 320,
++        RESIZE_MIN_SCALE: 0.3,
++        RESIZE_MAX_SCALE: 3,
++        DEFAULT_ASPECT_RATIO: 1,
++        DEFAULT_ASPECT_LOCKED: false,
++        isProportionalFontResizeEnabled: () => false,
++        registerProportionalFontResizeControl: () => {}
++      },
++      graphSizing: {
++        ensureCssVariables: () => {},
++        getSizing: () => ({ width: 320, height: 320, minWidth: 120, minHeight: 120, maxWidth: 1200, maxHeight: 1200, aspectRatio: 1, aspectLocked: false })
++      },
++      isDebugEnabled: () => false
++    };
++    let tableHeight = 400;
++    const table = document.getElementById('rocTablePanel');
++    table.getBoundingClientRect = () => ({ width: 240, height: tableHeight });
++    document.getElementById('rocGraphPanel').getBoundingClientRect = () => ({ width: 500, height: 500 });
++    document.getElementById('rocConfigPanel').getBoundingClientRect = () => ({ width: 300, height: 500 });
++    document.getElementById('rocSvgBox').getBoundingClientRect = () => ({ width: 320, height: 320 });
++
++    require('../js/shared/resizer.js');
++    require('../js/shared/componentLayout.js');
++
++    const scheduleDraw = jest.fn();
++    window.Shared.syncPanelWidths = jest.fn((tablePanel, graphPanel, configPanel, schedule, options) => {
++      if(options?.forceSchedule === true && typeof schedule === 'function'){
++        schedule();
++      }
++      return { layoutChanged: false };
++    });
++
++    window.Shared.componentLayout.createStandardPanels({
++      componentName: 'roc',
++      selectors: {
++        tablePanel: '#rocTablePanel',
++        graphPanel: '#rocGraphPanel',
++        configPanel: '#rocConfigPanel',
++        svgBox: '#rocSvgBox',
++        resizeTarget: '#rocSvgBox'
++      },
++      scheduleDraw
++    });
++
++    scheduleDraw.mockClear();
++    tableHeight = 900;
++    observerCallback();
++
++    expect(window.Shared.syncPanelWidths).toHaveBeenCalled();
++    const observerCall = window.Shared.syncPanelWidths.mock.calls.at(-1);
++    expect(observerCall[4]?.forceSchedule).toBe(false);
++    expect(scheduleDraw).not.toHaveBeenCalled();
++  });
++});
+diff -ruN '--exclude=node_modules' '--exclude=test-results' '--exclude=playwright-report' '--exclude=artifacts' graphitix_base/__tests__/stats.reporting.layout.test.js graphitix_work/__tests__/stats.reporting.layout.test.js
+--- graphitix_base/__tests__/stats.reporting.layout.test.js	2026-07-24 00:29:11.000000000 +0000
++++ graphitix_work/__tests__/stats.reporting.layout.test.js	2026-07-30 03:34:04.423233727 +0000
+@@ -181,3 +181,69 @@
+   });
+ 
+ });
++
++describe('Shared stats reporting disclosure persistence', () => {
++  beforeEach(() => {
++    jest.resetModules();
++    document.body.innerHTML = '';
++    global.Shared = {};
++    require('../js/shared/stats.js');
++  });
++
++  test('re-rendering a report preserves the open reporting and advanced disclosure state', () => {
++    const target = document.createElement('div');
++    document.body.appendChild(target);
++    const reporting = global.Shared.statsReporting;
++
++    reporting.appendReportPanel(target, {
++      methodsText: 'Initial methods.',
++      resultsText: 'Initial results.',
++      analysisSpec: { component: 'surface', rows: 4 }
++    }, { title: 'Reporting and reproducibility' });
++
++    const firstPanel = target.querySelector('.stats-report-panel');
++    const firstAdvanced = firstPanel.querySelector('.stats-report-panel__advanced');
++    firstPanel.open = true;
++    firstAdvanced.open = true;
++    firstPanel.dispatchEvent(new Event('toggle'));
++    firstAdvanced.dispatchEvent(new Event('toggle'));
++
++    reporting.appendReportPanel(target, {
++      methodsText: 'Updated methods.',
++      resultsText: 'Updated results.',
++      analysisSpec: { component: 'surface', rows: 8 }
++    }, { title: 'Reporting and reproducibility' });
++
++    const updatedPanel = target.querySelector('.stats-report-panel');
++    const updatedAdvanced = updatedPanel.querySelector('.stats-report-panel__advanced');
++    expect(updatedPanel.open).toBe(true);
++    expect(updatedAdvanced.open).toBe(true);
++    expect(updatedPanel.textContent).toContain('Updated methods.');
++  });
++
++  test('capture and restore retain reporting disclosure state', () => {
++    const target = document.createElement('div');
++    document.body.appendChild(target);
++    const reporting = global.Shared.statsReporting;
++
++    reporting.appendReportPanel(target, {
++      methodsText: 'Methods.',
++      resultsText: 'Results.',
++      analysisSpec: { component: 'surface' }
++    }, { title: 'Reporting and reproducibility' });
++
++    const panel = target.querySelector('.stats-report-panel');
++    const advanced = panel.querySelector('.stats-report-panel__advanced');
++    panel.open = true;
++    advanced.open = true;
++    panel.dispatchEvent(new Event('toggle'));
++    advanced.dispatchEvent(new Event('toggle'));
++
++    const saved = reporting.capturePanelModel(target);
++    target.textContent = '';
++    reporting.restorePanelModel(target, saved);
++
++    expect(target.querySelector('.stats-report-panel')?.open).toBe(true);
++    expect(target.querySelector('.stats-report-panel__advanced')?.open).toBe(true);
++  });
++});
+diff -ruN '--exclude=node_modules' '--exclude=test-results' '--exclude=playwright-report' '--exclude=artifacts' graphitix_base/e2e/component.small-viewport.layout-stability.spec.js graphitix_work/e2e/component.small-viewport.layout-stability.spec.js
+--- graphitix_base/e2e/component.small-viewport.layout-stability.spec.js	1970-01-01 00:00:00.000000000 +0000
++++ graphitix_work/e2e/component.small-viewport.layout-stability.spec.js	2026-07-30 03:35:37.867236795 +0000
+@@ -0,0 +1,61 @@
++const { test, expect } = require('@playwright/test');
++const {
++  installLocalCdnOverrides,
++  openComponentFromWelcome,
++  clickExampleButtonIfPresent,
++  registerIssueCollectors
++} = require('./helpers/workspaceHarness');
++
++test.describe('small viewport layout stability', () => {
++  test.use({ viewport: { width: 709, height: 923 } });
++
++  test('ROC settles after rendering instead of entering a ResizeObserver redraw loop', async ({ page }) => {
++    const issues = registerIssueCollectors(page);
++    await page.addInitScript(() => {
++      window.__rocDrawStarts = 0;
++      const originalDebug = console.debug.bind(console);
++      console.debug = (...args) => {
++        if(String(args[0] || '').includes('drawRoc start')){
++          window.__rocDrawStarts += 1;
++        }
++        originalDebug(...args);
++      };
++    });
++    await installLocalCdnOverrides(page);
++    await page.goto('/index.html');
++    await openComponentFromWelcome(page, { type: 'roc', pageId: 'rocPage' }, { first: true });
++    await clickExampleButtonIfPresent(page, 'rocLoadExample');
++    await page.waitForFunction(() => {
++      const svg = document.querySelector('#rocPage:not([hidden]) #rocSvg');
++      return !!svg && svg.querySelectorAll('path').length > 0;
++    });
++
++    await page.waitForTimeout(400);
++    const startCount = await page.evaluate(() => window.__rocDrawStarts || 0);
++    await page.waitForTimeout(1000);
++    const endCount = await page.evaluate(() => window.__rocDrawStarts || 0);
++
++    expect(endCount - startCount).toBeLessThanOrEqual(1);
++    await expect(page.locator('#rocPage:not([hidden]) #rocSvg')).toBeVisible();
++    expect(issues.critical).toEqual([]);
++  });
++
++  test('Surface reporting disclosure remains open after the layout reacts to its height change', async ({ page }) => {
++    const issues = registerIssueCollectors(page);
++    await installLocalCdnOverrides(page);
++    await page.goto('/index.html');
++    await openComponentFromWelcome(page, { type: 'surface', pageId: 'surfacePage' }, { first: true });
++    await clickExampleButtonIfPresent(page, 'surfaceLoadExample');
++    await page.waitForFunction(() => (
++      document.querySelectorAll('#surfacePage:not([hidden]) #surfaceSvg g.surface-faces polygon').length > 0
++    ));
++
++    const report = page.locator('#surfacePage:not([hidden]) #surfaceStatsSummary .stats-report-panel').first();
++    await expect(report).toBeVisible();
++    await report.locator(':scope > summary').click();
++    await expect(report).toHaveJSProperty('open', true);
++    await page.waitForTimeout(1000);
++    await expect(report).toHaveJSProperty('open', true);
++    expect(issues.critical).toEqual([]);
++  });
++});
+diff -ruN '--exclude=node_modules' '--exclude=test-results' '--exclude=playwright-report' '--exclude=artifacts' graphitix_base/js/shared/componentLayout.js graphitix_work/js/shared/componentLayout.js
+--- graphitix_base/js/shared/componentLayout.js	2026-07-29 17:24:51.000000000 +0000
++++ graphitix_work/js/shared/componentLayout.js	2026-07-30 03:33:02.971231709 +0000
+@@ -1224,7 +1224,7 @@
+         panelResizer: elements.panelResizer,
+         skipSchedule,
+         preserveGraphContent,
+-        forceSchedule: options.forceSchedule === true || options.source === 'observer'
++        forceSchedule: options.forceSchedule === true
+       });
+       let syncResult = null;
+       panelState.programmaticSyncDepth += 1;
+@@ -1298,7 +1298,7 @@
+         }
+         panelState.lastObservedTableSize = nextSize;
+         console.debug('Debug: componentLayout ResizeObserver triggered', { component: componentName, nextSize });
+-        syncPanels({ source: 'observer', forceSchedule: true });
++        syncPanels({ source: 'observer' });
+       });
+       panelState.lastObservedTableSize = readObservedSize(elements.tablePanel);
+       panelState.resizeObserver.observe(elements.tablePanel);
+diff -ruN '--exclude=node_modules' '--exclude=test-results' '--exclude=playwright-report' '--exclude=artifacts' graphitix_base/js/shared/stats.js graphitix_work/js/shared/stats.js
+--- graphitix_base/js/shared/stats.js	2026-07-28 14:00:13.000000000 +0000
++++ graphitix_work/js/shared/stats.js	2026-07-30 03:36:14.327237992 +0000
+@@ -1807,7 +1807,9 @@
+       resultsText: renderStatsReportTextParts(resultsParts, { scientific: DEFAULT_PVALUE_FORMAT_SCIENTIFIC }),
+       methodsParts,
+       resultsParts,
+-      analysisSpec: cloneStatsReportingValue(source.analysisSpec || options?.analysisSpecFallback || null)
++      analysisSpec: cloneStatsReportingValue(source.analysisSpec || options?.analysisSpecFallback || null),
++      open: source.open === true || options?.open === true,
++      advancedOpen: source.advancedOpen === true || options?.advancedOpen === true
+     };
+   }
+ 
+@@ -1816,7 +1818,20 @@
+     if(!target || !report || !documentRef || !documentRef.createElement){
+       return;
+     }
+-    const reportModel = normalizeReportModel(report, options || {});
++    const existingHost = resolveReportingHost(target);
++    const existingPanel = existingHost?.classList?.contains('stats-report-panel')
++      ? existingHost
++      : (existingHost?.querySelector?.('.stats-report-panel') || null);
++    const existingAdvanced = existingPanel?.querySelector?.(':scope > .stats-report-panel__advanced') || null;
++    const reportModel = normalizeReportModel({
++      ...(report && typeof report === 'object' ? report : {}),
++      open: Object.prototype.hasOwnProperty.call(report || {}, 'open')
++        ? report.open === true
++        : existingPanel?.open === true,
++      advancedOpen: Object.prototype.hasOwnProperty.call(report || {}, 'advancedOpen')
++        ? report.advancedOpen === true
++        : existingAdvanced?.open === true
++    }, options || {});
+     if(typeof reporting.clearReportHost === 'function' && options?.replaceExisting !== false){
+       reporting.clearReportHost(target);
+     }
+@@ -1837,6 +1852,7 @@
+     panel.className = 'stats-report-panel';
+     panel.dataset.statsReporting = '1';
+     panel.__statsReportModel = cloneStatsReportingValue(reportModel);
++    panel.open = reportModel.open === true;
+     const summary = documentRef.createElement('summary');
+     summary.textContent = reportModel.title;
+     panel.appendChild(summary);
+@@ -1866,6 +1882,7 @@
+     if(displaySpec){
+       const advanced = documentRef.createElement('details');
+       advanced.className = 'stats-report-panel__advanced';
++      advanced.open = reportModel.advancedOpen === true;
+       const advancedSummary = documentRef.createElement('summary');
+       advancedSummary.textContent = reportModel.specLabel;
+       advanced.appendChild(advancedSummary);
+@@ -1885,9 +1902,18 @@
+       console.debug('Debug: statsReporting.appendReportPanel',{ title: reportModel.title, hasMethods: !!reportModel.methodsText, hasResults: !!reportModel.resultsText, hasAnalysisSpec: !!displaySpec });
+     }
+     reportTarget.appendChild(panel);
+-    if(reportTarget && typeof reportTarget === 'object'){
+-      reportTarget.__statsReportModel = cloneStatsReportingValue(reportModel);
+-    }
++    const syncDisclosureState = () => {
++      reportModel.open = panel.open === true;
++      const advancedPanel = panel.querySelector?.(':scope > .stats-report-panel__advanced') || null;
++      reportModel.advancedOpen = advancedPanel?.open === true;
++      panel.__statsReportModel = cloneStatsReportingValue(reportModel);
++      if(reportTarget && typeof reportTarget === 'object'){
++        reportTarget.__statsReportModel = cloneStatsReportingValue(reportModel);
++      }
++    };
++    panel.addEventListener?.('toggle', syncDisclosureState);
++    panel.querySelector?.(':scope > .stats-report-panel__advanced')?.addEventListener?.('toggle', syncDisclosureState);
++    syncDisclosureState();
+     if(typeof reporting.pinReportHostLast === 'function'){
+       reporting.pinReportHostLast(target);
+     }
+@@ -2764,7 +2790,12 @@
+     }
+     const storedModel = panel.__statsReportModel;
+     if(storedModel && typeof storedModel === 'object'){
+-      return normalizeReportModel(storedModel, storedModel);
++      const advancedPanel = panel.querySelector?.(':scope > .stats-report-panel__advanced') || null;
++      return normalizeReportModel({
++        ...storedModel,
++        open: panel.open === true,
++        advancedOpen: advancedPanel?.open === true
++      }, storedModel);
+     }
+     if(!panel.classList?.contains('stats-report-panel')){
+       return null;
+@@ -2785,22 +2816,36 @@
+     if(!methodsText && !resultsText && !analysisSpec){
+       return null;
+     }
+-    return normalizeReportModel({ title, methodsText, resultsText, analysisSpec }, { title });
++    const advancedPanel = panel.querySelector?.(':scope > .stats-report-panel__advanced') || null;
++    return normalizeReportModel({
++      title,
++      methodsText,
++      resultsText,
++      analysisSpec,
++      open: panel.open === true,
++      advancedOpen: advancedPanel?.open === true
++    }, { title });
+   }
+ 
+   function captureReportModelFromHost(reportHost){
+     if(!reportHost || reportHost.nodeType !== 1){
+       return null;
+     }
+-    const storedModel = reportHost.__statsReportModel;
+-    if(storedModel && typeof storedModel === 'object'){
+-      return storedModel.kind === 'stats-report'
+-        ? normalizeReportModel(storedModel, storedModel)
+-        : normalizeStatsPanelModel(storedModel);
+-    }
+     const reportPanel = reportHost.classList?.contains('stats-report-panel')
+       ? reportHost
+       : (reportHost.querySelector?.('.stats-report-panel') || null);
++    const storedModel = reportHost.__statsReportModel;
++    if(storedModel && typeof storedModel === 'object'){
++      if(storedModel.kind === 'stats-report'){
++        const liveModel = reportPanel ? extractReportModelFromPanel(reportPanel) : null;
++        return normalizeReportModel({
++          ...storedModel,
++          open: liveModel?.open === true,
++          advancedOpen: liveModel?.advancedOpen === true
++        }, storedModel);
++      }
++      return normalizeStatsPanelModel(storedModel);
++    }
+     return extractReportModelFromPanel(reportPanel);
+   }
+ 

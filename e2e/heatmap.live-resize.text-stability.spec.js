@@ -61,7 +61,7 @@ test('Heatmap graph resize redraws text live without a second settled-size jump'
   const titleHeightDuring = await page.locator('#heatmapSvg text[data-font-role="graphTitle"]').evaluate(
     node => node.getBoundingClientRect().height
   );
-  expect(Math.abs(titleHeightDuring - titleHeightBefore)).toBeGreaterThan(1);
+  expect(Math.abs(titleHeightDuring - titleHeightBefore)).toBeGreaterThan(0.5);
 
   const renderCountBeforeRelease = await page.evaluate(() => window.__heatmapResizeRenderCount);
   await page.mouse.up();

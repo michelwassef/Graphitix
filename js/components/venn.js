@@ -7944,6 +7944,7 @@
   function buildUpSetSetsFromColumns(columns, caseSensitive, style) {
     const palette = getUpSetPalette();
     return (columns || []).map((column, idx) => {
+      const sourceIndex = Number.isFinite(column?.index) ? column.index : idx;
       const values = Array.isArray(column?.values) ? column.values : [];
       const uniqueKeys = new Set();
       const keyToDisplay = new Map();
@@ -7959,21 +7960,21 @@
         }
       });
       let color = '#666666';
-      if (idx === 0 && style.colorA) color = style.colorA;
-      else if (idx === 1 && style.colorB) color = style.colorB;
-      else if (idx === 2 && style.colorC) color = style.colorC;
+      if (sourceIndex === 0 && style.colorA) color = style.colorA;
+      else if (sourceIndex === 1 && style.colorB) color = style.colorB;
+      else if (sourceIndex === 2 && style.colorC) color = style.colorC;
       else if (palette.length) {
-        const paletteIndex = idx >= 3 ? (idx - 3) : idx;
+        const paletteIndex = sourceIndex >= 3 ? (sourceIndex - 3) : sourceIndex;
         color = palette[paletteIndex % palette.length];
       }
       return {
-        key: indexToSetKey(idx),
+        key: indexToSetKey(sourceIndex),
         label: column?.label || `Set ${idx + 1}`,
         size: uniqueKeys.size,
         color,
         keys: uniqueKeys,
         keyToDisplay,
-        sourceIndex: Number.isFinite(column?.index) ? column.index : idx
+        sourceIndex
       };
     });
   }
@@ -11252,6 +11253,8 @@
     resolveDrawableFrame: targetEl => resolveVennDrawableFrame(targetEl),
     populateRegion,
     clearAnalysis,
+    getUpSetTableColumns,
+    resolveUpSetTableData,
     getSession: tabId => getVennSession(tabId, { tabId, reason: 'test-get-session' }, { create: false }),
     scheduleDrawForSession: (session, options) => scheduleVennDrawForSession(session, options),
     captureRuntimeState: meta => venn.captureRuntimeState(meta),

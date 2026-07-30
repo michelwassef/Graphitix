@@ -83,13 +83,18 @@ async function snapshotRoc(page) {
     const root = document.querySelector('#rocPage:not([hidden])');
     const payload = window.Components?.roc?.getPayload?.() || null;
     const selects = Array.from(root?.querySelectorAll?.('#rocStatsControls select') || []);
+    const compareLabel = Array.from(root?.querySelectorAll?.('#rocStatsControls label') || [])
+      .find(label => String(label.textContent || '').trim() === 'Compare:') || null;
+    const compareSelect = compareLabel?.nextElementSibling?.tagName === 'SELECT'
+      ? compareLabel.nextElementSibling
+      : null;
     const checked = root?.querySelector?.('#rocStatsAdvisor input[name="roc-advisor-methodChoice"]:checked') || null;
     return {
       tabId: active?.id || null,
       graphType: root?.querySelector?.('#rocGraphType')?.value || null,
       payloadGraphType: payload?.config?.graphType || null,
       diffMethod: selects[0]?.value || null,
-      compareSelection: selects[1]?.value || null,
+      compareSelection: compareSelect?.value || null,
       payloadDiffMethod: payload?.stats?.diffMethod || null,
       payloadCompareSelection: payload?.stats?.compareSelection || null,
       payloadCompareText: payload?.stats?.compareResult?.displayText || '',

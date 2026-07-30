@@ -102,8 +102,8 @@ async function captureRocStatsPersistenceState(page) {
       graphType: payload.config?.graphType || null,
       analysisSignature: stats.analysisSignature || '',
       statsPanelSignature: stats.statsPanelSignature || '',
-      resultsModel: stats.resultsModel || null,
-      reportModel: stats.reportModel || null
+      analysisSpec: stats.reportModel?.analysisSpec || null,
+      resultsText: String(stats.reportModel?.resultsText || '').toLowerCase().replace(/\s+/g, ' ').trim()
     }));
   });
 }

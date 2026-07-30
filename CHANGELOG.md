@@ -1,3 +1,9 @@
+## 2026-07-30 — Small-viewport layout stability
+
+- Stopped `ResizeObserver` panel synchronization from forcing graph redraws when shared panel geometry did not change, eliminating the ROC redraw loop and page blinking on narrow/mobile viewports.
+- Preserved reporting-panel and nested technical-record disclosure state across statistics re-render, tab capture, and restore, so Surface reporting sections no longer close after opening on constrained screens.
+- Added shared unit coverage and a Chromium small-viewport regression for ROC settling and Surface disclosure stability.
+
 ## 2026-07-29 — Atomic graph publication
 
 - Line, Histogram, ROC, Survival, Pie, and stacked-bar now build replacement SVG frames invisibly, finalize their viewport, and swap them into view in one step.

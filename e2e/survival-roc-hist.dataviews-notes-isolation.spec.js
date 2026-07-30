@@ -107,6 +107,7 @@ async function configureComponentTab(page, component, variant) {
     const editor = details?.querySelector?.('[data-notes-editor="1"], textarea') || null;
     if (details && editor) {
       details.open = true;
+      details.dispatchEvent(new Event('toggle'));
       if ('value' in editor) {
         editor.value = variant.noteText;
       } else {

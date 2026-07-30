@@ -4028,7 +4028,7 @@
     // If already has a single top-level <g> that holds all drawable nodes, skip.
     const topGroups = Array.from(svgEl.children).filter(n => n.tagName && n.tagName.toLowerCase() === 'g');
     const nonMeta = Array.from(svgEl.children).filter(n => !/^(defs|title|desc)$/i.test(n.tagName || ''));
-    if (topGroups.length === 1 && topGroups[0] === nonMeta[0]) {
+    if (topGroups.length === 1 && nonMeta.length === 1 && topGroups[0] === nonMeta[0]) {
       logDebug('groupNodeForPaste skipped existing top-level group', { moved: 0 });
       return { grouped: false, moved: 0 };
     }

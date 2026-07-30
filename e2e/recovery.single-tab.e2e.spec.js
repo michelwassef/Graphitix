@@ -1,15 +1,10 @@
 // End-to-end + timing regression for the user-reported flow: open a single component tab,
-// import data, do NOT switch tabs, then close+reopen WITHOUT saving shortly after -> the app
+// import data, do NOT switch tabs, then close+reopen WITHOUT saving after the scheduled
+// recovery checkpoint -> the app
 // must offer to restore recovered changes.
 //
-// The bug: the recovery snapshot is written on a per-change debounce that restarts on every
-// change. Importing data triggers a burst of internal "dirty" events (redraws/stats settling)
-// over a few seconds, so the timer kept sliding and the snapshot wasn't written yet if you
-// reloaded in the first 1-2 seconds. documentState now bounds that wait (RECOVERY_MAX_WAIT_MS)
-// so a snapshot is always written within ~1s of data appearing, regardless of churn.
-//
-// This reloads ~1.5s after import (a realistic "quick close") and asserts recovery is offered,
-// for every table-backed component.
+// The recovery writer uses a 2.5-second trailing debounce and a 10-second maximum deferral.
+// Wait for the observable completed checkpoint instead of sampling an obsolete fixed delay.
 
 const { test, expect } = require('@playwright/test');
 const {
@@ -26,7 +21,7 @@ const EXAMPLE_BUTTONS = {
 };
 
 for (const type of ['box', 'scatter', 'hist', 'heatmap', 'line']) {
-  test(`reload shortly after import offers recovery: ${type}`, async ({ page }) => {
+  test(`reload after the scheduled checkpoint offers recovery: ${type}`, async ({ page }) => {
     test.setTimeout(90_000);
     await installLocalCdnOverrides(page);
 
@@ -45,11 +40,14 @@ for (const type of ['box', 'scatter', 'hist', 'heatmap', 'line']) {
     await page.waitForSelector(`#${PAGE_IDS[type]}:not([hidden])`, { timeout: 30_000 });
     await clickExampleButtonIfPresent(page, EXAMPLE_BUTTONS[type]);
 
-    // Close+reopen ~1.5s after import — within the window that used to lose the snapshot.
-    await page.waitForTimeout(1500);
+    await page.waitForFunction(() => {
+      const performance = window.Main?.documentState?.getRecoveryPerformance?.();
+      const revision = Number(window.Main?.session?.workspaceState?.sessionRevision) || 0;
+      return Number(performance?.revision) >= revision && revision > 0;
+    }, null, { timeout: 15_000 });
     await page.reload({ waitUntil: 'domcontentloaded' });
     await page.waitForTimeout(2500);
 
-    expect(recoveryOffered, `${type}: reloading ~1.5s after import should offer to restore recovered changes`).toBe(true);
+    expect(recoveryOffered, `${type}: completed recovery checkpoint should be offered after reload`).toBe(true);
   });
 }

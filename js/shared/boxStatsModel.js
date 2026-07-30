@@ -762,11 +762,11 @@
     },
     tamhaneT2: {
       value: 'tamhaneT2',
-      label: 'Welch pairwise + Sidak',
-      shortLabel: 'Welch + Sidak',
-      tooltip: 'Unequal-variance post-hoc based on Welch t tests with Sidak family-wise adjustment (unpaired, >=3 groups).',
+      label: 'Tamhane T2 (Welch + Sidak)',
+      shortLabel: 'Tamhane T2',
+      tooltip: 'Tamhane T2 unequal-variance post-hoc based on Welch t tests with Sidak family-wise adjustment (unpaired, >=3 groups).',
       applies: context => context && context.mode !== 'custom' && context.test === 'parametric' && !context.paired && context.groupCount >= 3 && (isWelchStyleParametricVariant(context.variant) || context.varianceConcern === true),
-      summary: context => `Welch pairwise comparisons with Sidak family-wise adjustment across ${context?.groupCount || 0} groups.`
+      summary: context => `Tamhane T2 Welch pairwise comparisons with Sidak family-wise adjustment across ${context?.groupCount || 0} groups.`
     },
     dunn: {
       value: 'dunn',
@@ -782,7 +782,7 @@
       shortLabel: 'Friedman post-hoc',
       tooltip: 'Pairwise comparisons of mean ranks after Friedman; calibration is exact/Monte Carlo max-statistic permutation when selected, otherwise the Nemenyi studentized-range approximation.',
       applies: context => context && context.mode !== 'custom' && context.test === 'nonparametric' && context.paired && context.groupCount >= 3,
-      summary: context => `Pairwise mean-rank comparisons across ${context?.groupCount || 0} paired groups after Friedman.`
+      summary: context => `Nemenyi pairwise mean-rank comparisons across ${context?.groupCount || 0} paired groups after Friedman.`
     },
     dunnett: {
       value: 'dunnett',

@@ -329,3 +329,74 @@ describe('componentLayout zoom behavior contract', () => {
     expect(frame.constrained).toBe(true);
   });
 });
+
+describe('componentLayout observer scheduling contract', () => {
+  test('observer sync does not redraw when panel geometry did not change', () => {
+    jest.resetModules();
+    document.body.innerHTML = `
+      <div id="rocTablePanel"></div>
+      <div id="rocGraphPanel"><div id="rocSvgBox"></div><div id="rocConfigPanel"></div></div>
+    `;
+    let observerCallback = null;
+    window.ResizeObserver = class ResizeObserver {
+      constructor(callback){ observerCallback = callback; }
+      observe(){}
+      disconnect(){}
+    };
+    window.Shared = {
+      chartStyle: {
+        DEFAULT_WIDTH: 320,
+        DEFAULT_HEIGHT: 320,
+        RESIZE_MIN_SCALE: 0.3,
+        RESIZE_MAX_SCALE: 3,
+        DEFAULT_ASPECT_RATIO: 1,
+        DEFAULT_ASPECT_LOCKED: false,
+        isProportionalFontResizeEnabled: () => false,
+        registerProportionalFontResizeControl: () => {}
+      },
+      graphSizing: {
+        ensureCssVariables: () => {},
+        getSizing: () => ({ width: 320, height: 320, minWidth: 120, minHeight: 120, maxWidth: 1200, maxHeight: 1200, aspectRatio: 1, aspectLocked: false })
+      },
+      isDebugEnabled: () => false
+    };
+    let tableHeight = 400;
+    const table = document.getElementById('rocTablePanel');
+    table.getBoundingClientRect = () => ({ width: 240, height: tableHeight });
+    document.getElementById('rocGraphPanel').getBoundingClientRect = () => ({ width: 500, height: 500 });
+    document.getElementById('rocConfigPanel').getBoundingClientRect = () => ({ width: 300, height: 500 });
+    document.getElementById('rocSvgBox').getBoundingClientRect = () => ({ width: 320, height: 320 });
+
+    require('../js/shared/resizer.js');
+    require('../js/shared/componentLayout.js');
+
+    const scheduleDraw = jest.fn();
+    window.Shared.syncPanelWidths = jest.fn((tablePanel, graphPanel, configPanel, schedule, options) => {
+      if(options?.forceSchedule === true && typeof schedule === 'function'){
+        schedule();
+      }
+      return { layoutChanged: false };
+    });
+
+    window.Shared.componentLayout.createStandardPanels({
+      componentName: 'roc',
+      selectors: {
+        tablePanel: '#rocTablePanel',
+        graphPanel: '#rocGraphPanel',
+        configPanel: '#rocConfigPanel',
+        svgBox: '#rocSvgBox',
+        resizeTarget: '#rocSvgBox'
+      },
+      scheduleDraw
+    });
+
+    scheduleDraw.mockClear();
+    tableHeight = 900;
+    observerCallback();
+
+    expect(window.Shared.syncPanelWidths).toHaveBeenCalled();
+    const observerCall = window.Shared.syncPanelWidths.mock.calls.at(-1);
+    expect(observerCall[4]?.forceSchedule).toBe(false);
+    expect(scheduleDraw).not.toHaveBeenCalled();
+  });
+});

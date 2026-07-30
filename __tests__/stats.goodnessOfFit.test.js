@@ -31,13 +31,10 @@ describe('Shared.stats.goodnessOfFit', () => {
     expect(gofUniform.ad.pValue).toBeLessThan(0.5);
   });
 
-  it('handles log-normal fits when the raw data includes zeros', () => {
+  it('rejects log-normal fits when the raw data includes zeros', () => {
     const sample = [0, 0.4, 0.9, 1.6, 2.5, 3.8, 5.1];
     const fit = stats.fitDistribution(sample, { distribution: 'lognormal' });
-    expect(fit.valid).toBe(true);
-    const gof = stats.goodnessOfFit(sample, { distribution: 'lognormal', fit, alpha: 0.1 });
-    expect(gof).toBeTruthy();
-    expect(gof.ks.pValue).toBeGreaterThan(0);
-    expect(gof.ad.pValue).toBeGreaterThanOrEqual(0);
+    expect(fit.valid).toBe(false);
+    expect(fit.message).toMatch(/all observations to be positive/i);
   });
 });

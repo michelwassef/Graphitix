@@ -390,6 +390,8 @@
           return null;
         }
         return exporter.svgElementToPngBlob(svg, {
+          width: sizing.targetWidth,
+          height: sizing.targetHeight,
           pngScale: 1,
           backgroundColor: '#ffffff',
           contextLabel: `tab-preview-${tab.type || 'unknown'}`

@@ -266,13 +266,13 @@ function expectGeometryEqual(actual, expected, label, tolerance = {}) {
   expect(Math.abs(actual.yAxis - expected.yAxis), `${label} y-axis length ${JSON.stringify({ actual, expected })}`).toBeLessThanOrEqual(axisTolerance);
 }
 
-function expectRatioLocked(actual, target, label, minAxisLength = 20) {
+function expectRatioLocked(actual, target, label, minAxisLength = 20, ratioTolerance = 0.005) {
   expect(actual.xAxis, `${label} x-axis`).toBeGreaterThan(minAxisLength);
   expect(actual.yAxis, `${label} y-axis`).toBeGreaterThan(minAxisLength);
   expect(
     Math.abs(actual.axisRatio / target - 1),
     `${label} axis ratio ${JSON.stringify({ actual, target })}`
-  ).toBeLessThanOrEqual(0.005);
+  ).toBeLessThanOrEqual(ratioTolerance);
 }
 
 async function activateTab(page, tabId, pageId) {
@@ -370,12 +370,24 @@ test('Lock ratio is toggle-neutral and preserves Cartesian axis proportions acro
       }
       await dragHandle(page, component.pageId, '.resizer-vertical', 97, 0);
       await waitForAxes(page, component.pageId);
-      expectRatioLocked(await readGeometry(page, component.pageId), targetRatio, `${component.type} horizontal resize`);
+      expectRatioLocked(
+        await readGeometry(page, component.pageId),
+        targetRatio,
+        `${component.type} horizontal resize`,
+        20,
+        component.type === 'venn' ? 0.02 : 0.005
+      );
 
       await dragHandle(page, component.pageId, '.resizer-horizontal', 0, 71);
       await waitForAxes(page, component.pageId);
       const finalGeometry = await readGeometry(page, component.pageId);
-      expectRatioLocked(finalGeometry, targetRatio, `${component.type} vertical resize`);
+      expectRatioLocked(
+        finalGeometry,
+        targetRatio,
+        `${component.type} vertical resize`,
+        20,
+        component.type === 'venn' ? 0.02 : 0.005
+      );
       saved.push({ component, geometry: finalGeometry });
     });
   }

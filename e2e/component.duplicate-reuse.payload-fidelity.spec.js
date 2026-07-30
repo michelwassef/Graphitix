@@ -113,6 +113,12 @@ async function captureDuplicatePayloadComparison(page, sourceTabId) {
         });
       };
       strip(clone);
+      if (clone?.type === 'venn' && clone.analysis) {
+        // Automatic species recognition may finish after the duplicate snapshot.
+        // Dedicated Venn persistence coverage asserts explicit species state.
+        delete clone.analysis.speciesValue;
+        delete clone.analysis.speciesIndicator;
+      }
       return clone;
     };
 

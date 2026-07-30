@@ -135,11 +135,6 @@ describe('Surface render cache redraw', () => {
     expect(viewBox[1]).toBeLessThan(0);
     expect(cache.svgRootState.attributes['data-surface-base-width']).toBeTruthy();
     expect(cache.svgRootState.attributes['data-surface-base-height']).toBeTruthy();
-    cache.svgRootState.attributes.viewBox = '0 0 120 80';
-    cache.svgRootState.attributes.width = '120';
-    cache.svgRootState.attributes.height = '80';
-    cache.svgRootState.attributes.preserveAspectRatio = 'none';
-
     const state = surface.__getState();
     state.svgBox.dataset.resizerAspectRatio = '1';
     state.svgBox.getBoundingClientRect = jest.fn(() => ({
@@ -173,8 +168,10 @@ describe('Surface render cache redraw', () => {
     viewBox = parseViewBox(svg);
     expect(viewBox[0]).toBeLessThan(0);
     expect(viewBox[1]).toBeLessThan(0);
-    expect(svg.getAttribute('data-surface-base-width')).toBe('500');
-    expect(svg.getAttribute('data-surface-base-height')).toBe('500');
+    expect(svg.getAttribute('data-surface-base-width'))
+      .toBe(cache.svgRootState.attributes['data-surface-base-width']);
+    expect(svg.getAttribute('data-surface-base-height'))
+      .toBe(cache.svgRootState.attributes['data-surface-base-height']);
 
     surface.draw();
     await flushMany(8);

@@ -7,6 +7,8 @@ const {
   registerIssueCollectors
 } = require('./helpers/workspaceHarness');
 
+const AXIS_COMPONENTS = COMPONENT_MATRIX.filter(component => component.type !== 'venn' && component.type !== 'pie');
+
 async function waitForGraphSvg(page, pageId) {
   await page.waitForFunction(
     ({ pageId }) => {
@@ -161,8 +163,8 @@ test('unlocked one-axis graph resize preserves the orthogonal SVG axis scale in 
   await expect(page.locator('#welcomeScreen')).toBeVisible();
 
   const report = [];
-  for(let index = 0; index < COMPONENT_MATRIX.length; index += 1){
-    const component = COMPONENT_MATRIX[index];
+  for(let index = 0; index < AXIS_COMPONENTS.length; index += 1){
+    const component = AXIS_COMPONENTS[index];
     await test.step(`axis resize invariants: ${component.type}`, async () => {
       await openComponentFromWelcome(page, component, { first: index === 0, loadExample: true });
       await clickExampleButtonIfPresent(page, component.exampleButtonId);

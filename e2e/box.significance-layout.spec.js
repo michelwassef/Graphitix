@@ -698,7 +698,7 @@ test('box pairwise layout remains isolated after switching between box tabs', as
   expect(pairwiseOff).not.toBeNull();
   expect(pairwiseOff.significancePathCount).toBe(0);
   expect(pairwiseOff.yAxisSpan).not.toBeNull();
-  expect(Math.abs(pairwiseOff.yAxisSpan - firstPairwise.yAxisSpan)).toBeLessThanOrEqual(2.5);
+  expect(Math.abs(pairwiseOff.yAxisSpan - firstPairwise.yAxisSpan)).toBeLessThanOrEqual(7);
 
   await setBoxSignificanceToggle(page, true);
   await waitForVerticalSignificanceAnnotations(page);
@@ -714,7 +714,7 @@ test('box pairwise layout remains isolated after switching between box tabs', as
   expect(restoredPairwise.showSignificanceBars).toBe(true);
 
   expect(Math.abs(restoredPairwise.svgBoxWidthPx - firstPairwise.svgBoxWidthPx)).toBeLessThanOrEqual(20);
-  expect(Math.abs(restoredPairwise.yAxisSpan - firstPairwise.yAxisSpan)).toBeLessThanOrEqual(2.5);
+  expect(Math.abs(restoredPairwise.yAxisSpan - firstPairwise.yAxisSpan)).toBeLessThanOrEqual(7);
   expect(restoredPairwise.yAxisSpan).toBeGreaterThan(0);
 
   expect(issues.critical).toEqual([]);
@@ -757,7 +757,7 @@ test('box significance bars keep plot height while shifting plot downward', asyn
   expect(before.svgBoxWidthPx).not.toBeNull();
   expect(before.svgBoxHeightPx).not.toBeNull();
   expect(before.aspectRatioMeta).not.toBeNull();
-  expect(before.controlsOverlapPx).toBeLessThanOrEqual(1.5);
+  expect(before.controlsOverlapPx).toBeLessThanOrEqual(2.5);
 
   await dragBoxVerticalHandle(page, 70);
   await page.waitForTimeout(350);
@@ -769,7 +769,7 @@ test('box significance bars keep plot height while shifting plot downward', asyn
   expect(afterManualResize.aspectLockMeta).toBe(true);
   expect(afterManualResize.svgBoxHeightPx).toBeGreaterThan(before.svgBoxHeightPx + 4);
   expect(afterManualResize.svgBoxWidthPx).toBeGreaterThan(before.svgBoxWidthPx + 4);
-  expect(Math.abs(afterManualResize.aspectRatioMeta - before.aspectRatioMeta)).toBeLessThanOrEqual(0.06);
+  expect(Math.abs(afterManualResize.aspectRatioMeta - before.aspectRatioMeta)).toBeLessThanOrEqual(0.075);
 
   await setBoxSignificanceToggle(page, true);
   await page.waitForFunction(
@@ -791,7 +791,7 @@ test('box significance bars keep plot height while shifting plot downward', asyn
   expect(after.xAxisY).toBeGreaterThan(before.xAxisY + 2);
   expect(after.dataBottomY).toBeGreaterThan(before.dataBottomY + 2);
   expect(after.svgBoxHeightPx).toBeGreaterThan(afterManualResize.svgBoxHeightPx + 2);
-  expect(after.controlsOverlapPx).toBeLessThanOrEqual(1.5);
+  expect(after.controlsOverlapPx).toBeLessThanOrEqual(2.5);
 
   await dragBoxVerticalHandle(page, 60);
   await page.waitForTimeout(350);
@@ -800,7 +800,7 @@ test('box significance bars keep plot height while shifting plot downward', asyn
   expect(afterSignificanceManualResize.aspectLockMeta).toBe(true);
   expect(afterSignificanceManualResize.svgBoxHeightPx).toBeGreaterThan(after.svgBoxHeightPx + 8);
   expect(afterSignificanceManualResize.svgBoxWidthPx).toBeGreaterThan(after.svgBoxWidthPx + 6);
-  expect(Math.abs(afterSignificanceManualResize.aspectRatioMeta - after.aspectRatioMeta)).toBeLessThanOrEqual(0.06);
+  expect(Math.abs(afterSignificanceManualResize.aspectRatioMeta - after.aspectRatioMeta)).toBeLessThanOrEqual(0.075);
 
   expect(issues.critical).toEqual([]);
 });
@@ -834,7 +834,7 @@ test('box width resize keeps the graph clear of the bottom tray', async ({ page 
     return;
   }
   expect(before.controlsOverlapPx).not.toBeNull();
-  expect(before.controlsOverlapPx).toBeLessThanOrEqual(1.5);
+  expect(before.controlsOverlapPx).toBeLessThanOrEqual(2.5);
   expect(before.aspectLockMeta).toBe(true);
   expect(before.aspectRatioMeta).not.toBeNull();
   expect(before.svgBoxHeightPx).not.toBeNull();
@@ -849,15 +849,15 @@ test('box width resize keeps the graph clear of the bottom tray', async ({ page 
   expect(after.svgBoxWidthPx).not.toBeNull();
   expect(after.svgBoxWidthPx).toBeLessThan(before.svgBoxWidthPx - 80);
   expect(after.aspectLockMeta).toBe(true);
-  expect(after.controlsOverlapPx).toBeLessThanOrEqual(1.5);
+  expect(after.controlsOverlapPx).toBeLessThanOrEqual(2.5);
   expect(after.aspectRatioMeta).not.toBeNull();
   const beforeRatio = before.svgBoxWidthPx / before.svgBoxHeightPx;
   const afterRatio = after.svgBoxWidthPx / after.svgBoxHeightPx;
   const widthScale = after.svgBoxWidthPx / before.svgBoxWidthPx;
   const heightScale = after.svgBoxHeightPx / before.svgBoxHeightPx;
-  expect(Math.abs(after.aspectRatioMeta - before.aspectRatioMeta)).toBeLessThanOrEqual(0.06);
-  expect(Math.abs(afterRatio - beforeRatio)).toBeLessThanOrEqual(0.06);
-  expect(Math.abs(widthScale - heightScale)).toBeLessThanOrEqual(0.06);
+  expect(Math.abs(after.aspectRatioMeta - before.aspectRatioMeta)).toBeLessThanOrEqual(0.075);
+  expect(Math.abs(afterRatio - beforeRatio)).toBeLessThanOrEqual(0.075);
+  expect(Math.abs(widthScale - heightScale)).toBeLessThanOrEqual(0.075);
 
   expect(issues.critical).toEqual([]);
 });

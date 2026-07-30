@@ -55,6 +55,7 @@ describe('Regression controls persistence', () => {
     require('../js/vendor.js');
     require('../js/shared/debounce.js');
     require('../js/shared/resizer.js');
+    require('../js/shared/dom.js');
     require('../js/shared/colorPicker.js');
     require('../js/shared/hot.js');
     require('../js/shared/chartStyle.js');

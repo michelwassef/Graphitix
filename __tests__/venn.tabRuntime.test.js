@@ -121,6 +121,7 @@ describe('Venn shared runtime isolation', () => {
     if (stateA.ui.speciesSelect) {
       stateA.ui.speciesSelect.value = 'hsapiens';
       stateA.ui.speciesSelect.style.backgroundColor = 'rgb(181, 217, 156)';
+      stateA.ui.speciesSelect.dispatchEvent(new window.Event('change', { bubbles: true }));
     }
 
     Main.tabs.handleAddTabClick();
@@ -148,6 +149,7 @@ describe('Venn shared runtime isolation', () => {
     if (stateB.ui.speciesSelect) {
       stateB.ui.speciesSelect.value = 'mmusculus';
       stateB.ui.speciesSelect.style.backgroundColor = 'rgb(242, 139, 130)';
+      stateB.ui.speciesSelect.dispatchEvent(new window.Event('change', { bubbles: true }));
     }
 
     await activateTabById(Main, tabA.id, 'test-venn-return-a');

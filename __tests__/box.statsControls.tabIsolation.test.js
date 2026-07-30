@@ -4,9 +4,7 @@ const { ensureJStatStub } = require('./helpers/jstatTestStub');
 async function flushAsyncWork(iterations = 10){
   for(let i = 0; i < iterations; i += 1){
     await Promise.resolve();
-    if(typeof jest.getTimerCount === 'function' && jest.getTimerCount() > 0){
-      jest.advanceTimersByTime(5);
-    }
+    await new Promise(resolve => setTimeout(resolve, 0));
     await Promise.resolve();
   }
 }
@@ -59,9 +57,7 @@ async function loadBoxExampleForActiveTab(iterations = 120){
 
 async function advanceAsyncTime(ms){
   const duration = Math.max(0, Number(ms) || 0);
-  await Promise.resolve();
-  jest.advanceTimersByTime(duration);
-  await Promise.resolve();
+  await new Promise(resolve => setTimeout(resolve, duration));
   await flushAsyncWork(2);
 }
 
@@ -107,17 +103,17 @@ function createSeedPayload(boxComponent){
   return payload;
 }
 
-function loadSeedPayloadForActiveTab(boxComponent, source){
+async function loadSeedPayloadForActiveTab(boxComponent, source){
   const activeTab = window.Main?.session?.getActiveTab?.() || null;
   expect(activeTab?.type).toBe('box');
   window.Shared?.workspaceTabs?.activateSession?.(activeTab, 'box', { reason: `${source}-activate-session` });
-  boxComponent.activateTab?.(activeTab, { reason: `${source}-activate-box-tab` });
-  boxComponent.loadFromPayload(createSeedPayload(boxComponent), {
+  await boxComponent.activateTab?.(activeTab, { reason: `${source}-activate-box-tab` });
+  await boxComponent.loadFromPayload(createSeedPayload(boxComponent), {
     source,
     tabId: activeTab.id,
     tab: activeTab
   });
-  boxComponent.draw?.({
+  await boxComponent.draw?.({
     tabId: activeTab.id,
     tab: activeTab,
     reason: `${source}-draw`,
@@ -177,7 +173,6 @@ describe('Box stats controls tab isolation with render cache', () => {
   let restoreJStat;
 
   beforeEach(() => {
-    jest.useFakeTimers();
     jest.resetModules();
     initializeWorkspaceHarness({ mode: 'full-app', resetNamespaces: true });
     restoreJStat = ensureJStatStub();
@@ -237,12 +232,6 @@ describe('Box stats controls tab isolation with render cache', () => {
   });
 
   afterEach(() => {
-    try{
-      if(typeof jest.getTimerCount === 'function' && jest.getTimerCount() > 0){
-        jest.runOnlyPendingTimers();
-      }
-    }catch(_err){}
-    jest.useRealTimers();
     if(restoreJStat){
       restoreJStat();
       restoreJStat = null;
@@ -261,7 +250,7 @@ describe('Box stats controls tab isolation with render cache', () => {
     expect(boxComponent).toBeTruthy();
     expect(main?.tabs).toBeTruthy();
 
-    loadSeedPayloadForActiveTab(boxComponent, 'test-seed-a');
+    await loadSeedPayloadForActiveTab(boxComponent, 'test-seed-a');
     await flushAsyncWork(20);
 
     const tabA = main.session.getActiveTab();
@@ -290,7 +279,7 @@ describe('Box stats controls tab isolation with render cache', () => {
     expect(tabB?.type).toBe('box');
     expect(tabB?.id).not.toBe(tabA?.id);
 
-    loadSeedPayloadForActiveTab(boxComponent, 'test-seed-b');
+    await loadSeedPayloadForActiveTab(boxComponent, 'test-seed-b');
     await flushAsyncWork(20);
 
     expect(boxComponent.__getState().statsTest).toBe('parametric');
@@ -341,7 +330,7 @@ describe('Box stats controls tab isolation with render cache', () => {
     expect(boxComponent).toBeTruthy();
     expect(main?.tabs).toBeTruthy();
 
-    loadSeedPayloadForActiveTab(boxComponent, 'test-stats-click-a');
+    await loadSeedPayloadForActiveTab(boxComponent, 'test-stats-click-a');
     await flushAsyncWork(25);
     const tabA = main.session.getActiveTab();
 
@@ -357,7 +346,7 @@ describe('Box stats controls tab isolation with render cache', () => {
       await flushAsyncWork(25);
     }
 
-    loadSeedPayloadForActiveTab(boxComponent, 'test-stats-click-b');
+    await loadSeedPayloadForActiveTab(boxComponent, 'test-stats-click-b');
     await flushAsyncWork(25);
     const tabB = main.session.getActiveTab();
     expect(tabB?.id).not.toBe(tabA?.id);
@@ -507,7 +496,7 @@ describe('Box stats controls tab isolation with render cache', () => {
     expect(boxComponent).toBeTruthy();
     expect(main?.tabs).toBeTruthy();
 
-    loadSeedPayloadForActiveTab(boxComponent, 'test-cache-owner-a');
+    await loadSeedPayloadForActiveTab(boxComponent, 'test-cache-owner-a');
     await flushAsyncWork(30);
     expect(await waitForBoxSvg()).toBeTruthy();
     const tabA = main.session.getActiveTab();
@@ -525,7 +514,7 @@ describe('Box stats controls tab isolation with render cache', () => {
       await flushAsyncWork(25);
     }
 
-    loadSeedPayloadForActiveTab(boxComponent, 'test-cache-owner-b');
+    await loadSeedPayloadForActiveTab(boxComponent, 'test-cache-owner-b');
     await flushAsyncWork(30);
     const tabB = main.session.getActiveTab();
     expect(tabB?.type).toBe('box');

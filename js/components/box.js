@@ -27967,8 +27967,10 @@ Technical analysis record (advanced)
       ? context.svg
       : resolveActiveBoxSvg(getActiveBoxWorkspaceTabId() || null);
     if(!contextSvg){
-      state.pendingAutoShowSignificance = false;
-      setStatsStatus('Graph is still initializing. Try again in a moment.');
+      requestBoxStatsComputeAfterContextReady('stats-compute-svg-missing', {
+        preservePendingAutoShow: true,
+        session: statsSession
+      });
       boxLog('Debug: box stats compute deferred (missing svg)', {
         tabId: getActiveBoxWorkspaceTabId() || null,
         reason: 'missing-svg-context'
@@ -28771,6 +28773,9 @@ Technical analysis record (advanced)
         return sideSlot.halfWidth;
       }
     });
+    if(!runtime){
+      return null;
+    }
     const categoricalLayout = runtime.categoricalLayout;
 
     const datasetGapPx = categoricalLayout.gapPx;
@@ -28782,6 +28787,9 @@ Technical analysis record (advanced)
 
 
 
+    if(!runtime){
+      return null;
+    }
     const valueAxis = runtime.valueAxis;
     const brokenAxisEnabled = valueAxis.brokenAxisEnabled;
     const brokenAxisSegments = valueAxis.brokenAxisSegments;

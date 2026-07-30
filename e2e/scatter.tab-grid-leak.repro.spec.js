@@ -10,9 +10,9 @@ async function activateTabById(page, tabId) {
   const tab = page.locator(`#workspaceTabsList .workspace-tab[data-tab-id="${tabId}"]`).first();
   await expect(tab).toBeVisible();
   await tab.click({ force: true });
-  await expect(tab).toHaveClass(/workspace-tab--active/);
+  await expect(tab).toHaveClass(/is-active/);
   await page.waitForFunction((expectedTabId) => {
-    const active = document.querySelector('#workspaceTabsList .workspace-tab.workspace-tab--active');
+    const active = document.querySelector('#workspaceTabsList .workspace-tab.is-active');
     if(String(active?.getAttribute('data-tab-id') || '') !== String(expectedTabId)){
       return false;
     }
@@ -73,13 +73,10 @@ test('scatter two-tab AG Grid mounts remain owner-scoped across tab switches', a
   await page.waitForFunction(() => !!document.querySelector('#scatterPlot svg'));
 
   const scatterTabIds = await page.evaluate(() =>
-    Array.from(document.querySelectorAll('#workspaceTabsList .workspace-tab[data-tab-id]'))
-      .map(tab => ({
-        id: String(tab.getAttribute('data-tab-id') || '').trim(),
-        title: String(tab.querySelector('.workspace-tab__title')?.textContent || '').trim()
-      }))
-      .filter(item => item.id && item.id !== 'welcome')
-      .map(item => item.id)
+    (window.Main?.session?.workspaceState?.tabs || [])
+      .filter(tab => tab?.type === 'scatter')
+      .map(tab => String(tab.id || ''))
+      .filter(Boolean)
   );
   expect(scatterTabIds.length).toBeGreaterThanOrEqual(2);
   const firstScatter = scatterTabIds[0];
@@ -88,7 +85,7 @@ test('scatter two-tab AG Grid mounts remain owner-scoped across tab switches', a
   const snapshots = [];
   const capture = async (label) => {
     const snap = await page.evaluate((stepLabel) => {
-      const activeTab = document.querySelector('#workspaceTabsList .workspace-tab.workspace-tab--active');
+      const activeTab = document.querySelector('#workspaceTabsList .workspace-tab.is-active');
       const activeTitle = activeTab?.querySelector('.workspace-tab__title')?.textContent?.trim() || null;
       const pageRoot = document.querySelector('#scatterPage:not([hidden])');
       const hot = pageRoot?.querySelector('#scatterHot') || null;

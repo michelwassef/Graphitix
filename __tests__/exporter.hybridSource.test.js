@@ -24,7 +24,7 @@ describe('exporter hybrid SVG source selection', () => {
     const downloadSelect = document.querySelector('.export-select-wrapper[data-action-key="download"] select');
     downloadSelect.value = 'svg-hybrid';
     downloadSelect.dispatchEvent(new Event('change', { bubbles: true }));
-    await Promise.resolve();
+    await new Promise(resolve => setTimeout(resolve, 0));
 
     expect(hybridGetter).toHaveBeenCalled();
   });

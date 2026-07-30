@@ -91,6 +91,7 @@ describe('Venn UpSet integration', () => {
     expect(plotType).toBeTruthy();
     plotType.value = 'upset';
     dispatchChange(plotType);
+    expect(plotType.value).toBe('upset');
     expect(document.getElementById('upsetConnectorColor')).toBeNull();
   });
 
@@ -186,8 +187,12 @@ describe('Venn UpSet integration', () => {
       ['GeneA', '', '', ''],
       ['', '', '', 'GeneD']
     ]);
+    expect(hot.countCols()).toBeGreaterThanOrEqual(4);
+    expect(hot.getSourceData()[0][3]).toBe('SetD');
+    expect(hooks.getUpSetTableColumns().columns.map(column => column.label)).toEqual(['SetA', 'SetD']);
     hooks.state.ui.syncInputsFromTable?.({ scheduleDraw: false, scheduleSpecies: false });
     venn.refreshDiagram();
+    expect((hooks.state.analysis.lastUpSetSets || []).map(set => set.key)).toEqual(['A', 'D']);
 
     const regionSelect = document.getElementById('regionSelect');
     const regionList = document.getElementById('regionList');

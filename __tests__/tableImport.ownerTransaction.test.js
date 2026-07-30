@@ -222,7 +222,7 @@ describe('tableImport owner projection transaction', () => {
       interruptionReason: 'table-paste-start'
     }));
     expect(tab.payload.data[1][1]).toBe('pasted');
-    expect(tab.userDirty).toBe(true);
+    expect(session.workspaceState.sessionUserDirty).toBe(true);
     expect(onCompleted).not.toHaveBeenCalled();
     expect(scheduleDraw).toHaveBeenCalledWith(expect.objectContaining({ reason: 'afterPaste' }));
     expect(window.Shared.hot.shouldDeferOwnerProjectionDraw(tab, { reason: 'afterPaste' })).toBe(false);

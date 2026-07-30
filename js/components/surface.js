@@ -2369,7 +2369,9 @@
   }
 
   function initHot(){
-    if(state.hot){ return state.hot; }
+    if(typeof state.ensureHotForActiveTab === 'function'){
+      return state.ensureHotForActiveTab();
+    }
     const baseData = typeof Shared.createEmptyData === 'function'
       ? Shared.createEmptyData(DEFAULT_ROWS, DEFAULT_COLS)
       : null;
@@ -3160,9 +3162,17 @@
             recordUndo: true,
             undoLabel: 'table:surface:example-load'
           });
+          Shared.hot?.syncOwnerTabPayloadFullData?.(state.hot.getData(), 'surface-example-load', {
+            hotInstance: state.hot,
+            source: 'example-load'
+          });
           debugLog('Debug: surface example dataset loaded', { rows: example.length });
           updateAxisOptions();
-          scheduleSurfaceDrawForHot(state.hot, { reason: 'surface-example-load' });
+          scheduleSurfaceDrawForHot(state.hot, {
+            force: true,
+            userInitiated: true,
+            reason: 'surface-example-load'
+          });
         }
       });
     }

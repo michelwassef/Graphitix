@@ -181,3 +181,69 @@ describe('Shared stats reporting layout', () => {
   });
 
 });
+
+describe('Shared stats reporting disclosure persistence', () => {
+  beforeEach(() => {
+    jest.resetModules();
+    document.body.innerHTML = '';
+    global.Shared = {};
+    require('../js/shared/stats.js');
+  });
+
+  test('re-rendering a report preserves the open reporting and advanced disclosure state', () => {
+    const target = document.createElement('div');
+    document.body.appendChild(target);
+    const reporting = global.Shared.statsReporting;
+
+    reporting.appendReportPanel(target, {
+      methodsText: 'Initial methods.',
+      resultsText: 'Initial results.',
+      analysisSpec: { component: 'surface', rows: 4 }
+    }, { title: 'Reporting and reproducibility' });
+
+    const firstPanel = target.querySelector('.stats-report-panel');
+    const firstAdvanced = firstPanel.querySelector('.stats-report-panel__advanced');
+    firstPanel.open = true;
+    firstAdvanced.open = true;
+    firstPanel.dispatchEvent(new Event('toggle'));
+    firstAdvanced.dispatchEvent(new Event('toggle'));
+
+    reporting.appendReportPanel(target, {
+      methodsText: 'Updated methods.',
+      resultsText: 'Updated results.',
+      analysisSpec: { component: 'surface', rows: 8 }
+    }, { title: 'Reporting and reproducibility' });
+
+    const updatedPanel = target.querySelector('.stats-report-panel');
+    const updatedAdvanced = updatedPanel.querySelector('.stats-report-panel__advanced');
+    expect(updatedPanel.open).toBe(true);
+    expect(updatedAdvanced.open).toBe(true);
+    expect(updatedPanel.textContent).toContain('Updated methods.');
+  });
+
+  test('capture and restore retain reporting disclosure state', () => {
+    const target = document.createElement('div');
+    document.body.appendChild(target);
+    const reporting = global.Shared.statsReporting;
+
+    reporting.appendReportPanel(target, {
+      methodsText: 'Methods.',
+      resultsText: 'Results.',
+      analysisSpec: { component: 'surface' }
+    }, { title: 'Reporting and reproducibility' });
+
+    const panel = target.querySelector('.stats-report-panel');
+    const advanced = panel.querySelector('.stats-report-panel__advanced');
+    panel.open = true;
+    advanced.open = true;
+    panel.dispatchEvent(new Event('toggle'));
+    advanced.dispatchEvent(new Event('toggle'));
+
+    const saved = reporting.capturePanelModel(target);
+    target.textContent = '';
+    reporting.restorePanelModel(target, saved);
+
+    expect(target.querySelector('.stats-report-panel')?.open).toBe(true);
+    expect(target.querySelector('.stats-report-panel__advanced')?.open).toBe(true);
+  });
+});

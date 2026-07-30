@@ -262,26 +262,27 @@ describe('Venn additional tab opening', () => {
       pending[kind].push({ request, resolve });
       return promise;
     };
-    window.Shared.goAnalysis = {
-      profile: options => defer('go', { genes: options.genes, organism: options.organism })
-    };
-    window.Shared.stringAnalysis = {
-      resolveSpeciesCode: (_org, fallback) => fallback || '9606',
-      fetchNetwork: options => defer('network', { genes: options.genes, species: options.species }),
-      fetchEnrichment: options => defer('enrichment', { genes: options.genes, species: options.species })
-    };
-
     const configure = async (tabId, label) => {
       await activateTabById(Main, tabId, `test-configure-${label}`);
-      const state = venn.__getState();
-      state.ui.inputs.labelA.value = label;
-      state.ui.inputs.A.value = `${label}_GENE_1\n${label}_GENE_2`;
-      state.ui.inputs.B.value = `${label}_GENE_1`;
-      state.ui.inputs.C.value = '';
-      state.ui.syncTableFromInputs?.({ refresh: true });
-      if (state.ui.speciesSelect) state.ui.speciesSelect.value = 'hsapiens';
-      state.analysis.lastDrawMode = 'lists';
-      venn.refreshDiagram();
+      const tab = Main.session.workspaceState.tabs.find(candidate => candidate.id === tabId);
+      const payload = venn.createEmptyPayload();
+      payload.data.labelA = label;
+      payload.data.listA = `${label}_GENE_1\n${label}_GENE_2`;
+      payload.data.listB = `${label}_GENE_1`;
+      payload.data.listC = '';
+      payload.analysis.speciesValue = 'hsapiens';
+      await venn.loadFromPayload(payload, {
+        tab,
+        tabId,
+        source: `test-configure-${label}`
+      });
+      await venn.draw({ tab, tabId, reason: `test-configure-${label}`, force: true });
+      await flush();
+    };
+    const projectOwner = async (tab, reason) => {
+      Main.session.workspaceState.activeTabId = tab.id;
+      window.Shared.workspaceTabs.activateSession(tab, 'venn', { reason });
+      venn.activateTab(tab, { tabId: tab.id, reason });
       await flush();
     };
 
@@ -292,13 +293,22 @@ describe('Venn additional tab opening', () => {
     const tabB = Main.tabs.getActiveTab();
     await configure(tabB.id, 'BETA');
 
-    await activateTabById(Main, tabA.id, 'test-go-string-alpha');
+    window.Shared.goAnalysis = {
+      profile: options => defer('go', { genes: options.genes, organism: options.organism })
+    };
+    window.Shared.stringAnalysis = {
+      resolveSpeciesCode: (_org, fallback) => fallback || '9606',
+      fetchNetwork: options => defer('network', { genes: options.genes, species: options.species }),
+      fetchEnrichment: options => defer('enrichment', { genes: options.genes, species: options.species })
+    };
+
+    await projectOwner(tabA, 'test-go-string-alpha');
     const runA = Promise.all([
       venn.runGOAnalysis(['ALPHA_GENE_1', 'ALPHA_GENE_2'], 'hsapiens'),
       venn.runStringAnalysis(['ALPHA_GENE_1', 'ALPHA_GENE_2'], 'hsapiens')
     ]);
     await flush();
-    await activateTabById(Main, tabB.id, 'test-go-string-beta');
+    await projectOwner(tabB, 'test-go-string-beta');
     const runB = Promise.all([
       venn.runGOAnalysis(['BETA_GENE_1', 'BETA_GENE_2'], 'hsapiens'),
       venn.runStringAnalysis(['BETA_GENE_1', 'BETA_GENE_2'], 'hsapiens')
@@ -306,9 +316,9 @@ describe('Venn additional tab opening', () => {
     await flush();
 
     const resolveByLabel = (kind, label, value) => {
-      const entry = pending[kind].find(item => item.request.genes.some(gene => String(gene).includes(label)));
-      expect(entry).toBeTruthy();
-      entry.resolve(value);
+      const entries = pending[kind].filter(item => item.request.genes.some(gene => String(gene).includes(label)));
+      expect(entries.length).toBeGreaterThan(0);
+      entries.forEach(entry => entry.resolve(value));
     };
     resolveByLabel('go', 'BETA', { result: [{ term_name: 'BETA GO term', p_value: 0.01 }] });
     resolveByLabel('network', 'BETA', { svg: '<svg><text>BETA STRING network</text></svg>' });
@@ -318,18 +328,24 @@ describe('Venn additional tab opening', () => {
     resolveByLabel('network', 'ALPHA', { svg: '<svg><text>ALPHA STRING network</text></svg>' });
     await flush();
     resolveByLabel('enrichment', 'ALPHA', { items: [{ termDescription: 'ALPHA STRING enrichment', fdr: 0.02 }] });
-    await runA;
-    await runB;
+    await Promise.race([
+      Promise.all([runA, runB]),
+      new Promise((_, reject) => setTimeout(() => reject(new Error(
+        `analysis did not settle: ${JSON.stringify(Object.fromEntries(
+          Object.entries(pending).map(([kind, entries]) => [kind, entries.length])
+        ))}`
+      )), 2000))
+    ]);
     await flush();
 
-    await activateTabById(Main, tabA.id, 'test-alpha-results');
+    await projectOwner(tabA, 'test-alpha-results');
     expect(venn.__getState().ui.goResults.textContent).toContain('ALPHA GO term');
     expect(venn.__getState().ui.goResults.textContent).not.toContain('BETA GO term');
     expect(venn.__getState().ui.stringResults.textContent).toContain('ALPHA STRING enrichment');
     expect(venn.__getState().ui.stringNetwork.textContent).toContain('ALPHA STRING network');
     expect(tabA.payload.analysis.goResult.map(item => item.term_name)).toContain('ALPHA GO term');
 
-    await activateTabById(Main, tabB.id, 'test-beta-results');
+    await projectOwner(tabB, 'test-beta-results');
     expect(venn.__getState().ui.goResults.textContent).toContain('BETA GO term');
     expect(venn.__getState().ui.goResults.textContent).not.toContain('ALPHA GO term');
     expect(venn.__getState().ui.stringResults.textContent).toContain('BETA STRING enrichment');

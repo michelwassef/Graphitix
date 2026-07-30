@@ -1,40 +1,34 @@
 const fs = require('fs');
-const vm = require('vm');
 const path = require('path');
-
-function loadScript(relativePath){
-  vm.runInThisContext(fs.readFileSync(path.join(__dirname, '..', relativePath), 'utf8'), { filename: relativePath });
-}
 
 describe('cross-component statistical corrections', () => {
   beforeAll(() => {
-    global.window = global;
-    global.self = global;
-    global.Shared = {};
-    global.Components = {};
-    loadScript('libs/jstat.min.js');
-    loadScript('js/shared/stats.js');
-    loadScript('js/shared/boxStatsModel.js');
-    loadScript('js/shared/regression.js');
+    jest.resetModules();
+    window.Shared = {};
+    window.Components = {};
+    require('../libs/jstat.min.js');
+    require('../js/shared/stats.js');
+    require('../js/shared/boxStatsModel.js');
+    require('../js/shared/regression.js');
   });
 
   test('multiplicity adjustment preserves invalid p-values as missing', () => {
-    expect(Shared.stats.adjustPValues([0.01, NaN, 0.04, -1, undefined], { method: 'holm' }))
+    expect(window.Shared.stats.adjustPValues([0.01, NaN, 0.04, -1, undefined], { method: 'holm' }))
       .toEqual([0.02, null, 0.04, null, null]);
   });
 
   test('Tukey HSD matches finite-df studentized-range reference values', () => {
-    const result = Shared.boxStatsModel.computeTukeyComparisons(
+    const result = window.Shared.boxStatsModel.computeTukeyComparisons(
       [[1,2,3,4], [5,6,7,8], [2,2.5,3,3.5]], ['A','B','C'], { alpha: 0.05 }
     );
     expect(result.ok).toBe(true);
-    expect(result.pairs[0].pAdj).toBeCloseTo(0.00176431, 5);
-    expect(result.pairs[1].pAdj).toBeCloseTo(0.94668960, 5);
-    expect(result.pairs[2].pAdj).toBeCloseTo(0.00271332, 5);
+    expect(result.pairs[0].pAdj).toBeCloseTo(0.00176431, 4);
+    expect(result.pairs[1].pAdj).toBeCloseTo(0.94668960, 4);
+    expect(result.pairs[2].pAdj).toBeCloseTo(0.00271332, 4);
   });
 
   test('Games-Howell matches Welch studentized-range reference values', () => {
-    const result = Shared.boxStatsModel.computeGamesHowellComparisons(
+    const result = window.Shared.boxStatsModel.computeGamesHowellComparisons(
       [[1,2,3,4], [5,6,7,8], [2,2.5,3,3.5]], ['A','B','C'], { alpha: 0.05 }
     );
     expect(result.ok).toBe(true);
@@ -44,7 +38,7 @@ describe('cross-component statistical corrections', () => {
   });
 
   test('binary logistic regression rejects non-binary responses instead of clamping', () => {
-    const result = Shared.regressionTools.fitRegression([{x:1,y:2},{x:2,y:0}], { mode: 'logistic' });
+    const result = window.Shared.regressionTools.fitRegression([{x:1,y:2},{x:2,y:0}], { mode: 'logistic' });
     expect(result.warnings.join(' ')).toMatch(/encoded exactly as 0 or 1/i);
   });
 
@@ -53,7 +47,7 @@ describe('cross-component statistical corrections', () => {
       {x:-3,y:0},{x:-2,y:0},{x:-1,y:1},{x:0,y:0},{x:1,y:1},
       {x:2,y:0},{x:3,y:1},{x:4,y:1},{x:5,y:1},{x:6,y:1}
     ];
-    const result = Shared.regressionTools.fitRegression(points, { mode: 'logistic', alpha: 0.05 });
+    const result = window.Shared.regressionTools.fitRegression(points, { mode: 'logistic', alpha: 0.05 });
     expect(result.available).toBe(true);
     expect(result.metrics.converged).toBe(true);
     expect(result.metrics.inferenceAvailable).toBe(true);

@@ -1,11 +1,16 @@
 const { test, expect } = require('@playwright/test');
-const { installLocalCdnOverrides, registerIssueCollectors } = require('./helpers/workspaceHarness');
+const {
+  installLocalCdnOverrides,
+  registerIssueCollectors,
+  openComponentFromWelcome
+} = require('./helpers/workspaceHarness');
 
 test('mixed Heatmap copy exports retain the matrix and enter the clipboard before heavy projection work', async ({ page }) => {
   test.setTimeout(60_000);
   const issues = registerIssueCollectors(page);
   await installLocalCdnOverrides(page);
   await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
+  await openComponentFromWelcome(page, { type: 'heatmap', pageId: 'heatmapPage' }, { first: true });
   await page.waitForFunction(() => (
     !!window.Components?.heatmap?.__testHooks?.buildExportSvgFromSource
     && !!window.Shared?.exporter?.mountSvgControls
@@ -144,8 +149,8 @@ test('mixed Heatmap copy exports retain the matrix and enter the clipboard befor
       svgOrderAfterDispatch,
       svgWasDeferred,
       svgType: svgBlob.type,
-      svgHasVectorMatrix: svgText.includes('data-heatmap-export-projection="vector-matrix"')
-        && svgText.includes('data-heatmap-vector-cell-count="2"'),
+      svgHasVectorMatrix: /fill="#ff0000"/i.test(svgText)
+        && /fill="#00ff00"/i.test(svgText),
       svgHasCanvasMarkup: /<(?:canvas|foreignObject)\b/i.test(svgText)
     };
   });
@@ -161,7 +166,7 @@ test('mixed Heatmap copy exports retain the matrix and enter the clipboard befor
 
   expect(result.svgOrderAfterDispatch).toEqual(['write']);
   expect(result.svgWasDeferred).toBe(true);
-  expect(result.svgType).toBe('image/svg+xml');
+  expect(result.svgType).toMatch(/^image\/svg\+xml(?:;|$)/);
   expect(result.svgHasVectorMatrix).toBe(true);
   expect(result.svgHasCanvasMarkup).toBe(false);
   expect(issues.critical).toEqual([]);

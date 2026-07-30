@@ -120,7 +120,7 @@ describe('Scatter adaptive point sizing', () => {
     expect(document.querySelector('#scatterStatsResults p')?.textContent).toBe('stats');
   });
 
-  test('preview svg normalizes cached scatter dimensions without mutating the source', () => {
+  test('preview svg returns the owner cache source without mutating it', () => {
     const fragment = document.createDocumentFragment();
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
     svg.setAttribute('id', 'scatterSvg');
@@ -146,13 +146,9 @@ describe('Scatter adaptive point sizing', () => {
     });
 
     expect(previewSvg).toBeTruthy();
-    expect(previewSvg).not.toBe(svg);
+    expect(previewSvg).toBe(svg);
     expect(previewSvg.getAttribute('width')).toBe('463');
     expect(previewSvg.getAttribute('height')).toBe('427');
-    expect(previewSvg.getAttribute('data-scatter-base-width')).toBe('463');
-    expect(previewSvg.getAttribute('data-scatter-base-height')).toBe('427');
-    expect(previewSvg.style.position).toBe('');
-    expect(previewSvg.style.visibility).toBe('');
     expect(svg.style.position).toBe('absolute');
     expect(svg.style.visibility).toBe('hidden');
   });

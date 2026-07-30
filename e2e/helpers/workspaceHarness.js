@@ -192,7 +192,7 @@ async function waitForActiveComponentLaunch(page, component, timeout = 20_000, e
   const startedAt = Date.now();
   const pollMs = 120;
   while (Date.now() - startedAt < timeout) {
-    const launched = await page.evaluate(({ type, pageId, expectedId }) => {
+    const launched = await page.evaluate(async ({ type, pageId, expectedId }) => {
       const state = window.Main?.session?.workspaceState;
       const active = state?.tabs?.find(tab => tab?.id === state.activeTabId) || null;
       if (expectedId && String(active?.id || '') !== String(expectedId)) {
@@ -201,12 +201,19 @@ async function waitForActiveComponentLaunch(page, component, timeout = 20_000, e
       if (!active || active.type !== type) {
         return false;
       }
+      const component = window.Components?.[type] || null;
+      if (!component || component.ready !== true) {
+        return false;
+      }
+      if (window.Shared?.componentLifecycle?.isRestoreTransactionActive?.(type, { tabId: active.id })) {
+        return false;
+      }
       const mountedRoot = window.Shared?.workspaceTabs?.getMountedRoot?.(active.id, type) || null;
       const searchRoot = mountedRoot || document.querySelector(`#${pageId}:not([hidden])`) || null;
       if (!searchRoot) {
         return false;
       }
-      return !!searchRoot.querySelector?.([
+      const hasMountedWorkspace = !!searchRoot.querySelector?.([
         '.ag-root-wrapper',
         '.ag-root',
         '.workspace-toolbar',
@@ -214,6 +221,15 @@ async function waitForActiveComponentLaunch(page, component, timeout = 20_000, e
         '.config-panel',
         `[id="${type}LoadExample"]`
       ].join(','));
+      if (!hasMountedWorkspace) {
+        return false;
+      }
+      await window.Shared?.componentLifecycle?.waitForAnimationFrames?.(2);
+      const settledState = window.Main?.session?.workspaceState;
+      const settledActive = settledState?.tabs?.find(tab => tab?.id === settledState.activeTabId) || null;
+      return settledActive?.id === active.id
+        && window.Components?.[type]?.ready === true
+        && !window.Shared?.componentLifecycle?.isRestoreTransactionActive?.(type, { tabId: active.id });
     }, { type: component.type, pageId: component.pageId, expectedId: expectedTabId || null }).catch(() => false);
     if (launched) {
       return true;
