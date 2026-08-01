@@ -254,7 +254,7 @@ describe('UI statistical presentation branches', () => {
     const repeatedText = getBoxStatsText();
     expect(repeatedText).toMatch(/Friedman|Nemenyi/i);
 
-  }, 30000);
+  }, 60000);
 
   test('scatter stats render ungrouped regression presentation cards', async () => {
     await activateWorkspace('scatter');

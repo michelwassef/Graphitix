@@ -14079,13 +14079,18 @@
     };
 
     const ensureScatterHotForActiveTab = (options = {}) => {
-      const candidateTabId = resolveScatterTabIdFromNode(scatterRoot)
-        || getScatterProjectionTabId()
+      const explicitTabId = (typeof options?.tabId === 'string' && options.tabId.trim())
+        ? options.tabId.trim()
+        : (typeof options?.tab?.id === 'string' && options.tab.id.trim() ? options.tab.id.trim() : null);
+      const projectionTabId = String(getScatterProjectionTabId() || '').trim() || null;
+      const candidateTabId = explicitTabId
+        || resolveScatterTabIdFromNode(scatterRoot)
+        || projectionTabId
         || scatterHot?.__scatterTabId
         || Shared.workspaceTabs?.getActiveSessionInfo?.('scatter')?.tabId
         || global.Main?.session?.workspaceState?.activeTabId
-        || options.tabId
         || null;
+      const shouldProjectOwner = !explicitTabId || !projectionTabId || explicitTabId === projectionTabId;
       const wrapper = getScatterNodeById('scatterHotWrapper', candidateTabId) || getScatterNodeById('scatterHotWrapper');
       const baseContainer = getScatterNodeById('scatterHot', candidateTabId) || getScatterNodeById('scatterHot');
       const activeTabId = (wrapper || baseContainer)
@@ -14148,44 +14153,42 @@
         container: baseContainer,
         createInstance: createScatterTable
       });
-      if(entry?.instance){
-        scatterHot = entry.instance;
-        scatterRefs.hot = scatterHot;
-      }
-      if(scatterHot){
-        scatterHot.__scatterHostContainer = entry?.container || baseContainer;
-      }
+      const resolvedHot = entry?.instance || null;
       const resolvedTabId = entry?.tabId || activeTabId;
-      if(scatterHot){
-        scatterHot.__scatterTabId = resolvedTabId;
-        if(resolvedTabId && String(getScatterProjectionTabId() || '') !== String(resolvedTabId)){
-          scatter.__boundTabId = resolvedTabId;
-        }
+      if(resolvedHot){
+        resolvedHot.__scatterHostContainer = entry?.container || baseContainer;
+        resolvedHot.__scatterTabId = resolvedTabId;
+      }
+      if(!shouldProjectOwner){
+        return resolvedHot || Shared.hot?.__tabTablePools?.scatter?.byTab?.[resolvedTabId]?.instance || null;
+      }
+      if(resolvedHot){
+        scatterHot = resolvedHot;
+        scatterRefs.hot = resolvedHot;
         // Restore persisted row selection only once per table instance (see note above).
-        if(!scatterHot.__scatterSelectionRestoreDone){
-          scatterHot.__scatterSelectionRestoreDone = true;
-          scheduleScatterSelectionRestore(scatterHot, resolvedTabId);
+        if(!resolvedHot.__scatterSelectionRestoreDone){
+          resolvedHot.__scatterSelectionRestoreDone = true;
+          scheduleScatterSelectionRestore(resolvedHot, resolvedTabId);
         }
-        scatterRefs.hot = scatterHot;
-        ensureScatterHeaderTitles(scatterHot, {
+        ensureScatterHeaderTitles(resolvedHot, {
           graphType: scatterCurrentGraphType,
           tableFormat: getScatterReplicateMode()
         });
         if(isGroupedScatterModeActive()){
-          normalizeScatterGroupedHeaderRow(scatterHot, { source: 'scatter-grouped-header-normalize' });
+          normalizeScatterGroupedHeaderRow(resolvedHot, { source: 'scatter-grouped-header-normalize' });
         }
-        updateScatterNestedHeaders(scatterHot, {
+        updateScatterNestedHeaders(resolvedHot, {
           graphType: scatterCurrentGraphType,
           tableFormat: getScatterReplicateMode()
         });
-        ensureScatterDataViewsForHot(scatterHot, {
+        ensureScatterDataViewsForHot(resolvedHot, {
           wrapper,
           container: entry?.container || baseContainer
         });
-        syncScatterActiveDataViewFromHot(scatterHot, 'ensure-active-tab');
+        syncScatterActiveDataViewFromHot(resolvedHot, 'ensure-active-tab');
       }
 
-      return scatterHot;
+      return resolvedHot || scatterHot;
     };
 
     const scatterExamples={
@@ -25317,6 +25320,25 @@ async function drawScatter(drawOptions = {}){
     }
 
     function getActiveScatterGraphPayload(context = {}){
+    const captureContext = Shared.componentLifecycle?.resolvePayloadCaptureContext?.('scatter', context, {
+      component: scatter,
+      projectedSession: projectedScatterSession,
+      root: scatterRoot
+    }) || null;
+    const requestedTabId = captureContext?.requestedTabId
+      || (typeof context?.tabId === 'string' && context.tabId.trim() ? context.tabId.trim() : null);
+    const payloadTab = captureContext?.requestedTab
+      || (requestedTabId
+        ? ((global.Main?.session?.workspaceState?.tabs || []).find(item => item && String(item.id || '') === requestedTabId) || context?.tab || null)
+        : null);
+    if(requestedTabId && captureContext?.canCaptureLive !== true){
+      const canonicalPayload = cloneSimple(payloadTab?.payload);
+      if(canonicalPayload && typeof canonicalPayload === 'object'){
+        canonicalPayload.type = 'scatter';
+        return canonicalPayload;
+      }
+      return null;
+    }
     const noteControl = notesState.control || null;
     const notesText = noteControl && typeof noteControl.getValue === 'function'
       ? noteControl.getValue()
@@ -25328,13 +25350,7 @@ async function drawScatter(drawOptions = {}){
     notesState.open = notesOpen;
     const axisSettings = ensureScatterAxisSettings();
     const fontStyles = exportFontStyles('scatter');
-    const requestedTabId = typeof context?.tabId === 'string' && context.tabId.trim()
-      ? context.tabId.trim()
-      : null;
     const activeTabId = requestedTabId || resolveScatterOwnedRuntimeTabId(null, { reason: 'scatter-payload-active-tab' }) || getScatterProjectionTabId() || null;
-    const payloadTab = requestedTabId
-      ? ((global.Main?.session?.workspaceState?.tabs || []).find(item => item && String(item.id || '') === requestedTabId) || null)
-      : null;
     const payloadConfig = (payloadTab?.payload?.config && typeof payloadTab.payload.config === 'object')
       ? payloadTab.payload.config
       : (getScatterTabPayloadConfig(activeTabId) || {});
@@ -25344,29 +25360,6 @@ async function drawScatter(drawOptions = {}){
           reason: 'scatter-payload-session'
         }, { create: false })
       : getActiveScatterSessionForState();
-    const livePayloadOwnerTabId = String(
-      getScatterHotOwnerTabId(scatterHot || scatterRefs.hot || payloadSession?.managers?.hot || null)
-      || resolveScatterTabIdFromNode(scatterRoot)
-      || getScatterProjectionTabId()
-      || ''
-    ).trim();
-    if(requestedTabId && livePayloadOwnerTabId && livePayloadOwnerTabId !== requestedTabId){
-      const clonedPayload = cloneSimple(payloadTab?.payload) || { type: 'scatter', config: {} };
-      clonedPayload.type = 'scatter';
-      clonedPayload.config = (clonedPayload.config && typeof clonedPayload.config === 'object') ? clonedPayload.config : {};
-      const ownerLabels = resolveScatterOwnedLabelsStateForTab(requestedTabId, {
-        session: payloadSession,
-        reason: 'scatter-payload-inactive-labels'
-      });
-      if(ownerLabels){
-        clonedPayload.config.title = ownerLabels.title;
-        clonedPayload.config.xLabel = ownerLabels.x;
-        clonedPayload.config.yLabel = ownerLabels.y;
-        clonedPayload.config.zLabel = ownerLabels.z;
-        clonedPayload.config.labelPositions = cloneSimple(ownerLabels.positions) || null;
-      }
-      return clonedPayload;
-    }
     const ownedRecord = getScatterOwnedRuntimeRecord(activeTabId, {
       tabId: activeTabId,
       reason: 'scatter-payload-owned-runtime-read'
@@ -25384,7 +25377,7 @@ async function drawScatter(drawOptions = {}){
     const payloadScatterGraphType = getScatterNodeById('scatterGraphType', activeTabId) || scatterGraphTypeSelect;
     const payloadScatterTableFormat = getScatterNodeById('scatterTableFormat', activeTabId) || scatterTableFormatSelect;
     const payloadScatterFontSize = resolvePayloadControl('scatterFontSize', scatterFontSize);
-    const activeHot = scatter.__ensureHotForActiveTab?.() || scatterHot || scatterRefs.hot;
+    const activeHot = scatter.__ensureHotForActiveTab?.({ tabId: activeTabId }) || scatterHot || scatterRefs.hot;
     const activeManager = activeHot?.__scatterDataViewsManager
       || getActiveScatterSessionForState()?.managers?.dataViews
       || null;
@@ -25600,13 +25593,28 @@ async function drawScatter(drawOptions = {}){
       }
     try{
     const dataMatrix = Array.isArray(obj.data) ? obj.data : [];
+    const targetTabId = (typeof meta?.tabId === 'string' && meta.tabId.trim())
+      ? meta.tabId.trim()
+      : (typeof meta?.tab?.id === 'string' && meta.tab.id.trim() ? meta.tab.id.trim() : (getScatterProjectionTabId() || null));
+    const targetHot = scatter.__ensureHotForActiveTab?.({ tabId: targetTabId, tab: meta?.tab || null })
+      || scatterHot
+      || scatterRefs.hot
+      || null;
+    if(targetHot){
+      scatterHot = targetHot;
+      scatterRefs.hot = targetHot;
+    }
+    const targetRoot = resolveScatterRoot(meta?.tab || targetTabId || null);
+    const targetWrapper = targetRoot?.querySelector?.('#scatterHotWrapper') || scatterHotWrapper;
+    const targetContainer = targetRoot?.querySelector?.('#scatterHot') || targetHot?.__scatterHostContainer || scatterHotContainer;
     const serializedViews = (obj.dataViews && typeof obj.dataViews === 'object')
       ? normalizeScatterDataViewsPayload(obj.dataViews)
       : null;
     const requestedActiveViewId = obj.activeDataViewId || serializedViews?.activeViewId || null;
-    const manager = ensureScatterDataViewsForHot(scatterHot, {
-      wrapper: scatterHotWrapper,
-      container: scatterHot?.__scatterHostContainer || scatterHotContainer
+    const manager = ensureScatterDataViewsForHot(targetHot, {
+      wrapper: targetWrapper,
+      container: targetContainer,
+      tabId: targetTabId
     });
     if(manager){
       if(serializedViews){
@@ -25623,25 +25631,25 @@ async function drawScatter(drawOptions = {}){
     const activeViewData = manager?.getActiveView?.()?.data;
     const matrixToLoad = Array.isArray(activeViewData) ? activeViewData : dataMatrix;
     const filtersToApply = obj.filters || manager?.getActiveView?.()?.filters || null;
-    if(!skipDataLoad && scatterHot && typeof scatterHot.loadData === 'function'){
+    if(!skipDataLoad && targetHot && typeof targetHot.loadData === 'function'){
       markScatterRenderRuntimeDirty(getScatterProjectionSession({ reason: 'scatter-projection-mutation' }), 'scatter-payload-data-load');
       const suppressDirtyMarkPrevious = scatterState.suppressHotLoadDirtyMark === true;
       scatterState.suppressHotLoadDirtyMark = true;
       try{
-        scatterHot.loadData(matrixToLoad);
+        targetHot.loadData(matrixToLoad);
         if(obj.exclusions){
-          scatterHot.applyExclusions?.(obj.exclusions);
+          targetHot.applyExclusions?.(obj.exclusions);
         }else if(manager?.getActiveView?.()?.exclusions){
-          scatterHot.applyExclusions?.(manager.getActiveView().exclusions);
+          targetHot.applyExclusions?.(manager.getActiveView().exclusions);
         }
         if(filtersToApply){
-          scatterHot.applyFilters?.(filtersToApply, { schedule: false });
+          targetHot.applyFilters?.(filtersToApply, { schedule: false });
         }
-        ensureScatterHeaderTitles(scatterHot);
+        ensureScatterHeaderTitles(targetHot);
         if(isGroupedScatterModeActive()){
-          normalizeScatterGroupedHeaderRow(scatterHot, { source: 'scatter-grouped-header-normalize' });
+          normalizeScatterGroupedHeaderRow(targetHot, { source: 'scatter-grouped-header-normalize' });
         }
-        syncScatterActiveDataViewFromHot(scatterHot, 'payload-load');
+        syncScatterActiveDataViewFromHot(targetHot, 'payload-load');
       }finally{
         scatterState.suppressHotLoadDirtyMark = suppressDirtyMarkPrevious;
       }
@@ -26440,6 +26448,12 @@ async function drawScatter(drawOptions = {}){
             suppressSchedule: true,
             recordUndo: true,
             undoLabel: 'table:scatter:example-load'
+          });
+          Shared.hot?.syncOwnerTabPayloadFullData?.(dataset, 'scatter-example-load', {
+            source: 'example-load',
+            hotInstance: scatterHot,
+            tabId: ownerSession?.tabId || getScatterProjectionTabId() || null,
+            affectsAnalysis: true
           });
           if(groupedModeActive){
             ensureScatterHeaderTitles(scatterHot, {
@@ -27540,9 +27554,13 @@ async function drawScatter(drawOptions = {}){
   scatter.restoreEmptyPayloadTemplate = restoreScatterEmptyPayloadTemplate;
   scatter.createEmptyPayload = createEmptyScatterPayload;
   scatter.serialize = serializeScatterSvg;
-  scatter.__getActiveHot = () => (typeof scatter.__ensureHotForActiveTab === 'function'
-    ? scatter.__ensureHotForActiveTab()
-    : (scatterRefs.hot || scatterHot || null));
+  scatter.__getActiveHot = () => {
+    const activeTab = global.Main?.session?.workspaceState?.tabs?.find?.(item => item?.id === global.Main?.session?.workspaceState?.activeTabId) || null;
+    const activeScatterTabId = activeTab?.type === 'scatter' ? activeTab.id : (getScatterProjectionTabId() || null);
+    return typeof scatter.__ensureHotForActiveTab === 'function'
+      ? scatter.__ensureHotForActiveTab({ tabId: activeScatterTabId })
+      : (scatterRefs.hot || scatterHot || null);
+  };
   scatter.computeAdaptivePointSize = computeAdaptivePointSize;
   scatter.captureRuntimeState = function captureRuntimeState(meta = {}){
     const effectiveMeta = {
@@ -27897,15 +27915,15 @@ async function drawScatter(drawOptions = {}){
   function captureScatterRenderCacheMetadata(meta = {}, sourceSvg = null){
     const tab = meta?.tab || resolveScatterTab(meta?.tabId || getScatterProjectionTabId() || null);
     const svg = sourceSvg || getScatterNodeById('scatterPlot')?.querySelector?.('#scatterSvg') || null;
-    return {
-      tabId: meta?.tabId || tab?.id || null,
-      type: 'scatter',
-      complete: false,
+    const ownerTabId = meta?.session?.tabId || getScatterProjectionTabId() || tab?.id || null;
+    const extra = {
       viewMode: svg?.dataset?.viewMode || null,
       width: svg?.getAttribute?.('width') || '',
       height: svg?.getAttribute?.('height') || '',
       viewBox: svg?.getAttribute?.('viewBox') || ''
     };
+    return Shared.renderCacheSchema?.createMetadata?.({ component: 'scatter', tabId: ownerTabId, complete: false, extra })
+      || { version: 2, component: 'scatter', type: 'scatter', tabId: ownerTabId, complete: false, ...extra };
   }
 
   function canRestoreScatterRenderCache(cache, meta = {}){
@@ -27921,22 +27939,10 @@ async function drawScatter(drawOptions = {}){
       });
       return false;
     }
-    const tabId = String(meta?.tabId || cacheMeta?.tabId || '').trim();
-    const ownerLabels = tabId ? resolveScatterOwnedLabelsStateForTab(tabId, {
-      session: getScatterSession(tabId, { tabId, reason: 'scatter-render-cache-label-check' }, { create: false }),
-      reason: 'scatter-render-cache-label-check'
-    }) : null;
-    const expectedStatsPos = ownerLabels?.positions?.stats
-      || getScatterTabPayloadConfig(tabId)?.labelPositions?.stats
-      || null;
-    if(Number.isFinite(expectedStatsPos?.x) && Number.isFinite(expectedStatsPos?.y)){
-      scatterDebug('Debug: scatter render cache restore rejected', {
-        reason: 'owner-stats-position-requires-redraw',
-        tabId,
-        expectedStatsPos
-      });
-      return false;
-    }
+    // The plot cache contains the complete published SVG/canvas graph, including
+    // any user-positioned statistics annotation. Cache eligibility must remain a
+    // pure provenance/completeness check; requiring a redraw for a valid label
+    // position made exact archive caches component-specifically unusable.
     return true;
   }
 
@@ -28379,7 +28385,8 @@ async function drawScatter(drawOptions = {}){
       });
       return null;
     }
-    const plot = getScatterNodeById('scatterPlot');
+    const ownerRoot = resolveScatterRoot(cacheSession?.tabId || meta?.tab || meta?.tabId || null);
+    const plot = ownerRoot?.querySelector?.('#scatterPlot') || null;
     const plotSvg = plot?.querySelector?.('#scatterSvg') || plot?.querySelector?.('svg') || null;
     if(!plot || !plotSvg){
       scatterDebug('Debug: scatter render cache capture skipped', {
@@ -28397,7 +28404,7 @@ async function drawScatter(drawOptions = {}){
       });
       return null;
     }
-    const cacheMeta = captureScatterRenderCacheMetadata(meta, plotSvg);
+    const cacheMeta = captureScatterRenderCacheMetadata({ ...meta, session: cacheSession }, plotSvg);
     cacheMeta.complete = true;
     if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
       scatterDebug('Debug: scatter render cache captured', {
@@ -28410,14 +28417,9 @@ async function drawScatter(drawOptions = {}){
   };
 
   scatter.canRestoreRenderCache = function canRestoreRenderCache(cache, meta = {}){
-    const cacheSession = resolveScatterRenderCacheSession(meta, { create: false });
-    if(cacheSession && !isScatterSessionActiveForModuleState(cacheSession)){
-      scatterDebug('Debug: scatter render cache restore rejected for inactive session', {
-        tabId: cacheSession.tabId || null,
-        reason: meta?.reason || null
-      });
-      return false;
-    }
+    // Validation is intentionally projection-free. Shared restore orchestration
+    // already verifies archive owner/type/signatures before this hook runs, and
+    // restoreRenderCache performs the active-owner DOM mutation guard.
     return canRestoreScatterRenderCache(cache, meta);
   };
 
@@ -28442,7 +28444,8 @@ async function drawScatter(drawOptions = {}){
       });
       return false;
     }
-    const plot = getScatterNodeById('scatterPlot');
+    const ownerRoot = resolveScatterRoot(cacheSession?.tabId || meta?.tab || meta?.tabId || null);
+    const plot = ownerRoot?.querySelector?.('#scatterPlot') || null;
     const restoredPlot = restoreChildren(plot, cache.plot);
     const restored = restoredPlot;
     let hydratedBitmaps = 0;

@@ -116,8 +116,8 @@ async function seedRecoverySnapshot(page) {
       snapshotKind: 'recovery',
       policyMode: 'recovery',
       captureRenderCacheBeforeSnapshot: false,
+      includeRenderCacheInSnapshot: false,
       reason: 'e2e-heavy-heatmap-recovery-no-cache',
-      idleForMs: 8_000,
       useWorker: true
     });
     const parsed = await window.Shared.graphArchive.parseFile(blob, { fileName: 'recovery.graph' });

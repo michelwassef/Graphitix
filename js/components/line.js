@@ -17420,15 +17420,15 @@
   function captureLineRenderCacheMetadata(meta = {}, sourceSvg = null){
     const tabId = resolveLineOwnedRuntimeTabId(meta?.tabId || null, meta);
     const svg = sourceSvg || (refs.plot || refs.root?.querySelector?.('#linePlot') || getLineNodeById('linePlot'))?.querySelector?.('#lineSvg') || null;
-    return {
-      tabId: tabId || null,
-      type: 'line',
-      complete: false,
+    const ownerTabId = getLineProjectionTabId() || getLineActiveSessionForState()?.tabId || tabId || null;
+    const extra = {
       viewMode: svg?.dataset?.viewMode || null,
       width: svg?.getAttribute?.('width') || '',
       height: svg?.getAttribute?.('height') || '',
       viewBox: svg?.getAttribute?.('viewBox') || ''
     };
+    return Shared.renderCacheSchema?.createMetadata?.({ component: 'line', tabId: ownerTabId, complete: false, extra })
+      || { version: 2, component: 'line', type: 'line', tabId: ownerTabId, complete: false, ...extra };
   }
 
   function isCompleteLineRenderCache(cache){

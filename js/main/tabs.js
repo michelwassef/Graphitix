@@ -176,6 +176,22 @@
       });
     }
 
+    function persistCompletedOwnerBeforeDeactivation(tab, options = {}) {
+      if (!tab || tab.isWelcome || !tab.type) {
+        return;
+      }
+      session.persistActiveTabState(tab, withSessionContext({
+        reason: options.reason || 'workspace-deactivate',
+        origin: 'lifecycle',
+        snapshotKind: 'lifecycle-checkpoint',
+        captureRenderCache: true,
+        captureRenderCacheIfNeeded: true,
+        preserveRenderCacheTabIds: Array.isArray(options.preserveTabIds)
+          ? options.preserveTabIds
+          : []
+      }));
+    }
+
     function determineDuplicateSourceCandidate(preferredId) {
       if (preferredId) {
         const preferred = getTabById(preferredId);
@@ -330,11 +346,9 @@
         try {
           const currentActive = getActiveTab();
           if (currentActive && !currentActive.isWelcome) {
-            session.persistActiveTabState(currentActive, withSessionContext({
-              reason: 'duplicate-before-create',
-              origin: 'lifecycle',
-              snapshotKind: 'lifecycle-checkpoint'
-            }));
+            persistCompletedOwnerBeforeDeactivation(currentActive, {
+              reason: 'duplicate-before-create'
+            });
             deactivateWorkspaceForTab(currentActive, 'duplicate-before-create');
           }
         } catch (e) {
@@ -545,18 +559,10 @@
       }
       const current = getActiveTab();
       if (current && current.id !== tabId && !options.skipPersist) {
-        session.persistActiveTabState(current, withSessionContext({
+        persistCompletedOwnerBeforeDeactivation(current, {
           reason: options.reason || 'activate-switch',
-          origin: 'lifecycle',
-          snapshotKind: 'lifecycle-checkpoint',
-          // Do not capture render cache during ordinary tab switches. Component-level
-          // captureRenderCache() implementations detach live graph nodes into fragments;
-          // doing that on every switch can leave a tab blank if a later restore path is
-          // skipped or accepted without a real redraw. The hidden per-tab DOM already
-          // preserves the live graph for fast in-session switching. Archive/save paths
-          // still capture a non-destructive cache for reopen speed.
-          preserveRenderCacheTabIds: [current.id, tabId]
-        }));
+          preserveTabIds: [tabId]
+        });
       }
       if (current && current.id !== tabId) {
         deactivateWorkspaceForTab(current, options.reason || 'activate-switch');
@@ -854,11 +860,9 @@
       }
       const current = getActiveTab();
       if (current && !current.isWelcome) {
-        session.persistActiveTabState(current, withSessionContext({
-          reason: 'add-tab-before-new',
-          origin: 'lifecycle',
-          snapshotKind: 'lifecycle-checkpoint'
-        }));
+        persistCompletedOwnerBeforeDeactivation(current, {
+          reason: 'add-tab-before-new'
+        });
         deactivateWorkspaceForTab(current, 'add-tab-before-new');
       }
       const candidateSource = determineDuplicateSourceCandidate(current?.id);

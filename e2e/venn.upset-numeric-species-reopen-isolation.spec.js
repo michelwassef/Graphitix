@@ -39,8 +39,27 @@ async function activateTabById(page, tabId) {
     await page.evaluate(id => window.Main?.tabs?.activateTab?.(id, { reason: 'e2e-venn-upset-numeric-activate' }), tabId);
     await page.waitForFunction(id => window.Main?.session?.workspaceState?.activeTabId === id, tabId, { timeout: 20_000 });
   }
-  await page.waitForFunction(id => !!window.Shared?.workspaceTabs?.getMountedRoot?.(id, 'venn')?.querySelector?.('#stage'), tabId, { timeout: 30_000 });
-  await page.waitForTimeout(250);
+  await page.waitForFunction(id => {
+    const root = window.Shared?.workspaceTabs?.getMountedRoot?.(id, 'venn') || null;
+    const activeId = window.Main?.session?.workspaceState?.activeTabId || '';
+    const session = window.Components?.venn?.__testHooks?.getSession?.(id) || null;
+    return activeId === id && !!root && !!root.querySelector?.('#stage') && !!session;
+  }, tabId, { timeout: 60_000 });
+}
+
+
+async function getRestoredVennTabIdsByMode(page) {
+  return page.evaluate(() => {
+    const tabs = window.Main?.session?.workspaceState?.tabs || [];
+    const result = {};
+    tabs.filter(tab => tab && !tab.isWelcome && tab.type === 'venn').forEach(tab => {
+      const mode = String(tab?.payload?.style?.plotType || tab?.payload?.config?.plotType || '').trim();
+      if(mode){
+        result[mode] = String(tab.id || '');
+      }
+    });
+    return result;
+  });
 }
 
 async function installSpeciesMock(page) {
@@ -320,10 +339,13 @@ test('venn UpSet, numeric counts, species state, selected region, and archive re
 
   const archivePath = await captureArchive(page, 'venn-upset-numeric-species-isolation');
   await reopenArchive(page, archivePath);
+  const reopenedIds = await getRestoredVennTabIdsByMode(page);
+  expect(reopenedIds.upset).toBeTruthy();
+  expect(reopenedIds.venn).toBeTruthy();
 
-  await activateTabById(page, upsetId);
+  await activateTabById(page, reopenedIds.upset);
   const upsetAfterReopen = await snapshotVenn(page);
-  await activateTabById(page, numericId);
+  await activateTabById(page, reopenedIds.venn);
   const numericAfterReopen = await snapshotVenn(page);
 
   await testInfo.attach('venn-upset-numeric-species-reopen-isolation.json', {
@@ -340,9 +362,9 @@ test('venn UpSet, numeric counts, species state, selected region, and archive re
     contentType: 'application/json'
   });
 
-  for (const snap of [upsetAfterSwitch, upsetAfterReopen]) {
-    expect(snap.tabId).toBe(upsetId);
-    expect(snap.rootTabId).toBe(upsetId);
+  for (const [snap, expectedTabId] of [[upsetAfterSwitch, upsetId], [upsetAfterReopen, reopenedIds.upset]]) {
+    expect(snap.tabId).toBe(expectedTabId);
+    expect(snap.rootTabId).toBe(expectedTabId);
     expect(snap.plotType).toBe('upset');
     expect(snap.payload.plotType).toBe('upset');
     expect(snap.labels).toEqual(['Up Alpha', 'Up Beta', 'Up Gamma']);
@@ -375,9 +397,9 @@ test('venn UpSet, numeric counts, species state, selected region, and archive re
     expect(snap.payload.upset.showCounts).toBe(false);
   }
 
-  for (const snap of [numericAfterSwitch, numericAfterReopen]) {
-    expect(snap.tabId).toBe(numericId);
-    expect(snap.rootTabId).toBe(numericId);
+  for (const [snap, expectedTabId] of [[numericAfterSwitch, numericId], [numericAfterReopen, reopenedIds.venn]]) {
+    expect(snap.tabId).toBe(expectedTabId);
+    expect(snap.rootTabId).toBe(expectedTabId);
     expect(snap.plotType).toBe('venn');
     expect(snap.payload.plotType).toBe('venn');
     expect(snap.labels).toEqual(['Numeric Alpha', 'Numeric Beta', 'Numeric Gamma']);

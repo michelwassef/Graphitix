@@ -262,76 +262,23 @@ async function openComponentFromWelcome(page, component, options = {}) {
   const selector = `#graphSelectionGrid [data-graph-type="${component.type}"]`;
   const card = page.locator(selector);
   await page.waitForSelector(selector, { timeout: 20_000 });
+  await page.waitForFunction(type => {
+    const target = document.querySelector(`#graphSelectionGrid [data-graph-type="${type}"]`);
+    return target?.dataset?.welcomeCardHydrated === 'true';
+  }, component.type, { timeout: 20_000 });
   let launched = false;
   let lastError = null;
-  for (let attempt = 0; attempt < 4 && !launched; attempt += 1) {
-    try {
-      if (!(await card.first().isVisible().catch(() => false))) {
-        break;
-      }
-      await card.scrollIntoViewIfNeeded({ timeout: 3000 });
-      const preferredButton = tileAction === 'example'
-        ? card.getByRole('button', { name: /^Load example\b/i }).first()
-        : card.getByRole('button', { name: /^New\b/i }).first();
-      const fallbackButton = tileAction === 'example'
-        ? card.getByRole('button', { name: /^New\b/i }).first()
-        : card.getByRole('button', { name: /^Load example\b/i }).first();
-      const target = await preferredButton.count()
-        ? preferredButton
-        : (await fallbackButton.count() ? fallbackButton : card);
-      await target.click({ force: true, timeout: 5000 });
-      launched = await waitForActiveComponentLaunch(page, component, 10_000, expectedTabId);
-    } catch (err) {
-      lastError = err;
-      if (page.isClosed()) {
-        throw err;
-      }
-      await page.waitForTimeout(200 * (attempt + 1));
-    }
-  }
-  if (!launched && !page.isClosed()) {
-    try {
-      const fallbackState = await page.evaluate(({ type, expectedId, loadExample }) => {
-        if (expectedId && window.Main?.tabs?.activateTab) {
-          window.Main.tabs.activateTab(expectedId, {
-            skipPersist: true,
-            skipDuplicatePrompt: true,
-            disableDuplicatePrompt: true,
-            forceBlankWorkspace: true,
-            reason: 'e2e-open-component-reactivate-target'
-          });
-        }
-        const promptVisible = !!document.querySelector('#duplicatePrompt:not([hidden])');
-        const state = window.Main?.session?.workspaceState;
-        const before = state?.tabs?.find(tab => tab?.id === state.activeTabId) || null;
-        const fn = window.Main?.tabs?.launchWelcomeGraph || window.Main?.tabs?.handleGraphSelection;
-        if (typeof fn === 'function') {
-          if (fn === window.Main?.tabs?.launchWelcomeGraph) {
-            void fn(type, {
-              loadExample: !!loadExample,
-              reason: loadExample ? 'e2e-open-component-example-fallback' : 'e2e-open-component-new-fallback'
-            });
-          } else {
-            fn(type, {
-              forceBlankWorkspace: !loadExample,
-              loadExample: !!loadExample,
-              skipDuplicatePrompt: true,
-              disableDuplicatePrompt: true,
-              reason: loadExample ? 'e2e-open-component-example-fallback' : 'e2e-open-component-fallback'
-            });
-          }
-        }
-        const afterState = window.Main?.session?.workspaceState;
-        const after = afterState?.tabs?.find(tab => tab?.id === afterState.activeTabId) || null;
-        return {
-          promptVisible,
-          before: before ? { id: before.id, type: before.type || null, title: before.title || '' } : null,
-          after: after ? { id: after.id, type: after.type || null, title: after.title || '' } : null
-        };
-      }, { type: component.type, expectedId: expectedTabId || null, loadExample: tileAction === 'example' });
-      launched = await waitForActiveComponentLaunch(page, component, 20_000, expectedTabId);
-    } catch (err) {
-      lastError = err;
+  try {
+    await card.scrollIntoViewIfNeeded({ timeout: 3000 });
+    const target = tileAction === 'example'
+      ? card.getByRole('button', { name: /^Load example\b/i }).first()
+      : card.getByRole('button', { name: /^New\b/i }).first();
+    await target.click({ timeout: 5000 });
+    launched = await waitForActiveComponentLaunch(page, component, 20_000, expectedTabId);
+  } catch (err) {
+    lastError = err;
+    if (page.isClosed()) {
+      throw err;
     }
   }
   if (!launched) {

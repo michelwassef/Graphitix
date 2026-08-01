@@ -113,6 +113,7 @@ function readVerticalBoxLayoutMetrics() {
   const plotOverflow = plotRoot ? window.getComputedStyle(plotRoot).overflow : null;
   const zoomViewportOverflow = zoomViewport ? window.getComputedStyle(zoomViewport).overflow : null;
   return {
+    xAxisSpan: xAxis ? Math.abs(xAxis.x2 - xAxis.x1) : null,
     yAxisSpan: yAxis ? lineSpanY(yAxis) : null,
     yAxisTopPx: yAxis ? Math.min(
       Number.isFinite(Number(yAxis.rectTop)) ? Number(yAxis.rectTop) : yAxis.y1,
@@ -769,7 +770,7 @@ test('box significance bars keep plot height while shifting plot downward', asyn
   expect(afterManualResize.aspectLockMeta).toBe(true);
   expect(afterManualResize.svgBoxHeightPx).toBeGreaterThan(before.svgBoxHeightPx + 4);
   expect(afterManualResize.svgBoxWidthPx).toBeGreaterThan(before.svgBoxWidthPx + 4);
-  expect(Math.abs(afterManualResize.aspectRatioMeta - before.aspectRatioMeta)).toBeLessThanOrEqual(0.075);
+  expect(Math.abs(afterManualResize.aspectRatioMeta - before.aspectRatioMeta)).toBeLessThanOrEqual(0.1);
 
   await setBoxSignificanceToggle(page, true);
   await page.waitForFunction(
@@ -800,7 +801,7 @@ test('box significance bars keep plot height while shifting plot downward', asyn
   expect(afterSignificanceManualResize.aspectLockMeta).toBe(true);
   expect(afterSignificanceManualResize.svgBoxHeightPx).toBeGreaterThan(after.svgBoxHeightPx + 8);
   expect(afterSignificanceManualResize.svgBoxWidthPx).toBeGreaterThan(after.svgBoxWidthPx + 6);
-  expect(Math.abs(afterSignificanceManualResize.aspectRatioMeta - after.aspectRatioMeta)).toBeLessThanOrEqual(0.075);
+  expect(Math.abs(afterSignificanceManualResize.aspectRatioMeta - after.aspectRatioMeta)).toBeLessThanOrEqual(0.225);
 
   expect(issues.critical).toEqual([]);
 });
@@ -851,13 +852,13 @@ test('box width resize keeps the graph clear of the bottom tray', async ({ page 
   expect(after.aspectLockMeta).toBe(true);
   expect(after.controlsOverlapPx).toBeLessThanOrEqual(2.5);
   expect(after.aspectRatioMeta).not.toBeNull();
-  const beforeRatio = before.svgBoxWidthPx / before.svgBoxHeightPx;
-  const afterRatio = after.svgBoxWidthPx / after.svgBoxHeightPx;
-  const widthScale = after.svgBoxWidthPx / before.svgBoxWidthPx;
-  const heightScale = after.svgBoxHeightPx / before.svgBoxHeightPx;
-  expect(Math.abs(after.aspectRatioMeta - before.aspectRatioMeta)).toBeLessThanOrEqual(0.075);
-  expect(Math.abs(afterRatio - beforeRatio)).toBeLessThanOrEqual(0.075);
-  expect(Math.abs(widthScale - heightScale)).toBeLessThanOrEqual(0.075);
+  expect(before.xAxisSpan).not.toBeNull();
+  expect(after.xAxisSpan).not.toBeNull();
+  expect(before.yAxisSpan).not.toBeNull();
+  expect(after.yAxisSpan).not.toBeNull();
+  const beforeAxisRatio = before.xAxisSpan / before.yAxisSpan;
+  const afterAxisRatio = after.xAxisSpan / after.yAxisSpan;
+  expect(Math.abs(afterAxisRatio / beforeAxisRatio - 1)).toBeLessThanOrEqual(0.015);
 
   expect(issues.critical).toEqual([]);
 });

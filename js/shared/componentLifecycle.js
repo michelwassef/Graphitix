@@ -367,6 +367,59 @@
   };
 
 
+  namespace.resolvePayloadCaptureContext = function resolvePayloadCaptureContext(componentKey = '', context = {}, options = {}){
+    const key = normalizeLifecycleTabId(componentKey || options?.component?.__componentKey || '');
+    const source = context && typeof context === 'object' ? context : {};
+    const requestedTabId = normalizeLifecycleTabId(
+      source.tabId
+      || source.workspaceTabId
+      || source.tab?.id
+      || source.tab
+      || ''
+    );
+    const workspace = global.Main?.session?.workspaceState || null;
+    const tabs = Array.isArray(workspace?.tabs) ? workspace.tabs : [];
+    const requestedTab = requestedTabId
+      ? (tabs.find(tab => tab && normalizeLifecycleTabId(tab.id || '') === requestedTabId) || source.tab || null)
+      : null;
+    const workspaceActiveTabId = normalizeLifecycleTabId(workspace?.activeTabId || '');
+    const workspaceActiveTab = workspaceActiveTabId
+      ? tabs.find(tab => tab && normalizeLifecycleTabId(tab.id || '') === workspaceActiveTabId) || null
+      : null;
+    const workspaceOwnerTabId = workspaceActiveTab?.type === key ? workspaceActiveTabId : '';
+    const projectionTabId = namespace.resolveProjectionTabId(options?.component || null, options?.projectedSession || null);
+    const sessionTabId = normalizeLifecycleTabId(options?.session?.tabId || '');
+    const rootTabId = normalizeLifecycleTabId(
+      namespace.resolveTabIdFromTarget(options?.root || null)
+      || namespace.resolveOwnedObjectTabId(options?.root || null, key)
+      || ''
+    );
+    const additionalOwnerTabIds = Array.isArray(options?.owners)
+      ? options.owners.map(owner => normalizeLifecycleTabId(
+          owner?.tabId
+          || owner?.session?.tabId
+          || namespace.resolveOwnedObjectTabId(owner, key)
+          || ''
+        )).filter(Boolean)
+      : [];
+    const liveOwnerTabIds = [projectionTabId, sessionTabId, rootTabId, ...additionalOwnerTabIds].filter(Boolean);
+    const liveOwnersAgree = !requestedTabId || liveOwnerTabIds.every(tabId => tabId === requestedTabId);
+    const hasWorkspaceOwner = !!workspaceActiveTabId;
+    const workspaceOwnerAgrees = !requestedTabId
+      || (!hasWorkspaceOwner ? options.allowMissingWorkspaceOwner === true : workspaceOwnerTabId === requestedTabId);
+    return {
+      requestedTabId: requestedTabId || null,
+      requestedTab,
+      workspaceActiveTabId: workspaceActiveTabId || null,
+      workspaceOwnerTabId: workspaceOwnerTabId || null,
+      projectionTabId: projectionTabId || null,
+      sessionTabId: sessionTabId || null,
+      rootTabId: rootTabId || null,
+      canCaptureLive: !!requestedTabId && workspaceOwnerAgrees && liveOwnersAgree
+    };
+  };
+
+
   namespace.resolveActiveSessionForComponent = function resolveActiveSessionForComponent(config = {}){
     const key = normalizeLifecycleTabId(config?.componentKey || config?.component?.__componentKey || '');
     const getSession = typeof config?.getSession === 'function' ? config.getSession : null;

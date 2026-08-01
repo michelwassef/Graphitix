@@ -11,6 +11,7 @@
     }
   }
   const namespace = Main.domControls = Main.domControls || {};
+  const emitRenderCacheEvent = event => Shared.renderCacheDiagnostics?.emit?.(event);
 
 
 
@@ -826,6 +827,29 @@
         targetLayoutSignatureLength: targetLayoutSignature ? String(targetLayoutSignature).length : 0,
         renderLayoutSignatureLength: renderLayoutSignature ? String(renderLayoutSignature).length : 0
       });
+      emitRenderCacheEvent({
+        tabId: tab.id,
+        component: tab.type,
+        phase: 'eligibility',
+        outcome: 'rejected',
+        reason: renderCacheUnavailableReasons[0] || 'basic-validation-failed',
+        source: renderCacheIsArchiveBacked ? 'archive' : 'runtime',
+        cacheOwnerTabId: renderCacheOwnerTabId,
+        payloadSignature: renderPayloadSignature,
+        layoutSignature: renderLayoutSignature,
+        details: { reasons: renderCacheUnavailableReasons.slice() }
+      });
+    } else if (!renderCache) {
+      emitRenderCacheEvent({
+        tabId: tab.id,
+        component: tab.type,
+        phase: 'eligibility',
+        outcome: 'miss',
+        reason: hadArchiveRenderCache ? 'archive-cache-unusable' : 'cache-absent',
+        source: hadArchiveRenderCache ? 'archive' : 'none',
+        payloadSignature: targetPayloadSignature,
+        layoutSignature: targetLayoutSignature
+      });
     }
     let renderCacheValidationDeferred = false;
     const validateRenderCacheForRestore = stage => {
@@ -854,9 +878,31 @@
           validationStage: stage || 'workspace-view'
         });
         if (validationResult === true) {
+          emitRenderCacheEvent({
+            tabId: tab.id,
+            component: tab.type,
+            phase: 'component-validation',
+            outcome: 'accepted',
+            reason: stage || 'workspace-view',
+            source: renderCacheIsArchiveBacked ? 'archive' : 'runtime',
+            cacheOwnerTabId: renderCacheOwnerTabId,
+            payloadSignature: renderPayloadSignature,
+            layoutSignature: renderLayoutSignature
+          });
           return true;
         }
         if (validationResult === false) {
+          emitRenderCacheEvent({
+            tabId: tab.id,
+            component: tab.type,
+            phase: 'component-validation',
+            outcome: 'rejected',
+            reason: 'component-validator-rejected',
+            source: renderCacheIsArchiveBacked ? 'archive' : 'runtime',
+            cacheOwnerTabId: renderCacheOwnerTabId,
+            payloadSignature: renderPayloadSignature,
+            layoutSignature: renderLayoutSignature
+          });
           return false;
         }
         // Lazy registry hooks can exist before the component bundle has loaded.
@@ -1672,6 +1718,20 @@
           renderCacheRestored: false,
           liveDomReused: true
         });
+        if (canRestoreRender && renderCacheIsArchiveBacked) {
+          emitRenderCacheEvent({
+            tabId: tab.id,
+            component: tab.type,
+            phase: 'hydrate',
+            outcome: 'hit',
+            reason: 'archive-backed-live-dom-reused',
+            source: 'archive',
+            cacheOwnerTabId: renderCacheOwnerTabId,
+            payloadSignature: renderPayloadSignature,
+            layoutSignature: renderLayoutSignature,
+            details: { liveDomReused: true }
+          });
+        }
         return;
       }
       const defaultPayload = namespace.ensureDefaultPayload(session, tab.type, config);
@@ -1839,6 +1899,17 @@
                 type: tab.type,
                 reason: options.reason || 'workspace-view'
               });
+              emitRenderCacheEvent({
+                tabId: tab.id,
+                component: tab.type,
+                phase: 'visual-validation',
+                outcome: 'rejected',
+                reason: 'published-frame-empty',
+                source: renderCacheIsArchiveBacked ? 'archive' : 'runtime',
+                cacheOwnerTabId: renderCacheOwnerTabId,
+                payloadSignature: renderPayloadSignature,
+                layoutSignature: renderLayoutSignature
+              });
               restored = false;
             }
           }
@@ -1871,6 +1942,17 @@
         fallbackDrawReason = drawMeta.reason || options.reason || 'workspace-view';
       } else {
         Shared.componentLifecycle?.emitLifecycleEvent?.({ componentKey: tab.type, tabId: tab.id, action: renderCacheIsArchiveBacked ? 'saved-render-cache-restored' : 'runtime-render-cache-restored', reason: 'workspace-render-cache-restored' });
+        emitRenderCacheEvent({
+          tabId: tab.id,
+          component: tab.type,
+          phase: 'hydrate',
+          outcome: 'hit',
+          reason: 'workspace-render-cache-restored',
+          source: renderCacheIsArchiveBacked ? 'archive' : 'runtime',
+          cacheOwnerTabId: renderCacheOwnerTabId,
+          payloadSignature: renderPayloadSignature,
+          layoutSignature: renderLayoutSignature
+        });
         console.debug('Debug: workspace render cache restored', { tabId: tab.id, type: tab.type });
       }
       if (Shared.componentLayout?.syncTabStateToControlsFor) {
@@ -1948,6 +2030,17 @@
         reason: 'workspace-draw-fallback',
         originReason
       };
+      emitRenderCacheEvent({
+        tabId: tab.id,
+        component: tab.type,
+        phase: 'activation',
+        outcome: 'fallback-redraw',
+        reason: originReason,
+        source: hadArchiveRenderCache ? 'archive' : 'none',
+        cacheOwnerTabId: renderCacheOwnerTabId,
+        payloadSignature: targetPayloadSignature,
+        layoutSignature: targetLayoutSignature
+      });
       console.warn('workspace graph missing after restore; forcing payload redraw', {
         tabId: tab.id,
         type: tab.type,
@@ -1997,6 +2090,16 @@
       const published = await waitForWorkspaceGraphPublication(90000);
       if (published) {
         clearWorkspaceActivationError(tab, { reason: 'workspace-post-restore-fallback-succeeded' });
+        emitRenderCacheEvent({
+          tabId: tab.id,
+          component: tab.type,
+          phase: 'activation',
+          outcome: 'redraw-succeeded',
+          reason: reason || 'workspace-post-restore-empty-graph',
+          source: 'payload',
+          payloadSignature: targetPayloadSignature,
+          layoutSignature: targetLayoutSignature
+        });
         console.debug('Debug: workspace graph published after forced recovery redraw', {
           tabId: tab.id,
           type: tab.type,
@@ -2013,52 +2116,6 @@
       return false;
     };
 
-    const awaitWorkspaceActivationReady = () => {
-      if (options.awaitReadyForRestore !== true) {
-        return null;
-      }
-      const readyHook = typeof config.awaitReadyForSnapshot === 'function'
-        ? config.awaitReadyForSnapshot.bind(config)
-        : null;
-      if (!readyHook) {
-        return null;
-      }
-      let readyResult;
-      try {
-        readyResult = readyHook({
-          tab,
-          tabId: tab.id,
-          type: tab.type,
-          componentKey: tab.type,
-          reason: `${options.reason || 'workspace-view'}-restore-ready`,
-          timeoutMs: WORKSPACE_ENSURE_TIMEOUT_MS
-        });
-      } catch (err) {
-        console.error('workspace restore readiness hook error', { tabId: tab.id, type: tab.type, err });
-        setWorkspaceActivationError(tab, { reason: 'workspace-restore-readiness-error', err });
-        return null;
-      }
-      if (!readyResult || typeof readyResult.then !== 'function') {
-        return readyResult || null;
-      }
-      return workspacePromiseWithTimeout(readyResult, WORKSPACE_ENSURE_TIMEOUT_MS, {
-        label: 'workspace-restore-ready',
-        tabId: tab.id,
-        type: tab.type
-      }).then(outcome => {
-        if (outcome?.timedOut) {
-          console.warn('workspace restore readiness timed out; validating final graph before failing', {
-            tabId: tab.id,
-            type: tab.type,
-            timeoutMs: WORKSPACE_ENSURE_TIMEOUT_MS
-          });
-        }
-        return outcome;
-      }, err => {
-        console.error('workspace restore readiness async error', { tabId: tab.id, type: tab.type, err });
-        return null;
-      });
-    };
 
     const finishWorkspaceActivation = () => {
       if (fallbackDrawReason) {
@@ -2077,14 +2134,14 @@
           })
           .then(() => config);
       }
-      const readyResult = awaitWorkspaceActivationReady();
-      const mustFinishAsync = options.awaitReadyForRestore === true
-        || (readyResult && typeof readyResult.then === 'function');
-      if (!mustFinishAsync) {
+      if (options.awaitReadyForRestore !== true) {
         return config;
       }
-      return Promise.resolve(readyResult)
-        .then(() => ensureWorkspaceGraphPublishedAfterRestore('workspace-activation-finish'))
+      // Restore completion is defined by publication of the owning workspace graph,
+      // not by snapshot-idle state. Snapshot readiness may legitimately remain false
+      // while owner-scoped layout or statistics work is queued, and waiting for it
+      // here can deadlock the document-open transaction behind its own restore gate.
+      return ensureWorkspaceGraphPublishedAfterRestore('workspace-activation-finish')
         .then(() => config);
     };
 

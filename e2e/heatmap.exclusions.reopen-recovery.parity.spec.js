@@ -102,6 +102,7 @@ async function captureManualAndRecoveryArchives(page) {
       snapshotKind: 'archive-save',
       policyMode: 'manual-save',
       captureRenderCacheBeforeSnapshot: false,
+      includeRenderCacheInSnapshot: false,
       compression: 'STORE',
       useWorker: false,
       reason: 'e2e-exclusion-manual-checkpoint'
@@ -111,6 +112,7 @@ async function captureManualAndRecoveryArchives(page) {
       snapshotKind: 'recovery',
       policyMode: 'recovery',
       captureRenderCacheBeforeSnapshot: false,
+      includeRenderCacheInSnapshot: false,
       compression: 'STORE',
       useWorker: false,
       reason: 'e2e-exclusion-recovery-checkpoint'

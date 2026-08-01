@@ -16,12 +16,6 @@ describe('sessionActions save lazy archive build', () => {
   }
 
   function createContext(overrides = {}) {
-    const session = {
-      fastClonePayload: value => (value == null ? value : JSON.parse(JSON.stringify(value))),
-      getActiveTab: jest.fn(() => ({ id: 'tab-1', title: 'XY Plots', type: 'scatter' })),
-      persistActiveTabState: jest.fn(),
-      clearSessionDirty: jest.fn()
-    };
     const workspaceState = {
       tabs: [{
         id: 'tab-1',
@@ -35,6 +29,12 @@ describe('sessionActions save lazy archive build', () => {
       sessionFileHandle: null,
       sessionFileScope: null,
       sessionFileName: ''
+    };
+    const session = {
+      fastClonePayload: value => (value == null ? value : JSON.parse(JSON.stringify(value))),
+      getActiveTab: jest.fn(() => workspaceState.tabs[0]),
+      persistActiveTabState: jest.fn(),
+      clearSessionDirty: jest.fn()
     };
     return {
       Shared: window.Shared,
@@ -131,41 +131,31 @@ describe('sessionActions save lazy archive build', () => {
     }));
   });
 
-  test('recovery snapshot policy captures render cache only when opted in and idle', async () => {
+  test('recovery snapshot policy matches manual save cache richness', async () => {
     const sessionActions = installSessionActions();
     const context = createContext();
-    const persistSpy = context.session.persistActiveTabState;
 
-    const idle = await sessionActions.createDocumentCheckpoint(context, {
+    const recovery = await sessionActions.createDocumentCheckpoint(context, {
       scope: 'workspace',
       policyMode: 'recovery',
       snapshotKind: 'recovery',
-      highFidelityEnabled: true,
-      idleForMs: 5000,
       reason: 'recovery-interval'
     });
-    expect(idle.policy.captureRenderCache).toBe(true);
 
-    const active = await sessionActions.createDocumentCheckpoint(context, {
-      scope: 'workspace',
-      policyMode: 'recovery',
-      snapshotKind: 'recovery',
-      highFidelityEnabled: true,
-      idleForMs: 10,
-      reason: 'recovery-interval'
-    });
-    expect(active.policy.captureRenderCache).toBe(false);
-
-    const disabled = await sessionActions.createDocumentCheckpoint(context, {
-      scope: 'workspace',
-      policyMode: 'recovery',
-      snapshotKind: 'recovery',
-      idleForMs: 9000,
-      captureRenderCacheBeforeSnapshot: false,
-      reason: 'recovery-interval'
-    });
-    expect(disabled.policy.captureRenderCache).toBe(false);
-    expect(persistSpy).toHaveBeenCalledTimes(3);
+    expect(recovery.policy).toEqual(expect.objectContaining({
+      captureRenderCache: true,
+      includeRenderCache: true,
+      preserveRenderCacheTabScope: 'all',
+      policyId: 'recovery-rich'
+    }));
+    expect(context.session.persistActiveTabState).toHaveBeenCalledWith(
+      context.workspaceState.tabs[0],
+      expect.objectContaining({
+        captureRenderCache: true,
+        captureRenderCacheIfNeeded: true,
+        reason: 'recovery-interval'
+      })
+    );
   });
 
   test.each([
@@ -222,10 +212,6 @@ describe('sessionActions save lazy archive build', () => {
     activeTab.uiState = liveUiState;
     context.session.getActiveTab.mockReturnValue(activeTab);
     context.session.serializePayloadSignature = value => JSON.stringify(value);
-    context.session.enrichTabSnapshotForArchive = tab => ({
-      payload: JSON.parse(JSON.stringify(tab.payload)),
-      layout: JSON.parse(JSON.stringify(tab.layoutState))
-    });
     context.session.persistActiveTabState.mockImplementation((tab, options) => {
       expect(options.snapshotIntent).toEqual(expect.objectContaining({
         saveLike: true,
@@ -243,6 +229,7 @@ describe('sessionActions save lazy archive build', () => {
       snapshotKind: 'archive-save',
       policyMode: 'manual-save',
       captureRenderCacheBeforeSnapshot: false,
+      includeRenderCacheInSnapshot: false,
       reason: 'toolbar-save'
     });
     const manualPersistOptions = context.session.persistActiveTabState.mock.calls.at(-1)[1];
@@ -252,6 +239,7 @@ describe('sessionActions save lazy archive build', () => {
       snapshotKind: 'recovery',
       policyMode: 'recovery',
       captureRenderCacheBeforeSnapshot: false,
+      includeRenderCacheInSnapshot: false,
       reason: 'recovery-interval'
     });
     expect(recovery.snapshot).toStrictEqual(manual.snapshot);
@@ -271,7 +259,7 @@ describe('sessionActions save lazy archive build', () => {
   });
 
 
-  test('lean worker recovery still awaits component readiness before active-owner capture', async () => {
+  test('worker recovery still awaits component readiness before active-owner capture', async () => {
     const sessionActions = installSessionActions();
     const ready = jest.fn().mockResolvedValue({ ok: true });
     const context = createContext({
@@ -285,6 +273,7 @@ describe('sessionActions save lazy archive build', () => {
       snapshotKind: 'recovery',
       policyMode: 'recovery',
       captureRenderCacheBeforeSnapshot: false,
+      includeRenderCacheInSnapshot: false,
       useWorker: true,
       reason: 'recovery-interval'
     });
@@ -484,7 +473,120 @@ describe('sessionActions save lazy archive build', () => {
     expect(archiveRequest?.tabs?.[1]?.archiveRenderCacheLayoutSignature).toBe('box-layout-sig');
   });
 
-  test('lean recovery checkpoints never capture or embed render caches', async () => {
+  test('serializes an inactive archive-ready checkpoint after its warm runtime cache was pruned', async () => {
+    const sessionActions = installSessionActions();
+    const archiveReadyCache = {
+      __graphitixRenderCache: { tabId: 'tab-2', component: 'box', complete: true },
+      plot: { kind: 'box', owner: 'tab-2' }
+    };
+    let archiveRequest = null;
+    window.Shared.graphArchive.buildArchiveBlob.mockImplementation(async request => {
+      archiveRequest = request;
+      return new Blob(['zip'], { type: 'application/zip' });
+    });
+    window.Shared.fileIO.saveGraphFileAs = jest.fn(async options => {
+      await options.getPayload();
+      return { status: 'saved', via: 'picker', fileName: 'workspace.graph' };
+    });
+    const context = createContext({
+      workspaceState: {
+        tabs: [
+          {
+            id: 'tab-1',
+            title: 'XY Plots',
+            type: 'scatter',
+            isWelcome: false,
+            payload: { type: 'scatter', data: [[1, 2, 'A']] },
+            layoutState: null,
+            payloadSignature: 'scatter-payload-sig',
+            layoutSignature: 'scatter-layout-sig'
+          },
+          {
+            id: 'tab-2',
+            title: 'Distribution Charts',
+            type: 'box',
+            isWelcome: false,
+            payload: { type: 'box', data: [[3, 4, 'B']] },
+            layoutState: { component: 'box', width: 468, height: 456 },
+            payloadSignature: 'box-payload-sig',
+            layoutSignature: 'box-layout-sig',
+            renderCache: null,
+            archiveRenderCache: archiveReadyCache,
+            archiveRenderCacheSignature: 'box-payload-sig',
+            archiveRenderCacheLayoutSignature: 'box-layout-sig'
+          }
+        ],
+        activeTabId: 'tab-1',
+        sessionDirty: true,
+        sessionFileHandle: null,
+        sessionFileScope: null,
+        sessionFileName: ''
+      }
+    });
+    const activeTab = context.workspaceState.tabs[0];
+    context.session.getActiveTab.mockReturnValue(activeTab);
+    context.session.serializeRenderCacheForArchive = jest.fn(() => null);
+    const inactiveCapture = jest.fn();
+    context.workspaces = {
+      scatter: {},
+      box: { captureRenderCache: inactiveCapture }
+    };
+
+    const result = await sessionActions.saveWorkspaceArchiveWithScope(context, {
+      scope: 'workspace'
+    });
+
+    expect(result.status).toBe('saved');
+    expect(inactiveCapture).not.toHaveBeenCalled();
+    expect(archiveRequest?.tabs?.[1]?.archiveRenderCache).toStrictEqual(archiveReadyCache);
+    expect(archiveRequest?.tabs?.[1]?.archiveRenderCacheSignature).toBe('box-payload-sig');
+    expect(archiveRequest?.tabs?.[1]?.archiveRenderCacheLayoutSignature).toBe('box-layout-sig');
+  });
+
+  test('recovery checkpoints embed an exact existing render cache without recapturing it', async () => {
+    const sessionActions = installSessionActions();
+    let archiveRequest = null;
+    window.Shared.graphArchive.buildArchiveBlob.mockImplementation(async request => {
+      archiveRequest = request;
+      return new Blob(['zip'], { type: 'application/zip' });
+    });
+    const context = createContext();
+    const activeTab = context.workspaceState.tabs[0];
+    const exactCache = {
+      __graphitixRenderCache: { tabId: activeTab.id, type: activeTab.type, complete: true },
+      plot: { stable: true }
+    };
+    activeTab.payloadSignature = 'payload-sig';
+    activeTab.layoutSignature = 'layout-sig';
+    activeTab.renderCache = {
+      cache: exactCache,
+      tabId: activeTab.id,
+      type: activeTab.type,
+      payloadSignature: 'payload-sig',
+      layoutSignature: 'layout-sig'
+    };
+    context.session.getActiveTab.mockReturnValue(activeTab);
+    context.session.serializeRenderCacheForArchive = jest.fn(cache => cache);
+
+    await sessionActions.buildWorkspaceArchiveBlob(context, {
+      scope: 'workspace',
+      policyMode: 'recovery',
+      snapshotKind: 'recovery',
+      reason: 'recovery-interval'
+    });
+
+    expect(context.session.persistActiveTabState).toHaveBeenCalledWith(activeTab, expect.objectContaining({
+      captureRenderCache: true,
+      captureRenderCacheIfNeeded: true,
+      reason: 'recovery-interval'
+    }));
+    expect(context.session.serializeRenderCacheForArchive).toHaveBeenCalledWith(exactCache);
+    expect(archiveRequest?.tabs?.[0]?.archiveRenderCache).toStrictEqual(exactCache);
+    expect(archiveRequest?.tabs?.[0]?.archiveRenderCacheSignature).toBe('payload-sig');
+    expect(archiveRequest?.tabs?.[0]?.archiveRenderCacheLayoutSignature).toBe('layout-sig');
+  });
+
+  test('conflicting component aliases are rejected during archive construction', async () => {
     const sessionActions = installSessionActions();
     let archiveRequest = null;
     window.Shared.graphArchive.buildArchiveBlob.mockImplementation(async request => {
@@ -496,8 +598,18 @@ describe('sessionActions save lazy archive build', () => {
     activeTab.payloadSignature = 'payload-sig';
     activeTab.layoutSignature = 'layout-sig';
     activeTab.renderCache = {
-      cache: { plot: { stale: false } },
+      cache: {
+        __graphitixRenderCache: {
+          version: 2,
+          component: 'scatter',
+          type: 'box',
+          tabId: activeTab.id,
+          complete: true
+        },
+        plot: { stable: true }
+      },
       tabId: activeTab.id,
+      type: activeTab.type,
       payloadSignature: 'payload-sig',
       layoutSignature: 'layout-sig'
     };
@@ -506,17 +618,11 @@ describe('sessionActions save lazy archive build', () => {
 
     await sessionActions.buildWorkspaceArchiveBlob(context, {
       scope: 'workspace',
-      policyMode: 'recovery',
-      snapshotKind: 'recovery',
-      idleForMs: 0,
+      snapshotKind: 'archive-save',
       captureRenderCacheBeforeSnapshot: false,
-      reason: 'recovery-interval'
+      reason: 'schema-conflict-regression'
     });
 
-    expect(context.session.persistActiveTabState).toHaveBeenCalledWith(activeTab, expect.objectContaining({
-      captureRenderCache: false,
-      reason: 'recovery-interval'
-    }));
     expect(context.session.serializeRenderCacheForArchive).not.toHaveBeenCalled();
     expect(archiveRequest?.tabs?.[0]?.archiveRenderCache).toBeNull();
     expect(archiveRequest?.tabs?.[0]?.archiveRenderCacheSignature).toBeNull();
@@ -556,7 +662,7 @@ describe('sessionActions save lazy archive build', () => {
     expect(archiveRequest?.tabs?.[0]?.archiveRenderCacheLayoutSignature).toBeNull();
   });
 
-  test('buildArchiveTabSnapshot funnels payload/layout through session.enrichTabSnapshotForArchive', async () => {
+  test('buildArchiveTabSnapshot serializes the committed canonical payload and layout without archive-only enrichment', async () => {
     const sessionActions = installSessionActions();
     let archiveRequest = null;
     window.Shared.graphArchive.buildArchiveBlob.mockImplementation(async request => {
@@ -569,27 +675,21 @@ describe('sessionActions save lazy archive build', () => {
       return { status: 'saved', via: 'picker', fileName: 'workspace.graph' };
     });
 
-    const enrichedPayload = { type: 'scatter', data: [[1, 2, 'A']], __enriched: 'scatter-payload' };
-    const enrichedLayout = { component: 'scatter', __enriched: 'scatter-layout' };
-    const enrichSpy = jest.fn(() => ({ payload: enrichedPayload, layout: enrichedLayout }));
-
     const context = createContext();
-    context.session.enrichTabSnapshotForArchive = enrichSpy;
-    context.session.getActiveTab.mockReturnValue(context.workspaceState.tabs[0]);
+    const tab = context.workspaceState.tabs[0];
+    const canonicalPayload = context.session.fastClonePayload(tab.payload);
+    const canonicalLayout = context.session.fastClonePayload(tab.layoutState);
+    context.session.getActiveTab.mockReturnValue(tab);
 
     const result = await sessionActions.saveWorkspaceArchiveWithScope(context, {
       scope: 'workspace'
     });
 
     expect(result.status).toBe('saved');
-    // The shared enrichment helper should be called once per graph tab.
-    expect(enrichSpy).toHaveBeenCalledWith(
-      context.workspaceState.tabs[0],
-      expect.objectContaining({ contextLabel: 'archive-snapshot' })
-    );
-    // The payload/layout passed to buildArchiveBlob should be the enriched values, not raw clones.
-    expect(archiveRequest?.tabs?.[0]?.payload).toStrictEqual(enrichedPayload);
-    expect(archiveRequest?.tabs?.[0]?.layout).toStrictEqual(enrichedLayout);
+    expect(archiveRequest?.tabs?.[0]?.payload).toStrictEqual(canonicalPayload);
+    expect(archiveRequest?.tabs?.[0]?.layout).toStrictEqual(canonicalLayout);
+    expect(tab.payload).toStrictEqual(canonicalPayload);
+    expect(tab.layoutState).toStrictEqual(canonicalLayout);
   });
 
   test('workspace save never activates inactive tabs to manufacture render caches', async () => {

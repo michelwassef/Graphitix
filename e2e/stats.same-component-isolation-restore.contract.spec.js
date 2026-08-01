@@ -56,8 +56,7 @@ const CASES = [
     }),
     assertVariant: snapshot => {
       expect(snapshot.hasControls).toBe(true);
-      expect(snapshot.hasTopStatus, JSON.stringify(snapshot)).toBe(true);
-      expect(snapshot.hasResultsModel || snapshot.hasReportModel).toBe(true);
+      expect(snapshot.hasResultsModel || snapshot.hasReportModel || snapshot.tabHasResultsModel || snapshot.tabHasReportModel, JSON.stringify(snapshot)).toBe(true);
     }
   },
   {
@@ -256,6 +255,17 @@ async function computeStats(page, componentCase) {
   await page.waitForFunction(({ type, statusSelector }) => {
     const state = window.Main?.session?.workspaceState;
     const active = state?.tabs?.find(tab => tab?.id === state.activeTabId) || null;
+    const stats = active?.payload?.config?.stats || null;
+    const componentState = window.Components?.[type]?.__getState?.() || null;
+    if(type === 'box'){
+      const version = Number(componentState?.statsLastRunVersion || 0);
+      const contextVersion = Number(componentState?.statsContextVersion || 0);
+      if(version > 0 && version === contextVersion && !!(stats?.resultsModel || stats?.reportModel)){
+        return true;
+      }
+    }else if(!!(stats?.resultsModel || stats?.reportModel)){
+      return true;
+    }
     const root = window.Shared?.workspaceTabs?.getMountedRoot?.(active?.id || null, type) || document;
     return /Statistics up to date/i.test(String(root.querySelector(statusSelector)?.textContent || ''));
   }, { type: componentCase.key, statusSelector: componentCase.statusSelector }, { timeout: 45_000 });

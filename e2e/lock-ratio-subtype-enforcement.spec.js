@@ -3,7 +3,8 @@ const fs = require('fs');
 const path = require('path');
 const {
   installLocalCdnOverrides,
-  registerIssueCollectors
+  registerIssueCollectors,
+  waitForDocumentOpenComplete
 } = require('./helpers/workspaceHarness');
 
 const TMP_DIR = path.resolve(__dirname, '.tmp');
@@ -111,12 +112,20 @@ async function openGraphTab(page, type, pageId, { first = false, reason = 'e2e-l
 }
 
 async function activateTab(page, tabId, pageId) {
-  await page.evaluate(async ({ tabId }) => {
-    const result = window.Main?.tabs?.activateTab?.(tabId, { reason: 'e2e-lock-ratio-activate' });
-    if (result && typeof result.then === 'function') {
-      await result;
-    }
-  }, { tabId });
+  const tabButton = page.locator(`#workspaceTabsList .workspace-tab[data-tab-id="${tabId}"]`).first();
+  await expect(tabButton).toBeVisible({ timeout: 20_000 });
+  await tabButton.click({ force: true });
+  const activatedByClick = await page.waitForFunction(({ tabId }) => (
+    String(window.Main?.session?.workspaceState?.activeTabId || '') === String(tabId || '')
+  ), { tabId }, { timeout: 3_000 }).then(() => true).catch(() => false);
+  if(!activatedByClick){
+    await page.evaluate(async ({ tabId }) => {
+      const result = window.Main?.tabs?.activateTab?.(tabId, { reason: 'e2e-lock-ratio-activate' });
+      if (result && typeof result.then === 'function') {
+        await result;
+      }
+    }, { tabId });
+  }
   await page.waitForFunction(({ tabId }) => {
     return String(window.Main?.session?.workspaceState?.activeTabId || '') === String(tabId || '');
   }, { tabId }, { timeout: 20_000 });
@@ -220,37 +229,10 @@ async function loadArchive(page, archivePath, type) {
   await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
   await expect(page.locator('#welcomeScreen')).toBeVisible({ timeout: 20_000 });
   await page.locator('#workspaceSessionInput').setInputFiles(archivePath);
-  await page.waitForFunction(() => document.getElementById('workspaceSessionInput')?.value === '', null, {
-    timeout: 60_000
-  });
+  await waitForDocumentOpenComplete(page, { timeout: 90_000 });
   await page.waitForFunction(graphType => {
     const tabs = window.Main?.session?.workspaceState?.tabs || [];
     return Array.isArray(tabs) && tabs.filter(tab => tab && !tab.isWelcome && tab.type === graphType).length >= 2;
-  }, type, { timeout: 45_000 });
-  await page.evaluate(async graphType => {
-    const state = window.Main?.session?.workspaceState;
-    const tabId = String(state?.activeTabId || '');
-    const component = window.Components?.[graphType];
-    const ready = component?.awaitReadyForSnapshot?.({
-      tabId,
-      componentKey: graphType,
-      reason: 'e2e-lock-ratio-load-ready'
-    });
-    if(ready && typeof ready.then === 'function'){
-      await ready;
-    }
-  }, type);
-  await page.waitForFunction(graphType => {
-    const state = window.Main?.session?.workspaceState;
-    const activeId = String(state?.activeTabId || '');
-    const active = state?.tabs?.find(tab => String(tab?.id || '') === activeId) || null;
-    if(!active || active.type !== graphType || active.activationError){
-      return false;
-    }
-    return window.Shared?.componentLifecycle?.isRestoreTransactionActive?.(graphType, {
-      tabId: activeId,
-      reason: 'e2e-lock-ratio-load-ready'
-    }) !== true;
   }, type, { timeout: 45_000 });
 }
 

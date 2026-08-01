@@ -8158,7 +8158,13 @@
         statsNodes: statsCache?.count || 0
       });
     }
-    return { plot: plotCache, stats: statsCache };
+    const complete = Shared.componentLifecycle?.payloadHasRenderableContent?.(plotCache, {
+      selectors: ['#histSvg', 'svg', 'canvas'],
+      markupPattern: /(<svg\b|id=["']histSvg["']|<canvas\b)/i
+    }) ?? (Number(plotCache?.count || 0) > 0);
+    const cacheMeta = Shared.renderCacheSchema?.createMetadata?.({ component: 'hist', tabId: owner.tabId, complete })
+      || { version: 2, component: 'hist', type: 'hist', tabId: owner.tabId || null, complete };
+    return { plot: plotCache, stats: statsCache, __graphitixRenderCache: cacheMeta };
   };
 
   hist.canRestoreRenderCache = function canRestoreRenderCache(cache, meta = {}){

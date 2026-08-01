@@ -242,9 +242,7 @@ describe('documentState recovery snapshot throttling', () => {
       expect.objectContaining({
         policyMode: 'recovery',
         snapshotKind: 'recovery',
-        useWorker: true,
-        highFidelityEnabled: false,
-        idleForMs: expect.any(Number)
+        useWorker: true
       })
     );
   });
@@ -328,6 +326,54 @@ describe('documentState recovery snapshot throttling', () => {
       fileName: 'recovered.graph',
       origin: 'user'
     }));
+  });
+
+  test('restored recovery checkpoint stays current until a genuine new revision', async () => {
+    let installed = null;
+    const markSessionDirty = jest.fn((_reason, _meta) => {
+      installed.workspaceState.sessionRevision += 1;
+      installed.workspaceState.sessionUserDirty = true;
+      window.dispatchEvent(new CustomEvent('graphitix:document-state-change', {
+        detail: {
+          type: 'dirty',
+          revision: installed.workspaceState.sessionRevision,
+          userDirty: true
+        }
+      }));
+    });
+    installed = installDocumentState({
+      sessionActions: {
+        applyArchiveBlob: jest.fn().mockResolvedValue({ status: 'loaded' })
+      },
+      session: { markSessionDirty }
+    });
+    window.desktop.readRecoverySnapshot = jest.fn().mockResolvedValue({
+      exists: true,
+      dataBase64: Buffer.from('graphitix-recovery').toString('base64'),
+      meta: {
+        dirty: true,
+        hasData: true,
+        tabCount: 1,
+        fileName: 'recovered.graph',
+        fileScope: 'workspace'
+      }
+    });
+    window.confirm = jest.fn(() => true);
+
+    await expect(window.Main.documentState.maybeRestoreRecovery()).resolves.toBe(true);
+    expect(installed.workspaceState.sessionRevision).toBe(2);
+
+    jest.advanceTimersByTime(30000);
+    await flushTimers();
+    expect(installed.sessionActions.buildWorkspaceArchiveBlob).not.toHaveBeenCalled();
+
+    installed.workspaceState.sessionRevision = 3;
+    window.dispatchEvent(new CustomEvent('graphitix:document-state-change', {
+      detail: { type: 'dirty', revision: 3, userDirty: true }
+    }));
+    jest.advanceTimersByTime(2500);
+    await flushTimers();
+    expect(installed.sessionActions.buildWorkspaceArchiveBlob).toHaveBeenCalledTimes(1);
   });
 
   test('recovery delegates live capture and recoverable-data evaluation to the shared checkpoint owner', async () => {

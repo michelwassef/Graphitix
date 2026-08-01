@@ -142,35 +142,340 @@ describe('session.assignTabPayload null-overwrite guard', () => {
       }
     };
 
-    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
-    try {
-      expect(() => session.persistActiveTabState(tab, {
-        reason: 'archive-save-cache-safety',
-        origin: 'lifecycle',
-        captureRenderCache: true,
-        snapshotIntent: {
-          captureLivePayload: false,
-          skipLivePayloadCapture: true,
-          allowSkipLivePayloadCapture: true,
-          lifecycleSnapshot: true,
-          reasonSkippable: true
-        }
-      })).not.toThrow();
-      expect(errorSpy).toHaveBeenCalledWith(
-        'persistActiveTabState render cache error',
-        expect.objectContaining({ tabId: tab.id, type: tab.type })
-      );
-    } finally {
-      errorSpy.mockRestore();
-    }
+    expect(() => session.persistActiveTabState(tab, {
+      reason: 'archive-save-cache-safety',
+      origin: 'lifecycle',
+      captureRenderCache: true,
+      snapshotIntent: {
+        captureLivePayload: false,
+        skipLivePayloadCapture: true,
+        allowSkipLivePayloadCapture: true,
+        lifecycleSnapshot: true,
+        reasonSkippable: true
+      }
+    })).not.toThrow();
 
     expect(window.Main.components.registry.box.captureRenderCache).toHaveBeenCalledTimes(1);
-    expect(restoreRenderCache).toHaveBeenCalledWith(captured, expect.objectContaining({
+    expect(restoreRenderCache).toHaveBeenCalledWith(
+      expect.objectContaining({
+        __graphitixRenderCache: expect.objectContaining({
+          version: 2,
+          component: 'box',
+          type: 'box',
+          tabId: tab.id,
+          complete: true,
+          rollbackOnly: true
+        })
+      }),
+      expect.objectContaining({
+        tabId: tab.id,
+        restoreLiveAfterCapture: true,
+        rollbackOnly: true,
+        skipStateMutation: true
+      })
+    );
+    expect(captured).toEqual({});
+    expect(tab.renderCache).toBeNull();
+  });
+
+
+  test.each([
+    ['wrong owner', { version: 2, component: 'box', type: 'box', tabId: 'workspace-other', complete: true }],
+    ['wrong component', { version: 2, component: 'scatter', type: 'scatter', tabId: null, complete: true }],
+    ['conflicting component aliases', { version: 2, component: 'box', type: 'scatter', tabId: null, complete: true }],
+    ['missing owner', { version: 2, component: 'box', type: 'box', tabId: null, complete: true, omitOwner: true }],
+    ['missing component', { version: 2, tabId: null, complete: true }],
+    ['incomplete cache', { version: 2, component: 'box', type: 'box', tabId: null, complete: false }],
+    ['missing metadata', null]
+  ])('rejects %s before render-cache normalization and rolls detached DOM back only', (_label, metadataTemplate) => {
+    const tab = createTabWithPayload();
+    tab.loadedFromArchive = true;
+    tab.userModified = false;
+    tab.payloadDirty = false;
+    tab.payloadSignature = session.serializePayloadSignature(tab.payload);
+    tab.layoutState = { version: 1, component: 'box', width: 468, height: 456 };
+    tab.layoutSignature = session.serializePayloadSignature(tab.layoutState);
+    session.workspaceState.activeTabId = tab.id;
+
+    const existingArchive = {
+      plot: { count: 1, owner: tab.id },
+      __graphitixRenderCache: {
+        version: 2,
+        component: 'box',
+        type: 'box',
+        tabId: tab.id,
+        complete: true
+      }
+    };
+    tab.archiveRenderCache = existingArchive;
+    tab.archiveRenderCacheSignature = tab.payloadSignature;
+    tab.archiveRenderCacheLayoutSignature = tab.layoutSignature;
+
+    const rawCache = { plot: { count: 1, owner: 'captured-dom' } };
+    if (metadataTemplate) {
+      const { omitOwner, ...metadata } = metadataTemplate;
+      rawCache.__graphitixRenderCache = {
+        ...metadata,
+        ...(omitOwner ? {} : { tabId: metadataTemplate.tabId || tab.id })
+      };
+    }
+    const rawSnapshot = JSON.parse(JSON.stringify(rawCache));
+    const restoreRenderCache = jest.fn(() => true);
+    window.Main.components = {
+      registry: {
+        box: {
+          getPayload: jest.fn(() => tab.payload),
+          captureRenderCache: jest.fn(() => rawCache),
+          restoreRenderCache
+        }
+      }
+    };
+
+    session.persistActiveTabState(tab, {
+      reason: 'capture-provenance-regression',
+      origin: 'lifecycle',
+      captureRenderCache: true,
+      snapshotIntent: {
+        captureLivePayload: false,
+        skipLivePayloadCapture: true,
+        allowSkipLivePayloadCapture: true,
+        lifecycleSnapshot: true,
+        reasonSkippable: true
+      }
+    });
+
+    expect(rawCache).toEqual(rawSnapshot);
+    expect(tab.renderCache).toBeNull();
+    expect(tab.archiveRenderCache).toBe(existingArchive);
+    expect(tab.archiveRenderCacheSignature).toBe(tab.payloadSignature);
+    expect(tab.archiveRenderCacheLayoutSignature).toBe(tab.layoutSignature);
+    expect(restoreRenderCache).toHaveBeenCalledTimes(1);
+    expect(restoreRenderCache.mock.calls[0][0]).toEqual(expect.objectContaining({
+      __graphitixRenderCache: expect.objectContaining({
+        version: 2,
+        component: 'box',
+        type: 'box',
+        tabId: tab.id,
+        complete: true,
+        rollbackOnly: true
+      })
+    }));
+    expect(restoreRenderCache.mock.calls[0][1]).toEqual(expect.objectContaining({
       tabId: tab.id,
+      rollbackOnly: true,
       restoreLiveAfterCapture: true,
       skipStateMutation: true
     }));
-    expect(tab.renderCache).toBeNull();
+  });
+
+  test('stores a valid component-owned cache without rewriting its provenance', () => {
+    const tab = createTabWithPayload();
+    tab.loadedFromArchive = true;
+    tab.userModified = false;
+    tab.payloadDirty = false;
+    tab.payloadSignature = session.serializePayloadSignature(tab.payload);
+    tab.layoutState = { version: 1, component: 'box', width: 468, height: 456 };
+    tab.layoutSignature = session.serializePayloadSignature(tab.layoutState);
+    session.workspaceState.activeTabId = tab.id;
+    const rawCache = {
+      plot: { count: 1, owner: tab.id },
+      __graphitixRenderCache: {
+        version: 2,
+        component: 'box',
+        type: 'box',
+        tabId: tab.id,
+        complete: true,
+        componentOwnedMarker: 'preserve-me'
+      }
+    };
+    const rawSnapshot = JSON.parse(JSON.stringify(rawCache));
+    const restoreRenderCache = jest.fn(() => true);
+    window.Main.components = {
+      registry: {
+        box: {
+          getPayload: jest.fn(() => tab.payload),
+          captureRenderCache: jest.fn(() => rawCache),
+          restoreRenderCache
+        }
+      }
+    };
+
+    session.persistActiveTabState(tab, {
+      reason: 'valid-capture-provenance-regression',
+      origin: 'lifecycle',
+      captureRenderCache: true,
+      snapshotIntent: {
+        captureLivePayload: false,
+        skipLivePayloadCapture: true,
+        allowSkipLivePayloadCapture: true,
+        lifecycleSnapshot: true,
+        reasonSkippable: true
+      }
+    });
+
+    expect(rawCache).toEqual(rawSnapshot);
+    expect(tab.renderCache?.cache?.__graphitixRenderCache).toEqual(expect.objectContaining({
+      version: 2,
+      component: 'box',
+      type: 'box',
+      tabId: tab.id,
+      complete: true,
+      componentOwnedMarker: 'preserve-me'
+    }));
+    expect(tab.archiveRenderCache?.__graphitixRenderCache).toEqual(expect.objectContaining({
+      version: 2,
+      component: 'box',
+      type: 'box',
+      tabId: tab.id,
+      complete: true,
+      componentOwnedMarker: 'preserve-me'
+    }));
+    expect(restoreRenderCache.mock.calls[0][0].__graphitixRenderCache.rollbackOnly).not.toBe(true);
+  });
+
+
+  test('captureRenderCacheIfNeeded reuses an exact archive-ready checkpoint', () => {
+    const tab = createTabWithPayload();
+    tab.loadedFromArchive = true;
+    tab.userModified = false;
+    tab.payloadDirty = false;
+    tab.payloadSignature = session.serializePayloadSignature(tab.payload);
+    tab.layoutState = { version: 1, component: 'box', width: 468, height: 456 };
+    tab.layoutSignature = session.serializePayloadSignature(tab.layoutState);
+    tab.archiveRenderCache = {
+      __graphitixRenderCache: { tabId: tab.id, component: tab.type, complete: true },
+      plot: { owner: tab.id }
+    };
+    tab.archiveRenderCacheSignature = tab.payloadSignature;
+    tab.archiveRenderCacheLayoutSignature = tab.layoutSignature;
+    session.workspaceState.activeTabId = tab.id;
+    const captureRenderCache = jest.fn();
+    window.Main.components = {
+      registry: {
+        box: {
+          getPayload: jest.fn(() => tab.payload),
+          captureRenderCache
+        }
+      }
+    };
+
+    session.persistActiveTabState(tab, {
+      reason: 'recovery-interval',
+      origin: 'lifecycle',
+      captureRenderCache: true,
+      captureRenderCacheIfNeeded: true,
+      snapshotIntent: {
+        captureLivePayload: false,
+        skipLivePayloadCapture: true,
+        allowSkipLivePayloadCapture: true,
+        lifecycleSnapshot: true,
+        reasonSkippable: true
+      }
+    });
+
+    expect(captureRenderCache).not.toHaveBeenCalled();
+    expect(tab.archiveRenderCache).toEqual(expect.objectContaining({
+      plot: { owner: tab.id }
+    }));
+  });
+
+  test('clean restored exact checkpoint preserves canonical layout during lifecycle deactivation', () => {
+    const tab = createTabWithPayload();
+    tab.loadedFromArchive = true;
+    tab.userModified = false;
+    tab.payloadDirty = false;
+    tab.payloadSignature = session.serializePayloadSignature(tab.payload);
+    tab.layoutState = {
+      version: 1,
+      component: 'box',
+      svgBox: {
+        style: { width: '468px', height: '456px', maxHeight: 'none' },
+        dataset: { workspaceTabId: tab.id, tabId: tab.id }
+      }
+    };
+    tab.layoutSignature = session.serializePayloadSignature(tab.layoutState);
+    tab.archiveRenderCache = {
+      __graphitixRenderCache: { tabId: tab.id, component: tab.type, complete: true },
+      plot: { owner: tab.id }
+    };
+    tab.archiveRenderCacheSignature = tab.payloadSignature;
+    tab.archiveRenderCacheLayoutSignature = tab.layoutSignature;
+    session.workspaceState.activeTabId = tab.id;
+    const captureStateFor = jest.fn(() => ({
+      version: 1,
+      component: 'box',
+      svgBox: { style: { width: '427px', height: '427px' }, dataset: {} }
+    }));
+    window.Shared.componentLayout = {
+      captureStateFor,
+      withTabLayoutOverrides: value => value
+    };
+    const captureRenderCache = jest.fn();
+    window.Main.components = {
+      registry: {
+        box: {
+          getPayload: jest.fn(() => tab.payload),
+          captureRenderCache
+        }
+      }
+    };
+
+    const beforeLayout = session.serializePayloadSignature(tab.layoutState);
+    session.persistActiveTabState(tab, {
+      reason: 'activate-switch',
+      origin: 'lifecycle',
+      captureRenderCache: true,
+      captureRenderCacheIfNeeded: true,
+      snapshotKind: 'lifecycle-checkpoint'
+    });
+
+    expect(captureStateFor).not.toHaveBeenCalled();
+    expect(captureRenderCache).not.toHaveBeenCalled();
+    expect(session.serializePayloadSignature(tab.layoutState)).toBe(beforeLayout);
+    expect(tab.layoutSignature).toBe(beforeLayout);
+    expect(tab.archiveRenderCacheLayoutSignature).toBe(beforeLayout);
+  });
+
+  test('authoritative live layout is not reverse-normalized from payload graph sizing', () => {
+    const tab = createTabWithPayload();
+    tab.userModified = true;
+    tab.payloadDirty = true;
+    session.workspaceState.activeTabId = tab.id;
+    session.workspaceState.loadedWorkspaces[tab.id] = { tabId: tab.id, type: tab.type };
+    const exactLayout = {
+      version: 1,
+      component: 'box',
+      svgBox: {
+        style: { width: '468px', height: '456px', maxWidth: 'none', maxHeight: 'none' },
+        dataset: { workspaceTabId: tab.id, tabId: tab.id, resizerUnlimitedHeight: 'true' }
+      }
+    };
+    window.Shared.componentLayout = {
+      captureStateFor: jest.fn(() => exactLayout),
+      withTabLayoutOverrides: value => value
+    };
+    const mergePayloadSizingIntoLayout = jest.fn(() => ({ corrupted: true }));
+    window.Shared.graphSizing = {
+      enrichPayloadWithLayout: jest.fn((_type, payload) => payload),
+      mergePayloadSizingIntoLayout
+    };
+    window.Main.components = {
+      registry: {
+        box: {
+          getPayload: jest.fn(() => ({ type: 'box', data: [['live']], config: {} }))
+        }
+      }
+    };
+
+    session.persistActiveTabState(tab, {
+      reason: 'archive-save',
+      origin: 'user',
+      snapshotIntent: { captureLivePayload: true }
+    });
+
+    expect(mergePayloadSizingIntoLayout).not.toHaveBeenCalled();
+    expect(tab.layoutState).toEqual(exactLayout);
+    expect(tab.layoutSignature).toBe(session.serializePayloadSignature(exactLayout));
   });
 
   test('dirty loaded tab flushes live payload once, then clears payloadDirty', () => {
@@ -311,6 +616,27 @@ describe('session.assignTabPayload null-overwrite guard', () => {
     const changed = session.persistActiveTabState(tab, {
       reason: 'activate-switch',
       origin: 'lifecycle'
+    });
+
+    expect(changed).toBe(false);
+    expect(getPayload).not.toHaveBeenCalled();
+    expect(tab.payload.data).toEqual([['Lib1', 'Lib2'], [180, 109], [337, 204]]);
+  });
+
+  test('clean canonical payload is preserved when adding a tab', () => {
+    const tab = createTabWithPayload();
+    tab.userModified = false;
+    tab.payloadDirty = false;
+    session.workspaceState.activeTabId = tab.id;
+    const getPayload = jest.fn(() => ({ type: 'box', data: [['stale-dom']], config: {} }));
+    window.Main.components = {
+      registry: { box: { getPayload } }
+    };
+
+    const changed = session.persistActiveTabState(tab, {
+      reason: 'add-tab-before-new',
+      origin: 'lifecycle',
+      snapshotKind: 'lifecycle-checkpoint'
     });
 
     expect(changed).toBe(false);
@@ -529,11 +855,7 @@ describe('session.assignTabPayload null-overwrite guard', () => {
     expect(parsed.data).toEqual(matrix);
   });
 
-  test('assignTabPayload preserves render cache and resyncs its payloadSignature when preserveRuntimeCacheOnPayloadChange is set', () => {
-    // Scenario: warmup has just captured scatter render cache (payloadSignature='sig-A').
-    // An async stats callback then calls assignTabPayload with a new payload ('sig-B').
-    // With preserveRuntimeCacheOnPayloadChange: true, the cache must be kept and its
-    // payloadSignature updated to 'sig-B' so the archive correctly matches cache to payload.
+  test('assignTabPayload invalidates render cache when payload provenance changes', () => {
     const tab = createTabWithPayload();
     tab.renderCache = {
       cache: { plot: { count: 5, fragment: null } },
@@ -541,42 +863,91 @@ describe('session.assignTabPayload null-overwrite guard', () => {
       captureSequence: 42
     };
     tab.renderCacheSignature = 'sig-A';
+    tab.archiveRenderCache = {
+      __graphitixRenderCache: { tabId: tab.id, component: tab.type },
+      plot: { count: 5 }
+    };
+    tab.archiveRenderCacheSignature = 'sig-A';
+    tab.archiveRenderCacheLayoutSignature = 'layout-A';
     tab.payloadSignature = 'sig-A';
 
-    const newPayload = { type: 'box', data: [['updated']], config: {} };
-    const changed = session.assignTabPayload(tab, newPayload, {
-      reason: 'scatter-stats-computed',
-      preserveRuntimeCacheOnPayloadChange: true
-    });
+    const changed = session.assignTabPayload(
+      tab,
+      { type: 'box', data: [['updated']], config: {} },
+      { reason: 'stats-computed' }
+    );
 
     expect(changed).toBe(true);
-    expect(tab.renderCache).not.toBeNull();
-    expect(tab.renderCache.cache).toBeTruthy();
-    // Signature must be resynced so archive restore can match cache to payload
-    expect(tab.renderCache.payloadSignature).toBe(tab.payloadSignature);
-    expect(tab.renderCacheSignature).toBe(tab.payloadSignature);
+    expect(tab.renderCache).toBeNull();
+    expect(tab.renderCacheSignature).toBeNull();
+    expect(tab.renderCacheLayoutSignature).toBeNull();
+    expect(tab.renderCacheTabId).toBeNull();
+    expect(tab.archiveRenderCache).toBeNull();
+    expect(tab.archiveRenderCacheSignature).toBeNull();
+    expect(tab.archiveRenderCacheLayoutSignature).toBeNull();
   });
 
-  test('assignTabPayload still clears render cache when captureRenderCache is true (replacement path)', () => {
-    // When a new render cache IS being captured, the old cache must be cleared first
-    // so the code can replace it cleanly.
-    const tab = createTabWithPayload();
-    tab.renderCache = {
-      cache: { plot: { count: 5, fragment: null } },
-      payloadSignature: 'sig-A',
-      captureSequence: 42
+  test('completed render caches keep an archive-ready checkpoint after warm runtime pruning', () => {
+    const tabs = Array.from({ length: 4 }, (_, index) => {
+      const tab = createTabWithPayload();
+      tab.layoutState = {
+        version: 1,
+        component: 'box',
+        tabIndex: index
+      };
+      tab.layoutSignature = session.serializePayloadSignature(tab.layoutState);
+      return tab;
+    });
+    const captureRenderCache = jest.fn(meta => ({
+      plot: { count: 1, owner: meta.tabId },
+      __graphitixRenderCache: {
+        version: 2,
+        component: 'box',
+        type: 'box',
+        tabId: meta.tabId,
+        complete: true
+      }
+    }));
+    const restoreRenderCache = jest.fn(() => true);
+    window.Main.components = {
+      registry: {
+        box: {
+          getPayload: jest.fn(() => null),
+          captureRenderCache,
+          restoreRenderCache
+        }
+      }
     };
 
-    const newPayload = { type: 'box', data: [['updated-capture']], config: {} };
-    // preserveRuntimeCacheOnPayloadChange: false means the caller WILL capture a new one
-    const changed = session.assignTabPayload(tab, newPayload, {
-      reason: 'archive-save',
-      preserveRuntimeCacheOnPayloadChange: false
+    tabs.forEach(tab => {
+      session.workspaceState.activeTabId = tab.id;
+      session.persistActiveTabState(tab, {
+        reason: 'activate-switch',
+        origin: 'lifecycle',
+        snapshotKind: 'lifecycle-checkpoint',
+        captureRenderCache: true
+      });
     });
 
-    expect(changed).toBe(true);
-    // Cache must be cleared so the subsequent capture replaces it
-    expect(tab.renderCache).toBeNull();
+    const oldest = tabs[0];
+    expect(captureRenderCache).toHaveBeenCalledTimes(4);
+    expect(restoreRenderCache).toHaveBeenCalledTimes(4);
+    expect(oldest.renderCache).toBeNull();
+    expect(oldest.archiveRenderCache).toEqual(expect.objectContaining({
+      __graphitixRenderCache: expect.objectContaining({ tabId: oldest.id, component: 'box' }),
+      plot: expect.objectContaining({ owner: oldest.id })
+    }));
+    expect(oldest.archiveRenderCacheSignature).toBe(oldest.payloadSignature);
+    expect(oldest.archiveRenderCacheLayoutSignature).toBe(oldest.layoutSignature);
+
+    const restored = session.peekArchiveRenderCache(oldest, { reason: 'warm-prune-regression' });
+    expect(restored).toEqual(expect.objectContaining({
+      tabId: oldest.id,
+      payloadSignature: oldest.payloadSignature,
+      layoutSignature: oldest.layoutSignature,
+      archiveBacked: true
+    }));
+    expect(restored.cache.plot.owner).toBe(oldest.id);
   });
 
   test('persistUserModifiedTabState marks user dirty and flushes mounted payload state', () => {

@@ -198,7 +198,7 @@ async function seedRecoverySnapshot(page) {
     const ws = window.Main?.session?.workspaceState || {};
     const graphTabs = (ws.tabs || []).filter(t => t && !t.isWelcome && t.type);
     const ctx = window.Main.tabs.getSessionActionsContext();
-    const blob = await window.Main.sessionActions.buildWorkspaceArchiveBlob(ctx, { scope: 'workspace', snapshotKind: 'recovery', policyMode: 'recovery', reason: 'recovery-interval', idleForMs: 8_000, useWorker: true });
+    const blob = await window.Main.sessionActions.buildWorkspaceArchiveBlob(ctx, { scope: 'workspace', snapshotKind: 'recovery', policyMode: 'recovery', reason: 'recovery-interval', useWorker: true });
     await new Promise((resolve, reject) => {
       const tx = db.transaction('snapshots', 'readwrite');
       tx.objectStore('snapshots').put({

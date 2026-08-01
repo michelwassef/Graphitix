@@ -4,7 +4,6 @@
   const Main = window.Main = window.Main || {};
   const namespace = Main.documentState = Main.documentState || {};
   const AUTOSAVE_PREF_KEY = 'graphitix.autosave.enabled';
-  const RECOVERY_HIGH_FIDELITY_PREF_KEY = 'graphitix.recovery.highFidelity.enabled';
   const WEB_DB_NAME = 'graphitix-document-state';
   const WEB_DB_STORE = 'snapshots';
   const RECOVERY_KEY = 'active-recovery';
@@ -35,8 +34,6 @@
   let lastAutosaveNoTargetRevision = 0;
   let savedMessageTimer = null;
   let savedTitleMessage = '';
-  let userActivityListenersBound = false;
-  let userActivityHandler = null;
 
   function getSessionRevision() {
     return Number(state?.workspaceState?.sessionRevision) || 0;
@@ -88,33 +85,6 @@
       window.localStorage.setItem(AUTOSAVE_PREF_KEY, enabled ? '1' : '0');
     } catch (err) {
       debug('autosavePreference.writeSkipped', { message: err?.message || String(err) });
-    }
-  }
-
-  function markUserActivity(source = 'unknown') {
-    if (!state) {
-      return;
-    }
-    state.lastUserActivityAt = Date.now();
-    debug('activity.marked', {
-      source,
-      at: state.lastUserActivityAt
-    });
-  }
-
-  function getIdleDurationMs() {
-    const lastActivityAt = Number(state?.lastUserActivityAt || 0);
-    if (!lastActivityAt) {
-      return Number.MAX_SAFE_INTEGER;
-    }
-    return Math.max(0, Date.now() - lastActivityAt);
-  }
-
-  function isHighFidelityRecoveryEnabled() {
-    try {
-      return window.localStorage.getItem(RECOVERY_HIGH_FIDELITY_PREF_KEY) === 'true';
-    } catch (_err) {
-      return false;
     }
   }
 
@@ -280,15 +250,12 @@
       return null;
     }
     const context = state.getSessionActionsContext();
-    const idleForMs = getIdleDurationMs();
     const blob = await state.sessionActions.buildWorkspaceArchiveBlob(context, {
       reason,
       scope: 'workspace',
       useWorker: true,
       snapshotKind: 'recovery',
       policyMode: 'recovery',
-      idleForMs,
-      highFidelityEnabled: isHighFidelityRecoveryEnabled(),
       onPhase: metric => {
         if(metric?.phase && Number.isFinite(Number(metric.ms))){
           phaseMetrics[metric.phase] = Number(metric.ms);
@@ -314,7 +281,6 @@
         dirty: !!workspaceState.sessionUserDirty,
         hasData: true,
         tabCount: graphTabs.length,
-        idleForMs,
         fileName: workspaceState.sessionFileName || '',
         filePath: workspaceState.sessionFilePath || '',
         fileScope: workspaceState.sessionFileScope || null
@@ -526,11 +492,18 @@
         recoveredAt: record.meta.savedAt || null,
         origin: 'user'
       });
+      // The recovered archive already is the exact checkpoint for this newly dirty
+      // revision. Rebuilding it immediately would re-read the just-projected DOM,
+      // mutate canonical state, and invalidate the cache that was successfully
+      // restored. The next genuine user revision schedules the next checkpoint.
+      clearRecoveryTimer();
+      recoveryPendingSince = 0;
+      recoveryTimerRevision = 0;
+      lastRecoverySavedRevision = getSessionRevision();
     } finally {
       state.restoringRecovery = false;
     }
     syncTitle({ reason: 'recovery-restored' });
-    scheduleRecoverySnapshot('recovery-restored');
     return true;
   }
 
@@ -603,18 +576,6 @@
       }
     }, true);
 
-    if (!userActivityListenersBound) {
-      userActivityHandler = event => {
-        if (!event || event.isTrusted === false) {
-          return;
-        }
-        markUserActivity(event.type || 'activity');
-      };
-      ['pointerdown', 'keydown', 'input', 'wheel', 'mousedown', 'touchstart'].forEach(eventName => {
-        document.addEventListener(eventName, userActivityHandler, true);
-      });
-      userActivityListenersBound = true;
-    }
   }
 
   namespace.init = function init(options = {}) {
@@ -629,8 +590,7 @@
       getSessionActionsContext: options.getSessionActionsContext,
       dom: options.dom || {},
       autosaveEnabled: readAutosavePreference(),
-      restoringRecovery: false,
-      lastUserActivityAt: Date.now()
+      restoringRecovery: false
     };
     bindUi();
     documentStateChangeHandler = event => {
@@ -686,17 +646,10 @@
     if (recoveryInterval) window.clearInterval(recoveryInterval);
     if (autosaveInterval) window.clearInterval(autosaveInterval);
     if (documentStateChangeHandler) window.removeEventListener('graphitix:document-state-change', documentStateChangeHandler);
-    if (userActivityListenersBound && userActivityHandler) {
-      ['pointerdown', 'keydown', 'input', 'wheel', 'mousedown', 'touchstart'].forEach(eventName => {
-        document.removeEventListener(eventName, userActivityHandler, true);
-      });
-    }
     recoveryPendingSince = 0;
     recoveryInterval = null;
     autosaveInterval = null;
     documentStateChangeHandler = null;
-    userActivityHandler = null;
-    userActivityListenersBound = false;
     state = null;
   };
 })();

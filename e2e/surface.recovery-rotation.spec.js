@@ -59,7 +59,6 @@ async function seedRecoverySnapshot(page) {
       snapshotKind: 'recovery',
       policyMode: 'recovery',
       reason: 'recovery-interval',
-      idleForMs: 8_000,
       useWorker: true
     });
     await new Promise((resolve, reject) => {

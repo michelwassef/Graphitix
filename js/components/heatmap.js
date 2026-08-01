@@ -13482,7 +13482,10 @@
         tabId: requestedSession?.tabId || null
       });
     }
-    return { plot: svgCache, stats: statsCache, renderState, svgRootState };
+    const complete = hasCompleteHeatmapRenderCache({ plot: svgCache, stats: statsCache, renderState, svgRootState });
+    const cacheMeta = Shared.renderCacheSchema?.createMetadata?.({ component: 'heatmap', tabId: requestedSession.tabId, complete })
+      || { version: 2, component: 'heatmap', type: 'heatmap', tabId: requestedSession.tabId || null, complete };
+    return { plot: svgCache, stats: statsCache, renderState, svgRootState, __graphitixRenderCache: cacheMeta };
   };
 
   heatmap.canRestoreRenderCache = function canRestoreRenderCache(cache, meta = {}){

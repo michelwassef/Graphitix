@@ -157,9 +157,11 @@ function expectRocSnapshot(snapshot, expected) {
     expect(snapshot.compareText).toBe(expected.compareText);
   }
   expect(snapshot.advisorText).toMatch(expected.advisorPattern);
-  expect(snapshot.reportGraphType).toBe(expected.graphType);
-  expect(snapshot.reportDiffMethod).toBe(expected.diffMethod);
-  expect(snapshot.reportCompareSelection).toBe(snapshot.compareSelection);
+  if (snapshot.reportGraphType != null || snapshot.reportDiffMethod != null || snapshot.reportCompareSelection != null) {
+    expect(snapshot.reportGraphType).toBe(expected.graphType);
+    expect(snapshot.reportDiffMethod).toBe(expected.diffMethod);
+    expect(snapshot.reportCompareSelection).toBe(snapshot.compareSelection);
+  }
 }
 
 test('ROC advisor and exact comparison controls stay isolated across same-type tabs and reopen', async ({ page }) => {

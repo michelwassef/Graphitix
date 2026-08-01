@@ -84,6 +84,9 @@ Optional but already supported:
 - `activateTab(tab, meta)`
 - `captureRenderCache(meta)` / `restoreRenderCache(cache, meta)`
 - `hasRenderedGraph(meta)` for an authoritative publication check scoped to the component's primary graph surface and, where available, its component-owned data marks. Axes, grids, statistics plots, toolbar icons, scree plots, and other auxiliary SVG/canvas content must not satisfy this contract.
+  Renderer-owned semantic publication marks are authoritative even when transient DOM geometry is zero during deactivation or in non-layout test environments; publication checks must not require a measurable bounding box when the component can prove completion semantically.
+
+Render-cache validation is split deliberately: the component owns semantic completeness and embedded cache provenance (`type`, owner tab, `complete`), while shared orchestration owns archive wrapper signatures and activation order. `canRestoreRenderCache()` must be a pure, projection-free eligibility check; it must not reject a complete exact cache merely because another tab currently owns the visible module projection or because a presentation state already contained in the cached graph is non-default. `restoreRenderCache()` remains the owner-guarded DOM mutation boundary. Graph caches must not serialize statistics/control DOM whose listeners cannot survive serialization; rebuild those surfaces from durable owner state after graph hydration.
 
 Passive DOM projection is valid only after a component has completed full initialization for an owner session. Component ensure and activation both enforce this boundary: a newly imported or otherwise uninitialized component must create its table, layout, schedulers, and owner-scoped runtime first; draw suppression during restore does not permit marking a partial bind as `ready`.
 
@@ -93,15 +96,26 @@ Async SVG renderers must stage replacement frames through `Shared.framePublicati
 
 ## 5. Persistence Flow
 
-Graphitix has one document checkpoint transaction and one document restore transaction. Manual file operations and private crash recovery differ only in destination metadata and optional render-cache policy; they do not own separate payload or hydration logic.
+Graphitix has one document checkpoint transaction and one document restore transaction. Manual file operations and private crash recovery differ only in destination metadata; they use the same authoritative payload, layout, preview, and render-cache contract and do not own separate hydration logic.
 
 ### Checkpoint and serialization
 
 1. `Main.sessionActions.createDocumentCheckpoint()` resolves the snapshot policy, waits for the active component's snapshot-ready contract, and captures the active live payload through `Main.session.persistActiveTabState()` with save-grade intent.
-2. `Main.sessionActions.buildScopeSnapshot()` clones the committed payload, layout, `uiState`, preview metadata, and only render caches whose owner, payload signature, and layout signature exactly match that detached checkpoint snapshot.
+2. `Main.sessionActions.buildScopeSnapshot()` clones the already committed payload, layout, `uiState`, preview metadata, and only render caches whose owner, component, payload signature, and layout signature exactly match that detached checkpoint snapshot. Archive construction never re-enriches or mutates canonical payload/layout after cache capture and never manufactures a cache by cloning mounted DOM. The owner-captured layout is authoritative; payload `meta.graphSizing` is a compatibility mirror and must never be merged back over an existing canonical layout. When no canonical layout exists, payload sizing may seed a default layout template; explicit finite or unlimited payload bounds override that template, while omitted bound policy preserves the template's defaults. Completed component-owned captures maintain an archive-ready serialized checkpoint, so warm runtime-cache pruning cannot remove a valid cache from later manual-save or crash-recovery snapshots.
+   `Shared.renderCacheSchema` is the sole owner/component provenance parser. New captures must carry exact version-2 component-owned metadata and are validated before shared presentation metadata is added; shared code must never rewrite `tabId`, `component`, `type`, or `complete`. Legacy schema versions may be accepted only when loading or re-saving an otherwise exact older archive checkpoint.
    Pending heavy tab previews are awaited first. Their single PNG image is committed only when the owner, payload, layout, and generation still match.
 3. `Main.sessionActions.serializeDocumentCheckpoint()` is the only archive serialization entry for a detached checkpoint snapshot.
-4. Manual Save, Autosave, and recovery call those shared primitives. They reuse already-valid owner-scoped caches but never activate inactive tabs to manufacture caches. Omitting a cache changes only first-activation speed, never canonical document content.
+4. Manual Save and crash recovery both include every exact owner-scoped completed cache checkpoint and capture the active owner only when its current checkpoint is missing or stale. Autosave remains intentionally cache-free. No checkpoint path activates inactive tabs to manufacture caches.
+
+Venn snapshot readiness is owner-scoped and includes its scheduled draw, automatic region-analysis refresh, and species-detection work. Automatic species detection that has not produced visible state is cancelled at the checkpoint boundary rather than being allowed to mutate the payload after cache capture. Restored GO, STRING, and species results establish an input/region baseline: passive hydration, resize, and cache-restoration draws must not rerun those external analyses until the owning tab's actual list or selected-region signature changes. Manual analysis requests remain authoritative, are awaited, and clear their owner tokens on every completion path.
+
+### Owner deactivation and render-cache tiers
+
+Any navigation operation that preserves the outgoing tab—ordinary activation, Add tab, or Duplicate tab—must persist payload/layout and capture its completed owner-scoped render cache before unmounting. These flows share one helper; no tab-creation path may bypass this boundary.
+
+`tab.renderCache` is the bounded warm runtime cache used for immediate tab switching. `tab.archiveRenderCache` is the serialized, owner-scoped checkpoint of the latest completed render for the same payload/layout signatures. Successful capture updates both tiers before warm-cache pruning. Payload or render-affecting layout changes invalidate both tiers. Pruning may clear only the warm runtime tier; it must never erase an otherwise valid archive-ready checkpoint. Archive eligibility requires exact embedded owner and component provenance in addition to payload/layout signature parity; invalid checkpoint objects are discarded during restore staging.
+
+`Shared.renderCacheDiagnostics` records bounded, owner-scoped diagnostic events for cache capture, archive provenance, runtime rehoming, eligibility, component validation, hydration, visual validation, and fallback redraw. It is observational only and never participates in cache eligibility or state authority.
 
 ### Restore
 
@@ -111,7 +125,8 @@ Graphitix has one document checkpoint transaction and one document restore trans
 4. Only the archive's saved active tab is activated and hydrated. Inactive tabs remain canonical payload/session records and hydrate lazily on first selection.
 5. The staged document commits only after active-workspace readiness. Activation failure restores the previous tabs and file metadata.
 6. Cache restoration requires exact owner, payload-signature, and layout-signature parity. A rejected or absent cache falls back to the component's normal live draw. Restore completion validates the primary graph publication contract rather than scanning the entire workspace root for unrelated SVG/canvas content.
-7. The caller then applies the only legitimate source-specific state: a normal file open may retain a file handle and is clean; crash recovery clears any trusted destination and marks the restored document dirty.
+7. A clean restored tab with an exact completed checkpoint keeps its canonical layout when deactivated or inspected. Lifecycle persistence must not recapture the DOM projection merely because another tab is selected. After crash recovery, the consumed recovery archive is treated as the current checkpoint for the newly marked dirty revision; recovery does not immediately serialize the just-restored projection again.
+8. The caller then applies the only legitimate source-specific state: a normal file open may retain a file handle and is clean; crash recovery clears any trusted destination and marks the restored document dirty.
 
 `Shared.hot` exclusion mutations are owner-scoped payload transactions. Cell, row, and column exclusions immediately update only the owning tab's canonical `payload.exclusions`, invalidate that tab's caches, increment the session revision, and schedule recovery. Archive/recovery hydration applies exclusions silently.
 

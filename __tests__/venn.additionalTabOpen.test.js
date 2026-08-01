@@ -666,12 +666,35 @@ describe('Venn additional tab opening', () => {
     state.ui.inputs.C.value = 'BRCA1\nRING1B';
     state.ui.syncTableFromInputs?.({ refresh: true });
     state.analysis.lastDrawMode = 'lists';
-    venn.refreshDiagram();
+    await venn.refreshDiagram();
+    await venn.awaitReadyForSnapshot({
+      tabId: Main.tabs.getActiveTab().id,
+      reason: 'test-render-cache-capture'
+    });
     await flush();
 
     const tab = Main.tabs.getActiveTab();
+    const ownerSession = venn.__testHooks.getSession(tab.id);
+    expect(state.analysis.speciesDetection.pendingTimeoutId).toBeNull();
+    expect(state.analysis.speciesDetection.active).toBeNull();
+    expect(ownerSession.cache.asyncRequests).toEqual({
+      go: null,
+      string: null,
+      species: null
+    });
+    expect(venn.hasRenderedGraph({ tabId: tab.id, root: state.ui.root })).toBe(true);
     const cache = venn.captureRenderCache({ tabId: tab.id });
     expect(cache).toBeTruthy();
+    expect(cache.__graphitixRenderCache).toEqual(expect.objectContaining({
+      type: 'venn',
+      tabId: tab.id,
+      complete: true
+    }));
+    // Capture transfers the graph nodes into the cache. The live stage is empty
+    // until the cache is restored by the shared owner-scoped capture boundary.
+    expect(venn.hasRenderedGraph({ tabId: tab.id, root: state.ui.root })).toBe(false);
+    expect(venn.canRestoreRenderCache(cache, { tabId: tab.id })).toBe(true);
+    expect(venn.canRestoreRenderCache(cache, { tabId: `${tab.id}-other` })).toBe(false);
     expect(cache.graphOnly).toBe(true);
     expect(cache.regionList).toBeUndefined();
     expect(cache.goResults).toBeUndefined();
@@ -699,6 +722,7 @@ describe('Venn additional tab opening', () => {
       recordUndo: false
     });
     expect(venn.restoreRenderCache(cache, { tabId: tab.id })).toBe(true);
+    expect(venn.hasRenderedGraph({ tabId: tab.id, root: state.ui.root })).toBe(true);
 
     expect(state.ui.emptyNotice?.hidden).toBe(true);
     expect(state.ui.stage?.querySelector('[data-venn-trace-id]')).toBeTruthy();

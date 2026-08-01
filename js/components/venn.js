@@ -479,6 +479,7 @@
         cache: new Map(),
         pendingTimeoutId: null,
         pendingReason: null,
+        pendingTabId: null,
         active: null,
         delayMs: 1200
       };
@@ -512,68 +513,227 @@
     return `${normalized.length}:${hash.toString(16)}`;
   }
 
-  function cancelPendingSpeciesDetection(reason, { abortActive = false, resetIndicator = false } = {}) {
+  function cancelPendingSpeciesDetection(
+    reason,
+    { abortActive = false, resetIndicator = false, tabId = null } = {}
+  ) {
     const detection = getSpeciesDetectionState();
-    if (detection.pendingTimeoutId) {
+    const targetTabId = normalizeVennTabId(tabId || null);
+    const pendingTabId = normalizeVennTabId(detection.pendingTabId || null);
+    const pendingMatches = !targetTabId || !pendingTabId || pendingTabId === targetTabId;
+    if (detection.pendingTimeoutId && pendingMatches) {
       Shared.componentLifecycle?.clearComponentTimeout?.(venn, detection.pendingTimeoutId);
       detection.pendingTimeoutId = null;
-      debug('Debug: venn species detect pending cleared', { reason }); // Debug: pending timer cleared
+      detection.pendingReason = null;
+      detection.pendingTabId = null;
+      debug('Debug: venn species detect pending cleared', {
+        reason,
+        tabId: pendingTabId || targetTabId || null
+      }); // Debug: pending timer cleared
     }
-    const session = getActiveVennSessionForState();
-    if(session){
-      session.timers.pendingSpeciesDetection = detection.pendingTimeoutId || null;
-      session.updatedAt = Date.now();
-    }
-    if (getVennProjectionTabId() && venn.__asyncScope?.cancelAllForTab) {
-      try {
-        venn.__asyncScope.cancelAllForTab(getVennProjectionTabId(), reason || 'species-detection-cancel');
-      } catch (err) {
-        console.warn('venn species detection async cancel error', err);
+    if (pendingMatches) {
+      const pendingOwner = pendingTabId
+        ? getVennSession(pendingTabId, { tabId: pendingTabId, reason: reason || 'species-detection-cancel' }, { create: false })
+        : getActiveVennSessionForState();
+      if (pendingOwner) {
+        pendingOwner.timers.pendingSpeciesDetection = null;
+        pendingOwner.updatedAt = Date.now();
       }
     }
-    if (abortActive && detection.active?.controller) {
+
+    const activeTabId = normalizeVennTabId(detection.active?.tabId || null);
+    const activeMatches = !targetTabId || !activeTabId || activeTabId === targetTabId;
+    if (abortActive && detection.active?.controller && activeMatches) {
+      const activeOwner = activeTabId
+        ? getVennSession(activeTabId, { tabId: activeTabId, reason: reason || 'species-detection-abort' }, { create: false })
+        : getActiveVennSessionForState();
       try {
         detection.active.controller.abort(reason || 'cancelled');
       } catch (err) { /* noop */ }
-      debug('Debug: venn species detect active abort requested', { reason }); // Debug: abort requested
+      if (activeOwner?.cache?.asyncRequests) {
+        activeOwner.cache.asyncRequests.species = null;
+        activeOwner.updatedAt = Date.now();
+      }
+      debug('Debug: venn species detect active abort requested', {
+        reason,
+        tabId: activeTabId || activeOwner?.tabId || targetTabId || null
+      }); // Debug: abort requested
     }
-    if (resetIndicator) {
+    if (!detection.pendingTimeoutId && !detection.active) {
+      detection.pendingReason = null;
+      detection.pendingTabId = null;
+    }
+    if (resetIndicator && activeMatches) {
       setSpeciesIndicator(null);
     }
+  }
+
+  function clearVennPendingDrawState(session = null, reason = 'venn-draw-pending-clear') {
+    const owner = ensureVennSessionOwnershipShape(session || getActiveVennSessionForState());
+    if (!owner) {
+      return false;
+    }
+    const hadPending = !!(owner.state.drawPending || owner.timers.pendingDrawOptions);
+    owner.state.drawPending = false;
+    owner.timers.pendingDrawOptions = null;
+    owner.updatedAt = Date.now();
+    if (isVennSessionActiveForModuleState(owner)) {
+      state.drawPending = false;
+    }
+    if (hadPending) {
+      debug('Debug: venn pending draw state cleared', {
+        tabId: owner.tabId || null,
+        reason
+      });
+    }
+    return hadPending;
+  }
+
+  function collectVennPayloadGenes(payload) {
+    const data = payload?.data && typeof payload.data === 'object' ? payload.data : {};
+    const genes = [];
+    ['listA', 'listB', 'listC'].forEach(key => {
+      String(data[key] || '').split(/\r?\n/).forEach(raw => {
+        const gene = raw.trim();
+        if (gene) {
+          genes.push(gene);
+        }
+      });
+    });
+    return genes;
+  }
+
+  function primeVennSpeciesAutoDetectionBaseline(session = null, payload = null, reason = 'venn-species-restore-baseline') {
+    const owner = ensureVennSessionOwnershipShape(session || getActiveVennSessionForState());
+    if (!owner) {
+      return false;
+    }
+    const storedPayload = payload || owner.state?.snapshot?.payload || getStoredVennPayloadForTab(owner.tabId) || null;
+    const speciesValue = String(storedPayload?.analysis?.speciesValue || owner.results?.speciesValue || '').trim();
+    owner.cache.suppressSpeciesAutoDetection = !!speciesValue;
+    owner.cache.speciesAutoDetectionBaselineSignature = speciesValue
+      ? computeGeneSignature(collectVennPayloadGenes(storedPayload))
+      : null;
+    owner.updatedAt = Date.now();
+    debug('Debug: venn species auto-detection baseline primed', {
+      tabId: owner.tabId || null,
+      reason,
+      suppressed: owner.cache.suppressSpeciesAutoDetection,
+      signature: owner.cache.speciesAutoDetectionBaselineSignature || null
+    });
+    return owner.cache.suppressSpeciesAutoDetection;
+  }
+
+  function shouldSuppressVennSpeciesRecognition(session = null) {
+    const owner = ensureVennSessionOwnershipShape(session || getActiveVennSessionForState());
+    const cache = owner?.cache || null;
+    if (!cache?.suppressSpeciesAutoDetection) {
+      return false;
+    }
+    const currentSignature = computeGeneSignature(getAllGenes());
+    const baselineSignature = String(cache.speciesAutoDetectionBaselineSignature || '');
+    if (currentSignature === baselineSignature) {
+      return true;
+    }
+    cache.suppressSpeciesAutoDetection = false;
+    cache.speciesAutoDetectionBaselineSignature = null;
+    owner.updatedAt = Date.now();
+    debug('Debug: venn species auto-detection suppression released by input change', {
+      tabId: owner.tabId || null,
+      previousSignature: baselineSignature || null,
+      currentSignature
+    });
+    return false;
+  }
+
+  function isManualSpeciesDetectionReason(reason) {
+    const normalized = String(reason || '').toLowerCase();
+    return normalized.includes('manual');
+  }
+
+  function cancelAutomaticSpeciesDetectionForSnapshot(meta = {}) {
+    const detection = getSpeciesDetectionState();
+    const targetTabId = normalizeVennTabId(meta?.tabId || meta?.tab || getVennProjectionTabId() || null);
+    const pendingTabId = normalizeVennTabId(detection.pendingTabId || null);
+    const activeTabId = normalizeVennTabId(detection.active?.tabId || null);
+    const pendingManual = isManualSpeciesDetectionReason(detection.pendingReason);
+    const activeManual = isManualSpeciesDetectionReason(detection.active?.reason);
+    const pendingBelongsToTarget = !targetTabId || !pendingTabId || pendingTabId === targetTabId;
+    const activeBelongsToTarget = !targetTabId || !activeTabId || activeTabId === targetTabId;
+    if (pendingManual || activeManual || (!pendingBelongsToTarget && !activeBelongsToTarget)) {
+      return false;
+    }
+    const hadAutomaticWork = !!(
+      (detection.pendingTimeoutId && pendingBelongsToTarget)
+      || (detection.active && activeBelongsToTarget)
+    );
+    if (hadAutomaticWork) {
+      cancelPendingSpeciesDetection(meta.reason || 'snapshot-ready', {
+        abortActive: true,
+        resetIndicator: false,
+        tabId: targetTabId
+      });
+      detection.pendingReason = null;
+      if (activeBelongsToTarget) {
+        detection.active = null;
+      }
+      debug('Debug: venn automatic species detection cancelled for snapshot', {
+        tabId: targetTabId || null,
+        reason: meta.reason || 'snapshot-ready'
+      });
+    }
+    return hadAutomaticWork;
   }
 
   function scheduleSpeciesRecognition(reason = 'auto-detect') {
     const detection = getSpeciesDetectionState();
     const inputs = state.ui.inputs;
     if (!inputs) {
-      return;
+      return false;
+    }
+    const activeSession = getActiveVennSessionForState();
+    if (isProjectingVennSession()) {
+      debug('Debug: venn species detect scheduling suppressed during session projection', { reason });
+      return false;
+    }
+    if (!isManualSpeciesDetectionReason(reason) && shouldSuppressVennSpeciesRecognition(activeSession)) {
+      debug('Debug: venn species detect scheduling suppressed for restored input baseline', {
+        reason,
+        tabId: activeSession?.tabId || null
+      });
+      return false;
     }
     if (!hasListContent(inputs)) {
       cancelPendingSpeciesDetection(reason, { abortActive: true, resetIndicator: true });
       debug('Debug: venn species detect skipped scheduling', { reason, hasLists: false }); // Debug: schedule skipped
-      return;
-    }
-    const delay = Number.isFinite(detection.delayMs) ? detection.delayMs : 1200;
-    if (detection.pendingTimeoutId) {
-      Shared.componentLifecycle?.clearComponentTimeout?.(venn, detection.pendingTimeoutId);
+      return false;
     }
     const tabId = getVennProjectionTabId() || null;
     if (!tabId || typeof Shared.componentLifecycle?.createAsyncScope !== 'function') {
       console.warn('venn species detection scheduling skipped without explicit tab async scope', { reason, tabId });
-      return;
+      return false;
+    }
+    const delay = Number.isFinite(detection.delayMs) ? detection.delayMs : 1200;
+    if (detection.pendingTimeoutId) {
+      cancelPendingSpeciesDetection('species-detection-superseded', {
+        tabId: detection.pendingTabId || null
+      });
     }
     const scope = venn.__asyncScope || Shared.componentLifecycle.createAsyncScope('venn');
     venn.__asyncScope = scope;
     detection.pendingReason = reason;
+    detection.pendingTabId = tabId;
     detection.pendingTimeoutId = scope.setTimeout({
       tabId,
       reason: `species-detection:${reason}`
     }, () => {
       detection.pendingTimeoutId = null;
-      const session = getActiveVennSessionForState();
-      if(session){
-        session.timers.pendingSpeciesDetection = null;
-        session.updatedAt = Date.now();
+      detection.pendingReason = null;
+      detection.pendingTabId = null;
+      const owner = getVennSession(tabId, { tabId, reason: `species-detection:${reason}` }, { create: false });
+      if (owner) {
+        owner.timers.pendingSpeciesDetection = null;
+        owner.updatedAt = Date.now();
       }
       recognizeSpeciesFromInput({ reason: `scheduled-${reason}` }).catch(err => {
         if (err && err.name === 'AbortError') {
@@ -583,12 +743,12 @@
         }
       });
     }, delay);
-    const session = getActiveVennSessionForState();
-    if(session){
-      session.timers.pendingSpeciesDetection = detection.pendingTimeoutId || null;
-      session.updatedAt = Date.now();
+    if (activeSession) {
+      activeSession.timers.pendingSpeciesDetection = detection.pendingTimeoutId || null;
+      activeSession.updatedAt = Date.now();
     }
     debug('Debug: venn species detect scheduled', { reason, delayMs: delay }); // Debug: detection scheduled
+    return true;
   }
 
   const ensureGraphViewport = Shared.graphViewport?.createEnsurer
@@ -920,6 +1080,7 @@
           cache: new Map(),
           pendingTimeoutId: null,
           pendingReason: null,
+          pendingTabId: null,
           active: null,
           delayMs: 1200
         },
@@ -1349,12 +1510,20 @@
         upsetTextMeasurements: new Map(),
         asyncRequests: {
           go: null,
-          string: null
-        }
+          string: null,
+          species: null
+        },
+        autoAnalysisRefreshTimer: null,
+        autoAnalysisRefreshToken: null,
+        suppressAnalysisAutoRefresh: false,
+        analysisAutoRefreshBaselineSignature: null,
+        suppressSpeciesAutoDetection: false,
+        speciesAutoDetectionBaselineSignature: null
       },
       listeners: new Map(),
       timers: {
         scheduleDraw: null,
+        pendingDrawOptions: null,
         pendingSpeciesDetection: null
       },
       workers: new Map(),
@@ -1392,6 +1561,24 @@
     }
     if(!Object.prototype.hasOwnProperty.call(session.cache.asyncRequests, 'species')){
       session.cache.asyncRequests.species = null;
+    }
+    if (!Object.prototype.hasOwnProperty.call(session.cache, 'autoAnalysisRefreshTimer')) {
+      session.cache.autoAnalysisRefreshTimer = null;
+    }
+    if (!Object.prototype.hasOwnProperty.call(session.cache, 'autoAnalysisRefreshToken')) {
+      session.cache.autoAnalysisRefreshToken = null;
+    }
+    if (!Object.prototype.hasOwnProperty.call(session.cache, 'suppressAnalysisAutoRefresh')) {
+      session.cache.suppressAnalysisAutoRefresh = false;
+    }
+    if (!Object.prototype.hasOwnProperty.call(session.cache, 'analysisAutoRefreshBaselineSignature')) {
+      session.cache.analysisAutoRefreshBaselineSignature = null;
+    }
+    if (!Object.prototype.hasOwnProperty.call(session.cache, 'suppressSpeciesAutoDetection')) {
+      session.cache.suppressSpeciesAutoDetection = false;
+    }
+    if (!Object.prototype.hasOwnProperty.call(session.cache, 'speciesAutoDetectionBaselineSignature')) {
+      session.cache.speciesAutoDetectionBaselineSignature = null;
     }
     session.listeners = session.listeners instanceof Map ? session.listeners : new Map();
     session.timers = session.timers && typeof session.timers === 'object' ? session.timers : {};
@@ -1750,10 +1937,17 @@
       return false;
     }
     shaped.timers.scheduleDraw = scheduler;
-    shaped.timers.pendingDrawOptions = null;
-    shaped.state.drawPending = false;
+    shaped.timers.pendingDrawOptions = scheduleOptions;
+    shaped.state.drawPending = true;
+    if (isVennSessionActiveForModuleState(shaped)) {
+      state.drawPending = true;
+    }
     shaped.updatedAt = Date.now();
-    scheduler(scheduleOptions);
+    const scheduled = scheduler(scheduleOptions);
+    if (scheduled == null || scheduled === false) {
+      clearVennPendingDrawState(shaped, 'venn-draw-schedule-rejected');
+      return false;
+    }
     return true;
   }
 
@@ -2343,8 +2537,7 @@
       return false;
     }
     const changed = session.assignTabPayload(tab, ownerPayload, {
-      reason: meta?.reason || meta?.source || 'venn-payload-normalized',
-      preserveRuntimeCacheOnPayloadChange: true
+      reason: meta?.reason || meta?.source || 'venn-payload-normalized'
     });
     debugLog('venn normalized restored payload assigned', {
       tabId,
@@ -2391,6 +2584,14 @@
     });
     session.results = createDefaultVennResultsState(analysis);
     session.notes = createDefaultVennNotesState(payload?.notes || session.notes || {});
+    cancelVennAnalysisAutoRefresh(session, meta?.reason || 'venn-payload-hydrate');
+    cancelPendingSpeciesDetection(meta?.reason || 'venn-payload-hydrate', {
+      abortActive: true,
+      resetIndicator: false,
+      tabId: session.tabId
+    });
+    primeVennAnalysisAutoRefreshBaseline(session, meta?.reason || 'venn-payload-hydrate');
+    primeVennSpeciesAutoDetectionBaseline(session, payload, meta?.reason || 'venn-payload-hydrate');
     session.updatedAt = Date.now();
     assignNormalizedVennPayloadToOwner(payload, {
       ...meta,
@@ -2610,6 +2811,7 @@
       cache: new Map(),
       pendingTimeoutId: null,
       pendingReason: null,
+      pendingTabId: null,
       active: null,
       delayMs: 1200
     };
@@ -2669,6 +2871,7 @@
     detection.cache = restoreMapEntries(detectionSnapshot.cacheEntries);
     detection.pendingTimeoutId = null;
     detection.pendingReason = null;
+    detection.pendingTabId = null;
     detection.active = null;
     detection.delayMs = Number.isFinite(detectionSnapshot.delayMs) ? detectionSnapshot.delayMs : 1200;
     if(state.ui.speciesSelect){
@@ -4949,19 +5152,100 @@
     return '';
   }
 
-  function scheduleVennAnalysisAutoRefresh(intent, reason = 'venn-analysis-auto-refresh'){
+  function cancelVennAnalysisAutoRefresh(session = null, reason = 'venn-analysis-auto-refresh-cancel') {
+    const owner = ensureVennSessionOwnershipShape(session || getActiveVennSessionForState());
+    const cache = owner?.cache || null;
+    if (!cache) {
+      return false;
+    }
+    if (cache.autoAnalysisRefreshTimer) {
+      Shared.componentLifecycle?.clearComponentTimeout?.(venn, cache.autoAnalysisRefreshTimer);
+    }
+    const hadPending = !!(cache.autoAnalysisRefreshTimer || cache.autoAnalysisRefreshToken);
+    cache.autoAnalysisRefreshTimer = null;
+    cache.autoAnalysisRefreshToken = null;
+    if (hadPending) {
+      owner.updatedAt = Date.now();
+      debug('Debug: venn analysis auto-refresh cancelled', {
+        tabId: owner.tabId || null,
+        reason
+      });
+    }
+    return hadPending;
+  }
+
+  function primeVennAnalysisAutoRefreshBaseline(session = null, reason = 'venn-analysis-restore-baseline') {
+    const owner = ensureVennSessionOwnershipShape(session || getActiveVennSessionForState());
+    if (!owner) {
+      return false;
+    }
+    const hasRestoredAnalysis = !!(
+      owner.results?.goPerformed
+      || owner.results?.stringPerformed
+    );
+    owner.cache.suppressAnalysisAutoRefresh = hasRestoredAnalysis;
+    owner.cache.analysisAutoRefreshBaselineSignature = hasRestoredAnalysis
+      ? String(isVennSessionActiveForModuleState(owner) ? (state.analysis?.lastRegionSignature || '') : '')
+      : null;
+    owner.updatedAt = Date.now();
+    debug('Debug: venn analysis refresh baseline primed', {
+      tabId: owner.tabId || null,
+      reason,
+      suppressed: hasRestoredAnalysis,
+      signature: owner.cache.analysisAutoRefreshBaselineSignature || null
+    });
+    return hasRestoredAnalysis;
+  }
+
+  function shouldSuppressVennAnalysisAutoRefresh(session = null) {
+    const owner = ensureVennSessionOwnershipShape(session || getActiveVennSessionForState());
+    const cache = owner?.cache || null;
+    if (!cache?.suppressAnalysisAutoRefresh) {
+      return false;
+    }
+    const currentSignature = String(state.analysis?.lastRegionSignature || '');
+    const baselineSignature = String(cache.analysisAutoRefreshBaselineSignature || '');
+    if (!baselineSignature) {
+      cache.analysisAutoRefreshBaselineSignature = currentSignature;
+      return true;
+    }
+    if (currentSignature === baselineSignature) {
+      return true;
+    }
+    cache.suppressAnalysisAutoRefresh = false;
+    cache.analysisAutoRefreshBaselineSignature = null;
+    owner.updatedAt = Date.now();
+    debug('Debug: venn analysis refresh suppression released by region change', {
+      tabId: owner.tabId || null,
+      previousSignature: baselineSignature,
+      currentSignature
+    });
+    return false;
+  }
+
+  function scheduleVennAnalysisAutoRefresh(intent, reason = 'venn-analysis-auto-refresh') {
     const normalized = {
       ...captureVennAnalysisAutoRefreshIntent(),
       ...(intent || {}),
       activeResultsTab: normalizeAnalysisResultsTab(intent?.activeResultsTab || state.analysis.activeResultsTab || 'go')
     };
-    if(!hasVennAnalysisAutoRefreshIntent(normalized) || isProjectingVennSession()){
+    if (!hasVennAnalysisAutoRefreshIntent(normalized) || isProjectingVennSession()) {
       return false;
     }
     const session = getActiveVennSessionForState();
-    if(!session?.tabId){ return false; }
+    if (!session?.tabId) {
+      return false;
+    }
+    if (shouldSuppressVennAnalysisAutoRefresh(session)) {
+      debug('Debug: venn analysis auto-refresh suppressed for restored baseline', {
+        reason,
+        tabId: session.tabId,
+        signature: session.cache?.analysisAutoRefreshBaselineSignature || null
+      });
+      return false;
+    }
     const cache = session.cache || (session.cache = {});
-    if(cache.autoAnalysisRefreshTimer){
+    if (cache.autoAnalysisRefreshTimer) {
       Shared.componentLifecycle?.clearComponentTimeout?.(venn, cache.autoAnalysisRefreshTimer);
       cache.autoAnalysisRefreshTimer = null;
     }
@@ -4971,15 +5255,21 @@
       tabId: session.tabId,
       reason: 'venn-analysis-auto-refresh'
     }, () => {
-      if(session.cache?.autoAnalysisRefreshToken !== token || session.tabId !== resolveActiveVennTabId()){
+      if (session.cache?.autoAnalysisRefreshToken !== token) {
         return;
       }
       session.cache.autoAnalysisRefreshTimer = null;
+      if (session.tabId !== resolveActiveVennTabId()) {
+        session.cache.autoAnalysisRefreshToken = null;
+        return;
+      }
+      session.cache.autoAnalysisRefreshToken = null;
       refreshVennAnalysesForCurrentRegion(normalized, reason).catch(err => {
         console.error('venn analysis auto-refresh error', err);
       });
     }, 80) || null;
-    if(!cache.autoAnalysisRefreshTimer){
+    if (!cache.autoAnalysisRefreshTimer) {
+      cache.autoAnalysisRefreshToken = null;
       refreshVennAnalysesForCurrentRegion(normalized, reason).catch(err => {
         console.error('venn analysis auto-refresh error', err);
       });
@@ -4994,30 +5284,32 @@
     return true;
   }
 
-  async function refreshVennAnalysesForCurrentRegion(intent, reason = 'venn-analysis-auto-refresh'){
+  async function refreshVennAnalysesForCurrentRegion(intent, reason = 'venn-analysis-auto-refresh') {
     const normalized = {
       ...(intent || {}),
       activeResultsTab: normalizeAnalysisResultsTab(intent?.activeResultsTab || state.analysis.activeResultsTab || 'go')
     };
-    if(!hasVennAnalysisAutoRefreshIntent(normalized)){ return; }
+    if (!hasVennAnalysisAutoRefreshIntent(normalized)) {
+      return;
+    }
     const genes = (getRegionText(state.ui.regionSelect?.value) || '').split(/\n/).map(g => g.trim()).filter(Boolean);
-    if(!genes.length){
+    if (!genes.length) {
       debug('Debug: venn analysis auto-refresh skipped', { reason, cause: 'empty-region' });
       return;
     }
     const organism = await resolveVennAnalysisOrganism();
-    if(!organism){
+    if (!organism) {
       debug('Debug: venn analysis auto-refresh skipped', { reason, cause: 'missing-organism' });
       return;
     }
-    if(normalized.stringOverlay){
+    if (normalized.stringOverlay) {
       state.analysis.stringOverlay = normalizeStringOverlayModel(normalized.stringOverlay);
       syncStringOverlayControls();
     }
-    if(normalized.go){
+    if (normalized.go) {
       runGOAnalysis(genes, organism, { activeResultsTab: normalized.activeResultsTab, autoRefresh: true });
     }
-    if(normalized.string){
+    if (normalized.string) {
       runStringAnalysis(genes, organism, { activeResultsTab: normalized.activeResultsTab, autoRefresh: true });
     }
     debug('Debug: venn analysis auto-refresh started', {
@@ -5563,7 +5855,11 @@
       return { tabId: tabId || null, session: null, token: null };
     }
     const cache = session.cache || (session.cache = {});
-    const asyncRequests = cache.asyncRequests || (cache.asyncRequests = { go: null, string: null });
+    const asyncRequests = cache.asyncRequests || (cache.asyncRequests = {
+      go: null,
+      string: null,
+      species: null
+    });
     const token = `${kind}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
     asyncRequests[kind] = token;
     session.updatedAt = Date.now();
@@ -5577,6 +5873,26 @@
     const session = getVennSession(owner.tabId || owner.session.tabId || null, { tabId: owner.tabId || owner.session.tabId || null, reason: `venn-${kind}-request-check` }, { create: false })
       || owner.session;
     return !!(session?.cache?.asyncRequests && session.cache.asyncRequests[kind] === owner.token);
+  }
+
+  function finishVennAnalysisRequest(owner, kind) {
+    if (!owner?.token || !kind) {
+      return false;
+    }
+    const session = getVennSession(owner.tabId || owner.session?.tabId || null, {
+      tabId: owner.tabId || owner.session?.tabId || null,
+      reason: `venn-${kind}-request-finish`
+    }, { create: false }) || owner.session || null;
+    if (!session?.cache?.asyncRequests || session.cache.asyncRequests[kind] !== owner.token) {
+      return false;
+    }
+    session.cache.asyncRequests[kind] = null;
+    session.updatedAt = Date.now();
+    debugLog('venn async request finished', {
+      tabId: session.tabId || owner.tabId || null,
+      kind
+    });
+    return true;
   }
 
   function commitVennAnalysisPatch(owner, patch, meta = {}) {
@@ -7058,155 +7374,96 @@
     const detection = getSpeciesDetectionState();
     const genes = getAllGenes();
     const owner = beginVennAnalysisRequest('species', { reason: `venn-species-${reason}` });
-    if (!genes.length) {
-      if (isVennAnalysisRequestCurrent(owner, 'species')) {
-        commitVennSpeciesSelection(owner, '', null, { reason: 'venn-species-empty' });
-      }
-      detection.cache.set('0:0', { guess: null, geneCount: 0 });
-      debug('Debug: venn species detect skipped empty', { reason }); // Debug: detection skipped for empty input
-      return null;
-    }
-    const cacheKey = computeGeneSignature(genes);
-    if (detection.cache.has(cacheKey)) {
-      const cached = detection.cache.get(cacheKey);
-      const guess = cached?.guess || null;
-      if (isVennAnalysisRequestCurrent(owner, 'species')) {
-        commitVennSpeciesSelection(owner, guess || '', guess ? true : false, { reason: 'venn-species-cache-hit' });
-      }
-      debug('Debug: venn species cache hit', { reason, cacheKey, geneCount: genes.length, guess }); // Debug: detection cache hit
-      return guess;
-    }
-    debug('Debug: venn species cache miss', { reason, cacheKey, geneCount: genes.length }); // Debug: detection cache miss
-    if (detection.active?.controller) {
-      try {
-        detection.active.controller.abort('superseded');
-      } catch (err) { /* noop */ }
-    }
-    const controller = new AbortController();
-    detection.active = { controller, cacheKey, reason };
-    setSpeciesIndicator(null);
     try {
-      const guess = await guessSpecies(genes, { signal: controller.signal, cache: detection.cache, cacheKey });
-      const entry = detection.cache.get(cacheKey) || { guess, geneCount: genes.length };
-      if (!detection.cache.has(cacheKey)) {
-        detection.cache.set(cacheKey, entry);
+      if (!genes.length) {
+        if (isVennAnalysisRequestCurrent(owner, 'species')) {
+          commitVennSpeciesSelection(owner, '', null, { reason: 'venn-species-empty' });
+        }
+        detection.cache.set('0:0', { guess: null, geneCount: 0 });
+        debug('Debug: venn species detect skipped empty', { reason }); // Debug: detection skipped for empty input
+        return null;
       }
-      if (detection.active && detection.active.controller === controller && isVennAnalysisRequestCurrent(owner, 'species')) {
-        detection.active = null;
-        commitVennSpeciesSelection(owner, guess || '', guess ? true : false, { reason: 'venn-species-detect-complete' });
-        debug('Debug: venn species detect complete', { reason, cacheKey, guess }); // Debug: detection finished
-      } else {
-        debug('Debug: venn species detect result ignored', { reason, cacheKey }); // Debug: stale detection ignored
+      const cacheKey = computeGeneSignature(genes);
+      if (detection.cache.has(cacheKey)) {
+        const cached = detection.cache.get(cacheKey);
+        const guess = cached?.guess || null;
+        if (isVennAnalysisRequestCurrent(owner, 'species')) {
+          commitVennSpeciesSelection(owner, guess || '', guess ? true : false, { reason: 'venn-species-cache-hit' });
+        }
+        debug('Debug: venn species cache hit', { reason, cacheKey, geneCount: genes.length, guess }); // Debug: detection cache hit
+        return guess;
       }
-      return guess || null;
-    } catch (err) {
-      if (err && err.name === 'AbortError') {
+      debug('Debug: venn species cache miss', { reason, cacheKey, geneCount: genes.length }); // Debug: detection cache miss
+      if (detection.active?.controller) {
+        try {
+          detection.active.controller.abort('superseded');
+        } catch (err) { /* noop */ }
+      }
+      const controller = new AbortController();
+      detection.active = {
+        controller,
+        cacheKey,
+        reason,
+        tabId: owner.tabId || null
+      };
+      setSpeciesIndicator(null);
+      try {
+        const guess = await guessSpecies(genes, { signal: controller.signal, cache: detection.cache, cacheKey });
+        const entry = detection.cache.get(cacheKey) || { guess, geneCount: genes.length };
+        if (!detection.cache.has(cacheKey)) {
+          detection.cache.set(cacheKey, entry);
+        }
+        if (detection.active && detection.active.controller === controller && isVennAnalysisRequestCurrent(owner, 'species')) {
+          detection.active = null;
+          commitVennSpeciesSelection(owner, guess || '', guess ? true : false, { reason: 'venn-species-detect-complete' });
+          debug('Debug: venn species detect complete', { reason, cacheKey, guess }); // Debug: detection finished
+        } else {
+          debug('Debug: venn species detect result ignored', { reason, cacheKey }); // Debug: stale detection ignored
+        }
+        return guess || null;
+      } catch (err) {
+        if (err && err.name === 'AbortError') {
+          if (detection.active && detection.active.controller === controller) {
+            detection.active = null;
+            setSpeciesIndicator(null);
+          }
+          debug('Debug: venn species detect aborted', { reason, cacheKey }); // Debug: detection aborted
+          throw err;
+        }
         if (detection.active && detection.active.controller === controller) {
           detection.active = null;
-          setSpeciesIndicator(null);
         }
-        debug('Debug: venn species detect aborted', { reason, cacheKey }); // Debug: detection aborted
-        throw err;
+        console.warn('venn species detection error', err);
+        if (isVennAnalysisRequestCurrent(owner, 'species')) {
+          commitVennSpeciesSelection(owner, '', false, { reason: 'venn-species-error' });
+        }
+        return null;
       }
-      if (detection.active && detection.active.controller === controller) {
-        detection.active = null;
-      }
-      console.warn('venn species detection error', err);
-      if (isVennAnalysisRequestCurrent(owner, 'species')) {
-        commitVennSpeciesSelection(owner, '', false, { reason: 'venn-species-error' });
-      }
-      return null;
+    } finally {
+      finishVennAnalysisRequest(owner, 'species');
     }
   }
 
   async function runGOAnalysis(genes, organism, options = {}) {
     const owner = beginVennAnalysisRequest('go', { reason: 'venn-go-analysis-start' });
-    const activeResultsTab = normalizeAnalysisResultsTab(options.activeResultsTab || 'go');
-    const formatted = genes.map(g => g.trim().toUpperCase()).filter(x => x);
-    if (!formatted.length) { if (state.ui.goResults) state.ui.goResults.innerHTML = '<i>No genes for analysis</i>'; return; }
-    const org = organism || state.ui.speciesSelect.value;
-    if (!org) {
-      if (state.ui.goResults) state.ui.goResults.innerHTML = '<div>Please select a species before running GO analysis.</div>';
-      return;
-    }
-    const sources = state.ui.goCategoryChecks.filter(cb => cb.checked).map(cb => cb.value);
-    if (!sources.length) {
-      if (state.ui.goResults) state.ui.goResults.innerHTML = '<div>Please select at least one GO category.</div>';
-      return;
-    }
-    const service = Shared.goAnalysis;
-    if (!service || typeof service.profile !== 'function') {
-      console.warn('venn: Shared.goAnalysis.profile unavailable');
-      if (state.ui.goResults) state.ui.goResults.innerHTML = '<div>GO analysis service unavailable.</div>';
-      return;
-    }
-    commitVennAnalysisPatch(owner, {
-      goResult: null,
-      goFormatted: formatted,
-      goOrganism: org,
-      goPerformed: true,
-      activeResultsTab
-    }, { reason: 'venn-go-analysis-start' });
-    if (isVennAnalysisOwnerActive(owner)) {
-      state.analysis.lastGOFormatted = formatted;
-      state.analysis.lastGOOrganism = org;
-      state.analysis.lastGOResult = null;
-      state.analysis.goPerformed = true;
-      state.analysis.activeResultsTab = activeResultsTab;
-      renderGOChart();
-      if (state.ui.goResults) state.ui.goResults.innerHTML = '<i>Running GO analysis...</i>';
-      updateAnalysisResultsVisibility();
-    }
-    let background;
-    let domainScope;
-    if (state.ui.goUseAllBackground?.checked) {
-      const bg = getAllGenes().map(g => g.trim().toUpperCase()).filter(x => x);
-      if (bg.length) {
-        background = bg;
-        domainScope = 'custom';
-      }
-    }
     try {
-      const response = await service.profile({
-        genes: formatted,
-        organism: org,
-        sources,
-        background,
-        domainScope,
-        fetch: typeof global.fetch === 'function' ? global.fetch.bind(global) : undefined
-      });
-      const results = response.result || [];
-      if (!isVennAnalysisRequestCurrent(owner, 'go')) {
-        debugLog('runGOAnalysis stale result ignored', { organism: org, geneCount: formatted.length });
+      const activeResultsTab = normalizeAnalysisResultsTab(options.activeResultsTab || 'go');
+      const formatted = genes.map(g => g.trim().toUpperCase()).filter(x => x);
+      if (!formatted.length) { if (state.ui.goResults) state.ui.goResults.innerHTML = '<i>No genes for analysis</i>'; return; }
+      const org = organism || state.ui.speciesSelect.value;
+      if (!org) {
+        if (state.ui.goResults) state.ui.goResults.innerHTML = '<div>Please select a species before running GO analysis.</div>';
         return;
       }
-      const patch = {
-        goResult: results,
-        goFormatted: formatted,
-        goOrganism: org,
-        goPerformed: true,
-        goLimit: Math.min(5, results.length || 5),
-        activeResultsTab
-      };
-      commitVennAnalysisPatch(owner, patch, { reason: 'venn-go-analysis-complete' });
-      if (!isVennAnalysisOwnerActive(owner)) {
+      const sources = state.ui.goCategoryChecks.filter(cb => cb.checked).map(cb => cb.value);
+      if (!sources.length) {
+        if (state.ui.goResults) state.ui.goResults.innerHTML = '<div>Please select at least one GO category.</div>';
         return;
       }
-      state.analysis.lastGOResult = results;
-      state.analysis.lastGOFormatted = formatted;
-      state.analysis.lastGOOrganism = org;
-      state.analysis.goPerformed = true;
-      state.analysis.activeResultsTab = activeResultsTab;
-      if (state.analysis.lastGOResult.length) {
-        renderGOResults(5);
-      } else if (state.ui.goResults) {
-        state.ui.goResults.innerHTML = '<div>No GO results</div>';
-      }
-      updateAnalysisResultsVisibility();
-    } catch (err) {
-      console.error('runGOAnalysis error', err);
-      if (!isVennAnalysisRequestCurrent(owner, 'go')) {
-        debugLog('runGOAnalysis stale error ignored', { organism: org, geneCount: formatted.length });
+      const service = Shared.goAnalysis;
+      if (!service || typeof service.profile !== 'function') {
+        console.warn('venn: Shared.goAnalysis.profile unavailable');
+        if (state.ui.goResults) state.ui.goResults.innerHTML = '<div>GO analysis service unavailable.</div>';
         return;
       }
       commitVennAnalysisPatch(owner, {
@@ -7215,160 +7472,236 @@
         goOrganism: org,
         goPerformed: true,
         activeResultsTab
-      }, { reason: 'venn-go-analysis-error' });
-      if (!isVennAnalysisOwnerActive(owner)) {
-        return;
+      }, { reason: 'venn-go-analysis-start' });
+      if (isVennAnalysisOwnerActive(owner)) {
+        state.analysis.lastGOFormatted = formatted;
+        state.analysis.lastGOOrganism = org;
+        state.analysis.lastGOResult = null;
+        state.analysis.goPerformed = true;
+        state.analysis.activeResultsTab = activeResultsTab;
+        renderGOChart();
+        if (state.ui.goResults) state.ui.goResults.innerHTML = '<i>Running GO analysis...</i>';
+        updateAnalysisResultsVisibility();
       }
-      if (state.ui.goResults) state.ui.goResults.innerHTML = '<div>Error fetching GO analysis</div>';
-      updateAnalysisResultsVisibility();
+      let background;
+      let domainScope;
+      if (state.ui.goUseAllBackground?.checked) {
+        const bg = getAllGenes().map(g => g.trim().toUpperCase()).filter(x => x);
+        if (bg.length) {
+          background = bg;
+          domainScope = 'custom';
+        }
+      }
+      try {
+        const response = await service.profile({
+          genes: formatted,
+          organism: org,
+          sources,
+          background,
+          domainScope,
+          fetch: typeof global.fetch === 'function' ? global.fetch.bind(global) : undefined
+        });
+        const results = response.result || [];
+        if (!isVennAnalysisRequestCurrent(owner, 'go')) {
+          debugLog('runGOAnalysis stale result ignored', { organism: org, geneCount: formatted.length });
+          return;
+        }
+        const patch = {
+          goResult: results,
+          goFormatted: formatted,
+          goOrganism: org,
+          goPerformed: true,
+          goLimit: Math.min(5, results.length || 5),
+          activeResultsTab
+        };
+        commitVennAnalysisPatch(owner, patch, { reason: 'venn-go-analysis-complete' });
+        if (!isVennAnalysisOwnerActive(owner)) {
+          return;
+        }
+        state.analysis.lastGOResult = results;
+        state.analysis.lastGOFormatted = formatted;
+        state.analysis.lastGOOrganism = org;
+        state.analysis.goPerformed = true;
+        state.analysis.activeResultsTab = activeResultsTab;
+        if (state.analysis.lastGOResult.length) {
+          renderGOResults(5);
+        } else if (state.ui.goResults) {
+          state.ui.goResults.innerHTML = '<div>No GO results</div>';
+        }
+        updateAnalysisResultsVisibility();
+      } catch (err) {
+        console.error('runGOAnalysis error', err);
+        if (!isVennAnalysisRequestCurrent(owner, 'go')) {
+          debugLog('runGOAnalysis stale error ignored', { organism: org, geneCount: formatted.length });
+          return;
+        }
+        commitVennAnalysisPatch(owner, {
+          goResult: null,
+          goFormatted: formatted,
+          goOrganism: org,
+          goPerformed: true,
+          activeResultsTab
+        }, { reason: 'venn-go-analysis-error' });
+        if (!isVennAnalysisOwnerActive(owner)) {
+          return;
+        }
+        if (state.ui.goResults) state.ui.goResults.innerHTML = '<div>Error fetching GO analysis</div>';
+        updateAnalysisResultsVisibility();
+      }
+      debugLog('runGOAnalysis invoked', { organism: org, geneCount: formatted.length });
+    } finally {
+      finishVennAnalysisRequest(owner, 'go');
     }
-    debugLog('runGOAnalysis invoked', { organism: org, geneCount: formatted.length });
   }
 
   async function runStringAnalysis(genes, organism, options = {}) {
     const owner = beginVennAnalysisRequest('string', { reason: 'venn-string-analysis-start' });
-    const activeResultsTab = normalizeAnalysisResultsTab(options.activeResultsTab || 'string');
-    const formatted = genes.map(g => g.trim().toUpperCase()).filter(x => x);
-    if (!formatted.length) {
-      if (state.ui.stringNetwork) state.ui.stringNetwork.innerHTML = '';
-      if (state.ui.stringResults) state.ui.stringResults.innerHTML = '<i>No genes for analysis</i>';
-      if (state.ui.stringNetworkExport) state.ui.stringNetworkExport.style.display = 'none';
-      return;
-    }
-    const org = organism || state.ui.speciesSelect.value;
-    if (!org) {
-      if (state.ui.stringNetwork) state.ui.stringNetwork.innerHTML = '';
-      if (state.ui.stringResults) state.ui.stringResults.innerHTML = '<div>Please select a species before running STRING analysis.</div>';
-      if (state.ui.stringNetworkExport) state.ui.stringNetworkExport.style.display = 'none';
-      return;
-    }
-    const service = Shared.stringAnalysis;
-    if (!service || typeof service.fetchNetwork !== 'function' || typeof service.fetchEnrichment !== 'function') {
-      console.warn('venn: Shared.stringAnalysis helpers unavailable');
+    try {
+      const activeResultsTab = normalizeAnalysisResultsTab(options.activeResultsTab || 'string');
+      const formatted = genes.map(g => g.trim().toUpperCase()).filter(x => x);
+      if (!formatted.length) {
+        if (state.ui.stringNetwork) state.ui.stringNetwork.innerHTML = '';
+        if (state.ui.stringResults) state.ui.stringResults.innerHTML = '<i>No genes for analysis</i>';
+        if (state.ui.stringNetworkExport) state.ui.stringNetworkExport.style.display = 'none';
+        return;
+      }
+      const org = organism || state.ui.speciesSelect.value;
+      if (!org) {
+        if (state.ui.stringNetwork) state.ui.stringNetwork.innerHTML = '';
+        if (state.ui.stringResults) state.ui.stringResults.innerHTML = '<div>Please select a species before running STRING analysis.</div>';
+        if (state.ui.stringNetworkExport) state.ui.stringNetworkExport.style.display = 'none';
+        return;
+      }
+      const service = Shared.stringAnalysis;
+      if (!service || typeof service.fetchNetwork !== 'function' || typeof service.fetchEnrichment !== 'function') {
+        console.warn('venn: Shared.stringAnalysis helpers unavailable');
+        commitVennAnalysisPatch(owner, {
+          stringSvg: '',
+          stringEnrichment: null,
+          stringPerformed: true,
+          activeResultsTab
+        }, { reason: 'venn-string-service-unavailable' });
+        if (isVennAnalysisOwnerActive(owner)) {
+          state.analysis.lastStringSVG = null;
+          if (state.ui.stringNetwork) state.ui.stringNetwork.innerHTML = '<div>STRING services unavailable.</div>';
+          if (state.ui.stringResults) state.ui.stringResults.innerHTML = '<div>STRING services unavailable.</div>';
+          if (state.ui.stringNetworkExport) state.ui.stringNetworkExport.style.display = 'none';
+        }
+        return;
+      }
       commitVennAnalysisPatch(owner, {
         stringSvg: '',
         stringEnrichment: null,
         stringPerformed: true,
         activeResultsTab
-      }, { reason: 'venn-string-service-unavailable' });
+      }, { reason: 'venn-string-analysis-start' });
       if (isVennAnalysisOwnerActive(owner)) {
-        state.analysis.lastStringSVG = null;
-        if (state.ui.stringNetwork) state.ui.stringNetwork.innerHTML = '<div>STRING services unavailable.</div>';
-        if (state.ui.stringResults) state.ui.stringResults.innerHTML = '<div>STRING services unavailable.</div>';
+        if (state.ui.stringNetwork) state.ui.stringNetwork.innerHTML = '<i>Loading STRING network...</i>';
+        if (state.ui.stringResults) state.ui.stringResults.innerHTML = '<i>Running STRING enrichment...</i>';
         if (state.ui.stringNetworkExport) state.ui.stringNetworkExport.style.display = 'none';
-      }
-      return;
-    }
-    commitVennAnalysisPatch(owner, {
-      stringSvg: '',
-      stringEnrichment: null,
-      stringPerformed: true,
-      activeResultsTab
-    }, { reason: 'venn-string-analysis-start' });
-    if (isVennAnalysisOwnerActive(owner)) {
-      if (state.ui.stringNetwork) state.ui.stringNetwork.innerHTML = '<i>Loading STRING network...</i>';
-      if (state.ui.stringResults) state.ui.stringResults.innerHTML = '<i>Running STRING enrichment...</i>';
-      if (state.ui.stringNetworkExport) state.ui.stringNetworkExport.style.display = 'none';
-      state.analysis.stringPerformed = true;
-      state.analysis.activeResultsTab = activeResultsTab;
-      updateAnalysisResultsVisibility();
-    }
-    const networkType = queryVennRoot('input[name="stringNetworkType"]:checked')?.value || 'functional';
-    const edgeMeaning = queryVennRoot('input[name="stringEdgeMeaning"]:checked')?.value || 'evidence';
-    const sources = [...(resolveVennRoot()?.querySelectorAll?.('.stringSource:checked') || [])].map(el => el.value);
-    const fallbackCode = state.ui.speciesSelect?.selectedOptions[0]?.dataset.string;
-    const speciesCode = typeof service.resolveSpeciesCode === 'function'
-      ? service.resolveSpeciesCode(org, fallbackCode)
-      : (fallbackCode || { hsapiens: '9606', mmusculus: '10090', dmelanogaster: '7227', celegans: '6239' }[org] || '9606');
-    const requestOptions = {
-      genes: formatted,
-      species: speciesCode,
-      networkType,
-      edgeMeaning,
-      sources,
-      fetch: typeof global.fetch === 'function' ? global.fetch.bind(global) : undefined
-    };
-    try {
-      const network = await service.fetchNetwork(requestOptions);
-      if (!isVennAnalysisRequestCurrent(owner, 'string')) {
-        debugLog('runStringAnalysis stale network ignored', { organism: org, geneCount: formatted.length });
-        return;
-      }
-      commitVennAnalysisPatch(owner, {
-        stringSvg: network.svg,
-        stringPerformed: true,
-        activeResultsTab
-      }, { reason: 'venn-string-network-complete' });
-      if (isVennAnalysisOwnerActive(owner)) {
-        state.analysis.lastStringSVG = network.svg;
         state.analysis.stringPerformed = true;
         state.analysis.activeResultsTab = activeResultsTab;
-        renderStringNetwork(network.svg);
         updateAnalysisResultsVisibility();
       }
-    } catch (err) {
-      console.error('runStringAnalysis network error', err);
-      if (!isVennAnalysisRequestCurrent(owner, 'string')) {
-        debugLog('runStringAnalysis stale network error ignored', { organism: org, geneCount: formatted.length });
-        return;
+      const networkType = queryVennRoot('input[name="stringNetworkType"]:checked')?.value || 'functional';
+      const edgeMeaning = queryVennRoot('input[name="stringEdgeMeaning"]:checked')?.value || 'evidence';
+      const sources = [...(resolveVennRoot()?.querySelectorAll?.('.stringSource:checked') || [])].map(el => el.value);
+      const fallbackCode = state.ui.speciesSelect?.selectedOptions[0]?.dataset.string;
+      const speciesCode = typeof service.resolveSpeciesCode === 'function'
+        ? service.resolveSpeciesCode(org, fallbackCode)
+        : (fallbackCode || { hsapiens: '9606', mmusculus: '10090', dmelanogaster: '7227', celegans: '6239' }[org] || '9606');
+      const requestOptions = {
+        genes: formatted,
+        species: speciesCode,
+        networkType,
+        edgeMeaning,
+        sources,
+        fetch: typeof global.fetch === 'function' ? global.fetch.bind(global) : undefined
+      };
+      try {
+        const network = await service.fetchNetwork(requestOptions);
+        if (!isVennAnalysisRequestCurrent(owner, 'string')) {
+          debugLog('runStringAnalysis stale network ignored', { organism: org, geneCount: formatted.length });
+          return;
+        }
+        commitVennAnalysisPatch(owner, {
+          stringSvg: network.svg,
+          stringPerformed: true,
+          activeResultsTab
+        }, { reason: 'venn-string-network-complete' });
+        if (isVennAnalysisOwnerActive(owner)) {
+          state.analysis.lastStringSVG = network.svg;
+          state.analysis.stringPerformed = true;
+          state.analysis.activeResultsTab = activeResultsTab;
+          renderStringNetwork(network.svg);
+          updateAnalysisResultsVisibility();
+        }
+      } catch (err) {
+        console.error('runStringAnalysis network error', err);
+        if (!isVennAnalysisRequestCurrent(owner, 'string')) {
+          debugLog('runStringAnalysis stale network error ignored', { organism: org, geneCount: formatted.length });
+          return;
+        }
+        commitVennAnalysisPatch(owner, {
+          stringSvg: '',
+          stringPerformed: true,
+          activeResultsTab
+        }, { reason: 'venn-string-network-error' });
+        if (isVennAnalysisOwnerActive(owner)) {
+          state.analysis.lastStringSVG = null;
+          state.analysis.lastStringEnrichment = null;
+          if (state.ui.stringNetwork) state.ui.stringNetwork.innerHTML = '<div>Error loading STRING network</div>';
+          if (state.ui.stringNetworkExport) state.ui.stringNetworkExport.style.display = 'none';
+          updateAnalysisResultsVisibility();
+        }
       }
-      commitVennAnalysisPatch(owner, {
-        stringSvg: '',
-        stringPerformed: true,
-        activeResultsTab
-      }, { reason: 'venn-string-network-error' });
-      if (isVennAnalysisOwnerActive(owner)) {
-        state.analysis.lastStringSVG = null;
-        state.analysis.lastStringEnrichment = null;
-        if (state.ui.stringNetwork) state.ui.stringNetwork.innerHTML = '<div>Error loading STRING network</div>';
-        if (state.ui.stringNetworkExport) state.ui.stringNetworkExport.style.display = 'none';
-        updateAnalysisResultsVisibility();
+      try {
+        const enrichment = await service.fetchEnrichment(requestOptions);
+        const items = Array.isArray(enrichment.items) ? enrichment.items : [];
+        if (!isVennAnalysisRequestCurrent(owner, 'string')) {
+          debugLog('runStringAnalysis stale enrichment ignored', { organism: org, geneCount: formatted.length });
+          return;
+        }
+        commitVennAnalysisPatch(owner, {
+          stringEnrichment: items,
+          stringPerformed: true,
+          stringLimit: 5,
+          activeResultsTab
+        }, { reason: 'venn-string-enrichment-complete' });
+        if (isVennAnalysisOwnerActive(owner)) {
+          state.analysis.lastStringEnrichment = items;
+          state.analysis.stringPerformed = true;
+          state.analysis.activeResultsTab = activeResultsTab;
+          renderStringResults(items, 5);
+          updateAnalysisResultsVisibility();
+        }
+      } catch (err) {
+        console.error('runStringAnalysis enrichment error', err);
+        if (!isVennAnalysisRequestCurrent(owner, 'string')) {
+          debugLog('runStringAnalysis stale enrichment error ignored', { organism: org, geneCount: formatted.length });
+          return;
+        }
+        commitVennAnalysisPatch(owner, {
+          stringEnrichment: null,
+          stringPerformed: true,
+          activeResultsTab
+        }, { reason: 'venn-string-enrichment-error' });
+        if (isVennAnalysisOwnerActive(owner)) {
+          state.analysis.lastStringEnrichment = null;
+          if (state.ui.stringResults) state.ui.stringResults.innerHTML = '<div>Error fetching STRING analysis</div>';
+          updateAnalysisResultsVisibility();
+        }
       }
+      debugLog('runStringAnalysis invoked', {
+        organism: org,
+        geneCount: formatted.length,
+        networkType,
+        edgeMeaning,
+        sourceCount: sources.length
+      });
+    } finally {
+      finishVennAnalysisRequest(owner, 'string');
     }
-    try {
-      const enrichment = await service.fetchEnrichment(requestOptions);
-      const items = Array.isArray(enrichment.items) ? enrichment.items : [];
-      if (!isVennAnalysisRequestCurrent(owner, 'string')) {
-        debugLog('runStringAnalysis stale enrichment ignored', { organism: org, geneCount: formatted.length });
-        return;
-      }
-      commitVennAnalysisPatch(owner, {
-        stringEnrichment: items,
-        stringPerformed: true,
-        stringLimit: 5,
-        activeResultsTab
-      }, { reason: 'venn-string-enrichment-complete' });
-      if (isVennAnalysisOwnerActive(owner)) {
-        state.analysis.lastStringEnrichment = items;
-        state.analysis.stringPerformed = true;
-        state.analysis.activeResultsTab = activeResultsTab;
-        renderStringResults(items, 5);
-        updateAnalysisResultsVisibility();
-      }
-    } catch (err) {
-      console.error('runStringAnalysis enrichment error', err);
-      if (!isVennAnalysisRequestCurrent(owner, 'string')) {
-        debugLog('runStringAnalysis stale enrichment error ignored', { organism: org, geneCount: formatted.length });
-        return;
-      }
-      commitVennAnalysisPatch(owner, {
-        stringEnrichment: null,
-        stringPerformed: true,
-        activeResultsTab
-      }, { reason: 'venn-string-enrichment-error' });
-      if (isVennAnalysisOwnerActive(owner)) {
-        state.analysis.lastStringEnrichment = null;
-        if (state.ui.stringResults) state.ui.stringResults.innerHTML = '<div>Error fetching STRING analysis</div>';
-        updateAnalysisResultsVisibility();
-      }
-    }
-    debugLog('runStringAnalysis invoked', {
-      organism: org,
-      geneCount: formatted.length,
-      networkType,
-      edgeMeaning,
-      sourceCount: sources.length
-    });
   }
 
   function buildGoChartSvgString() {
@@ -9961,6 +10294,8 @@
       });
     }
     setActiveAnalysisResultsTab(state.analysis.activeResultsTab || 'go', { syncPayload: false });
+    primeVennAnalysisAutoRefreshBaseline(hydratedSession || projectedVennSession, meta?.reason || meta?.source || 'venn-payload-apply');
+    primeVennSpeciesAutoDetectionBaseline(hydratedSession || projectedVennSession, normalizedPayload, meta?.reason || meta?.source || 'venn-payload-apply');
     if(meta.recordUndo !== false){
       const undoPrevious = meta.undoPrevious || captureVennSnapshot();
       const next = captureVennSnapshot();
@@ -10985,10 +11320,15 @@
     debug('Debug: venn init state refreshed'); // Debug: state reset before init wiring
     debugLog('init start');
     const runVennDrawCycle = async (drawOptions = {}) => {
+      const drawTabId = normalizeVennSessionTabId(drawOptions?.tabId || getVennProjectionTabId() || null, drawOptions || {});
       try{
         return await refreshDiagram(drawOptions);
       }finally{
-        vennOverlayController?.resolve({ reason: 'complete', tabId: drawOptions?.tabId || getVennProjectionTabId() || null });
+        const owner = drawTabId
+          ? getVennSession(drawTabId, { tabId: drawTabId, reason: 'venn-draw-complete' }, { create: false })
+          : getActiveVennSessionForState();
+        clearVennPendingDrawState(owner, 'venn-draw-complete');
+        vennOverlayController?.resolve({ reason: 'complete', tabId: drawTabId || getVennProjectionTabId() || null });
       }
     };
     const scheduleVennBase = Shared.componentLifecycle?.createTabScopedFrameDebouncer
@@ -11212,17 +11552,23 @@
     component: venn,
     componentKey: 'venn',
     cancel: (_tab, meta = {}) => {
-      captureVennSessionForDeactivation(_tab, meta);
+      const owner = captureVennSessionForDeactivation(_tab, meta);
+      cancelVennAnalysisAutoRefresh(owner, meta.reason || 'deactivate-tab');
+      clearVennPendingDrawState(owner, meta.reason || 'deactivate-tab');
       cancelPendingSpeciesDetection(meta.reason || 'deactivate-tab', {
         abortActive: true,
-        resetIndicator: false
+        resetIndicator: false,
+        tabId: owner?.tabId || getVennDeactivationTabId(_tab, meta)
       });
     }
   }) || function deactivateTab(_tab, meta = {}){
-    captureVennSessionForDeactivation(_tab, meta);
+    const owner = captureVennSessionForDeactivation(_tab, meta);
+    cancelVennAnalysisAutoRefresh(owner, meta.reason || 'deactivate-tab');
+    clearVennPendingDrawState(owner, meta.reason || 'deactivate-tab');
     cancelPendingSpeciesDetection(meta.reason || 'deactivate-tab', {
       abortActive: true,
-      resetIndicator: false
+      resetIndicator: false,
+      tabId: owner?.tabId || getVennDeactivationTabId(_tab, meta)
     });
     debugLog('tab deactivated', {
       reason: meta.reason || 'deactivate-tab'
@@ -11233,6 +11579,14 @@
   venn.disposeTab = function disposeTab(_tab, meta = {}){
     const tabId = normalizeVennSessionTabId(_tab || meta?.tabId || null, meta);
     if(tabId){
+      const owner = getVennSession(tabId, { ...(meta || {}), tabId, reason: meta?.reason || 'dispose-tab' }, { create: false });
+      cancelVennAnalysisAutoRefresh(owner, meta.reason || 'dispose-tab');
+      clearVennPendingDrawState(owner, meta.reason || 'dispose-tab');
+      cancelPendingSpeciesDetection(meta.reason || 'dispose-tab', {
+        abortActive: true,
+        resetIndicator: false,
+        tabId
+      });
       vennSessionsByTabId.delete(tabId);
       if(projectedVennSession?.tabId === tabId){
         projectedVennSession = null;
@@ -11276,11 +11630,70 @@
 
   function restoreChildren(node, payload){
     if(!node || !payload || !payload.fragment){ return false; }
+    const count = Number(payload.count);
+    const hasChildren = Number(payload.fragment?.childNodes?.length || 0) > 0;
+    if(Number.isFinite(count) && count <= 0 && !hasChildren){ return false; }
     while(node.firstChild){
       node.removeChild(node.firstChild);
     }
     node.appendChild(payload.fragment);
     return true;
+  }
+
+  function getVennRenderCacheMetadata(cache){
+    return cache?.__graphitixRenderCache && typeof cache.__graphitixRenderCache === 'object'
+      ? cache.__graphitixRenderCache
+      : null;
+  }
+
+  const VENN_PUBLISHED_TRACE_SELECTOR = [
+    '[data-venn-trace-id]',
+    '[data-upset-trace-kind][data-upset-trace-id]'
+  ].join(', ');
+
+  function hasVennSemanticGraphMarks(container){
+    return !!container?.querySelector?.(VENN_PUBLISHED_TRACE_SELECTOR);
+  }
+
+  function vennFragmentPayloadHasGraph(payload){
+    if(!payload || typeof payload !== 'object'){
+      return false;
+    }
+    const fragment = payload.fragment || null;
+    if(fragment && typeof fragment.querySelector === 'function'){
+      return hasVennSemanticGraphMarks(fragment);
+    }
+    if(payload.__graphitixKind === 'fragment-payload' && Array.isArray(payload.nodes)){
+      return payload.nodes.some(node => {
+        const markup = String(node?.markup || '');
+        return /\bdata-venn-trace-id\s*=/i.test(markup)
+          || (/\bdata-upset-trace-kind\s*=/i.test(markup) && /\bdata-upset-trace-id\s*=/i.test(markup));
+      });
+    }
+    return false;
+  }
+
+  function hasVennPublishedGraph(root = null){
+    const ownerRoot = root || resolveVennRoot(getVennProjectionTabId() || null) || state.ui.root || null;
+    const stage = ownerRoot?.querySelector?.('#stage') || state.ui.stage || null;
+    // Publication is a semantic renderer contract, not a layout measurement. SVG
+    // geometry can legitimately report zero while a tab is being deactivated and
+    // always does under JSDOM, but the renderer-owned trace markers remain exact.
+    return hasVennSemanticGraphMarks(stage);
+  }
+
+  function captureVennRenderCacheMetadata(meta = {}){
+    const ownerTabId = getVennProjectionTabId() || normalizeVennTabId(meta?.tab || meta?.tabId || null) || null;
+    return Shared.renderCacheSchema?.createMetadata?.({ component: 'venn', tabId: ownerTabId, complete: false })
+      || { version: 2, component: 'venn', type: 'venn', tabId: ownerTabId, complete: false };
+  }
+
+  function isCompleteVennRenderCache(cache){
+    if(!cache || typeof cache !== 'object' || !vennFragmentPayloadHasGraph(cache.stage)){
+      return false;
+    }
+    const cacheMeta = getVennRenderCacheMetadata(cache);
+    return cacheMeta?.complete === true && cacheMeta?.type === 'venn';
   }
 
   function captureSvgRootState(svg){
@@ -11421,54 +11834,115 @@
   }
 
   venn.captureRenderCache = function captureRenderCache(meta = {}){
-    const targetTabId = normalizeVennTabId(meta?.tabId || null);
+    const targetTabId = normalizeVennTabId(meta?.tab || meta?.tabId || null);
     ensureVennDomBindings(targetTabId);
-    const rootTabId = getVennRootTabId(state.ui.root);
+    const ownerRoot = resolveVennRoot(targetTabId || null) || state.ui.root || null;
+    const rootTabId = getVennRootTabId(ownerRoot);
     if(targetTabId && rootTabId && String(rootTabId) !== String(targetTabId)){
       console.warn('venn render cache capture skipped stale root', { targetTabId, rootTabId });
       return null;
     }
-    const stageCache = detachChildren(state.ui.stage);
+    const stage = ownerRoot?.querySelector?.('#stage') || state.ui.stage || null;
+    if(!stage || !hasVennPublishedGraph(ownerRoot)){
+      debugLog('Debug: venn render cache capture skipped', {
+        reason: !stage ? 'missing-stage' : 'graph-not-published',
+        tabId: targetTabId || null
+      });
+      return null;
+    }
     const emptyNotice = captureVennEmptyNoticeState();
-    const stageRootState = captureSvgRootState(state.ui.stage);
+    const stageRootState = captureSvgRootState(stage);
+    const stageCache = detachChildren(stage);
+    if(!vennFragmentPayloadHasGraph(stageCache)){
+      restoreChildren(stage, stageCache);
+      debugLog('Debug: venn render cache capture skipped', {
+        reason: 'empty-graph-fragment',
+        tabId: targetTabId || null
+      });
+      return null;
+    }
+    const cacheMeta = captureVennRenderCacheMetadata({ ...meta, tabId: targetTabId || meta?.tabId || null });
+    cacheMeta.complete = true;
     if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
       debugLog('Debug: venn render cache captured', {
         stageNodes: stageCache?.count || 0,
-        hasStageRootState: !!stageRootState
+        hasStageRootState: !!stageRootState,
+        tabId: targetTabId || null
       });
     }
     return {
       stage: stageCache,
       emptyNotice,
       stageRootState,
-      graphOnly: true
+      graphOnly: true,
+      __graphitixRenderCache: cacheMeta
     };
   };
 
   venn.canRestoreRenderCache = function canRestoreRenderCache(cache, meta = {}){
+    if(!isCompleteVennRenderCache(cache)){
+      return false;
+    }
+    const cacheMeta = getVennRenderCacheMetadata(cache);
+    const targetTabId = normalizeVennTabId(meta?.tab || meta?.tabId || null);
+    if(cacheMeta?.tabId && targetTabId && String(cacheMeta.tabId) !== String(targetTabId)){
+      return false;
+    }
     return Shared.componentLifecycle?.validateRenderCache?.(cache, meta, {
       componentKey: 'venn',
-      graph: { selectors: ['#stage', 'svg', 'canvas'], markupPattern: /(<svg\b|id=["']stage["']|<canvas\b)/i },
+      graph: {
+        selectors: ['[data-venn-trace-id]', '[data-upset-trace-kind][data-upset-trace-id]'],
+        markupPattern: /(?:\bdata-venn-trace-id\s*=|(?=[\s\S]*\bdata-upset-trace-kind\s*=)(?=[\s\S]*\bdata-upset-trace-id\s*=))/i
+      },
       requiredSections: [],
       requireGraph: true
-    }) ?? !!cache;
+    }) ?? true;
   };
 
-  venn.isIdleForSnapshot = function isIdleForSnapshot(){
+  venn.isIdleForSnapshot = function isIdleForSnapshot(meta = {}) {
+    const tabId = normalizeVennSessionTabId(meta?.tabId || meta?.tab || getVennProjectionTabId() || null, meta || {});
+    const owner = tabId
+      ? getVennSession(tabId, { ...(meta || {}), tabId, reason: meta?.reason || 'venn-snapshot-idle' }, { create: false })
+      : getActiveVennSessionForState();
     const detection = state.analysis?.speciesDetection || null;
-    return !(detection?.pendingTimeoutId || detection?.active);
+    const asyncRequests = owner?.cache?.asyncRequests || {};
+    const pendingSpeciesOwned = !!detection?.pendingTimeoutId
+      && (!tabId || !detection.pendingTabId || String(detection.pendingTabId) === String(tabId));
+    const activeSpeciesOwned = !!detection?.active
+      && (!tabId || !detection.active?.tabId || String(detection.active.tabId) === String(tabId));
+    return !(
+      owner?.state?.drawPending
+      || owner?.timers?.pendingDrawOptions
+      || owner?.timers?.pendingSpeciesDetection
+      || owner?.cache?.autoAnalysisRefreshTimer
+      || owner?.cache?.autoAnalysisRefreshToken
+      || asyncRequests.go
+      || asyncRequests.string
+      || asyncRequests.species
+      || pendingSpeciesOwned
+      || activeSpeciesOwned
+    );
   };
 
   venn.awaitReadyForSnapshot = function awaitReadyForSnapshot(meta = {}){
-    return Shared.componentLifecycle?.awaitReadyForSnapshot?.(venn, { ...meta, componentKey: 'venn' })
-      || Promise.resolve({ ok: true, skipped: true, reason: 'missing-componentLifecycle' });
+    cancelAutomaticSpeciesDetectionForSnapshot(meta);
+    return Shared.componentLifecycle?.awaitReadyForSnapshot?.(venn, {
+      ...meta,
+      componentKey: 'venn',
+      timeoutMs: Number.isFinite(Number(meta.timeoutMs)) ? Number(meta.timeoutMs) : 30000,
+      settleFrames: Number.isFinite(Number(meta.settleFrames)) ? Number(meta.settleFrames) : 3
+    }) || Promise.resolve({ ok: true, skipped: true, reason: 'missing-componentLifecycle' });
   };
 
-  venn.restoreRenderCache = function restoreRenderCache(cache, _meta = {}){
-    if(!cache){ return false; }
-    restoreSvgRootState(state.ui.stage, cache.stageRootState);
+  venn.restoreRenderCache = function restoreRenderCache(cache, meta = {}){
+    if(!isCompleteVennRenderCache(cache)){ return false; }
+    const targetTabId = normalizeVennTabId(meta?.tab || meta?.tabId || null);
+    ensureVennDomBindings(targetTabId);
+    const ownerRoot = resolveVennRoot(targetTabId || null) || state.ui.root || null;
+    const stage = ownerRoot?.querySelector?.('#stage') || state.ui.stage || null;
+    restoreSvgRootState(stage, cache.stageRootState);
     const graphCachePayload = cache?.[cache?.__graphitixRenderCache?.graphicKey] || cache?.stage || cache?.plot || cache?.preview || cache?.graph || cache?.svg;
-    const restoredStage = restoreChildren(state.ui.stage, graphCachePayload);
+    const restoredStage = restoreChildren(stage, graphCachePayload);
     const restoredEmptyNotice = applyVennEmptyNoticeState(cache.emptyNotice, {
       hideWhenMissing: !!restoredStage
     });
@@ -11489,8 +11963,16 @@
           updateRegionSelect(labels, state.analysis.lastCounts);
         }
       }
+      if (state.ui.regionSelect) {
+        populateRegion(state.ui.regionSelect.value, {
+          skipClear: true,
+          skipAnalysisRefresh: true
+        });
+      }
     }
-    applyVennStageTheme(state.ui.stage);
+    primeVennAnalysisAutoRefreshBaseline(getActiveVennSessionForState(), meta?.reason || 'render-cache-restore');
+    primeVennSpeciesAutoDetectionBaseline(getActiveVennSessionForState(), null, meta?.reason || 'render-cache-restore');
+    applyVennStageTheme(stage);
     const svgBoxControlsReady = ensureVennSvgBoxControls('render-cache-restore');
     const controlsMounted = mountVennExportControls();
     const ownerSession = getActiveVennSessionForState();
@@ -11498,10 +11980,12 @@
       applyVennResultsStateToActive(ownerSession.results);
     }
     const restored = restoredStage || restoredEmptyNotice;
+    const visuallyReady = !!restoredStage && hasVennPublishedGraph(ownerRoot);
     setActiveAnalysisResultsTab(state.analysis.activeResultsTab || 'go', { syncPayload: false });
     if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
       debugLog('Debug: venn render cache restored', {
         restored,
+        visuallyReady,
         stage: restoredStage,
         emptyNotice: restoredEmptyNotice,
         svgBoxControlsReady,
@@ -11509,7 +11993,15 @@
         stageRootState: !!cache.stageRootState
       });
     }
-    return restored;
+    return visuallyReady;
+  };
+
+  venn.hasRenderedGraph = function hasRenderedGraph(meta = {}){
+    const root = meta?.root
+      || Shared.workspaceTabs?.getMountedRoot?.(meta?.tab || meta?.tabId || null, 'venn')
+      || resolveVennRoot(meta?.tab || meta?.tabId || null)
+      || null;
+    return hasVennPublishedGraph(root);
   };
 
   venn.draw = async function draw(meta = {}) {
@@ -11553,7 +12045,12 @@
 
   venn.cancelCurrentDraw = function cancelCurrentDraw(meta = {}){
     const tabId = meta?.tabId || getVennProjectionTabId() || null;
+    const owner = tabId
+      ? getVennSession(tabId, { ...(meta || {}), tabId, reason: meta?.reason || 'venn-draw-cancel' }, { create: false })
+      : getActiveVennSessionForState();
     try{ venn.__asyncScope?.cancelAllForTab?.(tabId, meta?.reason || 'venn-draw-cancel'); }catch(_err){}
+    cancelVennAnalysisAutoRefresh(owner, meta?.reason || 'venn-draw-cancel');
+    clearVennPendingDrawState(owner, meta?.reason || 'venn-draw-cancel');
     vennOverlayController?.resolve({ reason: meta?.reason || 'cancelled', tabId });
     return true;
   };

@@ -120,6 +120,48 @@ describe('Shared stats reporting layout', () => {
     expect(target.querySelector('.stats-results-descriptive')?.textContent).toContain('Descriptive statistics');
   });
 
+  test('panel enhancement does not persist p-value metadata on ordinary summary text', () => {
+    const target = document.createElement('div');
+    target.id = 'statsResults';
+    document.body.appendChild(target);
+    const reporting = global.Shared.statsReporting;
+    const summary = document.createElement('div');
+    summary.className = 'stats-table-lead';
+    summary.textContent = 'Samples analysed: 8';
+    target.appendChild(summary);
+
+    reporting.enhancePanelNow(target, 'ordinary-summary');
+
+    expect(summary.dataset.statsPvalueSourceText).toBeUndefined();
+    expect(JSON.stringify(reporting.capturePanelModel(target))).not.toContain('statsPvalueSourceText');
+  });
+
+  test('enhancer scaffolding is excluded from the canonical panel model', () => {
+    const target = document.createElement('div');
+    target.id = 'statsResults';
+    document.body.appendChild(target);
+    const reporting = global.Shared.statsReporting;
+    for (const [section, text] of [['summary', 'Overall'], ['supplementary', 'Details'], ['descriptive', 'Descriptive']]) {
+      const card = document.createElement('div');
+      card.className = 'stats-table-card';
+      card.dataset.statsSection = section;
+      card.textContent = text;
+      target.appendChild(card);
+    }
+    const before = reporting.capturePanelModel(target);
+
+    reporting.installEnhancedPanels({ selectors: ['#statsResults'] });
+    reporting.enhancePanelNow(target, 'canonical-capture');
+    const afterEnhance = reporting.capturePanelModel(target);
+    target.textContent = '';
+    reporting.restorePanelModel(target, afterEnhance);
+    reporting.enhancePanelNow(target, 'canonical-recapture');
+    const afterRestore = reporting.capturePanelModel(target);
+
+    expect(afterEnhance).toEqual(before);
+    expect(afterRestore).toEqual(before);
+  });
+
   test('report host override places reporting at the end of the containing statistics section', async () => {
     const section = document.createElement('fieldset');
     const target = document.createElement('div');

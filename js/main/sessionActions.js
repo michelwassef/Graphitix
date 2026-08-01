@@ -4,6 +4,14 @@
   const Main = window.Main = window.Main || {};
   const namespace = Main.sessionActions = Main.sessionActions || {};
 
+  if(typeof window.Shared?.renderCacheSchema?.validate !== 'function' && typeof require === 'function'){
+    try {
+      require('../shared/renderCacheSchema.js');
+    } catch (err) {
+      console.debug('Debug: sessionActions renderCacheSchema helper require failed', { message: err?.message || String(err) });
+    }
+  }
+
   function debug(context, message, payload) {
     const Shared = context?.Shared || window.Shared;
     if (!(typeof Shared?.isDebugEnabled === 'function' && Shared.isDebugEnabled())) {
@@ -361,19 +369,25 @@
     if (snapshotPolicy && typeof snapshotPolicy.resolveArchiveBuildPolicy === 'function') {
       return snapshotPolicy.resolveArchiveBuildPolicy(options);
     }
+    const snapshotKind = String(options.snapshotKind || '').trim().toLowerCase() || 'lifecycle-checkpoint';
+    const mode = String(options.mode || '').trim().toLowerCase();
+    const reason = String(options.reason || '').trim().toLowerCase();
+    const autosaveLike = mode === 'autosave' || snapshotKind === 'autosave' || reason.includes('autosave');
+    const captureRenderCache = typeof options.captureRenderCacheBeforeSnapshot === 'boolean'
+      ? options.captureRenderCacheBeforeSnapshot
+      : !autosaveLike;
+    const includeRenderCache = typeof options.includeRenderCacheInSnapshot === 'boolean'
+      ? options.includeRenderCacheInSnapshot
+      : !autosaveLike;
     return {
-      snapshotKind: String(options.snapshotKind || '').trim().toLowerCase() || 'lifecycle-checkpoint',
+      snapshotKind,
       snapshotIntent: resolvePersistSnapshotIntent(options),
-      captureRenderCache: options.captureRenderCacheBeforeSnapshot !== false,
-      preserveRenderCacheTabScope: options.captureRenderCacheBeforeSnapshot !== false ? 'all' : 'active-only',
-      highFidelityEligible: false,
-      idleForMs: Number(options.idleForMs || 0),
-      idleThresholdMs: 2500,
-      idle: false,
+      captureRenderCache,
+      includeRenderCache,
+      preserveRenderCacheTabScope: includeRenderCache ? 'all' : 'active-only',
       policyId: 'fallback'
     };
   }
-
 
   function rehomeArchiveValue(session, value, tabId) {
     if (value === null || value === undefined) {
@@ -395,252 +409,6 @@
     return value.replace(/workspace-\d+/g, String(tabId || ''));
   }
 
-  const ARCHIVE_RENDER_CACHE_SECTIONS = {
-    box: {
-      graphicKey: 'plot',
-      sections: {
-        plot: '#boxPlot'
-      },
-      requireGraphSvg: true
-    },
-    scatter: {
-      graphicKey: 'plot',
-      sections: {
-        plot: '#scatterPlot',
-        stats: '#scatterStatsResults'
-      },
-      requireGraphSvg: true
-    },
-    line: {
-      graphicKey: 'plot',
-      sections: {
-        plot: '#linePlot',
-        stats: '#lineStatsResults'
-      },
-      requireGraphSvg: true
-    },
-    hist: {
-      graphicKey: 'plot',
-      sections: {
-        plot: '#histPlot',
-        stats: '#histStatsResults'
-      },
-      requireGraphSvg: true
-    },
-    heatmap: {
-      graphicKey: 'plot',
-      sections: {
-        plot: '#heatmapSvg',
-        stats: '#heatmapStatsContent'
-      },
-      requireGraphSvg: false,
-      svgRoot: '#heatmapSvg'
-    },
-    pca: {
-      graphicKey: 'plot',
-      sections: {
-        plot: '#pcaPlot',
-        stats: '#pcaStatsResults',
-        summary: '#pcaStatsSummary',
-        scree: '#pcaScreePlot'
-      },
-      requireGraphSvg: true
-    },
-    pie: {
-      graphicKey: 'plot',
-      sections: {
-        plot: '#piePlot',
-        stats: '#pieStatsResults'
-      },
-      requireGraphSvg: true
-    },
-    roc: {
-      graphicKey: 'plot',
-      sections: {
-        plot: '#rocPlot',
-        stats: '#rocStatsResults'
-      },
-      requireGraphSvg: true
-    },
-    survival: {
-      graphicKey: 'plot',
-      sections: {
-        plot: '#survivalPlot',
-        summary: '#survivalStatsSummary',
-        logRank: '#survivalStatsLogRank',
-        hazard: '#survivalStatsHazardRatios',
-        cox: '#survivalStatsCox'
-      },
-      requireGraphSvg: true
-    },
-    venn: {
-      graphicKey: 'stage',
-      sections: {
-        stage: '#stage',
-        regionList: '#regionList',
-        significance: '#significanceResults',
-        goResults: '#goResults',
-        stringResults: '#stringResults',
-        stringNetwork: '#stringNetwork',
-        regionOptions: '#regionSelect'
-      },
-      requireGraphSvg: false,
-      svgRoot: '#stage'
-    },
-    surface: {
-      graphicKey: 'plot',
-      sections: {
-        plot: '#surfaceSvg',
-        stats: '#surfaceStatsSummary',
-        message: '#surfaceMessage'
-      },
-      requireGraphSvg: false,
-      svgRoot: '#surfaceSvg'
-    }
-  };
-
-  function resolveArchiveCacheRoot(tab) {
-    const Shared = window.Shared || null;
-    const root = Shared?.workspaceTabs?.getMountedRoot?.(tab, tab?.type || null) || null;
-    if (root && typeof root.querySelector === 'function') {
-      return root;
-    }
-    return null;
-  }
-
-  function cloneChildNodesToFragment(node) {
-    const doc = node?.ownerDocument || window.document || null;
-    if (!node || !doc) {
-      return null;
-    }
-    const fragment = doc.createDocumentFragment();
-    let count = 0;
-    const nodeName = String(node.nodeName || '').toLowerCase();
-    const includeSelf = nodeName === 'svg' || nodeName === 'canvas';
-    const children = includeSelf ? [node] : Array.from(node.childNodes || []);
-    children.forEach(child => {
-      try {
-        fragment.appendChild(child.cloneNode(true));
-        count += 1;
-      } catch (err) {
-        console.warn('cloneChildNodesToFragment skipped child', { err });
-      }
-    });
-    return { fragment, count };
-  }
-
-  function captureSvgRootStateForArchive(svg) {
-    if (!svg || !svg.attributes) {
-      return null;
-    }
-    const attributes = {};
-    Array.from(svg.attributes || []).forEach(attr => {
-      if (attr && typeof attr.name === 'string') {
-        attributes[attr.name] = attr.value || '';
-      }
-    });
-    const style = {};
-    const styleNames = ['display'];
-    styleNames.forEach(name => {
-      const value = svg.style?.[name];
-      if (typeof value === 'string' && value.length) {
-        style[name] = value;
-      }
-    });
-    return {
-      attributes: Object.keys(attributes).length ? attributes : null,
-      style: Object.keys(style).length ? style : null
-    };
-  }
-
-  function graphFragmentLooksRenderable(payload) {
-    const fragment = payload?.fragment || null;
-    if (!fragment || Number(payload?.count || 0) <= 0) {
-      return false;
-    }
-    if (typeof fragment.querySelector !== 'function') {
-      return true;
-    }
-    return !!(
-      fragment.querySelector('svg')
-      || fragment.querySelector('path, rect, circle, line, polyline, polygon, text, g, image, canvas')
-      || fragment.childNodes?.length
-    );
-  }
-
-  function captureMountedTabRenderCacheForArchive(context, tab, config, meta = {}) {
-    const spec = ARCHIVE_RENDER_CACHE_SECTIONS[tab?.type || ''];
-    const root = resolveArchiveCacheRoot(tab);
-    if (!spec || !root) {
-      return null;
-    }
-    const cache = {};
-    let graphPayload = null;
-    let totalNodes = 0;
-    Object.entries(spec.sections || {}).forEach(([key, selector]) => {
-      const node = selector && root.querySelector?.(selector);
-      const payload = cloneChildNodesToFragment(node);
-      if (!payload || payload.count <= 0) {
-        return;
-      }
-      cache[key] = payload;
-      totalNodes += payload.count;
-      if (key === spec.graphicKey) {
-        graphPayload = payload;
-      }
-    });
-    if (!graphPayload || !graphFragmentLooksRenderable(graphPayload)) {
-      debug(context, 'generic archive render cache skipped', {
-        tabId: tab?.id || null,
-        type: tab?.type || null,
-        reason: !graphPayload ? 'missing-graph-fragment' : 'empty-graph-fragment',
-        source: meta.reason || 'archive-snapshot'
-      });
-      return null;
-    }
-    if (spec.requireGraphSvg && !graphPayload.fragment.querySelector?.('svg')) {
-      debug(context, 'generic archive render cache skipped', {
-        tabId: tab?.id || null,
-        type: tab?.type || null,
-        reason: 'missing-svg-in-graph-fragment',
-        source: meta.reason || 'archive-snapshot'
-      });
-      return null;
-    }
-    if (spec.svgRoot) {
-      const svg = root.querySelector?.(spec.svgRoot) || null;
-      const svgRootState = captureSvgRootStateForArchive(svg);
-      if (svgRootState) {
-        if (tab.type === 'venn') {
-          cache.stageRootState = svgRootState;
-        } else {
-          cache.svgRootState = svgRootState;
-        }
-      }
-    }
-    cache.__graphitixRenderCache = {
-      version: 2,
-      component: tab?.type || null,
-      type: tab?.type || null,
-      tabId: tab?.id || null,
-      complete: true,
-      graphicKey: spec.graphicKey,
-      previewKey: spec.graphicKey,
-      captureMode: 'mounted-root-clone',
-      capturedAt: Date.now(),
-      reason: meta.reason || 'archive-snapshot-mounted-root'
-    };
-    cache.graphicKey = spec.graphicKey;
-    debug(context, 'generic archive render cache captured', {
-      tabId: tab?.id || null,
-      type: tab?.type || null,
-      graphicKey: spec.graphicKey,
-      totalNodes,
-      sections: Object.keys(cache).filter(key => key !== '__graphitixRenderCache')
-    });
-    return cache;
-  }
-
   function persistActiveTabIfNeeded(context, options = {}) {
     const { session, withSessionContext } = context || {};
     if (!session || typeof session.getActiveTab !== 'function' || typeof session.persistActiveTabState !== 'function') {
@@ -660,6 +428,7 @@
       reason,
       forcePreviewCapture: true,
       captureRenderCache: shouldCaptureRenderCache,
+      captureRenderCacheIfNeeded: options.captureRenderCacheIfNeeded === true,
       preserveRenderCacheTabIds,
       disableRenderCachePrune: true,
       origin: 'lifecycle',
@@ -668,41 +437,33 @@
   }
   namespace.persistActiveTabIfNeeded = persistActiveTabIfNeeded;
 
-  function getEmbeddedRenderCacheOwnerTabId(cache) {
-    if (!cache || typeof cache !== 'object') {
-      return null;
-    }
-    const ownerTabId = cache.__graphitixRenderCache?.tabId || cache.tabId || null;
-    const normalized = String(ownerTabId || '').trim();
-    return normalized || null;
-  }
-
   function cacheEnvelopeMatchesSnapshot(tab, envelope, payloadSignature, layoutSignature) {
     if (!envelope || typeof envelope !== 'object' || !envelope.cache) {
       return false;
     }
     const tabId = String(tab?.id || '');
     const ownerTabId = String(envelope.tabId || tab?.renderCacheTabId || '');
-    const embeddedOwnerTabId = getEmbeddedRenderCacheOwnerTabId(envelope.cache);
+    const expectedComponentType = String(tab?.type || '');
     const cachedPayloadSignature = envelope.payloadSignature ?? tab?.renderCacheSignature ?? null;
     const cachedLayoutSignature = envelope.layoutSignature ?? tab?.renderCacheLayoutSignature ?? null;
+    const provenanceValid = window.Shared?.renderCacheSchema?.matches?.(envelope.cache, {
+      tabId,
+      component: expectedComponentType
+    }, {
+      // Newly captured caches are already required to use the current schema by
+      // session.persistActiveTabState(). Archive construction also accepts an
+      // exact legacy checkpoint loaded from an older .graph file so reopening
+      // and saving that document does not discard an otherwise valid cache.
+      requireVersion: false,
+      requireComplete: true
+    }) === true;
     return !!tabId
+      && !!expectedComponentType
       && ownerTabId === tabId
-      && embeddedOwnerTabId === tabId
+      && provenanceValid
       && cachedPayloadSignature === payloadSignature
       && cachedLayoutSignature === layoutSignature;
   }
-
-
-  function mountedRootMatchesSnapshot(context, tab, payloadSignature, layoutSignature) {
-    const loaded = context?.workspaceState?.loadedWorkspaces?.[tab?.id || ''] || null;
-    if (!loaded || String(loaded.tabId || '') !== String(tab?.id || '')) {
-      return false;
-    }
-    return loaded.payloadSignature === payloadSignature
-      && loaded.layoutSignature === layoutSignature;
-  }
-
 
   async function buildArchiveTabSnapshot(context, tab, options = {}) {
     const { session, workspaces } = context || {};
@@ -711,23 +472,20 @@
     }
 
     const deferArchiveNormalization = options.deferArchiveNormalization === true
-      && options.captureRenderCache !== true;
-    let payload;
-    let layout;
-    if(deferArchiveNormalization){
-      payload = tab.payload || null;
-      layout = tab.layoutState || null;
-    } else if (typeof session?.enrichTabSnapshotForArchive === 'function') {
-      const enriched = session.enrichTabSnapshotForArchive(tab, { contextLabel: 'archive-snapshot' });
-      payload = enriched?.payload ?? cloneWithSession(session, tab.payload || null);
-      layout = enriched?.layout ?? cloneWithSession(session, tab.layoutState || null);
-    } else {
-      payload = cloneWithSession(session, tab.payload || null);
-      layout = cloneWithSession(session, tab.layoutState || null);
-    }
+      && options.includeRenderCache !== true;
+    // The tab session is the sole canonical authority after hydration. Active-tab
+    // persistence has already captured and normalized live payload/layout state.
+    // Re-enriching layout here creates a second, archive-only geometry commit after
+    // the render cache was captured and invalidates otherwise exact provenance.
+    const payload = deferArchiveNormalization
+      ? (tab.payload || null)
+      : cloneWithSession(session, tab.payload || null);
+    const layout = deferArchiveNormalization
+      ? (tab.layoutState || null)
+      : cloneWithSession(session, tab.layoutState || null);
 
     const config = workspaces?.[tab.type] || null;
-    const includeRenderCache = options.captureRenderCache === true;
+    const includeRenderCache = options.includeRenderCache === true;
 
     const archivePayloadForSignature = deferArchiveNormalization ? payload : rehomeArchiveValue(session, payload, tab.id);
     const archiveLayoutForSignature = deferArchiveNormalization ? layout : rehomeArchiveValue(session, layout, tab.id);
@@ -768,24 +526,6 @@
           payloadSignature: archiveCacheEnvelope.payloadSignature,
           layoutSignature: archiveCacheEnvelope.layoutSignature
         };
-      }
-    }
-
-    if (!cacheSnapshot
-      && includeRenderCache
-      && mountedRootMatchesSnapshot(context, tab, archivePayloadSignature, archiveLayoutSignature)) {
-      const mountedRootCache = captureMountedTabRenderCacheForArchive(context, tab, config, {
-        reason: 'archive-save-mounted-root-fallback'
-      });
-      if (mountedRootCache && typeof session?.serializeRenderCacheForArchive === 'function') {
-        const serialized = session.serializeRenderCacheForArchive(mountedRootCache);
-        if (serialized) {
-          cacheSnapshot = {
-            cache: serialized,
-            payloadSignature: archivePayloadSignature,
-            layoutSignature: archiveLayoutSignature
-          };
-        }
       }
     }
 
@@ -865,13 +605,14 @@
     const activeProjectionTab = session.getActiveTab?.() || null;
     const activeTab = findTabById(workspaceState, activeProjectionTab?.id) || activeProjectionTab;
     const canonicalActiveState = !!(activeTab?.payload && activeTab.payloadDirty !== true);
-    if(!(options.skipActiveProjectionCapture === true && canonicalActiveState)){
+    if (!(options.skipActiveProjectionCapture === true && canonicalActiveState)) {
       persistActiveTabIfNeeded(context, {
-      reason: options.reason || 'archive-save',
-      snapshotKind: options.snapshotKind || 'archive-save',
-      snapshotIntent: options.snapshotIntent || null,
-      captureRenderCache: options.captureRenderCache === true,
-      preserveRenderCacheTabIds: options.preserveRenderCacheTabIds
+        reason: options.reason || 'archive-save',
+        snapshotKind: options.snapshotKind || 'archive-save',
+        snapshotIntent: options.snapshotIntent || null,
+        captureRenderCache: options.captureRenderCache === true,
+        captureRenderCacheIfNeeded: options.captureRenderCache === true,
+        preserveRenderCacheTabIds: options.preserveRenderCacheTabIds
       });
     }
     if (typeof context?.previews?.awaitPendingCaptures === 'function') {
@@ -970,8 +711,6 @@
     }
   }
 
-
-
   async function awaitWorkspaceReadyForSnapshot(context, tab, options = {}) {
     const { workspaces } = context || {};
     if (!tab || !tab.type || !workspaces) {
@@ -1031,17 +770,16 @@
       reason: options.reason || 'document-snapshot',
       scope,
       captureRenderCacheBeforeSnapshot: options.captureRenderCacheBeforeSnapshot,
-      highFidelityEnabled: options.highFidelityEnabled === true,
-      idleForMs: options.idleForMs,
-      idleThresholdMs: options.idleThresholdMs
+      includeRenderCacheInSnapshot: options.includeRenderCacheInSnapshot
     });
     const captureRenderCache = policy.captureRenderCache === true;
+    const includeRenderCache = policy.includeRenderCache === true;
     // Worker-backed normalization is a post-capture optimization only. It must
     // never change which live owner state is captured or whether readiness is
     // awaited.
     const deferArchiveNormalization = options.useWorker !== false
       && policy.snapshotKind === 'recovery'
-      && !captureRenderCache;
+      && !includeRenderCache;
 
     const activeTab = typeof session.getActiveTab === 'function' ? session.getActiveTab() : null;
     if (activeTab && !activeTab.isWelcome && activeTab.type) {
@@ -1061,9 +799,10 @@
       snapshotKind: policy.snapshotKind || requestedSnapshotKind,
       snapshotIntent: policy.snapshotIntent,
       captureRenderCache,
+      includeRenderCache,
       deferArchiveNormalization,
-      // Recovery and manual save share the same active-owner payload capture.
-      // Only render-cache richness and worker serialization may differ.
+      // Recovery and manual save share the same active-owner payload, layout,
+      // preview, and completed render-cache checkpoint contract.
       skipActiveProjectionCapture: false,
       preserveRenderCacheTabIds
     });
@@ -1081,7 +820,6 @@
   }
 
   namespace.createDocumentCheckpoint = createDocumentCheckpoint;
-
 
   async function serializeDocumentCheckpoint(context, checkpoint, options = {}) {
     if (!checkpoint?.snapshot || !Array.isArray(checkpoint.snapshot.tabs)) {

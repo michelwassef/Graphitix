@@ -330,7 +330,6 @@ async function seedRecoverySnapshotFromWorkspace(page) {
       snapshotKind: 'recovery',
       policyMode: 'recovery',
       reason: 'recovery-interval',
-      idleForMs: 8000,
       useWorker: true
     });
     if (!blob) {

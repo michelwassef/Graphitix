@@ -192,7 +192,9 @@ test.describe('Reopened graph edits invalidate restored render caches', () => {
         { timeout: 12_000, intervals: [100, 200, 400, 800] }
       ).toBe(true);
     }
-    await expect(page.locator('.font-toolbar-host[data-font-toolbar-scope="box"] .font-controls-panel[data-open="1"]')).toBeVisible({ timeout: 12_000 });
+    const boxToolbarHost = page.locator('.font-toolbar-host[data-font-toolbar-scope="box"].font-toolbar-host--visible');
+    await expect(boxToolbarHost).toBeVisible({ timeout: 12_000 });
+    await expect(boxToolbarHost.locator('.font-controls-panel')).toBeVisible({ timeout: 12_000 });
 
     expect(issues.critical.filter(entry => entry.kind !== 'requestfailed')).toEqual([]);
   });

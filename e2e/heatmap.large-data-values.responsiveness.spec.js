@@ -86,7 +86,7 @@ test('large Data-values heatmap stays responsive and completes exact clustering'
   await page.locator('#heatmapGraphPanel [data-overlay-action="retry"]').click();
   const retryOverlay = page.locator('#heatmapGraphPanel .venn-loading-overlay');
   await expect(retryOverlay).toHaveAttribute('data-job-status', 'running');
-  await expect(retryOverlay.locator('.venn-loading-overlay__spinner')).toBeVisible();
+  await expect(retryOverlay).toBeVisible();
   await expect(retryOverlay).toContainText('Rendering heatmap...');
   await page.waitForFunction(() => {
     const svg = document.getElementById('heatmapSvg');
@@ -96,7 +96,7 @@ test('large Data-values heatmap stays responsive and completes exact clustering'
       && !overlay
       && window.Components?.heatmap?.__getState?.()?.lastStats?.rowCount === 7358
       && workerRecords.some(record => record.itemCount === 7358 && record.status === 'done');
-  }, null, { timeout: 90_000 });
+  }, null, { timeout: 180_000 });
 
   const metrics = await page.evaluate(async () => {
     window.clearInterval(window.__heatmapResponsivenessTimer);

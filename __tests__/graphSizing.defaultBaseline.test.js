@@ -196,4 +196,52 @@ describe('graphSizing preserves resize baseline', () => {
     expect(merged?.svgBox?.dataset?.resizerDefaultWidth).toBe('640');
     expect(merged?.svgBox?.dataset?.resizerDefaultHeight).toBe('420');
   });
+
+  test('unlimited height survives layout capture and payload-only projection', () => {
+    const graphSizing = window.Shared?.graphSizing;
+    expect(graphSizing).toBeTruthy();
+
+    const layoutState = {
+      version: 1,
+      svgBox: {
+        style: {
+          width: '468px',
+          height: '456px',
+          minWidth: '128px',
+          minHeight: '128px',
+          maxWidth: 'none',
+          maxHeight: 'none',
+          aspectRatio: '468 / 456'
+        },
+        dataset: {
+          graphWidthPx: '468',
+          graphHeightPx: '456',
+          resizerDefaultWidth: '468',
+          resizerDefaultHeight: '456',
+          resizerMinWidth: '128',
+          resizerMinHeight: '128',
+          resizerMaxWidth: 'Infinity',
+          resizerMaxHeight: 'Infinity',
+          resizerUnlimitedWidth: 'true',
+          resizerUnlimitedHeight: 'true',
+          resizerAspectRatio: String(468 / 456),
+          resizerAspectLocked: 'false'
+        }
+      }
+    };
+
+    const enriched = graphSizing.enrichPayloadWithLayout('pca', { type: 'pca', meta: {} }, layoutState, {
+      context: 'test-unlimited-height-capture'
+    });
+    expect(enriched.meta.graphSizing.display.allowUnlimitedHeight).toBe(true);
+
+    const projected = graphSizing.mergePayloadSizingIntoLayout(null, enriched, {
+      context: 'test-unlimited-height-project'
+    });
+    expect(projected.svgBox.style.maxHeight).toBe('none');
+    expect(projected.svgBox.dataset.resizerUnlimitedHeight).toBe('true');
+    expect(projected.svgBox.dataset.resizerMaxHeight).toBe('Infinity');
+    expect(projected.svgBox.dataset.graphMaxHeightPx).toBe('Infinity');
+  });
+
 });

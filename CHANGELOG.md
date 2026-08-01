@@ -1,3 +1,134 @@
+## Unreleased
+
+- Fixed the shared Playwright workspace launcher to wait for welcome-card hydration before clicking, removing four failed 10-second retries for later cards such as ROC, Survival, and Pie.
+- Made inactive Scatter, PCA, and ROC payload reads projection-free: when persistence requests a non-projected owner, each component now returns that tab's canonical payload verbatim instead of reading the currently mounted sibling's grid, controls, or statistics. This fixes same-component Save/reopen signature drift that could appear in unchanged components after shared persistence timing changed.
+- Fixed Scatter table access so explicitly resolving an inactive owner no longer replaces the module's projected AG Grid, and corrected grouped-header normalization to operate on the exact target grid.
+- Made Scatter and PCA example loading commit the owner-scoped canonical payload synchronously through the shared AG Grid write-through API, eliminating the race where a graph was visible before `tab.payload.data` existed.
+- Normalized Survival render caching to graph-only checkpoints. Statistics remain canonical payload models instead of duplicated serialized DOM, preventing table-model degradation in two-tab reopen/recovery.
+- Strengthened persistence readiness and added focused inactive-payload and Scatter color-scheme/AG Grid ownership regressions.
+
+## 2026-08-01 — Component-owned render-cache provenance enforcement
+
+- Validate newly captured version-2 render caches before any shared presentation normalization, rejecting missing, wrong-owner, wrong-component, incomplete, or conflicting provenance instead of relabelling it with the active tab.
+- Standardized all eleven graph components to emit owner-resolved `version`, `component`/`type`, `tabId`, and semantic `complete` metadata from their capture hooks.
+- Added one shared `renderCacheSchema` authority used by session persistence and archive construction, removing duplicated owner/component parsing and preserving legacy archive compatibility only on reopen/save paths.
+- Removed the remaining mounted-DOM archive fallback so Save and recovery can include only exact component-owned checkpoints.
+- Added rollback-only restoration for DOM detached by a rejected capture; the temporary corrected view is never stored and the component-produced cache is never mutated.
+- Added schema, capture-provenance, prior-checkpoint preservation, conflicting-alias, and non-mutating normalization regressions.
+
+## 2026-07-31 — Testing infrastructure audit and refactor design
+
+- Audited the complete Jest and Playwright infrastructure, including 330 test sources, setup harnesses, component matrices, persistence/recovery coverage, runners, discovery rules, fixed waits, source-text contracts, and validation gates.
+- Added an evidence-based testing infrastructure refactor plan, a detailed audit, and a machine-readable per-file inventory under `docs/development/`.
+- Recorded the migration as an actionable backlog item while keeping the plan explicitly temporary and subordinate to `issues.txt`.
+
+## 2026-07-31 — Venn test-suite normalization and checkpoint regression cleanup
+
+- Replaced the legacy `venn.additionalTabOpen.test.js` grab-bag with focused runtime-ownership, GO/STRING ownership, and render-cache/recovery suites built on one shared full-app harness.
+- Removed Venn-only duplicates of shared tab-switch, clean-default, and component-binding contracts; those behaviors remain covered by the all-component isolation suites and persistence matrix.
+- Corrected stale checkpoint tests to require invalid archive caches to be discarded, recovery to use the same rich cache policy as manual Save, and mocked active tabs to be the canonical workspace tab object.
+- Removed the Jest dependency on native `structuredClone` from archive tests.
+- Fixed graph-sizing projection so an explicit finite payload bound can replace an unlimited default-layout bound, while omitted payload bound policy continues to preserve the layout default.
+
+## 2026-07-31 — Final render-cache lifecycle cleanup and full-component parity matrix
+
+- Removed the generic mounted-DOM archive-cache fallback; manual Save and recovery now serialize only exact component-owned checkpoints with matching owner, component, payload, and layout provenance.
+- Consolidated runtime render-cache envelope installation and made finite/unlimited graph-sizing merges symmetric.
+- Standardized Venn and ROC cache metadata on the shared version-2 component contract.
+- Refactored the persistence browser matrix around reusable archive/hydration assertions: every component retains focused one-tab and same-component two-tab Save/reopen coverage, while one mixed document now verifies two tabs per component across both Save/reopen and recovery.
+- Reduced diagnostic attachments by omitting archive base64 payloads while preserving archive size, provenance, signatures, and event traces.
+- Added regressions proving archive construction cannot manufacture caches from mounted DOM and finite graph bounds can replace previously unlimited bounds.
+
+## 2026-07-31 — Recovery parity test explicitly verifies runtime rehoming
+
+- Strengthened the owner-neutral recovery layout comparison with independent assertions that each recovered layout's tab ID, workspace ID, resizer scope, cache owner, and runtime owner all match the newly allocated runtime tab.
+- This keeps legitimate ID rebasing out of durable-layout equality while ensuring the normalization cannot hide a missed or cross-tab rehome.
+
+## 2026-07-31 — Recovery cache contract test uses owner-neutral layout comparison
+
+- Corrected the render-cache recovery parity test to compare canonical layout content after normalizing runtime workspace IDs.
+- Retained raw runtime layout signatures in diagnostic attachments and continued to verify cache owner identity separately.
+- This prevents legitimate recovery rehoming (for example `workspace-2` to `workspace-5`) from being reported as layout-state corruption.
+
+## 2026-07-31 — Venn/ROC semantic cache publication fix
+
+- Replaced geometry-dependent Venn and ROC publication checks with renderer-owned semantic trace/series markers, so completed graphs remain cacheable during deactivation and under zero-geometry test DOMs.
+- Corrected the render-cache persistence fixture for ROC to vary a score column while preserving the binary classification label column.
+- Stabilized focused Venn/ROC cache tests by awaiting the components' asynchronous draw/readiness contracts before direct capture.
+
+## 2026-07-31 — Component render-cache contract normalization
+
+- Gave Venn and ROC component-owned published-graph checks and complete owner/type cache metadata so save/recovery capture no longer depends on generic workspace DOM heuristics.
+- Made ROC cache graph-only and rebuild its statistics surface from durable owner state after hydration; restored ROC curve interaction listeners explicitly instead of serializing dead stats/control DOM.
+- Made Scatter cache eligibility projection-free by removing presentation-state and active-module checks from validation; DOM mutation remains guarded in restore.
+- Added focused Venn, Scatter, and ROC cache completeness, tab-provenance, inactive-validation, and graph-only statistics restoration coverage.
+
+## 2026-07-31 — Canonical layout authority and recovery checkpoint stability
+
+- Stopped persistence from merging payload graph-sizing metadata back over an exact owner-captured layout; `meta.graphSizing` remains a one-way compatibility mirror.
+- Preserved a clean restored tab's canonical layout and exact cache checkpoint across ordinary tab deactivation instead of recapturing normalized DOM defaults.
+- Added explicit unlimited-height persistence and synchronized the projected CSS aspect ratio with the canonical graph dimensions.
+- Treat the consumed recovery archive as current after restoration, preventing the delayed `recovery-restored` checkpoint from rewriting payload/layout and clearing successfully restored caches.
+- Recorded the remaining hard-crash durability window created by the 2.5-second trailing recovery debounce.
+
+## 2026-07-31 — Save/recovery cache and canonical-state parity
+
+- Removed the hidden idle/high-fidelity recovery split. Crash recovery now persists the same exact owner-scoped completed render-cache checkpoints as manual Save.
+- Separated cache capture from cache inclusion and reuse an already-exact active checkpoint instead of recapturing it on every recovery write.
+- Removed the volatile Box descriptive-table timestamp from canonical payload state.
+- Stopped Survival payload hydration and payload reads from replacing durable statistics-panel models with a different DOM-shell representation.
+- Added focused Box/Survival crash-recovery cache parity coverage alongside updated snapshot-policy and session checkpoint contracts.
+
+## 2026-07-30 — Durable render-cache checkpoint tier
+
+- Separated bounded warm runtime caches from archive-ready cache checkpoints: every successful owner-scoped capture now stores an exact serialized cache before runtime pruning.
+- Warm-cache limits can no longer make a completed inactive tab disappear from manual Save or crash recovery; payload/layout changes still invalidate both cache tiers.
+- Tightened the deactivation helper contract and added a four-tab regression proving that a pruned runtime cache remains recoverable from its owner-scoped archive checkpoint.
+- Enforced embedded component provenance during save and restore, and discard invalid archive cache objects instead of retaining unusable cache payloads with null signatures.
+
+## 2026-07-30 — Owner-complete render-cache checkpoints
+
+- Capture each completed graph cache while its owner is still active during tab deactivation, so manual save and crash recovery can serialize inactive tabs without reading another tab's projection.
+- Removed stale-cache relabeling after payload changes; changed payload now invalidates the exact render provenance until the next completed owner-scoped capture.
+- Removed archive-only payload/layout enrichment. Checkpoints now clone the already committed canonical tab state, keeping cache signatures and archived geometry in the same render commit.
+- Updated persistence unit contracts to reject stale cache preservation and to assert that archive construction does not mutate or re-normalize canonical state.
+
+## 2026-07-30 — Render-cache matrix fixture correction
+
+- Fixed the render-cache persistence fixture so canonical numeric variants are created correctly in matrix-style payloads whose data cells are primitive array elements.
+
+## 2026-07-30 — Render-cache persistence diagnostics follow-up
+
+- Count archive-backed live-DOM reuse as a structured hydration hit.
+- Build cache persistence fixtures through canonical data edits and the shared resizer API instead of unsupported test-only layout fields.
+## 2026-07-30 — Render-cache save/reopen contract diagnostics
+
+- Added one shared owner-scoped render-cache diagnostic event stream covering capture, archive provenance, runtime rehoming, eligibility, component validation, hydration hits, visual rejection, and fallback redraws.
+- Added separate save-phase and reopen-phase assertions so failures identify whether a cache was omitted/corrupted during archive creation or rejected/missed during reopening.
+- Added a component matrix covering one tab, two same-component tabs with distinct payload/layout/statistics variants, and one mixed archive with two tabs for every component.
+- Cache-contract tests now fail on fallback redraws for unchanged archives instead of accepting eventual graph publication.
+
+## 2026-07-30 — Robust Box recovery publication validation
+
+- Fixed a false-negative Box publication check that could roll back an otherwise successful multi-tab crash recovery after a forced payload redraw.
+- Box recovery now recognizes semantic box/bar/individual-value graph marks while still rejecting pending or unpainted raster frames.
+- Enabled readback-optimized Canvas2D measurement for significance-label ink scans.
+- Added contract coverage for the publication validator and canvas context.
+
+## 2026-07-30 — Regression contract cleanup
+
+- Replaced stale global-DOM and pre-reopen tab-id assumptions in Box, Venn, and lock-ratio browser regressions with owner-scoped session and restored-tab resolution.
+- Reframed resize assertions around semantic axis geometry instead of incidental SVG viewport offsets or outer-box proportions.
+- Removed loading-spinner implementation assumptions while retaining Heatmap job-state, progress, responsiveness, and exact-clustering checks.
+- Made forced-ratio resize undo coverage wait for the settled subtype contract before deciding whether a component is user-unlockable.
+
+## 2026-07-30 — Bounded multi-workspace recovery activation
+
+- Defined document restore completion by publication of the active owner graph instead of misusing snapshot-idle readiness during activation.
+- Prevented recovery/open transactions from waiting on owner-scoped queued layout or statistics work that can remain pending behind the restore gate.
+- Added recovery-contract coverage for cache-backed activation and archives containing two distinct tabs for every component, including different data and statistical options.
+- Marked Box significance-label measurement canvases as readback-oriented to avoid repeated Canvas2D readback penalties.
+
 ## 2026-07-30 — Smooth Line 3D live rotation
 
 - Kept Line's mounted 3D SVG as the live rotation surface so pointer capture remains uninterrupted.
@@ -230,6 +361,7 @@ The format is based on Keep a Changelog and this project follows Semantic Versio
 ## [Unreleased]
 
 ### Fixed
+- Fixed Venn two-tab cache omission and post-recovery cache invalidation. Snapshot readiness now tracks owner-scoped draw and analysis work, cancels delayed automatic species detection before capture, suppresses redundant GO/STRING/species reruns for restored input baselines, and clears async tokens on every completion/cancellation path. The Venn persistence fixture now mutates list data rather than derived count fields, and direct cache-transfer tests assert the intentionally empty live stage between capture and restore.
 - Crash recovery now validates publication against each component's primary graph surface and component-owned data marks instead of accepting axes, grids, or unrelated SVG/canvas content elsewhere in the workspace. PCA, Pie, ROC, Survival, Surface, Venn, Line, and Histogram therefore fall back to their authoritative payload draw when a lean recovery has no usable graph cache, matching Scatter's existing behavior.
 - Component ensure and activation no longer permit a passive restore bind to mark an uninitialized component as ready. Full owner-scoped table/layout/scheduler initialization now occurs under the shared draw-suppression transaction, fixing Venn recovery states where the graph stayed blank and resize redraw requests had no scheduler.
 - Flipped Box/Distribution charts now position categorical labels, ticks, points, and drag targets from the same canonical band-layout centers, eliminating the cumulative label-to-point offset caused by ignoring inter-category gaps.
@@ -309,3 +441,12 @@ The format is based on Keep a Changelog and this project follows Semantic Versio
 - Axis length toolbar brackets now use square corners and terminate exactly at the compound control row edges, with no extra horizontal overhang.
 
 - Axis-toolbar Number format dropdowns now use the canonical 26 px control height and border-box sizing, matching and vertically aligning with Thickness and adjacent action controls.
+
+## 2026-07-30 — Render-cache persistence contract test correction
+
+- Corrected the new render-cache persistence matrix so it compares canonical payload/layout signatures instead of unsupported test-only payload fields that component serializers intentionally discard.
+- Reopen audits now detect dirtiness introduced by passive activation relative to the post-open baseline, rather than incorrectly requiring archives created from edited tabs to have no historical dirty state.
+- Save and reopen phases retain separate diagnostics, while same-component and mixed-document cases now verify distinct canonical data/layout signatures and per-tab statistics selections.
+- Corrected the Box font-toolbar regression assertion to use the actual visible toolbar contract instead of a nonexistent `data-open` attribute.
+
+- Fixed render-cache loss when creating or duplicating a tab: all tab-preserving deactivation paths now use the same completed-owner persistence boundary and capture the outgoing tab's owner-scoped render cache before unmounting.

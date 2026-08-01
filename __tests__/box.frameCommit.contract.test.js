@@ -41,4 +41,18 @@ describe('box frame/layout commit contract', () => {
     expect(intrinsicMatch).toBeTruthy();
     expect(intrinsicMatch[1]).not.toMatch(/getActiveBoxWorkspaceTabId|getActiveBoxSessionInfo/);
   });
+  test('published-graph validation accepts semantic Box marks and rejects pending frames', () => {
+    const source = boxSource();
+    expect(source).toMatch(/function hasBoxPublishedVisualContent\(root, options = \{\}\)/);
+    expect(source).toContain("'[data-box-shape=\"body\"]'");
+    expect(source).toContain("'[data-summary-line=\"1\"]'");
+    expect(source).toContain("svg.getAttribute?.('data-box-pending-render') === '1'");
+    expect(source).toMatch(/box\.hasRenderedGraph = function hasRenderedGraph[\s\S]*hasBoxPublishedVisualContent\(plot\)/);
+  });
+
+  test('significance-label pixel scans request a readback-optimized canvas context', () => {
+    const source = boxSource();
+    expect(source).toContain("canvas.getContext('2d', { willReadFrequently: true })");
+  });
+
 });

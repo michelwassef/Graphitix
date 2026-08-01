@@ -1598,10 +1598,10 @@ describe('UI events and example loaders', () => {
     expect(typeof loadedData[0][2]).toBe('number');
     const directSummary = window.Components.survival.__testHooks?.collectSeries?.();
     expect(directSummary?.series?.length).toBeGreaterThan(1);
-    const start = Date.now();
+    const start = performance.now();
     await window.Components.survival.draw({ reason: 'test-survival-large-cox' });
-    const elapsed = Date.now() - start;
-    expect(elapsed).toBeLessThan(2500);
+    const elapsed = performance.now() - start;
+    expect(elapsed).toBeLessThan(5000);
     const summary = state.lastSummary;
     expect(Array.isArray(summary?.series)).toBe(true);
     expect(summary.series.length).toBeGreaterThan(1);

@@ -194,6 +194,7 @@ async function snapshotVennAnalysis(page) {
     const root = window.Shared?.workspaceTabs?.getMountedRoot?.(active?.id || null, 'venn')
       || document.querySelector('#vennPage:not([hidden])');
     const state = window.Components?.venn?.__getState?.() || null;
+    const ownerSession = window.Components?.venn?.__testHooks?.getSession?.(active?.id || null) || null;
     const text = selector => root?.querySelector?.(selector)?.textContent?.replace(/\s+/g, ' ').trim() || '';
     const payload = window.Components?.venn?.getPayload?.() || null;
     return {
@@ -204,7 +205,12 @@ async function snapshotVennAnalysis(page) {
       stateGo: (state?.analysis?.lastGOResult || []).map(item => item.term_name || item.name || ''),
       stateString: (state?.analysis?.lastStringEnrichment || []).map(item => item.termDescription || item.description || ''),
       payloadGo: (payload?.analysis?.goResult || []).map(item => item.term_name || item.name || ''),
-      payloadString: (payload?.analysis?.stringEnrichment || []).map(item => item.termDescription || item.description || '')
+      payloadString: (payload?.analysis?.stringEnrichment || []).map(item => item.termDescription || item.description || ''),
+      asyncRequests: {
+        go: ownerSession?.cache?.asyncRequests?.go || null,
+        string: ownerSession?.cache?.asyncRequests?.string || null,
+        species: ownerSession?.cache?.asyncRequests?.species || null
+      }
     };
   });
 }
@@ -272,6 +278,7 @@ test('venn GO and STRING async results stay owned by their launching tab', async
   expect(firstSnapshot.networkText).toContain('ALPHA STRING network');
   expect(firstSnapshot.payloadGo).toContain('ALPHA GO term');
   expect(firstSnapshot.payloadString).toContain('ALPHA STRING enrichment');
+  expect(firstSnapshot.asyncRequests).toEqual({ go: null, string: null, species: null });
   expect(firstClickWithStaleActive.skipped).toBe(false);
   expect(firstClickWithStaleActive.stringText).toContain('ALPHA STRING enrichment');
   expect(firstClickWithStaleActive.networkText).toContain('ALPHA STRING network');
@@ -286,5 +293,86 @@ test('venn GO and STRING async results stay owned by their launching tab', async
   expect(secondSnapshot.networkText).toContain('BETA STRING network');
   expect(secondSnapshot.payloadGo).toContain('BETA GO term');
   expect(secondSnapshot.payloadString).toContain('BETA STRING enrichment');
+  expect(secondSnapshot.asyncRequests).toEqual({ go: null, string: null, species: null });
   expect(issues.critical).toEqual([]);
+});
+
+test('restored Venn analysis stays authoritative across passive redraw and snapshot settling', async ({ page }) => {
+  test.setTimeout(90_000);
+  await installLocalCdnOverrides(page);
+  await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
+  await expect(page.locator('#welcomeScreen')).toBeVisible({ timeout: 20_000 });
+
+  const tabId = await openVennTab(page, { first: true });
+  await installMockAnalysisServices(page);
+  await configureVennTab(page, {
+    label: 'RESTORED',
+    genes: ['RESTORED_GENE_1', 'RESTORED_GENE_2'],
+    species: 'mmusculus'
+  });
+
+  await page.evaluate(async id => {
+    const venn = window.Components?.venn;
+    const session = window.Main?.session;
+    const tab = session?.workspaceState?.tabs?.find(item => item?.id === id) || null;
+    if (!venn || !tab) {
+      throw new Error('Missing restored Venn owner');
+    }
+    const payload = session.clonePayload
+      ? session.clonePayload(venn.getPayload({ tabId: id }))
+      : structuredClone(venn.getPayload({ tabId: id }));
+    payload.analysis = {
+      ...(payload.analysis || {}),
+      speciesValue: 'mmusculus',
+      speciesIndicator: 'rgb(255, 230, 128)',
+      regionSelectValue: payload.analysis?.regionSelectValue || 'A',
+      goPerformed: true,
+      goResult: [{ term_name: 'Restored GO result', name: 'Restored GO result', p_value: 0.001, source: 'GO:BP' }],
+      goFormatted: ['RESTORED_GENE_1', 'RESTORED_GENE_2'],
+      goOrganism: 'mmusculus',
+      stringPerformed: true,
+      stringSvg: '<svg xmlns="http://www.w3.org/2000/svg" width="120" height="80"><text x="8" y="24">Restored STRING network</text></svg>',
+      stringEnrichment: [{ termDescription: 'Restored STRING enrichment', fdr: 0.001 }]
+    };
+    venn.loadFromPayload(payload, {
+      tab,
+      tabId: id,
+      source: 'e2e-restored-analysis',
+      reason: 'e2e-restored-analysis',
+      recordUndo: false
+    });
+    await venn.draw({ tabId: id, reason: 'e2e-restored-passive-redraw' });
+    await venn.awaitReadyForSnapshot({ tabId: id, reason: 'e2e-restored-snapshot-ready' });
+  }, tabId);
+
+  // Cover the former delayed species/GO/STRING refresh window.
+  await page.waitForTimeout(1_800);
+
+  const result = await page.evaluate(id => {
+    const venn = window.Components?.venn;
+    const owner = venn?.__testHooks?.getSession?.(id) || null;
+    const payload = venn?.getPayload?.({ tabId: id }) || null;
+    const mocks = window.__vennAsyncMocks || {};
+    return {
+      goCalls: mocks.go?.length || 0,
+      networkCalls: mocks.network?.length || 0,
+      enrichmentCalls: mocks.enrichment?.length || 0,
+      speciesValue: payload?.analysis?.speciesValue || '',
+      goResults: (payload?.analysis?.goResult || []).map(item => item.term_name || item.name || ''),
+      stringResults: (payload?.analysis?.stringEnrichment || []).map(item => item.termDescription || item.description || ''),
+      asyncRequests: {
+        go: owner?.cache?.asyncRequests?.go || null,
+        string: owner?.cache?.asyncRequests?.string || null,
+        species: owner?.cache?.asyncRequests?.species || null
+      }
+    };
+  }, tabId);
+
+  expect(result.goCalls).toBe(0);
+  expect(result.networkCalls).toBe(0);
+  expect(result.enrichmentCalls).toBe(0);
+  expect(result.speciesValue).toBe('mmusculus');
+  expect(result.goResults).toContain('Restored GO result');
+  expect(result.stringResults).toContain('Restored STRING enrichment');
+  expect(result.asyncRequests).toEqual({ go: null, string: null, species: null });
 });

@@ -171,8 +171,14 @@ async function prepareRocStats(){
   document.getElementById('rocLoadExample').click();
   await flushAsyncWork(80);
   const roc = window.Components?.roc;
-  roc?.draw?.();
-  await flushAsyncWork(80);
+  const drawResult = roc?.draw?.({ reason: 'stats-persistence-test' });
+  if(drawResult?.then){
+    await drawResult;
+  }
+  if(typeof roc?.awaitReadyForSnapshot === 'function'){
+    await roc.awaitReadyForSnapshot({ reason: 'stats-persistence-test' });
+  }
+  await flushAsyncWork(20);
   return roc;
 }
 
@@ -400,6 +406,14 @@ describe('UI stats persistence and restore', () => {
 
     const roc = await prepareRocStats();
     const rocCache = roc.captureRenderCache();
+    expect(rocCache).toEqual(expect.objectContaining({
+      graphOnly: true,
+      __graphitixRenderCache: expect.objectContaining({
+        type: 'roc',
+        complete: true
+      })
+    }));
+    expect(rocCache.stats).toBeUndefined();
     document.getElementById('rocStatsResults').innerHTML = '';
     expect(roc.restoreRenderCache(rocCache)).toBe(true);
     await flushAsyncWork(20);
@@ -407,11 +421,14 @@ describe('UI stats persistence and restore', () => {
     expectSingleReportPanel('rocStatsResults', 'rocStatsReportHost');
 
     const survival = await prepareSurvivalStats();
+    const survivalPayload = survival.getPayload();
     const survivalCache = survival.captureRenderCache();
+    expect(survivalCache.stats).toBeUndefined();
     document.getElementById('survivalStatsSummary').innerHTML = '';
     document.getElementById('survivalStatsLogRank').innerHTML = '';
     document.getElementById('survivalStatsHazardRatios').innerHTML = '';
     document.getElementById('survivalStatsCox').innerHTML = '';
+    survival.loadFromPayload(survivalPayload, { source: 'test-survival-cache-payload', skipDraw: true });
     expect(survival.restoreRenderCache(survivalCache)).toBe(true);
     await flushAsyncWork(20);
     expect(document.getElementById('survivalStatsLogRank')?.textContent || '').toMatch(/Survival Curve Comparisons|Pairwise Log-rank Comparisons/i);

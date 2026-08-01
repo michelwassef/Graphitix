@@ -137,7 +137,6 @@ async function seedRecoverySnapshot(page) {
       scope: 'workspace',
       snapshotKind: 'recovery',
       policyMode: 'recovery',
-      idleForMs: 8000,
       useWorker: true,
       reason: 'recovery-interval'
     });

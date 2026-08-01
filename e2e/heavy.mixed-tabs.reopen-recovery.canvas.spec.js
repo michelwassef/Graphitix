@@ -740,15 +740,13 @@ async function seedRecoverySnapshot(page) {
       mode: 'recovery',
       snapshotKind: 'recovery',
       reason: 'recovery-interval',
-      scope: 'workspace',
-      idleForMs: 8_000
+      scope: 'workspace'
     }) || null;
     const blob = await sessionActions.buildWorkspaceArchiveBlob(context, {
       scope: 'workspace',
       snapshotKind: 'recovery',
       policyMode: 'recovery',
       reason: 'recovery-interval',
-      idleForMs: 8_000,
       useWorker: true
     });
     if (!blob) {

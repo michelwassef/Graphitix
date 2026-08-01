@@ -26,37 +26,46 @@ describe('snapshotPolicy recovery parity', () => {
     expect(recoveryIntent).toEqual(saveIntent);
   });
 
-  test('Hi-Fi recovery requires explicit opt-in and idle time', () => {
+  test('manual save and recovery use the same rich render-cache contract', () => {
     const policy = window.Main.snapshotPolicy;
     const manual = policy.resolveArchiveBuildPolicy({
       mode: 'manual-save',
       snapshotKind: 'archive-save',
       scope: 'workspace'
     });
-    const activeRecovery = policy.resolveArchiveBuildPolicy({
+    const recovery = policy.resolveArchiveBuildPolicy({
       mode: 'recovery',
       snapshotKind: 'recovery',
-      scope: 'workspace',
-      idleForMs: 0
-    });
-    const idleRecovery = policy.resolveArchiveBuildPolicy({
-      mode: 'recovery',
-      snapshotKind: 'recovery',
-      scope: 'workspace',
-      idleForMs: policy.constants.defaultIdleThresholdMs
-    });
-    const optedInIdleRecovery = policy.resolveArchiveBuildPolicy({
-      mode: 'recovery',
-      snapshotKind: 'recovery',
-      scope: 'workspace',
-      highFidelityEnabled: true,
-      idleForMs: policy.constants.defaultIdleThresholdMs
+      scope: 'workspace'
     });
 
-    expect(manual.captureRenderCache).toBe(true);
-    expect(activeRecovery.captureRenderCache).toBe(false);
-    expect(idleRecovery.captureRenderCache).toBe(false);
-    expect(optedInIdleRecovery.captureRenderCache).toBe(true);
+    expect(manual).toEqual(expect.objectContaining({
+      captureRenderCache: true,
+      includeRenderCache: true,
+      preserveRenderCacheTabScope: 'all',
+      policyId: 'manual-archive-rich'
+    }));
+    expect(recovery).toEqual(expect.objectContaining({
+      captureRenderCache: true,
+      includeRenderCache: true,
+      preserveRenderCacheTabScope: 'all',
+      policyId: 'recovery-rich'
+    }));
+  });
+
+  test('autosave remains lean and excludes render caches', () => {
+    const policy = window.Main.snapshotPolicy.resolveArchiveBuildPolicy({
+      mode: 'autosave',
+      snapshotKind: 'autosave',
+      scope: 'workspace'
+    });
+
+    expect(policy).toEqual(expect.objectContaining({
+      captureRenderCache: false,
+      includeRenderCache: false,
+      preserveRenderCacheTabScope: 'active-only',
+      policyId: 'autosave-lean'
+    }));
   });
 
   test('recovery reasons normalize to the dedicated recovery kind', () => {

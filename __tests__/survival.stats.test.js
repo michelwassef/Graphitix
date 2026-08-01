@@ -101,6 +101,34 @@ describe('Survival statistics pipeline', () => {
     await flushAsyncWork();
   }, 30000);
 
+
+  test('passive cache hydration preserves the durable stats-panel model exactly', async () => {
+    const graphSelection = window.Main?.tabs?.handleGraphSelection;
+    expect(typeof graphSelection).toBe('function');
+    graphSelection('survival');
+
+    document.getElementById('survivalLoadExample')?.click();
+    await flushAsyncWork();
+    window.Components?.survival?.draw?.();
+    await flushAsyncWork(200);
+
+    const before = window.Components?.survival?.getPayload?.();
+    expect(before?.config?.statsPanels).toBeTruthy();
+
+    window.Components.survival.loadFromPayload(structuredClone(before), {
+      tabId: window.Main?.session?.getActiveTab?.()?.id || null,
+      skipDraw: true,
+      skipInitialDraw: true,
+      restoreRenderCache: true,
+      suppressStatsRecompute: true,
+      passiveControls: true
+    });
+
+    const after = window.Components?.survival?.getPayload?.();
+    expect(after?.config?.statsPanels).toStrictEqual(before.config.statsPanels);
+    expect(after?.stats?.statsPanels).toStrictEqual(before.stats?.statsPanels);
+  }, 30000);
+
   test('axis labels are edited inline after removing the Labels panel controls', async () => {
     const graphSelection = window.Main?.tabs?.handleGraphSelection;
     expect(typeof graphSelection).toBe('function');

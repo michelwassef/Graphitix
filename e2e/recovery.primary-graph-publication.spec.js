@@ -93,7 +93,7 @@ async function seedLeanRecoverySnapshot(page) {
       policyMode: 'recovery',
       reason: 'e2e-primary-graph-recovery',
       captureRenderCacheBeforeSnapshot: false,
-      idleForMs: 0,
+      includeRenderCacheInSnapshot: false,
       useWorker: false
     });
     if (!blob) {

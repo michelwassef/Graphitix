@@ -5010,7 +5010,13 @@
         hasSvgRootState: !!svgRootState
       });
     }
-    return { plot: svgCache, stats: statsCache, message: messageCache, svgRootState };
+    const complete = Shared.componentLifecycle?.payloadHasRenderableContent?.(svgCache, {
+      selectors: ['#surfaceSvg', 'svg', 'canvas'],
+      markupPattern: /(<svg\b|id=["']surfaceSvg["']|<canvas\b)/i
+    }) ?? (Number(svgCache?.count || 0) > 0);
+    const cacheMeta = Shared.renderCacheSchema?.createMetadata?.({ component: 'surface', tabId: cacheSession?.tabId, complete })
+      || { version: 2, component: 'surface', type: 'surface', tabId: cacheSession?.tabId || null, complete };
+    return { plot: svgCache, stats: statsCache, message: messageCache, svgRootState, __graphitixRenderCache: cacheMeta };
   };
 
   surface.canRestoreRenderCache = function canRestoreRenderCache(cache, meta = {}){

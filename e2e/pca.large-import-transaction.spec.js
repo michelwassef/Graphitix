@@ -80,8 +80,6 @@ test.describe('PCA owner-scoped large import transaction', () => {
         snapshotKind: 'recovery',
         policyMode: 'recovery',
         reason: 'e2e-large-pca-recovery',
-        idleForMs: 10_000,
-        highFidelityEnabled: false,
         useWorker: true,
         onPhase: metric => { phases[metric.phase] = metric.ms; }
       });

@@ -8377,7 +8377,7 @@
     }), {
       reason
     });
-    if (restoreMode || options.skipDirty === true) {
+    if (restoreMode || options.skipDirty === true || !changed) {
       return;
     }
     markActivePcaPayloadDirty(reason);
@@ -15263,7 +15263,23 @@
     }
   }
 
-  function getPcaGraphPayload() {
+  function getPcaGraphPayload(context = {}) {
+    const captureContext = Shared.componentLifecycle?.resolvePayloadCaptureContext?.('pca', context, {
+      component: pca,
+      projectedSession: projectedPcaSession,
+      root: pcaRoot
+    }) || null;
+    const requestedTabId = captureContext?.requestedTabId
+      || (typeof context?.tabId === 'string' && context.tabId.trim() ? context.tabId.trim() : null);
+    if(requestedTabId && captureContext?.canCaptureLive !== true){
+      const requestedTab = captureContext?.requestedTab || context?.tab || null;
+      const canonicalPayload = cloneSimple(requestedTab?.payload);
+      if(canonicalPayload && typeof canonicalPayload === 'object'){
+        canonicalPayload.type = 'pca';
+        return canonicalPayload;
+      }
+      return null;
+    }
     syncPcaRuntimeControlsFromDom();
     const noteControl = notesState.control || null;
     const notesText = noteControl && typeof noteControl.getValue === 'function' ?
@@ -17191,7 +17207,7 @@
     pca.__domSentinel = getPcaNodeById('pcaHot');
   };
 
-  pca.captureRenderCache = function captureRenderCache() {
+  pca.captureRenderCache = function captureRenderCache(meta = {}) {
     let plot = getPcaNodeById('pcaPlot');
     const activeHot = ensurePcaHotForActiveTab();
     const hasGraphBeforeCapture = hasPcaPrimaryGraphContent(getPcaProjectionTabId() || null);
@@ -17223,9 +17239,17 @@
         tabId: session?.tabId || null
       });
     }
+    const complete = Shared.componentLifecycle?.payloadHasRenderableContent?.(plotCache, {
+      selectors: ['#pcaSvg', 'svg', 'canvas'],
+      markupPattern: /(<svg\b|id=["']pcaSvg["']|<canvas\b)/i
+    }) ?? (Number(plotCache?.count || 0) > 0);
+    const ownerTabId = session?.tabId || getPcaProjectionTabId() || meta?.tabId || null;
+    const cacheMeta = Shared.renderCacheSchema?.createMetadata?.({ component: 'pca', tabId: ownerTabId, complete })
+      || { version: 2, component: 'pca', type: 'pca', tabId: ownerTabId, complete };
     return {
       plot: plotCache,
-      runtimeCache: cloneSimple(getPcaAnalysisCache(session)) || null
+      runtimeCache: cloneSimple(getPcaAnalysisCache(session)) || null,
+      __graphitixRenderCache: cacheMeta
     };
   };
 
@@ -17516,6 +17540,12 @@
           source: 'example-load',
           recordUndo: true,
           undoLabel: 'table:pca:example-load'
+        });
+        Shared.hot?.syncOwnerTabPayloadFullData?.(pcaExample, 'pca-example-load', {
+          source: 'example-load',
+          hotInstance: hot,
+          tabId: hot?.__pcaTabId || getPcaProjectionTabId() || null,
+          affectsAnalysis: true
         });
         pcaDebug('pca example loaded');
         debugLog('Debug: pca example dataset applied (transposed labels)', {

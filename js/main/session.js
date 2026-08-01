@@ -2,6 +2,13 @@
   "use strict";
   const Main = window.Main = window.Main || {};
   const Shared = window.Shared = window.Shared || {};
+  if(typeof Shared.renderCacheSchema?.validate !== 'function' && typeof require === 'function'){
+    try {
+      require('../shared/renderCacheSchema.js');
+    } catch (err) {
+      console.debug('Debug: session renderCacheSchema helper require failed', { message: err?.message || String(err) });
+    }
+  }
   if(typeof Shared.workspaceTabs?.ensureTabState !== 'function' && typeof require === 'function'){
     try {
       require('../shared/workspaceTabs.js');
@@ -10,6 +17,7 @@
     }
   }
   const namespace = Main.session = Main.session || {};
+  const emitRenderCacheEvent = event => Shared.renderCacheDiagnostics?.emit?.(event);
 
   /**
    * @typedef {Object} WorkspaceTab
@@ -1321,23 +1329,32 @@
     }
   }
 
-  function restoreLiveDomAfterRenderCacheCapture(config, captured, tab, reason) {
+  function restoreLiveDomAfterRenderCacheCapture(config, captured, tab, reason, options = {}) {
     if (!config || typeof config.restoreRenderCache !== 'function' || !captured) {
       return false;
     }
+    const restoreCache = options.rollbackOnly === true
+      ? Shared.renderCacheSchema?.createRollbackView?.(captured, {
+          tabId: tab?.id || null,
+          component: tab?.type || null,
+          reason: `${reason || 'persist-active'}:rollback-invalid-capture`
+        }) || captured
+      : captured;
     try {
-      const restored = !!config.restoreRenderCache(captured, {
+      const restored = !!config.restoreRenderCache(restoreCache, {
         tab,
         tabId: tab?.id || null,
         type: tab?.type || null,
         reason: `${reason || 'persist-active'}:restore-live-after-cache-capture`,
         restoreLiveAfterCapture: true,
+        rollbackOnly: options.rollbackOnly === true,
         skipStateMutation: true
       });
       console.debug('Debug: live DOM restored after render cache capture', {
         tabId: tab?.id || null,
         type: tab?.type || null,
         reason: reason || 'persist-active',
+        rollbackOnly: options.rollbackOnly === true,
         restored
       });
       return restored;
@@ -1346,6 +1363,7 @@
         tabId: tab?.id || null,
         type: tab?.type || null,
         reason: reason || 'persist-active',
+        rollbackOnly: options.rollbackOnly === true,
         err
       });
       return false;
@@ -1355,52 +1373,244 @@
   function captureRenderCacheForStorage(config, tab, reason) {
     let rawCaptured = null;
     let captured = null;
+    let rawValidation = null;
     try {
       rawCaptured = config.captureRenderCache({
         tabId: tab.id,
         type: tab.type,
         reason
       });
+      if (!rawCaptured) {
+        emitRenderCacheEvent({
+          tabId: tab?.id,
+          component: tab?.type,
+          phase: 'capture',
+          outcome: 'miss',
+          reason: 'component-returned-empty-cache',
+          source: 'runtime',
+          payloadSignature: tab?.payloadSignature,
+          layoutSignature: tab?.layoutSignature
+        });
+        return { captured: null, cacheForStorage: null, archiveCache: null };
+      }
+      rawValidation = Shared.renderCacheSchema?.validate?.(rawCaptured, {
+        tabId: tab.id,
+        component: tab.type
+      }, {
+        requireVersion: true,
+        requireComplete: true
+      }) || { ok: false, errors: ['render-cache-schema-unavailable'] };
+      if (!rawValidation.ok) {
+        emitRenderCacheEvent({
+          tabId: tab?.id,
+          component: tab?.type,
+          phase: 'capture',
+          outcome: 'rejected',
+          reason: rawValidation.errors?.[0] || 'invalid-component-provenance',
+          source: 'runtime',
+          cacheOwnerTabId: rawValidation.ownerTabId || null,
+          payloadSignature: tab?.payloadSignature,
+          layoutSignature: tab?.layoutSignature,
+          details: {
+            errors: Array.from(rawValidation.errors || []),
+            embeddedComponentType: rawValidation.componentType || null
+          }
+        });
+        return { captured: null, cacheForStorage: null, archiveCache: null };
+      }
+
       captured = normalizeRenderCacheShapeForTab(rawCaptured, tab, { reason });
-      const cacheForStorage = captured
-        ? normalizeRenderCacheShapeForTab(
-            cloneRenderCacheForStorage(captured),
+      let archiveCache = null;
+      let cacheForStorage = null;
+      if (captured) {
+        try {
+          archiveCache = normalizeRenderCacheShapeForTab(
+            serializeRenderCacheValue(captured),
+            tab,
+            { reason: `${reason}:archive-checkpoint` }
+          );
+          cacheForStorage = normalizeRenderCacheShapeForTab(
+            deserializeRenderCacheValue(archiveCache),
             tab,
             { reason: `${reason}:storage-clone` }
-          )
-        : null;
-      return { captured, cacheForStorage };
+          );
+        } catch (err) {
+          console.warn('captureRenderCacheForStorage serialization failed; retaining runtime cache only', {
+            tabId: tab.id,
+            type: tab.type || null,
+            reason,
+            err
+          });
+          archiveCache = null;
+          cacheForStorage = normalizeRenderCacheShapeForTab(
+            cloneRenderCacheForStorage(captured),
+            tab,
+            { reason: `${reason}:storage-clone-fallback` }
+          );
+        }
+      }
+      emitRenderCacheEvent({
+        tabId: tab?.id,
+        component: tab?.type,
+        phase: 'capture',
+        outcome: cacheForStorage ? 'captured' : 'miss',
+        reason,
+        source: 'runtime',
+        cacheOwnerTabId: getRenderCacheOwnerTabId(cacheForStorage),
+        payloadSignature: tab?.payloadSignature,
+        layoutSignature: tab?.layoutSignature
+      });
+      return { captured, cacheForStorage, archiveCache };
     } finally {
       const liveCapture = captured || rawCaptured;
       if (liveCapture) {
-        restoreLiveDomAfterRenderCacheCapture(config, liveCapture, tab, reason);
+        restoreLiveDomAfterRenderCacheCapture(config, liveCapture, tab, reason, {
+          rollbackOnly: !!rawCaptured && rawValidation?.ok !== true
+        });
       }
     }
+  }
+
+  function storeArchiveReadyRenderCache(tab, serializedCache, meta = {}) {
+    if (!tab) {
+      return false;
+    }
+    const payloadSignature = tab.payloadSignature || null;
+    const layoutSignature = tab.layoutSignature || null;
+    if (!payloadSignature || !layoutSignature) {
+      clearTabArchiveRenderCache(tab, { reason: `${meta.reason || 'render-cache-capture'}:missing-provenance` });
+      return false;
+    }
+
+    const ownerTabId = getRenderCacheOwnerTabId(serializedCache);
+    const componentType = getRenderCacheComponentType(serializedCache);
+    const provenanceMatches = renderCacheProvenanceMatchesTab(serializedCache, tab, { requireVersion: true });
+    if (!serializedCache || typeof serializedCache !== 'object' || !provenanceMatches) {
+      const existingMatchesCurrent = !!tab.archiveRenderCache
+        && tab.archiveRenderCacheSignature === payloadSignature
+        && tab.archiveRenderCacheLayoutSignature === layoutSignature
+        && renderCacheProvenanceMatchesTab(tab.archiveRenderCache, tab);
+      if (!existingMatchesCurrent) {
+        clearTabArchiveRenderCache(tab, { reason: `${meta.reason || 'render-cache-capture'}:archive-checkpoint-invalid` });
+      }
+      const expectedOwnerTabId = String(tab.id || '');
+      const expectedComponentType = String(tab.type || '');
+      emitRenderCacheEvent({
+        tabId: tab.id,
+        component: tab.type,
+        phase: 'archive-checkpoint',
+        outcome: 'miss',
+        reason: !serializedCache || typeof serializedCache !== 'object'
+          ? 'serialization-failed'
+          : (ownerTabId !== expectedOwnerTabId ? 'owner-mismatch' : 'component-mismatch'),
+        source: 'runtime',
+        cacheOwnerTabId: ownerTabId,
+        payloadSignature,
+        layoutSignature,
+        details: { componentType, expectedComponentType }
+      });
+      return false;
+    }
+
+    tab.archiveRenderCache = serializedCache;
+    tab.archiveRenderCacheSignature = payloadSignature;
+    tab.archiveRenderCacheLayoutSignature = layoutSignature;
+    emitRenderCacheEvent({
+      tabId: tab.id,
+      component: tab.type,
+      phase: 'archive-checkpoint',
+      outcome: 'stored',
+      reason: meta.reason || 'render-cache-capture',
+      source: 'runtime',
+      cacheOwnerTabId: ownerTabId,
+      payloadSignature,
+      layoutSignature,
+      details: {
+        captureSequence: Number(meta.captureSequence || 0),
+        capturedAt: Number(meta.capturedAt || 0)
+      }
+    });
+    return true;
+  }
+
+  function captureAndStoreRenderCache(tab, config, options = {}) {
+    if (!tab || !config || typeof config.captureRenderCache !== 'function') {
+      return null;
+    }
+    const reason = options.reason || 'persist-active';
+    if (typeof config.hasRenderedGraph === 'function' && config.hasRenderedGraph({
+      tab,
+      tabId: tab.id,
+      type: tab.type,
+      reason: `${reason}:cache-capture-eligibility`
+    }) !== true) {
+      emitRenderCacheEvent({
+        tabId: tab.id,
+        component: tab.type,
+        phase: 'capture',
+        outcome: 'miss',
+        reason: 'graph-not-published',
+        source: 'runtime',
+        payloadSignature: tab.payloadSignature || null,
+        layoutSignature: tab.layoutSignature || null
+      });
+      return null;
+    }
+    const { captured, cacheForStorage, archiveCache } = captureRenderCacheForStorage(config, tab, reason);
+    if (!cacheForStorage) {
+      clearTabRenderCache(tab, { reason: `${reason}:capture-empty` });
+      return null;
+    }
+    const capturedAt = Date.now();
+    tab.renderCommitVersion = Math.max(
+      Number(tab.renderCommitVersion || 0),
+      Number(tab.payloadVersion || 0),
+      Number(tab.layoutVersion || 0)
+    );
+    const captureSequence = ++renderCacheCaptureSequence;
+    tab.renderCache = {
+      cache: cacheForStorage,
+      tabId: tab.id,
+      type: tab.type || null,
+      payloadSignature: tab.payloadSignature || null,
+      layoutSignature: tab.layoutSignature || null,
+      payloadVersion: Number(tab.payloadVersion || 0),
+      layoutVersion: Number(tab.layoutVersion || 0),
+      renderCommitVersion: Number(tab.renderCommitVersion || 0),
+      capturedAt,
+      captureSequence
+    };
+    tab.renderCacheSignature = tab.renderCache.payloadSignature;
+    tab.renderCacheLayoutSignature = tab.renderCache.layoutSignature;
+    tab.renderCacheTabId = tab.id;
+    if (tab.previewMeta && tab.previewSignature === tab.renderCache.payloadSignature) {
+      tab.previewMeta.renderCacheSequence = tab.renderCache.captureSequence;
+      tab.previewMeta.renderCacheCapturedAt = capturedAt;
+    }
+    storeArchiveReadyRenderCache(tab, archiveCache, {
+      reason,
+      capturedAt,
+      captureSequence
+    });
+    if (options.disablePrune !== true) {
+      pruneWarmRenderCaches({
+        preserveTabIds: [tab.id, ...(options.preserveTabIds || [])],
+        reason
+      });
+    }
+    return captured || cacheForStorage;
   }
 
   function normalizeRenderCacheShapeForTab(cache, tab, meta = {}){
     if(!cache || typeof cache !== 'object'){
       return cache || null;
     }
-    const componentType = String(tab?.type || meta?.type || cache.__graphitixRenderCache?.component || '').trim() || null;
     const graphicKey = detectRenderCacheGraphicKey(cache);
-    const previousMeta = cache.__graphitixRenderCache && typeof cache.__graphitixRenderCache === 'object'
-      ? cache.__graphitixRenderCache
-      : null;
-    cache.__graphitixRenderCache = {
-      ...(previousMeta || {}),
-      version: 2,
-      component: componentType,
-      tabId: tab?.id || meta?.tabId || previousMeta?.tabId || null,
+    return Shared.renderCacheSchema?.withPresentationMetadata?.(cache, {
       graphicKey,
       previewKey: graphicKey,
-      normalizedAt: Date.now(),
-      reason: meta?.reason || previousMeta?.reason || 'render-cache-normalize'
-    };
-    if(graphicKey && !cache.graphicKey){
-      cache.graphicKey = graphicKey;
-    }
-    return cache;
+      reason: meta?.reason || 'render-cache-normalize'
+    }) || null;
   }
 
   function peekArchiveRenderCache(tab, meta = {}) {
@@ -1421,16 +1631,44 @@
         type: tab.type || null,
         reason: meta.reason || 'archive-render-cache-peeked'
       });
+      emitRenderCacheEvent({
+        tabId: tab.id,
+        component: tab.type,
+        phase: 'archive-read',
+        outcome: 'rejected',
+        reason: 'missing-signature-provenance',
+        source: 'archive',
+        payloadSignature,
+        layoutSignature
+      });
       return null;
     }
     const deserializedCache = deserializeRenderCacheValue(tab.archiveRenderCache);
     const embeddedOwnerTabId = getRenderCacheOwnerTabId(deserializedCache);
-    if (!embeddedOwnerTabId || embeddedOwnerTabId !== String(tab.id || '')) {
-      console.debug('Debug: archive render cache rejected by owner provenance', {
+    const embeddedComponentType = getRenderCacheComponentType(deserializedCache);
+    if (!renderCacheProvenanceMatchesTab(deserializedCache, tab)) {
+      const expectedOwnerTabId = String(tab.id || '');
+      const expectedComponentType = String(tab.type || '');
+      console.debug('Debug: archive render cache rejected by owner/component provenance', {
         tabId: tab.id || null,
         type: tab.type || null,
         embeddedOwnerTabId,
+        embeddedComponentType,
         reason: meta.reason || 'archive-render-cache-peeked'
+      });
+      emitRenderCacheEvent({
+        tabId: tab.id,
+        component: tab.type,
+        phase: 'owner-check',
+        outcome: 'rejected',
+        reason: embeddedOwnerTabId !== expectedOwnerTabId
+          ? (embeddedOwnerTabId ? 'owner-mismatch' : 'owner-missing')
+          : (embeddedComponentType ? 'component-mismatch' : 'component-missing'),
+        source: 'archive',
+        cacheOwnerTabId: embeddedOwnerTabId,
+        payloadSignature,
+        layoutSignature,
+        details: { embeddedComponentType, expectedComponentType }
       });
       return null;
     }
@@ -1456,8 +1694,31 @@
         renderCommitVersion,
         reason: meta.reason || 'archive-render-cache-peeked'
       });
+      emitRenderCacheEvent({
+        tabId: tab.id,
+        component: tab.type,
+        phase: 'commit-barrier',
+        outcome: 'rejected',
+        reason: 'render-commit-stale',
+        source: 'archive',
+        cacheOwnerTabId: embeddedOwnerTabId,
+        payloadSignature,
+        layoutSignature,
+        details: { payloadVersion, layoutVersion, renderCommitVersion }
+      });
       return null;
     }
+    emitRenderCacheEvent({
+      tabId: tab.id,
+      component: tab.type,
+      phase: 'archive-read',
+      outcome: 'eligible',
+      reason: meta.reason || 'archive-render-cache-peeked',
+      source: 'archive',
+      cacheOwnerTabId: embeddedOwnerTabId,
+      payloadSignature,
+      layoutSignature
+    });
     return {
       cache,
       tabId: tab.id,
@@ -1718,27 +1979,11 @@
     const changed = previousSignature !== nextSignature;
     if (changed) {
       tab.payloadVersion = Number(tab.payloadVersion || 0) + 1;
-      // Payload signature changes ordinarily invalidate the runtime render cache.
-      // Exception: when this call is not explicitly capturing a new render cache
-      // (captureRenderCache not set), preserve the existing cache and resync its
-      // payloadSignature to the new value. This prevents async stat-completion
-      // callbacks from clearing a warmup-captured cache without replacing it.
-      // The updated signature ensures archive-save and in-session restore paths
-      // correctly associate the cache with the new payload.
-      const preserveRuntimeCache = meta.preserveRuntimeCacheOnPayloadChange === true;
-      if (!preserveRuntimeCache) {
-        clearTabRenderCache(tab, { reason: meta.reason || 'payload-changed' });
-      } else {
-        if (tab.renderCache) {
-          tab.renderCache.payloadSignature = nextSignature;
-          tab.renderCacheSignature = nextSignature;
-        }
-        console.debug('Debug: workspace render cache preserved across payload drift', {
-          tabId: tab.id,
-          type: tab.type || null,
-          reason: meta.reason || 'payload-changed'
-        });
-      }
+      // A render cache is valid only for the exact payload that produced it.
+      // Never relabel an existing cache after payload drift: doing so converts stale
+      // graph DOM into apparently valid archive provenance. The next completed draw
+      // or owner deactivation captures a replacement cache.
+      clearTabRenderCache(tab, { reason: meta.reason || 'payload-changed' });
       clearTabArchiveRenderCache(tab, { reason: meta.reason || 'payload-changed' });
     }
     try{
@@ -1769,7 +2014,6 @@
     const changed = assignTabPayload(tab, nextPayload, {
       reason: meta.reason || 'update-tab-payload',
       allowClear: meta.allowClear === true,
-      preserveRuntimeCacheOnPayloadChange: meta.preserveRuntimeCacheOnPayloadChange === true
     });
     if (!changed) {
       return false;
@@ -2497,6 +2741,24 @@
     return true;
   }
 
+  function tabHasCurrentRenderCacheCheckpoint(tab) {
+    if (!tab?.id || !tab?.type || !tab.payloadSignature || !tab.layoutSignature) {
+      return false;
+    }
+    const runtime = tab.renderCache;
+    if (runtime?.cache
+      && String(runtime.tabId || '') === String(tab.id)
+      && runtime.payloadSignature === tab.payloadSignature
+      && runtime.layoutSignature === tab.layoutSignature
+      && renderCacheProvenanceMatchesTab(runtime.cache, tab)) {
+      return true;
+    }
+    return !!tab.archiveRenderCache
+      && tab.archiveRenderCacheSignature === tab.payloadSignature
+      && tab.archiveRenderCacheLayoutSignature === tab.layoutSignature
+      && renderCacheProvenanceMatchesTab(tab.archiveRenderCache, tab);
+  }
+
   function persistActiveTabState(tab = getActiveTab(), options = {}) {
     if (!tab || !tab.type) {
       return false;
@@ -2522,7 +2784,6 @@
     // authoritative — running config.getPayload() risks projecting half-bound
     // component state over a perfectly good loaded-from-disk payload.
     const isLifecycleOrigin = options.origin === 'lifecycle';
-    const skipCaptureBlockedByReason = reason === 'add-tab-before-new';
     const shouldCaptureLivePayloadForSave = snapshotIntent.captureLivePayload === true
       || isSaveLikeLiveCaptureReason(reason, options);
     const allowSkipLivePayloadCapture = snapshotIntent.allowSkipLivePayloadCapture !== false;
@@ -2540,53 +2801,25 @@
       && !shouldCaptureLivePayloadForSave;
     const shouldSkipLivePayloadCapture = !!(tab.payload
       && !tab.payloadDirty
-      && !skipCaptureBlockedByReason
       && !shouldCaptureLivePayloadForSave
       && allowSkipLivePayloadCapture
       && (cleanTabSkipEligible || lifecycleCleanPayloadSkipEligible)
       && (explicitSkipLivePayloadCapture || reasonSkipEligible || lifecycleSkipEligible));
+    const shouldCaptureRenderCache = () => options.captureRenderCache === true
+      && !(options.captureRenderCacheIfNeeded === true && tabHasCurrentRenderCacheCheckpoint(tab));
     const captureRenderCacheOnly = () => {
-      if (options.captureRenderCache && typeof config.captureRenderCache === 'function') {
-        try {
-          const { cacheForStorage } = captureRenderCacheForStorage(config, tab, reason);
-          if (cacheForStorage) {
-            const capturedAt = Date.now();
-            tab.renderCommitVersion = Math.max(
-              Number(tab.renderCommitVersion || 0),
-              Number(tab.payloadVersion || 0),
-              Number(tab.layoutVersion || 0)
-            );
-            tab.renderCache = {
-              cache: cacheForStorage,
-              tabId: tab.id,
-              type: tab.type || null,
-              payloadSignature: tab.payloadSignature || null,
-              layoutSignature: tab.layoutSignature || null,
-              payloadVersion: Number(tab.payloadVersion || 0),
-              layoutVersion: Number(tab.layoutVersion || 0),
-              renderCommitVersion: Number(tab.renderCommitVersion || 0),
-              capturedAt,
-              captureSequence: ++renderCacheCaptureSequence
-            };
-            tab.renderCacheSignature = tab.payloadSignature || null;
-            tab.renderCacheLayoutSignature = tab.layoutSignature || null;
-            tab.renderCacheTabId = tab.id;
-            if (tab.previewMeta && tab.previewSignature === (tab.payloadSignature || null)) {
-              tab.previewMeta.renderCacheSequence = tab.renderCache.captureSequence;
-              tab.previewMeta.renderCacheCapturedAt = capturedAt;
-            }
-          } else {
-            clearTabRenderCache(tab, { reason: `${reason}:capture-empty` });
-          }
-          if (options.disableRenderCachePrune !== true) {
-            pruneWarmRenderCaches({
-              preserveTabIds: [tab.id, ...(options.preserveRenderCacheTabIds || [])],
-              reason
-            });
-          }
-        } catch (err) {
-          console.error('persistActiveTabState render cache error', { tabId: tab.id, type: tab.type, err });
-        }
+      if (!shouldCaptureRenderCache()) {
+        return null;
+      }
+      try {
+        return captureAndStoreRenderCache(tab, config, {
+          reason,
+          disablePrune: options.disableRenderCachePrune === true,
+          preserveTabIds: options.preserveRenderCacheTabIds || []
+        });
+      } catch (err) {
+        console.error('persistActiveTabState render cache error', { tabId: tab.id, type: tab.type, err });
+        return null;
       }
     };
     if (shouldSkipLivePayloadCapture) {
@@ -2596,38 +2829,54 @@
           reason
         });
       }
-      const skippedLayoutCapture = captureExactTabLayoutClone(tab, reason);
+      const preserveCanonicalLayout = !!(
+        tab.layoutState
+        && tab.layoutSignature
+        && !layoutOnlyDirtyAtEntry
+        && tabHasCurrentRenderCacheCheckpoint(tab)
+        && options.forceLiveLayoutCapture !== true
+      );
       let skippedLayoutChanged = false;
-      if (skippedLayoutCapture.captured) {
-        const skippedLayoutClone = skippedLayoutCapture.clone;
-        syncTabLayoutAspectStateFromClone(tab, skippedLayoutClone);
-        tab.layoutState = skippedLayoutClone;
-        tab.layoutSignature = serializePayloadSignature(skippedLayoutClone);
-        skippedLayoutChanged = previousLayoutSignature !== tab.layoutSignature;
-        if (skippedLayoutChanged) {
-          tab.layoutVersion = Number(tab.layoutVersion || 0) + 1;
-        }
-        tab.layoutDirty = false;
-        tab.layoutDirtyReason = '';
-        if (skippedLayoutChanged) {
-          if (shouldInvalidateArchiveOnLayoutSignatureChange(tab, options)) {
-            clearTabArchiveRenderCache(tab, { reason: options.reason || 'layout-changed-skip' });
-          } else {
-            console.debug('Debug: archive render cache preserved across layout signature drift (skip path)', {
-              tabId: tab.id,
-              type: tab.type || null,
-              reason: options.reason || 'layout-changed-skip',
-              origin: options.origin || null
-            });
-          }
-        }
-      } else {
-        console.warn('persistActiveTabState kept previous layout because exact tab layout capture failed', {
+      if (preserveCanonicalLayout) {
+        console.debug('Debug: persistActiveTabState preserved canonical layout for exact checkpoint', {
           tabId: tab.id,
           type: tab.type,
           reason,
-          previousLayoutSignature
+          layoutSignatureLength: tab.layoutSignature.length
         });
+      } else {
+        const skippedLayoutCapture = captureExactTabLayoutClone(tab, reason);
+        if (skippedLayoutCapture.captured) {
+          const skippedLayoutClone = skippedLayoutCapture.clone;
+          syncTabLayoutAspectStateFromClone(tab, skippedLayoutClone);
+          tab.layoutState = skippedLayoutClone;
+          tab.layoutSignature = serializePayloadSignature(skippedLayoutClone);
+          skippedLayoutChanged = previousLayoutSignature !== tab.layoutSignature;
+          if (skippedLayoutChanged) {
+            tab.layoutVersion = Number(tab.layoutVersion || 0) + 1;
+          }
+          tab.layoutDirty = false;
+          tab.layoutDirtyReason = '';
+          if (skippedLayoutChanged) {
+            if (shouldInvalidateArchiveOnLayoutSignatureChange(tab, options)) {
+              clearTabArchiveRenderCache(tab, { reason: options.reason || 'layout-changed-skip' });
+            } else {
+              console.debug('Debug: archive render cache preserved across layout signature drift (skip path)', {
+                tabId: tab.id,
+                type: tab.type || null,
+                reason: options.reason || 'layout-changed-skip',
+                origin: options.origin || null
+              });
+            }
+          }
+        } else {
+          console.warn('persistActiveTabState kept previous layout because exact tab layout capture failed', {
+            tabId: tab.id,
+            type: tab.type,
+            reason,
+            previousLayoutSignature
+          });
+        }
       }
       if (!workspaceState.loadedWorkspaces) {
         workspaceState.loadedWorkspaces = {};
@@ -2798,15 +3047,6 @@
           console.error('persistActiveTabState graph sizing enrich error', { tabId: tab.id, type: tab.type, err });
         }
       }
-      if (Shared.graphSizing?.mergePayloadSizingIntoLayout) {
-        try {
-          layoutClone = Shared.graphSizing.mergePayloadSizingIntoLayout(layoutClone, payloadClone, {
-            context: `persist-layout-${tab.type}`
-          });
-        } catch (err) {
-          console.error('persistActiveTabState graph sizing layout merge error', { tabId: tab.id, type: tab.type, err });
-        }
-      }
       const previousLayoutSignature = tab.layoutSignature || null;
       // Drift detector: when the live read produces a different signature than the
       // clean cached payload, *something* in the component mutated state without
@@ -2834,20 +3074,7 @@
           }
         }
       }
-      // Preserve the render cache through payload drift whenever this call is not
-      // explicitly requesting a replacement capture. This handles async callbacks
-      // (e.g. scatter-stats-computed) that update the stored payload after warmup
-      // has already captured a good render cache, but don't supply a new one.
-      const preserveRuntimeCacheOnPayloadChange = !options.captureRenderCache && !!tab.renderCache;
-      // Only force a fresh capture post-drift for recovery paths that explicitly want it.
-      const forceCaptureRenderCacheAfterPayloadChange = isLifecycleOrigin
-        && reason.includes('recovery-interval')
-        && !options.captureRenderCache
-        && !!tab.renderCache;
-      const changed = assignTabPayload(tab, payloadClone, {
-        reason,
-        preserveRuntimeCacheOnPayloadChange
-      });
+      const changed = assignTabPayload(tab, payloadClone, { reason });
       markTabPayloadFlushed(tab, reason);
       tab.layoutState = layoutClone;
       tab.layoutSignature = serializePayloadSignature(layoutClone);
@@ -2884,51 +3111,18 @@
           hasPreviews: !!previews
         });
       }
-      if ((options.captureRenderCache || (forceCaptureRenderCacheAfterPayloadChange && changed))
-        && typeof config.captureRenderCache === 'function') {
+      if (shouldCaptureRenderCache()) {
         try {
-          const captureReason = options.reason || 'persist-active';
-          const { captured, cacheForStorage } = captureRenderCacheForStorage(config, tab, captureReason);
-          if (cacheForStorage) {
-            const capturedAt = Date.now();
-            tab.renderCommitVersion = Math.max(
-              Number(tab.renderCommitVersion || 0),
-              Number(tab.payloadVersion || 0),
-              Number(tab.layoutVersion || 0)
-            );
-            tab.renderCache = {
-              cache: cacheForStorage,
-              tabId: tab.id,
-              type: tab.type || null,
-              payloadSignature: tab.payloadSignature || null,
-              layoutSignature: tab.layoutSignature || null,
-              payloadVersion: Number(tab.payloadVersion || 0),
-              layoutVersion: Number(tab.layoutVersion || 0),
-              renderCommitVersion: Number(tab.renderCommitVersion || 0),
-              capturedAt,
-              captureSequence: ++renderCacheCaptureSequence
-            };
-            tab.renderCacheSignature = tab.payloadSignature || null;
-            tab.renderCacheLayoutSignature = tab.layoutSignature || null;
-            tab.renderCacheTabId = tab.id;
-            if (tab.previewMeta && tab.previewSignature === (tab.payloadSignature || null)) {
-              tab.previewMeta.renderCacheSequence = tab.renderCache.captureSequence;
-              tab.previewMeta.renderCacheCapturedAt = capturedAt;
-            }
-          } else {
-            clearTabRenderCache(tab, { reason: `${options.reason || 'persist-active'}:capture-empty` });
-          }
+          const captured = captureAndStoreRenderCache(tab, config, {
+            reason: options.reason || 'persist-active',
+            disablePrune: options.disableRenderCachePrune === true,
+            preserveTabIds: options.preserveRenderCacheTabIds || []
+          });
           console.debug('Debug: workspace render cache captured', {
             tabId: tab.id,
             type: tab.type,
             hasCache: !!captured
           });
-          if (options.disableRenderCachePrune !== true) {
-            pruneWarmRenderCaches({
-              preserveTabIds: [tab.id, ...(options.preserveRenderCacheTabIds || [])],
-              reason: options.reason || 'persist-active'
-            });
-          }
         } catch (err) {
           console.error('persistActiveTabState render cache error', { tabId: tab.id, type: tab.type, err });
         }
@@ -3177,62 +3371,31 @@
     }
   }
 
-  // Single source of truth for the payload+layout cloning + graphSizing enrichment that
-  // every archive-bound tab snapshot must apply. Shared between buildSessionPayload (the
-  // legacy session-level builder) and buildArchiveTabSnapshot (the live save path in
-  // sessionActions.js) so both produce the same payload/layout shape.
-  function enrichTabSnapshotForArchive(tab, options = {}) {
-    if (!tab) {
-      return { payload: null, layout: null };
-    }
-    const contextLabel = String(options.contextLabel || 'archive-snapshot');
-    let payloadClone = clonePayload(tab.payload || null);
-    let layoutClone = clonePayload(tab.layoutState || null);
-    const type = tab.type || (payloadClone && payloadClone.type) || null;
-    if (Shared.graphSizing?.enrichPayloadWithLayout) {
-      try {
-        payloadClone = Shared.graphSizing.enrichPayloadWithLayout(type, payloadClone, layoutClone, {
-          context: `${contextLabel}-${type || 'unknown'}`
-        });
-      } catch (err) {
-        console.error('enrichTabSnapshotForArchive enrich error', {
-          tabId: tab.id,
-          type,
-          context: contextLabel,
-          err
-        });
-      }
-    }
-    if (Shared.graphSizing?.mergePayloadSizingIntoLayout) {
-      try {
-        layoutClone = Shared.graphSizing.mergePayloadSizingIntoLayout(layoutClone, payloadClone, {
-          context: `${contextLabel}-layout-${type || 'unknown'}`
-        });
-      } catch (err) {
-        console.error('enrichTabSnapshotForArchive layout merge error', {
-          tabId: tab.id,
-          type,
-          context: contextLabel,
-          err
-        });
-      }
-    }
-    return { payload: payloadClone, layout: layoutClone };
+  function getRenderCacheOwnerTabId(cache) {
+    return Shared.renderCacheSchema?.getOwnerTabId?.(cache) || null;
   }
 
-  function getRenderCacheOwnerTabId(cache) {
-    if (!cache || typeof cache !== 'object') {
-      return null;
+  function getRenderCacheComponentType(cache) {
+    return Shared.renderCacheSchema?.getComponentType?.(cache) || null;
+  }
+
+  function renderCacheProvenanceMatchesTab(cache, tab, options = {}) {
+    if (!cache || typeof cache !== 'object' || !tab) {
+      return false;
     }
-    const ownerTabId = cache.__graphitixRenderCache?.tabId || cache.tabId || null;
-    const normalized = String(ownerTabId || '').trim();
-    return normalized || null;
+    return Shared.renderCacheSchema?.matches?.(cache, {
+      tabId: tab.id,
+      component: tab.type
+    }, {
+      requireVersion: options.requireVersion === true,
+      requireComplete: options.requireComplete !== false
+    }) === true;
   }
 
   function resolveRehomedArchiveCacheSignatures(tabData, clonedPayload, clonedLayout, targetTabId) {
     const archiveCache = tabData?.archiveRenderCache;
     if (!archiveCache || typeof archiveCache !== 'object') {
-      return { payloadSignature: null, layoutSignature: null };
+      return { valid: false, payloadSignature: null, layoutSignature: null };
     }
     const storedPayloadSignature = tabData.archiveRenderCacheSignature || null;
     const storedLayoutSignature = tabData.archiveRenderCacheLayoutSignature || null;
@@ -3240,24 +3403,58 @@
     const sourceLayoutSignature = serializePayloadSignature(tabData.layout || null);
     const sourceRuntimeTabId = String(tabData.archiveRuntimeTabId || tabData.runtimeTabId || '').trim() || null;
     const embeddedOwnerTabId = getRenderCacheOwnerTabId(archiveCache);
+    const embeddedComponentType = getRenderCacheComponentType(archiveCache);
+    const expectedComponentType = String(tabData?.type || '').trim() || null;
     const ownerProvenanceValid = !!sourceRuntimeTabId
       && !!embeddedOwnerTabId
       && embeddedOwnerTabId === sourceRuntimeTabId;
+    const componentProvenanceValid = !!expectedComponentType
+      && !!embeddedComponentType
+      && embeddedComponentType === expectedComponentType;
     const payloadProvenanceValid = !!storedPayloadSignature && storedPayloadSignature === sourcePayloadSignature;
     const layoutProvenanceValid = !!storedLayoutSignature && storedLayoutSignature === sourceLayoutSignature;
-    if (!ownerProvenanceValid || !payloadProvenanceValid || !layoutProvenanceValid) {
+    if (!ownerProvenanceValid || !componentProvenanceValid || !payloadProvenanceValid || !layoutProvenanceValid) {
       console.debug('Debug: session rejected archive render cache provenance', {
         targetTabId,
         type: tabData?.type || null,
         sourceRuntimeTabId,
         embeddedOwnerTabId,
+        embeddedComponentType,
+        expectedComponentType,
         ownerProvenanceValid,
+        componentProvenanceValid,
         payloadProvenanceValid,
         layoutProvenanceValid
       });
-      return { payloadSignature: null, layoutSignature: null };
+      emitRenderCacheEvent({
+        tabId: targetTabId,
+        component: tabData?.type,
+        phase: 'runtime-rehome',
+        outcome: 'rejected',
+        reason: !ownerProvenanceValid
+          ? (embeddedOwnerTabId ? 'owner-mismatch' : 'owner-missing')
+          : (!componentProvenanceValid
+            ? (embeddedComponentType ? 'component-mismatch' : 'component-missing')
+            : (!payloadProvenanceValid ? 'payload-signature-mismatch' : 'layout-signature-mismatch')),
+        source: 'archive',
+        cacheOwnerTabId: embeddedOwnerTabId,
+        runtimeOwnerTabId: targetTabId,
+        payloadSignature: storedPayloadSignature,
+        layoutSignature: storedLayoutSignature,
+        details: {
+          sourceRuntimeTabId,
+          embeddedComponentType,
+          expectedComponentType,
+          ownerProvenanceValid,
+          componentProvenanceValid,
+          payloadProvenanceValid,
+          layoutProvenanceValid
+        }
+      });
+      return { valid: false, payloadSignature: null, layoutSignature: null };
     }
     return {
+      valid: true,
       payloadSignature: serializePayloadSignature(clonedPayload || null),
       layoutSignature: serializePayloadSignature(clonedLayout || null)
     };
@@ -3375,7 +3572,7 @@
           previewMarkup: clonedPreviewMarkup,
           previewSignature: tabData.previewSignature || null,
           previewMeta: clonedPreviewMeta,
-          archiveRenderCache: clonedArchiveRenderCache,
+          archiveRenderCache: rehomedArchiveCacheSignatures.valid ? clonedArchiveRenderCache : null,
           archiveRenderCacheSignature: rehomedArchiveCacheSignatures.payloadSignature,
           archiveRenderCacheLayoutSignature: rehomedArchiveCacheSignatures.layoutSignature,
           loadedFromArchive: true,
@@ -3536,7 +3733,6 @@
   namespace.tabHasTableData = tabHasTableData;
   namespace.graphTabsHaveData = graphTabsHaveData;
   namespace.persistActiveTabState = persistActiveTabState;
-  namespace.enrichTabSnapshotForArchive = enrichTabSnapshotForArchive;
   namespace.captureWorkspaceUiState = captureWorkspaceUiState;
   namespace.applyWorkspaceUiState = applyWorkspaceUiState;
   namespace.applySessionData = applySessionData;

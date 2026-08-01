@@ -90,6 +90,58 @@ describe('componentLifecycle — draw option sanitization', () => {
   });
 });
 
+describe('componentLifecycle — payload capture ownership', () => {
+  beforeEach(() => {
+    loadFresh();
+    document.body.innerHTML = '';
+  });
+
+  test('allows live capture only when workspace, projection, session, and root share the requested owner', () => {
+    const tab = { id: 'tab-a', type: 'scatter', payload: { type: 'scatter', data: [[1]] } };
+    window.Main = { session: { workspaceState: { activeTabId: 'tab-a', tabs: [tab] } } };
+    const root = document.createElement('div');
+    root.dataset.workspaceTabId = 'tab-a';
+    const result = lc.resolvePayloadCaptureContext('scatter', { tabId: 'tab-a' }, {
+      component: { __boundTabId: 'tab-a' },
+      projectedSession: { tabId: 'tab-a' },
+      session: { tabId: 'tab-a' },
+      root
+    });
+
+    expect(result.canCaptureLive).toBe(true);
+    expect(result.requestedTab).toBe(tab);
+  });
+
+  test('rejects an inactive owner even when the stale projection still names it', () => {
+    const inactive = { id: 'tab-a', type: 'pca', payload: { type: 'pca', data: [[1]] } };
+    const active = { id: 'tab-b', type: 'pca', payload: { type: 'pca', data: [[2]] } };
+    window.Main = { session: { workspaceState: { activeTabId: 'tab-b', tabs: [inactive, active] } } };
+    const result = lc.resolvePayloadCaptureContext('pca', { tab: inactive }, {
+      component: { __boundTabId: 'tab-a' },
+      projectedSession: { tabId: 'tab-a' }
+    });
+
+    expect(result.canCaptureLive).toBe(false);
+    expect(result.workspaceOwnerTabId).toBe('tab-b');
+    expect(result.requestedTab).toBe(inactive);
+  });
+
+  test('rejects live capture when a mounted root belongs to another tab', () => {
+    const tab = { id: 'tab-a', type: 'roc', payload: { type: 'roc', data: [[1]] } };
+    window.Main = { session: { workspaceState: { activeTabId: 'tab-a', tabs: [tab] } } };
+    const root = document.createElement('div');
+    root.dataset.workspaceTabId = 'tab-b';
+    const result = lc.resolvePayloadCaptureContext('roc', { tabId: 'tab-a' }, {
+      component: { __boundTabId: 'tab-a' },
+      projectedSession: { tabId: 'tab-a' },
+      root
+    });
+
+    expect(result.canCaptureLive).toBe(false);
+    expect(result.rootTabId).toBe('tab-b');
+  });
+});
+
 describe('componentLifecycle — isGraphFrameLayoutAuthorityWrite', () => {
   beforeEach(loadFresh);
 
@@ -1633,7 +1685,7 @@ describe('session teardown contract', () => {
     });
 
     const restored = session.workspaceState.tabs.find(tab => tab.id === result.targetTabId);
-    expect(restored.archiveRenderCache).toBeTruthy();
+    expect(restored.archiveRenderCache).toBeNull();
     expect(restored.archiveRenderCacheSignature).toBeNull();
     expect(restored.archiveRenderCacheLayoutSignature).toBeNull();
   });
@@ -1663,10 +1715,40 @@ describe('session teardown contract', () => {
     });
 
     const restored = session.workspaceState.tabs.find(tab => tab.id === result.targetTabId);
-    expect(restored.archiveRenderCache).toBeTruthy();
+    expect(restored.archiveRenderCache).toBeNull();
     expect(restored.archiveRenderCacheSignature).toBeNull();
     expect(restored.archiveRenderCacheLayoutSignature).toBeNull();
     expect(session.peekArchiveRenderCache(restored, { reason: 'unit-cache-owner-reject-peek' })).toBeNull();
+  });
+
+  test('applySessionData rejects an archive cache whose embedded component differs from the tab type', async () => {
+    const sourcePayload = { type: 'box', data: [['A'], [1]] };
+    const sourceLayout = { component: 'box', tabId: 'workspace-90', width: 640, height: 480 };
+
+    const result = await session.applySessionData({
+      activeIndex: 0,
+      tabs: [{
+        title: 'Box',
+        type: 'box',
+        archiveRuntimeTabId: 'workspace-90',
+        payload: sourcePayload,
+        layout: sourceLayout,
+        archiveRenderCache: {
+          __graphitixRenderCache: { tabId: 'workspace-90', type: 'scatter', complete: true },
+          plot: { markup: '<svg></svg>' }
+        },
+        archiveRenderCacheSignature: session.serializePayloadSignature(sourcePayload),
+        archiveRenderCacheLayoutSignature: session.serializePayloadSignature(sourceLayout)
+      }]
+    }, {
+      reason: 'unit-cache-component-reject',
+      activateTab: jest.fn(() => true)
+    });
+
+    const restored = session.workspaceState.tabs.find(tab => tab.id === result.targetTabId);
+    expect(restored.archiveRenderCache).toBeNull();
+    expect(restored.archiveRenderCacheSignature).toBeNull();
+    expect(restored.archiveRenderCacheLayoutSignature).toBeNull();
   });
 
   test('applySessionData does not resolve until active workspace activation completes', async () => {
@@ -1730,6 +1812,50 @@ describe('session teardown contract', () => {
     expect(result.targetTabId).toBe(graphTabs[1].id);
     expect(graphTabs[0].loadedFromArchive).toBe(true);
     expect(graphTabs[2].loadedFromArchive).toBe(true);
+  });
+
+  test('applySessionData preserves two distinct archived tabs per component while hydrating only the saved active tab', async () => {
+    const componentTypes = ['venn', 'box', 'scatter', 'pca', 'line', 'heatmap', 'surface', 'roc', 'survival', 'hist', 'pie'];
+    const archivedTabs = componentTypes.flatMap((type, componentIndex) => [0, 1].map(variant => ({
+      title: `${type}-${variant + 1}`,
+      type,
+      payload: {
+        type,
+        data: [[`${type}-label`, `${type}-value`], [`row-${variant + 1}`, componentIndex * 10 + variant]],
+        stats: {
+          enabled: true,
+          test: variant === 0 ? 'parametric' : 'nonparametric',
+          alpha: variant === 0 ? 0.05 : 0.01
+        },
+        config: { variant: `${type}-${variant + 1}` }
+      },
+      layout: { graph: { width: 420 + variant, height: 360 + componentIndex } }
+    })));
+    const activeIndex = archivedTabs.findIndex(tab => tab.type === 'box' && tab.payload.stats.test === 'nonparametric');
+    const activateTab = jest.fn(() => true);
+
+    const result = await session.applySessionData({ activeIndex, tabs: archivedTabs }, {
+      reason: 'unit-dual-tab-per-component-recovery',
+      activateTab
+    });
+
+    expect(activateTab).toHaveBeenCalledTimes(1);
+    const graphTabs = session.workspaceState.tabs.filter(tab => !tab.isWelcome);
+    expect(graphTabs).toHaveLength(archivedTabs.length);
+    expect(result.targetTabId).toBe(graphTabs[activeIndex].id);
+    graphTabs.forEach((tab, index) => {
+      expect(tab.type).toBe(archivedTabs[index].type);
+      expect(tab.payload).toEqual(archivedTabs[index].payload);
+      expect(tab.layoutState).toEqual(archivedTabs[index].layout);
+      expect(tab.loadedFromArchive).toBe(true);
+      expect(tab.payloadDirty).toBe(false);
+    });
+    componentTypes.forEach(type => {
+      const variants = graphTabs.filter(tab => tab.type === type);
+      expect(variants).toHaveLength(2);
+      expect(variants.map(tab => tab.payload.stats.test)).toEqual(['parametric', 'nonparametric']);
+      expect(variants[0].payload.data).not.toEqual(variants[1].payload.data);
+    });
   });
 
   test('applySessionData rolls back tabs and file metadata when restored activation fails', async () => {

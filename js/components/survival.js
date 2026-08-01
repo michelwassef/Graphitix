@@ -6046,7 +6046,9 @@
       syncSurvivalRuntimeControlsFromDom();
       captureSurvivalSessionStateFromActive(requestedSession || activeSession, {
         reason: meta?.reason || 'survival-payload-active-capture',
-        captureStatsPanels: true
+        // Statistics rendering owns panel-model capture. Payload reads must not
+        // reinterpret an already durable model from the current DOM shell.
+        captureStatsPanels: false
       });
     }
     const payloadSession = requestedSession || activeSession;
@@ -6106,7 +6108,7 @@
       : createDefaultSurvivalAdvisorState(payloadSession?.advisor || {});
     const controls = normalizeSurvivalRuntimeControls(payloadState.controls || {});
     const statsPanelModels = usingActiveModuleState
-      ? captureSurvivalStatsPanelModels(payloadState.statsPanelModels || {})
+      ? createDefaultSurvivalStatsPanelModels(payloadState.statsPanelModels || state.statsPanelModels || {})
       : createDefaultSurvivalStatsPanelModels(payloadSession?.results?.statsPanelModels || payloadState.statsPanelModels || {});
     const statsPayload = usingActiveModuleState
       ? (cloneSimple(state.lastStats) || null)
@@ -6536,7 +6538,9 @@
     }
     captureSurvivalSessionStateFromActive(getSurvivalProjectionSession({ reason: 'survival-projection-mutation' }), {
       reason: 'survival-payload-applied',
-      captureStatsPanels: true
+      // The loaded payload is the canonical stats-panel model. Re-reading the
+      // rendered shell here changes its representation without a user edit.
+      captureStatsPanels: false
     });
     logDebug('payload applied', { source, rows: dataToLoad?.length || 0, hasStats: !!payload.stats });
     return true;
@@ -7391,31 +7395,42 @@
   survival.captureRenderCache = function captureRenderCache(meta = {}){
     const owner = getSurvivalRenderCacheOwner(meta, 'survival-render-cache-capture');
     if(!owner){ return null; }
-    const plot = getSurvivalNodeById('survivalPlot');
-    const summary = getSurvivalNodeById('survivalStatsSummary');
-    const logRank = getSurvivalNodeById('survivalStatsLogRank');
-    const hazard = getSurvivalNodeById('survivalStatsHazardRatios');
-    const cox = getSurvivalNodeById('survivalStatsCox');
+    const ownerRoot = resolveSurvivalRoot(owner.tabId || meta?.tab || meta?.tabId || null);
+    const plot = ownerRoot?.querySelector?.('#survivalPlot') || null;
     const plotCache = detachChildren(plot);
-    const summaryCache = detachChildren(summary);
-    const logRankCache = detachChildren(logRank);
-    const hazardCache = detachChildren(hazard);
-    const coxCache = detachChildren(cox);
+    if((plotCache?.count || 0) <= 0){
+      restoreChildren(plot, plotCache);
+      survivalDebug('Debug: survival render cache capture skipped', {
+        reason: 'empty-runtime',
+        tabId: owner.tabId || null
+      });
+      return null;
+    }
+    const complete = Shared.componentLifecycle?.payloadHasRenderableContent?.(plotCache, {
+      selectors: ['#survivalSvg', 'svg', 'canvas'],
+      markupPattern: /(<svg\b|id=["']survivalSvg["']|<canvas\b)/i
+    }) ?? true;
+    if(!complete){
+      restoreChildren(plot, plotCache);
+      survivalDebug('Debug: survival render cache capture skipped', {
+        reason: 'graph-not-renderable',
+        tabId: owner.tabId || null
+      });
+      return null;
+    }
     if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
       survivalDebug('Debug: survival render cache captured', {
-        plotNodes: plotCache?.count || 0,
-        summaryNodes: summaryCache?.count || 0,
-        logRankNodes: logRankCache?.count || 0,
-        hazardNodes: hazardCache?.count || 0,
-        coxNodes: coxCache?.count || 0
+        plotNodes: plotCache.count,
+        tabId: owner.tabId || null
       });
     }
+    const cacheMeta = Shared.renderCacheSchema?.createMetadata?.({ component: 'survival', tabId: owner.tabId, complete: true })
+      || { version: 2, component: 'survival', type: 'survival', tabId: owner.tabId || null, complete: true };
+    // Statistics are canonical payload state. Caching their DOM duplicates that
+    // authority and loses structured table metadata during archive serialization.
     return {
       plot: plotCache,
-      summary: summaryCache,
-      logRank: logRankCache,
-      hazard: hazardCache,
-      cox: coxCache
+      __graphitixRenderCache: cacheMeta
     };
   };
 
@@ -7447,34 +7462,18 @@
     if(!cache){ return false; }
     const owner = getSurvivalRenderCacheOwner(meta, 'survival-render-cache-restore');
     if(!owner){ return false; }
+    const ownerRoot = resolveSurvivalRoot(owner.tabId || meta?.tab || meta?.tabId || null);
+    const plot = ownerRoot?.querySelector?.('#survivalPlot') || null;
     const graphCachePayload = cache?.[cache?.__graphitixRenderCache?.graphicKey] || cache?.plot || cache?.preview || cache?.graph || cache?.svg || cache?.stage;
-    const plot = getSurvivalNodeById('survivalPlot');
-    const summary = getSurvivalNodeById('survivalStatsSummary');
-    const logRank = getSurvivalNodeById('survivalStatsLogRank');
-    const hazard = getSurvivalNodeById('survivalStatsHazardRatios');
-    const cox = getSurvivalNodeById('survivalStatsCox');
     const restoredPlot = restoreChildren(plot, graphCachePayload);
-    const restoredSummary = restoreChildren(summary, cache.summary);
-    const restoredLogRank = restoreChildren(logRank, cache.logRank);
-    const restoredHazard = restoreChildren(hazard, cache.hazard);
-    const restoredCox = restoreChildren(cox, cache.cox);
-    if(restoredSummary || restoredLogRank || restoredHazard || restoredCox){
-      // The replayed stats DOM carries dead Download/Copy controls (listeners cannot
-      // survive serialization); re-mount them from the restored tables.
-      [summary, logRank, hazard, cox].forEach(node => Shared.statsTable?.rehydrateExportControls?.(node));
-    }
-    const restored = restoredPlot || restoredSummary || restoredLogRank || restoredHazard || restoredCox;
     if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
       survivalDebug('Debug: survival render cache restored', {
-        restored,
+        restored: restoredPlot,
         plot: restoredPlot,
-        summary: restoredSummary,
-        logRank: restoredLogRank,
-        hazard: restoredHazard,
-        cox: restoredCox
+        tabId: owner.tabId || null
       });
     }
-    return restored;
+    return restoredPlot;
   };
   survival.draw = async function drawSurvivalPublic(options = {}){
     const nextReason = options?.reason || 'survival-draw';

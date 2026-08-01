@@ -53,6 +53,14 @@
     return Number.isFinite(numeric) && numeric > 0 ? numeric : null;
   }
 
+  function isUnlimitedValue(value){
+    if(value === null){ return true; }
+    if(typeof value === 'number'){
+      return value === Infinity;
+    }
+    return typeof value === 'string' && /^(?:infinity|none)$/i.test(value.trim());
+  }
+
   function parsePxLike(value){
     if(typeof value === 'number'){
       return toPositiveNumber(value);
@@ -204,7 +212,12 @@
       || Math.max(heightPx, fallback.maxHeight);
     const aspectRatio = toPositiveNumber(rawDisplay.aspectRatio) || (widthPx > 0 && heightPx > 0 ? widthPx / heightPx : fallback.aspectRatio || 1);
     const aspectLocked = rawDisplay.aspectLocked === true;
-    const allowUnlimitedWidth = rawDisplay.allowUnlimitedWidth === true || rawDisplay.maxWidthPx === null || rawDisplay.maxWidth === null;
+    const allowUnlimitedWidth = rawDisplay.allowUnlimitedWidth === true
+      || isUnlimitedValue(rawDisplay.maxWidthPx)
+      || isUnlimitedValue(rawDisplay.maxWidth);
+    const allowUnlimitedHeight = rawDisplay.allowUnlimitedHeight === true
+      || isUnlimitedValue(rawDisplay.maxHeightPx)
+      || isUnlimitedValue(rawDisplay.maxHeight);
 
     const exportWidthPx = toPositiveNumber(rawExport.widthPx)
       || toPositiveNumber(rawExport.width)
@@ -226,7 +239,8 @@
         maxHeightPx,
         aspectRatio,
         aspectLocked,
-        allowUnlimitedWidth
+        allowUnlimitedWidth,
+        allowUnlimitedHeight
       },
       export: {
         widthPx: exportWidthPx,
@@ -268,8 +282,8 @@
       style.height = toPx(display.heightPx);
       style.minWidth = toPx(display.minWidthPx);
       style.minHeight = toPx(display.minHeightPx);
-      style.maxWidth = display.allowUnlimitedWidth === true ? '' : toPx(display.maxWidthPx);
-      style.maxHeight = toPx(display.maxHeightPx);
+      style.maxWidth = display.allowUnlimitedWidth === true ? 'none' : toPx(display.maxWidthPx);
+      style.maxHeight = display.allowUnlimitedHeight === true ? 'none' : toPx(display.maxHeightPx);
       style.aspectRatio = Number.isFinite(display.widthPx) && display.widthPx > 0
         && Number.isFinite(display.heightPx) && display.heightPx > 0
         ? `${Math.round(display.widthPx)} / ${Math.round(display.heightPx)}`
@@ -284,7 +298,7 @@
       data.graphMinWidthPx = String(Math.round(display.minWidthPx));
       data.graphMinHeightPx = String(Math.round(display.minHeightPx));
       data.graphMaxWidthPx = display.allowUnlimitedWidth === true ? 'Infinity' : String(Math.round(display.maxWidthPx));
-      data.graphMaxHeightPx = String(Math.round(display.maxHeightPx));
+      data.graphMaxHeightPx = display.allowUnlimitedHeight === true ? 'Infinity' : String(Math.round(display.maxHeightPx));
       data.graphAspectRatio = String(display.aspectRatio);
       data.graphAspectLocked = display.aspectLocked === true ? 'true' : 'false';
       data.graphSizingVersion = String(record.version || 1);
@@ -294,16 +308,17 @@
       data.resizerMinWidth = String(Math.round(display.minWidthPx));
       data.resizerMinHeight = String(Math.round(display.minHeightPx));
       data.resizerMaxWidth = display.allowUnlimitedWidth === true ? 'Infinity' : String(Math.round(display.maxWidthPx));
-      data.resizerMaxHeight = String(Math.round(display.maxHeightPx));
+      data.resizerMaxHeight = display.allowUnlimitedHeight === true ? 'Infinity' : String(Math.round(display.maxHeightPx));
       data.resizerAspectRatio = String(display.aspectRatio);
       data.resizerAspectLocked = display.aspectLocked === true ? 'true' : 'false';
       data.resizerUnlimitedWidth = display.allowUnlimitedWidth === true ? 'true' : 'false';
+      data.resizerUnlimitedHeight = display.allowUnlimitedHeight === true ? 'true' : 'false';
       data.graphDefaultWidth = String(Math.round(defaultWidthPx));
       data.graphDefaultHeight = String(Math.round(defaultHeightPx));
       data.graphMinWidth = String(Math.round(display.minWidthPx));
       data.graphMinHeight = String(Math.round(display.minHeightPx));
       data.graphMaxWidth = display.allowUnlimitedWidth === true ? 'Infinity' : String(Math.round(display.maxWidthPx));
-      data.graphMaxHeight = String(Math.round(display.maxHeightPx));
+      data.graphMaxHeight = display.allowUnlimitedHeight === true ? 'Infinity' : String(Math.round(display.maxHeightPx));
       data.graphAspectLocked = display.aspectLocked === true ? 'true' : 'false';
     }
 
@@ -311,7 +326,8 @@
       context: options.context || null,
       widthPx: display.widthPx,
       heightPx: display.heightPx,
-      allowUnlimitedWidth: display.allowUnlimitedWidth === true
+      allowUnlimitedWidth: display.allowUnlimitedWidth === true,
+      allowUnlimitedHeight: display.allowUnlimitedHeight === true
     });
     return record;
   }
@@ -368,10 +384,14 @@
     const allowUnlimitedWidth = (typeof data.resizerUnlimitedWidth === 'string' && data.resizerUnlimitedWidth === 'true')
       || (typeof data.resizerMaxWidth === 'string' && /^infinity$/i.test(data.resizerMaxWidth));
     const maxWidthPx = allowUnlimitedWidth ? Math.max(widthPx, fallback.maxWidth) : (rawMaxWidth || fallback.maxWidth);
-    const maxHeightPx = parsePxLike(data.graphMaxHeightPx)
+    const rawMaxHeight = parsePxLike(data.graphMaxHeightPx)
       || parsePxLike(data.resizerMaxHeight)
-      || (styleMaxHeightPx ? styleMaxHeightPx / zoomScale : null)
-      || fallback.maxHeight;
+      || (styleMaxHeightPx ? styleMaxHeightPx / zoomScale : null);
+    const allowUnlimitedHeight = data.resizerUnlimitedHeight === 'true'
+      || isUnlimitedValue(data.graphMaxHeightPx)
+      || isUnlimitedValue(data.resizerMaxHeight)
+      || isUnlimitedValue(style.maxHeight);
+    const maxHeightPx = allowUnlimitedHeight ? Math.max(heightPx, fallback.maxHeight) : (rawMaxHeight || fallback.maxHeight);
     const aspectRatio = (widthPx > 0 && heightPx > 0 ? widthPx / heightPx : null)
       || parseAspectRatioLike(data.graphAspectRatio)
       || parseAspectRatioLike(data.resizerAspectRatio)
@@ -396,7 +416,8 @@
         maxHeightPx,
         aspectRatio,
         aspectLocked,
-        allowUnlimitedWidth
+        allowUnlimitedWidth,
+        allowUnlimitedHeight
       },
       export: {
         widthPx,
@@ -586,6 +607,9 @@
       }
       if(src.allowUnlimitedWidth === true){
         mergedRecord.display.allowUnlimitedWidth = true;
+      }
+      if(src.allowUnlimitedHeight === true){
+        mergedRecord.display.allowUnlimitedHeight = true;
       }
     }
 

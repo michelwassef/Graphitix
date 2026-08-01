@@ -882,8 +882,7 @@
       }
       return session.commitTabPayload(tab, nextPayload, {
         reason: effectiveReason,
-        origin: 'user',
-        preserveRuntimeCacheOnPayloadChange: meta.affectsAnalysis === false
+        origin: 'user'
       });
     }
     const updated = session.updateTabPayload(tab, draft => {
@@ -949,8 +948,7 @@
       return nextPayload;
     }, {
       reason: effectiveReason,
-      origin: 'user',
-      preserveRuntimeCacheOnPayloadChange: meta.affectsAnalysis === false
+      origin: 'user'
     });
     if (!updated) {
       if (payloadDataMatchesChanges(tab.payload, normalizedChanges)) {
@@ -1040,8 +1038,7 @@
     }
     return session.commitTabPayload(tab, nextPayload, {
       reason: effectiveReason,
-      origin: 'user',
-      preserveRuntimeCacheOnPayloadChange: meta.affectsAnalysis === false
+      origin: 'user'
     });
   };
 

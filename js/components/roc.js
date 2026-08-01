@@ -5243,7 +5243,7 @@
         curveAttrs['stroke-dasharray'] = seriesDash;
       }
       const curveEl = add('path', curveAttrs);
-      try{ curveEl.style.cursor='pointer'; curveEl.addEventListener('click', evt=>{ try{ evt.stopPropagation(); }catch(e){} showRocStrokeFormatControls(evt.currentTarget); }); }catch(e){}
+      bindRocCurveFormatInteraction(curveEl);
       if(!(await checkpoint())){
         return false;
       }
@@ -5415,8 +5415,25 @@
   }
 
   // PART: PERSISTENCE
-  function getPayload(){
-    const payloadSession = bindRocSessionForTab(getRocWorkspaceActiveTabId() || getRocProjectionTabId() || null, {
+  function getPayload(context = {}){
+    const captureContext = Shared.componentLifecycle?.resolvePayloadCaptureContext?.('roc', context, {
+      component: roc,
+      projectedSession: projectedRocSession,
+      root: state.root
+    }) || null;
+    const requestedTabId = captureContext?.requestedTabId
+      || (typeof context?.tabId === 'string' && context.tabId.trim() ? context.tabId.trim() : null);
+    const projectionTabId = captureContext?.projectionTabId || String(getRocProjectionTabId() || '').trim() || null;
+    if(requestedTabId && captureContext?.canCaptureLive !== true){
+      const requestedTab = captureContext?.requestedTab || context?.tab || null;
+      const canonicalPayload = cloneSimple(requestedTab?.payload);
+      if(canonicalPayload && typeof canonicalPayload === 'object'){
+        canonicalPayload.type = 'roc';
+        return canonicalPayload;
+      }
+      return null;
+    }
+    const payloadSession = bindRocSessionForTab(requestedTabId || getRocWorkspaceActiveTabId() || projectionTabId || null, {
       reason: 'roc-get-payload-bind-active-owner'
     }, { apply: true, syncUi: true }) || getActiveRocSessionForState();
     refreshRocActiveDomRefsForSession(payloadSession, { reason: 'roc-get-payload' });
@@ -6521,6 +6538,9 @@
 
   function restoreChildren(node, payload){
     if(!node || !payload || !payload.fragment){ return false; }
+    const count = Number(payload.count);
+    const hasChildren = Number(payload.fragment?.childNodes?.length || 0) > 0;
+    if(Number.isFinite(count) && count <= 0 && !hasChildren){ return false; }
     while(node.firstChild){
       node.removeChild(node.firstChild);
     }
@@ -6528,49 +6548,229 @@
     return true;
   }
 
+  function getRocRenderCacheMetadata(cache){
+    return cache?.__graphitixRenderCache && typeof cache.__graphitixRenderCache === 'object'
+      ? cache.__graphitixRenderCache
+      : null;
+  }
+
+  function isPublishedRocSeriesPath(node){
+    if(!node || String(node.tagName || '').toLowerCase() !== 'path'){
+      return false;
+    }
+    const series = String(node.getAttribute?.('data-series') || '').trim();
+    const pathData = String(node.getAttribute?.('d') || '').trim();
+    return !!series && pathData.length > 1;
+  }
+
+  function findPublishedRocSeriesPath(container){
+    if(!container?.querySelectorAll){
+      return null;
+    }
+    const candidates = container.querySelectorAll('#rocSvg path[data-series], svg path[data-series], path[data-series]');
+    for(let index = 0; index < candidates.length; index += 1){
+      if(isPublishedRocSeriesPath(candidates[index])){
+        return candidates[index];
+      }
+    }
+    return null;
+  }
+
+  function rocFragmentPayloadHasGraph(payload){
+    if(!payload || typeof payload !== 'object'){
+      return false;
+    }
+    const fragment = payload.fragment || null;
+    if(fragment && typeof fragment.querySelectorAll === 'function'){
+      return !!findPublishedRocSeriesPath(fragment);
+    }
+    if(payload.__graphitixKind === 'fragment-payload' && Array.isArray(payload.nodes)){
+      return payload.nodes.some(node => {
+        const markup = String(node?.markup || '');
+        return /<path\b/i.test(markup)
+          && /\bdata-series\s*=\s*["'][^"']+["']/i.test(markup)
+          && /\bd\s*=\s*["'][^"']{2,}["']/i.test(markup);
+      });
+    }
+    return false;
+  }
+
+  function resolveRocRenderCacheRoot(tabLike = null){
+    return resolveRocRoot(tabLike || getRocProjectionTabId() || null)
+      || state.root
+      || refs.root
+      || null;
+  }
+
+  function hasRocPublishedGraph(root = null){
+    const ownerRoot = root || resolveRocRenderCacheRoot();
+    const plot = ownerRoot?.querySelector?.('#rocPlot') || refs.plotDiv || null;
+    // A completed ROC/PR graph is identified by the renderer-owned series path,
+    // independent of transient layout geometry. This remains valid during tab
+    // deactivation and in JSDOM where bounding boxes are intentionally zero.
+    return !!findPublishedRocSeriesPath(plot);
+  }
+
+  function captureRocRenderCacheMetadata(meta = {}, sourceSvg = null){
+    const requestedTabId = normalizeRocSessionTabId(meta?.tab || meta?.tabId || meta?.workspaceTabId || null, meta);
+    const ownerTabId = getRocProjectionTabId() || requestedTabId || null;
+    const extra = {
+      width: sourceSvg?.getAttribute?.('width') || '',
+      height: sourceSvg?.getAttribute?.('height') || '',
+      viewBox: sourceSvg?.getAttribute?.('viewBox') || ''
+    };
+    return Shared.renderCacheSchema?.createMetadata?.({ component: 'roc', tabId: ownerTabId, complete: false, extra })
+      || { version: 2, component: 'roc', type: 'roc', tabId: ownerTabId, complete: false, ...extra };
+  }
+
+  function isCompleteRocRenderCache(cache){
+    if(!cache || typeof cache !== 'object' || !rocFragmentPayloadHasGraph(cache.plot)){
+      return false;
+    }
+    const cacheMeta = getRocRenderCacheMetadata(cache);
+    return cacheMeta?.complete === true && cacheMeta?.type === 'roc';
+  }
+
   function getRocRenderCacheOwner(meta = {}, reason = 'roc-render-cache'){
     const source = meta && typeof meta === 'object' ? meta : {};
-    const session = ensureRocSessionOwnershipShape(source.session)
-      || getRocSession(source.tab || source.tabId || source.workspaceTabId || null, {
+    const explicitSession = ensureRocSessionOwnershipShape(source.session);
+    if(explicitSession){
+      return explicitSession;
+    }
+    const requestedTabId = normalizeRocSessionTabId(
+      source.tab || source.tabId || source.workspaceTabId || null,
+      source
+    );
+    if(requestedTabId){
+      return getRocSession(requestedTabId, {
         ...source,
+        tabId: requestedTabId,
         reason
-      }, { create: true })
-      || getActiveRocSessionForState();
-    if(session && !isRocSessionActiveOrActivating(session)){
+      }, { create: false });
+    }
+    return getActiveRocSessionForState();
+  }
+
+  function bindRocCurveFormatInteraction(curveEl){
+    if(!curveEl || curveEl.__graphitixRocStrokeFormatBound === true){
+      return false;
+    }
+    try{
+      curveEl.style.cursor = 'pointer';
+      curveEl.addEventListener('click', event => {
+        try{ event.stopPropagation(); }catch(_err){}
+        showRocStrokeFormatControls(event.currentTarget);
+      });
+      Object.defineProperty(curveEl, '__graphitixRocStrokeFormatBound', {
+        value: true,
+        configurable: true
+      });
+      return true;
+    }catch(_err){
+      return false;
+    }
+  }
+
+  function rehydrateRocCurveInteractions(root = null){
+    const ownerRoot = root || resolveRocRenderCacheRoot();
+    const svg = ownerRoot?.querySelector?.('#rocSvg') || refs.plotDiv?.querySelector?.('#rocSvg') || null;
+    if(!svg?.querySelectorAll){
+      return 0;
+    }
+    let rebound = 0;
+    svg.querySelectorAll('path[data-series]').forEach(curve => {
+      if(bindRocCurveFormatInteraction(curve)){
+        rebound += 1;
+      }
+    });
+    return rebound;
+  }
+
+  function restoreRocStatsSurfaceFromOwner(owner = null){
+    const shaped = ensureRocSessionOwnershipShape(owner) || getActiveRocSessionForState();
+    const model = shaped?.results?.statsPanelModel
+      || shaped?.state?.statsPanelModel
+      || state.statsPanelModel
+      || null;
+    if(!rocStatsPanelModelHasContent(model)){
+      return false;
+    }
+    return restoreRocStatsPanelModel(model);
+  }
+
+  roc.captureRenderCache = function captureRenderCache(meta = {}){
+    const owner = getRocRenderCacheOwner(meta, 'roc-render-cache-capture');
+    if(!owner || !isRocSessionActiveOrActivating(owner)){
       if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-        console.debug('Debug: roc render cache skipped for inactive owner', {
-          reason,
-          ownerTabId: session.tabId || null,
+        console.debug('Debug: roc render cache capture skipped for inactive owner', {
+          tabId: owner?.tabId || meta?.tabId || null,
           activeTabId: getRocProjectionTabId() || null
         });
       }
       return null;
     }
-    return session;
-  }
-
-  roc.captureRenderCache = function captureRenderCache(meta = {}){
-    const owner = getRocRenderCacheOwner(meta, 'roc-render-cache-capture');
-    if(!owner){ return null; }
-    const plot = getRocNodeById('rocPlot');
-    const stats = getRocNodeById('rocStatsResults');
+    const targetTabId = owner.tabId || normalizeRocSessionTabId(meta?.tab || meta?.tabId || null, meta) || null;
+    const ownerRoot = resolveRocRenderCacheRoot(targetTabId);
+    const plot = ownerRoot?.querySelector?.('#rocPlot') || getRocNodeById('rocPlot', targetTabId) || refs.plotDiv || null;
+    const svg = plot?.querySelector?.('#rocSvg') || plot?.querySelector?.('svg') || null;
+    if(!plot || !svg || !hasRocPublishedGraph(ownerRoot)){
+      if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+        console.debug('Debug: roc render cache capture skipped', {
+          reason: !plot ? 'missing-plot-host' : (!svg ? 'missing-svg' : 'graph-not-published'),
+          tabId: targetTabId
+        });
+      }
+      return null;
+    }
     const plotCache = detachChildren(plot);
-    const statsCache = detachChildren(stats);
+    if(!rocFragmentPayloadHasGraph(plotCache)){
+      restoreChildren(plot, plotCache);
+      if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+        console.debug('Debug: roc render cache capture skipped', {
+          reason: 'empty-graph-fragment',
+          tabId: targetTabId
+        });
+      }
+      return null;
+    }
+    const cacheMeta = captureRocRenderCacheMetadata({ ...meta, tabId: targetTabId }, svg);
+    cacheMeta.complete = true;
     if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
       console.debug('Debug: roc render cache captured', {
         plotNodes: plotCache?.count || 0,
-        statsNodes: statsCache?.count || 0
+        tabId: targetTabId
       });
     }
-    return { plot: plotCache, stats: statsCache };
+    // Cache only the published graph. Statistics are durable session state and are
+    // rebuilt on restore; serializing their DOM would preserve dead event handlers.
+    return { plot: plotCache, graphOnly: true, __graphitixRenderCache: cacheMeta };
   };
 
   roc.canRestoreRenderCache = function canRestoreRenderCache(cache, meta = {}){
+    if(!isCompleteRocRenderCache(cache)){
+      return false;
+    }
+    const cacheMeta = getRocRenderCacheMetadata(cache);
+    if(cacheMeta?.tabId && meta?.tabId && String(cacheMeta.tabId) !== String(meta.tabId)){
+      return false;
+    }
     return Shared.componentLifecycle?.validateRenderCache?.(cache, meta, {
       componentKey: 'roc',
-      graph: { selectors: ['#rocSvg', 'svg', 'canvas'], markupPattern: /(<svg\b|id=["']rocSvg["']|<canvas\b)/i },
+      graph: {
+        selectors: ['#rocSvg path[data-series][d]', 'svg path[data-series][d]'],
+        markupPattern: /<path\b(?=[^>]*\bdata-series\s*=)(?=[^>]*\bd\s*=)/i
+      },
+      requiredSections: [],
       requireGraph: true
-    }) ?? !!cache;
+    }) ?? true;
+  };
+
+  roc.hasRenderedGraph = function hasRenderedGraph(meta = {}){
+    const root = meta?.root
+      || Shared.workspaceTabs?.getMountedRoot?.(meta?.tab || meta?.tabId || null, 'roc')
+      || resolveRocRenderCacheRoot(meta?.tab || meta?.tabId || null)
+      || null;
+    return hasRocPublishedGraph(root);
   };
 
   roc.isIdleForSnapshot = function isIdleForSnapshot(meta = {}){
@@ -6590,29 +6790,40 @@
   };
 
   roc.restoreRenderCache = function restoreRenderCache(cache, meta = {}){
-    if(!cache){ return false; }
+    if(!isCompleteRocRenderCache(cache)){ return false; }
     const owner = getRocRenderCacheOwner(meta, 'roc-render-cache-restore');
-    if(!owner){ return false; }
-    const graphCachePayload = cache?.[cache?.__graphitixRenderCache?.graphicKey] || cache?.plot || cache?.preview || cache?.graph || cache?.svg || cache?.stage;
-    const plot = getRocNodeById('rocPlot');
-    const stats = getRocNodeById('rocStatsResults');
-    const restoredPlot = restoreChildren(plot, graphCachePayload);
-    const restoredStats = restoreChildren(stats, cache.stats);
-    if(restoredStats){
-      // The replayed stats DOM carries dead Download/Copy controls (listeners cannot
-      // survive serialization); re-mount them from the restored tables.
-      Shared.statsTable?.rehydrateExportControls?.(stats);
-      scheduleRocStatsReportOrderPin();
+    if(!owner || !isRocSessionActiveOrActivating(owner)){
+      return false;
     }
-    const restored = restoredPlot || restoredStats;
+    if(!roc.canRestoreRenderCache(cache, meta)){
+      return false;
+    }
+    const targetTabId = owner.tabId || normalizeRocSessionTabId(meta?.tab || meta?.tabId || null, meta) || null;
+    const ownerRoot = resolveRocRenderCacheRoot(targetTabId);
+    const plot = ownerRoot?.querySelector?.('#rocPlot') || getRocNodeById('rocPlot', targetTabId) || refs.plotDiv || null;
+    const graphCachePayload = cache?.[cache?.__graphitixRenderCache?.graphicKey]
+      || cache?.plot
+      || cache?.preview
+      || cache?.graph
+      || cache?.svg
+      || cache?.stage;
+    const restoredPlot = restoreChildren(plot, graphCachePayload);
+    if(!restoredPlot){
+      return false;
+    }
+    const curveBindings = rehydrateRocCurveInteractions(ownerRoot);
+    const statsRestored = restoreRocStatsSurfaceFromOwner(owner);
+    const visuallyReady = hasRocPublishedGraph(ownerRoot);
     if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
       console.debug('Debug: roc render cache restored', {
-        restored,
+        visuallyReady,
         plot: restoredPlot,
-        stats: restoredStats
+        statsRestored,
+        curveBindings,
+        tabId: targetTabId
       });
     }
-    return restored;
+    return visuallyReady;
   };
 
   roc.__testHooks = Object.assign({}, roc.__testHooks, {

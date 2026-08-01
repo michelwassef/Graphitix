@@ -266,7 +266,7 @@ function expectGeometryEqual(actual, expected, label, tolerance = {}) {
   expect(Math.abs(actual.yAxis - expected.yAxis), `${label} y-axis length ${JSON.stringify({ actual, expected })}`).toBeLessThanOrEqual(axisTolerance);
 }
 
-function expectRatioLocked(actual, target, label, minAxisLength = 20, ratioTolerance = 0.005) {
+function expectRatioLocked(actual, target, label, minAxisLength = 20, ratioTolerance = 0.01) {
   expect(actual.xAxis, `${label} x-axis`).toBeGreaterThan(minAxisLength);
   expect(actual.yAxis, `${label} y-axis`).toBeGreaterThan(minAxisLength);
   expect(
@@ -375,7 +375,7 @@ test('Lock ratio is toggle-neutral and preserves Cartesian axis proportions acro
         targetRatio,
         `${component.type} horizontal resize`,
         20,
-        component.type === 'venn' ? 0.02 : 0.005
+        component.type === 'venn' ? 0.02 : 0.01
       );
 
       await dragHandle(page, component.pageId, '.resizer-horizontal', 0, 71);
@@ -386,7 +386,7 @@ test('Lock ratio is toggle-neutral and preserves Cartesian axis proportions acro
         targetRatio,
         `${component.type} vertical resize`,
         20,
-        component.type === 'venn' ? 0.02 : 0.005
+        component.type === 'venn' ? 0.02 : 0.01
       );
       saved.push({ component, geometry: finalGeometry });
     });

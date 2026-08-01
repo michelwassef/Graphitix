@@ -5,7 +5,6 @@
   const namespace = Main.snapshotPolicy = Main.snapshotPolicy || {};
 
   const DEFAULT_SNAPSHOT_KIND = 'lifecycle-checkpoint';
-  const DEFAULT_IDLE_THRESHOLD_MS = 2500;
 
   function cloneSnapshotIntent(intent) {
     if (!intent || typeof intent !== 'object') {
@@ -100,39 +99,46 @@
     const reasonText = String(options.reason || '').toLowerCase();
     const modeText = String(options.mode || '').toLowerCase();
     const explicitCapture = options.captureRenderCacheBeforeSnapshot;
-    const idleForMs = Number.isFinite(Number(options.idleForMs)) ? Math.max(0, Number(options.idleForMs)) : 0;
-    const idleThresholdMs = Number.isFinite(Number(options.idleThresholdMs))
-      ? Math.max(0, Number(options.idleThresholdMs))
-      : DEFAULT_IDLE_THRESHOLD_MS;
-    const idle = idleForMs >= idleThresholdMs;
-    const scope = options.scope === 'tab' ? 'tab' : 'workspace';
+    const explicitInclude = options.includeRenderCacheInSnapshot;
     const autosaveLike = modeText === 'autosave' || kind === 'autosave' || reasonText.includes('autosave');
     const warmupLike = modeText === 'warmup-cache' || kind === 'warmup-cache';
     const recoveryLike = modeText === 'recovery'
       || kind === 'recovery'
       || reasonText.includes('recovery');
-    const highFidelityEnabled = options.highFidelityEnabled === true;
 
     let captureRenderCache = false;
+    let includeRenderCache = false;
     let policyId = 'default-lean';
-    let highFidelityEligible = false;
 
-    if (typeof explicitCapture === 'boolean') {
-      captureRenderCache = explicitCapture;
-      policyId = 'explicit-override';
-    } else if (autosaveLike) {
+    if (autosaveLike) {
       captureRenderCache = false;
+      includeRenderCache = false;
       policyId = 'autosave-lean';
     } else if (warmupLike) {
       captureRenderCache = true;
+      includeRenderCache = true;
       policyId = 'warmup-cache';
     } else if (recoveryLike) {
-      highFidelityEligible = highFidelityEnabled && scope === 'workspace' && idle;
-      captureRenderCache = highFidelityEligible;
-      policyId = highFidelityEligible ? 'recovery-high-fidelity-idle' : 'recovery-lean';
+      // Crash recovery is a reopen path, not a lower-fidelity autosave path.
+      // It must persist the same owner-scoped completed render checkpoints as
+      // manual save so recovery never redraws a visually different graph when
+      // an exact cache already exists.
+      captureRenderCache = true;
+      includeRenderCache = true;
+      policyId = 'recovery-rich';
     } else {
       captureRenderCache = true;
+      includeRenderCache = true;
       policyId = 'manual-archive-rich';
+    }
+
+    if (typeof explicitCapture === 'boolean') {
+      captureRenderCache = explicitCapture;
+      policyId = `${policyId}:capture-override`;
+    }
+    if (typeof explicitInclude === 'boolean') {
+      includeRenderCache = explicitInclude;
+      policyId = `${policyId}:include-override`;
     }
 
     return {
@@ -143,19 +149,14 @@
         reason: options.reason
       }),
       captureRenderCache,
-      preserveRenderCacheTabScope: captureRenderCache ? 'all' : 'active-only',
-      highFidelityEligible,
-      highFidelityEnabled,
-      idleForMs,
-      idleThresholdMs,
-      idle,
+      includeRenderCache,
+      preserveRenderCacheTabScope: includeRenderCache ? 'all' : 'active-only',
       policyId
     };
   }
 
   namespace.constants = Object.freeze({
-    defaultSnapshotKind: DEFAULT_SNAPSHOT_KIND,
-    defaultIdleThresholdMs: DEFAULT_IDLE_THRESHOLD_MS
+    defaultSnapshotKind: DEFAULT_SNAPSHOT_KIND
   });
   namespace.normalizeSnapshotKind = normalizeSnapshotKind;
   namespace.resolvePersistSnapshotIntent = resolvePersistSnapshotIntent;

@@ -143,13 +143,16 @@ test('svgbox drag resize undo and redo restore dimensions in every component', a
       await waitForGraphSvg(page, component.pageId);
       await setLockRatio(page, component.pageId, false);
       await waitForGraphSvg(page, component.pageId);
-      await clearActiveUndoHistory(page);
+      await page.waitForTimeout(350);
 
       const before = await collectResizeState(page, component.pageId);
       expect(before, `${component.type} should expose a resize state`).not.toBeNull();
-      if(before.aspectLocked === 'true' && before.checkboxDisabled){
+      if(before.checkboxDisabled){
+        expect(before.aspectLocked, `${component.type} forced ratio mode should remain locked`).toBe('true');
+        expect(before.checkboxChecked, `${component.type} forced ratio checkbox should remain checked`).toBe(true);
         return;
       }
+      await clearActiveUndoHistory(page);
       expect(before.aspectLocked, `${component.type} should be unlocked before drag`).toBe('false');
 
       await dragSvgBoxHandle(page, component.pageId, '.resizer-horizontal', 0, 76);
@@ -161,7 +164,7 @@ test('svgbox drag resize undo and redo restore dimensions in every component', a
       await expect.poll(async () => collectResizeState(page, component.pageId), {
         timeout: 12_000,
         intervals: [150, 300, 600]
-      }).toMatchObject({ aspectLocked: 'false', checkboxChecked: false });
+      }).toMatchObject({ aspectLocked: before.aspectLocked, checkboxChecked: before.checkboxChecked });
       const undone = await collectResizeState(page, component.pageId);
       expectNear(undone.width, before.width, 2, `${component.type} width after drag undo`);
       expectNear(undone.height, before.height, 2, `${component.type} height after drag undo`);
@@ -171,7 +174,7 @@ test('svgbox drag resize undo and redo restore dimensions in every component', a
       await expect.poll(async () => collectResizeState(page, component.pageId), {
         timeout: 12_000,
         intervals: [150, 300, 600]
-      }).toMatchObject({ aspectLocked: 'false', checkboxChecked: false });
+      }).toMatchObject({ aspectLocked: before.aspectLocked, checkboxChecked: before.checkboxChecked });
       const redone = await collectResizeState(page, component.pageId);
       expectNear(redone.width, resized.width, 2, `${component.type} width after drag redo`);
       expectNear(redone.height, resized.height, 2, `${component.type} height after drag redo`);

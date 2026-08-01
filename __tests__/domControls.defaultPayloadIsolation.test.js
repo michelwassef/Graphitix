@@ -375,6 +375,62 @@ describe('domControls default payload cache isolation', () => {
     expect(session.clearTabRenderCache).not.toHaveBeenCalled();
   });
 
+  test('showWorkspaceForTab completes cache-backed restore without waiting for snapshot-idle state', async () => {
+    const domControls = window.Main?.domControls;
+    expect(domControls).toBeTruthy();
+
+    document.body.innerHTML = '<div id="welcomeScreen"></div><div id="boxPage" hidden></div>';
+    const element = document.getElementById('boxPage');
+    const payload = { type: 'box', data: [['A', 'B'], [1, 2]], stats: { test: 'parametric' } };
+    const renderCache = {
+      tabId: 'workspace-cache-ready',
+      type: 'box',
+      payloadSignature: 'payload-cache-ready',
+      layoutSignature: 'layout-cache-ready',
+      cache: { plot: { fragment: {} } }
+    };
+    const tab = {
+      id: 'workspace-cache-ready',
+      type: 'box',
+      payload,
+      payloadSignature: 'payload-cache-ready',
+      layoutSignature: 'layout-cache-ready',
+      renderCache,
+      renderCacheSignature: 'payload-cache-ready',
+      renderCacheLayoutSignature: 'layout-cache-ready',
+      renderCacheTabId: 'workspace-cache-ready'
+    };
+    const config = {
+      type: 'box',
+      element,
+      createEmptyPayload: jest.fn(() => ({ type: 'box', data: [], stats: {} })),
+      loadFromPayload: jest.fn(),
+      canRestoreRenderCache: jest.fn(() => true),
+      restoreRenderCache: jest.fn(() => {
+        element.innerHTML = '<svg data-test-graph-published="true"></svg>';
+        return true;
+      }),
+      hasRenderedGraph: jest.fn(() => !!element.querySelector('[data-test-graph-published="true"]')),
+      awaitReadyForSnapshot: jest.fn(() => new Promise(() => {}))
+    };
+    const workspaceState = { loadedWorkspaces: {}, renderedWorkspaceByType: {} };
+    ensureWorkspaceTabs({ activateWorkspace: jest.fn() });
+    domControls.markWorkspaceInitialized('box', { reason: 'test-cache-backed-restore' });
+
+    await expect(domControls.showWorkspaceForTab({
+      tab,
+      options: { reason: 'recovery-restore', awaitReadyForRestore: true },
+      dom: { welcomeScreen: document.getElementById('welcomeScreen') },
+      workspaces: { box: config },
+      session: { fastClonePayload: value => deepClone(value) },
+      workspaceState
+    })).resolves.toBe(config);
+
+    expect(config.restoreRenderCache).toHaveBeenCalledTimes(1);
+    expect(config.awaitReadyForSnapshot).not.toHaveBeenCalled();
+    expect(config.hasRenderedGraph()).toBe(true);
+  });
+
   test('showWorkspaceForTab redraws missing-cache payloads without waiting for snapshot readiness', async () => {
     const domControls = window.Main?.domControls;
     expect(domControls).toBeTruthy();

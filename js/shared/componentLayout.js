@@ -469,8 +469,10 @@
     }
     if(Number.isFinite(graphWidth) && graphWidth > 0 && Number.isFinite(graphHeight) && graphHeight > 0){
       dataset.resizerAspectRatio = String(graphWidth / graphHeight);
-      if(!element.style.aspectRatio){
-        element.style.aspectRatio = `${Math.round(graphWidth)} / ${Math.round(graphHeight)}`;
+      const aspectRatioStyle = `${Math.round(graphWidth)} / ${Math.round(graphHeight)}`;
+      if(element.style.aspectRatio !== aspectRatioStyle){
+        element.style.aspectRatio = aspectRatioStyle;
+        changed = true;
       }
     }
     if(changed){

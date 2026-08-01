@@ -111,10 +111,18 @@ describe('Scatter adaptive point sizing', () => {
       tabId: 'workspace-a',
       complete: true
     }));
+    // Eligibility is a pure cache/provenance check. It must remain valid while
+    // another tab owns the visible module projection; only restore mutates DOM.
+    window.Main.session.getActiveTab.mockReturnValue({ id: 'workspace-b', type: 'scatter' });
+    window.Main.session.workspaceState.activeTabId = 'workspace-b';
+    scatter.__boundTabId = 'workspace-b';
     expect(scatter.canRestoreRenderCache(cache, { tabId: 'workspace-a' })).toBe(true);
     expect(scatter.canRestoreRenderCache(cache, { tabId: 'workspace-b' })).toBe(false);
     expect(document.querySelector('#scatterPlot').childElementCount).toBe(0);
 
+    window.Main.session.getActiveTab.mockReturnValue({ id: 'workspace-a', type: 'scatter' });
+    window.Main.session.workspaceState.activeTabId = 'workspace-a';
+    scatter.__boundTabId = 'workspace-a';
     expect(scatter.restoreRenderCache(cache, { tabId: 'workspace-a' })).toBe(true);
     expect(document.querySelector('#scatterSvg')).toBeTruthy();
     expect(document.querySelector('#scatterStatsResults p')?.textContent).toBe('stats');

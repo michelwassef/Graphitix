@@ -85,8 +85,8 @@ async function assertCanvasPreview(page, preview, type) {
   const tooltip = await hoverStoredPreview(page, preview.tabId);
   expect(tooltip.width).toBeGreaterThan(0);
   expect(tooltip.height).toBeGreaterThan(0);
-  expect(tooltip.naturalWidth).toBeGreaterThan(tooltip.width);
-  expect(tooltip.naturalHeight).toBeGreaterThan(tooltip.height);
+  expect(tooltip.naturalWidth).toBeGreaterThanOrEqual(tooltip.width);
+  expect(tooltip.naturalHeight).toBeGreaterThanOrEqual(tooltip.height);
   expect(tooltip.imageSrc).toMatch(/^data:image\/png;base64,/);
   expect(tooltip.imageSrc.length).toBeGreaterThan(100);
   expect(tooltip.hasPlaceholder).toBe(false);

@@ -7447,7 +7447,9 @@ let state = {
     }
     // Render cache carries the graph only; the stats panel is rebuilt from state on
     // restore (see restoreRenderCache), so it is not snapshotted as DOM.
-    return { plot: plotCache };
+    const cacheMeta = Shared.renderCacheSchema?.createMetadata?.({ component: 'pie', tabId: owner.tabId, complete: true })
+      || { version: 2, component: 'pie', type: 'pie', tabId: owner.tabId || null, complete: true };
+    return { plot: plotCache, __graphitixRenderCache: cacheMeta };
   };
 
   pie.canRestoreRenderCache = function canRestoreRenderCache(cache, meta = {}){

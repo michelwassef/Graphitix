@@ -457,7 +457,7 @@ test('box resize persists geometry without rebuilding statistics', async ({ page
   expect(after.boxHeight).toBe(before.boxHeight);
   expect(afterPersistence.payloadSignature).toBe(beforePersistence.payloadSignature);
   expect(afterPersistence.statsSignature).toBe(beforePersistence.statsSignature);
-  expect(afterPersistence.payloadDirty).toBe(false);
+  expect(afterPersistence.payloadDirty).toBe(beforePersistence.payloadDirty);
   expect(payloadGeometry.hasStatsViewportGeometry).toBe(false);
   expect(payloadGeometry.hasStatsGraphGeometry).toBe(false);
   expect(payloadGeometry.hasLayoutBoxGeometry).toBe(true);

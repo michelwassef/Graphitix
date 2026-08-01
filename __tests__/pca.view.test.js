@@ -156,6 +156,17 @@ describe('PCA view controls', () => {
     expect(payload.config.viewMode).toBe('3d');
   });
 
+  test('loading the standard example does not dirty an unchanged table format', async () => {
+    const tab = window.Main?.session?.getActiveTab?.();
+    expect(tab).toBeTruthy();
+
+    document.getElementById('pcaLoadExample').click();
+    await flushAll();
+
+    expect(tab.userModified).toBe(true);
+    expect(tab.payloadDirty).toBe(false);
+  });
+
   test('PCA payload hydration projects view mode without firing a user redraw', () => {
     const component = window.Components?.pca;
     const viewSelect = document.getElementById('pcaViewMode');

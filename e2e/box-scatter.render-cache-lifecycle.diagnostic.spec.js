@@ -462,14 +462,13 @@ async function buildArchiveBlob(page, mode, label) {
     if (!sessionActions || typeof sessionActions.buildWorkspaceArchiveBlob !== 'function') throw new Error('Main.sessionActions.buildWorkspaceArchiveBlob unavailable');
     const context = tabsApi.getSessionActionsContext();
     const options = snapshotMode === 'recovery'
-      ? { scope: 'workspace', snapshotKind: 'recovery', policyMode: 'recovery', reason: diagnosticLabel, idleForMs: 8_000, useWorker: true }
+      ? { scope: 'workspace', snapshotKind: 'recovery', policyMode: 'recovery', reason: diagnosticLabel, useWorker: true }
       : { scope: 'workspace', snapshotKind: 'document-snapshot', compression: 'STORE', reason: diagnosticLabel };
     const policy = window.Main?.snapshotPolicy?.resolveArchiveBuildPolicy?.({
       mode: snapshotMode === 'recovery' ? 'recovery' : 'manual-save',
       snapshotKind: options.snapshotKind,
       reason: diagnosticLabel,
       scope: 'workspace',
-      idleForMs: options.idleForMs
     }) || null;
     const beforeBuild = await window.__collectGraphitixCacheDiagnostics?.(`${diagnosticLabel}-before-build`);
     const blob = await sessionActions.buildWorkspaceArchiveBlob(context, options);

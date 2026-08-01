@@ -114,7 +114,6 @@ async function seedRecoverySnapshot(page) {
       snapshotKind: 'recovery',
       policyMode: 'recovery',
       reason: 'e2e-heavy-heatmap-recovery',
-      idleForMs: 8_000,
       useWorker: true
     });
     const tabs = window.Main.session.workspaceState.tabs.filter(tab => tab && !tab.isWelcome && tab.type);

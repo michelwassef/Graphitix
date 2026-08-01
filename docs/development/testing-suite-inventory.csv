@@ -1,0 +1,331 @@
+path,framework,configured_by_current_runner,lines,static_test_declarations,fixed_wait_for_timeout_calls,set_timeout_calls,skip_fixme_declarations,reads_implementation_source,uses_full_app_harness,uses_workspace_harness,proposed_tier,preliminary_action
+__tests__/axis-major-tick-length.contract.test.js,jest,yes,94,4,0,0,0,yes,no,no,unit/dom-unit,retain/reclassify
+__tests__/axis-toolbar-layout.contract.test.js,jest,yes,30,3,0,0,0,no,no,no,static-contract,migrate to runtime or AST rule
+__tests__/axisControls.init.test.js,jest,yes,220,9,0,0,0,no,no,no,unit/dom-unit,retain/reclassify
+__tests__/box.advisor.test.js,jest,yes,179,9,0,0,0,no,no,no,unit/dom-unit,retain/reclassify
+__tests__/box.architectureOwnership.contract.test.js,jest,yes,141,6,0,0,0,yes,no,no,static-contract,migrate to runtime or AST rule
+__tests__/box.assumptions.test.js,jest,yes,142,5,0,0,0,no,no,no,unit/dom-unit,retain/reclassify
+__tests__/box.axisAutoScale.test.js,jest,yes,69,2,0,0,0,no,no,no,unit/dom-unit,retain/reclassify
+__tests__/box.barNegativeGeometry.test.js,jest,yes,42,3,0,0,0,no,no,no,unit/dom-unit,retain/reclassify
+__tests__/box.exportControlsPlacement.test.js,jest,yes,22,1,0,0,0,no,no,no,unit/dom-unit,retain/reclassify
+__tests__/box.fillColorTheme.test.js,jest,yes,81,7,0,0,0,no,no,no,unit/dom-unit,retain/reclassify
+__tests__/box.frameCommit.contract.test.js,jest,yes,59,7,0,0,0,yes,no,no,static-contract,migrate to runtime or AST rule
+__tests__/box.internalSanitation.contract.test.js,jest,yes,126,5,0,0,0,yes,no,no,unit/dom-unit,retain/reclassify
+__tests__/box.layoutReserves.regression.test.js,jest,yes,823,10,0,2,0,no,no,yes,app-integration,retain/refactor harness
+__tests__/box.pointConnections.test.js,jest,yes,48,2,0,0,0,no,no,no,unit/dom-unit,retain/reclassify
+__tests__/box.referenceStats.contract.test.js,jest,yes,149,3,0,0,0,yes,no,no,static-contract,migrate to runtime or AST rule
+__tests__/box.significanceWhiskers.test.js,jest,yes,573,21,0,0,0,no,no,no,unit/dom-unit,retain/reclassify
+__tests__/box.stats.fallback.test.js,jest,yes,103,2,0,0,0,no,no,no,unit/dom-unit,retain/reclassify
+__tests__/box.statsAspect.contract.test.js,jest,yes,65,7,0,0,0,yes,no,no,static-contract,migrate to runtime or AST rule
+__tests__/box.statsControls.tabIsolation.test.js,jest,yes,589,6,0,3,0,no,no,yes,integration-contract,consolidate
+__tests__/box.statsModelOwnership.contract.test.js,jest,yes,76,2,0,0,0,no,no,no,integration-contract,consolidate
+__tests__/box.statsReportingSurface.contract.test.js,jest,yes,74,2,0,0,0,yes,no,no,static-contract,migrate to runtime or AST rule
+__tests__/box.statsStatePerformance.contract.test.js,jest,yes,118,7,0,0,0,yes,no,no,static-contract,migrate to runtime or AST rule
+__tests__/box.statsTestSelection.model.test.js,jest,yes,276,12,0,0,0,no,no,no,unit/dom-unit,retain/reclassify
+__tests__/box.stripDatasetGap.regression.test.js,jest,yes,147,1,0,0,0,yes,no,no,static-contract,migrate to runtime or AST rule
+__tests__/box.stripRadius.regression.test.js,jest,yes,187,1,0,0,0,yes,no,no,static-contract,migrate to runtime or AST rule
+__tests__/box.summary.performance.test.js,jest,yes,31,2,0,0,0,no,no,no,unit/dom-unit,retain/reclassify
+__tests__/box.summaryOverlayColor.test.js,jest,yes,35,2,0,0,0,no,no,no,unit/dom-unit,retain/reclassify
+__tests__/box.swarmOffsets.test.js,jest,yes,1341,43,0,0,0,no,no,yes,unit/dom-unit,retain/reclassify
+__tests__/chartStyle.axisTicks.buildScale.test.js,jest,yes,21,1,0,0,0,no,no,no,unit/dom-unit,retain/reclassify
+__tests__/chartStyle.axisTicks.logScale.test.js,jest,yes,74,4,0,0,0,no,no,no,unit/dom-unit,retain/reclassify
+__tests__/chartStyle.bottomLayout.test.js,jest,yes,138,4,0,0,0,no,no,no,unit/dom-unit,retain/reclassify
+__tests__/chartStyle.fontLabel.test.js,jest,yes,34,1,0,0,0,no,no,no,unit/dom-unit,retain/reclassify
+__tests__/chartStyle.fontResize.tabscope.test.js,jest,yes,50,1,0,0,0,no,no,no,integration-contract,consolidate
+__tests__/chartStyle.fontResize.test.js,jest,yes,230,4,0,0,0,no,no,no,unit/dom-unit,retain/reclassify
+__tests__/chartStyle.formatScientific.test.js,jest,yes,121,15,0,0,0,no,no,no,unit/dom-unit,retain/reclassify
+__tests__/chartStyle.svgPreparation.test.js,jest,yes,27,2,0,0,0,no,no,no,unit/dom-unit,retain/reclassify
+__tests__/colorSchemes.colorMath.test.js,jest,yes,142,10,0,0,0,no,no,no,unit/dom-unit,retain/reclassify
+__tests__/colorSchemes.core.test.js,jest,yes,261,31,0,0,0,no,no,no,unit/dom-unit,retain/reclassify
+__tests__/colorSchemes.customChoice.test.js,jest,yes,212,6,0,0,0,yes,no,no,static-contract,migrate to runtime or AST rule
+__tests__/colorSchemes.defaultIsolation.test.js,jest,yes,135,2,0,0,0,no,no,no,unit/dom-unit,retain/reclassify
+__tests__/colorSchemes.undo.test.js,jest,yes,109,1,0,0,0,no,no,no,unit/dom-unit,retain/reclassify
+__tests__/component.exportSources.test.js,jest,yes,18,0,0,0,0,yes,no,no,static-contract,migrate to runtime or AST rule
+__tests__/component.load-benchmark.test.js,jest,yes,48,4,0,0,0,no,no,no,unit/dom-unit,retain/reclassify
+__tests__/componentDrawableFrame.authority.test.js,jest,yes,73,0,0,0,0,no,no,no,unit/dom-unit,retain/reclassify
+__tests__/componentImportBindings.test.js,jest,yes,25,0,0,0,0,no,no,no,static-contract,migrate to runtime or AST rule
+__tests__/componentLayout.zoomBehavior.test.js,jest,yes,403,7,0,0,0,no,no,no,unit/dom-unit,retain/reclassify
+__tests__/componentLifecycle.core.test.js,jest,yes,2323,150,0,5,0,yes,no,no,static-contract,migrate to runtime or AST rule
+__tests__/dataPipeline.test.js,jest,yes,84,6,0,0,0,no,no,no,unit/dom-unit,retain/reclassify
+__tests__/dataTransforms.test.js,jest,yes,140,7,0,0,0,no,no,no,unit/dom-unit,retain/reclassify
+__tests__/dataViews.exportTabs.test.js,jest,yes,462,13,0,0,0,no,no,no,integration-contract,consolidate
+__tests__/debug.contract.test.js,jest,yes,39,2,0,0,0,no,no,no,unit/dom-unit,retain/reclassify
+__tests__/desktopCommands.test.js,jest,yes,126,4,0,0,0,no,no,no,app-integration,retain/refactor harness
+__tests__/documentState.recoveryThrottle.test.js,jest,yes,414,14,0,0,0,no,no,no,integration-contract,consolidate
+__tests__/dom.autoResizeSvg.test.js,jest,yes,245,9,0,0,0,no,no,no,unit/dom-unit,retain/reclassify
+__tests__/dom.enableLabelDrag.test.js,jest,yes,144,2,0,0,0,no,no,no,unit/dom-unit,retain/reclassify
+__tests__/dom.framePublication.test.js,jest,yes,83,3,0,0,0,no,no,no,unit/dom-unit,retain/reclassify
+__tests__/dom.titleEmptyEdit.test.js,jest,yes,117,4,0,0,0,no,no,no,unit/dom-unit,retain/reclassify
+__tests__/domControls.defaultPayloadIsolation.test.js,jest,yes,923,15,0,0,0,no,no,yes,app-integration,retain/refactor harness
+__tests__/exporter.dropdownStacking.test.js,jest,yes,60,1,0,0,0,no,no,no,unit/dom-unit,retain/reclassify
+__tests__/exporter.firefoxSvgCopy.test.js,jest,yes,66,2,0,0,0,no,no,no,unit/dom-unit,retain/reclassify
+__tests__/exporter.hybridSource.test.js,jest,yes,86,2,0,1,0,no,no,no,unit/dom-unit,retain/reclassify
+__tests__/exporter.inkscapeUngroupStability.test.js,jest,yes,58,1,0,0,0,no,no,no,integration-contract,consolidate
+__tests__/exporter.scatterOptimization.test.js,jest,yes,427,17,0,0,0,no,no,no,unit/dom-unit,retain/reclassify
+__tests__/exporter.significanceHitOverlay.test.js,jest,yes,61,1,0,0,0,no,no,no,unit/dom-unit,retain/reclassify
+__tests__/fileIO.activation.test.js,jest,yes,155,6,0,0,0,no,no,no,unit/dom-unit,retain/reclassify
+__tests__/fontControls.colorParsing.test.js,jest,yes,80,1,0,0,0,no,no,no,unit/dom-unit,retain/reclassify
+__tests__/fontControls.debugLogging.test.js,jest,yes,47,1,0,0,0,no,no,no,unit/dom-unit,retain/reclassify
+__tests__/fontControls.openerClickGuard.test.js,jest,yes,46,1,0,0,0,no,no,no,unit/dom-unit,retain/reclassify
+__tests__/fontControls.proportionalFontResize.test.js,jest,yes,78,1,0,0,0,no,no,no,unit/dom-unit,retain/reclassify
+__tests__/fontControls.tabIsolation.test.js,jest,yes,202,4,0,0,0,no,no,no,integration-contract,consolidate
+__tests__/fontControls.titleVisibility.test.js,jest,yes,85,3,0,0,0,no,no,no,unit/dom-unit,retain/reclassify
+__tests__/forecast.regression.test.js,jest,yes,191,2,0,0,0,yes,no,no,static-contract,migrate to runtime or AST rule
+__tests__/formControls.autosize.test.js,jest,yes,214,2,0,8,0,no,no,no,app-integration,retain/refactor harness
+__tests__/format-mixing.test.js,jest,yes,274,4,0,1,0,no,no,no,app-integration,retain/refactor harness
+__tests__/formulaEngine.test.js,jest,yes,116,10,0,0,0,no,no,no,unit/dom-unit,retain/reclassify
+__tests__/goAnalysis.test.js,jest,yes,120,13,0,0,0,no,no,no,unit/dom-unit,retain/reclassify
+__tests__/graph.exportControlsAlignment.test.js,jest,yes,21,1,0,0,0,no,no,no,unit/dom-unit,retain/reclassify
+__tests__/graphArchive.adaptiveCompression.test.js,jest,yes,260,9,0,0,0,no,no,no,integration-contract,consolidate
+__tests__/graphArchive.payloadLiteLoad.test.js,jest,yes,163,2,0,0,0,no,no,no,integration-contract,consolidate
+__tests__/graphArchive.renderCacheSerialization.test.js,jest,yes,94,2,0,0,0,no,no,no,integration-contract,consolidate
+__tests__/graphArchive.roundtrip.components.test.js,jest,yes,370,5,0,0,0,no,no,no,integration-contract,consolidate
+__tests__/graphArchive.worker.schema.test.js,jest,yes,209,3,0,0,0,yes,no,no,static-contract,migrate to runtime or AST rule
+__tests__/graphSizing.defaultBaseline.test.js,jest,yes,347,7,0,0,0,no,no,no,unit/dom-unit,retain/reclassify
+__tests__/gridControls.liveProjection.test.js,jest,yes,49,2,0,0,0,no,no,no,integration-contract,consolidate
+__tests__/heatmap.dendrogram-rendering.test.js,jest,yes,490,20,0,0,0,yes,no,yes,static-contract,migrate to runtime or AST rule
+__tests__/heatmap.heavy-recovery-authoritative.spec.js,jest,no,195,1,1,1,0,no,no,yes,orphan,delete duplicate or move
+__tests__/heatmap.stats.test.js,jest,yes,801,19,0,1,0,no,no,yes,unit/dom-unit,retain/reclassify
+__tests__/heatmap.tabContext.test.js,jest,yes,215,4,0,2,0,no,no,no,integration-contract,consolidate
+__tests__/heavy.canvas.reopen.recovery.regression.test.js,jest,yes,256,8,0,0,0,no,no,no,integration-contract,consolidate
+__tests__/hist.drawableFrame.test.js,jest,yes,66,2,0,0,0,no,no,no,unit/dom-unit,retain/reclassify
+__tests__/hot.aggrid.binding.test.js,jest,yes,1172,22,0,0,0,no,no,no,app-integration,retain/refactor harness
+__tests__/hot.aggrid.clipboard-selection.test.js,jest,yes,5654,86,0,40,0,yes,no,no,static-contract,migrate to runtime or AST rule
+__tests__/hot.aggrid.dimensions.test.js,jest,yes,116,3,0,2,0,no,no,no,unit/dom-unit,retain/reclassify
+__tests__/hot.exclusionPersistence.test.js,jest,yes,188,4,0,0,0,no,no,no,integration-contract,consolidate
+__tests__/hot.uiState.test.js,jest,yes,71,5,0,0,0,no,no,no,unit/dom-unit,retain/reclassify
+__tests__/jobs.controller.test.js,jest,yes,310,12,0,5,0,no,no,no,unit/dom-unit,retain/reclassify
+__tests__/line.view.test.js,jest,yes,465,9,0,1,0,no,no,no,app-integration,retain/refactor harness
+__tests__/main.components.ensureComponent.test.js,jest,yes,214,8,0,0,0,no,no,no,app-integration,retain/refactor harness
+__tests__/notes.mountFoldable.test.js,jest,yes,222,28,0,0,0,no,no,no,unit/dom-unit,retain/reclassify
+__tests__/pca.colorScheme.roundTrip.test.js,jest,yes,304,3,0,2,0,no,no,no,app-integration,retain/refactor harness
+__tests__/pca.lifecycleOwnership.contract.test.js,jest,yes,103,8,0,0,0,yes,no,no,static-contract,migrate to runtime or AST rule
+__tests__/pca.view.test.js,jest,yes,976,26,0,1,0,yes,no,no,static-contract,migrate to runtime or AST rule
+__tests__/performance.test.js,jest,yes,220,10,0,0,0,no,no,no,unit/dom-unit,retain/reclassify
+__tests__/pie.percentLabels.test.js,jest,yes,274,4,0,2,0,no,no,no,app-integration,retain/refactor harness
+__tests__/pie.tabIsolation.test.js,jest,yes,173,3,0,2,0,no,no,no,integration-contract,consolidate
+__tests__/previews.pngFallback.test.js,jest,yes,218,5,0,1,0,no,no,yes,app-integration,retain/refactor harness
+__tests__/publicationStyles.core.test.js,jest,yes,528,27,0,0,0,no,no,no,unit/dom-unit,retain/reclassify
+__tests__/regression.catalog.test.js,jest,yes,231,7,0,0,0,yes,no,no,static-contract,migrate to runtime or AST rule
+__tests__/regression.persistence.test.js,jest,yes,247,3,0,5,0,no,no,no,integration-contract,consolidate
+__tests__/renderCacheDiagnostics.contract.test.js,jest,yes,28,2,0,0,0,no,no,no,unit/dom-unit,retain/reclassify
+__tests__/resampling.contract.test.js,jest,yes,56,2,0,0,0,no,no,no,unit/dom-unit,retain/reclassify
+__tests__/resizer.canvasReuse.test.js,jest,yes,55,1,0,0,0,no,no,no,unit/dom-unit,retain/reclassify
+__tests__/resizer.optionsMenu.test.js,jest,yes,525,14,0,0,0,no,no,no,unit/dom-unit,retain/reclassify
+__tests__/roc.classificationSetup.test.js,jest,yes,104,7,0,0,0,no,no,no,unit/dom-unit,retain/reclassify
+__tests__/roc.statistics.standard.test.js,jest,yes,131,6,0,0,0,no,no,no,unit/dom-unit,retain/reclassify
+__tests__/runtime.localDependencies.test.js,jest,yes,54,2,0,0,0,yes,no,no,unit/dom-unit,retain/reclassify
+__tests__/scatter.adaptiveSize.test.js,jest,yes,205,10,0,0,0,no,no,yes,unit/dom-unit,retain/reclassify
+__tests__/scatter.internalArchitecture.contract.test.js,jest,yes,174,7,0,0,0,yes,no,no,unit/dom-unit,retain/reclassify
+__tests__/scatter.listenerBinding.contract.test.js,jest,yes,99,10,0,0,0,yes,no,no,static-contract,migrate to runtime or AST rule
+__tests__/scatter.pointContextMenuSelection.test.js,jest,yes,71,2,0,0,0,no,no,no,unit/dom-unit,retain/reclassify
+__tests__/scatter.sharedStatisticsPrimitives.test.js,jest,yes,40,3,0,0,0,no,no,no,unit/dom-unit,retain/reclassify
+__tests__/scatter.statsDefaults.isolation.test.js,jest,yes,568,5,0,2,0,no,no,no,app-integration,retain/refactor harness
+__tests__/session.assignTabPayload.test.js,jest,yes,792,31,0,0,0,no,no,no,integration-contract,consolidate
+__tests__/sessionActions.restoreParity.test.js,jest,yes,219,4,0,0,0,no,no,no,integration-contract,consolidate
+__tests__/sessionActions.saveLazyBuild.test.js,jest,yes,884,19,0,0,0,no,no,no,integration-contract,consolidate
+__tests__/shared/plot3d.test.js,jest,yes,254,8,0,0,0,no,no,no,unit/dom-unit,retain/reclassify
+__tests__/significanceControls.overlay.test.js,jest,yes,37,1,0,0,0,no,no,no,unit/dom-unit,retain/reclassify
+__tests__/simple-performance.test.js,jest,yes,28,1,0,0,0,no,no,no,unit/dom-unit,retain/reclassify
+__tests__/smoke.init.test.js,jest,yes,116,1,0,0,0,no,no,no,app-integration,retain/refactor harness
+__tests__/snapshotPolicy.recoveryParity.test.js,jest,yes,65,3,0,0,0,no,no,no,integration-contract,consolidate
+__tests__/statistics.cross-component.regression.test.js,jest,yes,87,7,0,0,0,yes,no,no,static-contract,migrate to runtime or AST rule
+__tests__/stats.adjust.test.js,jest,yes,85,9,0,0,0,no,no,no,unit/dom-unit,retain/reclassify
+__tests__/stats.component.differential.test.js,jest,yes,801,2,0,0,0,no,no,no,unit/dom-unit,retain/reclassify
+__tests__/stats.differential.python.test.js,jest,yes,487,1,0,0,0,no,no,no,statistical-oracle,retain/isolate
+__tests__/stats.extended.coverage.test.js,jest,yes,295,5,0,0,0,no,no,no,unit/dom-unit,retain/reclassify
+__tests__/stats.goodnessOfFit.test.js,jest,yes,41,3,0,0,0,no,no,no,unit/dom-unit,retain/reclassify
+__tests__/stats.matrix.components.test.js,jest,yes,1079,5,0,0,0,no,no,no,unit/dom-unit,retain/reclassify
+__tests__/stats.pvalue.corrections.test.js,jest,yes,162,15,0,0,0,no,no,no,unit/dom-unit,retain/reclassify
+__tests__/stats.reporting.layout.test.js,jest,yes,250,7,0,1,0,no,no,no,unit/dom-unit,retain/reclassify
+__tests__/stats.ui.persistence.restore.test.js,jest,yes,466,3,0,1,0,no,no,no,integration-contract,consolidate
+__tests__/stats.ui.presentation.branches.test.js,jest,yes,507,25,0,2,0,no,no,no,app-integration,retain/refactor harness
+__tests__/stringAnalysis.test.js,jest,yes,182,29,0,0,0,no,no,no,unit/dom-unit,retain/reclassify
+__tests__/styleUndo.test.js,jest,yes,63,1,0,0,0,no,no,no,unit/dom-unit,retain/reclassify
+__tests__/surface.legendResize.test.js,jest,yes,81,5,0,0,0,no,no,no,unit/dom-unit,retain/reclassify
+__tests__/surface.renderCache.test.js,jest,yes,183,1,0,2,0,no,no,no,app-integration,retain/refactor harness
+__tests__/surface.tabContext.test.js,jest,yes,138,1,0,2,0,no,no,no,integration-contract,consolidate
+__tests__/survival.stats.test.js,jest,yes,166,3,0,1,0,no,no,no,app-integration,retain/refactor harness
+__tests__/symbolToolbar.undo.test.js,jest,yes,504,5,0,0,0,no,no,no,unit/dom-unit,retain/reclassify
+__tests__/tabSwitch.reuseCache.test.js,jest,yes,300,6,0,0,0,no,no,no,integration-contract,consolidate
+__tests__/tableImport.affordances.test.js,jest,yes,47,2,0,0,0,no,no,no,integration-contract,consolidate
+__tests__/tableImport.firefoxExcelPaste.test.js,jest,yes,117,4,0,0,0,no,no,no,integration-contract,consolidate
+__tests__/tableImport.formats.test.js,jest,yes,63,2,0,0,0,no,no,no,integration-contract,consolidate
+__tests__/tableImport.ownerTransaction.test.js,jest,yes,244,3,0,4,0,no,no,no,integration-contract,consolidate
+__tests__/tableImport.paste.aggrid.test.js,jest,yes,222,5,0,1,0,no,no,no,integration-contract,consolidate
+__tests__/tableImport.prism.test.js,jest,yes,259,11,0,0,0,yes,no,no,static-contract,migrate to runtime or AST rule
+__tests__/tabs.componentDomBinding.switchIsolation.test.js,jest,yes,201,1,0,2,0,no,no,no,integration-contract,consolidate
+__tests__/tabs.configIsolation.allComponents.test.js,jest,yes,701,18,0,2,0,no,no,no,integration-contract,consolidate
+__tests__/tabs.documentOperation.test.js,jest,yes,114,3,0,0,0,no,no,no,integration-contract,consolidate
+__tests__/tabs.grid.dimensions.test.js,jest,yes,186,3,0,1,0,no,no,no,integration-contract,consolidate
+__tests__/tabs.styleControls.tabIsolation.test.js,jest,yes,319,3,0,2,0,no,no,no,integration-contract,consolidate
+__tests__/theme.adapters.test.js,jest,yes,228,28,0,0,0,no,no,no,unit/dom-unit,retain/reclassify
+__tests__/theme.catalog.test.js,jest,yes,247,35,0,0,0,no,no,no,unit/dom-unit,retain/reclassify
+__tests__/theme.compiler.test.js,jest,yes,134,19,0,0,0,no,no,no,unit/dom-unit,retain/reclassify
+__tests__/theme.runtime.test.js,jest,yes,222,18,0,0,0,no,no,no,unit/dom-unit,retain/reclassify
+__tests__/ui.events.test.js,jest,yes,1843,41,0,5,0,no,no,no,app-integration,retain/refactor harness
+__tests__/uniprot.test.js,jest,yes,178,20,0,0,0,no,no,no,unit/dom-unit,retain/reclassify
+__tests__/venn.analysisOwnership.test.js,jest,yes,255,3,0,2,0,no,yes,no,integration-contract,consolidate
+__tests__/venn.defaultPayloadReset.test.js,jest,yes,110,2,0,0,0,no,no,no,app-integration,retain/refactor harness
+__tests__/venn.renderCacheRecovery.test.js,jest,yes,169,2,0,1,0,no,yes,no,integration-contract,consolidate
+__tests__/venn.runtimeOwnership.test.js,jest,yes,203,4,0,1,0,no,yes,no,integration-contract,consolidate
+__tests__/venn.upset.test.js,jest,yes,693,13,0,0,0,no,no,no,app-integration,retain/refactor harness
+__tests__/visualProjection.test.js,jest,yes,121,4,0,0,0,no,no,no,integration-contract,consolidate
+__tests__/welcome.ready.test.js,jest,yes,120,2,0,1,0,no,no,no,app-integration,retain/refactor harness
+__tests__/workers/box.worker.test.js,jest,yes,252,19,0,0,0,no,no,no,worker-unit,retain/refactor
+__tests__/workers/graphArchive.worker.test.js,jest,yes,258,16,0,0,0,no,no,no,worker-unit,retain/refactor
+__tests__/workers/heatmap.worker.test.js,jest,yes,318,16,0,0,0,no,no,no,worker-unit,retain/refactor
+__tests__/workers/pca-embed.worker.test.js,jest,yes,171,13,0,0,0,no,no,no,worker-unit,retain/refactor
+__tests__/workers/pca.worker.test.js,jest,yes,116,8,0,0,0,no,no,no,worker-unit,retain/refactor
+__tests__/workers/scatter.worker.test.js,jest,yes,255,16,0,0,0,no,no,no,worker-unit,retain/refactor
+__tests__/workers.localDependencies.test.js,jest,yes,39,1,0,0,0,no,no,no,unit/dom-unit,retain/reclassify
+__tests__/workers.shared.test.js,jest,yes,64,2,0,0,0,no,no,no,unit/dom-unit,retain/reclassify
+__tests__/workspaceTabs.schedulerIsolation.test.js,jest,yes,132,4,0,1,0,no,no,no,integration-contract,consolidate
+e2e/aggrid.active-tab-paste.spec.js,playwright,yes,108,1,0,1,0,no,no,yes,component-regression,retain/review overlap
+e2e/aggrid.firefox-paste.spec.js,playwright,yes,121,2,2,2,0,no,no,yes,cross-browser,retain in browser matrix
+e2e/aggrid.selection-outline-scrollbar.spec.js,playwright,yes,133,1,0,1,0,no,no,yes,component-regression,retain/review overlap
+e2e/aggrid.undo-redo.reorder.spec.js,playwright,yes,121,1,0,1,0,no,no,yes,component-regression,retain/review overlap
+e2e/axis-major-tick-length.reopen-recovery.spec.js,playwright,yes,112,1,1,1,0,no,no,yes,e2e-contract,consolidate into capability matrix
+e2e/box-pca.table-format-tab-isolation.spec.js,playwright,yes,264,1,3,1,0,no,no,yes,e2e-contract,consolidate into capability matrix
+e2e/box-scatter.render-cache-lifecycle.diagnostic.spec.js,playwright,yes,824,1,1,2,0,no,no,yes,heavy/nightly,retain or merge; not PR default
+e2e/box.column-reorder.undo-race.spec.js,playwright,yes,98,1,1,1,1,no,no,yes,component-regression,retain/review overlap
+e2e/box.dark-theme.stats.regression.spec.js,playwright,yes,219,1,5,1,0,no,no,yes,component-regression,retain/review overlap
+e2e/box.dual-tab.significance-resize.isolation.spec.js,playwright,yes,471,2,7,2,0,no,no,yes,component-regression,retain/review overlap
+e2e/box.dual-tab.stats-no-crash.spec.js,playwright,yes,91,1,1,2,0,no,no,yes,component-regression,retain/review overlap
+e2e/box.duplicate-computed-stats.recalc.spec.js,playwright,yes,47,1,0,1,0,no,no,yes,component-regression,retain/review overlap
+e2e/box.flip-axes.transpose-manual-resize.spec.js,playwright,yes,954,8,8,1,0,no,no,yes,component-regression,retain/review overlap
+e2e/box.formula-editor.spec.js,playwright,yes,627,6,3,6,0,no,no,yes,component-regression,retain/review overlap
+e2e/box.formula-fill-handle.spec.js,playwright,yes,238,2,0,2,0,no,no,yes,component-regression,retain/review overlap
+e2e/box.formula-function-assist.spec.js,playwright,yes,91,1,0,1,0,no,no,yes,component-regression,retain/review overlap
+e2e/box.formula.first-edit-render.regression.spec.js,playwright,yes,81,1,0,1,0,no,no,yes,component-regression,retain/review overlap
+e2e/box.formula.numeric-edit.regression.spec.js,playwright,yes,101,1,0,1,0,no,no,yes,component-regression,retain/review overlap
+e2e/box.horizontal-resize-axis.spec.js,playwright,yes,195,3,5,0,0,no,no,yes,component-regression,retain/review overlap
+e2e/box.horizontal-shrink.layout-invariants.spec.js,playwright,yes,364,3,5,1,0,no,no,yes,component-regression,retain/review overlap
+e2e/box.initial-bottom-reserve.spec.js,playwright,yes,87,1,1,1,0,no,no,yes,component-regression,retain/review overlap
+e2e/box.inline-edit-selection-bg.spec.js,playwright,yes,55,1,0,1,0,no,no,yes,component-regression,retain/review overlap
+e2e/box.large-resize-live-svg.spec.js,playwright,yes,135,2,2,1,1,no,no,yes,heavy/nightly,retain or merge; not PR default
+e2e/box.loading-overlay.stop.spec.js,playwright,yes,56,1,0,1,0,no,no,yes,component-regression,retain/review overlap
+e2e/box.opacity-style-tab-isolation.spec.js,playwright,yes,119,1,3,1,0,no,no,yes,e2e-contract,consolidate into capability matrix
+e2e/box.significance-layout.spec.js,playwright,yes,865,6,27,4,0,no,no,yes,component-regression,retain/review overlap
+e2e/box.significance-restore.spec.js,playwright,yes,272,8,2,2,0,no,no,yes,e2e-contract,consolidate into capability matrix
+e2e/box.stats-controls-reopen-recovery.spec.js,playwright,yes,220,2,0,2,0,no,no,yes,e2e-contract,consolidate into capability matrix
+e2e/box.stats-performance.regression.spec.js,playwright,yes,265,2,3,2,0,no,no,yes,heavy/nightly,retain or merge; not PR default
+e2e/box.stats-reporting-sections.regression.spec.js,playwright,yes,95,1,0,1,0,no,no,yes,component-regression,retain/review overlap
+e2e/box.stats-test-selection.regression.spec.js,playwright,yes,95,1,2,1,0,no,no,yes,component-regression,retain/review overlap
+e2e/box.title-new-tab-isolation.spec.js,playwright,yes,92,1,0,1,0,no,no,yes,e2e-contract,consolidate into capability matrix
+e2e/canvas-tab-preview.spec.js,playwright,yes,355,3,0,3,0,no,no,yes,component-regression,retain/review overlap
+e2e/component.duplicate-reuse.payload-fidelity.spec.js,playwright,yes,234,1,0,1,0,no,no,yes,component-regression,retain/review overlap
+e2e/component.persistence-matrix.spec.js,playwright,yes,317,26,1,2,0,no,no,yes,e2e-contract,consolidate into capability matrix
+e2e/component.resize-exit-reenter.persistence.spec.js,playwright,yes,163,1,6,1,0,no,no,yes,e2e-contract,consolidate into capability matrix
+e2e/component.same-type-dual-preview.spec.js,playwright,yes,206,3,5,1,0,no,no,yes,e2e-contract,consolidate into capability matrix
+e2e/component.same-type-second-tab.undo-redo.hot.spec.js,playwright,yes,116,1,1,1,0,no,no,yes,e2e-contract,consolidate into capability matrix
+e2e/component.same-type-tab-resize-switch.isolation.spec.js,playwright,yes,162,1,5,1,0,no,no,yes,e2e-contract,consolidate into capability matrix
+e2e/component.same-type-tab-switching.isolation.spec.js,playwright,yes,253,8,3,1,0,no,no,yes,e2e-contract,consolidate into capability matrix
+e2e/component.second-tab.manual-resize-undo-redo.spec.js,playwright,yes,111,1,2,1,0,no,no,yes,component-regression,retain/review overlap
+e2e/component.small-viewport.layout-stability.spec.js,playwright,yes,62,2,3,0,0,no,no,yes,component-regression,retain/review overlap
+e2e/cross-browser.feature-matrix.spec.js,playwright,yes,162,2,2,0,0,no,no,yes,cross-browser,retain in browser matrix
+e2e/data-toolbar.same-component-activation.spec.js,playwright,yes,203,1,2,1,0,no,no,yes,component-regression,retain/review overlap
+e2e/document-open.transaction.spec.js,playwright,yes,88,1,0,0,0,no,no,no,component-regression,retain/review overlap
+e2e/font.toolbar.size-no-spin.spec.js,playwright,yes,37,1,0,1,0,no,no,yes,component-regression,retain/review overlap
+e2e/graph-axis-resize-invariants.spec.js,playwright,yes,221,1,3,1,0,no,no,yes,component-regression,retain/review overlap
+e2e/graph-loading-overlay.empty-tabs.spec.js,playwright,yes,54,1,1,1,0,no,no,yes,component-regression,retain/review overlap
+e2e/graph-resize-undo.spec.js,playwright,yes,229,2,3,2,0,no,no,yes,component-regression,retain/review overlap
+e2e/graph.atomic-publication.spec.js,playwright,yes,93,1,0,1,0,no,no,yes,component-regression,retain/review overlap
+e2e/graph.live-resize.spec.js,playwright,yes,141,1,3,1,0,no,no,yes,component-regression,retain/review overlap
+e2e/graph.live-style.spec.js,playwright,yes,184,3,3,3,0,no,no,yes,component-regression,retain/review overlap
+e2e/heatmap.adjust-filter.responsiveness.spec.js,playwright,yes,103,1,0,1,0,no,no,yes,heavy/nightly,retain or merge; not PR default
+e2e/heatmap.correlation-tab-restore.spec.js,playwright,yes,193,1,4,1,0,no,no,yes,e2e-contract,consolidate into capability matrix
+e2e/heatmap.data-values.label-scaling.spec.js,playwright,yes,100,1,0,1,0,no,no,yes,component-regression,retain/review overlap
+e2e/heatmap.dual-tab.example.spec.js,playwright,yes,137,1,0,1,0,no,no,yes,component-regression,retain/review overlap
+e2e/heatmap.duplicate-reuse.headers-view-switch.spec.js,playwright,yes,118,1,0,1,0,no,no,yes,component-regression,retain/review overlap
+e2e/heatmap.exclusions.reopen-recovery.parity.spec.js,playwright,yes,258,2,1,1,0,no,no,yes,e2e-contract,consolidate into capability matrix
+e2e/heatmap.first-heavy-paste.owner-transaction.spec.js,playwright,yes,101,1,0,1,0,no,no,yes,heavy/nightly,retain or merge; not PR default
+e2e/heatmap.graph-scope-font-size.spec.js,playwright,yes,126,1,1,1,0,no,no,yes,component-regression,retain/review overlap
+e2e/heatmap.heavy-recovery-authoritative.spec.js,playwright,yes,269,2,0,1,0,no,no,yes,heavy/nightly,retain or merge; not PR default
+e2e/heatmap.heavy-small-tab-isolation.spec.js,playwright,yes,150,2,0,1,0,no,no,yes,heavy/nightly,retain or merge; not PR default
+e2e/heatmap.large-data-values.responsiveness.spec.js,playwright,yes,382,1,1,2,0,no,no,yes,heavy/nightly,retain or merge; not PR default
+e2e/heatmap.live-resize.text-stability.spec.js,playwright,yes,84,1,3,1,0,no,no,yes,component-regression,retain/review overlap
+e2e/heatmap.mixed-export.spec.js,playwright,yes,174,4,0,1,0,no,no,yes,component-regression,retain/review overlap
+e2e/heatmap.reopen-recovery.geometry.spec.js,playwright,yes,402,3,9,3,0,no,no,yes,e2e-contract,consolidate into capability matrix
+e2e/heatmap.title-clearance.spec.js,playwright,yes,260,3,3,3,0,no,no,yes,component-regression,retain/review overlap
+e2e/heatmap.title-drag-speed.spec.js,playwright,yes,90,1,2,1,0,no,no,yes,component-regression,retain/review overlap
+e2e/heatmap.title-inline-edit-background.spec.js,playwright,yes,49,1,0,1,0,no,no,yes,component-regression,retain/review overlap
+e2e/heatmap.view-switch-lock-ratio.spec.js,playwright,yes,273,2,2,2,0,no,no,yes,component-regression,retain/review overlap
+e2e/heavy.mixed-tabs.reopen-recovery.canvas.spec.js,playwright,yes,1048,5,4,3,2,no,no,yes,heavy/nightly,retain or merge; not PR default
+e2e/hist.frequency-distribution-autodraw-tab-isolation.spec.js,playwright,yes,626,4,0,3,0,no,no,yes,e2e-contract,consolidate into capability matrix
+e2e/hist.multiseries-legend-aspect.spec.js,playwright,yes,81,1,0,1,0,no,no,yes,component-regression,retain/review overlap
+e2e/legend-3d-drag.spec.js,playwright,yes,147,2,3,6,0,no,no,yes,component-regression,retain/review overlap
+e2e/line-hist.axis-resize-tab-isolation.spec.js,playwright,yes,267,1,3,1,0,no,no,yes,e2e-contract,consolidate into capability matrix
+e2e/line-scatter.3d-rotation-tab-switch.spec.js,playwright,yes,246,1,3,2,0,no,no,yes,e2e-contract,consolidate into capability matrix
+e2e/line.3d-initial-aspect.spec.js,playwright,yes,101,1,2,1,0,no,no,yes,component-regression,retain/review overlap
+e2e/line.errorbar-toolbar.spec.js,playwright,yes,75,1,4,1,0,no,no,yes,component-regression,retain/review overlap
+e2e/line.header.sort-drag.spec.js,playwright,yes,226,1,0,1,0,no,no,yes,component-regression,retain/review overlap
+e2e/line.selection-outline.pinned-first-column.spec.js,playwright,yes,80,1,0,1,0,no,no,yes,component-regression,retain/review overlap
+e2e/lock-ratio-axis-geometry.spec.js,playwright,yes,462,2,7,2,0,no,no,yes,component-regression,retain/review overlap
+e2e/lock-ratio-subtype-enforcement.spec.js,playwright,yes,413,6,12,6,0,no,no,yes,component-regression,retain/review overlap
+e2e/pca.3d-rotation-restore.spec.js,playwright,yes,166,1,2,1,0,no,no,yes,e2e-contract,consolidate into capability matrix
+e2e/pca.example-load.cached-rebind.spec.js,playwright,yes,55,1,1,1,0,no,no,yes,component-regression,retain/review overlap
+e2e/pca.label-toggle.regression.spec.js,playwright,yes,106,1,2,1,0,no,no,yes,component-regression,retain/review overlap
+e2e/pca.large-import-transaction.spec.js,playwright,yes,168,2,0,1,0,no,no,yes,heavy/nightly,retain or merge; not PR default
+e2e/pca.stats-restore.spec.js,playwright,yes,157,2,3,2,0,no,no,yes,e2e-contract,consolidate into capability matrix
+e2e/pie.dataviews-color-label-resize-isolation.spec.js,playwright,yes,406,2,1,1,0,no,no,yes,component-regression,retain/review overlap
+e2e/pie.stacked-chart-type.spec.js,playwright,yes,95,1,0,1,0,no,no,yes,component-regression,retain/review overlap
+e2e/recovery.no-loop.spec.js,playwright,yes,42,1,1,1,0,no,no,yes,e2e-contract,consolidate into capability matrix
+e2e/recovery.primary-graph-publication.spec.js,playwright,yes,233,2,0,1,0,no,no,yes,e2e-contract,consolidate into capability matrix
+e2e/recovery.single-tab.e2e.spec.js,playwright,yes,54,2,1,1,0,no,no,yes,e2e-contract,consolidate into capability matrix
+e2e/recovery.single-tab.live-capture.spec.js,playwright,yes,107,1,1,1,0,no,no,yes,e2e-contract,consolidate into capability matrix
+e2e/redraw.audit.spec.js,playwright,yes,311,3,5,3,0,no,no,yes,component-regression,retain/review overlap
+e2e/render-cache.persistence-contract.spec.js,playwright,yes,541,7,0,3,0,no,no,yes,e2e-contract,consolidate into capability matrix
+e2e/reopen.graph-edit-cache-invalidation.spec.js,playwright,yes,255,2,2,2,0,no,no,yes,e2e-contract,consolidate into capability matrix
+e2e/reopen.redraw-on-data-change.spec.js,playwright,yes,259,1,4,1,0,no,no,yes,e2e-contract,consolidate into capability matrix
+e2e/roc-box.render-cache-reopen.spec.js,playwright,yes,65,1,0,0,0,no,no,yes,e2e-contract,consolidate into capability matrix
+e2e/roc.advisor-compare-tab-isolation.spec.js,playwright,yes,234,4,1,1,0,no,no,yes,e2e-contract,consolidate into capability matrix
+e2e/roc.classification-ui.spec.js,playwright,yes,66,1,0,1,0,no,no,yes,component-regression,retain/review overlap
+e2e/roc.graph-type-reopen.spec.js,playwright,yes,188,9,0,2,0,no,no,yes,e2e-contract,consolidate into capability matrix
+e2e/roc.scheduled-autodraw-tab-isolation.spec.js,playwright,yes,294,4,1,2,1,no,no,yes,e2e-contract,consolidate into capability matrix
+e2e/scatter-line.live-horizontal-resize-comparison.spec.js,playwright,yes,788,2,4,1,0,no,no,yes,component-regression,retain/review overlap
+e2e/scatter.2d-3d-controls.isolation.spec.js,playwright,yes,208,1,3,1,0,no,no,yes,component-regression,retain/review overlap
+e2e/scatter.3d-view.color-scheme-persists.spec.js,playwright,yes,83,1,1,1,0,no,no,yes,component-regression,retain/review overlap
+e2e/scatter.close-tab-dispose-loop.spec.js,playwright,yes,65,5,2,0,0,no,no,yes,component-regression,retain/review overlap
+e2e/scatter.csv-import.mixed-tabs.reopen.spec.js,playwright,yes,418,1,4,2,0,no,no,yes,e2e-contract,consolidate into capability matrix
+e2e/scatter.default-table-headers.spec.js,playwright,yes,57,1,0,1,0,no,no,yes,component-regression,retain/review overlap
+e2e/scatter.duplicate-reuse.stats-trendline.spec.js,playwright,yes,94,1,0,1,0,no,no,yes,component-regression,retain/review overlap
+e2e/scatter.example-load.cached-rebind.spec.js,playwright,yes,59,1,1,1,0,no,no,yes,component-regression,retain/review overlap
+e2e/scatter.formula-evaluation.spec.js,playwright,yes,138,1,0,1,0,no,no,yes,component-regression,retain/review overlap
+e2e/scatter.horizontal-resize-axis.spec.js,playwright,yes,284,4,10,0,0,no,no,yes,component-regression,retain/review overlap
+e2e/scatter.inline-edit.preview-layer.spec.js,playwright,yes,237,3,0,3,0,no,no,yes,component-regression,retain/review overlap
+e2e/scatter.loading-overlay.threshold.spec.js,playwright,yes,148,3,1,3,0,no,no,yes,component-regression,retain/review overlap
+e2e/scatter.manual-view-refresh.spec.js,playwright,yes,451,3,0,3,0,no,no,yes,component-regression,retain/review overlap
+e2e/scatter.overlay-controls.stats-gating.spec.js,playwright,yes,51,1,2,1,0,no,no,yes,component-regression,retain/review overlap
+e2e/scatter.panel-resizer.undo-entry-count.spec.js,playwright,yes,43,1,2,1,0,no,no,yes,component-regression,retain/review overlap
+e2e/scatter.reopen.trendline-persists.spec.js,playwright,yes,136,1,6,1,0,no,no,yes,e2e-contract,consolidate into capability matrix
+e2e/scatter.second-tab.resize-undo-routing.spec.js,playwright,yes,126,1,4,2,0,no,no,yes,component-regression,retain/review overlap
+e2e/scatter.second-tab.undo-debug.spec.js,playwright,yes,110,1,4,2,0,no,no,yes,component-regression,retain/review overlap
+e2e/scatter.stats-trendline-resize.live-update.spec.js,playwright,yes,184,2,4,1,0,no,no,yes,component-regression,retain/review overlap
+e2e/scatter.tab-grid-leak.repro.spec.js,playwright,yes,138,2,0,1,0,no,no,yes,component-regression,retain/review overlap
+e2e/stats.archive-reopen-tab-switch.persistence.spec.js,playwright,yes,423,3,5,2,0,no,no,yes,e2e-contract,consolidate into capability matrix
+e2e/stats.reopen-presence.contract.spec.js,playwright,yes,272,2,7,2,0,no,no,yes,e2e-contract,consolidate into capability matrix
+e2e/stats.restore-roundtrip.spec.js,playwright,yes,361,8,2,5,0,no,no,yes,e2e-contract,consolidate into capability matrix
+e2e/stats.same-component-isolation-restore.contract.spec.js,playwright,yes,378,9,3,1,0,no,no,yes,e2e-contract,consolidate into capability matrix
+e2e/structural-redraw.loading-overlay.spec.js,playwright,yes,52,2,0,2,0,no,no,yes,component-regression,retain/review overlap
+e2e/surface.recovery-rotation.spec.js,playwright,yes,186,1,0,1,0,no,no,yes,e2e-contract,consolidate into capability matrix
+e2e/surface.rotation-size-stability.spec.js,playwright,yes,77,1,3,0,0,no,no,yes,component-regression,retain/review overlap
+e2e/surface.settings-dataviews-manual-overlay-tab-isolation.spec.js,playwright,yes,367,2,0,1,0,no,no,yes,e2e-contract,consolidate into capability matrix
+e2e/survival-roc-hist.dataviews-notes-isolation.spec.js,playwright,yes,288,1,2,1,0,no,no,yes,component-regression,retain/review overlap
+e2e/survival.covariate-reopen-tab-isolation.spec.js,playwright,yes,242,1,0,1,0,no,no,yes,e2e-contract,consolidate into capability matrix
+e2e/survival.notes-position.spec.js,playwright,yes,87,1,0,1,0,no,no,yes,component-regression,retain/review overlap
+e2e/survival.same-type-reopen-isolation.spec.js,playwright,yes,327,1,0,1,0,no,no,yes,e2e-contract,consolidate into capability matrix
+e2e/survival.style-report-deferred-isolation.spec.js,playwright,yes,241,1,1,1,0,no,no,yes,component-regression,retain/review overlap
+e2e/tab-preview-components.spec.js,playwright,yes,96,1,2,1,0,no,no,yes,component-regression,retain/review overlap
+e2e/title-empty-edit.restore.spec.js,playwright,yes,87,1,0,0,0,no,no,yes,e2e-contract,consolidate into capability matrix
+e2e/title-visibility.all-components.spec.js,playwright,yes,184,2,0,1,0,no,no,yes,component-regression,retain/review overlap
+e2e/toolbar.font-visibility.regression.spec.js,playwright,yes,90,1,2,1,0,no,no,yes,component-regression,retain/review overlap
+e2e/toolbar.general-vs-data.regression.spec.js,playwright,yes,153,3,5,2,0,no,no,yes,component-regression,retain/review overlap
+e2e/venn.go-string.async-tab-isolation.spec.js,playwright,yes,379,2,5,2,0,no,no,yes,e2e-contract,consolidate into capability matrix
+e2e/venn.list-cache-region-tab-isolation.spec.js,playwright,yes,214,2,2,1,0,no,no,yes,e2e-contract,consolidate into capability matrix
+e2e/venn.restore-recovery.spec.js,playwright,yes,605,9,9,19,0,no,no,yes,e2e-contract,consolidate into capability matrix
+e2e/venn.upset-numeric-species-reopen-isolation.spec.js,playwright,yes,433,2,3,2,0,no,no,yes,e2e-contract,consolidate into capability matrix
+e2e/venn.upset.controls-layout.spec.js,playwright,yes,39,1,0,0,0,no,no,yes,component-regression,retain/review overlap
+e2e/venn.upset.live-resize.text-stability.spec.js,playwright,yes,352,3,9,3,0,no,no,yes,component-regression,retain/review overlap
+e2e/workspace.exercise.spec.js,playwright,yes,187,2,1,2,0,no,no,yes,component-regression,retain/review overlap
+e2e/workspace.smoke.spec.js,playwright,yes,143,4,0,0,0,no,no,yes,smoke,retain

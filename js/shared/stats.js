@@ -2192,11 +2192,12 @@
         }
         return;
       }
-      const source = element.dataset.statsPvalueSourceText || element.textContent || '';
-      if(!element.dataset.statsPvalueSourceText){
+      const storedSource = element.dataset.statsPvalueSourceText;
+      const source = storedSource || element.textContent || '';
+      const replaced = replaceInlinePValueText(source, { scientific });
+      if(!storedSource && replaced !== source){
         element.dataset.statsPvalueSourceText = source;
       }
-      const replaced = replaceInlinePValueText(source, { scientific });
       if(replaced !== element.textContent){
         element.textContent = replaced;
       }
@@ -2657,7 +2658,29 @@
     if(!target || target.nodeType !== 1){
       return null;
     }
-    const children = Array.from(target.childNodes || [])
+    const captureNodes = [];
+    Array.from(target.childNodes || []).forEach(node => {
+      if(node?.nodeType !== 1){
+        captureNodes.push(node);
+        return;
+      }
+      if(node.classList?.contains('stats-significance-controls')){
+        return;
+      }
+      if(node.classList?.contains('stats-results-main') || node.classList?.contains('stats-results-descriptive')){
+        captureNodes.push(...Array.from(node.childNodes || []));
+        return;
+      }
+      if(node.classList?.contains('stats-results-advanced-panel')){
+        const body = findDirectChildByClass(node, 'stats-results-advanced-panel__body');
+        if(body){
+          captureNodes.push(...Array.from(body.childNodes || []));
+          return;
+        }
+      }
+      captureNodes.push(node);
+    });
+    const children = captureNodes
       .filter(node => {
         if(options.excludeNode && node === options.excludeNode){
           return false;
@@ -2914,6 +2937,11 @@
       }else{
         reportHost.textContent = '';
       }
+    }else if(reportHost === target && normalized.reportModel?.kind === 'stats-report'){
+      reporting.appendReportPanel(target, normalized.reportModel, { replaceExisting: false });
+      restoredReport = true;
+    }else if(reportHost === target && normalized.reportModel){
+      restoredReport = renderStatsPanelModel(target, normalized.reportModel);
     }
     if(typeof reporting.pinReportHostLast === 'function'){
       reporting.pinReportHostLast(target);
