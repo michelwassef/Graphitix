@@ -4789,13 +4789,13 @@
       return;
     }
     const drawableFrame = resolveSurvivalDrawableFrame(refs.plotDiv);
-    const width = Math.max(200, Math.floor(drawableFrame.width || 400));
+    const baseWidth = Math.max(200, Math.floor(drawableFrame.width || 400));
     const height = Math.max(200, Math.floor(drawableFrame.height || 320));
-    logDebug('draw dimensions resolved', { width, height });
+    logDebug('draw dimensions resolved', { width: baseWidth, height });
     const svg = document.createElementNS(NS, 'svg');
-    svg.setAttribute('width', String(width));
+    svg.setAttribute('width', String(baseWidth));
     svg.setAttribute('height', String(height));
-    svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+    svg.setAttribute('viewBox', `0 0 ${baseWidth} ${height}`);
     chartStyle.prepareSvg(svg, { scopeId: 'survival' });
     if(svg.dataset){
       svg.dataset.fontScope = 'survival';
@@ -4871,6 +4871,7 @@
     const legendLayout = chartStyle.computeLegendLayout({
       entries: legendEntries,
       fontSize: fs,
+      viewportHeight: height,
       scaleInfo: styleScaleInfo,
       strokeWidth: legendStrokeWidth,
       onSwatchClick: legendEditable ? handleSurvivalLegendSwatchClick : undefined
@@ -4878,6 +4879,15 @@
     const legendRenderer = legendLayout.renderer;
     const legendVisible = showLegend && legendRenderer.entries.length > 0;
     const legendWidth = legendVisible ? Math.ceil(legendLayout.legendWidthForMargin) : 0;
+    const legendViewport = chartStyle.stageLegendViewport({
+      svgBox: refs.svgBox,
+      plot: refs.plotDiv,
+      svg,
+      baseWidth,
+      baseHeight: height,
+      legendWidth
+    });
+    const width = legendViewport.width;
 
     const axisTickTools = chartStyle.axisTicks || null;
     const buildAxisScale = opts => {
@@ -4901,7 +4911,7 @@
     const yMax = 1;
     logDebug('axis range auto',{ yMin, yMax });
 
-    const xTickTarget = chartStyle.estimateTickCount ? chartStyle.estimateTickCount(width, { axis: 'x', fallback: 6 }) : 6;
+    const xTickTarget = chartStyle.estimateTickCount ? chartStyle.estimateTickCount(baseWidth, { axis: 'x', fallback: 6 }) : 6;
     const yTickTarget = chartStyle.estimateTickCount ? chartStyle.estimateTickCount(height, { axis: 'y', fallback: 6 }) : 6;
     const survivalFontStyles = exportFontStyles('survival');
     const xTickMeasureFont = (chartStyle && typeof chartStyle.resolveScopedLabelMeasureFont === 'function')
@@ -5482,6 +5492,7 @@
     if(!(await checkpoint()) || !framePublication.commit()){
       return false;
     }
+    legendViewport.commit();
     updateStats({ ...summary, series: groupsForDraw });
     state.layout?.syncPanels?.({ skipSchedule: true });
     logDebug('draw complete', { debugStamp });
@@ -6944,58 +6955,24 @@
   }
 
   function initExampleAndImport(){
-    const example = [
-      // Control group - better survival (later events, more censoring)
-      ['Control', 2.1, 0],
-      ['Control', 3.5, 0],
-      ['Control', 4.8, 1],
-      ['Control', 6.2, 0],
-      ['Control', 7.1, 1],
-      ['Control', 8.3, 0],
-      ['Control', 9.4, 0],
-      ['Control', 10.2, 1],
-      ['Control', 11.5, 0],
-      ['Control', 12.8, 0],
-      ['Control', 13.9, 1],
-      ['Control', 14.5, 0],
-      ['Control', 15.2, 0],
-      ['Control', 16.1, 1],
-      ['Control', 17.3, 0],
-      ['Control', 18.6, 1],
-      ['Control', 19.4, 0],
-      ['Control', 20.1, 0],
-      // Treatment group - poor survival (earlier events, fewer censored)
-      ['Treatment', 0.9, 1],
-      ['Treatment', 1.5, 1],
-      ['Treatment', 2.3, 1],
-      ['Treatment', 3.1, 1],
-      ['Treatment', 3.8, 0],
-      ['Treatment', 4.5, 1],
-      ['Treatment', 5.2, 1],
-      ['Treatment', 5.9, 1],
-      ['Treatment', 6.6, 0],
-      ['Treatment', 7.3, 1],
-      ['Treatment', 8.0, 1],
-      ['Treatment', 8.7, 1],
-      ['Treatment', 9.4, 0],
-      ['Treatment', 10.1, 1],
-      ['Treatment', 10.8, 1],
-      ['Treatment', 11.5, 1],
-      ['Treatment', 12.2, 0],
-      ['Treatment', 12.9, 1]
-    ];
     refs.loadExampleBtn?.addEventListener('click', event => {
       runSurvivalControlOwner(event, 'survival-example-load', session => {
       const ownerHot = session?.managers?.hot || state.hot;
-      if(ownerHot){
-        ownerHot.loadData(example, {
-          source: 'example-load',
-          recordUndo: true,
-          undoLabel: 'table:survival:example-load'
-        });
+      const exampleRecord = Shared.exampleDatasets?.get?.('survival');
+      const example = exampleRecord?.data;
+      if(!ownerHot || !Array.isArray(example)){
+        console.warn('survival example load skipped: biomedical example registry unavailable');
+        return;
       }
-      logDebug('example loaded', { rows: example.length, firstRow: example[0] });
-      syncSurvivalStateToSession(session, { controls: state.controls });
+      ownerHot.loadData(example, {
+        source: 'example-load',
+        recordUndo: true,
+        undoLabel: 'table:survival:example-load'
+      });
+      Shared.exampleDatasets?.applyNotesState?.(notesState, exampleRecord);
+      logDebug('biomedical example loaded', { rows: example?.length || 0, firstRow: example?.[0] || null });
+      syncSurvivalStateToSession(session, { controls: state.controls, notes: notesState });
+      captureSurvivalSessionStateFromActive(session, { reason: 'survival-example-load', captureStatsPanel: false });
       scheduleSurvivalDrawForSession(session, { reason: 'survival-example-load', tabId: session?.tabId || undefined });
       });
     });
@@ -7466,6 +7443,9 @@
     const plot = ownerRoot?.querySelector?.('#survivalPlot') || null;
     const graphCachePayload = cache?.[cache?.__graphitixRenderCache?.graphicKey] || cache?.plot || cache?.preview || cache?.graph || cache?.svg || cache?.stage;
     const restoredPlot = restoreChildren(plot, graphCachePayload);
+    if(restoredPlot){
+      chartStyle.rehydrateLegendViewports?.(plot);
+    }
     if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
       survivalDebug('Debug: survival render cache restored', {
         restored: restoredPlot,

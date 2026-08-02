@@ -237,6 +237,7 @@ function readBoxAxisMetrics(){
     .trim()
     .split(/[\s,]+/)
     .map(Number);
+  const viewBoxWidth = viewBoxParts.length === 4 ? viewBoxParts[2] : NaN;
   const viewBoxHeight = viewBoxParts.length === 4 ? viewBoxParts[3] : NaN;
   const baseHeight = Number.isFinite(dataBoxBaseHeight) && dataBoxBaseHeight > 0
     ? dataBoxBaseHeight
@@ -254,6 +255,18 @@ function readBoxAxisMetrics(){
       return /rotate\(\s*-90/i.test(transform);
     })
     .length;
+  const firstRotatedLabel = axisLayer.querySelector('text[data-box-x-tick-label="1"][transform*="rotate(-45"]');
+  const firstRotatedLabelX = Number(firstRotatedLabel?.getAttribute('x'));
+  const firstRotatedLabelFontSize = Number(firstRotatedLabel?.getAttribute('font-size')) || 12;
+  const firstRotatedLabelWidth = firstRotatedLabel
+    ? window.Shared.chartStyle.measureText(
+        firstRotatedLabel.textContent || '',
+        window.Shared.chartStyle.makeFont(firstRotatedLabelFontSize)
+      )
+    : NaN;
+  const firstRotatedLabelLeftPx = Number.isFinite(firstRotatedLabelX) && Number.isFinite(firstRotatedLabelWidth)
+    ? firstRotatedLabelX - Math.SQRT1_2 * (firstRotatedLabelWidth + firstRotatedLabelFontSize)
+    : null;
   const svgBoxRect = svgBox.getBoundingClientRect();
   const ratio = Number.isFinite(Number(svgBoxRect?.width)) && Number.isFinite(Number(svgBoxRect?.height)) && Number(svgBoxRect.height) > 0
     ? Number(svgBoxRect.width) / Number(svgBoxRect.height)
@@ -273,10 +286,13 @@ function readBoxAxisMetrics(){
     significancePathCount: svg.querySelectorAll('path.box-significance-annotation').length,
     plotHeightPx: Number(graphGeometry?.plot?.heightPx) || null,
     plotWidthPx: Number(graphGeometry?.plot?.widthPx) || null,
+    xLabelLeadingInsetPx: Number(graphGeometry?.xTicks?.leadingInsetPx) || 0,
     topReservePx: Number(graphGeometry?.reserves?.topPx) || null,
     bottomReservePx: Number(graphGeometry?.reserves?.bottomPx) || null,
     axisLabelCount: axisLabels.length,
     rotatedCategoryLabelCount,
+    viewBoxWidthPx: Number.isFinite(viewBoxWidth) ? viewBoxWidth : null,
+    firstRotatedLabelLeftPx,
     svgBoxWidthPx: Number.isFinite(Number(svgBoxRect?.width)) ? Number(svgBoxRect.width) : null,
     svgBoxHeightPx: Number.isFinite(Number(svgBoxRect?.height)) ? Number(svgBoxRect.height) : null,
     svgBoxAspectRatio: ratio,
@@ -309,8 +325,15 @@ async function applyLongBoxLabels(){
     'Treatment alpha condition profile',
     'Treatment beta condition profile'
   ];
-  longLabels.forEach((label, index) => {
-    hot.setDataAtCell(0, index, label, 'test:box-long-labels');
+  hot.loadData([
+    longLabels,
+    [12, 15, 14],
+    [14.3, 17, 15.3],
+    [11, 14.6, 13],
+    [13.3, 16, 16.3]
+  ], {
+    source: 'test:box-long-labels',
+    recordUndo: false
   });
   await flushAsyncWork(50);
   const state = boxComponent?.__getState?.();
@@ -449,6 +472,7 @@ describe('Box layout reserves under horizontal shrink', () => {
     require('../js/shared/undo.js');
     require('../js/shared/resizer.js');
     require('../js/shared/dom.js');
+    require('../js/shared/exampleDatasets.js');
     require('../js/shared/exporter.js');
     require('../js/shared/chartStyle.js');
     require('../js/shared/graphSizing.js');
@@ -498,7 +522,7 @@ describe('Box layout reserves under horizontal shrink', () => {
     }
   });
 
-  test('x-label reserve keeps y-axis geometry stable while labels rotate on 50% width shrink (no significance)', async () => {
+  test('x-label inset moves the y-axis with datasets while labels rotate on 50% width shrink (no significance)', async () => {
     await activateWorkspace('box');
     await loadBoxExample();
     await applyLongBoxLabels();
@@ -516,12 +540,18 @@ describe('Box layout reserves under horizontal shrink', () => {
     expect(after).toBeTruthy();
 
     expect(after.rotated).toBe(true);
+    expect(after.firstRotatedLabelLeftPx).not.toBeNull();
+    expect(after.firstRotatedLabelLeftPx).toBeGreaterThanOrEqual(0);
+    expect(after.leftViewportExtensionPx).toBe(0);
+    expect(after.xLabelLeadingInsetPx).toBeGreaterThan(0);
     expect(after.significanceViewportExtensionPx).toBe(0);
     expect(after.bottomViewportExtensionPx).toBeGreaterThanOrEqual(before.bottomViewportExtensionPx);
+    expect(after.viewBoxWidthPx).toBeCloseTo(Math.round(startWidth * 0.5), 0);
+    expect(after.svgBoxWidthPx).toBeCloseTo(Math.round(startWidth * 0.5), 0);
     expect(Math.abs(after.yAxisSpan - before.yAxisSpan)).toBeLessThanOrEqual(1.5);
     expect(after.axisToBaseBottomPx).not.toBeNull();
     expect(before.axisToBaseBottomPx).not.toBeNull();
-    expect(Math.abs(after.yAxisX - before.yAxisX)).toBeLessThanOrEqual(1.5);
+    expect(after.yAxisX - before.yAxisX).toBeCloseTo(after.xLabelLeadingInsetPx, 0);
     expect(Math.abs(after.plotHeightPx - before.plotHeightPx)).toBeLessThanOrEqual(1.5);
     expect(after.xAxisSpan).toBeLessThan(before.xAxisSpan * 0.8);
   });
@@ -552,7 +582,9 @@ describe('Box layout reserves under horizontal shrink', () => {
     expect(Math.abs(after.yAxisSpan - before.yAxisSpan)).toBeLessThanOrEqual(1.5);
     expect(after.axisToBaseBottomPx).not.toBeNull();
     expect(before.axisToBaseBottomPx).not.toBeNull();
-    expect(Math.abs(after.yAxisX - before.yAxisX)).toBeLessThanOrEqual(1.5);
+    expect(after.leftViewportExtensionPx).toBe(0);
+    expect(after.xLabelLeadingInsetPx).toBeGreaterThan(0);
+    expect(after.yAxisX - before.yAxisX).toBeCloseTo(after.xLabelLeadingInsetPx, 0);
     expect(Math.abs(after.plotHeightPx - before.plotHeightPx)).toBeLessThanOrEqual(1.5);
     expect(after.xAxisSpan).toBeLessThan(before.xAxisSpan * 0.8);
   });
@@ -588,6 +620,7 @@ describe('Box layout reserves under horizontal shrink', () => {
   test('manual value-axis tick interval follows repeated axis flips', async () => {
     await activateWorkspace('box');
     await loadBoxExample();
+    await applyLongBoxLabels();
 
     const automaticInput = openBoxAxisControls('y');
     expect(Number(automaticInput.value)).toBeGreaterThan(0);

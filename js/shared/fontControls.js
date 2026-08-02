@@ -2511,70 +2511,41 @@
     return Array.from(activeHost.classList).some(cls => typeof cls === 'string' && /^font-toolbar-host--.+-dual$/.test(cls));
   }
 
+  function comboMenuRequiresFloating(anchor){
+    if(hostUsesDualToolbarLayout()){
+      return true;
+    }
+    return Shared.toolbarOverflow?.isOverflowViewport?.(anchor) === true;
+  }
+
   function clearComboMenuFloating(popup){
     if(!popup){ return; }
+    Shared.toolbarOverflow?.clearPopup?.(popup);
     popup.classList.remove('font-controls-panel__combo-menu--floating');
     if(popup.dataset && popup.dataset.fontControlsOverlay === '1'){
       delete popup.dataset.fontControlsOverlay;
     }
-    popup.style.removeProperty('position');
-    popup.style.removeProperty('left');
-    popup.style.removeProperty('top');
-    popup.style.removeProperty('right');
-    popup.style.removeProperty('bottom');
-    popup.style.removeProperty('width');
-    popup.style.removeProperty('min-width');
-    popup.style.removeProperty('max-width');
-    popup.style.removeProperty('max-height');
-    popup.style.removeProperty('z-index');
   }
 
   function applyComboMenuFloating(popup, anchor){
-    if(!popup || !anchor || typeof anchor.getBoundingClientRect !== 'function'){
+    if(!popup || !anchor || !comboMenuRequiresFloating(anchor)){
       clearComboMenuFloating(popup);
       return;
     }
-    if(!hostUsesDualToolbarLayout()){
+    const positioned = Shared.toolbarOverflow?.positionPopup?.(popup, anchor, {
+      align: 'start',
+      offset: -1,
+      minWidth: 80,
+      matchAnchorWidth: true,
+      maxHeight: 220,
+      zIndex: 12050
+    }) === true;
+    if(!positioned){
       clearComboMenuFloating(popup);
       return;
-    }
-    const rect = anchor.getBoundingClientRect();
-    if(!rect || !Number.isFinite(rect.left) || !Number.isFinite(rect.top)){
-      clearComboMenuFloating(popup);
-      return;
-    }
-    const viewportWidth = Number.isFinite(global.innerWidth) ? global.innerWidth : 0;
-    const viewportHeight = Number.isFinite(global.innerHeight) ? global.innerHeight : 0;
-    const margin = 4;
-    const width = Math.max(80, Math.ceil(rect.width + 2));
-    let left = Math.round(rect.left - 1);
-    if(viewportWidth > 0){
-      left = Math.max(margin, Math.min(left, viewportWidth - width - margin));
-    }
-    let top = Math.round(rect.bottom - 1);
-    let maxHeight = 220;
-    if(viewportHeight > 0){
-      const below = viewportHeight - top - margin;
-      const above = rect.top - margin;
-      if(below < 120 && above > below){
-        maxHeight = Math.max(100, Math.min(220, Math.floor(above)));
-        top = Math.max(margin, Math.round(rect.top - maxHeight));
-      }else{
-        maxHeight = Math.max(100, Math.min(220, Math.floor(below)));
-      }
     }
     popup.classList.add('font-controls-panel__combo-menu--floating');
     popup.dataset.fontControlsOverlay = '1';
-    popup.style.position = 'fixed';
-    popup.style.left = `${left}px`;
-    popup.style.top = `${top}px`;
-    popup.style.right = 'auto';
-    popup.style.bottom = 'auto';
-    popup.style.width = `${width}px`;
-    popup.style.minWidth = `${width}px`;
-    popup.style.maxWidth = `${width}px`;
-    popup.style.maxHeight = `${Math.max(100, maxHeight)}px`;
-    popup.style.zIndex = '12050';
   }
 
   function refreshOpenComboMenuPlacement(reason){

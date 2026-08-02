@@ -356,6 +356,35 @@ describe('Shared resizer graph options menu', () => {
     window.ResizeObserver = originalResizeObserver;
   });
 
+  test('transient programmatic sizing preserves the manual-resize state', () => {
+    const box = createSvgBox();
+    window.Shared.attachResizableBox(box, {
+      defaultWidth: 420,
+      defaultHeight: 320,
+      minWidth: 120,
+      minHeight: 90
+    });
+
+    expect(box.dataset.resizerResized).toBe('false');
+    window.Shared.applyResizableBoxSize(box, {
+      width: 440,
+      height: 330,
+      axis: 'both',
+      authorityMode: 'transient'
+    });
+    expect(box.dataset.resizerResized).toBe('false');
+
+    window.Shared.applyResizableBoxSize(box, { width: 450, height: 340, axis: 'both' });
+    expect(box.dataset.resizerResized).toBe('true');
+    window.Shared.applyResizableBoxSize(box, {
+      width: 460,
+      height: 350,
+      axis: 'both',
+      authorityMode: 'transient'
+    });
+    expect(box.dataset.resizerResized).toBe('true');
+  });
+
   test('attaching an already locked graph never normalizes its current geometry', () => {
     const box = createSvgBox();
     box.style.width = '510px';

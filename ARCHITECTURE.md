@@ -33,8 +33,10 @@ The exact script order is in `index.html` near the bottom (`<script src=...>` ta
   - Title visibility is stored with tab-scoped font styles; the shared resizer menu projects graph-title and relevant axis-title toggles.
   - Lock ratio stores tab-owned rendered geometry. Axis charts enforce it once while finalizing their current SVG viewport; the resizer never performs delayed box corrections. Measurement is bound to the SVG being committed, including staged renderers. Non-axis renderers may provide an explicit content measurement, as Heatmap Data values does for its matrix.
   - `Shared.framePublication` keeps the previous committed graph visible while a detached replacement is built in the owning plot. Publication removes the previous frame only after final job-generation and owner validation; cancellation discards only the staged frame.
-  - Ratio locking is a tab-owned resize constraint: toggling and handle clicks without movement are geometry-neutral, Cartesian targets use rendered axis lengths, and component resize callbacks are the sole draw-request owner.
+  - Ratio locking is a tab-owned resize constraint: toggling and handle clicks without movement are geometry-neutral, Cartesian targets use rendered axis lengths, and component resize callbacks are the sole draw-request owner. Automatic content-reserve sizing uses transient resizer authority and must not mark the graph as manually resized.
   - `Shared.visualProjection` applies presentation-only SVG attributes to tagged targets in the exact owning tab after the component session is updated. Unsupported or structural changes remain normal owner-scoped redraws; cooperative cancellation is not part of this synchronous projection path.
+  - `Shared.chartStyle.computeLegendLayout()` wraps long legends into height-bounded columns shared by 2D and 3D renderers. `stageLegendViewport()` preserves the canonical plot width, stages the resulting full SVG content viewport, then atomically publishes its transient visible envelope with the rendered frame. Component plot geometry must use the canonical base width; the legend extension is added only when the final SVG viewport is published. Legend content is excluded from automatic viewport fitting. Render-cache restoration rehydrates this derived envelope from SVG metadata without changing the cached viewBox or persisted graph size.
+  - `Shared.exampleDatasets` is the single provenance authority for built-in biomedical examples. Registry records are deeply frozen and cloned per load; component loaders apply the cloned table plus owner-scoped Notes through their normal persistence contract rather than sharing mutable literals across tabs.
   - Primarily implemented under `js/shared/`.
 
 - `window.Components`
@@ -93,6 +95,17 @@ Passive DOM projection is valid only after a component has completed full initia
 An authoritative `draw(meta)` must return its real synchronous result or Promise. Registry wrappers must not detach completion behind a second scheduler. When a renderer replaces its own frame recursively (for example, a layout reflow), the superseded render must transfer ownership explicitly so its cleanup cannot invalidate the replacement frame.
 
 Async SVG renderers must stage replacement frames through `Shared.framePublication`, finalize their viewport, perform a final owner/job check, and only then commit. They must not clear or mutate the committed graph before that boundary.
+
+### Workspace toolbar overflow and popup projection
+
+`Shared.workspaceToolbar` remains the authority for toolbar sections, contextual Format hosts, active-section state, and owner resolution. `Shared.toolbarOverflow` is a presentation-only adapter attached to the rendered toolbar:
+
+- Every General, Data, and Format section has one horizontal viewport and one track. The adapter wraps the section's existing children once; it never clones controls, duplicates event handlers, or moves actions into a second menu/state surface.
+- Overflow is determined from the section's natural content width versus its available shell width. Directional chevrons and edge fades reflect only the currently hidden direction, and item-aware scrolling reveals the next clipped control or contextual panel.
+- Native touch/trackpad horizontal scrolling remains available. Shift+wheel is the only vertical-wheel translation, and keyboard focus automatically reveals an offscreen control without intercepting arrow keys needed by inputs, selects, and sliders.
+- Raw `scrollLeft` is transient projection state. It resets when the active toolbar section or owning workspace tab changes and is never persisted into `tab.uiState` or `.graph` archives. The stable active section ID is persisted and restored through `workspaceToolbar.activateSectionById()`.
+- Toolbar popups that would otherwise be clipped by the horizontal viewport use `Shared.toolbarOverflow.positionPopup()`. The original popup node remains under its owner control, is positioned against its trigger in viewport coordinates, and has its prior inline styles restored on close. Components and shared controls must not introduce separate overflow-specific popup copies.
+- Overflow state is keyed by concrete toolbar/section DOM nodes in `WeakMap`s. No process-global active toolbar, owner, or scroll offset is authoritative.
 
 ## 5. Persistence Flow
 

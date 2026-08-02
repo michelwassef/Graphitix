@@ -14191,79 +14191,6 @@
       return resolvedHot || scatterHot;
     };
 
-    const scatterExamples={
-      scatter:[
-        [SCATTER_LABEL_HEADER,'X title','Y title','Z title',''],
-        ['Cat',4.5,23,'',''],
-        ['Dog',20,45,'',''],
-        ['Rabbit',2.5,35,'',''],
-        ['Cat',5,25,'',''],
-        ['Dog',22,50,'',''],
-        ['Rabbit',3,40,'',''],
-        ['Cat',4.8,24,'',''],
-        ['Dog',24,55,'','']
-      ],
-      scatter3d:[
-        [SCATTER_LABEL_HEADER,'X title','Y title','Z title',''],
-        ['Orion',2.5,18,4.5,''],
-        ['Lyra',6.2,25,9.1,''],
-        ['Cygnus',4.1,14,6.8,''],
-        ['Andromeda',8.6,32,12.4,''],
-        ['Cassiopeia',5.4,28,10.2,''],
-        ['Phoenix',7.9,20,7.3,''],
-        ['Delphinus',3.2,12,3.9,''],
-        ['Vela',9.4,36,13.6,'']
-      ],
-      scatterBubble:[
-        [SCATTER_LABEL_HEADER,'X title','Y title','Z title',''],
-        ['Comet A',1.8,12,25,''],
-        ['Comet B',4.2,18,40,''],
-        ['Comet C',2.5,22,55,''],
-        ['Comet D',5.7,28,70,''],
-        ['Comet E',3.9,16,35,''],
-        ['Comet F',6.4,24,90,''],
-        ['Comet G',4.8,30,65,''],
-        ['Comet H',7.1,26,80,'']
-      ],
-      grouped:[
-        [SCATTER_LABEL_HEADER,'X title','Control','','','Treatment','',''],
-        ['Week 1',1,10.2,10.6,10.8,14.2,14.5,14.8],
-        ['Week 2',2,10.8,11.0,11.2,14.9,15.2,15.5],
-        ['Week 3',3,11.3,11.5,11.9,15.7,16.0,16.4],
-        ['Week 4',4,11.9,12.2,12.4,16.6,16.9,17.2],
-        ['Week 5',5,12.5,12.8,13.1,17.3,17.7,18.1]
-      ],
-      groupedXY:[
-        [SCATTER_LABEL_HEADER,'X title','','','Control','','','Treatment','',''],
-        ['Week 1',0.95,1.02,1.05,10.2,10.6,10.8,14.2,14.5,14.8],
-        ['Week 2',1.93,2.00,2.08,10.8,11.0,11.2,14.9,15.2,15.5],
-        ['Week 3',2.92,3.01,3.07,11.3,11.5,11.9,15.7,16.0,16.4],
-        ['Week 4',3.91,4.03,4.09,11.9,12.2,12.4,16.6,16.9,17.2],
-        ['Week 5',4.88,5.00,5.11,12.5,12.8,13.1,17.3,17.7,18.1]
-      ],
-      volcano:[
-        ['Gene','log2FoldChange','pValue','',''],
-        ['GeneA',1.6,0.0005,'',''],
-        ['GeneB',-1.2,0.002,'',''],
-        ['GeneC',0.2,0.8,'',''],
-        ['GeneD',-2.1,0.0001,'',''],
-        ['GeneE',0.5,0.4,'',''],
-        ['GeneF',1.1,0.03,'',''],
-        ['GeneG',-1.8,0.0008,'','']
-      ],
-      ma:[
-        ['Gene','MeanExpression','log2FoldChange','pValue',''],
-        ['GeneA',8.5,1.4,0.0005,''],
-        ['GeneB',5.3,-1.1,0.002,''],
-        ['GeneC',3.9,0.1,0.4,''],
-        ['GeneD',9.2,-2.0,0.00005,''],
-        ['GeneE',6.1,0.3,0.2,''],
-        ['GeneF',7.4,1.2,0.015,''],
-        ['GeneG',4.8,-1.5,0.0009,''],
-        ['GeneH',2.7,0.0,0.9,'']
-      ]
-    };
-
     const tableImport = Shared.tableImport;
 
     const isScatterDiagnosticsEnabled = () => true;
@@ -20348,6 +20275,15 @@
         W3 = fallbackWidth;
         H3 = fallbackHeight;
       }
+      const baseW3 = W3;
+      const legendAxisGap = Math.max(fs * 0.9, 18);
+      const appliedLegendAxisGap = legendVisible ? legendAxisGap : 0;
+      const legendViewport3d = chartStyle.computeLegendViewport({
+        baseWidth: baseW3,
+        baseHeight: H3,
+        legendWidth: legendVisible ? legendWidth + appliedLegendAxisGap : 0
+      });
+      W3 = legendViewport3d.width;
       plotEl.style.position='relative';
       plotEl.style.aspectRatio = `${W3} / ${H3}`;
       plotEl.style.padding = plotEl.style.padding || '12px';
@@ -20363,12 +20299,20 @@
       }
       svg3.setAttribute('width',String(W3));
       svg3.setAttribute('height',String(H3));
-      svg3.setAttribute('data-scatter-base-width',String(W3));
+      svg3.setAttribute('data-scatter-base-width',String(baseW3));
       svg3.setAttribute('data-scatter-base-height',String(H3));
       svg3.setAttribute('viewBox',`0 0 ${W3} ${H3}`);
       svg3.setAttribute('font-family',chartStyle.FONT_FAMILY);
       svg3.dataset.viewMode = '3d';
       chartStyle.prepareSvg(svg3, { scopeId: 'scatter' });
+      const legendProjection = chartStyle.stageLegendViewport({
+        svgBox: scatterSvgBoxRef || scatterRefs?.svgBox,
+        plot: plotEl,
+        svg: svg3,
+        baseWidth: baseW3,
+        baseHeight: H3,
+        legendWidth: legendVisible ? legendWidth + appliedLegendAxisGap : 0
+      });
       while(svg3.firstChild){
         svg3.removeChild(svg3.firstChild);
       }
@@ -20380,8 +20324,6 @@
       appendScatter3dBackground(svg3, W3, H3, themeSnapshot);
       svg3.addEventListener('mouseleave', handleScatterPlotMouseLeave);
       bindScatter3dRotationControls(svg3, 'scatter-3d');
-      const legendAxisGap = Math.max(fs * 0.9, 18);
-      const appliedLegendAxisGap = legendVisible ? legendAxisGap : 0;
       const legendGapFor3d = legendLayout?.legendGapPx ?? legendGapPx;
       const baseLegendMargin = Math.max(fs * 2.25, 28);
       const legendMargin = legendVisible ? legendWidth + appliedLegendAxisGap + baseLegendMargin : baseLegendMargin;
@@ -21069,7 +21011,8 @@
       // "xMidYMid meet" (vs the 2D "none"/fill-distort default) prevents the SVG
       // from being non-uniformly stretched when the rendered box aspect differs
       // from the content aspect, on initial render, rotation, and resize.
-      ensureGraphViewport(svg3,{ padding: Math.max(fs, 18), debugLabel: 'scatter-3d-graph', preserveAspectRatio: 'xMidYMid meet' });
+      ensureGraphViewport(svg3,{ padding: Math.max(fs, 18), debugLabel: 'scatter-3d-graph', baseViewport: { width: W3, height: H3 }, preserveAspectRatio: 'xMidYMid meet' });
+      legendProjection.commit();
       return;
 
     }
@@ -24237,6 +24180,7 @@ async function drawScatter(drawOptions = {}){
         legendLayout = chartStyle.computeLegendLayout({
           entries:legendEntries,
           fontSize:fs,
+          viewportHeight: drawableFrame.height,
           scaleInfo: styleScaleInfo,
           strokeWidth:borderWidthPx,
           textColor: scatterThemeTextColor,
@@ -24492,15 +24436,17 @@ async function drawScatter(drawOptions = {}){
       // offset frame.
       plotEl.style.aspectRatio='';
       plotEl.style.padding='';
-      const W=Math.max(50,Math.floor(drawableFrame.width||50));
+      const baseWidth=Math.max(50,Math.floor(drawableFrame.width||50));
       const H=Math.max(40,Math.floor(drawableFrame.height||40));
+      const legendViewport=chartStyle.computeLegendViewport({ baseWidth, baseHeight:H, legendWidth:legendVisible ? legendWidth : 0 });
+      const W=legendViewport.width;
       plotEl.style.position='relative';
       const svg=document.createElementNS(NS,'svg');
       svg.dataset.scatterStagedSvg = 'true';
       stagedScatterSvgForCleanup = svg;
       svg.setAttribute('width',String(W));
       svg.setAttribute('height',String(H));
-      svg.setAttribute('data-scatter-base-width',String(W));
+      svg.setAttribute('data-scatter-base-width',String(baseWidth));
       svg.setAttribute('data-scatter-base-height',String(H));
       svg.setAttribute('viewBox',`0 0 ${W} ${H}`);
       svg.setAttribute('font-family',chartStyle.FONT_FAMILY);
@@ -24508,6 +24454,14 @@ async function drawScatter(drawOptions = {}){
       scatter.__resizeLiveRevision = (Number(scatter.__resizeLiveRevision) || 0) + 1;
       svg.dataset.resizeLiveRevision = String(scatter.__resizeLiveRevision);
       chartStyle.prepareSvg(svg, { scopeId: 'scatter' });
+      const legendProjection = chartStyle.stageLegendViewport({
+        svgBox: scatterSvgBoxRef || scatterRefs?.svgBox,
+        plot: plotEl,
+        svg,
+        baseWidth,
+        baseHeight: H,
+        legendWidth: legendVisible ? legendWidth : 0
+      });
       svg.setAttribute('data-color-scheme', themeSnapshot.schemeId || 'scientific');
       if(scatterThemeDark){
         const darkBg = normalizeScatterThemeColor(themeSnapshot.backgroundColor, '#000000');
@@ -24596,7 +24550,7 @@ async function drawScatter(drawOptions = {}){
       const tickBaseSpacing=Math.max(48,Math.round(fs*3.2));
       const xTickEstimateOptions={axis:'x',fallback:6,baseSpacing:tickBaseSpacing,min:4};
       const yTickEstimateOptions={axis:'y',fallback:6,baseSpacing:tickBaseSpacing,min:4};
-      let xTickTarget=clampScatterTickTarget(chartStyle.estimateTickCount(W,xTickEstimateOptions));
+      let xTickTarget=clampScatterTickTarget(chartStyle.estimateTickCount(baseWidth,xTickEstimateOptions));
       let yTickTarget=clampScatterTickTarget(chartStyle.estimateTickCount(H,yTickEstimateOptions));
       debug('Debug: scatter initial tick targets',{xTickTarget,yTickTarget,width:W,height:H});
       const scatterNotationX = getScatterAxisNotation('x');
@@ -25043,6 +24997,7 @@ async function drawScatter(drawOptions = {}){
         perfApi.end(viewportPerf, { component: 'scatter', token });
       }
       commitScatterSvg();
+      legendProjection.commit();
       const panelSyncPerf = perfApi?.start('scatter.layout.syncPanels', {
         component: 'scatter',
         token,
@@ -26403,7 +26358,6 @@ async function drawScatter(drawOptions = {}){
       bindScatterDataToolbar();
       if(typeof global.DEBUG_SCATTER === 'undefined') global.DEBUG_SCATTER = false;
 
-      if(global.DEBUG_SCATTER) scatterLog('scatter example dataset map', scatterExamples);
       scatterLoadExampleBtn = getScatterNodeById('scatterLoadExample');
       if(!scatterLoadExampleBtn || typeof scatterLoadExampleBtn.addEventListener !== 'function'){
         console.debug('Debug: scatter load example button missing at setup', {
@@ -26418,25 +26372,34 @@ async function drawScatter(drawOptions = {}){
           : '2d';
         const normalizedMode = typeof viewMode === 'string' ? viewMode.toLowerCase() : '2d';
         const groupedModeActive = type === 'scatter' && normalizedMode === '2d' && isGroupedScatterModeActive();
-        let dataset;
+        let exampleKey = type;
         if(groupedModeActive){
-          const exampleReplicates = 3;
-          const exampleLabels = ['Control', 'Treatment'];
+          exampleKey = scatterGroupedXReplicates ? 'groupedXY' : 'grouped';
+        }else if(type === 'scatter' && normalizedMode === '3d'){
+          exampleKey = 'scatter3d';
+        }else if(type === 'scatter' && normalizedMode === 'bubble'){
+          exampleKey = 'scatterBubble';
+        }
+        const exampleRecord = Shared.exampleDatasets?.get?.('scatter', exampleKey)
+          || Shared.exampleDatasets?.get?.('scatter', 'scatter');
+        const dataset = exampleRecord?.data;
+        if(!Array.isArray(dataset)){
+          console.warn('scatter example load skipped: biomedical example registry unavailable', { exampleKey });
+          return;
+        }
+        if(groupedModeActive){
+          const exampleReplicates = clampScatterReplicateCount(exampleRecord.meta?.replicates || SCATTER_MIN_REPLICATES);
+          const exampleLabels = Array.isArray(exampleRecord.meta?.groupLabels)
+            ? exampleRecord.meta.groupLabels.map((label, idx) => sanitizeScatterGroupLabel(label, idx))
+            : [];
           scatterReplicates = exampleReplicates;
           if(scatterReplicatesInput){
             scatterReplicatesInput.value = String(exampleReplicates);
           }
-          scatterSeriesGroupLabels = exampleLabels.slice();
+          scatterSeriesGroupLabels = exampleLabels;
           if(scatterGroupedXReplicatesInput){
             scatterGroupedXReplicatesInput.checked = !!scatterGroupedXReplicates;
           }
-          dataset = scatterGroupedXReplicates ? scatterExamples.groupedXY : scatterExamples.grouped;
-        }else if(type==='scatter' && normalizedMode==='3d'){
-          dataset = scatterExamples.scatter3d;
-        }else if(type==='scatter' && normalizedMode==='bubble'){
-          dataset = scatterExamples.scatterBubble;
-        }else{
-          dataset = scatterExamples[type] || scatterExamples.scatter;
         }
         scatterSuppressResizeObserveUntil = Date.now() + 750;
         markScatterOverlayPending('example-data');
@@ -26480,6 +26443,8 @@ async function drawScatter(drawOptions = {}){
           if(type!=='scatter' && scatterFill && scatterFill.value && scatterFill.value.toLowerCase()===getScatterPrimaryFillColor()){
             scatterFill.value=significanceColors.neutral;
           }
+          Shared.exampleDatasets?.applyNotesState?.(notesState, exampleRecord);
+          syncScatterSessionDurableStateFromModule(ownerSession, 'scatter-example-load');
           scatterLog('scatter example loaded',{type,viewMode,rows:dataset.length});
           syncScatterGraphTypeUI();
           syncScatterAspectControls('payload');
@@ -28463,6 +28428,7 @@ async function drawScatter(drawOptions = {}){
       });
       return false;
     }
+    chartStyle.rehydrateLegendViewports?.(plot);
     scatterState.rotationPending = false;
     scatterState.rotationPendingLogged = false;
     const svg = plot ? plot.querySelector('#scatterSvg') : null;

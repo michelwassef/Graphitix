@@ -6,6 +6,7 @@ const { createJStatTestStub } = require('../helpers/jstatTestStub');
 require('../../js/shared/palette.js');
 require('../../js/shared/performance.js');
 require('../../js/shared/workspaceToolbarAccess.js');
+require('../../js/shared/toolbarOverflow.js');
 require('../../js/shared/workspaceToolbar.js');
 
 // Console noise control.

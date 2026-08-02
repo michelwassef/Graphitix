@@ -112,6 +112,7 @@ describe('Line view labels', () => {
     require('../js/shared/colorPicker.js');
     require('../js/shared/editHighlight.js');
     require('../js/shared/hot.js');
+    require('../js/shared/exampleDatasets.js');
     require('../js/shared/componentLayout.js');
     require('../js/shared/chartStyle.js');
     require('../js/shared/regression.js');
@@ -256,6 +257,33 @@ describe('Line view labels', () => {
     expect(hooks.inferLine3dSeriesCount(twice)).toBe(2);
     expect(once[0].length).toBe(6);
     expect(twice[0].length).toBe(6);
+  });
+
+  test('canonical 3D headers remain idempotent with descriptive axis titles', () => {
+    const hooks = window.Components?.line?.__testHooks;
+    expect(hooks).toBeTruthy();
+    const matrix = [
+      ['Subject 1', '', '', 'Subject 2', '', ''],
+      ['Time (h)', 'Concentration (µg/mL)', 'Subject index', 'Time (h)', 'Concentration (µg/mL)', 'Subject index'],
+      [0.25, 1.5, 1, 0.25, 2.03, 2],
+      [0.5, 0.94, 1, 0.5, 1.63, 2]
+    ];
+
+    expect(hooks.isLine3dDatasetHeaderMatrix(matrix)).toBe(true);
+    expect(hooks.inferLine3dSeriesCount(matrix)).toBe(2);
+    const once = hooks.applyLine3dHeaderRow(matrix, 2);
+    const twice = hooks.applyLine3dHeaderRow(once, 2);
+
+    expect(once.slice(0, 4)).toEqual(matrix);
+    expect(twice).toEqual(once);
+    expect(twice[0]).toHaveLength(6);
+
+    const withBlankEditableTitle = matrix.map(row => row.slice());
+    withBlankEditableTitle[1][1] = '';
+    expect(hooks.isLine3dDatasetHeaderMatrix(withBlankEditableTitle)).toBe(true);
+    const normalizedBlankTitle = hooks.applyLine3dHeaderRow(withBlankEditableTitle, 2);
+    expect(normalizedBlankTitle[1][1]).toBe('Y');
+    expect(hooks.applyLine3dHeaderRow(normalizedBlankTitle, 2)).toEqual(normalizedBlankTitle);
   });
 
   test('legend label clicks do not hide rendered line series', async () => {

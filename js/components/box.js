@@ -5394,14 +5394,6 @@
       return false;
     }
     const reason = typeof drawOptions?.reason === 'string' ? drawOptions.reason : '';
-    const retainReasons = new Set([
-      'resize',
-      'significance-viewport-extension',
-      'font-style-change'
-    ]);
-    if(!retainReasons.has(reason)){
-      return false;
-    }
     const ownerTabId = resolveBoxExplicitOrBoundTabId(drawOptions || {});
     const renderedTabId = els.plotDiv?.dataset?.boxRenderedTabId || null;
     const sameTabFrame = !ownerTabId || !renderedTabId || ownerTabId === renderedTabId;
@@ -8004,14 +7996,17 @@
     return { width, height };
   }
 
-  function applyBoxCanvasViewport(svg, width, height){
+  function applyBoxCanvasViewport(svg, width, height, options = {}){
     const viewportWidth = Math.max(1, Number(width) || 1);
     const viewportHeight = Math.max(1, Number(height) || 1);
+    const baseWidth = Number.isFinite(Number(options.baseWidth)) && Number(options.baseWidth) > 0
+      ? Number(options.baseWidth)
+      : viewportWidth;
     svg.setAttribute('width', String(viewportWidth));
     svg.setAttribute('height', String(viewportHeight));
     svg.setAttribute('viewBox', `0 0 ${viewportWidth} ${viewportHeight}`);
     svg.setAttribute('preserveAspectRatio', 'none');
-    svg.setAttribute('data-box-base-width', String(viewportWidth));
+    svg.setAttribute('data-box-base-width', String(baseWidth));
     svg.setAttribute('data-box-base-height', String(viewportHeight));
   }
 
@@ -13833,6 +13828,7 @@
       preserveAspectLock: true,
       updateAspectRatio: true,
       updateDefaults: false,
+      authorityMode: 'transient',
       reason
     });
     commitBoxGraphFrame({
@@ -14228,6 +14224,7 @@
         preserveAspectLock: false,
         updateAspectRatio: false,
         updateDefaults: false,
+        authorityMode: 'transient',
         reason: options.reason || (horizontal ? 'box-auto-horizontal-reserve' : 'box-auto-content-reserve')
       });
     }catch(err){
@@ -14386,6 +14383,7 @@
         preserveAspectLock: false,
         updateAspectRatio: false,
         updateDefaults: false,
+        authorityMode: 'transient',
         reason
       });
       rememberBoxAppliedSignificanceFrameReservePx(axis, nextReserve, svgBox, reason, { ...options, session: owner });
@@ -17890,41 +17888,9 @@
     const loadExampleBtn=getBoxNodeById('boxLoadExample');
     const importBtn=getBoxNodeById('boxImport');
     const fileInput=getBoxNodeById('boxFile');
-    const exampleSingle=[
-      ['Control','Treatment A','Treatment B'],
-      [12,15,14],
-      [14.3,17,15.3],
-      [11,14.6,13],
-      [13.3,16,16.3],
-      [15.6,18,18.4],
-      [16.2,19,17.2],
-      [14.9,16.5,15.9],
-      [13.6,15.2,14.2],
-      [12.3,14.5,13.9],
-      [15.5,17.3,16.6],
-      [17.6,20,21.1]
-    ];
-    const exampleGrouped=[
-      ['Control','','','Treated','',''],
-      ['Week 1','Week 2','Week 3','Week 1','Week 2','Week 3'],
-      [23,24,21,67,29,65],
-      [21,23,25,79,31,69],
-      [19,25,27,98,32,71],
-      [22,26,24,88,30,67]
-    ];
-    boxLog('Debug: example datasets prepared',{ singleCols: exampleSingle[0]?.length, groupedCols: exampleGrouped[0]?.length });
-    const loadExampleData = (attempt = 0) => {
-      const activeTab = window.Main?.session?.getActiveTab?.() || null;
-      if(activeTab && activeTab.type === 'box' && !activeTab.payload && !state.hot && attempt < 20){
-        global.setTimeout?.(() => loadExampleData(attempt + 1), 50);
-        return;
-      }
+    const loadExampleData = () => {
       const hot = state.ensureHotForActiveTab?.() || getBoxActiveHotManager();
       if(!hot){
-        if(attempt < 6){
-          global.setTimeout?.(() => loadExampleData(attempt + 1), 50);
-          return;
-        }
         console.warn('boxplot example load skipped: table instance unavailable');
         resolveBoxLoading('example-data');
         return;
@@ -17941,13 +17907,20 @@
       forceBoxOverlay(overlayReason, { message: overlayMessage });
       markBoxOverlayPending(overlayReason);
       state.selectedCols.clear();
-      const loadedExampleMatrix = activeFormat === 'grouped' ? exampleGrouped : exampleSingle;
+      const exampleKey = activeFormat === 'grouped' ? 'grouped' : 'single';
+      const exampleRecord = Shared.exampleDatasets?.get?.('box', exampleKey);
+      const loadedExampleMatrix = exampleRecord?.data;
+      if(!Array.isArray(loadedExampleMatrix)){
+        console.warn('boxplot example load skipped: biomedical example registry unavailable', { exampleKey });
+        resolveBoxLoading(overlayReason);
+        return;
+      }
       if(activeFormat === 'grouped'){
-        state.grouped.replicatesPerGroup = 3;
+        state.grouped.replicatesPerGroup = Number(exampleRecord.meta?.replicatesPerGroup) || 3;
         updateTableFormatUI();
         applyTableFormatToHot(hot);
         hot.__boxAppliedTableFormatSignature = null;
-        hot.loadData(exampleGrouped, {
+        hot.loadData(loadedExampleMatrix, {
           source: 'example-load',
           recordUndo: true,
           undoLabel: 'table:box:example-load'
@@ -17956,7 +17929,7 @@
         updateGroupedHeaders(hot);
         boxLog('boxplot grouped example loaded');
       }else{
-        hot.loadData(exampleSingle, {
+        hot.loadData(loadedExampleMatrix, {
           source: 'example-load',
           recordUndo: true,
           undoLabel: 'table:box:example-load'
@@ -17983,10 +17956,14 @@
         viewOnly: true
       });
       applyBoxDefaultColorSchemeToActiveTab('example-load');
+      Shared.exampleDatasets?.applyNotesState?.(notesState, exampleRecord);
+      captureBoxSessionState(getBoxProjectionSession({ reason: 'box-projection-mutation' }), {
+        reason: 'box-example-load'
+      });
       boxLog('Debug: box axis settings reset from example load');
       scheduleActiveBoxDraw({ force: true, reason: 'example-load' });
     };
-    bindBoxControlHandler(loadExampleBtn, 'click', 'load-example', ()=>loadExampleData(0));
+    bindBoxControlHandler(loadExampleBtn, 'click', 'load-example', loadExampleData);
     bindBoxControlHandler(importBtn, 'click', 'import-table', ()=>{ fileInput.value=''; fileInput.click(); });
     const tableImport = Shared.tableImport;
     const applyBoxPrismStyle = style => {
@@ -28462,6 +28439,8 @@ Technical analysis record (advanced)
     const inlineBottomReserveBaseHeight = shouldInlineBottomViewportReserve
       ? Math.max(40, H - storedVerticalViewportExtension)
       : H;
+    const storedHorizontalFrameReserve = readBoxAppliedSignificanceFrameReservePx('x', els.svgBox);
+    const baseCanvasWidth = Math.max(50, W - storedHorizontalFrameReserve);
     const baseCanvasHeight = Math.max(40, inlineBottomReserveBaseHeight);
     const verticalLevelStep = resolveSignificanceLevelStepPx(annotationLevelGap, annotationLabelFontSize, 'vertical', annotationStrokeWidth, {
       labelMode: state.significanceLabelMode,
@@ -28545,9 +28524,9 @@ Technical analysis record (advanced)
     annotationMinY = showSignificance && maxLevelEstimate >= 0 ? initialTitleReserveTop : null;
     marginLocal.top += topExtra;
     marginLocal.left = Math.max(marginLocal.left, fs * 0.5);
-    let plotWLocal = Math.max(20, W - marginLocal.left - marginLocal.right);
+    let plotWLocal = Math.max(20, baseCanvasWidth - marginLocal.left - marginLocal.right);
     let plotHLocal = Math.max(20, baseCanvasHeight - marginLocal.top - marginLocal.bottom);
-    let canvasWidthLocal = W;
+    let canvasWidthLocal = baseCanvasWidth;
     let canvasHeightLocal = baseCanvasHeight;
     let flipAxisLayout = resolveBoxFlipTargetLayout('vertical', marginLocal, {
       plotWidth: plotWLocal,
@@ -28572,12 +28551,12 @@ Technical analysis record (advanced)
     canvasHeightLocal = shouldInlineBottomViewportReserve
       ? Math.max(40, baseCanvasHeight + Math.max(0, Number(bottomViewportExtension) || 0))
       : baseCanvasHeight;
-    plotWLocal = Math.max(20, W - marginLocal.left - marginLocal.right);
+    plotWLocal = Math.max(20, baseCanvasWidth - marginLocal.left - marginLocal.right);
     plotHLocal = Math.max(20, canvasHeightLocal - marginLocal.top - marginLocal.bottom);
     flipAxisLayout = resolveBoxFlipTargetLayout('vertical', marginLocal, {
       plotWidth: plotWLocal,
       plotHeight: plotHLocal,
-      canvasWidth: W,
+      canvasWidth: baseCanvasWidth,
       canvasHeight: canvasHeightLocal
     });
     plotWLocal = flipAxisLayout.plotWidth;
@@ -28635,12 +28614,12 @@ Technical analysis record (advanced)
       // Keep enough room for rotated y-title center + glyph thickness with a small safety buffer.
       const yTitleSafetyPad = Math.max(2, Math.round((axisMetrics.yTitleGap || 0) * 0.5));
       marginLocal.left = Math.max(marginLocal.left, yLabelGap + axisMetrics.axisTitleGap + fs + yTitleSafetyPad);
-      plotWLocal = Math.max(20, W - marginLocal.left - marginLocal.right);
+      plotWLocal = Math.max(20, baseCanvasWidth - marginLocal.left - marginLocal.right);
       plotHLocal = Math.max(20, baseCanvasHeight - marginLocal.top - marginLocal.bottom);
       flipAxisLayout = resolveBoxFlipTargetLayout('vertical', marginLocal, {
         plotWidth: plotWLocal,
         plotHeight: plotHLocal,
-        canvasWidth: W,
+        canvasWidth: baseCanvasWidth,
         canvasHeight: baseCanvasHeight
       });
       plotWLocal = flipAxisLayout.plotWidth;
@@ -28654,12 +28633,12 @@ Technical analysis record (advanced)
       canvasHeightLocal = shouldInlineBottomViewportReserve
         ? Math.max(40, baseCanvasHeight + Math.max(0, Number(bottomViewportExtension) || 0))
         : baseCanvasHeight;
-      plotWLocal = Math.max(20, W - marginLocal.left - marginLocal.right);
+      plotWLocal = Math.max(20, baseCanvasWidth - marginLocal.left - marginLocal.right);
       plotHLocal = Math.max(20, canvasHeightLocal - marginLocal.top - marginLocal.bottom);
       flipAxisLayout = resolveBoxFlipTargetLayout('vertical', marginLocal, {
         plotWidth: plotWLocal,
         plotHeight: plotHLocal,
-        canvasWidth: W,
+        canvasWidth: baseCanvasWidth,
         canvasHeight: canvasHeightLocal
       });
       plotWLocal = flipAxisLayout.plotWidth;
@@ -28677,6 +28656,9 @@ Technical analysis record (advanced)
       }
       yTickTarget = refinedTickTarget;
     }
+    const rotatedXLabelLeadingInsetPx = chartStyle.resolveRotatedXAxisLeadingInset(bottomLayout, marginLocal.left);
+    const categoricalPlotStart = marginLocal.left + rotatedXLabelLeadingInsetPx;
+    const categoricalPlotSpan = Math.max(20, plotWLocal - rotatedXLabelLeadingInsetPx);
     setBoxHorizontalSpanTarget(null, drawSession, 'vertical-layout-clear-horizontal-span-target');
     const xLabelReservePx = Number.isFinite(Number(bottomLayoutResult?.xLabelReserve))
       ? Math.max(0, Number(bottomLayoutResult.xLabelReserve))
@@ -28690,17 +28672,20 @@ Technical analysis record (advanced)
         topPx: topReservePx,
         bottomPx: bottomReservePx,
         significancePx: Math.max(0, Number(topExtra) || 0),
-        xLabelPx: xLabelReservePx
+        xLabelPx: xLabelReservePx,
+        leftPx: 0,
+        rightPx: 0
       },
       plot: {
-        x: marginLocal.left,
+        x: categoricalPlotStart,
         y: marginLocal.top,
-        widthPx: plotWLocal,
+        widthPx: categoricalPlotSpan,
         heightPx: plotHLocal,
         minHeightPx: minPlotHeightPx
       },
       xTicks: {
         rotated: bottomLayout.shouldRotate === true,
+        leadingInsetPx: rotatedXLabelLeadingInsetPx,
         requiredBottomPx: bottomReservePx,
         maxLabelWidthPx: Number.isFinite(Number(bottomLayout?.maxLabelWidth)) ? Number(bottomLayout.maxLabelWidth) : 0
       },
@@ -28729,19 +28714,21 @@ Technical analysis record (advanced)
       annotationMinY,
       titleBaselineY,
       baseCanvasHeight,
+      baseCanvasWidth,
       existingViewportExtension,
+      rotatedXLabelLeadingInsetPx,
       canvasWidth: canvasWidthLocal,
       canvasHeight: canvasHeightLocal
     });
-    const yAxisX = marginLocal.left;
+    const yAxisX = categoricalPlotStart;
     const runtime = await resolveOrientationRenderRuntime({
       orientation: 'vertical',
       valueAxis: 'y',
       valueScale: yScale,
       valuePlotLength: plotHLocal,
       valueMarginStart: marginLocal.top,
-      categoricalPlotSpan: plotWLocal,
-      categoricalMarginStart: marginLocal.left,
+      categoricalPlotSpan,
+      categoricalMarginStart: categoricalPlotStart,
       plotDimensionLabel: 'plotWidth',
       linearProjector: ({ value, marginStart, plotLength, scale, valueRange }) => marginStart + plotLength * (1 - (value - scale.min) / valueRange),
       brokenProjector: ({ value, brokenScale, marginStart, plotLength }) => brokenScale.valueToPixel(value, marginStart, plotLength),
@@ -29055,7 +29042,7 @@ Technical analysis record (advanced)
     addAxisElement('line',{ x1: yAxisX, y1: xAxisY, x2: axisXEnd, y2: xAxisY, stroke: axisStroke, 'stroke-linecap': 'square', 'stroke-width': axisStrokeWidth, 'data-box-primary-axis': 'x' });
     registerAxisHitLine(addAxisElement, { x1: yAxisX, y1: xAxisY, x2: axisXEnd, y2: xAxisY }, axisControlConfig('x'));
     boxLog('Debug: box axes stroke scaled',{ axisStrokeWidth });
-    renderSharedPlotFrame({ margin: marginLocal, plotW: plotWUsed, plotH: plotHLocal, showFrame, sides: ['top', 'right'] });
+    renderSharedPlotFrame({ margin: { ...marginLocal, left: yAxisX }, plotW: plotWUsed, plotH: plotHLocal, showFrame, sides: ['top', 'right'] });
     const xLabelOffset = xMajorTickLength + tickGap;
     const xLabels = [];
     let xTickFontCount = 0;
@@ -29064,7 +29051,7 @@ Technical analysis record (advanced)
       if(xInterval && i % xInterval !== 0){
         return;
       }
-      const x = separatedSpacing ? separatedSpacing.centers[i] : marginLocal.left + i * (bandW + datasetGapPx) + bandW / 2;
+      const x = categoricalLayout.tickCenters[i];
       addAxisElement('line',{ x1: x, y1: xAxisY, x2: x, y2: xAxisY + xMajorTickLength, stroke: axisStroke, 'stroke-width': axisStrokeWidth });
       const labelText = lab || `Category ${i + 1}`;
       const extra = Shared.computeAxisLabelYOffset ? Shared.computeAxisLabelYOffset(fs, xMajorTickLength, tickGap) : 0;
@@ -29125,7 +29112,7 @@ Technical analysis record (advanced)
       boxLog('Debug: box x-axis tick filter',{ interval: xInterval, rendered: renderedXTicks, total: axisLabels.length });
     }
     const yLabelOffsetSpan = (maxTickWidth + yMajorTickLength + tickGap + axisMetrics.axisTitleGap + fs * 0.5);
-    const defaultYX = marginLocal.left - yLabelOffsetSpan;
+    const defaultYX = yAxisX - yLabelOffsetSpan;
     const defaultYY = marginLocal.top + plotHLocal / 2;
     const yLabelPos = state.labelPositions?.yLabel;
 
@@ -29135,7 +29122,7 @@ Technical analysis record (advanced)
     if (yLabelPos) {
       if (yLabelPos.relX !== undefined && yLabelPos.relY !== undefined) {
         // Use relative positioning
-        absoluteYTextX = marginLocal.left + yLabelPos.relX * yLabelOffsetSpan;
+        absoluteYTextX = yAxisX + yLabelPos.relX * yLabelOffsetSpan;
         absoluteYTextY = marginLocal.top + yLabelPos.relY * plotHLocal;
       } else if (yLabelPos.x !== undefined && yLabelPos.y !== undefined) {
         // Use absolute positioning (backward compatibility)
@@ -29171,7 +29158,7 @@ Technical analysis record (advanced)
       Shared.enableLabelDrag(yText, svg, {
         onDragEnd: pos => {
           // Store both absolute and relative positions for yLabel
-          const relX = (pos.x - marginLocal.left) / yLabelOffsetSpan;
+          const relX = (pos.x - yAxisX) / yLabelOffsetSpan;
           const relY = (pos.y - marginLocal.top) / plotHLocal;
           state.labelPositions.yLabel = {
             x: pos.x,
@@ -29535,7 +29522,7 @@ Technical analysis record (advanced)
       if(separatedSpacing && idx >= 0 && idx < separatedSpacing.centers.length){
         return separatedSpacing.centers[idx];
       }
-      return marginLocal.left + idx * (bandW + datasetGapPx) + bandW / 2;
+      return categoricalPlotStart + idx * (bandW + datasetGapPx) + bandW / 2;
     };
     return {
       margin: marginLocal,
@@ -29545,13 +29532,16 @@ Technical analysis record (advanced)
       valueToCoord: y2px,
       annotationMaxByTrace,
       annotationObstaclePaddingPx,
-      titleX: marginLocal.left + plotWUsed / 2,
+      titleX: categoricalPlotStart + plotWUsed / 2,
       titleY: Number.isFinite(titleBaselineY) ? titleBaselineY : (marginLocal.top / 2),
       annotationMinY,
       flipAxisTargetApplied: flipAxisLayout.applied,
       baseCanvasHeight,
       significanceViewportExtension: unresolvedDownShift,
       bottomViewportExtension,
+      leftViewportExtension: 0,
+      rightViewportExtension: 0,
+      baseCanvasWidth,
       canvasWidth: canvasWidthLocal,
       canvasHeight: canvasHeightLocal
     };
@@ -33272,6 +33262,7 @@ Technical analysis record (advanced)
       H,
       significanceBasePlotHeight,
       significanceBasePlotWidth,
+      legendViewportExtension,
       commitPendingPlotFrame,
       gridLayer,
       add,
@@ -33293,6 +33284,7 @@ Technical analysis record (advanced)
     const viewportWidth = Number.isFinite(orientationResult?.canvasWidth) && orientationResult.canvasWidth > 0
       ? orientationResult.canvasWidth
       : W;
+    const renderViewportWidth = viewportWidth + Math.max(0, Number(legendViewportExtension) || 0);
     const viewportHeight = Number.isFinite(orientationResult?.canvasHeight) && orientationResult.canvasHeight > 0
       ? orientationResult.canvasHeight
       : H;
@@ -33312,10 +33304,10 @@ Technical analysis record (advanced)
       ? Math.max(0, Math.ceil(Number(orientationResult.bottomViewportExtension)))
       : 0;
     const requiredViewportExtension = requiredSignificanceViewportExtension + requiredBottomViewportExtension;
-    const requiredLeftViewportExtension = isFlipped && Number.isFinite(Number(orientationResult?.leftViewportExtension))
+    const requiredLeftViewportExtension = Number.isFinite(Number(orientationResult?.leftViewportExtension))
       ? Math.max(0, Math.ceil(Number(orientationResult.leftViewportExtension)))
       : 0;
-    const requiredRightViewportExtension = isFlipped && Number.isFinite(Number(orientationResult?.rightViewportExtension))
+    const requiredRightViewportExtension = Number.isFinite(Number(orientationResult?.rightViewportExtension))
       ? Math.max(0, Math.ceil(Number(orientationResult.rightViewportExtension)))
       : 0;
     const requiredHorizontalViewportExtension = requiredLeftViewportExtension + requiredRightViewportExtension;
@@ -33504,14 +33496,13 @@ Technical analysis record (advanced)
           reason: 'box-significance-reserve-frame-authority',
           commitFrameLayout: true
         });
-      }else{
-        horizontalSignificanceFrameUpdate = applyBoxSignificanceFrameReserveAuthority(requiredHorizontalViewportExtension, {
-          axis: 'x',
-          svgBox: els.svgBox,
-          reason: 'box-horizontal-significance-reserve-frame-authority',
-          commitFrameLayout: true
-        });
       }
+      horizontalSignificanceFrameUpdate = applyBoxSignificanceFrameReserveAuthority(requiredHorizontalViewportExtension, {
+        axis: 'x',
+        svgBox: els.svgBox,
+        reason: 'box-horizontal-content-reserve-frame-authority',
+        commitFrameLayout: true
+      });
     }
 
     flipFrameUpdate = synchronizeBoxFlipFrameToLayout({
@@ -33535,7 +33526,7 @@ Technical analysis record (advanced)
     svg.dataset.boxPlotTop = String(Number(orientationResult?.margin?.top) || 0);
     svg.dataset.boxPlotW = String(Number(orientationResult?.plotW) || 0);
     svg.dataset.boxPlotH = String(Number(orientationResult?.plotH) || 0);
-    applyBoxCanvasViewport(svg, viewportWidth, viewportHeight);
+    applyBoxCanvasViewport(svg, renderViewportWidth, viewportHeight, { baseWidth: viewportWidth });
     const zoomViewport = els.svgBox?.querySelector?.('.resizer-zoom-viewport') || null;
     const zoomContent = els.svgBox?.querySelector?.('.resizer-zoom-content') || null;
 
@@ -33563,8 +33554,7 @@ Technical analysis record (advanced)
         && requiredSignificanceViewportExtension === 0
         && requiredBottomViewportExtension > 0
         && Math.abs(viewportHeight - (viewportBaseHeight + requiredBottomViewportExtension)) <= 1;
-      const inlineHorizontalReserveSatisfied = isFlipped
-        && requiredHorizontalViewportExtension > 0
+      const inlineHorizontalReserveSatisfied = requiredHorizontalViewportExtension > 0
         && Math.abs(viewportWidth - (viewportBaseWidth + requiredHorizontalViewportExtension)) <= 1;
       const viewportExtensionRedrawSignature = [
         isFlipped ? 'horizontal' : 'vertical',
@@ -33787,7 +33777,7 @@ Technical analysis record (advanced)
     // The renderer has already allocated every margin and annotation reserve in
     // viewportWidth/viewportHeight. Keep that computed canvas authoritative;
     // fitting the content bounding box here would rescale X and Y independently.
-    applyBoxCanvasViewport(svg, viewportWidth, viewportHeight);
+    applyBoxCanvasViewport(svg, renderViewportWidth, viewportHeight, { baseWidth: viewportWidth });
     ensureBoxExportControlsClearance(svg, {
       reason: drawOpts?.reason || 'draw-layout',
       resizePhase: drawOpts?.resizePhase || null,
@@ -35277,6 +35267,7 @@ Technical analysis record (advanced)
       legendLayout = chartStyle.computeLegendLayout({
         entries: legendEntries,
         fontSize: fs,
+        viewportHeight: H,
         scaleInfo: styleScaleInfo,
         strokeWidth: legendStrokeWidth,
         swatchWidth: Math.max(12, Math.round(fs * 1.15)),
@@ -35287,12 +35278,21 @@ Technical analysis record (advanced)
       legendWidthForMargin = legendLayout.legendWidthForMargin;
       boxLog('Debug: box legend metrics',{ legendWidthForMargin, legendGapPx, entryCount: legendRenderer.entries.length, showLegend });
     }else{
-      legendLayout = chartStyle.computeLegendLayout({ entries: [], fontSize: fs, scaleInfo: styleScaleInfo, strokeWidth: borderWidthPx });
+      legendLayout = chartStyle.computeLegendLayout({ entries: [], fontSize: fs, viewportHeight: H, scaleInfo: styleScaleInfo, strokeWidth: borderWidthPx });
       legendRenderer = legendLayout.renderer;
       legendGapPx = 0;
       legendWidthForMargin = 0;
       boxLog('Debug: box legend disabled',{ grouped: isGroupedMode, groupCount: groupColorAssignments.size, showLegend });
     }
+    const legendViewport = chartStyle.stageLegendViewport({
+      svgBox: els.svgBox,
+      plot: els.plotDiv,
+      svg,
+      baseWidth: significanceBasePlotWidth,
+      baseHeight: H,
+      legendWidth: legendWidthForMargin
+    });
+    const legendViewportExtension = legendViewport.extensionWidth;
     const boxAxisNotationX = getAxisNotation('x');
     const boxAxisNotationY = getAxisNotation('y');
     const numericAxisKey = state.flipAxes ? 'x' : 'y';
@@ -35351,7 +35351,7 @@ Technical analysis record (advanced)
       showCaps,
       errorMode,
       isFlipped,
-      legendWidthForMargin,
+      legendWidthForMargin: 0,
       traces,
       axisLabels,
       resolveTraceColor,
@@ -35410,10 +35410,16 @@ Technical analysis record (advanced)
         H,
         significanceBasePlotHeight,
         significanceBasePlotWidth,
+        legendViewportExtension,
         commitPendingPlotFrame,
         gridLayer
       }
     });
+    if(!renderedFrame?.finalization || !isBoxDrawTokenCurrent(drawSession, token)){
+      drawOutcome = 'cancelled';
+      return false;
+    }
+    legendViewport.commit();
     if(Number.isFinite(Number(renderedFrame?.finalization?.traceCount))){
       traceCount = Number(renderedFrame.finalization.traceCount);
     }
@@ -37799,6 +37805,7 @@ Technical analysis record (advanced)
       });
       return false;
     }
+    chartStyle.rehydrateLegendViewports?.(els.plotDiv);
     if(els.plotDiv?.dataset){
       const restoredTabId = meta?.tabId || getBoxRenderCacheMetadata(cache)?.tabId || null;
       if(restoredTabId){

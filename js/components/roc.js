@@ -3525,36 +3525,13 @@
   }
 
   function initExampleAndImport(){
-    const example = [
-      ['Label','Model1','Model2','Model3'],
-      [1,0.98,0.9,0.88],
-      [0,0.95,0.4,0.3],
-      [1,0.93,0.85,0.76],
-      [0,0.9,0.35,0.25],
-      [1,0.88,0.8,0.68],
-      [0,0.85,0.3,0.2],
-      [1,0.82,0.75,0.6],
-      [0,0.8,0.25,0.15],
-      [1,0.78,0.7,0.55],
-      [0,0.75,0.2,0.1],
-      [1,0.72,0.65,0.5],
-      [0,0.7,0.15,0.08],
-      [1,0.68,0.6,0.45],
-      [0,0.65,0.1,0.06],
-      [1,0.62,0.55,0.4],
-      [0,0.6,0.08,0.04],
-      [1,0.58,0.5,0.35],
-      [0,0.55,0.06,0.03],
-      [1,0.52,0.45,0.3],
-      [0,0.5,0.04,0.02],
-      [1,0.48,0.4,0.25],
-      [0,0.45,0.02,0.01]
-    ];
-
     refs.loadExampleBtn?.addEventListener('click', event => {
       runRocControlOwner(event, 'roc-example-load', session => {
       const ownerHot = session?.managers?.hot || state.hot;
-      if(!ownerHot){
+      const exampleRecord = Shared.exampleDatasets?.get?.('roc');
+      const example = exampleRecord?.data;
+      if(!ownerHot || !Array.isArray(example)){
+        console.warn('ROC example load skipped: biomedical example registry unavailable');
         return;
       }
       const overlayReason = 'example-data';
@@ -3564,7 +3541,9 @@
         recordUndo: true,
         undoLabel: 'table:roc:example-load'
       });
-      console.debug('Debug: ROC example loaded');
+      Shared.exampleDatasets?.applyNotesState?.(notesState, exampleRecord);
+      captureRocSessionStateFromActive(session, { reason: 'roc-example-load', captureStatsPanel: false });
+      console.debug('Debug: ROC biomedical example loaded', { rows: example.length - 1, curves: example[0].length - 1 });
       scheduleRocDrawForSession(session, { reason: 'roc-example-load', tabId: session?.tabId || undefined });
       });
     });
@@ -4698,13 +4677,13 @@
 
     const plotEl = drawRefs.plotDiv;
     plotEl.style.display = 'block';
-    const width = Math.max(50, Math.floor(drawableFrame.width || 50));
+    const baseWidth = Math.max(50, Math.floor(drawableFrame.width || 50));
     const height = Math.max(40, Math.floor(drawableFrame.height || 40));
     plotEl.style.position = 'relative';
     const svg = document.createElementNS(NS, 'svg');
-    svg.setAttribute('width', String(width));
+    svg.setAttribute('width', String(baseWidth));
     svg.setAttribute('height', String(height));
-    svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+    svg.setAttribute('viewBox', `0 0 ${baseWidth} ${height}`);
     svg.setAttribute('font-family', chartStyle.FONT_FAMILY);
     svg.dataset.fontScope = 'roc';
     console.debug('Debug: roc svg dataset scope assigned', { scope: svg.dataset.fontScope }); // Debug: svg font scope tagging
@@ -4732,6 +4711,7 @@
     const legendLayout = chartStyle.computeLegendLayout({
       entries: legendEntries,
       fontSize,
+      viewportHeight: height,
       scaleInfo: styleScaleInfo,
       strokeWidth: borderWidthPx,
       onSwatchClick: ({ entry, swatch, event }) => {
@@ -4763,6 +4743,15 @@
     const legendRenderer = legendLayout.renderer || { entries: [], rowGap: 0, swatchSize: 0, swatchGap: 0, baselineOffset: 0 };
     const legendVisible = showLegend && legendRenderer.entries.length > 0;
     const legendWidth = legendVisible ? legendLayout.legendWidthForMargin : 0;
+    const legendViewport = chartStyle.stageLegendViewport({
+      svgBox: drawRefs.svgBox,
+      plot: plotEl,
+      svg,
+      baseWidth,
+      baseHeight: height,
+      legendWidth
+    });
+    const width = legendViewport.width;
     console.debug('Debug: roc legend layout metrics',{
       legendWidth,
       legendGap: legendLayout.legendGapPx,
@@ -4781,7 +4770,7 @@
       }
       return list;
     };
-    let tickCount = chartStyle.estimateTickCount(Math.min(width, height), { axis: graphType, fallback: 6, min: 3, max: 11 });
+    let tickCount = chartStyle.estimateTickCount(Math.min(baseWidth, height), { axis: graphType, fallback: 6, min: 3, max: 11 });
     const formatTick = value => chartStyle.formatScientific(value,{maxDecimals:2});
     const rocFontStyles = exportFontStyles('roc');
     const xTickMeasureFont = (chartStyle && typeof chartStyle.resolveScopedLabelMeasureFont === 'function')
@@ -5406,6 +5395,7 @@
     if(!(await checkpoint()) || !framePublication.commit()){
       return false;
     }
+    legendViewport.commit();
     state.layout?.syncPanels?.({ skipSchedule: true });
     syncRocAutoDrawNoticeWidth('draw');
     return true;
@@ -6814,6 +6804,9 @@
     const curveBindings = rehydrateRocCurveInteractions(ownerRoot);
     const statsRestored = restoreRocStatsSurfaceFromOwner(owner);
     const visuallyReady = hasRocPublishedGraph(ownerRoot);
+    if(visuallyReady){
+      chartStyle.rehydrateLegendViewports?.(plot);
+    }
     if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
       console.debug('Debug: roc render cache restored', {
         visuallyReady,

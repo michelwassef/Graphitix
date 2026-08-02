@@ -3078,6 +3078,20 @@
     };
   };
 
+  namespace.applyToSvg = function applyToSvg(type, svg, options){
+    const safeType = String(type || '').trim();
+    if(!safeType || !TYPE_TO_PAGE[safeType] || !svg){
+      return false;
+    }
+    const opts = ensureObject(options);
+    const requestedScheme = opts.schemeId || opts.colorScheme || readActiveSchemeForType(safeType) || getDefaultSchemeIdForType(safeType);
+    const schemeId = safeType === 'surface'
+      ? normalizeSurfaceSchemeId(requestedScheme)
+      : normalizePresetSchemeId(requestedScheme, safeType);
+    applySvgVisualTheme(svg, getScheme(schemeId));
+    return true;
+  };
+
   namespace.applyToActiveTab = function applyToActiveTab(type, schemeId, options){
     return applySchemeToActiveTab(type, schemeId, options);
   };

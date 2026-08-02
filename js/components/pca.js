@@ -11121,6 +11121,7 @@
     let analysisSignatures = null;
     let usingCache = false;
     let skipPerfRecord = false;
+    let framePublication = null;
     try {
       if (viewOnly && !renderRuntime.viewDirty && !renderRuntime.dataDirty) {
         const plotRoot = pcaPlotDiv || getPcaNodeById('pcaPlot');
@@ -12737,6 +12738,7 @@
       const legendLayout = chartStyle.computeLegendLayout({
         entries: legendMeasureEntries,
         fontSize: fs,
+        viewportHeight: drawableFrame.height,
         scaleInfo: styleScaleInfo,
         strokeWidth: borderWidthPx,
         textColor: pcaThemeTextColor,
@@ -12790,10 +12792,10 @@
       }
       plotEl.style.display = 'block';
       const existingSvg = plotEl.querySelector('#pcaSvg');
-      const reuse3dSvg = effectiveViewMode === '3d' && existingSvg && existingSvg.dataset.viewMode === '3d';
-      while (plotEl.firstChild) {
-        plotEl.removeChild(plotEl.firstChild);
-      }
+      const reuse3dSvg = drawOpts.reason === 'rotation'
+        && effectiveViewMode === '3d'
+        && existingSvg
+        && existingSvg.dataset.viewMode === '3d';
 
       if (refreshStats) {
         const eigenSummaryForStats = (method === 'pca' || method === 'mds') ? eigenSummaryData : [];
@@ -12820,6 +12822,7 @@
 
       if (effectiveViewMode === '3d') {
         if (!points3d.length) {
+          plotEl.replaceChildren();
           debugLog('Debug: pca 3d render skipped', {
             reason: 'no-points'
           });
@@ -12844,8 +12847,14 @@
           W3 = fallbackWidth;
           H3 = fallbackHeight;
         }
+        const baseW3 = W3;
+        const legendViewport3d = chartStyle.computeLegendViewport({
+          baseWidth: baseW3,
+          baseHeight: H3,
+          legendWidth: legendVisible ? effectiveLegendWidth : 0
+        });
+        W3 = legendViewport3d.width;
         plotEl.style.position = 'relative';
-        plotEl.style.minWidth = '';
         plotEl.style.minHeight = '';
         plotEl.style.aspectRatio = `${W3} / ${H3}`;
         plotEl.style.padding = plotEl.style.padding || '12px';
@@ -12860,13 +12869,31 @@
           svg3.setAttribute('id', 'pcaSvg');
         }
         svg3.addEventListener('mouseleave', handlePcaPlotMouseLeave);
-        plotEl.appendChild(svg3);
         svg3.setAttribute('width', String(W3));
         svg3.setAttribute('height', String(H3));
         svg3.setAttribute('viewBox', `0 0 ${W3} ${H3}`);
         svg3.setAttribute('font-family', chartStyle.FONT_FAMILY);
         svg3.dataset.viewMode = '3d';
         chartStyle.prepareSvg(svg3, { scopeId: 'pca' });
+        const legendProjection = chartStyle.stageLegendViewport({
+          svgBox: pcaSvgBox,
+          plot: plotEl,
+          svg: svg3,
+          baseWidth: baseW3,
+          baseHeight: H3,
+          legendWidth: legendVisible ? effectiveLegendWidth : 0
+        });
+        if (!reuse3dSvg) {
+          framePublication = Shared.framePublication.stage({
+            container: plotEl,
+            frame: svg3,
+            publishedId: 'pcaSvg',
+            component: 'pca',
+            tabId: drawTabId,
+            canCommit: () => (!drawAsyncState || isPcaDrawAsyncCurrent(drawToken, drawAsyncState))
+              && (!drawSession || isPcaSessionActiveForModuleState(drawSession))
+          });
+        }
         while (svg3.firstChild) {
           svg3.removeChild(svg3.firstChild);
         }
@@ -13571,16 +13598,12 @@
         if (legendVisible) {
           const horizontalBase = margin3.left + plotW3 + legendLayout.legendGapPx + appliedLegendAxisGap;
           const legendGapFor3d = legendLayout.legendGapPx;
-          const legendSpacing3 = Math.max(legendRenderer.rowGap || 0, Math.round(fs * 0.35));
-          const legendMarkerSize3 = legendRenderer.swatchSize || Math.max(Math.round(fs * 0.6), 10);
-          const legendTextOffset3 = legendMarkerSize3 + (legendRenderer.swatchGap || Math.max(Math.round(fs * 0.2), 6));
-          const legendHeight = legendEntries.length ?
-            legendEntries.length * legendMarkerSize3 + (legendEntries.length - 1) * legendSpacing3 :
-            0;
+          const legendHeight = legendRenderer.height || 0;
+          const legendContentWidth = legendRenderer.width || 0;
           const horizontalPadding = Math.max(fs * 0.6, 12) + appliedLegendAxisGap;
           let legendX3 = Math.max(horizontalBase, contentRightBound + horizontalPadding);
           const safeRightPad = Math.max(fs * 0.6, 12);
-          const maxLegendX = W3 - safeRightPad - legendWidth;
+          const maxLegendX = W3 - safeRightPad - legendContentWidth;
           if (maxLegendX < horizontalBase) {
             debugLog('Debug: pca legend width constraint', {
               mode: '3d',
@@ -13660,7 +13683,7 @@
               const legendRect = {
                 x: legendX3,
                 y: candidateY,
-                width: legendWidth,
+                width: legendContentWidth,
                 height: legendHeight
               };
               if (!intersectsAxis(legendRect)) {
@@ -13676,52 +13699,19 @@
             legendHeight,
             axisLabels: axisLabelBounds.length
           });
-          const legendGroup = add3('g', {
-            'data-role': 'pca-legend',
-            transform: `translate(${legendX3},${legendStartY})`
+          const legendGroup = legendRenderer.draw(svg3, {
+            x: legendX3,
+            y: legendStartY
           });
+          legendGroup?.setAttribute?.('data-role', 'pca-legend');
           legendGroup3d = legendGroup;
           if (legendGroup) {
             plot3d.applyLegendPointerGuards(legendGroup, {
               label: 'pca-legend-3d'
             });
           }
-          const legendAdd = (tag, attrs, text) => add3(tag, attrs, text, legendGroup);
-          legendEntries.forEach((entry, i) => {
-            const itemY = i * (legendMarkerSize3 + legendSpacing3);
-            const swatch3 = drawShape(legendAdd, entry.shape || 'circle', {
-              cx: legendMarkerSize3 / 2,
-              cy: itemY + legendMarkerSize3 / 2,
-              radius: legendMarkerSize3 / 2,
-              fill: entry.color,
-              stroke: borderColor,
-              strokeWidth: 0,
-              opacity: 1
-            });
-            if (swatch3) {
-              swatch3.style.cursor = 'pointer';
-              swatch3.dataset.legendKey = entry.key;
-              swatch3.dataset.legendSwatch = '1';
-              if (Number.isInteger(entry.groupIndex)) {
-                swatch3.dataset.legendGroupIndex = String(entry.groupIndex);
-              } else if (entry.labelValue) {
-                swatch3.dataset.legendLabel = entry.labelValue;
-              }
-              swatch3.addEventListener('click', (evt) => {
-                if (evt) {
-                  evt.stopPropagation();
-                }
-                handleLegendColorChange(entry, swatch3);
-              });
-            }
-            const legendText = legendAdd('text', {
-              x: legendTextOffset3,
-              y: itemY + legendMarkerSize3 / 2,
-              'font-size': fs,
-              'dominant-baseline': 'middle',
-              fill: pcaThemeTextColor,
-            }, entry.label);
-            markFontEditable(legendText, 'legend', `legend-${i}`);
+          Array.from(legendGroup?.querySelectorAll?.('text') || []).forEach((legendText, index) => {
+            markFontEditable(legendText, 'legend', `legend-${index}`);
           });
           if (legendGroup && typeof Shared.enableLegendDrag === 'function') {
             Shared.enableLegendDrag(legendGroup, svg3, {
@@ -13924,6 +13914,7 @@
           ensureGraphViewport(svg3, {
             padding: Math.max(fs, 18),
             debugLabel: 'pca-3d-graph',
+            baseViewport: { width: W3, height: H3 },
             preserveAspectRatio: 'xMidYMid meet'
           });
           pcaLayout?.syncPanels?.({
@@ -13931,10 +13922,16 @@
           });
           syncPcaAutoDrawNoticeWidth('draw');
         }
+        if (framePublication && !framePublication.commit()) {
+          return false;
+        }
+        plotEl.style.removeProperty('min-width');
+        legendProjection.commit();
         return;
       }
 
       if (!points.length) {
+        plotEl.replaceChildren();
         debugLog('Debug: pca 2d render skipped', {
           reason: 'no-points'
         });
@@ -14001,8 +13998,12 @@
       plotEl.style.aspectRatio = '';
       plotEl.style.padding = '';
       const baseDrawableWidth = Math.max(50, Math.floor(drawableFrame.width || 50));
-      let W = baseDrawableWidth;
       const H = Math.max(40, Math.floor(drawableFrame.height || 40));
+      let W = chartStyle.computeLegendViewport({
+        baseWidth: baseDrawableWidth,
+        baseHeight: H,
+        legendWidth: legendVisible ? effectiveLegendWidth : 0
+      }).width;
 
       function niceNum(range, round) {
         const exp = Math.floor(Math.log10(range));
@@ -14039,7 +14040,7 @@
         };
       }
 
-      let xTickTarget = chartStyle.estimateTickCount(W, {
+      let xTickTarget = chartStyle.estimateTickCount(baseDrawableWidth, {
         axis: 'x',
         fallback: 6
       });
@@ -14351,14 +14352,12 @@
         }
       }
       plotEl.style.position = 'relative';
-      plotEl.style.minWidth = W > baseDrawableWidth ? `${W}px` : '';
       const layeredRoot = document.createElement('div');
       layeredRoot.className = 'pca-layered-plot';
       layeredRoot.style.position = 'relative';
       layeredRoot.style.width = `${W}px`;
       layeredRoot.style.height = `${H}px`;
       layeredRoot.style.flex = '0 0 auto';
-      plotEl.appendChild(layeredRoot);
 
       const svg = document.createElementNS(NS, 'svg');
       svg.setAttribute('id', 'pcaSvg');
@@ -14368,6 +14367,15 @@
       svg.setAttribute('font-family', chartStyle.FONT_FAMILY);
       svg.dataset.viewMode = effectiveViewMode;
       chartStyle.prepareSvg(svg, { scopeId: 'pca' });
+      const legendProjection = chartStyle.stageLegendViewport({
+        svgBox: pcaSvgBox,
+        plot: plotEl,
+        svg,
+        baseWidth: baseDrawableWidth,
+        baseHeight: H,
+        legendWidth: legendVisible ? effectiveLegendWidth : 0,
+        minimumWidth: W
+      });
       svg.addEventListener('mouseleave', handlePcaPlotMouseLeave);
       const shouldUseCanvasPoints = points.length >= PCA_FAST_POINT_THRESHOLD;
       let fastPointCanvas = null;
@@ -14402,6 +14410,16 @@
         }
       }
       layeredRoot.appendChild(svg);
+      framePublication = Shared.framePublication.stage({
+        container: plotEl,
+        frame: layeredRoot,
+        publishedNode: svg,
+        publishedId: 'pcaSvg',
+        component: 'pca',
+        tabId: drawTabId,
+        canCommit: () => (!drawAsyncState || isPcaDrawAsyncCurrent(drawToken, drawAsyncState))
+          && (!drawSession || isPcaSessionActiveForModuleState(drawSession))
+      });
       const x2px = value => margin.left + ((value - xScale.min) * plotW) / (xScale.max - xScale.min);
       const y2px = value => margin.top + plotH - ((value - yScale.min) * plotH) / (yScale.max - yScale.min);
 
@@ -15188,6 +15206,11 @@
           height: H
         }
       });
+      if (!framePublication.commit()) {
+        return false;
+      }
+      plotEl.style.removeProperty('min-width');
+      legendProjection.commit();
       pcaLayout?.syncPanels?.({
         skipSchedule: true
       });
@@ -15198,6 +15221,7 @@
       });
       throw err;
     } finally {
+      framePublication?.cleanup();
       const totalEnd = nowMs();
       const fastModeChanged = pcaState.fastPointMode !== fastPointModeActive;
       pcaState.fastPointMode = fastPointModeActive;
@@ -17326,6 +17350,9 @@
       seedFromActive: true
     });
     const svg = plot ? (plot.querySelector('#pcaSvg') || plot.querySelector('svg')) : null;
+    if(restoredPlot){
+      chartStyle.rehydrateLegendViewports?.(plot);
+    }
     const rebound3dRotation = restoredPlot ? bindPca3dRotationControls(svg, 'pca-3d-restore') : false;
     if (typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()) {
       debugLog('Debug: pca render cache restored', {
@@ -17516,24 +17543,12 @@
     if (pcaLoadExampleButton) {
       pcaLoadExampleButton.addEventListener('click', () => {
         const selectedFormat = pcaState.tableFormat === 'grouped' ? 'grouped' : 'standard';
-        const pcaExample = selectedFormat === 'grouped' ?
-          [
-            [PCA_POINT_LABEL_ROW_HEADER, true, false, false, true, false, false, false, false],
-            [PCA_GROUP_ROW_HEADER, 'Control', '', 'Treatment', '', 'KO', '', 'Rescue', ''],
-            [PCA_SAMPLE_ROW_HEADER, 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'],
-            ['Var1', 1, 2, 3, 2, 10, 20, 30, 20],
-            ['Var2', 2, 3, 2, 3, 20, 10, 20, 30],
-            ['Var3', 3, 4, 1, 4, 30, 30, 10, 40],
-            ['Var4', 4, 2, 4, 1, 40, 20, 40, 10]
-          ] :
-          [
-            [PCA_POINT_LABEL_ROW_HEADER, true, false, false, true, false, false, false, false],
-            ['Variable', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'],
-            ['Var1', 1, 2, 3, 2, 10, 20, 30, 20],
-            ['Var2', 2, 3, 2, 3, 20, 10, 20, 30],
-            ['Var3', 3, 4, 1, 4, 30, 30, 10, 40],
-            ['Var4', 4, 2, 4, 1, 40, 20, 40, 10]
-          ];
+        const exampleRecord = Shared.exampleDatasets?.get?.('pca', selectedFormat);
+        const pcaExample = exampleRecord?.data;
+        if(!Array.isArray(pcaExample)){
+          console.warn('pca example load skipped: biomedical example registry unavailable', { selectedFormat });
+          return;
+        }
         const hot = ensurePcaHotForActiveTab();
         markPcaOverlayPending('example-data');
         hot?.loadData?.(pcaExample, {
@@ -17552,13 +17567,20 @@
           rows: pcaExample.length,
           cols: pcaExample[0]?.length
         });
+        const groupCount = Math.max(1, Number(exampleRecord.meta?.groupCount) || 2);
         pcaState.grouped = {
-          replicatesPerGroup: 2,
-          colors: DEFAULT_SCATTER_COLORS.slice(0, 4),
-          shapes: GROUP_SHAPE_DEFAULTS.slice(0, 4)
+          replicatesPerGroup: Math.max(1, Number(exampleRecord.meta?.replicatesPerGroup) || 1),
+          colors: DEFAULT_SCATTER_COLORS.slice(0, groupCount),
+          shapes: GROUP_SHAPE_DEFAULTS.slice(0, groupCount)
         };
         ensurePcaGroupedDefaults();
         setPcaTableFormat(selectedFormat);
+        Shared.exampleDatasets?.applyNotesState?.(notesState, exampleRecord);
+        capturePcaSessionStateFromActive(getPcaProjectionSession({
+          reason: 'pca-projection-mutation'
+        }), {
+          reason: 'pca-example-load'
+        });
         evaluateAutoDrawThresholds();
         scheduleActivePcaDraw({
           force: true,

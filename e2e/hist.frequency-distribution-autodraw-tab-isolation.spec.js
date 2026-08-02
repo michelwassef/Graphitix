@@ -382,6 +382,33 @@ function expectDensitySnapshot(snapshot) {
   expect(snapshot.svgText + snapshot.statsText).toMatch(/Density plot|Distribution shape|Log-normal|Descriptive statistics/i);
 }
 
+test('Histogram starts with distribution fits disabled', async ({ page }) => {
+  await installLocalCdnOverrides(page);
+  await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
+  await openHistExampleTab(page, { first: true });
+
+  const defaults = await page.evaluate(() => {
+    const root = document.querySelector('#histPage:not([hidden])');
+    const fitInputs = Array.from(root?.querySelectorAll?.('#histDistributionList input[data-dist-key]') || []);
+    const payload = window.Components?.hist?.getPayload?.();
+    return {
+      fits: fitInputs.map(input => !!input.checked),
+      showPdf: !!root?.querySelector?.('#histShowPdf')?.checked,
+      showCdf: !!root?.querySelector?.('#histShowCdf')?.checked,
+      payloadSelected: payload?.config?.distributions?.selected || [],
+      payloadShowPdf: payload?.config?.distributions?.showPdf,
+      payloadShowCdf: payload?.config?.distributions?.showCdf
+    };
+  });
+
+  expect(defaults.fits).toEqual([false, false, false]);
+  expect(defaults.showPdf).toBe(false);
+  expect(defaults.showCdf).toBe(false);
+  expect(defaults.payloadSelected).toEqual([]);
+  expect(defaults.payloadShowPdf).toBe(false);
+  expect(defaults.payloadShowCdf).toBe(false);
+});
+
 test('Histogram sparse bins omit baseline artifacts and paint shared separators once', async ({ page }) => {
   test.setTimeout(90_000);
   await installLocalCdnOverrides(page);

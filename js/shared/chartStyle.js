@@ -16,7 +16,11 @@
     gapScale: 0.55,
     minGapPx: 12,
     guardPaddingPx: 24,
-    basePlotMinWidth: 320
+    basePlotMinWidth: 320,
+    columnGapScale: 1.5,
+    minColumnGapPx: 12,
+    verticalReserveScale: 5.5,
+    minVerticalReservePx: 64
   });
   chartStyle.LEGEND_LAYOUT_CONSTANTS = LEGEND_LAYOUT_CONSTANTS;
 
@@ -1693,6 +1697,10 @@
       Math.abs(Math.sin(rotationAngleRad)) * maxLabelWidth
       + Math.abs(Math.cos(rotationAngleRad)) * tickLabelFontSize
     );
+    const rotatedLabelHorizontalProjections = widths.map(width => Math.ceil(
+      Math.abs(Math.cos(rotationAngleRad)) * width
+      + Math.abs(Math.sin(rotationAngleRad)) * tickLabelFontSize
+    ));
     const rotatedExtra = projectedTickLabelReserve
       ? Math.max(0, projectedRotatedLabelHeight - tickLabelFontSize)
       : Math.min(220, Math.max(tickLabelFontSize * 1.8, Math.ceil(Math.SQRT1_2 * maxLabelWidth) + tickLabelFontSize));
@@ -1720,12 +1728,28 @@
       extra,
       rotatedExtra,
       projectedRotatedLabelHeight,
+      rotatedLabelHorizontalProjections,
       bottom,
       labelOffset: adjustedLabelOffset,
       titleOffset,
       tickLength
     }); // Debug: bottom layout computation
-    return {bottom, shouldRotate, shouldRotateRaw, widths, bandWidth, maxLabelWidth, maxLabelWidthRatio, maxAdjacentOverlapRatio, labelOffset: adjustedLabelOffset, titleOffset, tickLength, tickLabelGap, axisTitleGap, outerPadding, labelMeasureFont, tickLabelFontSize};
+    return {bottom, shouldRotate, shouldRotateRaw, widths, bandWidth, maxLabelWidth, maxLabelWidthRatio, maxAdjacentOverlapRatio, rotatedLabelHorizontalProjections, labelOffset: adjustedLabelOffset, titleOffset, tickLength, tickLabelGap, axisTitleGap, outerPadding, labelMeasureFont, tickLabelFontSize};
+  };
+
+  chartStyle.resolveRotatedXAxisLeadingInset = function resolveRotatedXAxisLeadingInset(bottomLayout, marginLeft){
+    if(bottomLayout?.shouldRotate !== true){
+      return 0;
+    }
+    const firstProjection = Number(bottomLayout?.rotatedLabelHorizontalProjections?.[0]);
+    if(!Number.isFinite(firstProjection) || firstProjection <= 0){
+      return 0;
+    }
+    const safeMarginLeft = Math.max(0, Number(marginLeft) || 0);
+    const firstTickOffset = Math.max(0, (Number(bottomLayout?.bandWidth) || 0) / 2);
+    const outerPadding = Math.max(0, Number(bottomLayout?.outerPadding) || 0);
+    const requiredInset = firstProjection + outerPadding - safeMarginLeft - firstTickOffset;
+    return requiredInset > 0 ? Math.ceil(requiredInset) + 4 : 0;
   };
 
   chartStyle.applyLabelOrientation = function applyLabelOrientation(nodes, options){
@@ -2452,6 +2476,10 @@
     if(!styled){
       return false;
     }
+    const scopeId = options.scopeId || svg.id || svg.dataset?.fontScope || svg.closest?.('.svgbox')?.id || null;
+    if(options.applyTheme !== false && scopeId && typeof global.Shared?.colorSchemes?.applyToSvg === 'function'){
+      global.Shared.colorSchemes.applyToSvg(scopeId, svg, { schemeId: options.colorScheme });
+    }
     if(options.bindInteractions !== false){
       chartStyle.bindSvgInteractions(svg, options);
     }
@@ -2547,6 +2575,13 @@
     return label;
   };
 
+  function markLegendViewportContent(node){
+    if(node && typeof node.setAttribute === 'function'){
+      node.setAttribute('data-legend-viewport-content', 'true');
+    }
+    return node || null;
+  }
+
   chartStyle.createLegendRenderer = function createLegendRenderer(options){
     const opts = options || {};
     const rawEntries = Array.isArray(opts.entries) ? opts.entries : [];
@@ -2585,6 +2620,9 @@
     const swatchHeight = Number.isFinite(opts.swatchHeight) ? Math.max(1, Number(opts.swatchHeight)) : swatchSize;
     const swatchGap = Number.isFinite(opts.swatchGap) ? Number(opts.swatchGap) : Math.max(8, Math.round(fontSize * 0.4));
     const minWidth = Number.isFinite(opts.minWidth) ? Number(opts.minWidth) : Math.max(60, Math.round(fontSize * 5.5));
+    const columnGap = Number.isFinite(opts.columnGap)
+      ? Math.max(0, Number(opts.columnGap))
+      : Math.max(LEGEND_LAYOUT_CONSTANTS.minColumnGapPx, Math.round(fontSize * LEGEND_LAYOUT_CONSTANTS.columnGapScale));
     const fontForMeasure = chartStyle.makeFont(fontSize);
     let maxLabelWidth = 0;
     normalizedEntries.forEach(entry => {
@@ -2594,28 +2632,37 @@
         maxLabelWidth = width;
       }
     });
-    const width = normalizedEntries.length ? Math.max(minWidth, swatchWidth + swatchGap + maxLabelWidth) : 0;
     // Keep row spacing large enough for either text or swatch content to avoid overlap at small fonts.
     const rowContentHeight = Math.max(fontSize, swatchHeight);
     const rowHeight = rowContentHeight + rowGap;
     const baselineOffset = Number.isFinite(opts.baselineOffset) ? Number(opts.baselineOffset) : 0;
     const textCenterOffset = rowContentHeight / 2;
     const swatchOffsetY = (rowContentHeight - swatchHeight) / 2;
-    const height = normalizedEntries.length ? baselineOffset + (normalizedEntries.length - 1) * rowHeight + rowContentHeight : 0;
-    const debugSummary = {
-      entryCount: normalizedEntries.length,
-      fontSize,
-      rowGap,
-      swatchSize,
-      swatchWidth,
-      swatchHeight,
-      swatchGap,
-      minWidth,
-      width,
-      height,
-      maxLabelWidth
-    };
-    console.debug('Debug: chartStyle.createLegendRenderer metrics', debugSummary);
+    const requestedMaxHeight = Number(opts.maxHeight);
+    const maxHeight = Number.isFinite(requestedMaxHeight) && requestedMaxHeight > 0
+      ? requestedMaxHeight
+      : Infinity;
+    const maximumRows = Number.isFinite(maxHeight)
+      ? Math.max(1, Math.floor(Math.max(0, maxHeight - baselineOffset - rowContentHeight) / rowHeight) + 1)
+      : Math.max(1, normalizedEntries.length);
+    const columnCount = normalizedEntries.length ? Math.ceil(normalizedEntries.length / maximumRows) : 0;
+    const rowsPerColumn = columnCount ? Math.ceil(normalizedEntries.length / columnCount) : 0;
+    const columnWidths = Array.from({ length: columnCount }, () => minWidth);
+    normalizedEntries.forEach((entry, index) => {
+      const columnIndex = Math.floor(index / rowsPerColumn);
+      columnWidths[columnIndex] = Math.max(columnWidths[columnIndex], swatchWidth + swatchGap + entry.labelWidth);
+    });
+    const columnOffsets = [];
+    let width = 0;
+    columnWidths.forEach((columnWidth, index) => {
+      columnOffsets.push(width);
+      width += columnWidth;
+      if(index < columnWidths.length - 1){
+        width += columnGap;
+      }
+    });
+    const renderedRows = normalizedEntries.length ? Math.min(rowsPerColumn, normalizedEntries.length) : 0;
+    const height = renderedRows ? baselineOffset + (renderedRows - 1) * rowHeight + rowContentHeight : 0;
     const applyLegendIdentity = (node, entry, idx, role) => {
       if(entry.key){
         node.dataset.legendKey = entry.key;
@@ -2803,13 +2850,17 @@
       baselineOffset,
       minWidth,
       maxLabelWidth,
+      maxHeight: Number.isFinite(maxHeight) ? maxHeight : null,
+      columnGap,
+      columnCount,
+      rowsPerColumn,
+      columnWidths,
       draw(svg, position){
         if(!svg || typeof svg.appendChild !== 'function'){
           console.warn('chartStyle.createLegendRenderer.draw skipped: invalid svg target');
           return null;
         }
         if(!normalizedEntries.length){
-          console.debug('Debug: chartStyle.createLegendRenderer.draw skipped',{ reason: 'no entries' });
           return null;
         }
         const doc = svg.ownerDocument || global.document;
@@ -2817,19 +2868,23 @@
         const posX = Number.isFinite(position?.x) ? Number(position.x) : 0;
         const posY = Number.isFinite(position?.y) ? Number(position.y) : 0;
         group.setAttribute('transform', `translate(${posX},${posY})`);
+        group.dataset.legendColumnCount = String(columnCount);
+        group.dataset.legendRowsPerColumn = String(rowsPerColumn);
+        markLegendViewportContent(group);
         normalizedEntries.forEach((entry, idx) => {
-          const rowStartY = idx * rowHeight + baselineOffset;
+          const columnIndex = Math.floor(idx / rowsPerColumn);
+          const rowIndex = idx % rowsPerColumn;
+          const columnX = columnOffsets[columnIndex] || 0;
+          const rowStartY = rowIndex * rowHeight + baselineOffset;
           const textCenterY = rowStartY + textCenterOffset;
-          const swatchCenterY = rowStartY + swatchOffsetY + (swatchSize / 2);
+          const swatchCenterY = rowStartY + swatchOffsetY + (swatchHeight / 2);
           const swatch = createLegendSwatch(doc, entry, idx, swatchCenterY);
+          if(columnX){
+            swatch.setAttribute('transform', `translate(${columnX},0)`);
+          }
           if(entry.editable && typeof opts.onSwatchClick === 'function'){
             swatch.style.cursor = 'pointer';
             swatch.addEventListener('click', (evt) => {
-              console.debug('Debug: legend swatch click', {
-                label: entry.label,
-                key: entry.key,
-                index: idx
-              });
               opts.onSwatchClick({
                 event: evt,
                 entry,
@@ -2843,7 +2898,7 @@
           }
           group.appendChild(swatch);
           const text = doc.createElementNS(NS, 'text');
-          text.setAttribute('x', swatchWidth + swatchGap);
+          text.setAttribute('x', columnX + swatchWidth + swatchGap);
           text.setAttribute('y', textCenterY);
           text.setAttribute('font-size', fontSize);
           text.setAttribute('fill', textColor);
@@ -2856,7 +2911,6 @@
           group.appendChild(text);
         });
         svg.appendChild(group);
-        console.debug('Debug: chartStyle.createLegendRenderer.draw applied',{ entryCount: normalizedEntries.length, x: posX, y: posY });
         return group;
       }
     };
@@ -2865,6 +2919,21 @@
 
   chartStyle.computeLegendLayout = function computeLegendLayout(options){
     const opts = options || {};
+    const requestedViewportHeight = Number(opts.viewportHeight);
+    const requestedMaxHeight = Number(opts.maxHeight);
+    const requestedFontSize = Math.max(4, Number(opts.fontSize) || 12);
+    const defaultVerticalReserve = Math.max(
+      LEGEND_LAYOUT_CONSTANTS.minVerticalReservePx,
+      Math.round(requestedFontSize * LEGEND_LAYOUT_CONSTANTS.verticalReserveScale)
+    );
+    const verticalReserve = Number.isFinite(Number(opts.verticalReserve))
+      ? Math.max(0, Number(opts.verticalReserve))
+      : defaultVerticalReserve;
+    const maxHeight = Number.isFinite(requestedMaxHeight) && requestedMaxHeight > 0
+      ? requestedMaxHeight
+      : (Number.isFinite(requestedViewportHeight) && requestedViewportHeight > 0
+        ? Math.max(requestedFontSize, requestedViewportHeight - verticalReserve)
+        : undefined);
     const renderer = chartStyle.createLegendRenderer({
       entries: opts.entries,
       fontSize: opts.fontSize,
@@ -2875,6 +2944,8 @@
       swatchGap: opts.swatchGap,
       rowGap: opts.rowGap,
       minWidth: opts.minWidth,
+      maxHeight,
+      columnGap: opts.columnGap,
       baselineOffset: opts.baselineOffset,
       textColor: opts.textColor,
       onSwatchClick: opts.onSwatchClick
@@ -2892,7 +2963,6 @@
       ? Math.max(0, opts.basePlotWidth)
       : LEGEND_LAYOUT_CONSTANTS.basePlotMinWidth;
     const minSvgWidth = entryCount ? basePlotWidth + legendWidthForMargin + guardPaddingPx : basePlotWidth;
-    console.debug('Debug: chartStyle.computeLegendLayout',{ entryCount, legendGapPx, legendWidthForMargin, minSvgWidth, basePlotWidth, guardPaddingPx });
     return {
       renderer,
       legendGapPx,
@@ -2901,6 +2971,116 @@
       basePlotWidth,
       guardPaddingPx
     };
+  };
+
+  chartStyle.computeLegendViewport = function computeLegendViewport(options){
+    const opts = options || {};
+    const rawBaseWidth = Number(opts.baseWidth);
+    const rawBaseHeight = Number(opts.baseHeight);
+    const rawLegendWidth = Number(opts.legendWidth);
+    const rawMinimumWidth = Number(opts.minimumWidth);
+    const baseWidth = Number.isFinite(rawBaseWidth) && rawBaseWidth > 0 ? rawBaseWidth : 1;
+    const baseHeight = Number.isFinite(rawBaseHeight) && rawBaseHeight > 0 ? rawBaseHeight : 1;
+    const legendWidth = Number.isFinite(rawLegendWidth) && rawLegendWidth > 0 ? rawLegendWidth : 0;
+    const minimumWidth = Number.isFinite(rawMinimumWidth) && rawMinimumWidth > 0 ? rawMinimumWidth : 0;
+    const width = Math.max(baseWidth + legendWidth, minimumWidth);
+    return {
+      baseWidth,
+      baseHeight,
+      legendWidth,
+      extensionWidth: Math.max(0, width - baseWidth),
+      width,
+      height: baseHeight
+    };
+  };
+
+  chartStyle.stageLegendViewport = function stageLegendViewport(options){
+    const opts = options || {};
+    const viewport = chartStyle.computeLegendViewport(opts);
+    const svg = opts.svg || null;
+    const plot = opts.plot || svg?.parentElement || null;
+    const svgBox = opts.svgBox || plot?.closest?.('.svgbox') || svg?.closest?.('.svgbox') || null;
+    const format = value => String(Math.round(value * 1000) / 1000);
+    const hasExtension = viewport.extensionWidth > 0;
+    const applyViewportSlot = target => {
+      if(!target?.dataset || !target?.style) return;
+      if(hasExtension){
+        target.dataset.graphContentViewport = 'true';
+        target.style.setProperty('--graph-content-viewport-width', `${format(viewport.width)}px`);
+      }else{
+        delete target.dataset.graphContentViewport;
+        target.style.removeProperty('--graph-content-viewport-width');
+      }
+    };
+    if(svg){
+      if(opts.applySvgViewport !== false){
+        svg.setAttribute('width', format(viewport.width));
+        svg.setAttribute('height', format(viewport.height));
+        svg.setAttribute('viewBox', `0 0 ${format(viewport.width)} ${format(viewport.height)}`);
+        if(svg.dataset){
+          svg.dataset.legendBaseWidth = format(viewport.baseWidth);
+          svg.dataset.legendBaseHeight = format(viewport.baseHeight);
+          svg.dataset.legendReserveWidth = format(viewport.extensionWidth);
+        }
+      }
+      if(svg.style && hasExtension){
+        svg.style.overflow = 'visible';
+      }else if(svg.style){
+        svg.style.removeProperty('overflow');
+      }
+      applyViewportSlot(svg);
+    }
+    let committed = false;
+    return Object.assign({}, viewport, {
+      commit(){
+        if(committed) return true;
+        committed = true;
+        applyViewportSlot(plot);
+        if(svgBox?.dataset && svgBox?.style){
+          if(hasExtension){
+            svgBox.style.setProperty('--graph-content-extra-right', `${format(viewport.extensionWidth)}px`);
+            svgBox.dataset.graphContentEnvelope = 'true';
+          }else{
+            delete svgBox.dataset.graphContentEnvelope;
+            svgBox.style.removeProperty('--graph-content-extra-right');
+          }
+        }
+        return true;
+      }
+    });
+  };
+
+  chartStyle.rehydrateLegendViewports = function rehydrateLegendViewports(root){
+    if(!root){
+      return 0;
+    }
+    const svgs = [];
+    if(root.matches?.('svg[data-legend-base-width][data-legend-reserve-width]')){
+      svgs.push(root);
+    }
+    root.querySelectorAll?.('svg[data-legend-base-width][data-legend-reserve-width]').forEach(svg => svgs.push(svg));
+    let restored = 0;
+    svgs.forEach(svg => {
+      const baseWidth = Number(svg.dataset?.legendBaseWidth);
+      const reserveWidth = Number(svg.dataset?.legendReserveWidth);
+      if(!Number.isFinite(baseWidth) || baseWidth <= 0 || !Number.isFinite(reserveWidth) || reserveWidth < 0){
+        return;
+      }
+      const viewBoxValues = String(svg.getAttribute?.('viewBox') || '').trim().split(/[\s,]+/).map(Number);
+      const fallbackHeight = Number.isFinite(viewBoxValues[3]) && viewBoxValues[3] > 0 ? viewBoxValues[3] : 1;
+      const baseHeight = Number(svg.dataset?.legendBaseHeight);
+      chartStyle.stageLegendViewport({
+        svg,
+        plot: svg.parentElement || null,
+        svgBox: svg.closest?.('.svgbox') || null,
+        baseWidth,
+        baseHeight: Number.isFinite(baseHeight) && baseHeight > 0 ? baseHeight : fallbackHeight,
+        legendWidth: reserveWidth,
+        applySvgViewport: false
+      }).commit();
+      restored += 1;
+    });
+    return restored;
   };
 
   chartStyle.drawPlotFrame = function drawPlotFrame(options){

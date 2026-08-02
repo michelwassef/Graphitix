@@ -1,6 +1,26 @@
 ## Unreleased
 
+- Fixed Line 3D example loading so descriptive, user-editable axis titles remain a canonical two-row 3D schema instead of triggering repeated legacy conversion, dataset-column growth, and duplicated header rows.
+- Constrained every shared draggable legend to the complete current SVG viewport, including restored positions and 2D/3D views, so no legend edge can be moved outside its container.
+- Made legend visibility geometry-neutral across Box, Scatter, PCA, Line, ROC, Survival, Histogram, and Pie: the SVG and visible graph card extend around the legend, while the plot keeps its exact size. Long legends wrap into height-bounded columns, the new frame and card envelope publish together to prevent toggle flicker, radial Pie expands its clipping plot host on the initial render, and manual resize handles remain on the visible outer edge.
+- Fixed narrow stacked Pie graphs so rotated x-axis labels use the shared projected rotation geometry; the SVG/card gains the exact bottom reserve, while the shared Box/Pie categorical inset keeps the first label inside the left edge and moves the Y axis with its datasets.
+- Fixed grouped-replicate Box graphs so the legend extension is applied only to the final SVG viewport and never fed back into plot, font, or axis sizing.
+- Rehydrated legend envelopes after owner-validated render-cache restoration without changing cached SVG geometry.
+- Fixed rotated Box x-axis labels at the left edge with an internal categorical inset, keeping labels in bounds while preserving the Y-axis-to-dataset spacing and graph frame.
+- Replaced every built-in component example, including mode-specific Scatter, PCA, Line, and Box variants, with curated biomedical-literature data and explicit paper/figure provenance in the component Notes section.
+- Fixed opened example provenance Notes so their intrinsic text width cannot expand plot stacks and push graph control panels offscreen, and changed the shared Notes content default to 10 pt.
+- Normalized Data and Format toolbars to one shared panel contract: 70px height, white surfaces, standard title slots, 52px control rows, and consistent outer insets and inner horizontal padding.
+- Added an immutable shared biomedical example registry that deep-clones records per load, eliminating duplicated component literals while preserving same-component tab isolation and normal Notes persistence through save, reopen, and recovery.
+- Added rich paired/repeated designs, including three paired aSAH ROC predictors for all 113 patients, all six Indomethacin pharmacokinetic profiles, the complete 23-patient AML survival dataset, complete ToothGrowth measurements, WDBC multivariate views, and TCGA subtype gene sets.
+- Added a provenance manifest and focused contracts for registry coverage, clone isolation, Notes integration, dataset richness, and paired ROC composition.
+
 - Fixed the shared Playwright workspace launcher to wait for welcome-card hydration before clicking, removing four failed 10-second retries for later cards such as ROC, Survival, and Pie.
+- Added one shared owner-safe toolbar overflow rail for General, Data, and Format sections. Controls remain in their original DOM/state surface while directional chevrons, item-aware scrolling, touch/trackpad support, Shift+wheel scrolling, and focus reveal make every action reachable at constrained widths.
+- Fixed toolbar scrollers so clicks only move the active rail, context panels open at the left edge, and flat full-height Excel-style arrows replace floating shadowed buttons and gradient fades.
+- Normalized Data transforms and simultaneous Format panels to a single non-wrapping row; overflow position is transient UI projection that resets on toolbar-section or tab-owner changes and is never serialized into `.graph` state.
+- Added shared fixed-position toolbar popup placement so Open, custom-transform, font, notation, additional-tick, and broken-axis menus escape the horizontal viewport without cloning controls or creating a second state authority.
+- Added stable section-ID activation for toolbar UI-state restore, replacing the previous incompatible DOM-element/label call boundary.
+- Added focused unit and Chromium contracts for DOM identity, directional affordances, owner resets, focus and wheel behavior, popup clipping, narrow General/Data sections, and multi-panel Format overflow.
 - Made inactive Scatter, PCA, and ROC payload reads projection-free: when persistence requests a non-projected owner, each component now returns that tab's canonical payload verbatim instead of reading the currently mounted sibling's grid, controls, or statistics. This fixes same-component Save/reopen signature drift that could appear in unchanged components after shared persistence timing changed.
 - Fixed Scatter table access so explicitly resolving an inactive owner no longer replaces the module's projected AG Grid, and corrected grouped-header normalization to operate on the exact target grid.
 - Made Scatter and PCA example loading commit the owner-scoped canonical payload synchronously through the shared AG Grid write-through API, eliminating the race where a graph was visible before `tab.payload.data` existed.

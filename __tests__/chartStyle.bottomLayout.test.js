@@ -134,4 +134,34 @@ describe('chartStyle.computeBottomLayout reserve rotated space', () => {
     expect(withTitleReserve.bottom - withoutTitleReserve.bottom).toBe(axisMetrics.axisTitleGap + fontSize);
     expect(withoutTitleReserve.bottom).toBeLessThan(100);
   });
+
+  test('reports the horizontal projection needed by a rotated edge label', () => {
+    const { chartStyle } = window.Shared;
+    const fontSize = 14;
+    const layout = chartStyle.computeBottomLayout({
+      labels: ['Very long first category', 'Second'],
+      fontSize,
+      plotWidth: 120,
+      labelRotationAngleDeg: 45
+    });
+    const expected = Math.ceil(Math.SQRT1_2 * (layout.widths[0] + fontSize));
+
+    expect(layout.shouldRotate).toBe(true);
+    expect(layout.rotatedLabelHorizontalProjections[0]).toBe(expected);
+  });
+
+  test('resolves an internal leading inset when the first rotated label would cross the viewport', () => {
+    const { chartStyle } = window.Shared;
+    const layout = chartStyle.computeBottomLayout({
+      labels: ['Observed contribution (%)', 'Equal-share expectation (%)'],
+      fontSize: 16,
+      plotWidth: 120,
+      labelRotationAngleDeg: 45
+    });
+    const inset = chartStyle.resolveRotatedXAxisLeadingInset(layout, 40);
+
+    expect(layout.shouldRotate).toBe(true);
+    expect(inset).toBeGreaterThan(0);
+    expect(chartStyle.resolveRotatedXAxisLeadingInset({ ...layout, shouldRotate: false }, 40)).toBe(0);
+  });
 });

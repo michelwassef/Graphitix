@@ -1985,6 +1985,7 @@
       const forceExact = options.forceExact !== false;
       const reason = options.reason || 'programmatic';
       const authorityMode = options.authorityMode === 'transient' ? 'transient' : 'authoritative';
+      const preserveManualResizeState = authorityMode === 'transient';
       const originalAspectLocked = aspectLocked;
       const hadAspectLock = aspectLocked;
       if(hasSimulatedAspectLock){
@@ -2033,7 +2034,9 @@
       const fallbackWidth = parsePositive(liveRect.width) || (defaultWidth * zoomScale);
       const fallbackHeight = parsePositive(liveRect.height) || (defaultHeight * zoomScale);
       container.style.flex = '0 0 auto';
-      container.dataset.resizerResized = 'true';
+      if(!preserveManualResizeState){
+        container.dataset.resizerResized = 'true';
+      }
       const applied = applyResize({
         axis: requestedAxis,
         width: Number.isFinite(requestedWidth) ? (requestedWidth * zoomScale) : fallbackWidth,

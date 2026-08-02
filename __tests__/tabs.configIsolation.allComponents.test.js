@@ -682,8 +682,9 @@ describe('Cross-tab graph config isolation (all components)', () => {
     const directEmpty = workspace.createEmptyPayload();
     expect(directEmpty?.config?.plotMode).toBe('histogram');
     expect(directEmpty?.config?.title).toBe('Histogram');
-    expect(directEmpty?.config?.distributions?.showPdf).toBe(true);
-    expect(directEmpty?.config?.distributions?.selected).toEqual(expect.arrayContaining(['normal']));
+    expect(directEmpty?.config?.distributions?.showPdf).toBe(false);
+    expect(directEmpty?.config?.distributions?.showCdf).toBe(false);
+    expect(directEmpty?.config?.distributions?.selected).toEqual([]);
 
     Main.tabs.handleAddTabClick();
     await flush();
@@ -694,7 +695,8 @@ describe('Cross-tab graph config isolation (all components)', () => {
     expect(tabB?.id).not.toBe(tabA.id);
     expect(tabB?.payload?.config?.plotMode).toBe('histogram');
     expect(tabB?.payload?.config?.title).toBe('Histogram');
-    expect(tabB?.payload?.config?.distributions?.showPdf).toBe(true);
-    expect(tabB?.payload?.config?.distributions?.selected).toEqual(expect.arrayContaining(['normal']));
+    expect(tabB?.payload?.config?.distributions?.showPdf).toBe(false);
+    expect(tabB?.payload?.config?.distributions?.showCdf).toBe(false);
+    expect(tabB?.payload?.config?.distributions?.selected).toEqual([]);
   });
 });

@@ -1049,6 +1049,7 @@
   function closeNotationMenu(reason){
     if(!notationMenuPopup || !notationMenuVisible){ return; }
     notationMenuVisible = false;
+    Shared.toolbarOverflow?.clearPopup?.(notationMenuPopup);
     notationMenuPopup.hidden = true;
     notationMenuPopup.classList.remove('font-controls-panel__combo-menu--open');
     if(notationMenuToggle){
@@ -1061,6 +1062,14 @@
     if(!notationMenuPopup || notationMenuVisible){ return; }
     notationMenuVisible = true;
     notationMenuPopup.hidden = false;
+    Shared.toolbarOverflow?.positionPopup?.(notationMenuPopup, notationComboWrapper || notationMenuToggle, {
+      align: 'start',
+      offset: -1,
+      minWidth: 100,
+      matchAnchorWidth: true,
+      maxHeight: 220,
+      zIndex: 12050
+    });
     requestAnimationFrame(() => {
       if(notationMenuPopup){
         notationMenuPopup.classList.add('font-controls-panel__combo-menu--open');
@@ -1537,6 +1546,8 @@
       additionalTicksDropdown.dataset.open = shouldShow ? '1' : '0';
       if(shouldShow){
         alignDropdownToTrigger(additionalTicksButton, additionalTicksDropdown);
+      }else{
+        Shared.toolbarOverflow?.clearPopup?.(additionalTicksDropdown);
       }
     }
     if(additionalTicksAddButton){
@@ -1555,6 +1566,8 @@
       brokenAxisDropdown.dataset.open = shouldShow ? '1' : '0';
       if(shouldShow){
         alignDropdownToTrigger(brokenAxisConfigButton, brokenAxisDropdown);
+      }else{
+        Shared.toolbarOverflow?.clearPopup?.(brokenAxisDropdown);
       }
     }
     const segmentsVisible = shouldShow && brokenAxisCheckbox && brokenAxisCheckbox.checked;
@@ -1573,11 +1586,12 @@
     if(!triggerEl || !dropdownEl){
       return;
     }
-    const left = Number(triggerEl.offsetLeft) || 0;
-    const top = (Number(triggerEl.offsetTop) || 0) + (Number(triggerEl.offsetHeight) || 0);
-    dropdownEl.style.left = `${left}px`;
-    dropdownEl.style.top = `${top}px`;
-    dropdownEl.style.right = 'auto';
+    Shared.toolbarOverflow?.positionPopup?.(dropdownEl, triggerEl, {
+      align: dropdownEl.classList.contains('axis-controls-panel__dropdown--additional-ticks') ? 'end' : 'start',
+      offset: 0,
+      minWidth: dropdownEl.classList.contains('axis-controls-panel__dropdown--additional-ticks') ? 360 : 260,
+      zIndex: 12050
+    });
   }
 
 

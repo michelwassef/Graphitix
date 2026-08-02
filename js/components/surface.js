@@ -3071,31 +3071,6 @@
     if(state.controls.showPoints){ state.controls.showPoints.checked = !!state.settings.showPoints; }
   }
 
-  function buildExampleDataset(){
-    const rows = [[DEFAULT_AXIS_LABELS.x, DEFAULT_AXIS_LABELS.y, DEFAULT_AXIS_LABELS.z]];
-    const xs = [];
-    const ys = [];
-    for(let x = -3; x <= 3.0001; x += 0.6){
-      xs.push(Number(x.toFixed(2)));
-    }
-    for(let y = -3; y <= 3.0001; y += 0.6){
-      ys.push(Number(y.toFixed(2)));
-    }
-    for(let yi = 0; yi < ys.length; yi += 1){
-      const y = ys[yi];
-      for(let xi = 0; xi < xs.length; xi += 1){
-        const x = xs[xi];
-        const peakNorth = Math.exp(-((x - 1.2) * (x - 1.2) + (y + 0.8) * (y + 0.8)) * 1.4);
-        const peakSouth = Math.exp(-((x + 1.0) * (x + 1.0) + (y - 1.5) * (y - 1.5)) * 2.1);
-        const valleyCenter = Math.exp(-((x + 0.2) * (x + 0.2) + (y + 0.1) * (y + 0.1)) * 3.2);
-        const ridge = 0.35 * Math.sin(x * 2.3) * Math.cos(y * 1.8);
-        const z = peakNorth * 5.0 + peakSouth * 3.5 - valleyCenter * 6.0 + ridge * 2.0;
-        rows.push([x, y, Number(z.toFixed(3))]);
-      }
-    }
-    return rows;
-  }
-
   function initControls(){
     cacheDom();
     applySettingsToControls();
@@ -3154,7 +3129,12 @@
     });
     if(state.controls.loadExample){
       bindSurfaceControlHandler(state.controls.loadExample, 'click', 'load-example', () => {
-        const example = buildExampleDataset();
+        const exampleRecord = Shared.exampleDatasets?.get?.('surface');
+        const example = exampleRecord?.data;
+        if(!Array.isArray(example)){
+          console.warn('surface example load skipped: biomedical example registry unavailable');
+          return;
+        }
         if(state.hot && typeof state.hot.loadData === 'function'){
           markSurfaceOverlayPending('example-data');
           state.hot.loadData(example, {
@@ -3165,6 +3145,10 @@
           Shared.hot?.syncOwnerTabPayloadFullData?.(state.hot.getData(), 'surface-example-load', {
             hotInstance: state.hot,
             source: 'example-load'
+          });
+          Shared.exampleDatasets?.applyNotesState?.(notesState, exampleRecord);
+          captureSurfaceSessionStateFromActive(getSurfaceSessionForHot(state.hot, { reason: 'surface-example-load' }, { create: false }) || projectedSurfaceSession, {
+            reason: 'surface-example-load'
           });
           debugLog('Debug: surface example dataset loaded', { rows: example.length });
           updateAxisOptions();

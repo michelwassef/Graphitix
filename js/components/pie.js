@@ -143,8 +143,10 @@
     const excludeSelector = typeof options.excludeSelector === 'string' && options.excludeSelector.trim()
       ? options.excludeSelector.trim()
       : PIE_VIEWPORT_EXCLUDE_SELECTOR;
-    const excludedNodes = excludeSelector
-      ? Array.from(svg.querySelectorAll(excludeSelector))
+    const excludeSelectors = [excludeSelector, svg.dataset?.legendBaseWidth ? '[data-legend-viewport-content="true"]' : '']
+      .filter(Boolean);
+    const excludedNodes = excludeSelectors.length
+      ? Array.from(svg.querySelectorAll(excludeSelectors.join(',')))
       : [];
     const padding = Number.isFinite(Number(options.padding))
       ? Math.max(0, Number(options.padding))
@@ -1731,43 +1733,6 @@ let state = {
     return Number.isFinite(numeric) && numeric > 0 ? numeric : NaN;
   }
 
-  function computePieStackedBottomReservePx(bottomLayout, options = {}){
-    const maxLabelWidth = Number.isFinite(Number(bottomLayout?.maxLabelWidth))
-      ? Math.max(0, Number(bottomLayout.maxLabelWidth))
-      : 0;
-    const tickLabelFontSize = Number.isFinite(Number(bottomLayout?.tickLabelFontSize))
-      ? Math.max(1, Number(bottomLayout.tickLabelFontSize))
-      : (Number.isFinite(Number(options.fontSize)) ? Math.max(1, Number(options.fontSize)) : 12);
-    const outerPadding = Number.isFinite(Number(bottomLayout?.outerPadding))
-      ? Math.max(0, Number(bottomLayout.outerPadding))
-      : Math.max(4, Math.round(tickLabelFontSize * 0.6));
-    const rotatedProjection = Math.ceil(Math.SQRT1_2 * maxLabelWidth);
-    const horizontalLabelProjection = Math.ceil(tickLabelFontSize * 0.9);
-    const safetyPad = Math.max(4, Math.round(tickLabelFontSize * 0.35));
-    const forecastReserve = Math.max(
-      0,
-      rotatedProjection - horizontalLabelProjection + Math.round(outerPadding * 0.6) + safetyPad
-    );
-    const minReserve = Math.max(0, Math.round(tickLabelFontSize * 0.6));
-    const maxReserve = Math.max(minReserve, Math.round(tickLabelFontSize * 3.2));
-    const reserve = Math.min(maxReserve, Math.max(minReserve, forecastReserve));
-    if(pieDebugEnabled()){
-      pieDebug('Debug: pie stacked bottom reserve forecast', {
-        maxLabelWidth,
-        tickLabelFontSize,
-        outerPadding,
-        rotatedProjection,
-        horizontalLabelProjection,
-        safetyPad,
-        forecastReserve,
-        minReserve,
-        maxReserve,
-        reserve
-      });
-    }
-    return reserve;
-  }
-
   function resolvePieAutoReserveMetrics(svgBox, previousExtension){
     if(!svgBox){
       return null;
@@ -1861,6 +1826,7 @@ let state = {
         preserveAspectLock: true,
         updateAspectRatio: true,
         updateDefaults: false,
+        authorityMode: 'transient',
         reason: options.reason || 'pie-auto-content-reserve'
       });
     }catch(err){
@@ -5041,16 +5007,22 @@ let state = {
     setPieStatsStatus('');
     updatePieStatsButtonState({ disabled: true, label: 'Calculate statistics' });
 
-    const example=[ ['Quarter','Observed','Expected'], ['Q1',120,100], ['Q2',90,100], ['Q3',60,80], ['Q4',130,120] ];
     getPieNodeById('pieLoadExample').addEventListener('click', event => {
       runPieControlOwner(event, 'pie-example-load', session => {
         const activeHot = session?.managers?.hot || state.ensureHotForActiveTab?.() || state.hot;
+        const exampleRecord = Shared.exampleDatasets?.get?.('pie');
+        const example = exampleRecord?.data;
+        if(!Array.isArray(example)){
+          console.warn('pie example load skipped: biomedical example registry unavailable');
+          return;
+        }
         activeHot?.loadData?.(example, {
           source: 'example-load',
           recordUndo: true,
           undoLabel: 'table:pie:example-load'
         });
-        pieDebug('pie example loaded with expected values');
+        Shared.exampleDatasets?.applyNotesState?.(notesState, exampleRecord);
+        pieDebug('biomedical pie example loaded with expected values', { categories: example.length - 1 });
         capturePieSessionStateFromActive(session, { reason: 'pie-example-load', captureStats: false });
         schedulePieDrawForSession(session, { reason: 'pie-example-load', tabId: session?.tabId || undefined });
       });
@@ -6093,6 +6065,7 @@ let state = {
       const stackedLegendLayout = chartStyle.computeLegendLayout({
         entries: stackedLegendEntries,
         fontSize: fs,
+        viewportHeight: drawableFrame.height,
         scaleInfo: styleScaleInfo,
         onSwatchClick: handlePieLegendSwatchClick
       });
@@ -6110,13 +6083,19 @@ let state = {
       });
       plotEl.style.display='flex';
       plotEl.style.alignItems='flex-start';
-      const svgWidth=Math.max(50,Math.floor(drawableFrame.width||50));
+      const baseSvgWidth=Math.max(50,Math.floor(drawableFrame.width||50));
       const svgHeight=Math.max(50,Math.floor(drawableFrame.height||50));
+      const stackedLegendWidthForMargin = stackedLegendVisible ? stackedLegendLayout.legendWidthForMargin : 0;
+      const svgWidth=chartStyle.computeLegendViewport({
+        baseWidth:baseSvgWidth,
+        baseHeight:svgHeight,
+        legendWidth:stackedLegendWidthForMargin
+      }).width;
       const svg=document.createElementNS(NS,'svg');
       svg.setAttribute('width',String(svgWidth));
       svg.setAttribute('height',String(svgHeight));
       svg.setAttribute('viewBox',`0 0 ${svgWidth} ${svgHeight}`);
-      svg.setAttribute('data-pie-base-width', String(svgWidth));
+      svg.setAttribute('data-pie-base-width', String(baseSvgWidth));
       svg.setAttribute('data-pie-base-height', String(svgHeight));
       applyPieSvgDefaults(svg, { isResizePreview });
       framePublication = Shared.framePublication.stage({
@@ -6191,7 +6170,6 @@ let state = {
       const maxYLabelWidth=Math.max(...yLabelWidths,0);
       const yTitleText='Percentage';
       const hasYTitle = yTitleText.trim().length > 0;
-      const stackedLegendWidthForMargin = stackedLegendVisible ? stackedLegendLayout.legendWidthForMargin : 0;
       let margin=chartStyle.computeBaseMargins({fontSize:fs,legendWidth:stackedLegendWidthForMargin,maxYLabelWidth,hasYTitle,axisMetrics});
       let chartWidth=Math.max(20,svgWidth-margin.left-margin.right);
       let chartHeight=Math.max(20,svgHeight-margin.top-margin.bottom);
@@ -6208,6 +6186,9 @@ let state = {
         baseBottom: stackedBaseBottom,
         axisMetrics,
         reserveRotatedLabelSpace:true,
+        bottomReserveMode:'projected-tick-label',
+        includeAxisTitleReserve:false,
+        labelRotationAngleDeg:45,
         rotationHysteresis:{
           previousRotate,
           enterRatio:1.01,
@@ -6215,13 +6196,18 @@ let state = {
         }
       });
       state.xTickRotateVertical = bottomLayout.shouldRotate === true;
-      const requiredBottomViewportExtension = computePieStackedBottomReservePx(bottomLayout, { fontSize: fs });
-      margin.bottom = Math.max(stackedBaseBottom, stackedBaseBottom + requiredBottomViewportExtension);
+      const requiredBottomViewportExtension = Math.max(0, Math.ceil(bottomLayout.bottom - stackedBaseBottom));
+      margin.bottom = Math.max(stackedBaseBottom, bottomLayout.bottom);
       margin = chartStyle.stabilizeAxisResizeMargins
         ? chartStyle.stabilizeAxisResizeMargins(margin, { svgBox: state.svgBox, scopeId: 'pie' })
         : margin;
       chartWidth=Math.max(20,svgWidth-margin.left-margin.right);
       chartHeight=Math.max(20,svgHeight-margin.top-margin.bottom);
+      const rotatedXLabelLeadingInsetPx = chartStyle.resolveRotatedXAxisLeadingInset(bottomLayout, margin.left);
+      const categoricalPlotStart = margin.left + rotatedXLabelLeadingInsetPx;
+      const categoricalChartWidth = Math.max(20, chartWidth - rotatedXLabelLeadingInsetPx);
+      const yAxisX = categoricalPlotStart;
+      const plotRightX = margin.left + chartWidth;
       const shouldDeferBottomReserveSync = isResizeViewDraw;
       let extensionUpdate = {
         changed: false,
@@ -6281,8 +6267,8 @@ let state = {
       const axis=document.createElementNS(NS,'g');
       const axisHost = axisLayer || svg;
       axisHost.appendChild(axis);
-      const yAxis=document.createElementNS(NS,'line'); yAxis.setAttribute('x1',margin.left); yAxis.setAttribute('y1',margin.top); yAxis.setAttribute('x2',margin.left); yAxis.setAttribute('y2',margin.top+chartHeight); yAxis.setAttribute('stroke',axisStroke); yAxis.setAttribute('stroke-width',axisStrokeWidth); axis.appendChild(yAxis);
-      const xAxis=document.createElementNS(NS,'line'); xAxis.setAttribute('x1',margin.left); xAxis.setAttribute('y1',margin.top+chartHeight); xAxis.setAttribute('x2',margin.left+chartWidth); xAxis.setAttribute('y2',margin.top+chartHeight); xAxis.setAttribute('stroke',axisStroke); xAxis.setAttribute('stroke-width',axisStrokeWidth); axis.appendChild(xAxis);
+      const yAxis=document.createElementNS(NS,'line'); yAxis.setAttribute('x1',yAxisX); yAxis.setAttribute('y1',margin.top); yAxis.setAttribute('x2',yAxisX); yAxis.setAttribute('y2',margin.top+chartHeight); yAxis.setAttribute('stroke',axisStroke); yAxis.setAttribute('stroke-width',axisStrokeWidth); axis.appendChild(yAxis);
+      const xAxis=document.createElementNS(NS,'line'); xAxis.setAttribute('x1',yAxisX); xAxis.setAttribute('y1',margin.top+chartHeight); xAxis.setAttribute('x2',plotRightX); xAxis.setAttribute('y2',margin.top+chartHeight); xAxis.setAttribute('stroke',axisStroke); xAxis.setAttribute('stroke-width',axisStrokeWidth); axis.appendChild(xAxis);
       const minorTickStyle = chartStyle.resolveMinorTickStyle({ tickLength: tickLen, strokeWidth: axisStrokeWidth });
       const minorSubdivisionsY = getAxisMinorTickSubdivisions('y');
       const minorTicksY = getAxisMinorTicksEnabled('y')
@@ -6326,9 +6312,9 @@ let state = {
         minorTicksY.forEach(value => {
           const y=margin.top+chartHeight-(chartHeight*value/100);
           const tick=document.createElementNS(NS,'line');
-          tick.setAttribute('x1',margin.left - minorTickStyle.length);
+          tick.setAttribute('x1',yAxisX - minorTickStyle.length);
           tick.setAttribute('y1',y);
-          tick.setAttribute('x2',margin.left);
+          tick.setAttribute('x2',yAxisX);
           tick.setAttribute('y2',y);
           tick.setAttribute('stroke',axisStroke);
           tick.setAttribute('stroke-width',minorTickStyle.strokeWidth);
@@ -6341,16 +6327,16 @@ let state = {
       percentTicks.forEach(t=>{
         const y=margin.top+chartHeight-(chartHeight*t/100);
         const tick=document.createElementNS(NS,'line');
-        tick.setAttribute('x1',margin.left-yMajorTickLength);
+        tick.setAttribute('x1',yAxisX-yMajorTickLength);
         tick.setAttribute('y1',y);
-        tick.setAttribute('x2',margin.left);
+        tick.setAttribute('x2',yAxisX);
         tick.setAttribute('y2',y);
         tick.setAttribute('stroke',axisStroke);
         tick.setAttribute('stroke-width',axisStrokeWidth);
         tick.setAttribute('data-pie-axis-style-target','1');
         axis.appendChild(tick);
         const txt=document.createElementNS(NS,'text');
-        txt.setAttribute('x',margin.left-(yMajorTickLength+tickGap));
+        txt.setAttribute('x',yAxisX-(yMajorTickLength+tickGap));
         txt.setAttribute('y',y);
         txt.setAttribute('text-anchor','end');
         txt.setAttribute('dominant-baseline','middle');
@@ -6360,7 +6346,7 @@ let state = {
         stackedYTickCount+=1;
         axis.appendChild(txt);
       });
-      const yTitleX=margin.left-(maxYLabelWidth+yMajorTickLength+tickGap+axisMetrics.axisTitleGap+fs*0.5);
+      const yTitleX=yAxisX-(maxYLabelWidth+yMajorTickLength+tickGap+axisMetrics.axisTitleGap+fs*0.5);
       const yTitle=document.createElementNS(NS,'text');
       yTitle.setAttribute('x',yTitleX);
       yTitle.setAttribute('y',margin.top+chartHeight/2);
@@ -6372,11 +6358,11 @@ let state = {
       axis.appendChild(yTitle);
       if(showFrame){
         pieDebug('Debug: pie frame request',{stroke:axisStroke, showFrame, axisStrokeWidth});
-        chartStyle.drawPlotFrame({ svg, margin, plotW: chartWidth, plotH: chartHeight, stroke: axisStroke, strokeWidth: axisStrokeWidth, sides: ['top','right'], group: axis });
+        chartStyle.drawPlotFrame({ svg, margin: { ...margin, left: yAxisX }, plotW: categoricalChartWidth, plotH: chartHeight, stroke: axisStroke, strokeWidth: axisStrokeWidth, sides: ['top','right'], group: axis });
       }
       const barGapBase=10;
       const barGap=Math.max(6,Math.round(barGapBase*fontScale));
-      const availableWidth=Math.max(0,chartWidth-(barHeaders.length+1)*barGap);
+      const availableWidth=Math.max(0,categoricalChartWidth-(barHeaders.length+1)*barGap);
       const barWidth=barHeaders.length?Math.max(0,availableWidth/barHeaders.length):0;
       const barTotals=barHeaders.map((_,barIndex)=>segmentValues.reduce((sum,row)=>sum+(row[barIndex]||0),0));
       let stackedPercentFontSize=fs;
@@ -6431,7 +6417,7 @@ let state = {
           const h=chartHeight*frac;
           y-=h;
           const rect=document.createElementNS(NS,'rect');
-          rect.setAttribute('x',margin.left+barGap+j*(barWidth+barGap));
+          rect.setAttribute('x',categoricalPlotStart+barGap+j*(barWidth+barGap));
           rect.setAttribute('y',y);
           rect.setAttribute('width',barWidth);
           rect.setAttribute('height',h);
@@ -6455,7 +6441,7 @@ let state = {
           (barLayer||svg).appendChild(rect);
           if(showPerc && frac>0 && labelLayer){
             const txt=document.createElementNS(NS,'text');
-            txt.setAttribute('x',margin.left+barGap+j*(barWidth+barGap)+barWidth/2);
+            txt.setAttribute('x',categoricalPlotStart+barGap+j*(barWidth+barGap)+barWidth/2);
             txt.setAttribute('y',y+h/2);
             txt.setAttribute('text-anchor','middle');
             txt.setAttribute('dominant-baseline','middle');
@@ -6466,7 +6452,7 @@ let state = {
           }
         });
         const lbl=document.createElementNS(NS,'text');
-        const lx=margin.left+barGap+j*(barWidth+barGap)+barWidth/2;
+        const lx=categoricalPlotStart+barGap+j*(barWidth+barGap)+barWidth/2;
         const xTick=document.createElementNS(NS,'line');
         xTick.setAttribute('x1',lx);
         xTick.setAttribute('y1',margin.top+chartHeight);
@@ -6494,7 +6480,7 @@ let state = {
       // Legend now rendered inside the SVG so it can be repositioned.
       if(stackedLegendVisible){
         const legendRenderer = stackedLegendLayout.renderer;
-        const defaultLegendX = margin.left + chartWidth + stackedLegendLayout.legendGapPx;
+        const defaultLegendX = plotRightX + stackedLegendLayout.legendGapPx;
         const defaultLegendY = margin.top + (legendRenderer.baselineOffset || 0);
         const legendGroup = drawPieLegend(svg, stackedLegendLayout, { x: defaultLegendX, y: defaultLegendY }, { width: svgWidth, height: svgHeight });
         if(!legendGroup){
@@ -6524,7 +6510,7 @@ let state = {
         strokeWidthBase: axisStrokeWidthBase,
         renderedStrokeWidth: minorTickStyle.strokeWidth
       });
-      const defaultTitleX = margin.left+chartWidth/2;
+      const defaultTitleX = yAxisX+categoricalChartWidth/2;
       const defaultTitleY = margin.top/2;
       const titlePos = state.labelPositions?.title;
       const title=document.createElementNS(NS,'text');
@@ -6569,9 +6555,18 @@ let state = {
         fillParent: true,
         preserveBaseAspect: true
       });
+      const legendViewport = chartStyle.stageLegendViewport({
+        svgBox:state.svgBox,
+        plot:plotEl,
+        svg,
+        baseWidth:baseSvgWidth,
+        baseHeight:svgHeight,
+        legendWidth:stackedLegendWidthForMargin
+      });
       if(!(await checkpoint()) || !framePublication.commit()){
         return false;
       }
+      legendViewport.commit();
       if(!isResizePreview){
         primePieStatsComputation({ matrix: data, reason: 'draw-stacked' });
       }
@@ -6630,6 +6625,7 @@ let state = {
     const radialLegendLayout = chartStyle.computeLegendLayout({
       entries: radialLegendEntries,
       fontSize: fs,
+      viewportHeight: drawableFrame.height,
       scaleInfo: styleScaleInfo,
       onSwatchClick: handlePieLegendSwatchClick
     });
@@ -6649,7 +6645,12 @@ let state = {
     plotEl.style.alignItems='flex-start';
     const plotWidth=Math.max(50,Math.floor(drawableFrame.width||50));
     const plotHeight=Math.max(50,Math.floor(drawableFrame.height||50));
-    const svgWidth=Math.max(50, plotWidth);
+    const legendReservedWidth = radialLegendVisible ? radialLegendLayout.legendWidthForMargin : 0;
+    const svgWidth=chartStyle.computeLegendViewport({
+      baseWidth:plotWidth,
+      baseHeight:plotHeight,
+      legendWidth:legendReservedWidth
+    }).width;
     const svgHeight=Math.max(50,plotHeight);
     pieDebug('Debug: pie radial layout metrics', {
       plotWidth,
@@ -6666,7 +6667,7 @@ let state = {
     svg.setAttribute('width',String(svgWidth));
     svg.setAttribute('height',String(svgHeight));
     svg.setAttribute('viewBox',`0 0 ${svgWidth} ${svgHeight}`);
-    svg.setAttribute('data-pie-base-width', String(svgWidth));
+    svg.setAttribute('data-pie-base-width', String(plotWidth));
     svg.setAttribute('data-pie-base-height', String(svgHeight));
     applyPieSvgDefaults(svg, { isResizePreview });
     const svgWrapper=document.createElement('div');
@@ -6676,7 +6677,6 @@ let state = {
     svgWrapper.style.display='flex';
     svgWrapper.style.alignItems='flex-start';
     svgWrapper.style.justifyContent='center';
-    svgWrapper.style.overflow='hidden';
     svg.style.display='block';
     svg.style.minWidth='0';
     svgWrapper.appendChild(svg);
@@ -6711,7 +6711,6 @@ let state = {
     const axisStrokeWidth = chartStyle.scaleStrokeWidth(axisStrokeWidthBase, styleScaleInfo, { context: 'pie-axis', min: 0, exact: true });
     const frameStroke = '#000';
 
-    const legendReservedWidth = radialLegendVisible ? radialLegendLayout.legendWidthForMargin : 0;
     const contentLeft = 0;
     const contentRight = Math.max(contentLeft + 50, svgWidth - legendReservedWidth);
     const contentWidth = Math.max(50, contentRight - contentLeft);
@@ -6962,11 +6961,21 @@ let state = {
     ensureGraphViewport(svg, {
       padding: Math.max(fs, 14),
       debugLabel: 'pie-graph',
-      remeasure: !isResizeDrivenDraw
+      baseViewport: { width: svgWidth, height: svgHeight },
+      remeasure: false
+    });
+    const legendViewport = chartStyle.stageLegendViewport({
+      svgBox:state.svgBox,
+      plot:plotEl,
+      svg,
+      baseWidth:plotWidth,
+      baseHeight:svgHeight,
+      legendWidth:legendReservedWidth
     });
     if(!(await checkpoint()) || !framePublication.commit()){
       return false;
     }
+    legendViewport.commit();
     if(!isResizePreview){
       primePieStatsComputation({ matrix: data, reason: 'draw-radial' });
     }
@@ -7492,6 +7501,7 @@ let state = {
       });
       return false;
     }
+    chartStyle.rehydrateLegendViewports?.(plot);
     const restored = true;
     if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
       pieDebug('Debug: pie render cache restored', {

@@ -103,6 +103,32 @@ describe('colorSchemes — resolveThemeState()', () => {
   });
 });
 
+describe('colorSchemes — applyToSvg()', () => {
+  let cs;
+  beforeEach(() => { cs = loadModule(); });
+
+  test('themes replacement 2D SVG text and observes later labels', async () => {
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    expect(cs.applyToSvg('hist', svg, { schemeId: 'dark' })).toBe(true);
+
+    const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    text.setAttribute('fill', '#000000');
+    svg.appendChild(text);
+    await Promise.resolve();
+
+    expect(svg.getAttribute('data-color-scheme')).toBe('dark');
+    expect(svg.style.backgroundColor).toBe('rgb(0, 0, 0)');
+    expect(text.getAttribute('fill')).toBe('#f2f2f2');
+  });
+
+  test('leaves 3D SVG rendering to the component', () => {
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.dataset.viewMode = '3d';
+    expect(cs.applyToSvg('line', svg, { schemeId: 'dark' })).toBe(true);
+    expect(svg.style.backgroundColor).toBe('');
+  });
+});
+
 describe('colorSchemes — resolveCategoricalPaletteForType()', () => {
   let cs;
   beforeEach(() => { cs = loadModule(); });

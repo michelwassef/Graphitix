@@ -1127,7 +1127,6 @@
   let lineLegendWidth = 0;
   let lineMinSvgWidth = 0;
   let lineLegendLayoutInfo = createDefaultLineLegendLayoutInfo();
-  let lineLegendGuardWidth = chartStyle.LEGEND_LAYOUT_CONSTANTS?.basePlotMinWidth || 320;
   let lineSeriesStyles = {};
   const LINE_OVERLAY_STYLE_DEFAULTS = Object.freeze({
     trend: Object.freeze({ color: 'auto', thickness: 1, transparency: 0, pattern: 'dashed' }),
@@ -2720,49 +2719,6 @@
     }
   }
 
-  function resolveLineResizeGuardCap(){
-    const svgBox = refs.svgBox || getActiveLineLayoutManager()?.elements?.svgBox || null;
-    const datasetMin = Number(svgBox?.dataset?.resizerMinWidth);
-    if(Number.isFinite(datasetMin) && datasetMin > 0){
-      return datasetMin;
-    }
-    const defaultWidth = Number(chartStyle?.DEFAULT_WIDTH);
-    const resizeMinScale = Number(chartStyle?.RESIZE_MIN_SCALE);
-    if(Number.isFinite(defaultWidth) && defaultWidth > 0 && Number.isFinite(resizeMinScale) && resizeMinScale > 0){
-      return Math.max(1, Math.round(defaultWidth * resizeMinScale));
-    }
-    return null;
-  }
-
-  function applyLineLegendGuardWidth(requiredWidth){
-    const normalized = Number.isFinite(requiredWidth) ? Math.max(0, Math.round(requiredWidth)) : 0;
-    const guardCap = resolveLineResizeGuardCap();
-    const effectiveWidth = Number.isFinite(guardCap) && guardCap > 0 ? Math.min(normalized, guardCap) : normalized;
-    const changed = effectiveWidth !== lineLegendGuardWidth;
-    lineLegendGuardWidth = effectiveWidth;
-    const layoutManager = getActiveLineLayoutManager();
-    if(!layoutManager){
-      if(changed){
-        console.debug('Debug: line legend guard pending layout',{ requiredWidth: normalized, appliedWidth: effectiveWidth, cap: guardCap });
-      }
-      return;
-    }
-    if(!changed){
-      return;
-    }
-    try{
-      layoutManager.updateMinSvgWidth?.(effectiveWidth);
-    }catch(err){
-      console.error('line legend guard update error', err);
-    }
-    try{
-      layoutManager.syncPanels?.({ skipSchedule: true, reason: 'legend-guard' });
-    }catch(err){
-      console.error('line legend guard sync error', err);
-    }
-    console.debug('Debug: line legend guard width applied',{ requestedWidth: normalized, appliedWidth: effectiveWidth, cap: guardCap });
-  }
-
   function getLineLockRatioCheckbox(){
     const activeTabId = String(getLineProjectionTabId() || '').trim();
     const isOwnedByActiveTab = node => {
@@ -3202,7 +3158,6 @@
       lineLegendItems = [];
       lineLegendWidth = 0;
       lineLegendLayoutInfo = createDefaultLineLegendLayoutInfo();
-      applyLineLegendGuardWidth(lineLegendLayoutInfo.minSvgWidth);
     }
     console.debug('Debug: line render state reset',{ reason, hasMessage: !!options.message });
   }
@@ -8343,7 +8298,7 @@
       .replace(/\s+title$/i,'')
       .trim();
     const result = cleaned || fallback;
-    console.debug('Debug: inferSeriesBaseName',{ label: raw, result, fallback });
+    lineDebug('Debug: inferSeriesBaseName',{ label: raw, result, fallback });
     return result;
   }
 
@@ -9208,7 +9163,7 @@
         ...options,
         reason: options.reason || 'line-3d-nested-header-projection'
       });
-      console.debug('Debug: updateLineNestedHeaders applied 3d', {
+      lineDebug('Debug: updateLineNestedHeaders applied 3d', {
         datasets: inferLine3dSeriesCount(hot.getData?.() || [])
       });
       return;
@@ -9219,7 +9174,7 @@
         ...options,
         reason: options.reason || 'line-single-header-projection'
       });
-      console.debug('Debug: updateLineNestedHeaders disabled',{ replicates, tableFormat });
+      lineDebug('Debug: updateLineNestedHeaders disabled',{ replicates, tableFormat });
       return;
     }
     hot.updateSettings({
@@ -9231,7 +9186,7 @@
       ...options,
       reason: options.reason || 'line-grouped-header-projection'
     });
-    console.debug('Debug: updateLineNestedHeaders applied',{
+    lineDebug('Debug: updateLineNestedHeaders applied',{
       grouped: true,
       replicates,
       headers: buildLineAgColHeaders(hot, { ...options, forceGrouped: true })
@@ -9569,28 +9524,36 @@
     console.debug('Debug: line grouped list rendered',{ groups: labels.length });
   }
 
-  function isLine3dAxisRow(row){
-    if(!Array.isArray(row) || row.length < LINE_3D_COLS_PER_DATASET){
+  function isLine3dDatasetHeaderMatrix(matrix){
+    if(!Array.isArray(matrix) || matrix.length < LINE_3D_HEADER_ROW_COUNT){
       return false;
     }
-    let groups = 0;
-    let matches = 0;
-    for(let startCol = 0; startCol + 2 < row.length; startCol += LINE_3D_COLS_PER_DATASET){
-      groups += 1;
-      const y = String(row[startCol + 1] ?? '').trim().toLowerCase();
-      const z = String(row[startCol + 2] ?? '').trim().toLowerCase();
-      if((!y || y === 'y' || y === 'y title' || y === 'y values')
-        && (!z || z === 'z' || z === 'z title' || z === 'z values')){
-        matches += 1;
+    const datasetRow = Array.isArray(matrix[LINE_3D_DATASET_HEADER_ROW_INDEX])
+      ? matrix[LINE_3D_DATASET_HEADER_ROW_INDEX]
+      : [];
+    const axisRow = Array.isArray(matrix[LINE_3D_AXIS_HEADER_ROW_INDEX])
+      ? matrix[LINE_3D_AXIS_HEADER_ROW_INDEX]
+      : [];
+    const maxCols = Math.max(datasetRow.length, axisRow.length);
+    let activeGroups = 0;
+    for(let startCol = 0; startCol + 2 < maxCols; startCol += LINE_3D_COLS_PER_DATASET){
+      const datasetAnchor = datasetRow[startCol];
+      const firstFollower = datasetRow[startCol + 1];
+      const secondFollower = datasetRow[startCol + 2];
+      const axisHeaders = axisRow.slice(startCol, startCol + LINE_3D_COLS_PER_DATASET);
+      const groupValues = [datasetAnchor, firstFollower, secondFollower, ...axisHeaders];
+      if(!groupValues.some(value => value != null && String(value).trim())){
+        continue;
       }
+      if((firstFollower != null && String(firstFollower).trim())
+        || (secondFollower != null && String(secondFollower).trim())
+        || (datasetAnchor != null && String(datasetAnchor).trim() && typeof datasetAnchor !== 'string')
+        || axisHeaders.some(value => value != null && String(value).trim() && typeof value !== 'string')){
+        return false;
+      }
+      activeGroups += 1;
     }
-    return groups > 0 && matches === groups;
-  }
-
-  function isLine3dDatasetHeaderMatrix(matrix){
-    return Array.isArray(matrix)
-      && matrix.length >= LINE_3D_HEADER_ROW_COUNT
-      && isLine3dAxisRow(matrix[LINE_3D_AXIS_HEADER_ROW_INDEX]);
+    return activeGroups > 0;
   }
 
   function getLine3dDataStartRow(matrix){
@@ -9910,7 +9873,7 @@
       hotRoot.classList.remove('line-grouped-header-merge');
       hotRoot.style?.setProperty?.('--line-3d-group-span', String(LINE_3D_COLS_PER_DATASET));
     }
-    console.debug('Debug: updateLine3dNestedHeaders applied', { seriesCount, labels: lineSeriesGroupLabels.slice() });
+    lineDebug('Debug: updateLine3dNestedHeaders applied', { seriesCount, labels: lineSeriesGroupLabels.slice() });
   }
 
   const scheduleLine3dDatasetSync = (() => {
@@ -12511,6 +12474,7 @@
       const legendLayout = chartStyle.computeLegendLayout({
         entries: showLegend ? legendEntries : [],
         fontSize: fs,
+        viewportHeight: drawableFrame.height,
         scaleInfo: styleScaleInfo,
         strokeWidth: borderWidthPx,
         textColor: lineThemeTextColor,
@@ -12616,8 +12580,6 @@
         maxLabelWidth: legendLayout.renderer.maxLabelWidth,
         entries: legendLayout.renderer.entries.map(entry => ({ label: entry.label, key: entry.key, labelWidth: entry.labelWidth }))
       };
-      applyLineLegendGuardWidth(legendLayout.minSvgWidth);
-
       const plotEl = refs.plot;
       const targetAspect = Number.isFinite(LINE_3D_DEFAULTS.aspectRatio) && LINE_3D_DEFAULTS.aspectRatio > 0 ? LINE_3D_DEFAULTS.aspectRatio : (4 / 3);
       const fallbackWidth = 460;
@@ -12638,6 +12600,16 @@
         W3 = fallbackWidth;
         H3 = fallbackHeight;
       }
+      const baseW3 = W3;
+      const legendVisible = showLegend && legendLayout?.renderer?.entries?.length > 0;
+      const legendAxisGap = Math.max(fs * 0.9, 18);
+      const appliedLegendAxisGap = legendVisible ? legendAxisGap : 0;
+      const legendViewport3d = chartStyle.computeLegendViewport({
+        baseWidth: baseW3,
+        baseHeight: H3,
+        legendWidth: legendVisible ? lineLegendWidth + appliedLegendAxisGap : 0
+      });
+      W3 = legendViewport3d.width;
       plotEl.style.display = 'block';
       plotEl.style.position = 'relative';
       const line3dDrawReason = drawOpts?.reason || 'line-3d-draw';
@@ -12664,6 +12636,14 @@
       svg3.setAttribute('font-family', chartStyle.FONT_FAMILY);
       svg3.dataset.viewMode = '3d';
       chartStyle.prepareSvg(svg3, { scopeId: 'line' });
+      const legendProjection = chartStyle.stageLegendViewport({
+        svgBox: refs.svgBox,
+        plot: plotEl,
+        svg: svg3,
+        baseWidth: baseW3,
+        baseHeight: H3,
+        legendWidth: legendVisible ? lineLegendWidth + appliedLegendAxisGap : 0
+      });
       if(reuse3dSvg){
         svg3.replaceChildren();
       }
@@ -12689,18 +12669,15 @@
       }
       bindLine3dRotationControls(svg3, 'line-3d');
 
-      const legendAxisGap = Math.max(fs * 0.9, 18);
-      const appliedLegendAxisGap = showLegend ? legendAxisGap : 0;
       const legendGapFor3d = legendLayout?.legendGapPx ?? 12;
       const baseLegendMargin = Math.max(fs * 2.25, 28);
-      const legendMargin = showLegend ? lineLegendWidth + appliedLegendAxisGap + baseLegendMargin : baseLegendMargin;
+      const legendMargin = legendVisible ? lineLegendWidth + appliedLegendAxisGap + baseLegendMargin : baseLegendMargin;
       const margin3 = {
         top: Math.max(fs * 3.2, 36),
         right: legendMargin,
         bottom: Math.max(fs * 3.2, 40),
         left: Math.max(fs * 3.2, 40)
       };
-      const legendVisible = showLegend && legendLayout?.renderer?.entries?.length > 0;
       const legendShiftX = typeof plot3d.resolveLegendShiftX === 'function'
         ? plot3d.resolveLegendShiftX({ legendVisible, margin: margin3, fontSize: fs, legendWidth: lineLegendWidth })
         : 0;
@@ -13248,13 +13225,16 @@
       // "none"/fill-distort default) guarantees proportions are preserved on initial
       // render, rotation, and resize. Without it, a content bbox whose aspect differs
       // from the rendered box stretches the whole plot vertically/horizontally.
-      ensureGraphViewport(svg3, { padding: Math.max(fs, 18), debugLabel: 'line-3d-graph', preserveAspectRatio: 'xMidYMid meet' });
+      ensureGraphViewport(svg3, { padding: Math.max(fs, 18), debugLabel: 'line-3d-graph', baseViewport: { width: W3, height: H3 }, preserveAspectRatio: 'xMidYMid meet' });
       if(!(await checkpoint()) || (invocation.session && !isLineSessionActive(invocation.session))){
         return false;
       }
       if(svgPublication){
-        svgPublication.commit();
+        if(!svgPublication.commit()){
+          return false;
+        }
       }
+      legendProjection.commit();
       getActiveLineLayoutManager()?.syncPanels?.({ skipSchedule: true });
       scheduleLineNoticeWidth('draw-3d');
       console.debug('Debug: drawLine3d complete', { debugStamp });
@@ -13650,6 +13630,7 @@
       const legendLayout=chartStyle.computeLegendLayout({
         entries:showLegend ? legendEntries : [],
         fontSize:fs,
+        viewportHeight: drawableFrame.height,
         scaleInfo: styleScaleInfo,
         strokeWidth:borderWidthPx,
         onSwatchClick:({ entry, swatch, event, index })=>{
@@ -13756,8 +13737,7 @@
         maxLabelWidth: legendLayout.renderer.maxLabelWidth,
         entries: legendLayout.renderer.entries.map(entry=>({ label: entry.label, key: entry.key, labelWidth: entry.labelWidth }))
       };
-      applyLineLegendGuardWidth(legendLayout.minSvgWidth);
-      console.debug('Debug: line legend layout metrics',{ legendWidth: lineLegendWidth, legendGap: legendLayout.legendGapPx, entryCount: legendLayout.renderer.entries.length, minSvgWidth: legendLayout.minSvgWidth, guardWidth: lineLegendGuardWidth });
+      console.debug('Debug: line legend layout metrics',{ legendWidth: lineLegendWidth, legendGap: legendLayout.legendGapPx, entryCount: legendLayout.renderer.entries.length });
       const legendWidth=lineLegendWidth;
       let xMin=xMinRaw,xMax=xMaxRaw,yMin=yMinRaw,yMax=yMaxRaw;
       if(isFinite(xMinManual)) xMin=xMinManual;
@@ -13818,8 +13798,10 @@
         }
       const plotEl=refs.plot;
       plotEl.style.display='block';
-      const W=Math.max(50,Math.floor(drawableFrame.width||50));
+      const baseWidth=Math.max(50,Math.floor(drawableFrame.width||50));
       const H=Math.max(40,Math.floor(drawableFrame.height||40));
+      const legendViewport=chartStyle.computeLegendViewport({ baseWidth, baseHeight:H, legendWidth });
+      const W=legendViewport.width;
       plotEl.style.position='relative';
       const svg=document.createElementNS(NS,'svg');
       svg.setAttribute('width',String(W));
@@ -13829,6 +13811,7 @@
       line.__resizeLiveRevision = (Number(line.__resizeLiveRevision) || 0) + 1;
       svg.dataset.resizeLiveRevision = String(line.__resizeLiveRevision);
       chartStyle.prepareSvg(svg, { scopeId: 'line' });
+      const legendProjection = chartStyle.stageLegendViewport({ svgBox:refs.svgBox, plot:plotEl, svg, baseWidth, baseHeight:H, legendWidth });
       const lineResolvedTheme2d = Shared.colorSchemes?.resolveThemeState?.('line', { config: { colorScheme: lineThemeState.colorScheme } }) || null;
       const lineThemeDark = lineResolvedTheme2d
         ? lineResolvedTheme2d.isDark === true
@@ -13879,7 +13862,7 @@
               console.debug('Debug: line log tick override',{ axis: axisKey, tickCount: scale.ticks.length });
             }
           };
-      let xTickTarget=chartStyle.estimateTickCount(W,{axis:'x',fallback:6});
+      let xTickTarget=chartStyle.estimateTickCount(baseWidth,{axis:'x',fallback:6});
       let yTickTarget=chartStyle.estimateTickCount(H,{axis:'y',fallback:6});
       console.debug('Debug: line initial tick targets',{xTickTarget,yTickTarget,width:W,height:H});
       const lineNotationX = getLineAxisNotation('x', invocation.session);
@@ -15564,7 +15547,10 @@
       if(!(await checkpoint()) || (invocation.session && !isLineSessionActive(invocation.session))){
         return false;
       }
-      svgPublication.commit();
+      if(!svgPublication.commit()){
+        return false;
+      }
+      legendProjection.commit();
       getActiveLineLayoutManager()?.syncPanels?.({ skipSchedule: true });
       scheduleLineNoticeWidth('draw');
       console.debug('Debug: drawLine complete',{debugStamp}); // Debug: draw exit
@@ -16551,71 +16537,22 @@
     }
     applyLineReplicateChange(lineReplicates, { sourceReplicates: lineReplicates, skipDraw: true });
 
-    const lineExamples={
-      standard:{
-        replicates:1,
-        seriesCount:5,
-        groupLabels:['North','South','East','West','Central'],
-        groupShapes:LINE_GROUP_SHAPE_DEFAULTS.slice(0,5),
-        data:[
-          ['Month','North','South','East','West','Central'],
-          [1,120,110,95,80,105],
-          [2,130,115,92,85,112],
-          [3,125,118,99,90,115],
-          [4,150,112,105,95,120],
-          [5,155,125,108,102,128],
-          [6,160,130,112,108,132],
-          [7,165,128,118,112,138],
-          [8,170,135,120,118,142],
-          [9,175,138,125,120,146],
-          [10,180,142,130,125,150],
-          [11,185,145,128,130,152],
-          [12,190,150,135,132,158]
-        ]
-      },
-      groupedDoseResponse:{
-        replicates:3,
-        seriesCount:2,
-        groupLabels:['Control','Treated'],
-        groupShapes:LINE_GROUP_SHAPE_DEFAULTS.slice(0,2),
-        data:[
-          ['Hours','Control Rep 1','Control Rep 2','Control Rep 3','Treated Rep 1','Treated Rep 2','Treated Rep 3'],
-          [0,45,43,47,50,48,49],
-          [24,58,60,57,68,70,69],
-          [48,72,71,74,80,82,81],
-          [72,88,86,87,95,97,96],
-          [96,105,104,106,112,113,111]
-        ]
-      },
-      threeD:{
-        seriesCount:3,
-        groupLabels:['Curve A','Curve B','Curve C'],
-        groupShapes:LINE_GROUP_SHAPE_DEFAULTS.slice(0,3),
-        data:[
-          ['Curve A','','','Curve B','','','Curve C','',''],
-          ['X','Y','Z','X','Y','Z','X','Y','Z'],
-          [0,0,0,0,0,1,0,0,2],
-          [1,0.84,0.54,1,0.91,1.54,1,0.14,2.54],
-          [2,0.91,-0.42,2,-0.76,0.58,2,-0.28,1.58],
-          [3,0.14,-0.99,3,-0.28,0.01,3,0.96,1.01],
-          [4,-0.76,-0.65,4,0.99,0.35,4,-0.54,1.35],
-          [5,-0.96,0.28,5,-0.54,1.28,5,-0.84,2.28],
-          [6,-0.28,0.96,6,-0.54,1.96,6,0.91,2.96]
-        ]
-      }
-    };
-
     refs.loadExample?.addEventListener('click',()=>{
       const is3dMode = getLineViewState().viewMode === '3d' || refs.replicateMode?.value === '3d' || refs.viewMode?.value === '3d';
       if(is3dMode){
-        const example = lineExamples.threeD;
+        const example = Shared.exampleDatasets?.get?.('line', 'threeD');
+        if(!example || !Array.isArray(example.data)){
+          console.warn('line 3d example load skipped: biomedical example registry unavailable');
+          return;
+        }
+        const exampleMeta = example.meta || {};
         lineSuppressResizeObserveUntil = Date.now() + 750;
         markLineOverlayPending('example-data');
         enterLine3dMode({ skipDraw: true });
         const hot = getActiveLineHotManager();
         patchLineGroupedState(getLineProjectionSession({ reason: 'line-projection-mutation' }), {
-          labels: example.groupLabels.slice(),
-          shapes: example.groupShapes.slice().map((shape, idx)=>sanitizeLineGroupShape(shape, idx))
+          labels: Array.isArray(exampleMeta.groupLabels) ? exampleMeta.groupLabels.slice() : [],
+          shapes: LINE_GROUP_SHAPE_DEFAULTS.slice(0, Number(exampleMeta.seriesCount) || 1).map((shape, idx)=>sanitizeLineGroupShape(shape, idx))
         }, { reason: 'line-3d-example-grouped' });
         if(hot && Array.isArray(example?.data)){
           hot.loadData(example.data, {
@@ -16629,22 +16566,33 @@
             tableFormat: '3d'
           });
         }
-        console.debug('Debug: line 3d example loaded',{ key: 'threeD', seriesCount: example.seriesCount });
+        Shared.exampleDatasets?.applyNotesState?.(notesState, example);
+        rememberLineSessionState(getLineProjectionTabId() || null, { reason: 'line-3d-example-load' }, { readControls: true });
+        console.debug('Debug: line 3d example loaded',{ key: 'threeD', seriesCount: exampleMeta.seriesCount });
         scheduleActiveLineDraw({ force: true, reason: 'line-3d-example-load' });
         return;
       }
       const isGroupedMode = refs.replicateMode?.value === 'grouped';
       const key = isGroupedMode ? 'groupedDoseResponse' : 'standard';
-      const example=lineExamples[key]||lineExamples.standard;
+      const example = Shared.exampleDatasets?.get?.('line', key)
+        || Shared.exampleDatasets?.get?.('line', 'standard');
+      if(!example || !Array.isArray(example.data)){
+        console.warn('line example load skipped: biomedical example registry unavailable', { key });
+        return;
+      }
+      const exampleMeta = example.meta || {};
       lineSuppressResizeObserveUntil = Date.now() + 750;
       markLineOverlayPending('example-data');
-      applyLineReplicateChange(example.replicates,{
+      const exampleReplicates = Math.max(1, Number(exampleMeta.replicates) || 1);
+      const exampleSeriesCount = Math.max(1, Number(exampleMeta.seriesCount) || 1);
+      const exampleGroupLabels = Array.isArray(exampleMeta.groupLabels) ? exampleMeta.groupLabels.slice() : [];
+      applyLineReplicateChange(exampleReplicates,{
         dataOverride: example.data,
-        sourceReplicates: example.replicates,
+        sourceReplicates: exampleReplicates,
         skipDraw: true,
-        minSeriesCount: example.seriesCount,
-        groupLabels: example.groupLabels,
-        groupShapes: example.groupShapes
+        minSeriesCount: exampleSeriesCount,
+        groupLabels: exampleGroupLabels,
+        groupShapes: LINE_GROUP_SHAPE_DEFAULTS.slice(0, exampleSeriesCount)
       });
       const hot = getActiveLineHotManager();
       if(hot && Array.isArray(example?.data)){
@@ -16655,7 +16603,9 @@
           undoLabel: 'table:line:example-load'
         });
       }
-      console.debug('Debug: line example loaded',{ key, replicates: example.replicates, mode: isGroupedMode ? 'grouped' : 'single' });
+      Shared.exampleDatasets?.applyNotesState?.(notesState, example);
+      rememberLineSessionState(getLineProjectionTabId() || null, { reason: 'line-example-load' }, { readControls: true });
+      console.debug('Debug: line example loaded',{ key, replicates: exampleReplicates, mode: isGroupedMode ? 'grouped' : 'single' });
       scheduleActiveLineDraw({ force: true, reason: 'line-example-load' });
     });
     bindLineControlHandler(refs.importBtn, 'click', 'import-table', ()=>{ if(refs.fileInput){ refs.fileInput.value=''; refs.fileInput.click(); } });
@@ -17758,6 +17708,7 @@
       });
       return false;
     }
+    chartStyle.rehydrateLegendViewports?.(plot);
     const renderCacheViewState = getLineViewState(resolveLineRenderCacheSession(meta));
     renderCacheViewState.rotationPending = false;
     renderCacheViewState.rotationPendingLogged = false;
@@ -18177,7 +18128,6 @@
           labelWidth: entry.labelWidth
         }))
       },
-      legendGuardWidth: lineLegendGuardWidth,
       minSvgWidth: lineMinSvgWidth,
       labelColors: { ...lineLabelColors },
       displayMode: lineDisplayMode,

@@ -575,7 +575,8 @@ test.describe('Box flip axes with manual resize', () => {
     expect(firstRestoredUnflipped.flipTransition?.activeOrientation).toBe('vertical');
     expect(firstRestoredUnflipped.overflowMaxPx).toBeLessThanOrEqual(2.5);
     expect(firstRestoredUnflipped.bottomViewportExtensionPx + firstRestoredUnflipped.significanceViewportExtensionPx).toBeGreaterThan(0);
-    expect(firstRestoredUnflipped.leftViewportExtensionPx + firstRestoredUnflipped.rightViewportExtensionPx).toBe(0);
+    expect(firstRestoredUnflipped.leftViewportExtensionPx + firstRestoredUnflipped.rightViewportExtensionPx)
+      .toBe(baselineUnflipped.leftViewportExtensionPx + baselineUnflipped.rightViewportExtensionPx);
     expectOrientationStable(firstRestoredUnflipped, baselineUnflipped, { label: 'first unflip restore', axisTolerance: 1.5 });
 
     await setFlipAxes(page, true);
@@ -738,7 +739,12 @@ test.describe('Box flip axes with manual resize', () => {
     expect(restoredWithSignificance.significancePathCount).toBeGreaterThan(0);
     expect(restoredWithSignificance.significanceViewportExtensionPx).toBeGreaterThan(0);
     expect(restoredWithSignificance.bottomViewportExtensionPx + restoredWithSignificance.significanceViewportExtensionPx).toBeGreaterThan(0);
-    expect(restoredWithSignificance.leftViewportExtensionPx + restoredWithSignificance.rightViewportExtensionPx).toBe(0);
+    expect(restoredWithSignificance.rightViewportExtensionPx).toBe(0);
+    if (restoredWithSignificance.xTickRotateVertical) {
+      expect(restoredWithSignificance.leftViewportExtensionPx).toBeGreaterThan(0);
+    } else {
+      expect(restoredWithSignificance.leftViewportExtensionPx).toBe(0);
+    }
     expectTransposePair(afterSignificance, restoredWithSignificance, {
       label: 'unflip with significance',
       axisTolerance: 1.5
@@ -795,7 +801,11 @@ test.describe('Box flip axes with manual resize', () => {
     expect(beforeFlip.significancePathCount).toBeGreaterThan(0);
     expect(beforeFlip.significanceViewportExtensionPx).toBeGreaterThan(0);
     expect(beforeFlip.rightViewportExtensionPx).toBe(0);
-    expect(beforeFlip.leftViewportExtensionPx).toBe(0);
+    if (beforeFlip.xTickRotateVertical) {
+      expect(beforeFlip.leftViewportExtensionPx).toBeGreaterThan(0);
+    } else {
+      expect(beforeFlip.leftViewportExtensionPx).toBe(0);
+    }
     expect(beforeFlip.plotWidthPx).not.toBeNull();
     expect(beforeFlip.plotHeightPx).not.toBeNull();
 

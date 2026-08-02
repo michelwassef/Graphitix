@@ -31,6 +31,7 @@ This file is the working guide for coding agents in Graphitix. Follow it reposit
 - Cache heavy data where possible for fast tab switching, and persist reusable cache data when it is safe and part of reopen fidelity.
 - Components must be as homogeneous as possible. When fixing one component, compare equivalent behavior in sibling components and normalize shared logic first.
 - Use component-specific fixes only when shared normalization is not appropriate.
+- Showing or hiding a legend must never change plot geometry. Legends extend the SVG viewport beyond the canonical graph width.
 - Future changes must preserve the architecture contract below, even when a narrow local test can be made to pass another way.
 
 ## 3. Architecture Contract
@@ -287,7 +288,7 @@ Payloads must remain JSON-serializable. Do not store DOM nodes, functions, class
 - Persistence/archive: `fileIO.js`, `graphArchive.js`, `graphArchiveSchema.js`, `graphSizing.js`.
 - Layout/rendering: `componentLayout.js`, `resizer.js`, `dom.js`, `chartStyle.js`, `plot3d.js`.
 - Tables/data: `hot.js`, `agGridAdapter.js`, `tableImport.js`, `formulaEngine.js`, `dataPipeline.js`, `dataTransforms.js`, `dataViews.js`.
-- Styling/toolbars: `workspaceToolbar.js`, `fontControls.js`, `axisControls.js`, `symbolToolbar.js`, `gridControls.js`, `significanceControls.js`, `colorSchemes.js`, `publicationStyles.js`.
+- Styling/toolbars: `workspaceToolbar.js`, `toolbarOverflow.js`, `fontControls.js`, `axisControls.js`, `symbolToolbar.js`, `gridControls.js`, `significanceControls.js`, `colorSchemes.js`, `publicationStyles.js`.
 - Stats/integrations: `stats.js`, `boxStatsModel.js`, `regression.js`, `stats-table.js`, `goAnalysis.js`, `stringAnalysis.js`, `uniprot.js`.
 - Async/performance: `workers.js`, `jobs.js`, `loadingOverlay.js`, `performance.js`, `debounce.js`.
 

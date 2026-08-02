@@ -112,6 +112,7 @@ describe('PCA color scheme survives a tab round-trip (regression)', () => {
     require('../js/shared/additionalLineControls.js');
     require('../js/shared/significanceControls.js');
     require('../js/shared/colorSchemes.js');
+    require('../js/shared/exampleDatasets.js');
     require('../js/shared/publicationStyles.js');
     require('../js/shared/fontControls.js');
     require('../js/shared/formControls.js');
@@ -170,7 +171,7 @@ describe('PCA color scheme survives a tab round-trip (regression)', () => {
     expect(schemeSelect).toBeTruthy();
     const geometryBeforeScheme = document.getElementById('pcaSvg');
     expect(geometryBeforeScheme).toBeTruthy();
-    expect(workspace.getColorSchemeContext?.({ tabId: tabB.id })?.labelKeys).toContain('A');
+    expect(workspace.getColorSchemeContext?.({ tabId: tabB.id })?.labelKeys).toContain('Control CS saline');
     schemeSelect.value = 'grayscale';
     schemeSelect.dispatchEvent(new Event('change', { bubbles: true }));
     await flushAll();
@@ -179,7 +180,7 @@ describe('PCA color scheme survives a tab round-trip (regression)', () => {
     expect(readSchemeId(workspace)).toBe('grayscale');
     const before = readColorState(workspace);
     expect(before.colorScheme).toBe('grayscale');
-    expect(Object.keys(JSON.parse(before.labelColors))).toContain('A');
+    expect(Object.keys(JSON.parse(before.labelColors))).toContain('Control CS saline');
     // Grayscale must actually have changed the fill away from the default blue.
     expect(before.fill).not.toBe('#0000ff');
     const renderedBefore = readRenderedPointFills();

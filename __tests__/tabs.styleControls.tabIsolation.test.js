@@ -89,6 +89,7 @@ describe('Style controls remain functional and tab-isolated across components', 
     require('../js/shared/additionalLineControls.js');
     require('../js/shared/significanceControls.js');
     require('../js/shared/colorSchemes.js');
+    require('../js/shared/exampleDatasets.js');
     require('../js/shared/publicationStyles.js');
     require('../js/shared/fontControls.js');
     require('../js/shared/formControls.js');

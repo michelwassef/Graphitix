@@ -2345,6 +2345,67 @@
       y: Number.isFinite(point?.y) ? point.y : 0
     });
 
+    const readViewportBounds = () => {
+      const baseVal = svg.viewBox?.baseVal;
+      if(baseVal && Number.isFinite(baseVal.x) && Number.isFinite(baseVal.y)
+        && Number.isFinite(baseVal.width) && baseVal.width > 0
+        && Number.isFinite(baseVal.height) && baseVal.height > 0){
+        return {
+          left: baseVal.x,
+          top: baseVal.y,
+          right: baseVal.x + baseVal.width,
+          bottom: baseVal.y + baseVal.height
+        };
+      }
+      const parts = String(svg.getAttribute('viewBox') || '')
+        .trim()
+        .split(/[\s,]+/)
+        .map(Number);
+      if(parts.length === 4 && parts.every(Number.isFinite) && parts[2] > 0 && parts[3] > 0){
+        return {
+          left: parts[0],
+          top: parts[1],
+          right: parts[0] + parts[2],
+          bottom: parts[1] + parts[3]
+        };
+      }
+      return null;
+    };
+
+    const readLegendBounds = () => {
+      try{
+        const bounds = group.getBBox();
+        if(bounds && Number.isFinite(bounds.x) && Number.isFinite(bounds.y)
+          && Number.isFinite(bounds.width) && bounds.width >= 0
+          && Number.isFinite(bounds.height) && bounds.height >= 0){
+          return bounds;
+        }
+      }catch(err){
+        logDebug('enableLegendDrag bounds unavailable', { message: err?.message });
+      }
+      return null;
+    };
+
+    const clampAxis = (value, minimum, maximum) => {
+      if(maximum < minimum){
+        return minimum;
+      }
+      return Math.min(Math.max(value, minimum), maximum);
+    };
+
+    const constrainPosition = point => {
+      const next = normalizePoint(point);
+      const viewport = readViewportBounds();
+      const bounds = readLegendBounds();
+      if(!viewport || !bounds){
+        return next;
+      }
+      return {
+        x: clampAxis(next.x, viewport.left - bounds.x, viewport.right - bounds.x - bounds.width),
+        y: clampAxis(next.y, viewport.top - bounds.y, viewport.bottom - bounds.y - bounds.height)
+      };
+    };
+
     const parseTranslate = () => {
       const raw = group.getAttribute('transform') || '';
       const match = raw.match(/translate\s*\(\s*([-+]?\d*\.?\d+)(?:[\s,]+([-+]?\d*\.?\d+))?/i);
@@ -2385,6 +2446,12 @@
       ? options.setPosition
       : value => writeTranslate(value);
 
+    const initialPosition = normalizePoint(getPosition());
+    const boundedInitialPosition = constrainPosition(initialPosition);
+    if(boundedInitialPosition.x !== initialPosition.x || boundedInitialPosition.y !== initialPosition.y){
+      setPosition(boundedInitialPosition);
+    }
+
     let pointerDown = false;
     let dragging = false;
     let startPoint = { x: 0, y: 0 };
@@ -2398,11 +2465,12 @@
         return false;
       }
       try {
-        setPosition(pos);
+        const boundedPosition = constrainPosition(pos);
+        setPosition(boundedPosition);
         if (typeof options.onPositionChange === 'function') {
-          options.onPositionChange(pos);
+          options.onPositionChange(boundedPosition);
         }
-        logDebug('enableLegendDrag apply position', { reason, x: pos.x, y: pos.y });
+        logDebug('enableLegendDrag apply position', { reason, x: boundedPosition.x, y: boundedPosition.y });
         return true;
       } catch (err) {
         console.error('enableLegendDrag apply position error', err);
@@ -2441,7 +2509,8 @@
       pointerDown = true;
       dragging = false;
       startPoint = pointerToSvg(event.clientX, event.clientY);
-      originPos = normalizePoint(getPosition());
+      originPos = constrainPosition(getPosition());
+      setPosition(originPos);
       currentPos = originPos;
       if(activePointerId != null && typeof group.setPointerCapture === 'function'){
         try{ group.setPointerCapture(activePointerId); }catch(err){}
@@ -2477,8 +2546,11 @@
         event.preventDefault();
         event.stopPropagation();
       }
-      const nextPos = { x: originPos.x + dx, y: originPos.y + dy };
-      currentPos = normalizePoint(setPosition(nextPos)) || normalizePoint(nextPos);
+      const nextPos = constrainPosition({ x: originPos.x + dx, y: originPos.y + dy });
+      const appliedPosition = setPosition(nextPos);
+      currentPos = appliedPosition && Number.isFinite(appliedPosition.x) && Number.isFinite(appliedPosition.y)
+        ? normalizePoint(appliedPosition)
+        : nextPos;
       if (typeof options.onPositionChange === 'function') {
         safeCall(options.onPositionChange, [currentPos], 'enableLegendDrag onPositionChange error');
       }
@@ -2563,8 +2635,15 @@
 
     const applyResize = () => {
       try {
-        const excludedNodes = typeof excludeSelector === 'string' && excludeSelector.trim()
-          ? Array.from(svg.querySelectorAll(excludeSelector.trim()))
+        const excludeSelectors = [];
+        if(typeof excludeSelector === 'string' && excludeSelector.trim()){
+          excludeSelectors.push(excludeSelector.trim());
+        }
+        if(svg.dataset?.legendBaseWidth){
+          excludeSelectors.push('[data-legend-viewport-content="true"]');
+        }
+        const excludedNodes = excludeSelectors.length
+          ? Array.from(svg.querySelectorAll(excludeSelectors.join(',')))
           : [];
         const restoreExcluded = [];
         excludedNodes.forEach(node => {

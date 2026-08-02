@@ -23,4 +23,13 @@ describe('chartStyle SVG preparation responsibilities', () => {
     expect(window.Shared.fontControls.enableForSvg).toHaveBeenCalledTimes(1);
     expect(window.Shared.fontControls.enableForSvg).toHaveBeenCalledWith(svg, { scopeId: 'prepared-svg' });
   });
+
+  test('prepareSvg applies the active component theme to a replacement SVG', () => {
+    const applyToSvg = jest.fn();
+    window.Shared.colorSchemes = { applyToSvg };
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+
+    expect(window.Shared.chartStyle.prepareSvg(svg, { scopeId: 'hist' })).toBe(true);
+    expect(applyToSvg).toHaveBeenCalledWith('hist', svg, { schemeId: undefined });
+  });
 });

@@ -10754,12 +10754,20 @@
 
   function handleSampleClick() {
     const previous = captureVennSnapshot();
-    state.ui.inputs.labelA.value = 'Transcriptomic';
-    state.ui.inputs.labelB.value = 'Proteomic';
-    state.ui.inputs.labelC.value = 'Phospho';
-    state.ui.inputs.A.value = `BRCA1\nATM\nBAP1\nEZH2\nSUZ12\nRING1B`;
-    state.ui.inputs.B.value = `BRCA1\nBAP1\nRING1B\nCBX2\nHDAC1\nPAXIP1\nHUWE1`;
-    state.ui.inputs.C.value = `BRCA1\nPAXIP1\nCSNK2A1\nRING1B\nKAT7`;
+    const exampleRecord = Shared.exampleDatasets?.get?.('venn');
+    const labels = exampleRecord?.data?.labels;
+    const sets = exampleRecord?.data?.sets;
+    if(!Array.isArray(labels) || labels.length < 3 || !Array.isArray(sets) || sets.length < 3){
+      console.warn('venn example load skipped: biomedical example registry unavailable');
+      return;
+    }
+    state.ui.inputs.labelA.value = labels[0];
+    state.ui.inputs.labelB.value = labels[1];
+    state.ui.inputs.labelC.value = labels[2];
+    state.ui.inputs.A.value = Array.isArray(sets[0]) ? sets[0].join('\n') : '';
+    state.ui.inputs.B.value = Array.isArray(sets[1]) ? sets[1].join('\n') : '';
+    state.ui.inputs.C.value = Array.isArray(sets[2]) ? sets[2].join('\n') : '';
+    Shared.exampleDatasets?.applyNotesState?.(notesState, exampleRecord);
     state.ui.syncTableFromInputs?.({ refresh: true });
     state.analysis.lastDrawMode = 'lists';
     if (state.ui.speciesSelect) state.ui.speciesSelect.value = '';

@@ -229,6 +229,40 @@
     }
   }
 
+  function getOverflowApi(){
+    if(!Shared.toolbarOverflow && typeof require === 'function'){
+      try{
+        require('./toolbarOverflow.js');
+      }catch(_err){}
+    }
+    return Shared.toolbarOverflow || null;
+  }
+
+  function refreshToolbarOverflow(target){
+    try{
+      getOverflowApi()?.refresh?.(target);
+    }catch(err){
+      logDebug('overflow refresh failed', { error: err?.message || String(err) });
+    }
+  }
+
+  function clearToolbarFloatingPopup(popup){
+    try{
+      getOverflowApi()?.clearPopup?.(popup);
+    }catch(err){
+      logDebug('floating popup cleanup failed', { error: err?.message || String(err) });
+    }
+  }
+
+  function positionToolbarFloatingPopup(popup, anchor, options){
+    try{
+      return getOverflowApi()?.positionPopup?.(popup, anchor, options || {}) === true;
+    }catch(err){
+      logDebug('floating popup placement failed', { error: err?.message || String(err) });
+      return false;
+    }
+  }
+
   function clearToolbarHostSizing(host){
     if(!host || !host.style){ return; }
     host.style.removeProperty('min-width');
@@ -341,6 +375,7 @@
       : (config.hostClass ? [config.hostClass] : []);
     hostClasses.filter(Boolean).forEach(cls => host.classList.add(cls));
     setDockActiveState(host, true);
+    refreshToolbarOverflow(host);
     // Ensure the section owning this host is visible immediately.
     // Relying only on mutation observers can leave an open panel hidden.
     try{
@@ -353,6 +388,7 @@
       const sectionId = section?.dataset?.toolbarSectionId || '';
       if(toolbar && sectionId){
         setToolbarActiveSection(toolbar, sectionId, { context: true });
+        refreshToolbarOverflow(host);
       }
     }catch(err){
       logDebug('showHost section activation failed', { error: err?.message || String(err) });
@@ -374,6 +410,7 @@
     host.style.removeProperty('overflow-y');
     clearToolbarHostSizing(host);
     setDockActiveState(host, false);
+    refreshToolbarOverflow(host);
     try{
       const toolbar = typeof host.closest === 'function'
         ? host.closest('.workspace-toolbar')
@@ -784,6 +821,8 @@
 
   function closeMenu(wrapper){
     if(!wrapper){ return; }
+    const list = wrapper.querySelector('.workspace-toolbar__menu-list');
+    clearToolbarFloatingPopup(list);
     wrapper.classList.remove(MENU_OPEN_CLASS);
     const trigger = wrapper.querySelector(MENU_TRIGGER_SELECTOR);
     if(trigger){ trigger.setAttribute('aria-expanded', 'false'); }
@@ -805,6 +844,14 @@
     closeAllMenus(wrapper);
     wrapper.classList.add(MENU_OPEN_CLASS);
     trigger.setAttribute('aria-expanded', 'true');
+    const list = wrapper.querySelector('.workspace-toolbar__menu-list');
+    if(list){
+      positionToolbarFloatingPopup(list, trigger, {
+        align: 'start',
+        offset: 6,
+        minWidth: 180
+      });
+    }
   }
 
   function toggleMenu(trigger){
@@ -1163,11 +1210,17 @@
       tab.setAttribute('aria-selected', isActive ? 'true' : 'false');
       tab.tabIndex = isActive ? 0 : -1;
     });
+    const previousSectionId = String(toolbar.dataset.toolbarActiveSection || '').trim();
     applyToolbarSectionState(toolbar, {
       activeSection: sectionId,
       manual: options.manual === true ? sectionId : null,
       context: options.context === true ? sectionId : null,
       clearContext: options.clearContext === true
+    });
+    const activeSection = toolbar.querySelector(`${sectionSelector}[data-toolbar-section-id="${sectionId}"]`);
+    getOverflowApi()?.activateSection?.(toolbar, activeSection, {
+      ownerId: resolveToolbarTabIdFromNode(toolbar),
+      reset: previousSectionId !== sectionId || options.resetOverflow === true
     });
   }
 
@@ -1388,11 +1441,11 @@
     if(!trigger || !dropdown){
       return;
     }
-    const left = Number(trigger.offsetLeft) || 0;
-    const top = (Number(trigger.offsetTop) || 0) + (Number(trigger.offsetHeight) || 0) + 6;
-    dropdown.style.left = `${left}px`;
-    dropdown.style.top = `${top}px`;
-    dropdown.style.right = 'auto';
+    positionToolbarFloatingPopup(dropdown, trigger, {
+      align: 'start',
+      offset: 6,
+      minWidth: 280
+    });
   }
 
   function setTransformCustomDropdownOpen(section, expanded, options){
@@ -1407,6 +1460,7 @@
       trigger.setAttribute('aria-expanded', next ? 'true' : 'false');
     }
     if(!next){
+      clearToolbarFloatingPopup(dropdown);
       return;
     }
     const opts = options || {};
@@ -1710,6 +1764,7 @@
       const run = () => {
         scheduled = false;
         syncToolbarContextSection(toolbar);
+        refreshToolbarOverflow(toolbar);
       };
       if(typeof global.requestAnimationFrame === 'function'){
         global.requestAnimationFrame(run);
@@ -1738,6 +1793,7 @@
     });
     contextObservers.set(toolbar, observer);
     syncToolbarContextSection(toolbar);
+    refreshToolbarOverflow(toolbar);
   }
 
   function createButtonsSection(section){
@@ -1754,8 +1810,15 @@
       sectionEl.classList.add('workspace-toolbar__section--align-end');
     }
 
-    const buttonsWrap = doc.createElement('div');
-    buttonsWrap.className = 'workspace-toolbar__buttons';
+    const transformPanel = section.transformSection
+      ? createSubPanel({
+          title: section.caption || '',
+          panelClass: 'workspace-toolbar__panel--transform',
+          rowClass: 'workspace-toolbar__buttons'
+        })
+      : null;
+    const buttonsWrap = transformPanel?.row || doc.createElement('div');
+    if(!transformPanel){ buttonsWrap.className = 'workspace-toolbar__buttons'; }
     (section.buttons || []).forEach(buttonConfig => {
       if(!buttonConfig){ return; }
       if(buttonConfig.type === 'checkbox'){
@@ -1771,14 +1834,16 @@
       }
       if(button){ buttonsWrap.appendChild(button); }
     });
-    sectionEl.appendChild(buttonsWrap);
-    if(section.transformSection){
+    if(transformPanel){
       const customDropdown = createTransformCustomDropdown(section);
       if(customDropdown){
-        sectionEl.appendChild(customDropdown);
+        transformPanel.panel.appendChild(customDropdown);
       }
+      sectionEl.appendChild(transformPanel.panel);
+      return sectionEl;
     }
 
+    sectionEl.appendChild(buttonsWrap);
     const caption = doc.createElement('div');
     caption.className = 'workspace-toolbar__caption';
     caption.textContent = section.caption || '';
@@ -2031,13 +2096,16 @@
       const existing = container.querySelector('.workspace-toolbar');
       if(existing){
         detachContextObserver(existing);
+        getOverflowApi()?.detach?.(existing);
         existing.replaceWith(toolbar);
       } else {
         container.insertBefore(toolbar, container.firstChild || null);
       }
     }
+    getOverflowApi()?.attach?.(toolbar);
     attachContextObserver(toolbar);
     syncTransformSections(toolbar);
+    refreshToolbarOverflow(toolbar);
     container.dataset.toolbarRendered = '1';
     logDebug('rendered toolbar', { key });
     ensureUndoSubscription();
@@ -2087,7 +2155,27 @@
   workspaceToolbar.createBorderStyleControl = createBorderStyleControl;
   workspaceToolbar.createTransparencyControl = createTransparencyControl;
   workspaceToolbar.createLinePatternField = createLinePatternField;
-  workspaceToolbar.activateSection = function activateSection(toolbarKey, sectionLabel){
+  workspaceToolbar.activateSectionById = function activateSectionById(toolbarOrKey, sectionId, options){
+    if(!doc){ return false; }
+    const normalizedSectionId = String(sectionId || '').trim();
+    if(!normalizedSectionId){ return false; }
+    const toolbar = toolbarOrKey?.querySelectorAll
+      ? toolbarOrKey
+      : resolveToolbarByKey(String(toolbarOrKey || '').trim());
+    if(!toolbar){ return false; }
+    const section = Array.from(toolbar.querySelectorAll('.workspace-toolbar__section[data-toolbar-section-id]'))
+      .find(node => String(node.dataset?.toolbarSectionId || '') === normalizedSectionId);
+    if(!section){ return false; }
+    const opts = options && typeof options === 'object' ? options : {};
+    collapseToolbarContextHosts(toolbar, normalizedSectionId);
+    setToolbarActiveSection(toolbar, normalizedSectionId, {
+      manual: opts.manual !== false,
+      clearContext: opts.clearContext !== false,
+      resetOverflow: opts.resetOverflow === true
+    });
+    return true;
+  };
+  workspaceToolbar.activateSection = function activateSection(toolbarKey, sectionLabel, options){
     if(!doc){ return false; }
     const key = String(toolbarKey || '').trim();
     const label = String(sectionLabel || '').trim().toLowerCase();
@@ -2098,9 +2186,7 @@
       .find(node => String(node.textContent || '').trim().toLowerCase() === label);
     const sectionId = tab?.dataset?.toolbarSectionTarget || '';
     if(!sectionId){ return false; }
-    collapseToolbarContextHosts(toolbar, sectionId);
-    setToolbarActiveSection(toolbar, sectionId, { manual: true, clearContext: true });
-    return true;
+    return workspaceToolbar.activateSectionById(toolbar, sectionId, options);
   };
   workspaceToolbar.isTransformMultiMode = function isTransformMultiMode(toolbarKey){
     if(!doc){ return false; }

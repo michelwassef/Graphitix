@@ -4917,15 +4917,13 @@
       schedule();
     });
 
-    const example = [
-      ['Gene', 'Baseline_A', 'Baseline_B', 'Treatment_A', 'Treatment_B', 'Stress_A', 'Stress_B', 'Recovery'],
-      ['GeneA', 2.1, 2.4, 6.8, 7.1, 9.5, 9.1, 3.2],
-      ['GeneB', 5.5, 5.8, 2.2, 2.0, 3.1, 3.5, 6.7],
-      ['GeneC', 1.2, 1.0, 7.9, 7.5, 2.6, 2.1, 4.3],
-      ['GeneD', 3.8, 3.5, 1.6, 1.8, 8.4, 8.7, 2.4],
-      ['GeneE', 4.5, 4.2, 3.1, 3.4, 6.9, 7.2, 5.1]
-    ];
     bindHeatmapControlHandler($('heatmapLoadExample'), 'click', 'load-example', () => {
+      const exampleRecord = Shared.exampleDatasets?.get?.('heatmap');
+      const example = exampleRecord?.data;
+      if(!Array.isArray(example)){
+        console.warn('heatmap example load skipped: biomedical example registry unavailable');
+        return;
+      }
       markHeatmapOverlayPending('example-data');
       if(!replaceHeatmapDataset(example, {
         reason: 'example-load',
@@ -4937,6 +4935,11 @@
       })){
         return;
       }
+      Shared.exampleDatasets?.applyNotesState?.(notesState, exampleRecord);
+      syncHeatmapNotesStateToSession(getHeatmapProjectionSession({ reason: 'heatmap-projection-mutation' }), notesState);
+      captureHeatmapSessionStateFromActive(getHeatmapProjectionSession({ reason: 'heatmap-projection-mutation' }), {
+        reason: 'heatmap-example-load'
+      });
       debugLog('heatmap example loaded');
     });
 

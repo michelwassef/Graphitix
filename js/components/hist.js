@@ -326,8 +326,8 @@
 
   function createDefaultDistributionSettings(){
     return {
-      selections: { normal: true },
-      showPdf: true,
+      selections: { normal: false },
+      showPdf: false,
       showCdf: false,
       alpha: 0.05
     };
@@ -411,9 +411,9 @@
 
   function mergeDistributionSelections(current, options){
     const merged = { ...current };
-    options.forEach((opt, index) => {
+    options.forEach(opt => {
       if(!(opt.key in merged)){
-        merged[opt.key] = index === 0;
+        merged[opt.key] = false;
       }
     });
     return merged;
@@ -4852,26 +4852,24 @@
     });
 
     // Example + Import
-    const example=[
-      ['Exam Score'],
-      [38],[42],[45],[47],[49],[50],[52],[53],[54],[55],
-      [56],[57],[58],[59],[60],[61],[62],[63],[64],[65],
-      [66],[67],[68],[69],[70],[71],[72],[73],[74],[75],
-      [76],[77],[78],[79],[80],[81],[82],[83],[84],[85],
-      [86],[87],[88],[89],[90],[91],[92],[93],[94],[95],
-      [96],[97],[98],[99],[100]
-    ];
     const exampleBtn = getHistNodeById('histLoadExample');
     if(exampleBtn){
       exampleBtn.addEventListener('click', event => {
         runHistEventOwnerCallback(event, 'hist-example-load', owner => {
+        const exampleRecord = Shared.exampleDatasets?.get?.('hist');
+        const example = exampleRecord?.data;
+        if(!Array.isArray(example)){
+          console.warn('histogram example load skipped: biomedical example registry unavailable');
+          return;
+        }
         markHistOverlayPending('example-data');
         state.hot.loadData(example, {
           source: 'example-load',
           recordUndo: true,
           undoLabel: 'table:hist:example-load'
         });
-        histDebug('hist example loaded');
+        Shared.exampleDatasets?.applyNotesState?.(state.notes, exampleRecord);
+        histDebug('biomedical histogram example loaded', { rows: example.length - 1, series: example[0].length });
         commitHistActiveStateToOwner(owner, { reason: 'hist-example-load' });
         scheduleHistOwnerDraw(owner, { reason: 'hist-example-load', tabId: owner.tabId || undefined });
         });
@@ -6752,6 +6750,7 @@
       ? chartStyle.computeLegendLayout({
           entries: legendEntries,
           fontSize: fs,
+          viewportHeight: drawableFrame.height,
           scaleInfo: styleScaleInfo,
           strokeWidth: borderWidthPx > 0 ? borderWidthPx : 1,
           textColor: chartStyle.TEXT_COLOR,
@@ -6794,7 +6793,7 @@
           }
       })
       : null;
-    const W=baseWidth;
+    let W=baseWidth;
     if(!hasManualXMin || !hasManualXMax){
       let paddedXMin = xMin;
       let paddedXMax = xMax;
@@ -6888,7 +6887,7 @@
     });
     const axisMetrics=chartStyle.createAxisMetrics(fontInfo.px, styleScaleInfo);
     histDebug('Debug: hist axis metrics',axisMetrics);
-    let xTickTarget=chartStyle.estimateTickCount(W,{axis:'x',fallback:6});
+    let xTickTarget=chartStyle.estimateTickCount(baseWidth,{axis:'x',fallback:6});
     let yTickTarget=chartStyle.estimateTickCount(H,{axis:'y',fallback:6});
     histDebug('Debug: hist initial tick targets',{xTickTarget,yTickTarget,width:W,height:H});
     const histFontStyles = exportFontStyles('hist');
@@ -6909,6 +6908,15 @@
     const legendRenderer = legendVisible && legendLayout?.renderer
       ? legendLayout.renderer
       : { entries: [], width: 0, height: 0, draw(){ return null; } };
+    const legendViewport = chartStyle.stageLegendViewport({
+      svgBox: state.svgBox,
+      plot: plotEl,
+      svg,
+      baseWidth,
+      baseHeight: H,
+      legendWidth
+    });
+    W = legendViewport.width;
     let margin=stabilizeHistMarginForAxisResize(
       chartStyle.computeBaseMargins({fontSize:fs,legendWidth,maxYLabelWidth:0,hasYTitle,axisMetrics})
     );
@@ -7704,6 +7712,7 @@
     if(!(await checkpoint()) || !framePublication.commit()){
       return false;
     }
+    legendViewport.commit();
     state.layout?.syncPanels?.({ skipSchedule: true });
     syncHistAutoDrawNoticeWidth('draw');
     updateHistStats(fitSets.map((entry, seriesIndex) => ({
@@ -8200,6 +8209,9 @@
     const stats = getHistNodeById('histStatsResults');
     const restoredPlot = restoreChildren(plot, graphCachePayload);
     const restoredStats = restoreChildren(stats, cache.stats);
+    if(restoredPlot){
+      chartStyle.rehydrateLegendViewports?.(plot);
+    }
     if(restoredStats){
       // The replayed stats DOM carries dead Download/Copy controls (listeners cannot
       // survive serialization); re-mount them from the restored tables.

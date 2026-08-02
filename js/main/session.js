@@ -3319,7 +3319,7 @@
       mountedRoot = null;
     }
     const toolbar = mountedRoot?.querySelector?.('.workspace-toolbar');
-    if (!toolbar || typeof Shared.workspaceToolbar?.activateSection !== 'function') {
+    if (!toolbar || typeof Shared.workspaceToolbar?.activateSectionById !== 'function') {
       // Fall back to direct dataset manipulation if no helper is exported. The toolbar
       // module's setToolbarActiveSection is internal, but the dataset is the source of
       // truth read by syncToolbarContextSection on the next interaction.
@@ -3357,7 +3357,14 @@
       return false;
     }
     try {
-      Shared.workspaceToolbar.activateSection(toolbar, desiredSection, { manual: true });
+      const activated = Shared.workspaceToolbar.activateSectionById(toolbar, desiredSection, {
+        manual: true,
+        clearContext: true,
+        resetOverflow: true
+      });
+      if (!activated) {
+        return false;
+      }
       console.debug('Debug: workspace toolbar uiState applied', {
         tabId: tab.id,
         type: tab.type,

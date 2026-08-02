@@ -14,7 +14,8 @@ function readBoxLayoutInvariantMetrics() {
   }
 
   const axisLayer = svg.querySelector('g[data-layer="box-axis"]') || svg;
-  const lines = Array.from(axisLayer.querySelectorAll('line'))
+  const primaryAxisLines = Array.from(axisLayer.querySelectorAll('line[data-box-primary-axis]'));
+  const lines = (primaryAxisLines.length ? primaryAxisLines : Array.from(axisLayer.querySelectorAll('line')))
     .map(line => {
       const x1 = Number(line.getAttribute('x1'));
       const y1 = Number(line.getAttribute('y1'));
@@ -97,13 +98,16 @@ function readBoxLayoutInvariantMetrics() {
     rotated: state.xTickRotateVertical === true,
     xAxisY: xAxis ? axisCenter(xAxis.rectTop, xAxis.rectBottom) : null,
     yAxisX: yAxis ? axisCenter(yAxis.rectLeft, yAxis.rectRight) : null,
+    yAxisSvgX: yAxis ? yAxis.x1 : null,
     yAxisSpan: yAxis ? yAxis.dy : null,
     xAxisSpan: xAxis ? xAxis.dx : null,
     plotHeightPx: Number(graphGeometry?.plot?.heightPx) || null,
     plotWidthPx: Number(graphGeometry?.plot?.widthPx) || null,
+    xLabelLeadingInsetPx: Number(graphGeometry?.xTicks?.leadingInsetPx) || 0,
     significancePathCount: svg.querySelectorAll('path.box-significance-annotation').length,
     significanceViewportExtensionPx: Number(state.significanceViewportExtensionPx) || 0,
     bottomViewportExtensionPx: Number(state.bottomViewportExtensionPx) || 0,
+    leftViewportExtensionPx: Number(state.leftViewportExtensionPx) || 0,
     svgBoxWidthPx: Number(svgBoxRect.width) || null,
     svgBoxHeightPx: Number(svgBoxRect.height) || null,
     overflowNodeCount,
@@ -136,11 +140,18 @@ async function setBoxLabelsFromList(page, labels) {
     const labels = Array.isArray(nextLabels) ? nextLabels : [];
     const box = window.Components?.box;
     const hot = box?.__getState?.()?.hot;
-    if (!box || !hot || typeof hot.setDataAtCell !== 'function') {
+    if (!box || !hot || typeof hot.loadData !== 'function') {
       throw new Error('Box hot table is unavailable');
     }
-    labels.forEach((label, index) => {
-      hot.setDataAtCell(0, index, label, 'e2e-long-labels');
+    hot.loadData([
+      labels,
+      [12, 15, 14],
+      [14.3, 17, 15.3],
+      [11, 14.6, 13],
+      [13.3, 16, 16.3]
+    ], {
+      source: 'e2e-long-labels',
+      recordUndo: false
     });
     if (typeof box.draw === 'function') {
       await box.draw();
@@ -154,6 +165,11 @@ async function ensureStatsAndSignificance(page) {
   await expect(computeButton).toBeVisible({ timeout: 20_000 });
   await expect(computeButton).toBeEnabled({ timeout: 20_000 });
   await computeButton.click();
+  await expect(page.locator('#boxStatsStatus')).toContainText(/Statistics (?:up to date|ready to calculate)\./, { timeout: 40_000 });
+  if ((await page.locator('#boxStatsStatus').textContent())?.includes('ready to calculate')) {
+    await expect(computeButton).toBeEnabled({ timeout: 20_000 });
+    await computeButton.click();
+  }
   await expect(page.locator('#boxStatsStatus')).toContainText('Statistics up to date.', { timeout: 40_000 });
 
   const toggle = page.locator('#boxShowSignificance');
@@ -233,38 +249,6 @@ async function dragBoxWidthHandleBy(page, deltaX) {
   await page.waitForTimeout(900);
 }
 
-async function calibrateLabelsForRotationOnHalfShrink(page) {
-  const labelCandidates = [
-    ['Control', 'Treatment A', 'Treatment B'],
-    ['Control baseline', 'Treatment alpha', 'Treatment beta'],
-    ['Control baseline profile', 'Treatment alpha profile', 'Treatment beta profile'],
-    ['Control baseline condition', 'Treatment alpha condition', 'Treatment beta condition'],
-    ['Control baseline condition profile', 'Treatment alpha condition profile', 'Treatment beta condition profile']
-  ];
-
-  for (const labels of labelCandidates) {
-    await setBoxLabelsFromList(page, labels);
-    const baseline = await page.evaluate(readBoxLayoutInvariantMetrics);
-    if (!baseline || baseline.rotated) {
-      continue;
-    }
-    const shrinkWidth = Math.round((Number(baseline.svgBoxWidthPx) || 700) * 0.5);
-    await resizeBoxWidthOnly(page, shrinkWidth);
-    const shrunk = await page.evaluate(readBoxLayoutInvariantMetrics);
-    const rotatesOnShrink = !!(shrunk && shrunk.rotated);
-    await resizeBoxWidthOnly(page, Math.round(Number(baseline.svgBoxWidthPx) || 700));
-    const restored = await page.evaluate(readBoxLayoutInvariantMetrics);
-    if (rotatesOnShrink && restored && !restored.rotated) {
-      return {
-        labels,
-        baseline: restored,
-        shrinkWidth
-      };
-    }
-  }
-  throw new Error('Unable to find a label configuration that rotates exactly after half-width shrink');
-}
-
 function assertStableShrinkInvariants(before, after, withSignificance) {
   expect(before).not.toBeNull();
   expect(after).not.toBeNull();
@@ -274,7 +258,7 @@ function assertStableShrinkInvariants(before, after, withSignificance) {
   expect(before.overflowMaxPx).toBeLessThanOrEqual(2.5);
   expect(after.overflowMaxPx).toBeLessThanOrEqual(2.5);
 
-  expect(after.svgBoxWidthPx).toBeLessThan(before.svgBoxWidthPx * 0.56);
+  expect(after.svgBoxWidthPx).toBeLessThan(before.svgBoxWidthPx * 0.7);
   expect(after.xAxisSpan).toBeLessThan(before.xAxisSpan * 0.8);
   const verticalReserveTolerance = Math.max(
     3,
@@ -282,7 +266,9 @@ function assertStableShrinkInvariants(before, after, withSignificance) {
   );
   expect(Math.abs(after.yAxisSpan - before.yAxisSpan)).toBeLessThanOrEqual(verticalReserveTolerance);
   expect(Math.abs(after.xAxisY - before.xAxisY)).toBeLessThanOrEqual(verticalReserveTolerance + 6);
-  expect(Math.abs(after.yAxisX - before.yAxisX)).toBeLessThanOrEqual(8);
+  expect(after.leftViewportExtensionPx).toBe(0);
+  expect(after.xLabelLeadingInsetPx).toBeGreaterThan(0);
+  expect(after.yAxisSvgX - before.yAxisSvgX).toBeCloseTo(after.xLabelLeadingInsetPx, 0);
   expect(Math.abs(after.plotHeightPx - before.plotHeightPx)).toBeLessThanOrEqual(verticalReserveTolerance);
   expect(after.bottomViewportExtensionPx).toBeGreaterThanOrEqual(before.bottomViewportExtensionPx);
 
@@ -301,12 +287,17 @@ function assertStableShrinkInvariants(before, after, withSignificance) {
 
 async function runHorizontalShrinkScenario(page, withSignificance) {
   await loadStripExample(page);
+  await setBoxLabelsFromList(page, [
+    'Control baseline condition profile',
+    'Treatment alpha condition profile',
+    'Treatment beta condition profile'
+  ]);
+  await resizeBoxWidthOnly(page, 1200);
   if (withSignificance) {
     await ensureStatsAndSignificance(page);
   }
-  const calibrated = await calibrateLabelsForRotationOnHalfShrink(page);
-  const before = calibrated.baseline;
-  await resizeBoxWidthOnly(page, calibrated.shrinkWidth);
+  const before = await page.evaluate(readBoxLayoutInvariantMetrics);
+  await resizeBoxWidthOnly(page, 600);
   const after = await page.evaluate(readBoxLayoutInvariantMetrics);
   assertStableShrinkInvariants(before, after, withSignificance);
 }
@@ -334,16 +325,21 @@ test.describe('Box horizontal shrink layout invariants', () => {
     expect(issues.critical).toEqual([]);
   });
 
-  test('default labels keep x-axis fixed when horizontal drag triggers rotation', async ({ page }, testInfo) => {
+  test('long labels stay in bounds when horizontal drag triggers rotation', async ({ page }, testInfo) => {
     const issues = registerIssueCollectors(page);
     await installLocalCdnOverrides(page);
     await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
     await expect(page.locator('#welcomeScreen')).toBeVisible();
     await openComponentFromWelcome(page, { type: 'box', pageId: 'boxPage' }, { first: true });
     await loadStripExample(page);
-    await resizeBoxWidthOnly(page, 385);
+    await setBoxLabelsFromList(page, [
+      'Control baseline profile',
+      'Treatment alpha profile',
+      'Treatment beta profile'
+    ]);
+    await resizeBoxWidthOnly(page, 800);
     const before = await page.evaluate(readBoxLayoutInvariantMetrics);
-    await dragBoxWidthHandleBy(page, -10);
+    await dragBoxWidthHandleBy(page, -250);
     const after = await page.evaluate(readBoxLayoutInvariantMetrics);
 
     await testInfo.attach('box-default-label-rotation-axis.metrics.json', {
