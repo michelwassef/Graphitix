@@ -37,6 +37,43 @@ const CASES = [
     notesPanelId: 'histGraphPanel',
     controlsA: { histPlotMode: 'histogram', histShowGrid: true, histShowFrame: false, histShowLegend: false, histLogY: false },
     controlsB: { histPlotMode: 'density', histShowGrid: false, histShowFrame: true, histShowLegend: true, histLogY: true }
+  },
+  {
+    type: 'box',
+    pageId: 'boxPage',
+    exampleButtonId: 'boxLoadExample',
+    managerKey: '__boxDataViewsManager',
+    hotWrapperId: 'hotWrapper',
+    notesPanelId: 'boxGraphPanel',
+    controlsA: { boxShowGrid: true, boxShowFrame: false, boxShowLegend: false },
+    controlsB: { boxShowGrid: false, boxShowFrame: true, boxShowLegend: true }
+  },
+  {
+    type: 'scatter',
+    pageId: 'scatterPage',
+    exampleButtonId: 'scatterLoadExample',
+    managerKey: '__scatterDataViewsManager',
+    notesPanelId: 'scatterGraphPanel',
+    controlsA: { scatterShowGrid: true, scatterShowFrame: false, scatterShowLegend: false },
+    controlsB: { scatterShowGrid: false, scatterShowFrame: true, scatterShowLegend: true }
+  },
+  {
+    type: 'pca',
+    pageId: 'pcaPage',
+    exampleButtonId: 'pcaLoadExample',
+    managerKey: '__pcaDataViewsManager',
+    notesPanelId: 'pcaGraphPanel',
+    controlsA: { pcaYAxis: '2', pcaShowGrid: false, pcaShowFrame: true, pcaShowLegend: true },
+    controlsB: { pcaYAxis: '3', pcaShowGrid: true, pcaShowFrame: true, pcaShowLegend: false }
+  },
+  {
+    type: 'line',
+    pageId: 'linePage',
+    exampleButtonId: 'lineLoadExample',
+    managerKey: '__lineDataViewsManager',
+    notesPanelId: 'lineGraphPanel',
+    controlsA: { lineShowGrid: true, lineShowFrame: false, lineShowLegend: false },
+    controlsB: { lineShowGrid: false, lineShowFrame: true, lineShowLegend: true }
   }
 ];
 
@@ -115,7 +152,8 @@ async function configureComponentTab(page, component, variant) {
       }
       editor.dispatchEvent(new Event('input', { bubbles: true }));
     }
-    const wrapper = root.querySelector(`#${component.type}HotWrapper`);
+    const hotWrapperId = component.hotWrapperId || `${component.type}HotWrapper`;
+    const wrapper = root.querySelector(`#${hotWrapperId}`);
     const manager = wrapper?.__dataViewsOwner || null;
     if (!manager || typeof manager.createDerivedView !== 'function') {
       throw new Error(`${component.type} DataViews manager not found`);
@@ -157,7 +195,8 @@ async function snapshotActiveTab(page, component) {
     const componentApi = window.Components?.[component.type] || {};
     const payload = componentApi.getPayload?.() || null;
     const config = payload?.config || {};
-    const wrapper = root?.querySelector?.(`#${component.type}HotWrapper`) || null;
+    const hotWrapperId = component.hotWrapperId || `${component.type}HotWrapper`;
+    const wrapper = root?.querySelector?.(`#${hotWrapperId}`) || null;
     const manager = wrapper?.__dataViewsOwner || null;
     const serialized = manager?.serialize?.({ includeData: true }) || payload?.dataViews || null;
     const activeView = manager?.getActiveView?.() || null;
@@ -176,7 +215,11 @@ async function snapshotActiveTab(page, component) {
       notesPayload: config.notes?.text || '',
       notesOpen: !!config.notes?.open,
       config,
-      controls: Object.fromEntries(Object.keys(component.controlsA || {}).concat(Object.keys(component.controlsB || {})).map(id => [id, readInput(id)]))
+      controls: Object.fromEntries(Object.keys(component.controlsA || {}).concat(Object.keys(component.controlsB || {})).map(id => [id, readInput(id)])),
+      controlDisabled: Object.fromEntries(Object.keys(component.controlsA || {}).concat(Object.keys(component.controlsB || {})).map(id => {
+        const el = root?.querySelector?.(`#${id}`) || null;
+        return [id, !!el?.disabled];
+      }))
     };
   }, { component });
 }
@@ -215,6 +258,84 @@ async function reopenArchive(page, archivePath, component) {
   );
 }
 
+async function findTabIdByNotesText(page, component, noteText) {
+  return page.evaluate(({ type, noteText }) => {
+    const tabs = window.Main?.session?.workspaceState?.tabs || [];
+    const match = tabs.find(tab => {
+      if(!tab || tab.type !== type){
+        return false;
+      }
+      const notes = tab.payload?.config?.notes;
+      const text = notes && typeof notes === 'object' ? notes.text : notes;
+      return String(text || '') === String(noteText || '');
+    });
+    return match?.id || null;
+  }, { type: component.type, noteText });
+}
+
+async function seedRecoverySnapshot(page) {
+  await page.evaluate(async () => {
+    const openDb = () => new Promise((resolve, reject) => {
+      const request = indexedDB.open('graphitix-document-state', 1);
+      request.onupgradeneeded = () => {
+        if(!request.result.objectStoreNames.contains('snapshots')){
+          request.result.createObjectStore('snapshots');
+        }
+      };
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    const context = window.Main.tabs.getSessionActionsContext();
+    const graphTabs = (window.Main?.session?.workspaceState?.tabs || []).filter(tab => tab && !tab.isWelcome && tab.type);
+    const blob = await window.Main.sessionActions.buildWorkspaceArchiveBlob(context, {
+      scope: 'workspace',
+      snapshotKind: 'recovery',
+      policyMode: 'recovery',
+      reason: 'recovery-interval',
+      useWorker: true
+    });
+    const db = await openDb();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction('snapshots', 'readwrite');
+      tx.objectStore('snapshots').put({
+        meta: {
+          app: 'Graphitix',
+          kind: 'recovery',
+          version: 1,
+          savedAt: new Date().toISOString(),
+          updatedAt: Date.now(),
+          reason: 'recovery-interval',
+          dirty: true,
+          hasData: true,
+          tabCount: graphTabs.length,
+          fileName: 'workspace.graph',
+          fileScope: 'workspace'
+        },
+        blob
+      }, 'active-recovery');
+      tx.oncomplete = () => resolve(true);
+      tx.onerror = () => reject(tx.error);
+    });
+  });
+}
+
+async function recoverWorkspace(page, component) {
+  await seedRecoverySnapshot(page);
+  const dialogHandler = async dialog => { await dialog.accept(); };
+  page.on('dialog', dialogHandler);
+  try{
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await waitForDocumentOpenComplete(page);
+    await page.waitForFunction(
+      type => (window.Main?.session?.workspaceState?.tabs || []).filter(tab => tab && tab.type === type).length === 2,
+      component.type,
+      { timeout: 60_000 }
+    );
+  }finally{
+    page.off('dialog', dialogHandler);
+  }
+}
+
 function expectSnapshot(snapshot, expected, component) {
   expect(snapshot.activeViewTitle || snapshot.serializedActiveTitle).toBe(expected.viewTitle);
   expect(snapshot.viewTitles).toContain(expected.viewTitle);
@@ -223,11 +344,12 @@ function expectSnapshot(snapshot, expected, component) {
   expect(snapshot.notesOpen).toBe(true);
   for (const [id, value] of Object.entries(expected.controls || {})) {
     expect(snapshot.controls[id], `${component.type} DOM control ${id}`).toBe(value);
+    expect(snapshot.controlDisabled[id], `${component.type} DOM control ${id} must remain enabled`).toBe(false);
   }
 }
 
 for (const component of CASES) {
-  test(`${component.type} DataViews, notes, and controls stay isolated across same-type switch and reopen`, async ({ page }) => {
+  test(`${component.type} DataViews, notes, and controls stay isolated across same-type switch, reopen, and recovery`, async ({ page }) => {
     test.setTimeout(240_000);
     const issues = registerIssueCollectors(page);
     await installLocalCdnOverrides(page);
@@ -267,19 +389,31 @@ for (const component of CASES) {
 
     const archivePath = await captureArchive(page, `${component.type}-dataviews-notes-isolation`);
     await reopenArchive(page, archivePath, component);
-    const reopenedIds = await page.evaluate(type =>
-      (window.Main?.session?.workspaceState?.tabs || [])
-        .filter(tab => tab && tab.type === type)
-        .map(tab => tab.id),
-      component.type
-    );
-    expect(reopenedIds).toHaveLength(2);
+    const reopenedFirstId = await findTabIdByNotesText(page, component, first.noteText);
+    const reopenedSecondId = await findTabIdByNotesText(page, component, second.noteText);
+    expect(reopenedFirstId, `${component.type} reopened tab A must retain its canonical note`).toBeTruthy();
+    expect(reopenedSecondId, `${component.type} reopened tab B must retain its canonical note`).toBeTruthy();
+    expect(reopenedSecondId).not.toBe(reopenedFirstId);
 
-    await activateTabById(page, reopenedIds[0], component);
+    await activateTabById(page, reopenedFirstId, component);
     expectSnapshot(await snapshotActiveTab(page, component), first, component);
-    await activateTabById(page, reopenedIds[1], component);
+    await activateTabById(page, reopenedSecondId, component);
     expectSnapshot(await snapshotActiveTab(page, component), second, component);
-    await activateTabById(page, reopenedIds[0], component);
+    await activateTabById(page, reopenedFirstId, component);
+    expectSnapshot(await snapshotActiveTab(page, component), first, component);
+
+    await recoverWorkspace(page, component);
+    const recoveredFirstId = await findTabIdByNotesText(page, component, first.noteText);
+    const recoveredSecondId = await findTabIdByNotesText(page, component, second.noteText);
+    expect(recoveredFirstId, `${component.type} recovered tab A must retain its canonical note`).toBeTruthy();
+    expect(recoveredSecondId, `${component.type} recovered tab B must retain its canonical note`).toBeTruthy();
+    expect(recoveredSecondId).not.toBe(recoveredFirstId);
+
+    await activateTabById(page, recoveredFirstId, component);
+    expectSnapshot(await snapshotActiveTab(page, component), first, component);
+    await activateTabById(page, recoveredSecondId, component);
+    expectSnapshot(await snapshotActiveTab(page, component), second, component);
+    await activateTabById(page, recoveredFirstId, component);
     expectSnapshot(await snapshotActiveTab(page, component), first, component);
 
     expect(issues.critical).toEqual([]);

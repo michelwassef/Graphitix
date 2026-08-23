@@ -24,23 +24,66 @@ async function ensureEmptyDuplicateTab(){
   }
 }
 
-async function loadScatterExampleAndComputeStats(){
-  const loadButton = document.getElementById('scatterLoadExample');
-  expect(loadButton).toBeTruthy();
-  loadButton.click();
-  await flushAsyncWork(60);
-  const computeButton = document.getElementById('scatterComputeStats');
-  expect(computeButton).toBeTruthy();
-  computeButton.click();
-  for(let attempt = 0; attempt < 12; attempt += 1){
-    await flushAsyncWork(10);
-    const showLine = document.getElementById('scatterShowLine');
-    if(showLine && !showLine.disabled){
-      return;
+async function awaitScatterReadyForTest(reason = 'scatter-test-ready'){
+  const component = window.Components?.scatter;
+  if(typeof component?.awaitReadyForSnapshot === 'function'){
+    const ready = component.awaitReadyForSnapshot({ reason });
+    if(ready && typeof ready.then === 'function'){
+      await ready;
     }
   }
-  const showLine = document.getElementById('scatterShowLine');
-  expect(showLine?.disabled).toBe(false);
+  await flushAsyncWork(2);
+}
+
+async function computeCurrentScatterStats(regressionMode = 'linear'){
+  const regression = document.getElementById('scatterRegressionMode');
+  expect(regression).toBeTruthy();
+  if(regression.value !== regressionMode){
+    regression.value = regressionMode;
+    regression.dispatchEvent(new window.Event('change', { bubbles: true }));
+    await flushAsyncWork(12);
+  }
+
+  const computeButton = document.getElementById('scatterComputeStats');
+  expect(computeButton).toBeTruthy();
+  for(let attempt = 0; attempt < 20 && computeButton.disabled; attempt += 1){
+    await flushAsyncWork(5);
+  }
+  expect(computeButton.disabled).toBe(false);
+  computeButton.click();
+
+  for(let attempt = 0; attempt < 30; attempt += 1){
+    await flushAsyncWork(5);
+    const session = window.Components?.scatter?.__testHooks?.getSession?.();
+    const stats = session?.state?.stats || null;
+    const results = document.getElementById('scatterStatsResults');
+    const rendered = !!results?.querySelector?.('.stats-table-card, .stats-report-panel, table');
+    if(stats?.precomputedStats && Number(stats.lastRunVersion) > 0 && Number(stats.lastRunVersion) === Number(stats.contextVersion) && rendered){
+      await awaitScatterReadyForTest('scatter-stats-computed-ready');
+      return { session, stats, results };
+    }
+  }
+
+  const session = window.Components?.scatter?.__testHooks?.getSession?.();
+  const status = String(document.getElementById('scatterStatsStatus')?.textContent || '');
+  const resultsText = String(document.getElementById('scatterStatsResults')?.textContent || '');
+  expect({
+    hasPrecomputedStats: !!session?.state?.stats?.precomputedStats,
+    lastRunVersion: session?.state?.stats?.lastRunVersion || 0,
+    contextVersion: session?.state?.stats?.contextVersion || 0,
+    status,
+    resultsText
+  }).toEqual(expect.objectContaining({
+    hasPrecomputedStats: true,
+    status: expect.stringMatching(/Statistics up to date/i)
+  }));
+  return { session, stats: session?.state?.stats || null, results: document.getElementById('scatterStatsResults') };
+}
+
+async function loadScatterSeedAndComputeStats(scatterComponent, regressionMode = 'linear'){
+  scatterComponent.loadFromPayload(createSeedPayload(scatterComponent), { source: `test-scatter-stats-${regressionMode}` });
+  await flushAsyncWork(20);
+  return computeCurrentScatterStats(regressionMode);
 }
 
 function getScatterOverlayCounts(){
@@ -54,12 +97,14 @@ function getScatterOverlayCounts(){
 }
 
 async function waitForScatterRegressionOverlays(){
+  await awaitScatterReadyForTest('scatter-overlays-ready');
   let counts = getScatterOverlayCounts();
-  for(let attempt = 0; attempt < 16; attempt += 1){
+  for(let attempt = 0; attempt < 6; attempt += 1){
     if(counts.trend > 0 && counts.confidence > 0 && counts.prediction > 0){
       return counts;
     }
-    await flushAsyncWork(10);
+    await flushAsyncWork(2);
+    await awaitScatterReadyForTest('scatter-overlays-ready-retry');
     counts = getScatterOverlayCounts();
   }
   return counts;
@@ -80,7 +125,7 @@ async function enableScatterRegressionOverlays(){
     control.checked = true;
     control.dispatchEvent(new window.Event('change', { bubbles: true }));
   });
-  await flushAsyncWork(80);
+  await awaitScatterReadyForTest('scatter-overlay-controls-applied');
 }
 
 function createSeedPayload(scatterComponent){
@@ -92,44 +137,6 @@ function createSeedPayload(scatterComponent){
     ['C', 3, 5.1, ''],
     ['D', 4, 7.2, '']
   ];
-  return payload;
-}
-
-// Marks a payload as having already-calculated statistics so the trend-line / stats-on-plot
-// overlay controls are enabled. Scatter (like line.js) disables those controls until stats
-// are computed, so any payload that turns the trend line on must look like stats are present.
-function withScatterComputedStats(payload){
-  payload.config = payload.config || {};
-  payload.config.stats = {
-    ...(payload.config.stats || {}),
-    lastRunVersion: 1,
-    contextVersion: 1,
-    contextSignature: 'test-scatter-stats',
-    statType: 'auto',
-    regressionMode: 'linear',
-    fitMethod: 'ols',
-    resultsModel: {
-      schemaVersion: 1,
-      kind: 'stats-panel',
-      children: [{
-        type: 'element',
-        tag: 'table',
-        className: 'stats-table-card',
-        children: [{
-          type: 'element',
-          tag: 'tbody',
-          children: [{
-            type: 'element',
-            tag: 'tr',
-            children: [
-              { type: 'element', tag: 'td', children: [{ type: 'text', text: 'R²' }] },
-              { type: 'element', tag: 'td', children: [{ type: 'text', text: '0.99' }] }
-            ]
-          }]
-        }]
-      }]
-    }
-  };
   return payload;
 }
 
@@ -201,6 +208,7 @@ describe('Scatter stats defaults isolation', () => {
     require('../js/shared/regression.js');
     require('../js/shared/stats.js');
     require('../js/shared/stats-table.js');
+    require('../js/shared/exampleDatasets.js');
     require('../js/shared/colorPicker.js');
     require('../js/shared/editHighlight.js');
     require('../js/shared/axisControls.js');
@@ -286,6 +294,31 @@ describe('Scatter stats defaults isolation', () => {
     expect(document.getElementById('scatterStatType').value).toBe('auto');
   });
 
+  test('computed regression statistics commit to the owner session before payload capture', async () => {
+    await activateWorkspace('scatter');
+
+    const scatterComponent = window.Components?.scatter;
+    expect(scatterComponent).toBeTruthy();
+
+    await loadScatterSeedAndComputeStats(scatterComponent);
+    await flushAsyncWork(20);
+
+    const session = scatterComponent.__testHooks?.getSession?.();
+    expect(session?.state?.stats).toBeTruthy();
+    const ownerStats = session.state.stats;
+    expect(ownerStats.precomputedStats).toBeTruthy();
+    expect(ownerStats.precomputedStats.regression).toBeTruthy();
+    expect(ownerStats.contextVersion).toBeGreaterThan(0);
+    expect(ownerStats.lastRunVersion).toBe(ownerStats.contextVersion);
+    expect(ownerStats.restorePending).toBeNull();
+
+    const payload = scatterComponent.getPayload();
+    expect(payload?.config?.stats?.precomputedStats).toBeTruthy();
+    expect(payload.config.stats.lastRunVersion).toBe(ownerStats.lastRunVersion);
+    expect(payload.config.stats.contextVersion).toBe(ownerStats.contextVersion);
+    expect(payload.config.stats.contextSignature).toBe(ownerStats.contextSignature);
+  });
+
   test('new empty scatter tab sanitizes contaminated cached defaults', async () => {
     await activateWorkspace('scatter');
 
@@ -349,13 +382,7 @@ describe('Scatter stats defaults isolation', () => {
     expect(scatterComponent).toBeTruthy();
     expect(main?.tabs).toBeTruthy();
 
-    const payloadA = withScatterComputedStats(createSeedPayload(scatterComponent));
-    payloadA.config = payloadA.config || {};
-    payloadA.config.graphType = 'scatter';
-    payloadA.config.viewMode = '2d';
-    payloadA.config.showLine = false;
-    scatterComponent.loadFromPayload(payloadA, { source: 'test-trendline-a' });
-    await flushAsyncWork(20);
+    await loadScatterSeedAndComputeStats(scatterComponent, 'linear');
 
     const tabA = main.session.getActiveTab();
     expect(tabA?.type).toBe('scatter');
@@ -424,6 +451,63 @@ describe('Scatter stats defaults isolation', () => {
     expect(scatterComponent.getPayload()?.config?.showLine).toBe(false);
   });
 
+  test('same-component scatter second-tab computation renders into its owning statistics panel', async () => {
+    await activateWorkspace('scatter');
+
+    const scatterComponent = window.Components?.scatter;
+    const main = window.Main;
+    expect(scatterComponent).toBeTruthy();
+    expect(main?.tabs).toBeTruthy();
+
+    const tabA = main.session.getActiveTab();
+    const sessionA = scatterComponent.__testHooks?.getSession?.(tabA?.id);
+    const resultsA = document.getElementById('scatterStatsResults');
+    const regressionA = document.getElementById('scatterRegressionMode');
+    expect(tabA?.type).toBe('scatter');
+    expect(resultsA).toBeTruthy();
+    expect(regressionA).toBeTruthy();
+    expect(sessionA?.refs?.root?.contains?.(resultsA)).toBe(true);
+    expect(sessionA?.refs?.statsResults).toBe(resultsA);
+
+    // The original regression was a stale module-level results target: after a
+    // second Scatter tab became active, its calculation could still publish the
+    // report into tab A. A sentinel makes that ownership failure observable
+    // without performing a redundant first statistics calculation. The full
+    // Linear-vs-Exponential two-computation + archive round-trip remains covered
+    // by stats.same-component-isolation-restore.contract.spec.js.
+    regressionA.value = 'linear';
+    const sentinelA = document.createElement('div');
+    sentinelA.setAttribute('data-scatter-stats-owner-sentinel', 'tab-a');
+    sentinelA.textContent = 'Tab A statistics target';
+    resultsA.replaceChildren(sentinelA);
+
+    main.tabs.handleAddTabClick();
+    await flushAsyncWork(10);
+    await activateWorkspace('scatter');
+    await ensureEmptyDuplicateTab();
+
+    const tabB = main.session.getActiveTab();
+    expect(tabB?.type).toBe('scatter');
+    expect(tabB?.id).not.toBe(tabA?.id);
+
+    await loadScatterSeedAndComputeStats(scatterComponent, 'exponential');
+
+    const sessionB = scatterComponent.__testHooks?.getSession?.(tabB?.id);
+    const payloadB = scatterComponent.getPayload();
+    const resultsB = document.getElementById('scatterStatsResults');
+    expect(payloadB?.config?.stats?.regressionMode).toBe('exponential');
+    expect(payloadB?.config?.stats?.precomputedStats).toBeTruthy();
+    expect(resultsB?.querySelector('.stats-table-card, .stats-report-panel, table')).toBeTruthy();
+    expect(sessionB?.refs?.root?.contains?.(resultsB)).toBe(true);
+    expect(sessionB?.refs?.statsResults).toBe(resultsB);
+    expect(resultsB).not.toBe(resultsA);
+
+    // Tab B must not have rendered into the inactive tab A projection.
+    expect(resultsA.querySelector('[data-scatter-stats-owner-sentinel="tab-a"]')).toBe(sentinelA);
+    expect(resultsA.querySelector('.stats-table-card, .stats-report-panel, table')).toBeNull();
+    expect(sessionA?.refs?.statsResults).not.toBe(resultsB);
+  });
+
   test('same-component scatter tabs preserve rendered regression overlays after activation', async () => {
     await activateWorkspace('scatter');
 
@@ -432,7 +516,7 @@ describe('Scatter stats defaults isolation', () => {
     expect(scatterComponent).toBeTruthy();
     expect(main?.tabs).toBeTruthy();
 
-    await loadScatterExampleAndComputeStats();
+    await loadScatterSeedAndComputeStats(scatterComponent);
     const tabA = main.session.getActiveTab();
     await enableScatterRegressionOverlays();
     let counts = await waitForScatterRegressionOverlays();
@@ -449,7 +533,7 @@ describe('Scatter stats defaults isolation', () => {
     await flushAsyncWork(10);
     await activateWorkspace('scatter');
     await ensureEmptyDuplicateTab();
-    await loadScatterExampleAndComputeStats();
+    await loadScatterSeedAndComputeStats(scatterComponent);
     const tabB = main.session.getActiveTab();
     expect(tabB?.id).not.toBe(tabA?.id);
 
@@ -457,13 +541,13 @@ describe('Scatter stats defaults isolation', () => {
     if(switchToB && typeof switchToB.then === 'function'){
       await switchToB;
     }
-    await flushAsyncWork(40);
+    await awaitScatterReadyForTest('scatter-overlay-switch-b-ready');
 
     const switchToA = main.tabs.activateTab(tabA.id, { reason: 'test-scatter-overlay-switch-a' });
     if(switchToA && typeof switchToA.then === 'function'){
       await switchToA;
     }
-    await flushAsyncWork(100);
+    await awaitScatterReadyForTest('scatter-overlay-switch-a-ready');
 
     expect(document.getElementById('scatterShowLine').checked).toBe(true);
     expect(document.getElementById('scatterShowPlotStats').checked).toBe(true);
@@ -485,14 +569,14 @@ describe('Scatter stats defaults isolation', () => {
       expect(scatterComponent).toBeTruthy();
       expect(main?.tabs).toBeTruthy();
 
-      const payloadA = withScatterComputedStats(createSeedPayload(scatterComponent));
+      const payloadA = createSeedPayload(scatterComponent);
       payloadA.config = payloadA.config || {};
       payloadA.config.graphType = 'scatter';
       payloadA.config.viewMode = '2d';
       payloadA.config.title = 'Scatter plot';
       payloadA.config.xLabel = 'X title';
       payloadA.config.yLabel = 'Y title';
-      payloadA.config.showLine = true;
+      payloadA.config.showLine = false;
       payloadA.config.showSignificantLabels = false;
       scatterComponent.loadFromPayload(payloadA, { source: 'test-graph-type-scatter' });
       await flushAsyncWork(25);
@@ -500,14 +584,14 @@ describe('Scatter stats defaults isolation', () => {
       const tabA = main.session.getActiveTab();
       expect(tabA?.type).toBe('scatter');
       expect(document.getElementById('scatterGraphType').value).toBe('scatter');
-      expect(document.getElementById('scatterShowLine').checked).toBe(true);
+      expect(document.getElementById('scatterShowLine').checked).toBe(false);
       main.session.persistActiveTabState(tabA, {
         workspaces: main.components.registry,
         previews: main.previews,
         reason: 'test-graph-type-persist-scatter'
       });
       expect(tabA.payload?.config?.graphType).toBe('scatter');
-      expect(tabA.payload?.config?.showLine).toBe(true);
+      expect(tabA.payload?.config?.showLine).toBe(false);
 
       main.tabs.handleAddTabClick();
       await flushAsyncWork(10);
@@ -542,12 +626,12 @@ describe('Scatter stats defaults isolation', () => {
         await switchToA;
       }
       await flushAsyncWork(35);
-      expect(tabA.payload?.config?.showLine).toBe(true);
+      expect(tabA.payload?.config?.showLine).toBe(false);
       expect(document.getElementById('scatterGraphType').value).toBe('scatter');
       expect(document.getElementById('scatterSignificantOptions').style.display).toBe('none');
-      expect(document.getElementById('scatterShowLine').checked).toBe(true);
+      expect(document.getElementById('scatterShowLine').checked).toBe(false);
       expect(scatterComponent.getPayload()?.config?.graphType).toBe('scatter');
-      expect(scatterComponent.getPayload()?.config?.showLine).toBe(true);
+      expect(scatterComponent.getPayload()?.config?.showLine).toBe(false);
 
       const switchToB = main.tabs.activateTab(tabB.id, { reason: 'test-graph-type-switch-volcano' });
       if(switchToB && typeof switchToB.then === 'function'){

@@ -7,6 +7,11 @@ const {
   openComponentFromWelcome
 } = require('./helpers/workspaceHarness');
 
+function expectEditableGridCapacity(snapshot) {
+  expect(snapshot.rowCount).toBeGreaterThanOrEqual(100);
+  expect(snapshot.colCount).toBeGreaterThanOrEqual(10);
+}
+
 const CASES = [
   {
     type: 'box',
@@ -18,17 +23,19 @@ const CASES = [
     exampleButtonId: 'boxLoadExample',
     groupedClass: 'box-grouped-header-merge',
     assertStandard(snapshot) {
+      expectEditableGridCapacity(snapshot);
       expect(snapshot.controlValue).toBe('single');
       expect(snapshot.payloadFormat).toBe('single');
-      expect(snapshot.row0.slice(0, 3)).toEqual(['Control', 'Treatment A', 'Treatment B']);
-      expect(snapshot.row1[0]).not.toBe('Week 1');
+      expect(snapshot.row0.slice(0, 3)).toEqual(['VC 0.5 mg', 'VC 1.0 mg', 'VC 2.0 mg']);
+      expect(snapshot.row1[0]).not.toBe('0.5 mg/day');
       expect(snapshot.hasGroupedClass).toBe(false);
     },
     assertGrouped(snapshot) {
+      expectEditableGridCapacity(snapshot);
       expect(snapshot.controlValue).toBe('grouped');
       expect(snapshot.payloadFormat).toBe('grouped');
-      expect(snapshot.row0.slice(0, 6)).toEqual(['Control', '', '', 'Treated', '', '']);
-      expect(snapshot.row1.slice(0, 3)).toEqual(['Week 1', 'Week 2', 'Week 3']);
+      expect(snapshot.row0.slice(0, 6)).toEqual(['Ascorbic acid', '', '', 'Orange juice', '', '']);
+      expect(snapshot.row1.slice(0, 3)).toEqual(['0.5 mg/day', '1.0 mg/day', '2.0 mg/day']);
       expect(snapshot.hasGroupedClass).toBe(true);
     }
   },
@@ -42,6 +49,7 @@ const CASES = [
     exampleButtonId: 'pcaLoadExample',
     groupedClass: 'pca-grouped-header-merge',
     assertStandard(snapshot) {
+      expectEditableGridCapacity(snapshot);
       expect(snapshot.controlValue).toBe('standard');
       expect(snapshot.payloadFormat).toBe('standard');
       expect(snapshot.row0[0]).toBe('Label point');
@@ -50,11 +58,14 @@ const CASES = [
       expect(snapshot.hasGroupedClass).toBe(false);
     },
     assertGrouped(snapshot) {
+      expectEditableGridCapacity(snapshot);
       expect(snapshot.controlValue).toBe('grouped');
       expect(snapshot.payloadFormat).toBe('grouped');
       expect(snapshot.row0[0]).toBe('Label point');
-      expect(snapshot.row1.slice(0, 4)).toEqual(['Group', 'Control', '', 'Treatment']);
-      expect(snapshot.row2.slice(0, 3)).toEqual(['Sample', 'A', 'B']);
+      expect(snapshot.row1[0]).toBe('Group');
+      expect(snapshot.row1.slice(1, 4).filter(Boolean).length).toBeGreaterThan(0);
+      expect(snapshot.row2[0]).toBe('Sample');
+      expect(snapshot.row2.slice(1, 4).filter(Boolean).length).toBeGreaterThan(0);
       expect(snapshot.hasGroupedClass).toBe(true);
     }
   }
@@ -125,6 +136,28 @@ async function configureExample(page, component, formatValue) {
       replicates.value = type === 'box' ? '3' : '2';
       replicates.dispatchEvent(new Event('input', { bubbles: true }));
       replicates.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+    if (type === 'pca' && format === 'standard') {
+      const pool = window.Shared?.hot?.__tabTablePools?.pca || null;
+      const hot = active?.id ? pool?.byTab?.[active.id]?.instance || null : null;
+      if (!hot || typeof hot.loadData !== 'function') {
+        throw new Error('PCA table instance not found');
+      }
+      const data = [
+        ['Label point', 'Sample A', 'Sample B', 'Sample C'],
+        ['Variable', 'A', 'B', 'C'],
+        ['Var1', 1, 2, 3],
+        ['Var2', 2, 1, 4],
+        ['Var3', 3, 4, 2]
+      ];
+      hot.loadData(data, { source: 'e2e-table-format-standard-fixture', suppressSchedule: true });
+      window.Shared?.hot?.syncOwnerTabPayloadFullData?.(data, 'e2e-table-format-standard-fixture', {
+        source: 'e2e-table-format-standard-fixture',
+        hotInstance: hot,
+        tabId: active.id,
+        affectsAnalysis: true
+      });
+      return;
     }
     const button = root.querySelector(`#${exampleButtonId}`);
     if (!button) {

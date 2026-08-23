@@ -147,6 +147,7 @@ test('box stats do not recompute or make resize and tab return sluggish', async 
   await expect(page.locator('#boxComputeStats')).toBeEnabled({ timeout: 20_000 });
 
   await installBoxPerfProbe(page);
+  const initialSelection = await page.evaluate(() => Array.from(window.Components?.box?.__getState?.()?.selectedCols || []));
   await computeActiveBoxStats(page);
   await resetBoxPerfProbe(page);
 
@@ -184,45 +185,29 @@ test('box stats do not recompute or make resize and tab return sluggish', async 
   expect(returnActivationMs).toBeLessThan(2_000);
   expect(returnedStatsState.lastRunVersion).toBeGreaterThan(0);
   expect(returnedStatsState.lastRunVersion).toBe(returnedStatsState.contextVersion);
-  expect(returnedStatsState.selectedCols).toEqual([0, 1, 2]);
+  expect(returnedStatsState.selectedCols).toEqual(initialSelection);
   expect(returnedStatsState.status).toContain('Statistics up to date.');
 });
 
 
 async function computeActiveBoxStats(page) {
+  const computeButton = page.locator('#boxPage:not([hidden]) #boxComputeStats');
+  await expect(computeButton).toBeEnabled({ timeout: 35_000 });
+  await computeButton.click();
   await page.waitForFunction(() => {
-    const state = window.Main?.session?.workspaceState;
-    const active = state?.tabs?.find(tab => tab?.id === state.activeTabId) || null;
-    const root = window.Shared?.workspaceTabs?.getMountedRoot?.(active?.id || null, 'box') || null;
-    const button = root?.querySelector?.('#boxComputeStats') || null;
-    return !!button && !button.disabled;
-  }, null, { timeout: 35_000 });
-  await page.evaluate(() => {
-    const state = window.Main?.session?.workspaceState;
-    const active = state?.tabs?.find(tab => tab?.id === state.activeTabId) || null;
-    const root = window.Shared?.workspaceTabs?.getMountedRoot?.(active?.id || null, 'box') || null;
-    root?.querySelector?.('#boxComputeStats')?.click();
-  });
-  await page.waitForFunction(() => {
-    const state = window.Main?.session?.workspaceState;
-    const active = state?.tabs?.find(tab => tab?.id === state.activeTabId) || null;
     const boxState = window.Components?.box?.__getState?.() || null;
-    const stats = active?.payload?.config?.stats || null;
     return Number(boxState?.statsLastRunVersion || 0) > 0
-      && Number(boxState?.statsLastRunVersion || 0) === Number(boxState?.statsContextVersion || 0)
-      && !!(stats?.resultsModel || stats?.reportModel);
+      && boxState?.statsComputationPending !== true
+      && /Statistics up to date\./.test(document.querySelector('#boxStatsStatus')?.textContent || '');
   }, null, { timeout: 35_000 });
 }
 
 async function expectActiveBoxStatsReady(page, timeout = 10_000) {
   await page.waitForFunction(() => {
-    const state = window.Main?.session?.workspaceState;
-    const active = state?.tabs?.find(tab => tab?.id === state.activeTabId) || null;
     const boxState = window.Components?.box?.__getState?.() || null;
-    const stats = active?.payload?.config?.stats || null;
     return Number(boxState?.statsLastRunVersion || 0) > 0
-      && Number(boxState?.statsLastRunVersion || 0) === Number(boxState?.statsContextVersion || 0)
-      && !!(stats?.resultsModel || stats?.reportModel);
+      && boxState?.statsComputationPending !== true
+      && /Statistics up to date\./.test(document.querySelector('#boxStatsStatus')?.textContent || '');
   }, null, { timeout });
 }
 test('two computed Box tabs alternate without cloning or recapturing statistics output', async ({ page }) => {
@@ -261,4 +246,3 @@ test('two computed Box tabs alternate without cloning or recapturing statistics 
   expect(probe.maxDrawMs).toBeLessThan(250);
   expect(Math.max(...activationDurations)).toBeLessThan(2_000);
 });
-

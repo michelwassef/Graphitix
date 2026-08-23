@@ -78,6 +78,14 @@
 
 
   const chartStyle = Shared.chartStyle = Shared.chartStyle || {};
+  const svgGeometry = Shared.svgGeometry = Shared.svgGeometry || {};
+  if(typeof svgGeometry.buildCompoundLinePath !== 'function' && typeof require === 'function'){
+    try{
+      require('../shared/svgGeometry.js');
+    }catch(err){
+      survivalDebug('Debug: survival component svgGeometry helper require failed', { message: err?.message || String(err) });
+    }
+  }
   const fontControls = Shared.fontControls = Shared.fontControls || {};
   const notesHelper = Shared.notes = Shared.notes || {};
   if(typeof notesHelper.mountFoldable !== 'function' && typeof require === 'function'){
@@ -167,7 +175,8 @@
         Object.keys(state.labelLinePattern || {}).forEach(addKey);
         const svg = getSurvivalNodeById('survivalSvg', ownerTabId);
         if(svg && svg.querySelectorAll){
-          svg.querySelectorAll('path[data-group]').forEach(node => addKey(node.getAttribute('data-group')));
+          svg.querySelectorAll('path[data-survival-series-color-target="stroke"][data-group]:not([data-survival-censor-mark="1"])')
+            .forEach(node => addKey(node.getAttribute('data-group')));
         }
         return Array.from(keys);
       };
@@ -208,18 +217,10 @@
         const svg = getSurvivalNodeById('survivalSvg', ownerTabId);
         if(!svg){ return target ? [target] : []; }
         if(scopeValue === 'series' && seriesKey){
-          return Array.from(svg.querySelectorAll('path[data-group]'))
+          return Array.from(svg.querySelectorAll('path[data-survival-series-color-target="stroke"][data-group]:not([data-survival-censor-mark="1"])'))
             .filter(node => node.getAttribute('data-group') === seriesKey);
         }
-        return Array.from(svg.querySelectorAll('path[data-group]'));
-      };
-      const resolveLegendTargets = scopeValue => {
-        const svg = getSurvivalNodeById('survivalSvg', ownerTabId);
-        if(!svg){ return []; }
-        return Array.from(svg.querySelectorAll('[data-legend-key]')).filter(node => {
-          if(String(node.tagName || '').toLowerCase() === 'text'){ return false; }
-          return scopeValue !== 'series' || !seriesKey || String(node.dataset?.legendKey || '').trim() === seriesKey;
-        });
+        return Array.from(svg.querySelectorAll('path[data-survival-series-color-target="stroke"][data-group]:not([data-survival-censor-mark="1"])'));
       };
       additionalLineControls.show({
         scopeId: 'survival',
@@ -289,40 +290,22 @@
         onColorInput: (value, ctx) => {
           if(!canEditOwner()){ return; }
           const scopeValue = ctx?.scope === 'series' ? 'series' : 'global';
-          const nodes = resolveTargets(scopeValue);
-          nodes.forEach(node => node.setAttribute('stroke', value));
-          resolveLegendTargets(scopeValue).forEach(node => node.setAttribute('fill', value));
-          if(scopeValue === 'series' && seriesKey){
-            state.labelColors[seriesKey] = value;
-          }else{
-            nodes.forEach(node => {
-              const key = node.getAttribute('data-group');
-              if(key){ state.labelColors[key] = value; }
-            });
-          }
-          syncSurvivalStateToSession(ownerSession, { labelColors: state.labelColors });
-          if(!nodes.length){
-            scheduleSurvivalViewRefresh('survival-curve-color-input', { tabId: ownerTabId });
-          }
+          const groupNames = scopeValue === 'series' && seriesKey ? [seriesKey] : knownSeriesKeys();
+          applySurvivalColorValues(groupNames, value, {
+            session: ownerSession,
+            source: 'curve-toolbar-input',
+            reason: 'survival-curve-color-input'
+          });
         },
         onColorChange: (value, ctx) => {
           if(!canEditOwner()){ return; }
           const scopeValue = ctx?.scope === 'series' ? 'series' : 'global';
-          const nodes = resolveTargets(scopeValue);
-          nodes.forEach(node => node.setAttribute('stroke', value));
-          resolveLegendTargets(scopeValue).forEach(node => node.setAttribute('fill', value));
-          if(scopeValue === 'series' && seriesKey){
-            state.labelColors[seriesKey] = value;
-          }else{
-            nodes.forEach(node => {
-              const key = node.getAttribute('data-group');
-              if(key){ state.labelColors[key] = value; }
-            });
-          }
-          syncSurvivalStateToSession(ownerSession, { labelColors: state.labelColors });
-          if(!nodes.length){
-            scheduleSurvivalViewRefresh('survival-curve-color-change', { tabId: ownerTabId });
-          }
+          const groupNames = scopeValue === 'series' && seriesKey ? [seriesKey] : knownSeriesKeys();
+          applySurvivalColorValues(groupNames, value, {
+            session: ownerSession,
+            source: 'curve-toolbar-change',
+            reason: 'survival-curve-color-change'
+          });
         },
         onThicknessChange: (value, ctx) => {
           if(!canEditOwner()){ return; }
@@ -684,7 +667,7 @@
     covariateColumns: [],
     axisSettings: createDefaultAxisSettings(),
     gridStyle: null,
-    labelPositions: { title: null, xLabel: null, yLabel: null, legend: null },
+    labelPositions: { title: null, xLabel: null, yLabel: null, legend: null, stats: null },
     controls: null
   };
   let survivalFontEventBound = false;
@@ -703,6 +686,11 @@
     const tabId = getSurvivalProjectionTabId();
     if(!tabId){ return null; }
     return getSurvivalSession(tabId, { ...(meta || {}), tabId, reason: meta?.reason || 'survival-projection-session' }, { create: options.create !== false });
+  }
+
+  function normalizeSurvivalLabelPositions(value){
+    const source = value && typeof value === 'object' ? (cloneSimple(value) || {}) : {};
+    return { title: null, xLabel: null, yLabel: null, legend: null, stats: null, ...source };
   }
 
   function createDefaultSurvivalStatsPanelModels(source = {}){
@@ -737,7 +725,7 @@
       covariateColumns: Array.isArray(src.covariateColumns) ? (cloneSimple(src.covariateColumns) || []) : [],
       axisSettings: cloneSimple(src.axisSettings || src.axis) || createDefaultAxisSettings(),
       gridStyle: cloneSimple(src.gridStyle) || null,
-      labelPositions: cloneSimple(src.labelPositions) || { title: null, xLabel: null, yLabel: null, legend: null },
+      labelPositions: normalizeSurvivalLabelPositions(src.labelPositions),
       controls: normalizeSurvivalRuntimeControls(src.controls || src.config || {}),
       drawPending: src.drawPending === true
     };
@@ -789,6 +777,8 @@
       labelColorsFieldset: null,
       showCI: null,
       showCensor: null,
+      showRiskTable: null,
+      showPlotStats: null,
       showHazardRatios: null,
       fitCoxModel: null,
       covariateControls: null,
@@ -940,7 +930,7 @@
 
   function runSurvivalControlOwner(event, reason, callback){
     const session = getSurvivalSessionForEvent(event, { reason }, { create: true });
-    if(session?.tabId && !isSurvivalSessionActiveOrActivating(session)){
+    if(session?.tabId && !isSurvivalSessionActive(session)){
       survivalDebug('Debug: survival control callback skipped for inactive owner', {
         tabId: session.tabId || null,
         activeTabId: getSurvivalProjectionTabId() || null,
@@ -952,19 +942,19 @@
   }
 
   function isSurvivalSessionActive(session = null){
-    const shaped = ensureSurvivalSessionOwnershipShape(session);
-    if(!shaped?.tabId){
+    if(!session || typeof session !== 'object' || !String(session.tabId || '').trim()){
       return false;
     }
-    return String(shaped.tabId) === String(getSurvivalProjectionTabId());
+    return Shared.componentLifecycle?.canOwnerUseLiveProjection?.('survival', session, {
+      component: survival,
+      projectedSession: projectedSurvivalSession,
+      session,
+      root: refs.root || null
+    }) === true;
   }
 
-  function isSurvivalSessionActiveOrActivating(session = null){
-    const shaped = ensureSurvivalSessionOwnershipShape(session);
-    if(!shaped?.tabId){ return false; }
-    const workspaceActiveTabId = global.Main?.session?.workspaceState?.activeTabId || null;
-    return isSurvivalSessionActive(shaped)
-      || (workspaceActiveTabId && String(shaped.tabId) === String(workspaceActiveTabId));
+  function isSurvivalSessionActivationTarget(session = null){
+    return Shared.componentLifecycle?.isOwnerActivationTarget?.('survival', session, { component: survival }) === true;
   }
 
   function scheduleSurvivalDrawForSession(session = null, options = {}){
@@ -982,16 +972,15 @@
     if(shaped.timers){
       shaped.timers.pendingDrawOptions = scheduleOptions;
     }
-    if(!isSurvivalSessionActiveOrActivating(shaped)){
+    if(!isSurvivalSessionActive(shaped)){
       shaped.state.drawPending = true;
       shaped.updatedAt = Date.now();
       return false;
     }
-    const scheduler = shaped.timers?.scheduleDraw || state.scheduleDraw;
+    const scheduler = state.scheduleDraw;
     if(typeof scheduler !== 'function'){
       return false;
     }
-    shaped.timers.scheduleDraw = scheduler;
     shaped.timers.pendingDrawOptions = null;
     shaped.state.drawPending = false;
     shaped.updatedAt = Date.now();
@@ -1040,8 +1029,10 @@
   function syncSurvivalStateToSession(session = null, overrides = {}){
     const shaped = ensureSurvivalSessionOwnershipShape(session || getActiveSurvivalSessionForState());
     if(!shaped){ return null; }
-    shaped.state = createDefaultSurvivalDurableState({
-      ...(shaped.state || {}),
+    const projectionTabId = String(getSurvivalProjectionTabId() || '').trim();
+    const ownerTabId = String(shaped.tabId || '').trim();
+    const canReadProjectedMirrors = !session || (!!projectionTabId && projectionTabId === ownerTabId);
+    const projectedState = canReadProjectedMirrors ? {
       labelColors: state.labelColors,
       labelStrokeWidth: state.labelStrokeWidth,
       labelOpacity: state.labelOpacity,
@@ -1060,7 +1051,11 @@
       axisSettings: state.axisSettings,
       gridStyle: state.gridStyle,
       labelPositions: state.labelPositions,
-      controls: state.controls,
+      controls: state.controls
+    } : {};
+    shaped.state = createDefaultSurvivalDurableState({
+      ...(shaped.state || {}),
+      ...projectedState,
       ...(overrides || {})
     });
     shaped.results = createDefaultSurvivalResultsState({
@@ -1071,10 +1066,131 @@
     return shaped;
   }
 
+  function buildSurvivalAxisControlConfig(axis, ownerSession = null, axisMeta = {}){
+    const owner = ensureSurvivalSessionOwnershipShape(ownerSession || getActiveSurvivalSessionForState());
+    return {
+      axis,
+      scopeId: 'survival',
+      tabId: owner?.tabId || null,
+      getTickInterval: () => getAxisTickInterval(axis),
+      getEffectiveTickInterval: () => axisMeta?.effectiveTickInterval ?? null,
+      getMajorTickLength: () => getAxisMajorTickLength(axis),
+      onMajorTickLengthChange: value => updateAxisMajorTickLength(axis, value),
+      isMajorTickLengthSupported: () => true,
+      majorTickLengthPlaceholder: 'Auto',
+      getThickness: () => getAxisStrokeWidthBase(),
+      getColor: () => getAxisColor(),
+      isTickIntervalEnabled: () => true,
+      getTickIntervalDisabledMessage: () => 'Tick interval available for numeric axes.',
+      tickPlaceholder: 'Auto',
+      onTickIntervalChange: value => updateAxisTickInterval(axis, value),
+      getMinorTicksEnabled: () => getAxisMinorTicksEnabled(axis),
+      onMinorTicksChange: value => updateAxisMinorTicks(axis, value),
+      isMinorTicksSupported: () => true,
+      getMinorTickSubdivisions: () => getAxisMinorTickSubdivisions(axis),
+      onMinorTickSubdivisionsChange: value => updateAxisMinorTickSubdivisions(axis, value),
+      onThicknessChange: value => updateAxisStrokeWidth(value),
+      onColorChange: value => updateAxisColor(value)
+    };
+  }
+
+  function bindSurvivalInlineTextInteraction(node, ownerSession, kind){
+    if(!node){ return false; }
+    const owner = ensureSurvivalSessionOwnershipShape(ownerSession || getActiveSurvivalSessionForState());
+    if(!owner?.state){ return false; }
+    const normalizedKind = kind === 'title' ? 'title' : (kind === 'yLabel' ? 'yLabel' : 'xLabel');
+    const readValue = () => {
+      if(normalizedKind === 'title'){
+        return String(owner.state.titleText ?? '');
+      }
+      const controls = normalizeSurvivalRuntimeControls(owner.state.controls || {});
+      return String(normalizedKind === 'xLabel' ? controls.xLabel : controls.yLabel);
+    };
+    const applyValue = value => {
+      const nextValue = value != null ? String(value) : '';
+      if(normalizedKind === 'title'){
+        syncSurvivalStateToSession(owner, { titleText: nextValue });
+        if(isSurvivalSessionActive(owner)){ state.titleText = nextValue; }
+      }else{
+        const controls = normalizeSurvivalRuntimeControls({
+          ...(owner.state.controls || {}),
+          [normalizedKind === 'xLabel' ? 'xLabel' : 'yLabel']: nextValue
+        });
+        syncSurvivalStateToSession(owner, { controls });
+        if(isSurvivalSessionActive(owner)){ state.controls = controls; }
+      }
+      if(node.textContent !== nextValue){ node.textContent = nextValue; }
+      scheduleSurvivalDrawForSession(owner, {
+        viewOnly: true,
+        tabId: owner.tabId || null,
+        reason: normalizedKind === 'title' ? 'survival-title-edit' : `survival-${normalizedKind === 'xLabel' ? 'x' : 'y'}-label-edit`
+      });
+      return nextValue;
+    };
+    return makeEditable(node, text => {
+      const previous = readValue();
+      const nextValue = text != null ? String(text) : '';
+      if(previous === nextValue){ return; }
+      applyValue(nextValue);
+      recordSurvivalChange(
+        normalizedKind === 'title' ? 'survival:title' : `survival:${normalizedKind === 'xLabel' ? 'x' : 'y'}-label`,
+        previous,
+        nextValue,
+        applyValue
+      );
+    }) === true;
+  }
+
+  function rehydrateSurvivalInlineTextInteractions(svg, ownerSession){
+    if(!svg){ return false; }
+    const bindings = [
+      [svg.querySelector?.('text[data-font-role="graphTitle"]'), 'title'],
+      [svg.querySelector?.('text[data-font-role="xTitle"]'), 'xLabel'],
+      [svg.querySelector?.('text[data-font-role="yTitle"]'), 'yLabel']
+    ].filter(([node]) => !!node);
+    if(!bindings.length){ return true; }
+    return bindings.every(([node, kind]) => bindSurvivalInlineTextInteraction(node, ownerSession, kind));
+  }
+
+  function patchSurvivalLabelPosition(session = null, key, value, meta = {}){
+    const owner = ensureSurvivalSessionOwnershipShape(session || getActiveSurvivalSessionForState());
+    const current = normalizeSurvivalLabelPositions(owner?.state?.labelPositions || state.labelPositions);
+    const nextPositions = normalizeSurvivalLabelPositions({ ...current, [key]: value || null });
+    if(owner?.state){
+      owner.state.labelPositions = nextPositions;
+      owner.updatedAt = Date.now();
+    }
+    if(!owner || isSurvivalSessionActive(owner)){
+      state.labelPositions = nextPositions;
+    }
+    logDebug('label position patched to owner', {
+      tabId: owner?.tabId || null,
+      key,
+      reason: meta?.reason || null
+    });
+    return nextPositions;
+  }
+
+  function bindSurvivalLegendInteractions(legend, svg, ownerSession = null, metrics = {}){
+    const owner = ensureSurvivalSessionOwnershipShape(ownerSession || getActiveSurvivalSessionForState());
+    return Shared.bindLegendDragInteraction?.(legend, svg, {
+      owner,
+      originX: 0,
+      originY: 0,
+      scaleX: metrics.svgWidth,
+      scaleY: metrics.svgHeight,
+      undoLabel: 'survival-legend',
+      onCommit: (position, dragOwner) => {
+        patchSurvivalLabelPosition(dragOwner, 'legend', position, { reason: 'survival-legend-position' });
+      }
+    }) === true;
+  }
+
+
   function syncSurvivalSessionRefsFromActive(session = null){
     const shaped = ensureSurvivalSessionOwnershipShape(session || projectedSurvivalSession || getActiveSurvivalSessionForState());
     if(!shaped){ return null; }
-    if(shaped.tabId && !isSurvivalSessionActiveOrActivating(shaped)){
+    if(shaped.tabId && !isSurvivalSessionActive(shaped)){
       return shaped;
     }
     shaped.root = refs.root || shaped.root || null;
@@ -1089,7 +1205,7 @@
   function syncSurvivalSessionManagersFromActive(session = null){
     const shaped = ensureSurvivalSessionOwnershipShape(session || projectedSurvivalSession || getActiveSurvivalSessionForState());
     if(!shaped){ return null; }
-    const sessionIsActive = !shaped.tabId || isSurvivalSessionActiveOrActivating(shaped);
+    const sessionIsActive = !shaped.tabId || isSurvivalSessionActive(shaped);
     const activeHot = state.hot || null;
     if(survivalHotBelongsToSession(activeHot, shaped)){
       shaped.managers.hot = activeHot;
@@ -1124,7 +1240,7 @@
       owner.managers.fileHandle = handle || null;
       owner.updatedAt = Date.now();
     }
-    if(!owner || isSurvivalSessionActiveOrActivating(owner)){
+    if(!owner || isSurvivalSessionActive(owner)){
       state.fileHandle = handle || null;
     }
     return handle || null;
@@ -1137,7 +1253,7 @@
       owner.state.fileName = nextName;
       owner.updatedAt = Date.now();
     }
-    if(!owner || isSurvivalSessionActiveOrActivating(owner)){
+    if(!owner || isSurvivalSessionActive(owner)){
       state.fileName = nextName;
     }
     return nextName;
@@ -1159,7 +1275,7 @@
   function captureSurvivalSessionStateFromActive(session = null, meta = {}){
     const shaped = ensureSurvivalSessionOwnershipShape(session || getActiveSurvivalSessionForState());
     if(!shaped){ return null; }
-    if(shaped.tabId && !isSurvivalSessionActiveOrActivating(shaped)){
+    if(shaped.tabId && !isSurvivalSessionActive(shaped)){
       shaped.updatedAt = Date.now();
       return shaped;
     }
@@ -1220,7 +1336,7 @@
     state.covariateColumns = cloneSimple(shaped.state.covariateColumns) || [];
     state.axisSettings = cloneSimple(shaped.state.axisSettings) || createDefaultAxisSettings();
     state.gridStyle = cloneSimple(shaped.state.gridStyle) || null;
-    state.labelPositions = cloneSimple(shaped.state.labelPositions) || { title: null, xLabel: null, yLabel: null, legend: null };
+    state.labelPositions = normalizeSurvivalLabelPositions(shaped.state.labelPositions);
     state.controls = normalizeSurvivalRuntimeControls(shaped.state.controls || {});
     state.drawPending = shaped.state.drawPending === true;
     state.fileHandle = shaped.managers.fileHandle || state.fileHandle || null;
@@ -1253,7 +1369,10 @@
     if(projectedSurvivalSession && projectedSurvivalSession.tabId && projectedSurvivalSession.tabId !== tabId){
       captureSurvivalSessionStateFromActive(projectedSurvivalSession, {
         reason: meta?.reason || 'survival-session-switch-capture',
-        captureStatsPanels: true
+        // The owner session already contains the last committed statistics model.
+        // Tab switching is projection-only and must not reinterpret that durable
+        // model from a DOM shell that is about to be rebound.
+        captureStatsPanels: false
       });
     }
     const session = getSurvivalSession(tabId, { ...(meta || {}), tabId, reason: meta?.reason || 'survival-session-bind' }, { create: true });
@@ -1281,7 +1400,10 @@
     const session = getSurvivalSession(tabId, { ...(meta || {}), tabId, reason: meta?.reason || 'survival-session-state-from-runtime' }, { create: true });
     if(!session){ return null; }
     const runtimeState = record.state && typeof record.state === 'object' ? record.state : record;
-    session.state = createDefaultSurvivalDurableState(runtimeState);
+    session.state = createDefaultSurvivalDurableState({
+      ...runtimeState,
+      controls: normalizeSurvivalRestoredRuntimeControls(runtimeState.controls || runtimeState.config || {})
+    });
     session.results = createDefaultSurvivalResultsState({
       stats: runtimeState.lastStats ?? record.stats,
       statsPanelModels: runtimeState.statsPanelModels || record.statsPanelModels || record.statsPanels
@@ -1670,6 +1792,8 @@
     return {
       showCI: false,
       showCensor: true,
+      showRiskTable: false,
+      showPlotStats: false,
       showHazardRatios: true,
       fitCoxModel: true,
       showGrid: false,
@@ -1688,6 +1812,8 @@
     return {
       showCI: Object.prototype.hasOwnProperty.call(src, 'showCI') ? !!src.showCI : defaults.showCI,
       showCensor: Object.prototype.hasOwnProperty.call(src, 'showCensor') ? !!src.showCensor : defaults.showCensor,
+      showRiskTable: Object.prototype.hasOwnProperty.call(src, 'showRiskTable') ? !!src.showRiskTable : defaults.showRiskTable,
+      showPlotStats: Object.prototype.hasOwnProperty.call(src, 'showPlotStats') ? !!src.showPlotStats : defaults.showPlotStats,
       showHazardRatios: Object.prototype.hasOwnProperty.call(src, 'showHazardRatios') ? !!src.showHazardRatios : defaults.showHazardRatios,
       fitCoxModel: Object.prototype.hasOwnProperty.call(src, 'fitCoxModel') ? !!src.fitCoxModel : defaults.fitCoxModel,
       showGrid: Object.prototype.hasOwnProperty.call(src, 'showGrid') ? !!src.showGrid : defaults.showGrid,
@@ -1700,11 +1826,29 @@
     };
   }
 
+  function normalizeSurvivalRestoredRuntimeControls(source = {}){
+    const restored = source && typeof source === 'object' ? (cloneSimple(source) || {}) : {};
+    // Preserve historical figures when controls are absent from older snapshots.
+    // New workspaces use the defaults from createDefaultSurvivalRuntimeControls().
+    if(!Object.prototype.hasOwnProperty.call(restored, 'showRiskTable')){
+      restored.showRiskTable = false;
+    }
+    if(!Object.prototype.hasOwnProperty.call(restored, 'showPlotStats')){
+      restored.showPlotStats = false;
+    }
+    if(!Object.prototype.hasOwnProperty.call(restored, 'showLegend')){
+      restored.showLegend = true;
+    }
+    return normalizeSurvivalRuntimeControls(restored);
+  }
+
   function syncSurvivalRuntimeControlsFromDom(session = null){
     state.controls = normalizeSurvivalRuntimeControls({
       ...(state.controls || {}),
       showCI: refs.showCI ? !!refs.showCI.checked : state.controls?.showCI,
       showCensor: refs.showCensor ? !!refs.showCensor.checked : state.controls?.showCensor,
+      showRiskTable: refs.showRiskTable ? !!refs.showRiskTable.checked : state.controls?.showRiskTable,
+      showPlotStats: refs.showPlotStats ? !!refs.showPlotStats.checked : state.controls?.showPlotStats,
       showHazardRatios: refs.showHazardRatios ? !!refs.showHazardRatios.checked : state.controls?.showHazardRatios,
       fitCoxModel: refs.fitCoxModel ? !!refs.fitCoxModel.checked : state.controls?.fitCoxModel,
       showGrid: refs.showGrid ? !!refs.showGrid.checked : state.controls?.showGrid,
@@ -1900,7 +2044,7 @@
       shaped.advisor = next;
       shaped.updatedAt = Date.now();
     }
-    if(!shaped || isSurvivalSessionActiveOrActivating(shaped)){
+    if(!shaped || isSurvivalSessionActive(shaped)){
       Object.assign(survivalAdvisorState, next);
     }
     return next;
@@ -1937,6 +2081,8 @@
     refs.labelColorsFieldset = $('#survivalLabelColorsFieldset');
     refs.showCI = $('#survivalShowCI');
     refs.showCensor = $('#survivalShowCensor');
+    refs.showRiskTable = $('#survivalShowRiskTable');
+    refs.showPlotStats = $('#survivalShowPlotStats');
     refs.showHazardRatios = $('#survivalShowHazardRatios');
     refs.fitCoxModel = $('#survivalFitCox');
     refs.covariateControls = $('#survivalCovariateControls');
@@ -1965,11 +2111,11 @@
     return !!(refs.tablePanel && refs.graphPanel && refs.hotContainer && refs.plotDiv);
   }
 
-  const markFontEditable = (node, role, key) => {
+  const markFontEditable = (node, role, key, tabId = null) => {
     if(!node){ return; }
-    const payload = { role: role || null, key: key || role || null, text: node?.textContent || null };
+    const payload = { role: role || null, key: key || role || null, tabId: tabId || null, text: node?.textContent || null };
     if(fontControls && typeof fontControls.markText === 'function'){
-      fontControls.markText(node, { scopeId: 'survival', role, key });
+      fontControls.markText(node, { scopeId: 'survival', role, key, tabId });
     } else if(node.dataset){
       node.dataset.fontEditable = '1';
       node.dataset.fontScope = 'survival';
@@ -2630,11 +2776,18 @@
       const input = document.createElement('input');
       input.type = 'color';
       input.value = state.labelColors[name];
+      input.dataset.setting = `labelColors.${index}`;
+      input.setAttribute('aria-label', `Color for ${name}`);
       if(typeof global.attachColorPickerNear === 'function'){
         global.attachColorPickerNear(input);
       }
       input.addEventListener('input', ev => {
-        applySurvivalColorValue(name, ev.target.value, { source: 'control' });
+        const owner = getSurvivalSessionForEvent(ev, { reason: 'survival-group-color' }, { create: false });
+        applySurvivalColorValue(name, ev.target.value, {
+          session: owner,
+          source: 'control',
+          reason: 'survival-group-color'
+        });
       });
       wrapper.appendChild(input);
       refs.labelColorsDiv.appendChild(wrapper);
@@ -2643,36 +2796,102 @@
     logDebug('group color pickers updated', { count: activeNames.length });
   }
 
-  function applySurvivalColorValue(groupName, value, options = {}){
-    if(!groupName){
+  function projectSurvivalSeriesColor(groupName, value, session = null){
+    const key = String(groupName == null ? '' : groupName).trim();
+    const color = String(value == null ? '' : value).trim();
+    if(!key || !color){
       return false;
     }
-    if(!state.labelColors || typeof state.labelColors !== 'object'){
-      state.labelColors = {};
+    const owner = ensureSurvivalSessionOwnershipShape(session || getActiveSurvivalSessionForState());
+    const svg = getSurvivalNodeById('survivalSvg', owner?.tabId || getSurvivalProjectionTabId() || null);
+    if(!svg){
+      return false;
     }
+    const seriesTargets = Array.from(svg.querySelectorAll('[data-survival-series-color-target][data-group]'))
+      .filter(node => String(node.getAttribute('data-group') || '').trim() === key);
+    seriesTargets.forEach(node => {
+      const attribute = node.getAttribute('data-survival-series-color-target');
+      if(attribute === 'fill' || attribute === 'stroke'){
+        node.setAttribute(attribute, color);
+      }
+    });
+    const legendTargets = Array.from(svg.querySelectorAll('[data-legend-key]'))
+      .filter(node => String(node.dataset?.legendKey || '').trim() === key)
+      .filter(node => String(node.tagName || '').toLowerCase() !== 'text');
+    legendTargets.forEach(node => {
+      if(node.hasAttribute('fill') && node.getAttribute('fill') !== 'none'){
+        node.setAttribute('fill', color);
+      }
+      if(node.hasAttribute('stroke') && node.getAttribute('stroke') !== 'none'){
+        node.setAttribute('stroke', color);
+      }
+    });
+    return seriesTargets.length > 0;
+  }
+
+  function applySurvivalColorValues(groupNames, value, options = {}){
+    const names = Array.from(new Set((Array.isArray(groupNames) ? groupNames : [groupNames])
+      .map(name => String(name == null ? '' : name).trim())
+      .filter(Boolean)));
+    if(!names.length){
+      return false;
+    }
+    const owner = ensureSurvivalSessionOwnershipShape(options.session)
+      || getSurvivalProjectionSession({ reason: options.reason || 'survival-group-color' });
+    if(!owner || !isSurvivalSessionActive(owner)){
+      survivalDebug('Debug: survival group color ignored without exact live owner', {
+        groups: names,
+        tabId: owner?.tabId || null,
+        reason: options.reason || 'survival-group-color'
+      });
+      return false;
+    }
+    const nextColors = cloneSimple(owner.state?.labelColors || state.labelColors || {}) || {};
     const nextValue = value != null ? String(value) : '';
-    const previousValue = state.labelColors[groupName] || '';
     const force = options.force === true;
-    if(nextValue){
-      if(!force && previousValue === nextValue){
-        return false;
+    let changed = false;
+    names.forEach(groupName => {
+      const previousValue = nextColors[groupName] || '';
+      if(nextValue){
+        if(force || previousValue !== nextValue){
+          nextColors[groupName] = nextValue;
+          changed = true;
+        }
+      }else if(force || previousValue){
+        delete nextColors[groupName];
+        changed = true;
       }
-      state.labelColors[groupName] = nextValue;
-    } else {
-      if(!force && !previousValue){
-        return false;
-      }
-      delete state.labelColors[groupName];
+    });
+    if(!changed){
+      return false;
     }
+    syncSurvivalStateToSession(owner, { labelColors: nextColors });
+    state.labelColors = cloneSimple(nextColors) || {};
+    Shared.componentLifecycle?.persistOwnedUserState?.('survival', owner, {
+      tabId: owner.tabId,
+      reason: options.reason || 'survival-group-color'
+    });
     logDebug('group color changed', {
-      group: groupName,
+      groups: names,
       color: nextValue || null,
       source: options.source || 'apply',
-      forced: force
+      forced: force,
+      tabId: owner.tabId
     });
-    syncSurvivalStateToSession(getSurvivalProjectionSession({ reason: 'survival-projection-mutation' }), { labelColors: state.labelColors });
-    scheduleActiveSurvivalDraw({ reason: 'survival-group-color', tabId: getSurvivalProjectionTabId() || null });
+    const projected = !!nextValue && names.every(groupName => projectSurvivalSeriesColor(groupName, nextValue, owner));
+    if(!projected){
+      scheduleSurvivalDrawForSession(owner, {
+        reason: options.reason || 'survival-group-color',
+        tabId: owner.tabId,
+        viewOnly: true,
+        userInitiated: true
+      });
+    }
     return true;
+  }
+
+  function applySurvivalColorValue(groupName, value, options = {}){
+    return applySurvivalColorValues([groupName], value, options);
   }
 
   function handleSurvivalLegendSwatchClick(payload){
@@ -2709,7 +2928,7 @@
     });
   }
 
-  function drawSurvivalLegend(svg, legendLayout, defaults = {}, svgDimensions = {}){
+  function drawSurvivalLegend(svg, legendLayout, defaults = {}, svgDimensions = {}, ownerSession = null){
     const renderer = legendLayout?.renderer;
     if(!svg || !renderer || !renderer.entries.length){
       return null;
@@ -2737,7 +2956,12 @@
       }
     }
 
-    const legendGroup = renderer.draw(svg, { x: resolvedX, y: resolvedY });
+    const legendGroup = renderer.draw(svg, {
+      x: resolvedX,
+      y: resolvedY,
+      canonicalX: Number.isFinite(defaults.x) ? Number(defaults.x) : 0,
+      canonicalY: Number.isFinite(defaults.y) ? Number(defaults.y) : 0
+    });
     if(!legendGroup){
       return null;
     }
@@ -2745,25 +2969,10 @@
     textNodes.forEach((node, index) => {
       markFontEditable(node, 'legend', `legend-${index}`);
     });
-    if(typeof Shared.enableLegendDrag === 'function'){
-      Shared.enableLegendDrag(legendGroup, svg, {
-        undoLabel: 'survival-legend',
-        onDragEnd: pos => {
-          state.labelPositions = state.labelPositions || { title: null, xLabel: null, yLabel: null, legend: null };
-          // Store both absolute and relative positions
-          const relX = pos.x / svgWidth;
-          const relY = pos.y / svgHeight;
-          state.labelPositions.legend = {
-            x: pos.x,
-            y: pos.y,
-            relX: relX,
-            relY: relY
-          };
-          syncSurvivalStateToSession(getSurvivalProjectionSession({ reason: 'survival-projection-mutation' }), { labelPositions: state.labelPositions });
-          logDebug('legend position saved', { absolute: pos, relative: { relX, relY } });
-        }
-      });
-    }
+    bindSurvivalLegendInteractions(legendGroup, svg, ownerSession, {
+      svgWidth: Math.max(svgWidth, 1),
+      svgHeight: Math.max(svgHeight, 1)
+    });
     return legendGroup;
   }
 
@@ -4238,21 +4447,35 @@
     return result;
   }
 
+  function resolveCoxInferenceContract(coxModel){
+    if(!coxModel || !coxModel.available){
+      return { available: false, reason: coxModel?.message || 'Cox model unavailable.' };
+    }
+    if(coxModel?.diagnostics?.inferenceAvailable !== true){
+      return { available: false, reason: coxModel?.message || 'Ordinary Cox Wald inference is unavailable for this fit.' };
+    }
+    if(!Array.isArray(coxModel.covariance)){
+      return { available: false, reason: 'Cox variance–covariance matrix is unavailable.' };
+    }
+    return { available: true, reason: null };
+  }
+
   function computeHazardRatios(series, coxModel, options){
     const enabled = options?.enabled !== false;
     if(!enabled){
-      return { available: false, message: 'Hazard ratio table disabled.' };
+      return { available: false, inferenceAvailable: false, message: 'Hazard ratio table disabled.' };
     }
     if(!coxModel || !coxModel.available){
       const message = coxModel?.message || 'Hazard ratios unavailable.';
       logDebug('hazard ratios skipped', { message });
-      return { available: false, message };
+      return { available: false, inferenceAvailable: false, message };
     }
     if(!Array.isArray(series) || series.length < 2){
-      return { available: false, message: 'At least two groups required for hazard ratios.' };
+      return { available: false, inferenceAvailable: false, message: 'At least two groups required for hazard ratios.' };
     }
+    const inference = resolveCoxInferenceContract(coxModel);
     const rows = [];
-    const cov = coxModel.covariance;
+    const cov = inference.available ? coxModel.covariance : null;
     const indexMap = coxModel.coefficientIndex || {};
     for(let i = 0; i < series.length; i += 1){
       for(let j = i + 1; j < series.length; j += 1){
@@ -4272,16 +4495,13 @@
           const varA = Number.isFinite(idxA) ? cov[idxA]?.[idxA] ?? 0 : 0;
           const varB = Number.isFinite(idxB) ? cov[idxB]?.[idxB] ?? 0 : 0;
           const covAB = Number.isFinite(idxA) && Number.isFinite(idxB) ? cov[idxA]?.[idxB] ?? 0 : 0;
-          const variance = Math.max(varA + varB - 2 * covAB, 0);
-          const se = Math.sqrt(variance);
-          if(se > 0){
+          const variance = varA + varB - 2 * covAB;
+          if(Number.isFinite(variance) && variance > 0){
+            const se = Math.sqrt(variance);
             ciLow = Math.exp(diff - 1.96 * se);
             ciHigh = Math.exp(diff + 1.96 * se);
             z = diff / se;
             p = pValueFromZ(z);
-          } else {
-            ciLow = hr;
-            ciHigh = hr;
           }
         }
         rows.push({
@@ -4291,12 +4511,21 @@
           ciLow,
           ciHigh,
           z,
-          p
+          p,
+          inferenceAvailable: inference.available,
+          inferenceReason: inference.reason
         });
       }
     }
-    logDebug('hazard ratios computed', { pairCount: rows.length });
-    return { available: rows.length > 0, rows, baselineGroup: coxModel.baselineGroup, message: rows.length ? null : 'No comparisons available.' };
+    logDebug('hazard ratios computed', { pairCount: rows.length, inferenceAvailable: inference.available });
+    return {
+      available: rows.length > 0,
+      rows,
+      baselineGroup: coxModel.baselineGroup,
+      inferenceAvailable: inference.available,
+      inferenceReason: inference.reason,
+      message: rows.length ? (inference.available ? null : inference.reason) : 'No comparisons available.'
+    };
   }
 
   function computePairwiseSurvivalComparisons(series, method = 'holm-sidak'){
@@ -4338,7 +4567,7 @@
 
   function computeMedianSurvivalRatios(series){
     if(!Array.isArray(series) || series.length < 2){
-      return { available: false, message: 'Median survival ratios require at least two groups.' };
+      return { available: false, inferenceAvailable: false, message: 'Median survival ratios require at least two groups.' };
     }
     const rows = [];
     for(let i = 0; i < series.length; i += 1){
@@ -4350,35 +4579,21 @@
         if(!(medianA > 0) || !(medianB > 0)){
           continue;
         }
-        const ratio = medianB / medianA;
-        let ciLow = null;
-        let ciHigh = null;
-        const aLow = Number(groupA?.km?.medianCiLow);
-        const aHigh = Number(groupA?.km?.medianCiHigh);
-        const bLow = Number(groupB?.km?.medianCiLow);
-        const bHigh = Number(groupB?.km?.medianCiHigh);
-        if(aLow > 0 && aHigh > 0 && bLow > 0 && bHigh > 0){
-          ciLow = bLow / aHigh;
-          ciHigh = bHigh / aLow;
-          if(ciLow > ciHigh){
-            const swap = ciLow;
-            ciLow = ciHigh;
-            ciHigh = swap;
-          }
-        }
         rows.push({
           groupA: groupA.name,
           groupB: groupB.name,
-          ratio,
-          ciLow,
-          ciHigh
+          ratio: medianB / medianA,
+          ciLow: null,
+          ciHigh: null,
+          inferenceAvailable: false
         });
       }
     }
     return {
       available: rows.length > 0,
       rows,
-      message: rows.length ? null : 'Median survival ratios unavailable.'
+      inferenceAvailable: false,
+      message: rows.length ? 'Median survival ratios are descriptive estimates; no ratio confidence interval is reported.' : 'Median survival ratios unavailable.'
     };
   }
 
@@ -4446,16 +4661,30 @@
   }
 
   function getSurvivalStatsPValueScientificPreference(){
+    const reporting = Shared.statsReporting;
+    const tabId = getSurvivalProjectionTabId() || null;
+    if(
+      reporting
+      && typeof reporting.hasPValueFormatScientific === 'function'
+      && reporting.hasPValueFormatScientific({ target: refs.statsSummary, tabId })
+      && typeof reporting.getPValueFormatScientific === 'function'
+    ){
+      return reporting.getPValueFormatScientific({ target: refs.statsSummary, tabId }) === true;
+    }
     return sanitizeSurvivalStatsReportPScientific(state.statsReportPScientific);
   }
 
-  function syncSurvivalStatsPValuePanelState(){
+  function syncSurvivalStatsPValuePanelState(options = {}){
     if(!Shared.statsReporting || typeof Shared.statsReporting.setPanelPValueFormatScientific !== 'function'){
       return;
     }
+    const preference = Object.prototype.hasOwnProperty.call(options, 'preferenceOverride')
+      ? sanitizeSurvivalStatsReportPScientific(options.preferenceOverride)
+      : getSurvivalStatsPValueScientificPreference();
+    state.statsReportPScientific = preference;
     [refs.statsSummary, refs.statsLogRank, refs.statsHazardRatios, refs.statsCox].forEach(panel => {
       if(panel){
-        Shared.statsReporting.setPanelPValueFormatScientific(panel, getSurvivalStatsPValueScientificPreference(), {
+        Shared.statsReporting.setPanelPValueFormatScientific(panel, preference, {
           source: 'survival',
           tabId: getSurvivalProjectionTabId() || null
         });
@@ -4470,6 +4699,14 @@
     }
     state.statsReportPScientific = next;
     syncSurvivalStateToSession(getSurvivalProjectionSession({ reason: 'survival-projection-mutation' }), { statsReportPScientific: next });
+    if(Shared.statsReporting && typeof Shared.statsReporting.setPValueFormatScientific === 'function'){
+      Shared.statsReporting.setPValueFormatScientific(next, {
+        target: refs.statsSummary || null,
+        tabId: getSurvivalProjectionTabId() || null,
+        source: options.source || 'survival',
+        persist: true
+      });
+    }
     syncSurvivalStatsPValuePanelState();
     if(state.lastSummary && Array.isArray(state.lastSummary.series)){
       updateStats(state.lastSummary);
@@ -4491,7 +4728,7 @@
       wrap.className = 'stats-pvalue-format-inline';
       const label = documentRef.createElement('span');
       label.className = 'stats-pvalue-format-inline__label';
-      label.textContent = `P-value format: ${scientific ? 'Scientific' : 'Decimal'}`;
+      label.textContent = `p-value format: ${scientific ? 'Scientific' : 'Decimal'}`;
       wrap.appendChild(label);
       const button = documentRef.createElement('button');
       button.type = 'button';
@@ -4518,11 +4755,25 @@
       return formatter(value, { scientific, forceScientific: scientific });
     }
     if(scientific){
-      return Number(value).toExponential(5);
+      return Shared.formatters?.formatScientificNumber?.(Number(value), { fractionalDigits: 5 }) || String(Number(value));
     }
     return value >= 0 && value <= 0.0001
       ? '<0.0001'
       : Number(value).toFixed(4).replace(/0+$/, '').replace(/\.$/, '');
+  }
+
+  function formatSurvivalPExpression(value){
+    const reporting = Shared.statsReporting;
+    if(reporting && typeof reporting.formatPValueExpression === 'function'){
+      return reporting.formatPValueExpression(value, {
+        label: 'p',
+        target: refs.statsSummary || refs.statsLogRank || null,
+        tabId: getSurvivalProjectionTabId() || null
+      });
+    }
+    const display = String(formatP(value));
+    const match = /^(<=|>=|≤|≥|<|>)\s*(.*)$/.exec(display);
+    return match ? `p ${match[1]} ${match[2]}` : `p = ${display}`;
   }
 
   function pValueToken(value){
@@ -4674,9 +4925,15 @@
       logDebug('autoResizeSvgHelper skipped', { hasSvg: false });
       return;
     }
+    const options = {
+      padding: 18,
+      debugLabel: 'survival-graph',
+      component: 'survival',
+      preserveAspectRatio: 'xMidYMid meet',
+      fitContent: false
+    };
     const width = Number(svg.getAttribute?.('width'));
     const height = Number(svg.getAttribute?.('height'));
-    const options = { padding: 18, debugLabel: 'survival-graph', component: 'survival' };
     if(Number.isFinite(width) && width > 0 && Number.isFinite(height) && height > 0){
       options.baseViewport = { width, height };
     }
@@ -4697,9 +4954,172 @@
     getHost: () => getSurvivalNodeById('survivalGraphPanel')?.querySelector?.('.svgbox') || getSurvivalNodeById('survivalGraphPanel')
   });
 
+  function survivalAtRiskCount(group, time){
+    if(!group || !Array.isArray(group.records) || !Number.isFinite(Number(time))){
+      return 0;
+    }
+    const t = Number(time);
+    return group.records.reduce((count, record) => {
+      const entry = Number.isFinite(Number(record?.entry)) ? Number(record.entry) : 0;
+      const exit = Number(record?.time);
+      return count + (entry <= t && Number.isFinite(exit) && exit >= t ? 1 : 0);
+    }, 0);
+  }
+
+  function survivalCumulativeCensoredCount(group, time){
+    if(!group || !Array.isArray(group.records) || !Number.isFinite(Number(time))){
+      return 0;
+    }
+    const t = Number(time);
+    return group.records.reduce((count, record) => {
+      const entry = Number.isFinite(Number(record?.entry)) ? Number(record.entry) : 0;
+      const exit = Number(record?.time);
+      const isCensored = record?.event === false || Number(record?.event) === 0;
+      return count + (isCensored && entry <= t && Number.isFinite(exit) && exit <= t ? 1 : 0);
+    }, 0);
+  }
+
+  function buildSurvivalPlotStatsLines(summary){
+    if(!summary || !Array.isArray(summary.series) || !summary.series.length){
+      return [];
+    }
+    if(summary.series.length === 2){
+      const rows = Array.isArray(summary.hazardRatios?.rows) ? summary.hazardRatios.rows : [];
+      const row = rows.length === 1 ? rows[0] : null;
+      if(row && Number.isFinite(Number(row.hazardRatio))){
+        const label = `HR ${row.groupB} vs ${row.groupA}`;
+        const ci = Number.isFinite(Number(row.ciLow)) && Number.isFinite(Number(row.ciHigh))
+          ? `; 95% CI [${formatNumber(Number(row.ciLow), 2)}, ${formatNumber(Number(row.ciHigh), 2)}]`
+          : '';
+        const pText = Number.isFinite(Number(row.p)) ? `; ${formatSurvivalPExpression(Number(row.p))}` : '';
+        return [`${label} = ${formatNumber(Number(row.hazardRatio), 2)}${ci}${pText}`];
+      }
+    }
+    const globalTest = summary.logRank;
+    if(globalTest?.available && Number.isFinite(Number(globalTest.p))){
+      const statistic = Number.isFinite(Number(globalTest.chi2)) ? `χ²(${Number(globalTest.df) || Math.max(1, summary.series.length - 1)}) = ${formatNumber(Number(globalTest.chi2), 2)}; ` : '';
+      return [`Overall log-rank: ${statistic}${formatSurvivalPExpression(Number(globalTest.p))}`];
+    }
+    return [];
+  }
+
+  function resolveSurvivalRiskTableMetrics(fontSize){
+    const normalizedFontSize = Math.max(1, Number(fontSize) || 12);
+    return {
+      fontSize: normalizedFontSize,
+      rowHeight: Math.max(normalizedFontSize * 1.45, 16),
+      titleGap: Math.max(normalizedFontSize * 1.35, 16),
+      outerPad: Math.max(10, normalizedFontSize),
+      bottomPad: Math.max(10, normalizedFontSize * 0.9),
+      separatorPad: Math.max(5, normalizedFontSize * 0.45)
+    };
+  }
+
+  const SURVIVAL_RISK_TABLE_TITLE = 'Number at risk (number censored)';
+
+  function resolveSurvivalRiskTableLabelWidth(options = {}){
+    const groups = Array.isArray(options.groups) ? options.groups : [];
+    const metrics = resolveSurvivalRiskTableMetrics(options.fontSize || options.fontMeasure?.fontSizePx);
+    const measureFont = options.fontMeasure?.fontSpec
+      || (chartStyle.makeFont ? chartStyle.makeFont(metrics.fontSize) : `${metrics.fontSize}px sans-serif`);
+    const measure = typeof options.measureText === 'function'
+      ? options.measureText
+      : (text => chartStyle.measureText
+          ? chartStyle.measureText(String(text), measureFont)
+          : String(text).length * metrics.fontSize * 0.6);
+    const labelWidth = [SURVIVAL_RISK_TABLE_TITLE, ...groups.map(group => String(group?.name || ''))]
+      .reduce((max, label) => Math.max(max, Number(measure(label)) || 0), 0);
+    const maxRiskCount = groups.reduce((max, group) => Math.max(max, group?.records?.length || 0), 0);
+    const countWidth = Math.max(Number(measure(`${maxRiskCount} (${maxRiskCount})`)) || 0, metrics.fontSize * 3);
+    return Math.ceil(labelWidth + metrics.separatorPad * 2 + countWidth / 2 + metrics.outerPad);
+  }
+
+  function renderSurvivalRiskTable(svg, add, groups, ticks, x2px, options = {}){
+    if(!svg || !Array.isArray(groups) || !groups.length || !Array.isArray(ticks) || !ticks.length){
+      return 0;
+    }
+    const metrics = resolveSurvivalRiskTableMetrics(options.fontSize);
+    const fontSize = metrics.fontSize;
+    const left = Number(options.left) || 0;
+    const yStart = Number(options.yStart) || 0;
+    const rowHeight = metrics.rowHeight;
+    const tabId = options.tabId || null;
+    const textColor = chartStyle.TEXT_COLOR || '#000';
+    const measureFont = chartStyle.makeFont ? chartStyle.makeFont(fontSize) : `${fontSize}px sans-serif`;
+    const firstTick = ticks[0];
+    const firstCountWidth = groups.reduce((max, group) => {
+      const value = `${survivalAtRiskCount(group, firstTick)} (${survivalCumulativeCensoredCount(group, firstTick)})`;
+      const measured = chartStyle.measureText ? chartStyle.measureText(value, measureFont) : value.length * fontSize * 0.6;
+      return Math.max(max, Number(measured) || 0);
+    }, 0);
+    const separatorX = left - firstCountWidth / 2 - metrics.separatorPad;
+    const labelX = separatorX - metrics.separatorPad;
+
+    const heading = add('text', {
+      x: labelX,
+      y: yStart,
+      'font-size': fontSize,
+      'text-anchor': 'end',
+      'dominant-baseline': 'middle',
+      fill: textColor,
+      'data-survival-risk-table': 'heading'
+    });
+    heading.textContent = SURVIVAL_RISK_TABLE_TITLE;
+    markFontEditable(heading, 'riskTable', 'riskTable', tabId);
+
+    add('line', {
+      x1: separatorX,
+      y1: yStart - fontSize * 0.8,
+      x2: separatorX,
+      y2: yStart + metrics.titleGap + rowHeight * groups.length - rowHeight * 0.35,
+      stroke: '#000',
+      'stroke-width': Math.max(0.6, fontSize * 0.055),
+      'data-survival-risk-table': 'separator'
+    });
+
+    groups.forEach((group, rowIndex) => {
+      const y = yStart + metrics.titleGap + rowHeight * rowIndex;
+      const groupColor = group.color || textColor;
+      const label = add('text', {
+        x: labelX,
+        y,
+        'font-size': fontSize,
+        'text-anchor': 'end',
+        'dominant-baseline': 'middle',
+        fill: groupColor,
+        'data-survival-risk-table': 'label',
+        'data-survival-series-color-target': 'fill',
+        'data-group': group.name
+      });
+      label.textContent = group.name;
+      markFontEditable(label, 'riskTable', 'riskTable', tabId);
+      ticks.forEach(tick => {
+        const atRisk = survivalAtRiskCount(group, tick);
+        const censored = survivalCumulativeCensoredCount(group, tick);
+        const text = add('text', {
+          x: x2px(tick),
+          y,
+          'font-size': fontSize,
+          'text-anchor': 'middle',
+          'dominant-baseline': 'middle',
+          fill: groupColor,
+          'data-survival-risk-table': 'count',
+          'data-survival-series-color-target': 'fill',
+          'data-group': group.name,
+          'data-time': tick,
+          'data-at-risk': atRisk,
+          'data-censored': censored
+        });
+        text.textContent = `${atRisk} (${censored})`;
+        markFontEditable(text, 'riskTable', 'riskTable', tabId);
+      });
+    });
+    return metrics.titleGap + rowHeight * groups.length;
+  }
+
   async function drawSurvival(options = {}, session = null){
     const drawSession = ensureSurvivalSessionOwnershipShape(session || getSurvivalSessionForDrawOptions(options));
-    if(drawSession && !isSurvivalSessionActiveOrActivating(drawSession)){
+    if(drawSession && !isSurvivalSessionActive(drawSession)){
       drawSession.state.drawPending = true;
       drawSession.updatedAt = Date.now();
       return false;
@@ -4732,7 +5152,7 @@
     }
     refs.plotDiv = plotDiv;
     const debugStamp = Date.now();
-    const controls = syncSurvivalRuntimeControlsFromDom();
+    const controls = syncSurvivalRuntimeControlsFromDom(drawSession);
     logDebug('draw start', { debugStamp });
     const summary = collectSeries();
     if(!(await checkpoint())){
@@ -4791,25 +5211,6 @@
     const drawableFrame = resolveSurvivalDrawableFrame(refs.plotDiv);
     const baseWidth = Math.max(200, Math.floor(drawableFrame.width || 400));
     const height = Math.max(200, Math.floor(drawableFrame.height || 320));
-    logDebug('draw dimensions resolved', { width: baseWidth, height });
-    const svg = document.createElementNS(NS, 'svg');
-    svg.setAttribute('width', String(baseWidth));
-    svg.setAttribute('height', String(height));
-    svg.setAttribute('viewBox', `0 0 ${baseWidth} ${height}`);
-    chartStyle.prepareSvg(svg, { scopeId: 'survival' });
-    if(svg.dataset){
-      svg.dataset.fontScope = 'survival';
-    }
-    framePublication = Shared.framePublication.stage({
-      container: refs.plotDiv,
-      frame: svg,
-      publishedId: 'survivalSvg',
-      component: 'survival',
-      tabId: drawTabId,
-      canCommit: () => execution?.isCurrent?.() !== false
-        && (!drawSession || isSurvivalSessionActiveOrActivating(drawSession))
-    });
-
     const fontInfo = chartStyle.resolveScaledFontSize ? chartStyle.resolveScaledFontSize({
       rawSize: controls.fontSize,
       width: drawableFrame.width,
@@ -4820,6 +5221,43 @@
     chartStyle.renderFontSizeLabel?.({ element: refs.fontSizeVal, fontInfo, input: refs.fontSize });
     const fs = fontInfo.scaledPx || 12;
     const styleScaleInfo = fontInfo.scaleInfo || { styleScale: 1 };
+    const survivalFontStyles = exportFontStyles('survival', { tabId: drawSession?.tabId || drawTabId || null });
+    const riskTableMeasure = chartStyle.resolveScopedLabelMeasureFont
+      ? chartStyle.resolveScopedLabelMeasureFont({
+          styles: survivalFontStyles,
+          role: 'riskTable',
+          fallbackPx: fs
+        })
+      : {
+          fontSizePx: fs,
+          fontSpec: chartStyle.makeFont?.(fs) || `${fs}px sans-serif`
+        };
+    const riskTableMetrics = resolveSurvivalRiskTableMetrics(riskTableMeasure.fontSizePx || fs);
+    const riskTableFontSize = riskTableMetrics.fontSize;
+    const riskTableExtraHeight = controls.showRiskTable
+      ? Math.max(48, riskTableMetrics.titleGap + riskTableMetrics.rowHeight * summary.series.length + riskTableMetrics.bottomPad)
+      : 0;
+    const chartHeight = height;
+    const svgHeight = height + riskTableExtraHeight;
+    logDebug('draw dimensions resolved', { width: baseWidth, height, chartHeight, svgHeight, riskTableExtraHeight, riskTableFontSize });
+    const svg = document.createElementNS(NS, 'svg');
+    svg.setAttribute('width', String(baseWidth));
+    svg.setAttribute('height', String(svgHeight));
+    svg.setAttribute('viewBox', `0 0 ${baseWidth} ${svgHeight}`);
+    chartStyle.prepareSvg(svg, { scopeId: 'survival' });
+    if(svg.dataset){
+      svg.dataset.fontScope = 'survival';
+    }
+    framePublication = Shared.framePublication.stage({
+      container: plotDiv,
+      frame: svg,
+      publishedId: 'survivalSvg',
+      component: 'survival',
+      tabId: drawTabId,
+      canCommit: () => execution?.isCurrent?.() !== false
+        && (!drawSession || isSurvivalSessionActive(drawSession))
+    });
+
     const axisSettings = ensureAxisSettings();
     const axisStrokeWidthBase = axisSettings.strokeWidth;
     const axisStrokeWidth = chartStyle.scaleStrokeWidth ? chartStyle.scaleStrokeWidth(axisStrokeWidthBase, styleScaleInfo, { context: 'survival-axis', min: 0, exact: true }) : axisStrokeWidthBase;
@@ -4871,7 +5309,7 @@
     const legendLayout = chartStyle.computeLegendLayout({
       entries: legendEntries,
       fontSize: fs,
-      viewportHeight: height,
+      viewportHeight: chartHeight,
       scaleInfo: styleScaleInfo,
       strokeWidth: legendStrokeWidth,
       onSwatchClick: legendEditable ? handleSurvivalLegendSwatchClick : undefined
@@ -4879,13 +5317,34 @@
     const legendRenderer = legendLayout.renderer;
     const legendVisible = showLegend && legendRenderer.entries.length > 0;
     const legendWidth = legendVisible ? Math.ceil(legendLayout.legendWidthForMargin) : 0;
-    const legendViewport = chartStyle.stageLegendViewport({
+    const riskTableTickTarget = chartStyle.estimateTickCount
+      ? chartStyle.estimateTickCount(baseWidth, { axis: 'x', fallback: 6 })
+      : 6;
+    const baseMarginEstimate = chartStyle.computeBaseMargins ? chartStyle.computeBaseMargins({
+      fontSize: fs,
+      legendWidth: 0,
+      maxYLabelWidth: 0,
+      hasYTitle,
+      axisMetrics
+    }) : { top: fs * 3, right: 24, bottom: fs * 4, left: fs * 4 };
+    const riskTableLabelWidth = controls.showRiskTable
+      ? resolveSurvivalRiskTableLabelWidth({
+          fontSize: riskTableFontSize,
+          fontMeasure: riskTableMeasure,
+          groups: groupsForDraw
+        })
+      : 0;
+    const contentOffsetX = Math.max(0, riskTableLabelWidth - baseMarginEstimate.left);
+    const contentRight = contentOffsetX + baseWidth;
+    const legendViewport = chartStyle.stageGraphContentViewport({
       svgBox: refs.svgBox,
       plot: refs.plotDiv,
       svg,
       baseWidth,
-      baseHeight: height,
-      legendWidth
+      baseHeight: chartHeight,
+      rightWidth: contentOffsetX + legendWidth,
+      legendWidth,
+      bottomHeight: riskTableExtraHeight
     });
     const width = legendViewport.width;
 
@@ -4911,9 +5370,8 @@
     const yMax = 1;
     logDebug('axis range auto',{ yMin, yMax });
 
-    const xTickTarget = chartStyle.estimateTickCount ? chartStyle.estimateTickCount(baseWidth, { axis: 'x', fallback: 6 }) : 6;
-    const yTickTarget = chartStyle.estimateTickCount ? chartStyle.estimateTickCount(height, { axis: 'y', fallback: 6 }) : 6;
-    const survivalFontStyles = exportFontStyles('survival');
+    const xTickTarget = riskTableTickTarget;
+    const yTickTarget = chartStyle.estimateTickCount ? chartStyle.estimateTickCount(chartHeight, { axis: 'y', fallback: 6 }) : 6;
     const xTickMeasureFont = (chartStyle && typeof chartStyle.resolveScopedLabelMeasureFont === 'function')
       ? chartStyle.resolveScopedLabelMeasureFont({ styles: survivalFontStyles, role: 'xTick', fallbackPx: fs }).fontSpec
       : (chartStyle.makeFont ? chartStyle.makeFont(fs) : `${fs}px sans-serif`);
@@ -4921,15 +5379,21 @@
       ? chartStyle.resolveScopedLabelMeasureFont({ styles: survivalFontStyles, role: 'yTick', fallbackPx: fs }).fontSpec
       : (chartStyle.makeFont ? chartStyle.makeFont(fs) : `${fs}px sans-serif`);
     const tickFont = yTickMeasureFont;
-    let margin = chartStyle.computeBaseMargins ? chartStyle.computeBaseMargins({
-      fontSize: fs,
-      legendWidth,
-      maxYLabelWidth: 0,
-      hasYTitle,
-      axisMetrics
-    }) : { top: fs * 3, right: legendWidth + 24, bottom: fs * 4, left: fs * 4 };
-    let plotW = Math.max(20, width - margin.left - margin.right);
-    let plotH = Math.max(20, height - margin.top - margin.bottom);
+    const resolvePlotMargins = (maxYLabelWidth, xTickLabels = []) => {
+      const local = chartStyle.computeBaseMargins ? chartStyle.computeBaseMargins({
+        fontSize: fs,
+        legendWidth: 0,
+        maxYLabelWidth,
+        hasYTitle,
+        axisMetrics,
+        xTickLabels,
+        xTickMeasureFont
+      }) : { top: fs * 3, right: 24, bottom: fs * 4, left: fs * 4 };
+      return { ...local, left: local.left + contentOffsetX };
+    };
+    let margin = resolvePlotMargins(0);
+    let plotW = Math.max(20, contentRight - margin.left - margin.right);
+    let plotH = Math.max(20, chartHeight - margin.top - margin.bottom);
     let bottomLayout = chartStyle.computeBottomLayout ? chartStyle.computeBottomLayout({
       labels: [],
       fontSize: fs,
@@ -4940,9 +5404,8 @@
     }) : { bottom: margin.bottom, shouldRotate: false, titleOffset: fs * 2, labelOffset: fs, tickLength: tickLen, tickLabelGap: tickGap };
     margin.bottom = bottomLayout.bottom;
     margin = chartStyle.stabilizeAxisResizeMargins
-      ? chartStyle.stabilizeAxisResizeMargins(margin, { svgBox: refs.svgBox, scopeId: 'survival' })
+      ? chartStyle.stabilizeAxisResizeMargins(margin, { svgBox: refs.svgBox, scopeId: 'survival', commitBaseline: false })
       : margin;
-
     let xScale;
     let yScale;
     let xTickLabels = [];
@@ -4952,8 +5415,8 @@
     const manualIntervalX = getAxisTickInterval('x');
     const manualIntervalY = getAxisTickInterval('y');
     for(let pass = 0; pass < 2; pass += 1){
-      plotW = Math.max(20, width - margin.left - margin.right);
-      plotH = Math.max(20, height - margin.top - margin.bottom);
+      plotW = Math.max(20, contentRight - margin.left - margin.right);
+      plotH = Math.max(20, chartHeight - margin.top - margin.bottom);
       xScale = buildAxisScale({
         dataMin: xMin,
         dataMax: xMax,
@@ -4990,15 +5453,9 @@
       yTickLabels = yScale.ticks.map(value => formatNumber(value, 2));
       const yLabelWidths = yTickLabels.map(label => chartStyle.measureText ? chartStyle.measureText(label, tickFont) : label.length * fs * 0.6);
       maxYLabelWidth = yLabelWidths.length ? Math.max(...yLabelWidths) : 0;
-      margin = chartStyle.computeBaseMargins ? chartStyle.computeBaseMargins({
-        fontSize: fs,
-        legendWidth,
-        maxYLabelWidth,
-        hasYTitle,
-        axisMetrics
-      }) : margin;
-      plotW = Math.max(20, width - margin.left - margin.right);
-      plotH = Math.max(20, height - margin.top - margin.bottom);
+      margin = resolvePlotMargins(maxYLabelWidth, xTickLabels);
+      plotW = Math.max(20, contentRight - margin.left - margin.right);
+      plotH = Math.max(20, chartHeight - margin.top - margin.bottom);
       bottomLayout = chartStyle.computeBottomLayout ? chartStyle.computeBottomLayout({
         labels: xTickLabels,
         fontSize: fs,
@@ -5014,8 +5471,8 @@
     }
     logDebug('tick targets finalized', { manualIntervalX, manualIntervalY, xTickCount: xScale?.ticks?.length, yTickCount: yScale?.ticks?.length });
 
-    plotW = Math.max(20, width - margin.left - margin.right);
-    plotH = Math.max(20, height - margin.top - margin.bottom);
+    plotW = Math.max(20, contentRight - margin.left - margin.right);
+    plotH = Math.max(20, chartHeight - margin.top - margin.bottom);
 
     const x2px = value => {
       const span = xScale.max - xScale.min || 1;
@@ -5041,16 +5498,19 @@
     const showFrame = !!controls.showFrame;
 
     if(showGrid){
+      const gridSegments = [];
       xScale.ticks.forEach(val => {
         const x = x2px(val);
-        const gridLine = add('line', Object.assign({ x1: x, y1: margin.top, x2: x, y2: margin.top + plotH }, gridStrokeAttrs));
-        gridLine.setAttribute('data-grid-control', '1');
+        gridSegments.push({ x1: x, y1: margin.top, x2: x, y2: margin.top + plotH });
       });
       yScale.ticks.forEach(val => {
         const y = y2px(val);
-        const gridLine = add('line', Object.assign({ x1: margin.left, y1: y, x2: margin.left + plotW, y2: y }, gridStrokeAttrs));
-        gridLine.setAttribute('data-grid-control', '1');
+        gridSegments.push({ x1: margin.left, y1: y, x2: margin.left + plotW, y2: y });
       });
+      const gridPathData = svgGeometry.buildCompoundLinePath?.(gridSegments) || '';
+      if(gridPathData){
+        add('path', Object.assign({ d: gridPathData, fill: 'none', 'data-grid-control': '1' }, gridStrokeAttrs));
+      }
     }
 
     const xAxisY = margin.top + plotH;
@@ -5076,28 +5536,8 @@
           subdivisions: minorSubdivisionsY
         })
       : [];
-    const axisControlConfig = axis => ({
-      axis,
-      scopeId: 'survival',
-      getTickInterval: () => getAxisTickInterval(axis),
-      getEffectiveTickInterval: () => axis === 'x' ? xScale.step : yScale.step,
-        getMajorTickLength: () => getAxisMajorTickLength(axis),
-        onMajorTickLengthChange: value => updateAxisMajorTickLength(axis, value),
-        isMajorTickLengthSupported: () => true,
-        majorTickLengthPlaceholder: 'Auto',
-      getThickness: () => getAxisStrokeWidthBase(),
-      getColor: () => getAxisColor(),
-      isTickIntervalEnabled: () => true,
-      getTickIntervalDisabledMessage: () => 'Tick interval available for numeric axes.',
-      tickPlaceholder: 'Auto',
-      onTickIntervalChange: value => updateAxisTickInterval(axis, value),
-      getMinorTicksEnabled: () => getAxisMinorTicksEnabled(axis),
-      onMinorTicksChange: value => updateAxisMinorTicks(axis, value),
-      isMinorTicksSupported: () => true,
-      getMinorTickSubdivisions: () => getAxisMinorTickSubdivisions(axis),
-      onMinorTickSubdivisionsChange: value => updateAxisMinorTickSubdivisions(axis, value),
-      onThicknessChange: value => updateAxisStrokeWidth(value),
-      onColorChange: value => updateAxisColor(value)
+    const axisControlConfig = axis => buildSurvivalAxisControlConfig(axis, drawSession, {
+      effectiveTickInterval: axis === 'x' ? xScale.step : yScale.step
     });
     const xAxisLine = add('line', { x1: margin.left, y1: xAxisY, x2: margin.left + plotW, y2: xAxisY, stroke: axisStroke, 'stroke-width': axisStrokeWidth, 'stroke-linecap': 'square' });
     if(axisControls && typeof axisControls.registerAxisElement === 'function'){
@@ -5209,42 +5649,19 @@
     });
     xTitle.textContent = xLabelText;
     markFontEditable(xTitle, 'xTitle', 'xTitle');
-    const applySurvivalXLabel = value => {
-      const nextValue = value != null ? String(value) : '';
-      state.controls = normalizeSurvivalRuntimeControls({
-        ...(state.controls || {}),
-        xLabel: nextValue
-      });
-      if(xTitle.textContent !== nextValue){
-        xTitle.textContent = nextValue;
-      }
-      syncSurvivalStateToSession(getSurvivalProjectionSession({ reason: 'survival-projection-mutation' }), { controls: state.controls });
-      scheduleActiveSurvivalDraw({ reason: 'survival-x-label-edit', tabId: getSurvivalProjectionTabId() || null });
-    };
-    makeEditable(xTitle, txt => {
-      const previous = state.controls?.xLabel != null ? String(state.controls.xLabel) : 'Time';
-      const nextValue = txt != null ? String(txt) : '';
-      if(previous === nextValue){
-        return;
-      }
-      applySurvivalXLabel(nextValue);
-      recordSurvivalChange('survival:x-label', previous, nextValue, applySurvivalXLabel);
-    });
+    bindSurvivalInlineTextInteraction(xTitle, drawSession, 'xLabel');
     // Enable drag for x-axis label
     if(typeof Shared.enableLabelDrag === 'function'){
       Shared.enableLabelDrag(xTitle, svg, {
         onDragEnd: pos => {
-          // Store both absolute and relative positions for xLabel
-          const relX = (pos.x - margin.left) / plotW;
-          const relY = (pos.y - xAxisY) / (plotH + margin.top);
-          state.labelPositions.xLabel = {
+          const nextPosition = {
             x: pos.x,
             y: pos.y,
-            relX: relX,
-            relY: relY
+            relX: (pos.x - margin.left) / Math.max(plotW, 1),
+            relY: (pos.y - xAxisY) / Math.max(plotH + margin.top, 1)
           };
-          syncSurvivalStateToSession(getSurvivalProjectionSession({ reason: 'survival-projection-mutation' }), { labelPositions: state.labelPositions });
-          logDebug('x-label position saved', { absolute: pos, relative: { relX, relY } });
+          patchSurvivalLabelPosition(drawSession, 'xLabel', nextPosition, { reason: 'survival-x-label-position' });
+          logDebug('x-label position saved', { absolute: pos, relative: { relX: nextPosition.relX, relY: nextPosition.relY } });
         }
       });
     }
@@ -5280,42 +5697,19 @@
     });
     yTitle.textContent = yLabelText;
     markFontEditable(yTitle, 'yTitle', 'yTitle');
-    const applySurvivalYLabel = value => {
-      const nextValue = value != null ? String(value) : '';
-      state.controls = normalizeSurvivalRuntimeControls({
-        ...(state.controls || {}),
-        yLabel: nextValue
-      });
-      if(yTitle.textContent !== nextValue){
-        yTitle.textContent = nextValue;
-      }
-      syncSurvivalStateToSession(getSurvivalProjectionSession({ reason: 'survival-projection-mutation' }), { controls: state.controls });
-      scheduleActiveSurvivalDraw({ reason: 'survival-y-label-edit', tabId: getSurvivalProjectionTabId() || null });
-    };
-    makeEditable(yTitle, txt => {
-      const previous = state.controls?.yLabel != null ? String(state.controls.yLabel) : 'Survival Probability';
-      const nextValue = txt != null ? String(txt) : '';
-      if(previous === nextValue){
-        return;
-      }
-      applySurvivalYLabel(nextValue);
-      recordSurvivalChange('survival:y-label', previous, nextValue, applySurvivalYLabel);
-    });
+    bindSurvivalInlineTextInteraction(yTitle, drawSession, 'yLabel');
     // Enable drag for y-axis label
     if(typeof Shared.enableLabelDrag === 'function'){
       Shared.enableLabelDrag(yTitle, svg, {
         onDragEnd: pos => {
-          // Store both absolute and relative positions for yLabel
-          const relX = (pos.x - margin.left) / yLabelOffsetSpan;
-          const relY = (pos.y - margin.top) / plotH;
-          state.labelPositions.yLabel = {
+          const nextPosition = {
             x: pos.x,
             y: pos.y,
-            relX: relX,
-            relY: relY
+            relX: (pos.x - margin.left) / Math.max(yLabelOffsetSpan, 1),
+            relY: (pos.y - margin.top) / Math.max(plotH, 1)
           };
-          syncSurvivalStateToSession(getSurvivalProjectionSession({ reason: 'survival-projection-mutation' }), { labelPositions: state.labelPositions });
-          logDebug('y-label position saved', { absolute: pos, relative: { relX, relY } });
+          patchSurvivalLabelPosition(drawSession, 'yLabel', nextPosition, { reason: 'survival-y-label-position' });
+          logDebug('y-label position saved', { absolute: pos, relative: { relX: nextPosition.relX, relY: nextPosition.relY } });
         }
       });
     }
@@ -5349,39 +5743,19 @@
     });
     titleText.textContent = state.titleText != null ? String(state.titleText) : 'Survival curve';
     markFontEditable(titleText, 'graphTitle', 'graphTitle');
-    const applySurvivalTitle = value => {
-      const nextValue = value != null ? String(value) : '';
-      state.titleText = nextValue;
-      if(titleText.textContent !== nextValue){
-        titleText.textContent = nextValue;
-      }
-      syncSurvivalStateToSession(getSurvivalProjectionSession({ reason: 'survival-projection-mutation' }), { titleText: state.titleText });
-      scheduleActiveSurvivalDraw({ reason: 'survival-title-edit', tabId: getSurvivalProjectionTabId() || null });
-    };
-    makeEditable(titleText, txt => {
-      const previous = state.titleText != null ? String(state.titleText) : '';
-      const nextValue = txt != null ? String(txt) : '';
-      if(previous === nextValue){
-        return;
-      }
-      applySurvivalTitle(nextValue);
-      recordSurvivalChange('survival:title', previous, nextValue, applySurvivalTitle);
-    });
+    bindSurvivalInlineTextInteraction(titleText, drawSession, 'title');
     // Enable drag for title
     if(typeof Shared.enableLabelDrag === 'function'){
       Shared.enableLabelDrag(titleText, svg, {
         onDragEnd: pos => {
-          // Store both absolute and relative positions
-          const relX = (pos.x - margin.left) / plotW;
-          const relY = (pos.y - margin.top) / plotH;
-          state.labelPositions.title = {
+          const nextPosition = {
             x: pos.x,
             y: pos.y,
-            relX: relX,
-            relY: relY
+            relX: (pos.x - margin.left) / Math.max(plotW, 1),
+            relY: (pos.y - margin.top) / Math.max(plotH, 1)
           };
-          syncSurvivalStateToSession(getSurvivalProjectionSession({ reason: 'survival-projection-mutation' }), { labelPositions: state.labelPositions });
-          logDebug('title position saved', { absolute: pos, relative: { relX, relY } });
+          patchSurvivalLabelPosition(drawSession, 'title', nextPosition, { reason: 'survival-title-position' });
+          logDebug('title position saved', { absolute: pos, relative: { relX: nextPosition.relX, relY: nextPosition.relY } });
         }
       });
     }
@@ -5404,7 +5778,9 @@
             d: ciPath,
             fill: group.color,
             'fill-opacity': 0.15,
-            stroke: 'none'
+            stroke: 'none',
+            'data-survival-series-color-target': 'fill',
+            'data-group': group.name
           });
         }
       }
@@ -5418,33 +5794,73 @@
           'stroke-opacity': group.strokeOpacity,
           'stroke-dasharray': survivalPatternToDasharray(group.strokePattern) || null,
           'stroke-linejoin': 'bevel',
+          'data-survival-series-color-target': 'stroke',
           'data-group': group.name
         });
-        try{ curveEl.style.cursor = 'pointer'; curveEl.addEventListener('click', evt=>{ try{ evt.stopPropagation(); }catch(e){} showSurvivalStrokeFormatControls(evt.currentTarget); }); }catch(e){}
+        bindSurvivalCurveFormatInteraction(curveEl);
       }
       if(showCensor && group.km.censor.length){
         const markerSize = Math.max(4, fs * 0.6);
         group.km.censor.forEach(marker => {
           const x = x2px(marker.time);
           const y = y2px(marker.survival);
-          add('line', {
-            x1: x - markerSize / 2,
-            y1: y,
-            x2: x + markerSize / 2,
-            y2: y,
-            stroke: group.color,
-            'stroke-width': axisStrokeWidth,
-            'data-survival-axis-width-target': '1'
-          });
-          add('line', {
-            x1: x,
-            y1: y - markerSize / 2,
-            x2: x,
-            y2: y + markerSize / 2,
-            stroke: group.color,
-            'stroke-width': axisStrokeWidth,
-            'data-survival-axis-width-target': '1'
-          });
+          const censorSegments = svgGeometry.buildCrossSegments({ x, y, size: markerSize });
+          const censorPathData = svgGeometry.buildCompoundLinePath?.(censorSegments) || '';
+          if(censorPathData){
+            add('path', {
+              d: censorPathData,
+              fill: 'none',
+              stroke: group.color,
+              'stroke-width': axisStrokeWidth,
+              'data-survival-axis-width-target': '1',
+              'data-survival-censor-mark': '1',
+              'data-survival-censor-segment-count': '2',
+              'data-survival-series-color-target': 'stroke',
+              'data-group': group.name
+            });
+          }
+        });
+      }
+    }
+
+    if(controls.showRiskTable){
+      const riskStartY = chartHeight + Math.max(riskTableMetrics.fontSize * 0.9, 10);
+      renderSurvivalRiskTable(svg, add, groupsForDraw, xScale.ticks, x2px, {
+        fontSize: riskTableFontSize,
+        left: margin.left,
+        yStart: riskStartY,
+        tabId: drawSession?.tabId || drawTabId || null
+      });
+    }
+
+    if(controls.showPlotStats){
+      const statsLines = buildSurvivalPlotStatsLines(summary);
+      if(statsLines.length){
+        const statsFontSize = chartStyle.resolveStatsAnnotationFontMetrics(fs, { styles: survivalFontStyles }).fontSizePx;
+        const statsFrame = { originX: margin.left, originY: margin.top, width: plotW, height: plotH };
+        const statsPosition = chartStyle.resolveStatsAnnotationPosition(
+          normalizeSurvivalLabelPositions(drawSession?.state?.labelPositions || state.labelPositions).stats,
+          { x: margin.left + plotW - 4, y: margin.top + statsFontSize },
+          statsFrame
+        );
+        chartStyle.renderStatsAnnotation(svg, {
+          lines: statsLines,
+          x: statsPosition.x,
+          y: statsPosition.y,
+          fontSize: statsFontSize,
+          textAnchor: 'end',
+          fill: chartStyle.TEXT_COLOR || '#000',
+          dataAttributes: { 'survival-plot-stats': '1' },
+          fontScopeId: 'survival',
+          tabId: drawSession?.tabId || null,
+          onDragEnd: pos => {
+            patchSurvivalLabelPosition(
+              drawSession,
+              'stats',
+              chartStyle.captureStatsAnnotationPosition(pos, statsFrame),
+              { reason: 'survival-stats-position' }
+            );
+          }
         });
       }
     }
@@ -5453,7 +5869,7 @@
       const legendGapPx = Number.isFinite(legendLayout.legendGapPx) ? legendLayout.legendGapPx : 12;
       const defaultLegendX = margin.left + plotW + legendGapPx;
       const defaultLegendY = margin.top + (legendRenderer.baselineOffset || 0);
-      const legendGroup = drawSurvivalLegend(svg, legendLayout, { x: defaultLegendX, y: defaultLegendY }, { width: width, height: height });
+      const legendGroup = drawSurvivalLegend(svg, legendLayout, { x: defaultLegendX, y: defaultLegendY }, { width: width, height: svgHeight }, drawSession);
       if(!legendGroup){
         logDebug('legend draw skipped', { reason: 'render-failed', legendVisible, entryCount: legendRenderer.entries.length });
       }
@@ -5552,13 +5968,13 @@
     state.lastStats = statsPayload;
     if(refs.statsCox && Shared.statsReporting && typeof Shared.statsReporting.appendReportPanel === 'function'){
       const logRankText = summary.logRank?.available
-        ? `Log-rank χ²(${summary.logRank.df ?? 'n/a'}) = ${formatNumber(summary.logRank.chi2, 3)}, p = ${formatP(summary.logRank.p)}.`
+        ? `Log-rank χ²(${summary.logRank.df ?? 'n/a'}) = ${formatNumber(summary.logRank.chi2, 3)}; ${formatSurvivalPExpression(summary.logRank.p)}.`
         : (summary.logRank?.message || 'Log-rank test unavailable.');
       const logRankParts = summary.logRank?.available
         ? [`Log-rank χ²(${summary.logRank.df ?? 'n/a'}) = ${formatNumber(summary.logRank.chi2, 3)}, p = `, { type:'pValue', value:summary.logRank.p, fallback:String(formatP(summary.logRank.p)) }, '.']
         : [summary.logRank?.message || 'Log-rank test unavailable.'];
       const wilcoxonText = summary.logRankWilcoxon?.available
-        ? `Gehan-Breslow-Wilcoxon χ²(${summary.logRankWilcoxon.df ?? 'n/a'}) = ${formatNumber(summary.logRankWilcoxon.chi2, 3)}, p = ${formatP(summary.logRankWilcoxon.p)}.`
+        ? `Gehan-Breslow-Wilcoxon χ²(${summary.logRankWilcoxon.df ?? 'n/a'}) = ${formatNumber(summary.logRankWilcoxon.chi2, 3)}; ${formatSurvivalPExpression(summary.logRankWilcoxon.p)}.`
         : null;
       const wilcoxonParts = summary.logRankWilcoxon?.available
         ? [`Gehan-Breslow-Wilcoxon χ²(${summary.logRankWilcoxon.df ?? 'n/a'}) = ${formatNumber(summary.logRankWilcoxon.chi2, 3)}, p = `, { type:'pValue', value:summary.logRankWilcoxon.p, fallback:String(formatP(summary.logRankWilcoxon.p)) }, '.']
@@ -5709,11 +6125,11 @@
           { key: 'test', label: 'Test', align: 'left' },
           { key: 'statistic', label: 'Statistic', align: 'right' },
           { key: 'df', label: 'df', align: 'right' },
-          { key: 'p', label: 'p value', align: 'right' }
+          { key: 'p', label: 'p-value', align: 'right' }
         ],
         rows,
         footnotes: [
-          'H0: survival curves are identical across groups.',
+          'H₀: survival curves are identical across groups.',
           summary.logRankTrend?.available ? 'Trend test uses the displayed group order as the ordinal progression.' : null
         ].filter(Boolean),
         options: {
@@ -5728,7 +6144,7 @@
           columns: [
             { key: 'comparison', label: 'Comparison', align: 'left' },
             { key: 'chi2', label: 'χ²', align: 'right' },
-            { key: 'p', label: 'p value', align: 'right' },
+            { key: 'p', label: 'p-value', align: 'right' },
             { key: 'adjustedP', label: `Adjusted p (${summary.pairwiseComparisons.correction?.shortLabel || 'adj'})`, align: 'right' }
           ],
           rows: summary.pairwiseComparisons.rows.map(row => ({
@@ -5813,7 +6229,11 @@
     }else{
       notes.push('Pairwise hazard ratios are Cox model contrasts between groups.');
     }
-    notes.push('Confidence intervals derive from the Cox variance–covariance matrix.');
+    if(summary?.hazardRatios?.inferenceAvailable){
+      notes.push('Confidence intervals and p-values derive from the converged, unstabilized Cox variance–covariance matrix.');
+    }else{
+      notes.push(`Confidence intervals and p-values were suppressed: ${summary?.hazardRatios?.inferenceReason || 'ordinary Cox Wald inference is unavailable.'}`);
+    }
     return notes;
   }
 
@@ -5827,7 +6247,7 @@
         { key: 'hazardRatio', label: 'Hazard ratio', align: 'right' },
         { key: 'ci', label: '95% CI', align: 'right' },
         { key: 'z', label: 'z', align: 'right' },
-        { key: 'p', label: 'p value', align: 'right' }
+        { key: 'p', label: 'p-value', align: 'right' }
       ],
       rows,
       footnotes: Array.isArray(options.footnotes) ? options.footnotes : buildHazardRatioFootnotes(summary),
@@ -5849,15 +6269,16 @@
       section: 'estimates',
       columns: [
         { key: 'comparison', label: 'Comparison', align: 'left' },
-        { key: 'ratio', label: 'Median ratio', align: 'right' },
-        { key: 'ci', label: '95% CI', align: 'right' }
+        { key: 'ratio', label: 'Median ratio', align: 'right' }
       ],
       rows: summary.medianRatios.rows.map(row => ({
         comparison: `${row.groupB} / ${row.groupA}`,
-        ratio: formatNumber(row.ratio, 3),
-        ci: formatInterval(row.ciLow, row.ciHigh)
+        ratio: formatNumber(row.ratio, 3)
       })),
-      footnotes: ['Ratios greater than 1 indicate longer median survival in the numerator group.'],
+      footnotes: [
+        'Ratios greater than 1 indicate longer median survival in the numerator group.',
+        'This ratio is descriptive. A confidence interval for the ratio is not derived from the separate Kaplan–Meier median confidence limits.'
+      ],
       options: {
         fileName: options.fileName || 'survival-median-ratios',
         contextLabel: options.contextLabel || 'survival-median-ratios'
@@ -5958,7 +6379,7 @@
         { key: 'hazardRatio', label: 'Hazard Ratio', align: 'right' },
         { key: 'ci', label: '95% CI', align: 'right' },
         { key: 'z', label: 'z', align: 'right' },
-        { key: 'p', label: 'p value', align: 'right' }
+        { key: 'p', label: 'p-value', align: 'right' }
       ],
       rows,
       footnotes,
@@ -6112,6 +6533,8 @@
     }
     const dataViewsPayload = activeManager?.serialize?.({ includeData: true }) || null;
     const includeDataViews = !!(dataViewsPayload && Array.isArray(dataViewsPayload.views) && dataViewsPayload.views.length > 1);
+    const payloadSourceData = Shared.dataViews?.resolveRawDataForPersistence?.(dataViewsPayload, activeHot.getData())
+      || activeHot.getData();
     const axisSettings = createDefaultSurvivalDurableState({ axisSettings: payloadState.axisSettings }).axisSettings;
     const notesSnapshot = usingActiveModuleState ? captureSurvivalNotesMirror() : createDefaultSurvivalNotesState(payloadSession?.notes || {});
     const advisorSnapshot = usingActiveModuleState
@@ -6126,7 +6549,7 @@
       : (cloneSimple(payloadSession?.results?.stats ?? payloadState.lastStats) || null);
     const payload = {
       type: 'survival',
-      data: Shared.hot.trimTrailingEmptyCols(activeHot.getData()),
+      data: Shared.hot.trimTrailingEmptyCols(payloadSourceData),
       exclusions: activeHot?.exportExclusions?.() || Shared.hot.exportExclusions(activeHot),
       filters: activeHot?.exportFilters?.() || Shared.hot.exportFilters(activeHot),
       dataViews: includeDataViews ? dataViewsPayload : undefined,
@@ -6139,6 +6562,8 @@
         labelLinePattern: cloneSimple(payloadState.labelLinePattern) || {},
         showCI: !!controls.showCI,
         showCensor: !!controls.showCensor,
+        showRiskTable: !!controls.showRiskTable,
+        showPlotStats: !!controls.showPlotStats,
         showHazardRatios: !!controls.showHazardRatios,
         fitCoxModel: !!controls.fitCoxModel,
         pairwiseCorrection: payloadState.pairwiseCorrection || 'holm-sidak',
@@ -6217,6 +6642,8 @@
     };
     setChecked(refs.showCI, 'showCI');
     setChecked(refs.showCensor, 'showCensor');
+    setChecked(refs.showRiskTable, 'showRiskTable');
+    setChecked(refs.showPlotStats, 'showPlotStats');
     setChecked(refs.showHazardRatios, 'showHazardRatios');
     setChecked(refs.fitCoxModel, 'fitCoxModel');
     setChecked(refs.showGrid, 'showGrid');
@@ -6255,7 +6682,8 @@
     const session = requestedSession === activeSession
       ? captureSurvivalSessionStateFromActive(requestedSession, {
           reason: meta?.reason || 'survival-runtime-capture',
-          captureStatsPanels: true
+          // Runtime persistence is owner-state capture, not DOM reconstruction.
+          captureStatsPanels: false
         })
       : ensureSurvivalSessionOwnershipShape(requestedSession);
     const sessionState = createDefaultSurvivalDurableState(session?.state || state);
@@ -6355,12 +6783,12 @@
       state.covariateColumns = cloneSimple(nextState.covariateColumns) || state.covariateColumns || [];
       state.axisSettings = cloneSimple(nextState.axisSettings) || state.axisSettings;
       if(Object.prototype.hasOwnProperty.call(nextState, 'gridStyle')){ state.gridStyle = cloneSimple(nextState.gridStyle); }
-      state.labelPositions = cloneSimple(nextState.labelPositions) || state.labelPositions || {};
+      state.labelPositions = normalizeSurvivalLabelPositions(nextState.labelPositions);
     }
     if(snapshot.advisor && typeof snapshot.advisor === 'object'){
       setSurvivalAdvisorState(snapshot.advisor, applySession || getSurvivalProjectionSession({ reason: 'survival-projection-mutation' }));
     }
-    syncSurvivalRuntimeControlsFromState(snapshot.state?.controls || {});
+    syncSurvivalRuntimeControlsFromState(normalizeSurvivalRestoredRuntimeControls(snapshot.state?.controls || {}));
     if(snapshot.notes && typeof snapshot.notes === 'object'){
       notesState.text = snapshot.notes.text == null ? '' : String(snapshot.notes.text);
       notesState.open = !!snapshot.notes.open;
@@ -6380,7 +6808,9 @@
     });
     captureSurvivalSessionStateFromActive(applySession || getSurvivalProjectionSession({ reason: 'survival-projection-mutation' }), {
       reason: meta?.reason || 'survival-runtime-apply-capture',
-      captureStatsPanels: true
+      // The restored snapshot is canonical. Re-capturing the just-projected DOM
+      // here can only degrade exact reopen fidelity.
+      captureStatsPanels: false
     });
     survivalDebug('Debug: survival runtime snapshot applied', {
       tabId: meta?.tabId || getSurvivalProjectionTabId() || null,
@@ -6410,7 +6840,7 @@
     if(session && (!tabId || String(session.tabId || '') === String(getSurvivalProjectionTabId() || '') || session === activeSession)){
       captureSurvivalSessionStateFromActive(session, {
         reason: meta?.reason || 'survival-deactivate-session-capture',
-        captureStatsPanels: true
+        captureStatsPanels: false
       });
     }
     return baseSurvivalDeactivateTab(tab, meta);
@@ -6459,6 +6889,9 @@
     if(typeof payload.config.colorScheme !== 'string' || !payload.config.colorScheme.trim()){
       payload.config.colorScheme = Shared.colorSchemes?.getDefaultSchemeId?.('survival') || 'scientific';
     }
+    payload.config.showRiskTable = false;
+    payload.config.showPlotStats = false;
+    payload.config.showLegend = true;
     return payload;
   };
 
@@ -6477,8 +6910,8 @@
       ? getSurvivalSession(scheduleTargetTab, { ...(meta || {}), reason: 'survival-payload-scheduler-owner' }, { create: false, fallbackActive: false })
       : getActiveSurvivalSessionForState();
     const canMuteActiveScheduler = hasExplicitScheduleTarget
-      ? !!(scheduleTargetSession && isSurvivalSessionActiveOrActivating(scheduleTargetSession))
-      : (!scheduleTargetSession || isSurvivalSessionActiveOrActivating(scheduleTargetSession));
+      ? !!(scheduleTargetSession && isSurvivalSessionActivationTarget(scheduleTargetSession))
+      : (!scheduleTargetSession || isSurvivalSessionActivationTarget(scheduleTargetSession));
     let scheduleBackup = null;
     let mutedScheduleDraw = null;
     if(skipDraw && canMuteActiveScheduler && typeof state.scheduleDraw === 'function'){
@@ -6526,7 +6959,17 @@
       syncSurvivalActiveDataViewFromHot(state.hot, 'payload-load');
       collectSeries();
     }
-    applyConfig(payload.config);
+    const sharedStatsReporting = payload?.meta?.statsReporting;
+    const hasSharedPValueFormat = !!(
+      sharedStatsReporting
+      && typeof sharedStatsReporting === 'object'
+      && Object.prototype.hasOwnProperty.call(sharedStatsReporting, 'pValueScientific')
+    );
+    applyConfig(payload.config, {
+      statsReportPScientific: hasSharedPValueFormat
+        ? sharedStatsReporting.pValueScientific
+        : payload.config?.statsReportPScientific
+    });
     state.lastStats = payload.stats || null;
     state.statsPanelModels = cloneSimple(payload.config?.statsPanels || payload.stats?.statsPanels) || state.statsPanelModels || { summary: null, logRank: null, hazardRatios: null, cox: null };
     if(!payload.stats){
@@ -6557,7 +7000,7 @@
     return true;
   }
 
-  function applyConfig(config){
+  function applyConfig(config, options = {}){
     if(!config){
       return;
     }
@@ -6590,11 +7033,20 @@
       state.covariateSettings = {};
     }
     const nextControls = { ...(state.controls || {}) };
-    ['showCI', 'showCensor', 'showHazardRatios', 'fitCoxModel', 'showGrid', 'showFrame', 'showLegend'].forEach(key => {
+    ['showCI', 'showCensor', 'showHazardRatios', 'fitCoxModel', 'showGrid', 'showFrame'].forEach(key => {
       if(Object.prototype.hasOwnProperty.call(config, key)){
         nextControls[key] = config[key];
       }
     });
+    nextControls.showLegend = Object.prototype.hasOwnProperty.call(config, 'showLegend')
+      ? config.showLegend !== false
+      : true;
+    nextControls.showRiskTable = Object.prototype.hasOwnProperty.call(config, 'showRiskTable')
+      ? !!config.showRiskTable
+      : false;
+    nextControls.showPlotStats = Object.prototype.hasOwnProperty.call(config, 'showPlotStats')
+      ? !!config.showPlotStats
+      : false;
     ['timeMax', 'fontSize', 'xLabel', 'yLabel'].forEach(key => {
       if(config[key] != null){
         nextControls[key] = config[key];
@@ -6603,12 +7055,10 @@
     state.controls = normalizeSurvivalRuntimeControls(nextControls);
     syncSurvivalRuntimeControlsFromState(state.controls);
     state.pairwiseCorrection = typeof config.pairwiseCorrection === 'string' ? config.pairwiseCorrection : (state.pairwiseCorrection || 'holm-sidak');
-    if(Object.prototype.hasOwnProperty.call(config, 'statsReportPScientific')){
-      state.statsReportPScientific = sanitizeSurvivalStatsReportPScientific(config.statsReportPScientific);
-    }else{
-      state.statsReportPScientific = false;
-    }
-    syncSurvivalStatsPValuePanelState();
+    state.statsReportPScientific = Object.prototype.hasOwnProperty.call(options, 'statsReportPScientific')
+      ? sanitizeSurvivalStatsReportPScientific(options.statsReportPScientific)
+      : sanitizeSurvivalStatsReportPScientific(config.statsReportPScientific);
+    syncSurvivalStatsPValuePanelState({ preferenceOverride: state.statsReportPScientific });
     const pairwiseCorrectionSelect = getSurvivalNodeById('survivalPairwiseCorrection');
     if(pairwiseCorrectionSelect){
       pairwiseCorrectionSelect.value = state.pairwiseCorrection;
@@ -6620,19 +7070,9 @@
     }else if(state.titleText == null){
       state.titleText = 'Survival curve';
     }
-    // Restore label positions if saved
-    if(config.labelPositions){
-      state.labelPositions = {
-        title: config.labelPositions.title || null,
-        xLabel: config.labelPositions.xLabel || null,
-        yLabel: config.labelPositions.yLabel || null,
-        legend: config.labelPositions.legend || null
-      };
-    } else if(!state.labelPositions || typeof state.labelPositions !== 'object'){
-      state.labelPositions = { title: null, xLabel: null, yLabel: null, legend: null };
-    } else if(!('legend' in state.labelPositions)){
-      state.labelPositions.legend = null;
-    }
+    // A payload is authoritative for label placement. Missing legacy positions
+    // reset to defaults rather than inheriting the previously projected tab.
+    state.labelPositions = normalizeSurvivalLabelPositions(config.labelPositions);
     applyAxisSettings(config.axis || config.axisSettings);
     const configSession = getActiveSurvivalSessionForState();
     if(configSession?.state){
@@ -6664,14 +7104,35 @@
     logDebug('config applied', config);
   }
 
-  function loadFromFile(file){
-    const apply = payload => applySurvivalPayload(payload, { source: 'file' });
+  function loadFromFile(file, options = {}){
+    const ownerTabId = String(options?.tabId || options?.operation?.tabId || '').trim() || null;
+    const operation = fileIO?.createGraphOpenOperation?.({
+      context: 'survival',
+      owner: { component: 'survival', tabId: ownerTabId },
+      operation: options?.operation
+    }) || options?.operation || null;
+    const applyPayload = payload => {
+      if(typeof fileIO?.routeGraphOpenPayload === 'function'){
+        const routed = fileIO.routeGraphOpenPayload({
+          context: 'survival',
+          component: 'survival',
+          operation,
+          owner: { component: 'survival', tabId: ownerTabId },
+          payload,
+          apply: value => applySurvivalPayload(value, { source: 'file', tabId: ownerTabId }),
+          reason: 'survival-graph-file-open'
+        });
+        return routed?.value === true;
+      }
+      const fallbackOwnerIsCurrent = !ownerTabId || String(getSurvivalProjectionTabId() || '') === ownerTabId;
+      return fallbackOwnerIsCurrent && applySurvivalPayload(payload, { source: 'file', tabId: ownerTabId });
+    };
     if(file instanceof Blob){
       const reader = new FileReader();
       reader.onload = event => {
         try {
           const parsed = JSON.parse(event.target.result);
-          if(!apply(parsed)){
+          if(!applyPayload(parsed)){
             logDebug('payload rejected from file', { source: 'file', hasType: !!parsed?.type });
           }
         } catch (error){
@@ -6684,7 +7145,7 @@
     if(typeof file === 'string'){
       try {
         const parsed = JSON.parse(file);
-        if(!apply(parsed)){
+        if(!applyPayload(parsed)){
           logDebug('payload rejected from string', { source: 'string' });
         }
       } catch (error){
@@ -6693,7 +7154,7 @@
       return;
     }
     if(file && typeof file === 'object'){
-      apply(file);
+      applyPayload(file);
     }
   }
   survival.loadFromFile = loadFromFile;
@@ -6715,6 +7176,7 @@
     }
     const result = await fileIO.saveGraphFile({
       context: 'survival',
+      owner: { component: 'survival', tabId: operationSession?.tabId || getSurvivalProjectionTabId() || null },
       fileHandle: state.fileHandle,
       payload,
       fileName: state.fileName,
@@ -6741,6 +7203,7 @@
     }
     const result = await fileIO.saveGraphFileAs({
       context: 'survival',
+      owner: { component: 'survival', tabId: operationSession?.tabId || getSurvivalProjectionTabId() || null },
       payload,
       fileName: state.fileName,
       downloadFileName: state.fileName,
@@ -6756,19 +7219,21 @@
 
   async function openFile(){
     const operationSession = getActiveSurvivalSessionForState();
+    const operationTabId = String(operationSession?.tabId || getSurvivalProjectionTabId() || '').trim() || null;
     if(!fileIO || typeof fileIO.openGraphFile !== 'function'){
       console.error('openSurvivalFile missing fileIO.openGraphFile');
       return;
     }
     const result = await fileIO.openGraphFile({
       context: 'survival',
+      owner: { component: 'survival', tabId: operationTabId },
       setFileHandle: handle => {
         setSurvivalFileHandleForSession(handle, operationSession);
       },
       setFileName: name => {
         setSurvivalFileNameForSession(name, operationSession);
       },
-      loadFromFile: file => loadFromFile(file),
+      loadFromFile: (file, operation) => loadFromFile(file, { operation, tabId: operationTabId }),
       triggerInput: () => {
         if(refs.graphFileInput){
           refs.graphFileInput.value = '';
@@ -6781,18 +7246,21 @@
 
   function initControls(){
     ensureSurvivalStatsConfigControls();
-    const schedule = (event, reason = 'survival-control-change') => {
+    const schedule = (event, reason = 'survival-control-change', options = {}) => {
       const session = getSurvivalSessionForEvent(event, { reason }, { create: true }) || getActiveSurvivalSessionForState();
-      if(session?.tabId && !isSurvivalSessionActiveOrActivating(session)){
+      if(session?.tabId && !isSurvivalSessionActive(session)){
         session.state.drawPending = true;
         session.updatedAt = Date.now();
         return;
       }
       syncSurvivalRuntimeControlsFromDom(session);
       syncSurvivalStateToSession(session, { controls: state.controls });
+      if(options.persistOwnerState === true){
+        Shared.componentLifecycle?.persistOwnedUserState?.('survival', session, { reason });
+      }
       scheduleSurvivalDrawForSession(session, { reason, tabId: session?.tabId || undefined, userInitiated: true });
     };
-    [refs.showCI, refs.showCensor, refs.showGrid, refs.showHazardRatios, refs.fitCoxModel].forEach(control => {
+    [refs.showCI, refs.showCensor, refs.showRiskTable, refs.showPlotStats, refs.showGrid, refs.showHazardRatios, refs.fitCoxModel].forEach(control => {
       control?.addEventListener('change', event => {
         survivalDebug('Debug: survival control toggle', { id: control.id, checked: control.checked });
         logDebug('control toggled', { id: control.id, checked: control.checked });
@@ -6827,7 +7295,7 @@
       survivalDebug('Debug: survival control toggle', { id: refs.showLegend.id, checked: refs.showLegend.checked });
       logDebug('control toggled', { id: refs.showLegend.id, checked: refs.showLegend.checked });
       ensureSurvivalLegendControlPlacement();
-      schedule(event, 'survival-legend-toggle');
+      schedule(event, 'survival-legend-toggle', { persistOwnerState: true });
     });
     [refs.timeMax].forEach(input => {
       input?.addEventListener('input', event => {
@@ -7039,6 +7507,7 @@
       };
       Shared.tableImport.openFile(refs.fileInput, {
         hot: ownerSession?.managers?.hot || state.hot,
+        targetFirstRowIsHeader: false,
         minCols: SURVIVAL_DEFAULT_COLS,
         minRows: DEFAULT_ROWS,
         scheduleDraw: options => scheduleSurvivalDrawForSession(ownerSession || getActiveSurvivalSessionForState(), {
@@ -7056,10 +7525,11 @@
   function initExportsAndFiles(){
     if(Shared.exporter && typeof Shared.exporter.mountSvgControls === 'function'){
       Shared.exporter.mountSvgControls({
-        container: '#survivalExportControls',
-        svgSelector: '#survivalSvg',
+        container: getSurvivalNodeById('survivalExportControls'),
+        getSvg: () => getSurvivalNodeById('survivalSvg'),
         fileName: 'survival',
-        contextLabel: 'survival-export'
+        contextLabel: 'survival-export',
+        componentName: 'survival'
       });
       logDebug('export controls mounted', { hasExporter: true });
     } else {
@@ -7074,7 +7544,7 @@
         const session = getSurvivalSessionForEvent(event, { reason: 'survival-graph-file-input' }, { create: false }) || getActiveSurvivalSessionForState();
         setSurvivalFileNameForSession(file.name, session);
         setSurvivalFileHandleForSession(null, session);
-        loadFromFile(file);
+        loadFromFile(file, { tabId: session?.tabId || null });
       }
     });
   }
@@ -7105,13 +7575,16 @@
       return;
     }
     const runSurvivalScheduledDraw = async (drawOptions = {}) => {
+      const drawSession = ensureSurvivalSessionOwnershipShape(
+        getSurvivalSessionForDrawOptions(drawOptions, { reason: drawOptions?.reason || 'survival-scheduled-draw' })
+      );
       let result;
       try{
-        result = await drawSurvival(drawOptions || {});
+        result = await drawSurvival(drawOptions || {}, drawSession);
       }finally{
-        survivalOverlayController?.resolve({ reason: 'complete', tabId: drawOptions?.tabId || getSurvivalProjectionTabId() || null });
+        survivalOverlayController?.resolve({ reason: 'complete', tabId: drawSession?.tabId || drawOptions?.tabId || null });
       }
-      captureSurvivalSessionStateFromActive(getSurvivalProjectionSession({ reason: 'survival-projection-mutation' }), {
+      captureSurvivalSessionStateFromActive(drawSession, {
         reason: 'survival-scheduled-draw-capture',
         captureStatsPanels: true
       });
@@ -7327,16 +7800,7 @@
   };
 
   function detachChildren(node){
-    if(!node){ return null; }
-    const doc = node.ownerDocument || global.document;
-    const fragment = doc?.createDocumentFragment ? doc.createDocumentFragment() : null;
-    if(!fragment){ return null; }
-    let count = 0;
-    while(node.firstChild){
-      fragment.appendChild(node.firstChild);
-      count += 1;
-    }
-    return { fragment, count };
+    return Shared.componentLifecycle?.detachCacheableChildren?.(node) || null;
   }
 
   function restoreChildren(node, payload){
@@ -7356,7 +7820,7 @@
         reason
       }, { create: true })
       || getActiveSurvivalSessionForState();
-    if(session && !isSurvivalSessionActiveOrActivating(session)){
+    if(session && !isSurvivalSessionActive(session)){
       if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
         survivalDebug('Debug: survival render cache skipped for inactive owner', {
           reason,
@@ -7424,7 +7888,7 @@
       ...(meta || {}),
       reason: meta?.reason || 'survival-idle-snapshot'
     }, { create: false }) || getActiveSurvivalSessionForState();
-    if(owner && !isSurvivalSessionActiveOrActivating(owner)){
+    if(owner && !isSurvivalSessionActive(owner)){
       return !owner.state?.drawPending;
     }
     return !state.drawPending;
@@ -7433,6 +7897,35 @@
   survival.awaitReadyForSnapshot = function awaitReadyForSnapshot(meta = {}){
     return Shared.componentLifecycle?.awaitReadyForSnapshot?.(survival, { ...meta, componentKey: 'survival' })
       || Promise.resolve({ ok: true, skipped: true, reason: 'missing-componentLifecycle' });
+  };
+
+  function bindSurvivalCurveFormatInteraction(curveEl){
+    if(!curveEl || curveEl.__graphitixSurvivalStrokeFormatBound === true){ return false; }
+    curveEl.style.cursor = 'pointer';
+    curveEl.addEventListener('click', event => {
+      try{ event.stopPropagation(); }catch(_err){}
+      showSurvivalStrokeFormatControls(event.currentTarget);
+    });
+    curveEl.__graphitixSurvivalStrokeFormatBound = true;
+    return true;
+  }
+
+  survival.rehydrateGraphInteractions = function rehydrateGraphInteractions(meta = {}){
+    const owner = getSurvivalRenderCacheOwner(meta, 'survival-render-cache-interaction-rehydrate');
+    const root = meta.root || resolveSurvivalRoot(owner?.tabId || meta.tab || meta.tabId || null);
+    const svg = root?.querySelector?.('#survivalSvg') || meta.svgs?.find?.(node => node?.id === 'survivalSvg') || null;
+    if(!owner || !svg){ return false; }
+    const axesReady = axisControls?.rehydrateAxisElements?.(svg, (axis, _element, metadata) => buildSurvivalAxisControlConfig(axis, owner, {
+      effectiveTickInterval: metadata?.effectiveTickInterval ?? null
+    })) !== false;
+    const textReady = rehydrateSurvivalInlineTextInteractions(svg, owner);
+    svg.querySelectorAll?.('path[data-survival-series-color-target="stroke"][data-group]').forEach(bindSurvivalCurveFormatInteraction);
+    bindSurvivalLegendInteractions(
+      svg.querySelector?.('[data-legend-viewport-content="true"]') || null,
+      svg,
+      owner
+    );
+    return axesReady && textReady;
   };
 
   survival.restoreRenderCache = function restoreRenderCache(cache, meta = {}){
@@ -7445,6 +7938,12 @@
     const restoredPlot = restoreChildren(plot, graphCachePayload);
     if(restoredPlot){
       chartStyle.rehydrateLegendViewports?.(plot);
+      const svg = plot?.querySelector?.('#survivalSvg') || null;
+      bindSurvivalLegendInteractions(
+        svg?.querySelector?.('[data-legend-viewport-content="true"]') || null,
+        svg,
+        owner
+      );
     }
     if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
       survivalDebug('Debug: survival render cache restored', {
@@ -7464,7 +7963,7 @@
     }
     Shared.componentLifecycle?.emitLifecycleEvent?.({ componentKey: 'survival', tabId: options?.tabId || getSurvivalProjectionTabId() || null, action: 'draw-executed', reason: nextReason, details: { source: 'survival.draw' } });
     const drawSession = ensureSurvivalSessionOwnershipShape(getSurvivalSessionForDrawOptions(options, { reason: nextReason }));
-    if(drawSession && !isSurvivalSessionActiveOrActivating(drawSession)){
+    if(drawSession && !isSurvivalSessionActive(drawSession)){
       drawSession.state.drawPending = true;
       drawSession.updatedAt = Date.now();
       return;
@@ -7497,7 +7996,7 @@
         phase: status
       });
     }
-    captureSurvivalSessionStateFromActive(getSurvivalProjectionSession({ reason: 'survival-projection-mutation' }), {
+    captureSurvivalSessionStateFromActive(drawSession, {
       reason: nextReason,
       captureStatsPanels: true
     });
@@ -7522,6 +8021,7 @@
     computePairwiseComparisons: (series, method) => computePairwiseSurvivalComparisons(Array.isArray(series) ? series : [], method || 'holm-sidak'),
     computeMedianSurvivalRatios: series => computeMedianSurvivalRatios(Array.isArray(series) ? series : []),
     fitCoxModel: (summary, options) => fitCoxModel(summary, options || {}),
+    resolveCoxInferenceContract: coxModel => resolveCoxInferenceContract(coxModel),
     computeHazardRatios: (series, coxModel, options) => computeHazardRatios(
       Array.isArray(series) ? series : [],
       coxModel,
@@ -7529,6 +8029,10 @@
     ),
     prepareCoxData: summary => prepareCoxData(summary),
     evaluateCoxAt: (beta, prepared) => evaluateCoxAt(beta, prepared),
+    atRiskCount: (group, time) => survivalAtRiskCount(group, time),
+    cumulativeCensoredCount: (group, time) => survivalCumulativeCensoredCount(group, time),
+    buildPlotStatsLines: summary => buildSurvivalPlotStatsLines(summary),
+    resolveRiskTableLabelWidth: options => resolveSurvivalRiskTableLabelWidth(options),
     resolveDrawableFrame: plot => resolveSurvivalDrawableFrame(plot)
   });
 
@@ -7536,7 +8040,7 @@
   Shared.componentLifecycle?.installInternalStateBridge?.(survival, {
     componentKey: 'survival',
     targets: [
-      { key: 'state', get: () => state, excludeKeys: ['hot', 'root', 'svg', 'svgBox', 'lastParsedRows', 'lastDesignMatrix'] },
+      { key: 'state', get: () => state, excludeKeys: ['hot', 'root', 'svg', 'svgBox', 'lastParsedRows', 'lastDesignMatrix', 'statsPanelModels'] },
       { key: 'survivalAdvisorState', get: () => survivalAdvisorState },
       { key: 'notesState', get: () => notesState, excludeKeys: ['control'] }
     ]

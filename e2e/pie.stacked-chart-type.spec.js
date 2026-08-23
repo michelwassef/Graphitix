@@ -45,6 +45,9 @@ test.describe('Pie chart type controls', () => {
 
     await page.locator('#pieChartType').selectOption('stacked');
     await waitForTraceMode('stacked');
+    const lockRatio = page.locator('#piePage:not([hidden]) .svgbox .resizer-aspect-checkbox');
+    await expect(lockRatio).toBeEnabled();
+    await expect(lockRatio).not.toBeChecked();
 
     const snapshot = await page.evaluate(() => {
       const plot = document.querySelector('#piePage:not([hidden]) #piePlot');
@@ -63,8 +66,16 @@ test.describe('Pie chart type controls', () => {
     expect(stackedPanelLayout.width).toBeCloseTo(initialPanelLayout.width, 0);
     expect(stackedPanelLayout.paletteContained).toBe(true);
 
+    await lockRatio.evaluate(checkbox => {
+      checkbox.checked = true;
+      checkbox.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await expect(lockRatio).toBeChecked();
+
     await page.locator('#pieChartType').selectOption('pie');
     await waitForTraceMode('pie');
+    await expect(lockRatio).toBeChecked();
+    await expect(lockRatio).toBeDisabled();
     await expect(radialOptions).toBeVisible();
     const restoredRadialLayout = await radialOptions.evaluate(node => Array.from(node.children).map(child => ({
       left: child.offsetLeft,
@@ -77,6 +88,8 @@ test.describe('Pie chart type controls', () => {
 
     await page.locator('#pieChartType').selectOption('stacked');
     await waitForTraceMode('stacked');
+    await expect(lockRatio).toBeEnabled();
+    await expect(lockRatio).toBeChecked();
     await expect(radialOptions).toBeHidden();
     await page.locator('#pieChartType').selectOption('donut');
     await waitForTraceMode('donut');

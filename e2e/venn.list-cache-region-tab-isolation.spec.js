@@ -55,12 +55,16 @@ async function configureVennTab(page, config) {
         node.dispatchEvent(new Event('change', { bubbles: true }));
       }
     };
-    setValue('#labelA', cfg.labels[0]);
-    setValue('#labelB', cfg.labels[1]);
-    setValue('#labelC', cfg.labels[2]);
-    setValue('#listA', cfg.A.join('\n'));
-    setValue('#listB', cfg.B.join('\n'));
-    setValue('#listC', cfg.C.join('\n'));
+    setValue('#labelA', cfg.labels[0], true);
+    setValue('#labelB', cfg.labels[1], true);
+    setValue('#labelC', cfg.labels[2], true);
+    setValue('#listA', cfg.A.join('\n'), true);
+    setValue('#listB', cfg.B.join('\n'), true);
+    setValue('#listC', cfg.C.join('\n'), true);
+    window.Components?.venn?.__getState?.()?.ui?.syncTableFromInputs?.({
+      refresh: true,
+      skipPayloadSync: false
+    });
     const plotType = root.querySelector('#vennPlotType');
     if (plotType && plotType.value !== 'venn') {
       plotType.value = 'venn';

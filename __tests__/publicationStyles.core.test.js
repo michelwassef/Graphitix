@@ -118,7 +118,8 @@ function buildMain(type, payloadOverrides = {}) {
     setProportionalFontResize: jest.fn()
   };
   window.Shared.workspaceTabs = {
-    resolveTabScopedRoot: jest.fn((t) => document.getElementById(`${t}Page`) || null)
+    resolveTabScopedRoot: jest.fn((t) => document.getElementById(`${t}Page`) || null),
+    getSessionRecord: jest.fn(() => ({ generation: 7 }))
   };
 
   const session = {
@@ -300,6 +301,46 @@ describe('publicationStyles — NPG single preset on scatter (via DOM click)', (
     }));
   });
 
+  test('workspace payload application pins publication sizing to the initiating tab/session', () => {
+    clickApplyButton('scatter');
+
+    expect(scaffold.domControls.applyWorkspacePayload).toHaveBeenCalled();
+    const options = scaffold.domControls.applyWorkspacePayload.mock.calls.at(-1)?.[2];
+    expect(options).toEqual(expect.objectContaining({
+      tabId: 'workspace-1',
+      sessionGeneration: 7
+    }));
+  });
+
+  test('direct sizing fallback passes the exact publication owner element', () => {
+    const page = document.getElementById('scatterPage');
+    const box = document.createElement('div');
+    box.className = 'svgbox';
+    page.appendChild(box);
+
+    scaffold.domControls.applyWorkspacePayload = null;
+    window.Shared.graphSizing = {
+      setPayloadSizing: jest.fn((payload, sizing) => ({
+        ...JSON.parse(JSON.stringify(payload)),
+        meta: { ...(payload.meta || {}), graphSizing: JSON.parse(JSON.stringify(sizing)) }
+      })),
+      applyPayloadSizingForType: jest.fn(),
+      getPayloadSizing: jest.fn(() => ({ display: { widthPx: 420, heightPx: 320 } }))
+    };
+
+    clickApplyButton('scatter');
+
+    expect(window.Shared.graphSizing.applyPayloadSizingForType).toHaveBeenCalledWith(
+      'scatter',
+      expect.any(Object),
+      expect.objectContaining({
+        tabId: 'workspace-1',
+        sessionGeneration: 7,
+        element: box
+      })
+    );
+  });
+
   test('workspace payload fallback propagates explicit tab ownership metadata', () => {
     scaffold.tab.payload = null;
     scaffold.workspace.getPayload.mockReturnValue({
@@ -407,6 +448,14 @@ describe('publicationStyles — NPG single preset on box/single (via DOM click)'
     clickApplyButton('box');
     expect(scaffold.tab.payload.config?.axis?.datasetSpacing?.x).toBe(0.6);
   });
+
+  test('single-values box: publication style keeps point sizing in explicit auto mode', () => {
+    scaffold.tab.payload.config.graphType = 'strip';
+    scaffold.tab.payload.config.pointGlobalStyle = { size: 8, borderWidth: 1 };
+    clickApplyButton('box');
+    expect(scaffold.tab.payload.config?.pointGlobalStyle?.size).toBeUndefined();
+    expect(scaffold.tab.payload.config?.pointGlobalStyle?.sizeMode).toBe('auto');
+  });
 });
 
 // ─── Apply preset via DOM click — box (grouped format) ─────────────────────
@@ -468,6 +517,7 @@ describe('publicationStyles — documented publisher presets', () => {
 
     expect(scaffold.tab.payload.__testSizing?.display?.widthPx).toBe(215);
     expect(scaffold.tab.payload.__testSizing?.display?.heightPx).toBe(192);
+    expect(scaffold.tab.payload.__testSizing).not.toHaveProperty('export');
   });
 
   test('JCI double-column preset respects the 8 pt Helvetica/Arial typography rule', () => {

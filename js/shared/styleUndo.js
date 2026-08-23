@@ -4,6 +4,7 @@
   // Style-specific undo helper for aggregate-risk controls.
   // Shared.undoManager remains the undo/redo engine; scalar-only controls may use it directly.
   const styleUndo = Shared.styleUndo = Shared.styleUndo || {};
+  const AGGREGATE_SNAPSHOT_MARKER = '__graphitixStyleUndoAggregateSnapshot';
 
   function getUndoManager(){
     const manager = Shared.undoManager || null;
@@ -26,6 +27,23 @@
   function isAggregateScopeContext(context){
     const scope = String(context?.scope || '').trim().toLowerCase();
     return scope === 'global' || scope === 'graph';
+  }
+
+  function captureAggregateState(options = {}){
+    const context = options.context;
+    const capture = options.capture;
+    if(typeof capture !== 'function' || !isAggregateScopeContext(context)){
+      return null;
+    }
+    return {
+      [AGGREGATE_SNAPSHOT_MARKER]: true,
+      field: String(options.field || '').trim() || null,
+      state: capture(String(options.field || '').trim() || null, context)
+    };
+  }
+
+  function isAggregateStateSnapshot(value){
+    return !!(value && typeof value === 'object' && value[AGGREGATE_SNAPSHOT_MARKER] === true);
   }
 
   function captureScopedValues(options = {}){
@@ -77,8 +95,13 @@
     const compare = typeof options.equals === 'function'
       ? options.equals
       : ((a, b) => (a === b) || (a === null && b === null));
-    const scopedFrom = Array.isArray(options.scopedFrom) ? options.scopedFrom : null;
-    if(!scopedFrom && compare(options.from, options.to)){
+    const aggregateFrom = isAggregateStateSnapshot(options.aggregateFrom) ? options.aggregateFrom : null;
+    const aggregateTo = isAggregateStateSnapshot(options.aggregateTo) ? options.aggregateTo : null;
+    const hasAggregateState = !!(aggregateFrom && aggregateTo && typeof options.applyAggregate === 'function');
+    const scopedFrom = !hasAggregateState && Array.isArray(options.scopedFrom) ? options.scopedFrom : null;
+    const fromValue = hasAggregateState ? aggregateFrom.state : (scopedFrom || options.from);
+    const toValue = hasAggregateState ? aggregateTo.state : options.to;
+    if(!hasAggregateState && !scopedFrom && compare(options.from, options.to)){
       return false;
     }
     const restoreContext = typeof options.restoreContext === 'function'
@@ -91,13 +114,15 @@
     manager.recordStateChange({
       label: options.label || 'style',
       scope: options.scope || null,
-      from: scopedFrom || options.from,
-      to: options.to,
-      equals: scopedFrom ? () => false : compare,
+      from: fromValue,
+      to: toValue,
+      equals: (hasAggregateState || scopedFrom) ? () => false : compare,
       apply(value, phase){
         if(beforeApply){ beforeApply(value, phase); }
         try{
-          if(apply){
+          if(hasAggregateState){
+            options.applyAggregate(value, restoreContext(options.context), phase);
+          }else if(apply){
             if(phase === 'undo' && Array.isArray(value)){
               value.forEach(item => {
                 apply(item?.value, restoreContext(item?.context), phase, item);
@@ -135,6 +160,8 @@
 
   styleUndo.getUndoManager = getUndoManager;
   styleUndo.isAggregateScopeContext = isAggregateScopeContext;
+  styleUndo.captureAggregateState = captureAggregateState;
+  styleUndo.isAggregateStateSnapshot = isAggregateStateSnapshot;
   styleUndo.captureScopedValues = captureScopedValues;
   styleUndo.recordStateChange = recordStateChange;
   styleUndo.recordCommand = recordCommand;

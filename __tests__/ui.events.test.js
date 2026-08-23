@@ -19,6 +19,13 @@ async function activateWorkspace(type){
   await Promise.resolve();
 }
 
+
+function getExampleData(component, key){
+  const record = window.Shared?.exampleDatasets?.get?.(component, key);
+  expect(record?.data).toBeTruthy();
+  return record.data;
+}
+
 async function flushAsyncWork(iterations = 25){
   for (let i = 0; i < iterations; i += 1) {
     await new Promise(resolve => setTimeout(resolve, 0));
@@ -69,6 +76,7 @@ describe('UI events and example loaders', () => {
     require('../js/shared/regression.js');
     require('../js/shared/stats.js');
     require('../js/shared/stats-table.js');
+    require('../js/shared/exampleDatasets.js');
     require('../js/shared/colorPicker.js');
     require('../js/shared/editHighlight.js');
     require('../js/shared/axisControls.js');
@@ -115,10 +123,10 @@ describe('UI events and example loaders', () => {
     btn.click();
     await flushAsyncWork();
     const loads = (global.__GRID_CALLS__ || []).filter(c => c.type === 'loadData' && c.containerId === 'hot');
-    // At least one loadData for #hot with header row ['Control', ...]
+    const expectedHeader = getExampleData('box', 'single')[0];
     expect(loads.length).toBeGreaterThan(0);
-    const populated = loads.find(call => Array.isArray(call.firstRow) && call.firstRow.some(value => value === 'Control'));
-    expect(populated?.firstRow).toEqual(expect.arrayContaining(['Control']));
+    const populated = loads.find(call => JSON.stringify(call.firstRow) === JSON.stringify(expectedHeader));
+    expect(populated?.firstRow).toEqual(expectedHeader);
     await flushAsyncWork();
   });
 
@@ -156,14 +164,8 @@ describe('UI events and example loaders', () => {
     const hot = window.Components?.box?.__getState?.()?.hot;
     expect(hot).toBeTruthy();
     const matrix = hot.getData?.() || [];
-    expect(String(matrix?.[0]?.[0] || '')).toBe('Control');
-    expect(String(matrix?.[0]?.[3] || '')).toBe('Treated');
-    expect(String(matrix?.[1]?.[0] || '')).toBe('Week 1');
-    expect(String(matrix?.[1]?.[1] || '')).toBe('Week 2');
-    expect(String(matrix?.[1]?.[2] || '')).toBe('Week 3');
-    expect(String(matrix?.[1]?.[3] || '')).toBe('Week 1');
-    expect(String(matrix?.[1]?.[4] || '')).toBe('Week 2');
-    expect(String(matrix?.[1]?.[5] || '')).toBe('Week 3');
+    const expected = getExampleData('box', 'grouped');
+    expect(matrix.slice(0, 2)).toEqual(expected.slice(0, 2));
   });
 
   test('Box Plot: whisker rule selection persists to payload', async () => {
@@ -352,7 +354,7 @@ describe('UI events and example loaders', () => {
     expect(hot).toBeTruthy();
     const singleHeader = Array.isArray(hot?.getData?.()) ? hot.getData()[0] : null;
     expect(singleHeader).toBeTruthy();
-    expect(singleHeader.slice(0, 6)).toEqual(['Month', 'North', 'South', 'East', 'West', 'Central']);
+    expect(singleHeader).toEqual(getExampleData('line', 'standard')[0]);
 
     const formatSelect = document.getElementById('lineTableFormat');
     expect(formatSelect).toBeTruthy();
@@ -365,12 +367,18 @@ describe('UI events and example loaders', () => {
 
     const groupedData = Array.isArray(hot?.getData?.()) ? hot.getData() : null;
     expect(groupedData?.length).toBeGreaterThan(1);
-    expect(groupedData[1].slice(0, 7)).toEqual([0, 45, 43, 47, 50, 48, 49]);
+    const groupedExample = window.Shared.exampleDatasets.get('line', 'groupedDoseResponse');
+    expect(groupedData[0].slice(0, 7)).toEqual([
+      groupedExample.data[0][0],
+      groupedExample.data[0][1], '', '',
+      groupedExample.data[0][4], '', ''
+    ]);
+    expect(groupedData[1].slice(0, 7)).toEqual(groupedExample.data[1]);
     const replicatesInput = document.getElementById('lineReplicates');
     expect(replicatesInput?.value).toBe('3');
     const lineStateGrouped = lineComponent?.__getState?.();
     expect(lineStateGrouped?.legendItems?.length).toBe(2);
-    expect(lineStateGrouped?.legendItems?.map(item => item.label)).toEqual(['Control', 'Treated']);
+    expect(lineStateGrouped?.legendItems?.map(item => item.label)).toEqual(groupedExample.meta.groupLabels);
   }, 20000);
 
   test('Line Graph: additional axis ticks/lines persist from FORMAT controls', async () => {
@@ -959,7 +967,9 @@ describe('UI events and example loaders', () => {
     expect(pointLayer.querySelectorAll('*').length).toBeGreaterThanOrEqual(4);
     const errorLayer = svg.querySelector('[data-layer="error-bars"]');
     expect(errorLayer).toBeTruthy();
-    expect(errorLayer.querySelectorAll('line').length).toBeGreaterThan(0);
+    const errorPaths = Array.from(errorLayer.querySelectorAll('path[data-scatter-error-bar="1"]'));
+    expect(errorPaths.length).toBeGreaterThan(0);
+    expect(errorPaths.every(path => Number(path.getAttribute('data-scatter-error-segment-count')) >= 3)).toBe(true);
     const groupedHeaderRow = hot.getData?.()?.[0] || [];
     expect(String(groupedHeaderRow?.[2] || '')).toMatch(/rep|group|control|treatment|y title/i);
 
@@ -1090,13 +1100,15 @@ describe('UI events and example loaders', () => {
     await flushAsyncWork(80);
 
     const matrix = hot.getData?.() || [];
-    expect(String(matrix?.[0]?.[1] || '')).toMatch(/x title|x rep 1/i);
-    expect(String(matrix?.[0]?.[2] || '')).toBe('');
-    expect(String(matrix?.[0]?.[4] || '')).toMatch(/control|series/i);
-    expect(String(matrix?.[0]?.[5] || '')).toBe('');
-    const groupedHeaders = hot.getData?.()?.[0] || [];
-    expect(String(groupedHeaders?.[2] || '')).toMatch(/x rep 2|rep 2|^$/i);
-    expect(String(groupedHeaders?.[4] || '')).toMatch(/group|control|treatment|series/i);
+    const groupedExample = window.Shared.exampleDatasets.get('scatter', 'groupedXY');
+    const groupedHeaders = matrix?.[0] || [];
+    const exampleReplicates = groupedExample.meta.replicates;
+    expect(String(groupedHeaders?.[1] || '')).toBe(String(groupedExample.data[0][1]));
+    expect(String(groupedHeaders?.[2] || '')).toBe('');
+    groupedExample.meta.groupLabels.forEach((label, seriesIndex) => {
+      const anchor = 1 + exampleReplicates + (seriesIndex * exampleReplicates);
+      expect(String(groupedHeaders?.[anchor] || '')).toContain(label);
+    });
 
     const showErrorBars = document.getElementById('scatterShowErrorBars');
     expect(showErrorBars).toBeTruthy();
@@ -1112,16 +1124,21 @@ describe('UI events and example loaders', () => {
     expect(svg).toBeTruthy();
     const errorLayer = svg.querySelector('[data-layer="error-bars"]');
     expect(errorLayer).toBeTruthy();
-    const lines = Array.from(errorLayer.querySelectorAll('line'));
-    expect(lines.length).toBeGreaterThan(0);
-    const hasVertical = lines.some(line => line.getAttribute('x1') === line.getAttribute('x2') && line.getAttribute('y1') !== line.getAttribute('y2'));
-    const hasHorizontal = lines.some(line => line.getAttribute('y1') === line.getAttribute('y2') && line.getAttribute('x1') !== line.getAttribute('x2'));
+    const paths = Array.from(errorLayer.querySelectorAll('path[data-scatter-error-bar="1"]'));
+    expect(paths.length).toBeGreaterThan(0);
+    const segments = paths.flatMap(path => {
+      const d = String(path.getAttribute('d') || '');
+      return Array.from(d.matchAll(/M\s+(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)\s+L\s+(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)/g))
+        .map(match => ({ x1: Number(match[1]), y1: Number(match[2]), x2: Number(match[3]), y2: Number(match[4]) }));
+    });
+    const hasVertical = segments.some(segment => segment.x1 === segment.x2 && segment.y1 !== segment.y2);
+    const hasHorizontal = segments.some(segment => segment.y1 === segment.y2 && segment.x1 !== segment.x2);
     expect(hasVertical).toBe(true);
     expect(hasHorizontal).toBe(true);
 
     const payload = scatterComponent.getPayload?.();
     expect(payload?.config?.tableFormat).toBe('grouped');
-    expect(payload?.config?.replicates).toBe(3);
+    expect(payload?.config?.replicates).toBe(exampleReplicates);
     expect(payload?.config?.xReplicates).toBe(true);
     scatterComponent.loadFromPayload(payload);
     await flushAsyncWork(40);
@@ -1198,8 +1215,9 @@ describe('UI events and example loaders', () => {
     await flushAsyncWork();
     const loads = (global.__GRID_CALLS__ || []).filter(c => c.type === 'loadData' && c.containerId === 'histHot');
     expect(loads.length).toBeGreaterThan(0);
-    const populated = loads.find(call => Array.isArray(call.firstRow) && call.firstRow.includes('Exam Score'));
-    expect(populated?.firstRow).toEqual(expect.arrayContaining(['Exam Score']));
+    const expectedHeader = getExampleData('hist', 'default')[0];
+    const populated = loads.find(call => JSON.stringify(call.firstRow) === JSON.stringify(expectedHeader));
+    expect(populated?.firstRow).toEqual(expectedHeader);
     await flushAsyncWork();
   });
 
@@ -1403,6 +1421,14 @@ describe('UI events and example loaders', () => {
     await component.draw({ reason: 'test-trace-transparency' });
     await flushAsyncWork(20);
 
+    const defaultTrace = document.querySelector('#histSvg [data-series-key="col-0"][data-series-role="hist-trace"]');
+    const defaultFill = document.querySelector('#histSvg [data-series-key="col-0"][data-series-role="hist-fill"]');
+    const defaultBorder = document.querySelector('#histSvg [data-series-key="col-0"][data-series-role="hist-border"]');
+    expect(Number(defaultTrace?.getAttribute('opacity'))).toBeCloseTo(0.65, 6);
+    expect(defaultFill?.getAttribute('fill-opacity')).toBe('1');
+    expect(defaultBorder).toBeTruthy();
+    expect(defaultBorder?.hasAttribute('stroke-opacity')).toBe(false);
+
     const controlBar = document.querySelector('#histSvg [data-series-key="col-0"][data-series-role="hist-fill"]');
     expect(controlBar).toBeTruthy();
     controlBar.dispatchEvent(new MouseEvent('click', { bubbles: true }));
@@ -1412,6 +1438,7 @@ describe('UI events and example loaders', () => {
       '[aria-label="Trace"] .additional-line-controls-panel__transparency-input'
     );
     expect(transparencyInput).toBeTruthy();
+    expect(Number(transparencyInput.value)).toBe(35);
     transparencyInput.value = '45';
     transparencyInput.dispatchEvent(new Event('input', { bubbles: true }));
     await flushAsyncWork(20);
@@ -1450,11 +1477,9 @@ describe('UI events and example loaders', () => {
     await flushAsyncWork();
     const loads = (global.__GRID_CALLS__ || []).filter(c => c.type === 'loadData' && c.containerId === 'pieHot');
     expect(loads.length).toBeGreaterThan(0);
-    const populated = loads.find(call => {
-      if (!Array.isArray(call.firstRow)) return false;
-      return ['Quarter', 'Observed', 'Expected'].every(label => call.firstRow.includes(label));
-    });
-    expect(populated?.firstRow).toEqual(expect.arrayContaining(['Quarter', 'Observed', 'Expected']));
+    const expectedHeader = getExampleData('pie', 'default')[0];
+    const populated = loads.find(call => JSON.stringify(call.firstRow) === JSON.stringify(expectedHeader));
+    expect(populated?.firstRow).toEqual(expectedHeader);
     await flushAsyncWork();
   });
 
@@ -1466,11 +1491,9 @@ describe('UI events and example loaders', () => {
     await flushAsyncWork();
     const loads = (global.__GRID_CALLS__ || []).filter(c => c.type === 'loadData' && c.containerId === 'heatmapHot');
     expect(loads.length).toBeGreaterThan(0);
-    const populated = loads.find(call => {
-      if (!Array.isArray(call.firstRow)) return false;
-      return ['Gene', 'Baseline_A', 'Stress_A'].every(label => call.firstRow.includes(label));
-    });
-    expect(populated?.firstRow).toEqual(expect.arrayContaining(['Gene', 'Baseline_A', 'Stress_A']));
+    const expectedHeader = getExampleData('heatmap', 'default')[0];
+    const populated = loads.find(call => JSON.stringify(call.firstRow) === JSON.stringify(expectedHeader));
+    expect(populated?.firstRow).toEqual(expectedHeader);
     let overlayCleared = false;
     for(let i = 0; i < 80; i += 1){
       await flushAsyncWork(4);
@@ -1508,7 +1531,7 @@ describe('UI events and example loaders', () => {
       const loads = (global.__GRID_CALLS__ || []).filter(c => c.type === 'loadData' && c.containerId === 'rocHot');
       expect(loads.length).toBeGreaterThan(0);
       const firstRow = loads[loads.length - 1].firstRow;
-      expect(firstRow).toEqual(expect.arrayContaining(['Label', 'Model1', 'Model2']));
+      expect(firstRow).toEqual(getExampleData('roc', 'default')[0]);
       await flushAsyncWork();
     } finally {
       cleanupJStat();
@@ -1564,8 +1587,9 @@ describe('UI events and example loaders', () => {
     await flushAsyncWork();
     const loads = (global.__GRID_CALLS__ || []).filter(c => c.type === 'loadData' && c.containerId === 'survivalHot');
     expect(loads.length).toBeGreaterThan(0);
-    const populated = loads.find(call => Array.isArray(call.firstRow) && call.firstRow[0] === 'Control');
-    expect(populated?.firstRow).toEqual(['Control', 2.1, 0]);
+    const expectedFirstRow = getExampleData('survival', 'default')[0];
+    const populated = loads.find(call => JSON.stringify(call.firstRow) === JSON.stringify(expectedFirstRow));
+    expect(populated?.firstRow).toEqual(expectedFirstRow);
     await flushAsyncWork();
   });
 

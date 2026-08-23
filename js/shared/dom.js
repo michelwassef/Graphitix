@@ -936,8 +936,17 @@
       return;
     }
 
+    el.dataset.inlineEditable = '1';
     el.style.cursor = cursor;
     el.style.touchAction = 'none';
+
+    const previousBinding = el.__graphitixInlineEditBinding || null;
+    if(previousBinding?.dblclick){
+      el.removeEventListener('dblclick', previousBinding.dblclick);
+    }
+    if(previousBinding?.pointerup){
+      el.removeEventListener('pointerup', previousBinding.pointerup);
+    }
 
     const collectVisibilityTargets = (targetNode) => {
       if (!targetNode) { return []; }
@@ -2041,7 +2050,7 @@
     el.addEventListener('dblclick', handler);
     let lastTouchTapTime = 0;
     let lastTouchTapPoint = null;
-    el.addEventListener('pointerup', (evt) => {
+    const pointerupHandler = (evt) => {
       if(evt?.pointerType !== 'touch'){
         return;
       }
@@ -2060,8 +2069,11 @@
       }
       lastTouchTapTime = now;
       lastTouchTapPoint = pt;
-    }, { passive: false });
+    };
+    el.addEventListener('pointerup', pointerupHandler, { passive: false });
+    el.__graphitixInlineEditBinding = { dblclick: handler, pointerup: pointerupHandler };
     logDebug('makeEditable bound', { hasOnChange: typeof onChange === 'function' });
+    return true;
   }
 
   /**
@@ -2072,6 +2084,8 @@
    * @param {Object} options - Configuration options
    * @param {Function} options.onDragEnd - Callback when drag ends with {x, y} position
    * @param {Function} options.onDragStart - Callback when drag starts
+   * @param {Function} options.normalizePosition - Optional commit-time normalizer returning {x, y}
+   * @param {Function} options.onPositionChange - Callback for committed drag, undo, and redo positions
    * @param {string} options.cursor - Cursor style during drag (default: 'move')
    * @param {number} options.dragThreshold - Minimum pointer movement before drag activates
    * @param {('x'|'y'|null)} options.axisLock - Constrain movement to a single axis
@@ -2082,7 +2096,16 @@
       logDebug('enableLabelDrag skipped', { hasElement: !!el, hasSvg: !!svg });
       return;
     }
-    const { onDragEnd, onDragStart, cursor = 'move', syncChildX = false } = options;
+    const {
+      onDragEnd,
+      onDragStart,
+      onDragMove,
+      normalizePosition,
+      onPositionChange,
+      cursor = 'move',
+      syncChildX = false,
+      normalizeDuringDrag = false
+    } = options;
     const dragThreshold = Math.max(2, Number(options.dragThreshold) || 4);
     const dragThresholdSq = dragThreshold * dragThreshold;
     const axisLock = options.axisLock === 'x' || options.axisLock === 'y' ? options.axisLock : null;
@@ -2111,6 +2134,14 @@
         child.setAttribute(datasetKey, String(offset));
       }
     };
+    const clearChildOffset = (child) => {
+      if(!child){ return; }
+      if(child.dataset){
+        delete child.dataset[CAPTURE_ATTR];
+      }else{
+        child.removeAttribute(datasetKey);
+      }
+    };
 
     const applyChildAnchors = (baseX) => {
       if(!syncChildX){
@@ -2136,9 +2167,16 @@
         if(!child || typeof child.getAttribute !== 'function'){
           return;
         }
-        const childX = parseFloat(child.getAttribute('x'));
-        const offset = Number.isFinite(childX) ? childX - origPos.x : 0;
-        setChildOffset(child, offset);
+        const rawChildX = child.getAttribute('x');
+        const childX = rawChildX == null || rawChildX === '' ? NaN : parseFloat(rawChildX);
+        if(Number.isFinite(childX)){
+          setChildOffset(child, childX - origPos.x);
+        }else{
+          // Inline tspans intentionally inherit the parent text position.
+          // Giving them x during drag breaks SVG text flow (for example,
+          // a superscript exponent collapses onto the line start).
+          clearChildOffset(child);
+        }
       });
     };
 
@@ -2245,13 +2283,29 @@
         e.preventDefault();
         e.stopPropagation();
       }
-      const newX = axisLock === 'y' ? origPos.x : origPos.x + dx;
-      const newY = axisLock === 'x' ? origPos.y : origPos.y + dy;
+      let newX = axisLock === 'y' ? origPos.x : origPos.x + dx;
+      let newY = axisLock === 'x' ? origPos.y : origPos.y + dy;
+      if(normalizeDuringDrag && typeof normalizePosition === 'function'){
+        const normalized = safeCall(normalizePosition, [{
+          x: newX,
+          y: newY,
+          origin: { x: origPos.x, y: origPos.y },
+          element: el,
+          reason: 'drag-move'
+        }], 'enableLabelDrag normalizePosition error');
+        if(normalized && Number.isFinite(Number(normalized.x)) && Number.isFinite(Number(normalized.y))){
+          newX = Number(normalized.x);
+          newY = Number(normalized.y);
+        }
+      }
       el.setAttribute('x', String(newX));
       el.setAttribute('y', String(newY));
       currentPos = { x: newX, y: newY };
       applyChildAnchors(newX);
       updateTransformForPosition(newX, newY);
+      if(typeof onDragMove === 'function'){
+        safeCall(onDragMove, [{ x: newX, y: newY, element: el }], 'enableLabelDrag onDragMove error');
+      }
     };
 
     const handlePointerUp = (e) => {
@@ -2278,8 +2332,24 @@
         e.preventDefault();
         e.stopPropagation();
       }
-      const finalX = Number.isFinite(currentPos.x) ? currentPos.x : parseFloat(el.getAttribute('x') || '0');
-      const finalY = Number.isFinite(currentPos.y) ? currentPos.y : parseFloat(el.getAttribute('y') || '0');
+      let finalX = Number.isFinite(currentPos.x) ? currentPos.x : parseFloat(el.getAttribute('x') || '0');
+      let finalY = Number.isFinite(currentPos.y) ? currentPos.y : parseFloat(el.getAttribute('y') || '0');
+      const normalized = safeCall(normalizePosition, [{
+        x: finalX,
+        y: finalY,
+        origin: { x: origPos.x, y: origPos.y },
+        element: el,
+        reason: 'drag-end'
+      }], 'enableLabelDrag normalizePosition error');
+      if (normalized && Number.isFinite(Number(normalized.x)) && Number.isFinite(Number(normalized.y))) {
+        finalX = Number(normalized.x);
+        finalY = Number(normalized.y);
+        currentPos = { x: finalX, y: finalY };
+        el.setAttribute('x', String(finalX));
+        el.setAttribute('y', String(finalY));
+        applyChildAnchors(finalX);
+        updateTransformForPosition(finalX, finalY);
+      }
       // Record undo/redo entry for label movement
       if (shouldRecordUndo) {
         try {
@@ -2294,6 +2364,8 @@
               el.setAttribute('y', String(pos.y));
               applyChildAnchors(pos.x);
               updateTransformForPosition(pos.x, pos.y);
+              safeCall(onDragMove, [{ x: pos.x, y: pos.y, element: el, reason: reason || 'history' }], 'enableLabelDrag onDragMove error');
+              safeCall(onPositionChange, [{ x: pos.x, y: pos.y, element: el, reason: reason || 'history' }], 'enableLabelDrag onPositionChange error');
               logDebug('enableLabelDrag apply position', { reason, x: pos.x, y: pos.y });
               return true;
             } catch (applyErr) {
@@ -2315,6 +2387,7 @@
           console.error('Shared.enableLabelDrag undo record error', err);
         }
       }
+      safeCall(onPositionChange, [{ x: finalX, y: finalY, element: el, reason: 'drag-end' }], 'enableLabelDrag onPositionChange error');
       if (typeof onDragEnd === 'function') {
         safeCall(onDragEnd, [{ x: finalX, y: finalY, element: el }], 'enableLabelDrag onDragEnd error');
       }
@@ -2346,6 +2419,38 @@
     });
 
     const readViewportBounds = () => {
+      try{
+        const rect = svg.getBoundingClientRect?.();
+        const ctm = svg.getScreenCTM?.();
+        if(rect && Number.isFinite(rect.left) && Number.isFinite(rect.top)
+          && Number.isFinite(rect.right) && Number.isFinite(rect.bottom)
+          && rect.right > rect.left && rect.bottom > rect.top && ctm){
+          const inverse = ctm.inverse();
+          const corners = [
+            [rect.left, rect.top],
+            [rect.right, rect.top],
+            [rect.right, rect.bottom],
+            [rect.left, rect.bottom]
+          ].map(([x, y]) => {
+            const point = svg.createSVGPoint();
+            point.x = x;
+            point.y = y;
+            return point.matrixTransform(inverse);
+          });
+          const xs = corners.map(point => Number(point.x)).filter(Number.isFinite);
+          const ys = corners.map(point => Number(point.y)).filter(Number.isFinite);
+          if(xs.length === 4 && ys.length === 4){
+            return {
+              left: Math.min(...xs),
+              top: Math.min(...ys),
+              right: Math.max(...xs),
+              bottom: Math.max(...ys)
+            };
+          }
+        }
+      }catch(err){
+        logDebug('enableLegendDrag rendered viewport unavailable', { message: err?.message });
+      }
       const baseVal = svg.viewBox?.baseVal;
       if(baseVal && Number.isFinite(baseVal.x) && Number.isFinite(baseVal.y)
         && Number.isFinite(baseVal.width) && baseVal.width > 0
@@ -2446,10 +2551,18 @@
       ? options.setPosition
       : value => writeTranslate(value);
 
-    const initialPosition = normalizePoint(getPosition());
-    const boundedInitialPosition = constrainPosition(initialPosition);
-    if(boundedInitialPosition.x !== initialPosition.x || boundedInitialPosition.y !== initialPosition.y){
-      setPosition(boundedInitialPosition);
+    const constrainCurrentPosition = () => {
+      const current = normalizePoint(getPosition());
+      const bounded = constrainPosition(current);
+      const changed = bounded.x !== current.x || bounded.y !== current.y;
+      if(changed){
+        setPosition(bounded);
+      }
+      return { position: bounded, changed };
+    };
+    const initialConstraint = constrainCurrentPosition();
+    if(initialConstraint.changed){
+      safeCall(options.onPositionConstrained, [initialConstraint.position], 'enableLegendDrag onPositionConstrained error');
     }
 
     let pointerDown = false;
@@ -2512,9 +2625,6 @@
       originPos = constrainPosition(getPosition());
       setPosition(originPos);
       currentPos = originPos;
-      if(activePointerId != null && typeof group.setPointerCapture === 'function'){
-        try{ group.setPointerCapture(activePointerId); }catch(err){}
-      }
       global.addEventListener('pointermove', handlePointerMove, true);
       global.addEventListener('pointerup', handlePointerUp, true);
       global.addEventListener('pointercancel', handlePointerUp, true);
@@ -2536,6 +2646,9 @@
           return;
         }
         dragging = true;
+        if(activePointerId != null && typeof group.setPointerCapture === 'function'){
+          try{ group.setPointerCapture(activePointerId); }catch(err){}
+        }
         event.preventDefault();
         event.stopPropagation();
         if (typeof options.onDragStart === 'function') {
@@ -2587,7 +2700,72 @@
     };
 
     group.addEventListener('pointerdown', handlePointerDown);
+    group.__graphitixLegendDragControl = { svg, constrainCurrentPosition };
     logDebug('enableLegendDrag bound', { element: group.tagName || 'g' });
+  }
+
+  function bindLegendDragInteraction(group, svg, options = {}) {
+    if (!group || !svg || typeof options.onCommit !== 'function') {
+      return false;
+    }
+    const writeMetric = (key, value) => {
+      if (Number.isFinite(Number(value))) {
+        group.dataset[key] = String(Number(value));
+      }
+    };
+    writeMetric('legendDragOriginX', options.originX);
+    writeMetric('legendDragOriginY', options.originY);
+    writeMetric('legendDragScaleX', options.scaleX);
+    writeMetric('legendDragScaleY', options.scaleY);
+    group.dataset.legendDragContract = '1';
+    group.__graphitixLegendDragBinding = {
+      owner: options.owner || null,
+      onCommit: options.onCommit
+    };
+    const commitPosition = pos => {
+      const binding = group.__graphitixLegendDragBinding;
+      if (!binding || typeof binding.onCommit !== 'function') {
+        return;
+      }
+      const originX = Number(group.dataset.legendDragOriginX);
+      const originY = Number(group.dataset.legendDragOriginY);
+      const scaleX = Number(group.dataset.legendDragScaleX);
+      const scaleY = Number(group.dataset.legendDragScaleY);
+      const position = { x: pos.x, y: pos.y };
+      if (Number.isFinite(originX) && Number.isFinite(scaleX) && Math.abs(scaleX) > 1e-9) {
+        position.relX = (pos.x - originX) / scaleX;
+      }
+      if (Number.isFinite(originY) && Number.isFinite(scaleY) && Math.abs(scaleY) > 1e-9) {
+        position.relY = (pos.y - originY) / scaleY;
+      }
+      safeCall(binding.onCommit, [position, binding.owner], 'bindLegendDragInteraction onCommit error');
+    };
+    if (group.__graphitixLegendDragControl?.svg === svg) {
+      const constrained = group.__graphitixLegendDragControl.constrainCurrentPosition?.();
+      if(constrained?.changed){
+        commitPosition(constrained.position);
+      }
+      return true;
+    }
+    enableLegendDrag(group, svg, {
+      undoLabel: options.undoLabel || 'legend-position',
+      onPositionConstrained: commitPosition,
+      onDragEnd: commitPosition
+    });
+    return group.__graphitixLegendDragControl?.svg === svg;
+  }
+
+  function isManagedLegendDragTarget(target){
+    let node = target || null;
+    while(node){
+      const control = node.__graphitixLegendDragControl || null;
+      if(control?.svg && node.isConnected !== false && control.svg.isConnected !== false
+        && typeof control.svg.contains === 'function' && control.svg.contains(node)){
+        return true;
+      }
+      node = node.parentNode || null;
+    }
+    return false;
   }
 
   function autoResizeSvg(svg, opts = {}) {
@@ -2604,6 +2782,8 @@
     const {
       fill = true,
       padding = 10,
+      paddingX = null,
+      paddingY = null,
       minWidth = 0,
       minHeight = 0,
       onResize,
@@ -2614,6 +2794,7 @@
       horizontalResizeAnchorX = null,
       excludeSelector = null,
       preserveBaseAspect = true,
+      fitContent = true,
       ignoreAxisViewportLock = false,
     } = opts;
 
@@ -2635,6 +2816,50 @@
 
     const applyResize = () => {
       try {
+        if(fitContent === false){
+          const resolvedBaseViewport = resolveAutoResizeBaseViewport(baseViewport);
+          const minX = 0;
+          const minY = 0;
+          const viewW = Math.max(1, Math.max(Number(minWidth) || 0, resolvedBaseViewport.width));
+          const viewH = Math.max(1, Math.max(Number(minHeight) || 0, resolvedBaseViewport.height));
+          if(!Number.isFinite(viewW) || !Number.isFinite(viewH)){
+            throw new Error(`autoResizeSvg authoritative canvas requires a finite baseViewport (${debugLabel})`);
+          }
+          const box = resizeBox;
+          const dataset = box?.dataset || null;
+
+          if(fill){
+            svg.setAttribute('width', '100%');
+            svg.setAttribute('height', '100%');
+            svg.style.width = '100%';
+            svg.style.height = '100%';
+            svg.style.minWidth = '0';
+            svg.style.minHeight = '0';
+            svg.style.display = 'block';
+          }
+          svg.setAttribute('viewBox', `${minX} ${minY} ${viewW} ${viewH}`);
+          svg.setAttribute('preserveAspectRatio', preserveAspectRatio != null ? preserveAspectRatio : 'xMidYMid meet');
+          if(dataset){
+            writeStableViewBox(box, { minX, minY, viewW, viewH }, debugLabel, readSvgRenderedSize(svg));
+          }
+          const parent = svg.parentElement;
+          if(parent) parent.style.overflow = 'visible';
+          if(box) box.style.overflow = 'visible';
+          logDebug('autoResizeSvg authoritative canvas applied', {
+            debugLabel,
+            minX,
+            minY,
+            viewW,
+            viewH,
+            fill,
+            preserveAspectRatio: svg.getAttribute('preserveAspectRatio')
+          });
+          if(typeof onResize === 'function'){
+            safeCall(onResize, [{ svg, bbox: null, viewBox: { minX, minY, viewW, viewH } }], 'Shared.autoResizeSvg onResize error');
+          }
+          return;
+        }
+
         const excludeSelectors = [];
         if(typeof excludeSelector === 'string' && excludeSelector.trim()){
           excludeSelectors.push(excludeSelector.trim());
@@ -2676,14 +2901,34 @@
             height: viewBox?.height ?? svg.clientHeight ?? minHeight,
           };
         }
-        const effectivePadding = Number.isFinite(padding) ? padding : 0;
+        const effectivePadding = Number.isFinite(padding) ? Math.max(0, padding) : 0;
+        const effectivePaddingX = Number.isFinite(Number(paddingX)) ? Math.max(0, Number(paddingX)) : effectivePadding;
+        const effectivePaddingY = Number.isFinite(Number(paddingY)) ? Math.max(0, Number(paddingY)) : effectivePadding;
         const resolvedBaseViewport = resolveAutoResizeBaseViewport(baseViewport);
-        const baseW = resolvedBaseViewport.width;
+        const legendBaseWidth = parseFiniteNumber(svg.dataset?.legendBaseWidth);
+        const legendReserveWidth = parseFiniteNumber(svg.dataset?.legendReserveWidth);
+        const contentReserveRight = parseFiniteNumber(svg.dataset?.graphContentReserveRight);
+        const contentReserveBottom = parseFiniteNumber(svg.dataset?.graphContentReserveBottom);
+        const hasRightLegendExtension = Number.isFinite(legendBaseWidth)
+          && legendBaseWidth > 0
+          && Number.isFinite(legendReserveWidth)
+          && legendReserveWidth > 0;
+        const nonLegendRightReserve = hasRightLegendExtension && Number.isFinite(contentReserveRight)
+          ? Math.max(0, contentReserveRight - legendReserveWidth)
+          : 0;
+        // A legend is excluded from getBBox() and appended after aspect fitting, but
+        // other right-side content reserves are part of the fitted content viewport.
+        // Keep them in the aspect baseline so adding a legend cannot change the
+        // canonical graph scale (Survival combines the risk-table label reserve with
+        // a legend reserve in the same SVG envelope).
+        const baseW = hasRightLegendExtension
+          ? legendBaseWidth + nonLegendRightReserve
+          : resolvedBaseViewport.width;
         const baseH = resolvedBaseViewport.height;
-        let minX = Math.min(0, bbox.x - effectivePadding);
-        let minY = Math.min(0, bbox.y - effectivePadding);
-        let maxX = Math.max(minWidth, bbox.x + bbox.width + effectivePadding);
-        let maxY = Math.max(minHeight, bbox.y + bbox.height + effectivePadding);
+        let minX = Math.min(0, bbox.x - effectivePaddingX);
+        let minY = Math.min(0, bbox.y - effectivePaddingY);
+        let maxX = Math.max(minWidth, bbox.x + bbox.width + effectivePaddingX);
+        let maxY = Math.max(minHeight, bbox.y + bbox.height + effectivePaddingY);
         if(Number.isFinite(baseW) && baseW > 0){
           maxX = Math.max(maxX, baseW);
         }
@@ -2741,6 +2986,19 @@
             minX -= extra / 2;
             viewW = Math.max(1, viewW + extra);
           }
+        }
+        const legendScaleHeight = Number.isFinite(legendBaseWidth)
+          ? Math.max(1, (Number(svg.dataset?.legendBaseHeight) || 0) + Math.max(0, contentReserveBottom || 0))
+          : baseH;
+        const legendViewBoxExtension = hasRightLegendExtension
+          ? legendReserveWidth * (
+              Number.isFinite(legendScaleHeight) && legendScaleHeight > 0
+                ? viewH / legendScaleHeight
+                : 1
+            )
+          : 0;
+        if(legendViewBoxExtension > 0){
+          viewW += legendViewBoxExtension;
         }
         const anchorX = Number(horizontalResizeAnchorX);
         const currentSlotSize = lockActive ? readSvgSlotSize(svg, box) : null;
@@ -2822,6 +3080,8 @@
           viewW,
           viewH,
           fill,
+          paddingX: effectivePaddingX,
+          paddingY: effectivePaddingY,
           aspectLocked,
           resizeAxis,
           lockActive,
@@ -2842,7 +3102,7 @@
     };
 
     applyResize();
-    if (remeasure) {
+    if (remeasure && fitContent !== false) {
       raf(() => applyResize());
     }
   }
@@ -2860,9 +3120,11 @@
       });
       return;
     }
+    const horizontalEdgePadding = Number(Shared.chartStyle?.GRAPH_HORIZONTAL_EDGE_PADDING_PX);
     const defaults = {
       fill: true,
       padding: 16,
+      paddingX: Number.isFinite(horizontalEdgePadding) && horizontalEdgePadding >= 0 ? horizontalEdgePadding : 8,
       remeasure: true,
       preserveAspectRatio: null
     };
@@ -2876,6 +3138,7 @@
         component: payload.component || null,
         debugLabel: payload.debugLabel || null,
         padding: payload.padding,
+        paddingX: payload.paddingX,
         fill: payload.fill,
         ignoreAxisViewportLock: payload.ignoreAxisViewportLock === true
       });
@@ -2983,6 +3246,73 @@
     return notice;
   }
 
+  const stagedGraphFramePublications = new Map();
+
+  function normalizeGraphFramePublicationOwner(options = {}){
+    const component = String(options.component || '').trim();
+    const tabId = String(options.tabId || '').trim();
+    return {
+      component: component || null,
+      tabId: tabId || null,
+      key: component && tabId ? `${component}::${tabId}` : null
+    };
+  }
+
+  function registerStagedGraphFramePublication(owner, token){
+    if(!owner?.key || !token){
+      return false;
+    }
+    let bucket = stagedGraphFramePublications.get(owner.key);
+    if(!bucket){
+      bucket = new Set();
+      stagedGraphFramePublications.set(owner.key, bucket);
+    }
+    bucket.add(token);
+    return true;
+  }
+
+  function unregisterStagedGraphFramePublication(owner, token){
+    if(!owner?.key || !token){
+      return false;
+    }
+    const bucket = stagedGraphFramePublications.get(owner.key);
+    if(!bucket){
+      return false;
+    }
+    const removed = bucket.delete(token);
+    if(bucket.size === 0){
+      stagedGraphFramePublications.delete(owner.key);
+    }
+    return removed;
+  }
+
+  function hasStagedGraphFramePublication(options = {}){
+    const owner = normalizeGraphFramePublicationOwner(options);
+    if(owner.key && (stagedGraphFramePublications.get(owner.key)?.size || 0) > 0){
+      return true;
+    }
+    const root = options.root || options.container || null;
+    if(!root?.querySelectorAll){
+      return false;
+    }
+    return Array.from(root.querySelectorAll('[data-graph-frame-publication="staged"]')).some(node => {
+      const nodeComponent = String(node?.dataset?.graphFrameComponent || '').trim();
+      const nodeTabId = String(node?.dataset?.graphFrameOwnerTabId || '').trim();
+      return (!owner.component || !nodeComponent || nodeComponent === owner.component)
+        && (!owner.tabId || !nodeTabId || nodeTabId === owner.tabId);
+    });
+  }
+
+  function getStagedGraphFramePublicationCount(options = {}){
+    const owner = normalizeGraphFramePublicationOwner(options);
+    if(owner.key){
+      return stagedGraphFramePublications.get(owner.key)?.size || 0;
+    }
+    let count = 0;
+    stagedGraphFramePublications.forEach(bucket => { count += bucket.size; });
+    return count;
+  }
+
   function stageGraphFrame(options = {}){
     const container = options.container || null;
     const frame = options.frame || null;
@@ -3007,6 +3337,8 @@
       }
     ]));
     let state = 'staged';
+    const publicationOwner = normalizeGraphFramePublicationOwner(options);
+    const publicationToken = {};
 
     frame.dataset.graphFramePublication = 'staged';
     if(options.component){
@@ -3023,6 +3355,7 @@
     frame.style?.setProperty?.('top', '0');
     frame.style?.setProperty?.('z-index', '1');
     container.appendChild(frame);
+    registerStagedGraphFramePublication(publicationOwner, publicationToken);
 
     const restoreFrameStyles = () => {
       previousStyles.forEach((entry, property) => {
@@ -3057,6 +3390,7 @@
         frame.removeAttribute?.('aria-hidden');
         restoreFrameStyles();
         state = 'committed';
+        unregisterStagedGraphFramePublication(publicationOwner, publicationToken);
         return true;
       },
       cleanup(){
@@ -3067,6 +3401,7 @@
           container.removeChild(frame);
         }
         state = 'discarded';
+        unregisterStagedGraphFramePublication(publicationOwner, publicationToken);
         return true;
       }
     };
@@ -3075,6 +3410,8 @@
   Shared.makeEditable = makeEditable;
   Shared.enableLabelDrag = enableLabelDrag;
   Shared.enableLegendDrag = enableLegendDrag;
+  Shared.bindLegendDragInteraction = bindLegendDragInteraction;
+  Shared.isManagedLegendDragTarget = isManagedLegendDragTarget;
   Shared.autoResizeSvg = autoResizeSvg;
   Shared.ensureGraphViewport = ensureGraphViewport;
   Shared.graphViewport = Shared.graphViewport || {};
@@ -3089,6 +3426,8 @@
   Shared.renderPlotNotice = renderPlotNotice;
   Shared.framePublication = Shared.framePublication || {};
   Shared.framePublication.stage = stageGraphFrame;
+  Shared.framePublication.hasStaged = hasStagedGraphFramePublication;
+  Shared.framePublication.getStagedCount = getStagedGraphFramePublicationCount;
 
   if (typeof global.makeEditable !== 'function') {
     global.makeEditable = makeEditable;

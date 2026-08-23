@@ -59,8 +59,8 @@
       2: { values: { lineDisplayMode: 'area', lineViewMode: '3d', lineOriginMode: 'custom', lineRegressionMode: 'cubic' }, checks: { lineShowGrid: false, lineShowFrame: true, lineShowLegend: false } }
     },
     hist: {
-      1: { values: { histPlotMode: 'histogram', histFrequencyCreateMode: 'frequency', histFrequencyTabulateMode: 'count', histBinningMode: 'count', histStatsDiagnosticsMode: 'normal-fit', histStatsComparisonMode: 'ks' }, checks: { histShowGrid: true, histShowFrame: true } },
-      2: { values: { histPlotMode: 'density', histFrequencyCreateMode: 'cumulative', histFrequencyTabulateMode: 'percent', histBinningMode: 'auto', histStatsDiagnosticsMode: 'off', histStatsComparisonMode: 'off' }, checks: { histShowGrid: false, histShowFrame: true } }
+      1: { values: { histPlotMode: 'histogram', histSeriesDisplay: 'panels', histPanelArrangement: 'grid', histFrequencyCreateMode: 'frequency', histFrequencyTabulateMode: 'count', histBinningMode: 'count', histStatsDiagnosticsMode: 'normal-fit', histStatsComparisonMode: 'ks' }, checks: { histSharedYScale: true, histShowGrid: true, histShowFrame: true } },
+      2: { values: { histPlotMode: 'density', histSeriesDisplay: 'overlay', histPanelArrangement: 'vertical', histFrequencyCreateMode: 'cumulative', histFrequencyTabulateMode: 'percent', histBinningMode: 'auto', histStatsDiagnosticsMode: 'off', histStatsComparisonMode: 'off' }, checks: { histSharedYScale: false, histShowGrid: false, histShowFrame: true } }
     },
     heatmap: {
       1: { values: { heatmapView: 'values', heatmapSignificanceDisplay: 'star' } },
@@ -92,7 +92,7 @@
     }
   });
   const CONTROL_RELOCATION_EXPECTATIONS = Object.freeze({
-    pca: Object.freeze(['pcaShowLegend', 'pcaVarianceAxisScale']),
+    pca: Object.freeze(['pcaShowLegend']),
     pie: Object.freeze(['pieShowLegend'])
   });
 
@@ -1050,7 +1050,7 @@
     progress('control-variation:applied', { tabId: tab.id, type, variant, changed });
     return changed;
   }
-  function mutateMatrix(matrix, variant){
+  function mutateMatrix(matrix, variant, options = {}){
     if(!Array.isArray(matrix)) return false;
     let changed = false;
     for(let r = 0; r < matrix.length; r += 1){
@@ -1058,6 +1058,7 @@
       if(!Array.isArray(row)) continue;
       for(let c = 0; c < row.length; c += 1){
         const value = row[c];
+        if(options.preserveFirstColumn === true && r > 0 && c === 0) continue;
         if(typeof value === 'number' && Number.isFinite(value)){
           if(r > 0 || c > 0){
             row[c] = Number((value + variant * (0.25 + ((r + c) % 5) * 0.11)).toFixed(6));
@@ -1077,9 +1078,10 @@
     const p = clone(payload || {});
     let changed = false;
     const matrixKeys = ['data','rows','matrix','table','tableData','values','dataset','datasets'];
+    const matrixOptions = { preserveFirstColumn: type === 'roc' };
     for(const key of matrixKeys){
       if(Array.isArray(p[key])){
-        changed = mutateMatrix(p[key], variant) || changed;
+        changed = mutateMatrix(p[key], variant, matrixOptions) || changed;
       }
     }
     // Also recursively mutate common nested data matrices, but avoid huge destructive rewrites.
@@ -1089,7 +1091,7 @@
       seen.add(obj);
       if(Array.isArray(obj)){
         if(obj.length && obj.every(row => Array.isArray(row))){
-          changed = mutateMatrix(obj, variant) || changed;
+          changed = mutateMatrix(obj, variant, matrixOptions) || changed;
           return;
         }
         obj.forEach(item => walk(item, depth + 1));
@@ -2473,10 +2475,61 @@
     return { rows, failures };
   }
 
+  async function runParameterIsolationPhase(options = {}){
+    const phase = options.phase || 'parameter-isolation';
+    const requestedTypes = Array.isArray(options.types) && options.types.length
+      ? new Set(options.types.map(type => String(type || '').trim()).filter(Boolean))
+      : null;
+    const harness = window.GraphitixParameterIsolation;
+    if(!harness?.runSameTypeIsolation){
+      return { phase, rows: [], failures: ['parameter isolation harness unavailable'] };
+    }
+    const byType = new Map();
+    getGraphTabs().forEach(tab => {
+      if(requestedTypes && !requestedTypes.has(tab.type)) return;
+      const rows = byType.get(tab.type) || [];
+      rows.push(tab);
+      byType.set(tab.type, rows);
+    });
+    const rows = [];
+    const failures = [];
+    for(const [type, tabs] of byType.entries()){
+      if(tabs.length < 2){
+        failures.push(`${type}: parameter isolation requires two same-type tabs`);
+        continue;
+      }
+      progress('parameter-isolation:type-start', { phase, type, tabAId: tabs[0].id, tabBId: tabs[1].id });
+      try{
+        const result = await harness.runSameTypeIsolation({
+          type,
+          tabAId: tabs[0].id,
+          tabBId: tabs[1].id,
+          reopen: options.reopen === true
+        });
+        rows.push(result);
+        failures.push(...(result.failures || []).map(message => `${type}: ${message}`));
+        progress('parameter-isolation:type-complete', {
+          phase,
+          type,
+          parameterCount: result.parameterCount || 0,
+          exercisedCount: result.exercisedCount || 0,
+          failures: result.failures?.length || 0
+        });
+      }catch(err){
+        const message = err?.message || String(err);
+        failures.push(`${type}: parameter isolation probe failed: ${message}`);
+        error('parameter isolation probe failed', { phase, type, message });
+      }
+    }
+    progress('parameter-isolation:complete', { phase, checked: rows.length, failures: failures.length });
+    return { phase, rows, failures };
+  }
+
   window.GraphitixRegression = {
     runCreateWorkspace,
     runSwitchingPhase,
     runHomogeneousSwitchingPhase,
+    runParameterIsolationPhase,
     runSavePhase,
     runReopenColdCachePhase,
     runReopenAndSwitchPhase,

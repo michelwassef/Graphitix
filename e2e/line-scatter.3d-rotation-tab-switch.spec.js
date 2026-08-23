@@ -12,14 +12,20 @@ const CASES = [
     pageId: 'linePage',
     viewModeId: 'lineViewMode',
     exampleButtonId: 'lineLoadExample',
-    svgSelector: '#linePage:not([hidden]) #linePlot #lineSvg'
+    svgSelector: '#linePage:not([hidden]) #linePlot #lineSvg',
+    dynamicLayerSelector: '[data-layer="line-3d-rotation-dynamic"]',
+    titleLayerSelector: '[data-layer="line-3d-title"]',
+    legendLayerSelector: '[data-layer="line-3d-legend"]'
   },
   {
     type: 'scatter',
     pageId: 'scatterPage',
     viewModeId: 'scatterViewMode',
     exampleButtonId: 'scatterLoadExample',
-    svgSelector: '#scatterPage:not([hidden]) #scatterPlot #scatterSvg'
+    svgSelector: '#scatterPage:not([hidden]) #scatterPlot #scatterSvg',
+    dynamicLayerSelector: '[data-layer="scatter-3d-rotation-dynamic"]',
+    titleLayerSelector: '[data-layer="scatter-3d-title"]',
+    legendLayerSelector: '[data-layer="scatter-3d-legend"]'
   }
 ];
 
@@ -125,14 +131,27 @@ function maxRotationDelta(before, after) {
   );
 }
 
-async function dragSvg(page, selector) {
+async function dragSvg(page, component) {
+  const selector = component.svgSelector;
   const token = `rotation-${Date.now()}-${Math.random()}`;
-  await page.evaluate(({ svgSelector, identityToken }) => {
+  await page.evaluate(({ svgSelector, dynamicLayerSelector, titleLayerSelector, legendLayerSelector, identityToken }) => {
     const svg = document.querySelector(svgSelector);
     if (!svg) {
       return;
     }
     svg.dataset.e2eRotationIdentity = identityToken;
+    const dynamicLayer = svg.querySelector(dynamicLayerSelector);
+    if (dynamicLayer) {
+      dynamicLayer.dataset.e2eRotationIdentity = identityToken;
+    }
+    const titleLayer = svg.querySelector(titleLayerSelector);
+    if (titleLayer) {
+      titleLayer.dataset.e2eRotationIdentity = identityToken;
+    }
+    const legendLayer = svg.querySelector(legendLayerSelector);
+    if (legendLayer) {
+      legendLayer.dataset.e2eRotationIdentity = identityToken;
+    }
     window.__rotationFrameProbe = {
       running: true,
       samples: 0,
@@ -159,7 +178,13 @@ async function dragSvg(page, selector) {
       requestAnimationFrame(sample);
     };
     requestAnimationFrame(sample);
-  }, { svgSelector: selector, identityToken: token });
+  }, {
+    svgSelector: selector,
+    dynamicLayerSelector: component.dynamicLayerSelector,
+    titleLayerSelector: component.titleLayerSelector,
+    legendLayerSelector: component.legendLayerSelector,
+    identityToken: token
+  });
 
   const box = await page.locator(selector).boundingBox();
   expect(box, `${selector} should have a bounding box`).toBeTruthy();
@@ -167,26 +192,43 @@ async function dragSvg(page, selector) {
   const startY = box.y + box.height / 2;
   await page.mouse.move(startX, startY);
   await page.mouse.down();
+  await page.mouse.move(box.x + box.width + 24, startY + 30, { steps: 8 });
+  await page.waitForTimeout(80);
   await page.mouse.move(startX + 100, startY + 40, { steps: 8 });
   await page.mouse.up();
   await page.waitForTimeout(800);
 
-  const rotationFrameResult = await page.evaluate(({ svgSelector, identityToken }) => {
+  const rotationFrameResult = await page.evaluate(({ svgSelector, dynamicLayerSelector, titleLayerSelector, legendLayerSelector, identityToken }) => {
     const probe = window.__rotationFrameProbe;
     if (probe) {
       probe.running = false;
     }
     const svg = document.querySelector(svgSelector);
+    const dynamicLayer = svg?.querySelector(dynamicLayerSelector) || null;
+    const titleLayer = svg?.querySelector(titleLayerSelector) || null;
+    const legendLayer = svg?.querySelector(legendLayerSelector) || null;
     return {
       retainedIdentity: svg?.dataset?.e2eRotationIdentity === identityToken,
+      retainedDynamicLayer: dynamicLayer?.dataset?.e2eRotationIdentity === identityToken,
+      retainedTitleLayer: !titleLayer || titleLayer.dataset?.e2eRotationIdentity === identityToken,
+      retainedLegendLayer: !legendLayer || legendLayer.dataset?.e2eRotationIdentity === identityToken,
       samples: probe?.samples || 0,
       minChildCount: Number.isFinite(probe?.minChildCount) ? probe.minChildCount : 0,
       minMarkCount: Number.isFinite(probe?.minMarkCount) ? probe.minMarkCount : 0,
       minViewBoxWidth: Number.isFinite(probe?.minViewBoxWidth) ? probe.minViewBoxWidth : 0,
       minViewBoxHeight: Number.isFinite(probe?.minViewBoxHeight) ? probe.minViewBoxHeight : 0
     };
-  }, { svgSelector: selector, identityToken: token });
+  }, {
+    svgSelector: selector,
+    dynamicLayerSelector: component.dynamicLayerSelector,
+    titleLayerSelector: component.titleLayerSelector,
+    legendLayerSelector: component.legendLayerSelector,
+    identityToken: token
+  });
   expect(rotationFrameResult.retainedIdentity, `${selector} should retain the active SVG throughout a drag`).toBe(true);
+  expect(rotationFrameResult.retainedDynamicLayer, `${selector} should update the existing geometry layer instead of rebuilding it`).toBe(true);
+  expect(rotationFrameResult.retainedTitleLayer, `${selector} should preserve the title overlay throughout rotation`).toBe(true);
+  expect(rotationFrameResult.retainedLegendLayer, `${selector} should preserve the legend overlay throughout rotation`).toBe(true);
   expect(rotationFrameResult.samples, `${selector} should be sampled across painted rotation frames`).toBeGreaterThan(2);
   expect(rotationFrameResult.minChildCount, `${selector} should never publish a blank rotation frame`).toBeGreaterThan(0);
   expect(rotationFrameResult.minMarkCount, `${selector} should keep graph marks visible throughout rotation`).toBeGreaterThan(0);
@@ -204,7 +246,7 @@ async function expectRotationAfterTabSwitch(page, component, tabId, awayComponen
 
   const before = await readPayloadRotation(page, component.type);
   const beforeSvg = await readSvgSignature(page, component.svgSelector);
-  await dragSvg(page, component.svgSelector);
+  await dragSvg(page, component);
   const after = await readPayloadRotation(page, component.type);
   const afterSvg = await readSvgSignature(page, component.svgSelector);
 

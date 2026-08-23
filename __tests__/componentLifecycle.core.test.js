@@ -1,9 +1,13 @@
 // Unit tests for js/shared/componentLifecycle.js
 // Tests pure/stateless helpers directly and stateful APIs via fresh module loads.
 
+const fs = require('fs');
+const path = require('path');
+
 let lc;
 
 function loadFresh() {
+  window.Shared?.componentLifecycle?.uninstallGraphEditIntentListener?.();
   jest.resetModules();
   delete window.Shared;
   require('../js/shared/componentLifecycle.js');
@@ -90,6 +94,331 @@ describe('componentLifecycle — draw option sanitization', () => {
   });
 });
 
+describe('componentLifecycle — workspace active-owner authority', () => {
+  beforeEach(() => {
+    loadFresh();
+    delete window.Main;
+  });
+
+  test('canonical workspace state wins over a stale component activation registry', () => {
+    window.Shared.workspaceTabs = {
+      getActiveSessionInfo: () => ({ tabId: 'tab-old' })
+    };
+    window.Main = {
+      session: {
+        workspaceState: {
+          activeTabId: 'tab-current',
+          tabs: [
+            { id: 'tab-old', type: 'roc' },
+            { id: 'tab-current', type: 'roc' }
+          ]
+        }
+      }
+    };
+
+    expect(lc.resolveWorkspaceActiveTabId('roc')).toBe('tab-current');
+  });
+
+  test('a stale component registry cannot make an inactive component authoritative', () => {
+    window.Shared.workspaceTabs = {
+      getActiveSessionInfo: () => ({ tabId: 'roc-old' })
+    };
+    window.Main = {
+      session: {
+        workspaceState: {
+          activeTabId: 'line-current',
+          tabs: [
+            { id: 'roc-old', type: 'roc' },
+            { id: 'line-current', type: 'line' }
+          ]
+        }
+      }
+    };
+
+    expect(lc.resolveWorkspaceActiveTabId('roc')).toBe('');
+  });
+});
+
+describe('componentLifecycle — live projection authority', () => {
+  beforeEach(() => {
+    loadFresh();
+    document.body.innerHTML = '';
+  });
+
+  function installWorkspace(activeTabId, roots){
+    window.Main = {
+      session: {
+        workspaceState: {
+          activeTabId,
+          tabs: [
+            { id: 'tab-a', type: 'box' },
+            { id: 'tab-b', type: 'box' }
+          ]
+        }
+      }
+    };
+    window.Shared.workspaceTabs = {
+      getActiveSessionInfo: () => ({ tabId: window.Main.session.workspaceState.activeTabId }),
+      getMountedRoot: tabId => roots[String(tabId || '')] || null
+    };
+  }
+
+  test('workspace activation intent never authorizes an incoming owner before its projection/root is live', () => {
+    const rootA = document.createElement('section');
+    const rootB = document.createElement('section');
+    rootA.dataset.workspaceTabId = 'tab-a';
+    rootB.dataset.workspaceTabId = 'tab-b';
+    document.body.appendChild(rootA);
+
+    const sessionA = { tabId: 'tab-a' };
+    const sessionB = { tabId: 'tab-b' };
+    const component = { __componentKey: 'box', __boundTabId: 'tab-a' };
+    const roots = { 'tab-a': rootA, 'tab-b': rootB };
+    installWorkspace('tab-a', roots);
+
+    expect(lc.canOwnerUseLiveProjection('box', sessionA, {
+      component, projectedSession: sessionA, session: sessionA
+    })).toBe(true);
+
+    window.Main.session.workspaceState.activeTabId = 'tab-b';
+    expect(lc.isOwnerActivationTarget('box', sessionB, { component })).toBe(true);
+    expect(lc.canOwnerUseLiveProjection('box', sessionA, {
+      component, projectedSession: sessionA, session: sessionA
+    })).toBe(false);
+    expect(lc.canOwnerUseLiveProjection('box', sessionB, {
+      component, projectedSession: sessionB, session: sessionB
+    })).toBe(false);
+
+    rootA.remove();
+    document.body.appendChild(rootB);
+    component.__boundTabId = 'tab-b';
+    expect(lc.canOwnerUseLiveProjection('box', sessionB, {
+      component, projectedSession: sessionB, session: sessionB
+    })).toBe(true);
+  });
+
+  test('component binding and projected session are independent live authorities', () => {
+    const rootA = document.createElement('section');
+    rootA.dataset.workspaceTabId = 'tab-a';
+    document.body.appendChild(rootA);
+
+    const sessionA = { tabId: 'tab-a' };
+    const projectedSessionB = { tabId: 'tab-b' };
+    const component = { __componentKey: 'box', __boundTabId: 'tab-a' };
+    installWorkspace('tab-a', { 'tab-a': rootA });
+
+    expect(lc.canOwnerUseLiveProjection('box', sessionA, {
+      component,
+      projectedSession: projectedSessionB,
+      session: sessionA
+    })).toBe(false);
+  });
+
+  test('A→B→A does not revive live authority until the mounted projection returns to A', () => {
+    const rootA = document.createElement('section');
+    const rootB = document.createElement('section');
+    rootA.dataset.workspaceTabId = 'tab-a';
+    rootB.dataset.workspaceTabId = 'tab-b';
+    document.body.appendChild(rootB);
+
+    const sessionA = { tabId: 'tab-a' };
+    const sessionB = { tabId: 'tab-b' };
+    const component = { __componentKey: 'box', __boundTabId: 'tab-b' };
+    const roots = { 'tab-a': rootA, 'tab-b': rootB };
+    installWorkspace('tab-b', roots);
+
+    expect(lc.canOwnerUseLiveProjection('box', sessionB, {
+      component, projectedSession: sessionB, session: sessionB
+    })).toBe(true);
+
+    window.Main.session.workspaceState.activeTabId = 'tab-a';
+    expect(lc.isOwnerActivationTarget('box', sessionA, { component })).toBe(true);
+    expect(lc.canOwnerUseLiveProjection('box', sessionA, {
+      component, projectedSession: sessionA, session: sessionA
+    })).toBe(false);
+    expect(lc.canOwnerUseLiveProjection('box', sessionB, {
+      component, projectedSession: sessionB, session: sessionB
+    })).toBe(false);
+
+    rootB.remove();
+    document.body.appendChild(rootA);
+    component.__boundTabId = 'tab-a';
+    expect(lc.canOwnerUseLiveProjection('box', sessionA, {
+      component, projectedSession: sessionA, session: sessionA
+    })).toBe(true);
+  });
+
+  test('live authority requires the registered mounted root and never treats a generic object id as owner identity', () => {
+    const rootA = document.createElement('section');
+    const impostorRoot = document.createElement('section');
+    rootA.dataset.workspaceTabId = 'tab-a';
+    impostorRoot.dataset.workspaceTabId = 'tab-a';
+    document.body.append(rootA, impostorRoot);
+
+    const sessionA = { tabId: 'tab-a' };
+    const component = { __componentKey: 'box', __boundTabId: 'tab-a' };
+    installWorkspace('tab-a', { 'tab-a': rootA });
+
+    expect(lc.isOwnerActivationTarget('box', { id: 'tab-a' }, { component })).toBe(false);
+    expect(lc.canOwnerUseLiveProjection('box', sessionA, {
+      component, projectedSession: sessionA, session: sessionA, root: impostorRoot
+    })).toBe(false);
+    expect(lc.canOwnerUseLiveProjection('box', sessionA, {
+      component, projectedSession: sessionA, session: sessionA
+    })).toBe(true);
+  });
+});
+
+describe('componentLifecycle — notes control ownership', () => {
+  beforeEach(() => {
+    loadFresh();
+    document.body.innerHTML = '';
+  });
+
+  function createControl(root, value = '') {
+    let currentValue = value;
+    let currentOpen = false;
+    return {
+      root,
+      setValue(next) { currentValue = String(next ?? ''); },
+      setOpen(next) { currentOpen = !!next; },
+      getValue() { return currentValue; },
+      isOpen() { return currentOpen; }
+    };
+  }
+
+  test('rejects a connected notes control owned by a sibling same-component tab', () => {
+    const containerA = document.createElement('div');
+    const containerB = document.createElement('div');
+    const rootA = document.createElement('details');
+    const rootB = document.createElement('details');
+    containerA.appendChild(rootA);
+    containerB.appendChild(rootB);
+    document.body.append(containerA, containerB);
+
+    const oldControl = createControl(rootA, 'notes A');
+    lc.markOwnedObject(oldControl, 'pca', 'tab-a');
+    lc.markOwnedObject(rootA, 'pca', 'tab-a');
+    const newControl = createControl(rootB, 'notes B');
+    window.Shared.notes = {
+      mountFoldable: jest.fn(() => newControl)
+    };
+
+    const notesState = { text: 'notes B', open: true, control: oldControl };
+    const resolved = lc.ensureOwnedNotesControl({
+      componentKey: 'pca',
+      ownerTabId: 'tab-b',
+      container: containerB,
+      notesState,
+      control: oldControl
+    });
+
+    expect(resolved).toBe(newControl);
+    expect(window.Shared.notes.mountFoldable).toHaveBeenCalledTimes(1);
+    expect(lc.resolveOwnedObjectTabId(oldControl, 'pca')).toBe('tab-a');
+    expect(lc.resolveOwnedObjectTabId(newControl, 'pca')).toBe('tab-b');
+    expect(notesState.control).toBe(newControl);
+    expect(newControl.getValue()).toBe('notes B');
+  });
+
+  test('reuses a notes control only inside the current owner container', () => {
+    const container = document.createElement('div');
+    const root = document.createElement('details');
+    container.appendChild(root);
+    document.body.appendChild(container);
+    const control = createControl(root, 'old');
+    lc.markOwnedObject(control, 'scatter', 'tab-a');
+    lc.markOwnedObject(root, 'scatter', 'tab-a');
+    window.Shared.notes = {
+      mountFoldable: jest.fn(() => { throw new Error('unexpected notes remount'); })
+    };
+
+    const notesState = { text: 'current', open: true, control };
+    const resolved = lc.ensureOwnedNotesControl({
+      componentKey: 'scatter',
+      ownerTabId: 'tab-a',
+      container,
+      notesState,
+      control
+    });
+
+    expect(resolved).toBe(control);
+    expect(window.Shared.notes.mountFoldable).not.toHaveBeenCalled();
+    expect(control.getValue()).toBe('current');
+    expect(control.isOpen()).toBe(true);
+  });
+});
+
+describe('componentLifecycle — snapshot publication readiness', () => {
+  beforeEach(() => {
+    jest.resetModules();
+    delete window.Shared;
+    document.body.innerHTML = '';
+    require('../js/shared/dom.js');
+    require('../js/shared/componentLifecycle.js');
+    lc = window.Shared.componentLifecycle;
+  });
+
+  test('rejects a snapshot while an owner graph frame is staged', async () => {
+    const root = document.createElement('div');
+    const plot = document.createElement('div');
+    const previous = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    const replacement = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    root.dataset.workspaceTabId = 'tab-a';
+    plot.appendChild(previous);
+    root.appendChild(plot);
+    document.body.appendChild(root);
+
+    const publication = window.Shared.framePublication.stage({
+      container: plot,
+      frame: replacement,
+      component: 'roc',
+      tabId: 'tab-a',
+      canCommit: () => true
+    });
+    const target = {
+      type: 'roc',
+      isIdleForSnapshot: () => true
+    };
+
+    const immediate = lc.isPublicationSettled(target, {
+      componentKey: 'roc',
+      tabId: 'tab-a',
+      root
+    });
+    expect(immediate).toEqual(expect.objectContaining({ ok: false, idle: true, staged: true }));
+
+    const pending = lc.awaitReadyForSnapshot(target, {
+      componentKey: 'roc',
+      tabId: 'tab-a',
+      root,
+      timeoutMs: 120,
+      settleFrames: 0
+    });
+    window.setTimeout(() => publication.commit(), 10);
+    await expect(pending).resolves.toEqual(expect.objectContaining({ ok: true, componentKey: 'roc', tabId: 'tab-a' }));
+  });
+
+  test('returns ok:false instead of silently succeeding when the component never becomes idle', async () => {
+    const target = {
+      type: 'scatter',
+      isIdleForSnapshot: () => false
+    };
+    const result = await lc.awaitReadyForSnapshot(target, {
+      componentKey: 'scatter',
+      tabId: 'tab-b',
+      timeoutMs: 100,
+      settleFrames: 0
+    });
+    expect(result).toEqual(expect.objectContaining({
+      ok: false,
+      componentKey: 'scatter',
+      tabId: 'tab-b',
+      reason: 'component-not-idle'
+    }));
+  });
+});
+
 describe('componentLifecycle — payload capture ownership', () => {
   beforeEach(() => {
     loadFresh();
@@ -124,6 +453,24 @@ describe('componentLifecycle — payload capture ownership', () => {
     expect(result.canCaptureLive).toBe(false);
     expect(result.workspaceOwnerTabId).toBe('tab-b');
     expect(result.requestedTab).toBe(inactive);
+  });
+
+  test('rejects capture when component binding and projected session disagree', () => {
+    const tab = { id: 'tab-a', type: 'box', payload: { type: 'box', data: [[1]] } };
+    window.Main = { session: { workspaceState: { activeTabId: 'tab-a', tabs: [tab] } } };
+    const root = document.createElement('div');
+    root.dataset.workspaceTabId = 'tab-a';
+
+    const result = lc.resolvePayloadCaptureContext('box', { tabId: 'tab-a' }, {
+      component: { __boundTabId: 'tab-a' },
+      projectedSession: { tabId: 'tab-b' },
+      session: { tabId: 'tab-a' },
+      root
+    });
+
+    expect(result.canCaptureLive).toBe(false);
+    expect(result.componentBoundTabId).toBe('tab-a');
+    expect(result.projectedSessionTabId).toBe('tab-b');
   });
 
   test('rejects live capture when a mounted root belongs to another tab', () => {
@@ -512,14 +859,17 @@ describe('componentLifecycle — post-restore draw suppression', () => {
 
 describe('componentLifecycle — graph edit cache invalidation', () => {
   let tab;
+  let activeTab;
   let draw;
 
   beforeEach(() => {
+    window.Shared?.componentLifecycle?.uninstallGraphEditIntentListener?.();
     jest.resetModules();
     delete window.Shared;
     delete window.Components;
     delete window.Main;
     document.body.innerHTML = '';
+    document.elementFromPoint = jest.fn(() => null);
     tab = {
       id: 'tab-a',
       type: 'box',
@@ -528,12 +878,13 @@ describe('componentLifecycle — graph edit cache invalidation', () => {
       archiveRenderCache: { plot: { count: 1 } },
       archiveRenderCacheSignature: 'archive-sig'
     };
+    activeTab = tab;
     draw = jest.fn();
     window.Components = { box: { draw, isIdleForSnapshot: () => true } };
     window.Main = {
       session: {
-        workspaceState: { tabs: [tab] },
-        getActiveTab: () => tab,
+        workspaceState: { tabs: [tab], activeTabId: 'tab-a' },
+        getActiveTab: () => activeTab,
         clearTabRenderCache(target) {
           target.renderCache = null;
           target.renderCacheSignature = null;
@@ -555,23 +906,159 @@ describe('componentLifecycle — graph edit cache invalidation', () => {
     lc = window.Shared.componentLifecycle;
   });
 
-  test('beginGraphEdit clears render caches and forces a user redraw for restored graphs', () => {
+  afterEach(() => {
+    window.Shared?.componentLifecycle?.uninstallGraphEditIntentListener?.();
+  });
+
+  test('every graph component declares the render-cache interaction contract', () => {
+    const components = ['box', 'scatter', 'pca', 'line', 'heatmap', 'surface', 'roc', 'survival', 'hist', 'pie', 'venn'];
+    components.forEach(componentKey => {
+      const source = fs.readFileSync(path.join(__dirname, '..', 'js', 'components', `${componentKey}.js`), 'utf8');
+      expect(source).toContain(`${componentKey}.rehydrateGraphInteractions = function rehydrateGraphInteractions`);
+    });
+  });
+
+  test('every component that declares serialized axis or inline-edit interactions rehydrates them explicitly', () => {
+    const axisComponents = ['box', 'scatter', 'pca', 'line', 'roc', 'survival', 'hist', 'pie', 'venn'];
+    const inlineComponents = ['box', 'scatter', 'pca', 'line', 'heatmap', 'surface', 'roc', 'survival', 'hist', 'pie', 'venn'];
+
+    axisComponents.forEach(componentKey => {
+      const source = fs.readFileSync(path.join(__dirname, '..', 'js', 'components', `${componentKey}.js`), 'utf8');
+      expect(source).toContain('rehydrateAxisElements');
+    });
+    inlineComponents.forEach(componentKey => {
+      const source = fs.readFileSync(path.join(__dirname, '..', 'js', 'components', `${componentKey}.js`), 'utf8');
+      expect(source).toMatch(/rehydrate[A-Za-z0-9]*InlineTextInteractions/);
+    });
+  });
+
+  test('render-cache restore rejects semantic interaction markers that remain unbound', () => {
+    document.body.innerHTML = `
+      <div data-workspace-component="box" data-workspace-tab-id="tab-a">
+        <div class="svgbox"><svg id="boxSvg">
+          <line id="axis" data-axis-control="1" data-axis-key="x" x1="0" y1="10" x2="100" y2="10"></line>
+          <text id="title" data-inline-editable="1">Title</text>
+        </svg></div>
+      </div>
+    `;
+    const root = document.querySelector('[data-workspace-tab-id="tab-a"]');
+    window.Shared.chartStyle = { bindSvgInteractions: jest.fn(() => true) };
+    window.Shared.workspaceTabs = { getMountedRoot: jest.fn(() => root) };
+    window.Shared.axisControls = { isAxisElementBound: jest.fn(() => false) };
+    window.Components.box.rehydrateGraphInteractions = jest.fn(() => true);
+
+    expect(lc.rehydrateRenderCacheInteractions('box', { tab, tabId: tab.id })).toBe(false);
+
+    const axis = document.getElementById('axis');
+    const title = document.getElementById('title');
+    axis.__graphitixAxisControlBinding = { handler: () => {} };
+    title.__graphitixInlineEditBinding = { dblclick: () => {} };
+    window.Shared.axisControls.isAxisElementBound = jest.fn(node => node === axis);
+
+    expect(lc.rehydrateRenderCacheInteractions('box', { tab, tabId: tab.id })).toBe(true);
+  });
+  test('render-cache restore rebinds shared SVG and component interactions for the exact owner', () => {
+    document.body.innerHTML = `
+      <div data-workspace-component="box" data-workspace-tab-id="tab-a">
+        <div class="svgbox"><svg id="boxSvg"><text data-font-editable="1">Y axis</text></svg></div>
+      </div>
+    `;
+    const root = document.querySelector('[data-workspace-tab-id="tab-a"]');
+    const bindSvgInteractions = jest.fn(() => true);
+    const rehydrateGraphInteractions = jest.fn(() => true);
+    window.Shared.chartStyle = { bindSvgInteractions };
+    window.Shared.workspaceTabs = { getMountedRoot: jest.fn(() => root) };
+    window.Components.box.rehydrateGraphInteractions = rehydrateGraphInteractions;
+
+    const ready = lc.rehydrateRenderCacheInteractions('box', {
+      tab,
+      tabId: tab.id,
+      reason: 'unit-render-cache-restore'
+    });
+
+    expect(ready).toBe(true);
+    expect(bindSvgInteractions).toHaveBeenCalledWith(
+      document.getElementById('boxSvg'),
+      expect.objectContaining({ scopeId: 'box', tabId: 'tab-a' })
+    );
+    expect(rehydrateGraphInteractions).toHaveBeenCalledWith(expect.objectContaining({
+      componentKey: 'box',
+      tabId: 'tab-a',
+      root
+    }));
+  });
+
+  test('render-cache restore is rejected when editable SVG interactions cannot bind', () => {
+    document.body.innerHTML = `
+      <div data-workspace-component="box" data-workspace-tab-id="tab-a">
+        <div class="svgbox"><svg id="boxSvg"><text data-font-editable="1">Title</text></svg></div>
+      </div>
+    `;
+    const root = document.querySelector('[data-workspace-tab-id="tab-a"]');
+    window.Shared.chartStyle = { bindSvgInteractions: jest.fn(() => false) };
+    window.Shared.workspaceTabs = { getMountedRoot: jest.fn(() => root) };
+
+    expect(lc.rehydrateRenderCacheInteractions('box', { tab, tabId: tab.id })).toBe(false);
+  });
+
+  test('render-cache restore is rejected when the component rehydration hook is missing', () => {
+    document.body.innerHTML = `
+      <div data-workspace-component="box" data-workspace-tab-id="tab-a">
+        <div class="svgbox"><svg id="boxSvg"></svg></div>
+      </div>
+    `;
+    const root = document.querySelector('[data-workspace-tab-id="tab-a"]');
+    window.Shared.chartStyle = { bindSvgInteractions: jest.fn(() => true) };
+    window.Shared.workspaceTabs = { getMountedRoot: jest.fn(() => root) };
+
+    expect(lc.rehydrateRenderCacheInteractions('box', { tab, tabId: tab.id })).toBe(false);
+  });
+
+  test('fresh module evaluation replaces the previous document capture listeners', () => {
+    const firstDraw = draw;
+    const firstLifecycle = lc;
+
+    jest.resetModules();
+    delete window.Shared;
+    draw = jest.fn();
+    window.Components = { box: { draw, isIdleForSnapshot: () => true } };
+    window.Main.components.get = () => ({ draw });
+    require('../js/shared/componentLifecycle.js');
+    lc = window.Shared.componentLifecycle;
+
+    document.body.innerHTML = `
+      <div data-workspace-component="box" data-workspace-tab-id="tab-a">
+        <div class="svgbox"><svg id="boxSvg"><circle id="point" cx="1" cy="1" r="1"></circle></svg></div>
+      </div>
+    `;
+    const event = new window.MouseEvent('click', {
+      bubbles: true,
+      cancelable: true,
+      clientX: 10,
+      clientY: 10
+    });
+    event.__graphitixUserTrusted = true;
+
+    document.getElementById('point').dispatchEvent(event);
+
+    expect(firstLifecycle).not.toBe(lc);
+    expect(firstDraw).not.toHaveBeenCalled();
+    expect(draw).not.toHaveBeenCalled();
+    expect(tab.renderCache).toBeNull();
+  });
+
+  test('beginGraphEdit clears render caches without redrawing a rehydrated graph', () => {
     const result = lc.beginGraphEdit('box', {
       tabId: 'tab-a',
       reason: 'unit-graph-edit'
     });
 
     expect(result.ok).toBe(true);
-    expect(result.hadRestoredGraph).toBe(true);
-    expect(result.redrawRequested).toBe(true);
+    expect(result.hadGraphCache).toBe(true);
+    expect(result.redrawRequested).toBe(false);
     expect(tab.renderCache).toBeNull();
     expect(tab.archiveRenderCache).toBeNull();
-    expect(draw).toHaveBeenCalledWith(expect.objectContaining({
-      tabId: 'tab-a',
-      force: true,
-      forceDraw: true,
-      userInitiated: true
-    }));
+    expect(draw).not.toHaveBeenCalled();
   });
 
   test('beginGraphEdit does not redraw when no restored cache was present', () => {
@@ -586,20 +1073,88 @@ describe('componentLifecycle — graph edit cache invalidation', () => {
     });
 
     expect(result.ok).toBe(true);
-    expect(result.hadRestoredGraph).toBe(false);
+    expect(result.hadGraphCache).toBe(false);
     expect(result.redrawRequested).toBe(false);
     expect(draw).not.toHaveBeenCalled();
   });
 
-  test('trusted first graph click on a restored graph is intercepted before stale handlers', () => {
-    const staleHandler = jest.fn();
+  test('beginGraphEdit does not redraw a live graph merely because it has been cached', () => {
+    const result = lc.beginGraphEdit('box', {
+      tabId: 'tab-a',
+      reason: 'unit-live-cached-graph-edit'
+    });
+
+    expect(result.hadGraphCache).toBe(true);
+    expect(result.redrawRequested).toBe(false);
+    expect(draw).not.toHaveBeenCalled();
+    expect(tab.renderCache).toBeNull();
+    expect(tab.archiveRenderCache).toBeNull();
+  });
+
+  test('replacement cache wrappers also invalidate without redraw', () => {
+    tab.renderCache = { cache: { plot: { count: 2 } } };
+
+    const result = lc.beginGraphEdit('box', {
+      tabId: 'tab-a',
+      reason: 'unit-restored-cache-recaptured'
+    });
+
+    expect(result.hadGraphCache).toBe(true);
+    expect(result.redrawRequested).toBe(false);
+    expect(draw).not.toHaveBeenCalled();
+    expect(tab.renderCache).toBeNull();
+  });
+
+  test('draw history does not change the no-redraw edit contract', () => {
+    lc.emitLifecycleEvent({
+      componentKey: 'box',
+      tabId: 'tab-a',
+      action: 'draw-executed',
+      reason: 'unit-live-redraw'
+    });
+
+    const result = lc.beginGraphEdit('box', {
+      tabId: 'tab-a',
+      reason: 'unit-after-live-redraw'
+    });
+
+    expect(result.hadGraphCache).toBe(true);
+    expect(result.redrawRequested).toBe(false);
+    expect(draw).not.toHaveBeenCalled();
+  });
+
+  test('graph clicks never start an asynchronous redraw replay', async () => {
+    document.body.innerHTML = `
+      <div data-workspace-component="box" data-workspace-tab-id="tab-a">
+        <div class="svgbox"><svg id="boxSvg"><circle id="stalePoint" cx="1" cy="1" r="1"></circle></svg></div>
+      </div>
+    `;
+    document.elementFromPoint = jest.fn(() => document.getElementById('stalePoint'));
+    const event = new window.MouseEvent('click', {
+      bubbles: true,
+      cancelable: true,
+      clientX: 10,
+      clientY: 10
+    });
+    event.__graphitixUserTrusted = true;
+
+    document.getElementById('stalePoint').dispatchEvent(event);
+    lc.uninstallGraphEditIntentListener();
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    expect(document.elementFromPoint).not.toHaveBeenCalled();
+    expect(draw).not.toHaveBeenCalled();
+  });
+
+  test('trusted first graph click reaches rehydrated handlers without redraw', () => {
+    const rehydratedHandler = jest.fn();
     document.body.innerHTML = `
       <div data-workspace-component="box" data-workspace-tab-id="tab-a">
         <div class="svgbox"><svg id="boxSvg"><circle id="stalePoint" cx="1" cy="1" r="1"></circle></svg></div>
       </div>
     `;
     const target = document.getElementById('stalePoint');
-    target.addEventListener('click', staleHandler);
+    target.addEventListener('click', rehydratedHandler);
     const event = new window.MouseEvent('click', {
       bubbles: true,
       cancelable: true,
@@ -610,12 +1165,8 @@ describe('componentLifecycle — graph edit cache invalidation', () => {
 
     target.dispatchEvent(event);
 
-    expect(staleHandler).not.toHaveBeenCalled();
-    expect(draw).toHaveBeenCalledWith(expect.objectContaining({
-      reason: 'graph-edit-click-live-redraw',
-      forceDraw: true,
-      userInitiated: true
-    }));
+    expect(rehydratedHandler).toHaveBeenCalledTimes(1);
+    expect(draw).not.toHaveBeenCalled();
     expect(tab.renderCache).toBeNull();
     expect(tab.archiveRenderCache).toBeNull();
   });
@@ -650,10 +1201,141 @@ describe('componentLifecycle — graph edit cache invalidation', () => {
     expect(tab.archiveRenderCache).not.toBeNull();
     expect(otherTab.renderCache).toBeNull();
     expect(otherTab.archiveRenderCache).toBeNull();
-    expect(draw).toHaveBeenCalledWith(expect.objectContaining({
-      tabId: 'tab-b',
-      reason: 'graph-edit-click-live-redraw'
-    }));
+    expect(draw).not.toHaveBeenCalled();
+  });
+
+  test('restored graph clicks do not use hit-testing or replay', async () => {
+    document.body.innerHTML = `
+      <div id="ownerA" data-workspace-component="box" data-workspace-tab-id="tab-a">
+        <div class="svgbox"><svg id="boxSvg"><circle id="stalePoint" cx="1" cy="1" r="1"></circle></svg></div>
+      </div>
+    `;
+    const owner = document.getElementById('ownerA');
+    let freshTarget = null;
+    const freshHandler = jest.fn();
+    draw.mockImplementation(() => {
+      owner.innerHTML = '<div class="svgbox"><svg id="boxSvg"><circle id="freshPoint" cx="1" cy="1" r="1"></circle></svg></div>';
+      freshTarget = document.getElementById('freshPoint');
+      freshTarget.addEventListener('click', freshHandler);
+      return Promise.resolve(true);
+    });
+    lc.waitForAnimationFrames = jest.fn(() => Promise.resolve(true));
+    document.elementFromPoint = jest.fn(() => freshTarget);
+    const event = new window.MouseEvent('click', {
+      bubbles: true,
+      cancelable: true,
+      clientX: 10,
+      clientY: 10
+    });
+    event.__graphitixUserTrusted = true;
+
+    document.getElementById('stalePoint').dispatchEvent(event);
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    expect(document.elementFromPoint).not.toHaveBeenCalled();
+    expect(freshHandler).not.toHaveBeenCalled();
+    expect(draw).not.toHaveBeenCalled();
+  });
+
+  test('owner changes cannot dispatch an edit into another tab', async () => {
+    const otherTab = { id: 'tab-b', type: 'box' };
+    window.Main.session.workspaceState.tabs.push(otherTab);
+    document.body.innerHTML = `
+      <div data-workspace-component="box" data-workspace-tab-id="tab-a">
+        <div class="svgbox"><svg id="boxSvgA"><circle id="stalePointA" cx="1" cy="1" r="1"></circle></svg></div>
+      </div>
+      <div data-workspace-component="box" data-workspace-tab-id="tab-b">
+        <div class="svgbox"><svg id="boxSvgB"><circle id="activePointB" cx="1" cy="1" r="1"></circle></svg></div>
+      </div>
+    `;
+    const activePointB = document.getElementById('activePointB');
+    const foreignHandler = jest.fn();
+    activePointB.addEventListener('click', foreignHandler);
+    draw.mockImplementation(() => Promise.resolve(true));
+    lc.waitForAnimationFrames = jest.fn(() => Promise.resolve(true));
+    document.elementFromPoint = jest.fn(() => activePointB);
+    const event = new window.MouseEvent('click', {
+      bubbles: true,
+      cancelable: true,
+      clientX: 10,
+      clientY: 10
+    });
+    event.__graphitixUserTrusted = true;
+
+    document.getElementById('stalePointA').dispatchEvent(event);
+    activeTab = otherTab;
+    window.Main.session.workspaceState.activeTabId = otherTab.id;
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    expect(document.elementFromPoint).not.toHaveBeenCalled();
+    expect(foreignHandler).not.toHaveBeenCalled();
+  });
+
+  test('foreign hit-test targets are never consulted after a graph click', async () => {
+    const otherTab = { id: 'tab-b', type: 'box' };
+    window.Main.session.workspaceState.tabs.push(otherTab);
+    document.body.innerHTML = `
+      <div data-workspace-component="box" data-workspace-tab-id="tab-a">
+        <div class="svgbox"><svg id="boxSvgA"><circle id="stalePointA" cx="1" cy="1" r="1"></circle></svg></div>
+      </div>
+      <div data-workspace-component="box" data-workspace-tab-id="tab-b">
+        <div class="svgbox"><svg id="boxSvgB"><circle id="foreignPointB" cx="1" cy="1" r="1"></circle></svg></div>
+      </div>
+    `;
+    const foreignHandler = jest.fn();
+    const foreignTarget = document.getElementById('foreignPointB');
+    foreignTarget.addEventListener('click', foreignHandler);
+    draw.mockImplementation(() => Promise.resolve(true));
+    lc.waitForAnimationFrames = jest.fn(() => Promise.resolve(true));
+    document.elementFromPoint = jest.fn(() => foreignTarget);
+    const event = new window.MouseEvent('click', {
+      bubbles: true,
+      cancelable: true,
+      clientX: 10,
+      clientY: 10
+    });
+    event.__graphitixUserTrusted = true;
+
+    document.getElementById('stalePointA').dispatchEvent(event);
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    expect(document.elementFromPoint).not.toHaveBeenCalled();
+    expect(foreignHandler).not.toHaveBeenCalled();
+  });
+
+  test('workspace activeTabId remains authoritative when a compatibility getter is stale', async () => {
+    const otherTab = { id: 'tab-b', type: 'box' };
+    window.Main.session.workspaceState.tabs.push(otherTab);
+    document.body.innerHTML = `
+      <div data-workspace-component="box" data-workspace-tab-id="tab-a">
+        <div class="svgbox"><svg id="boxSvgA"><circle id="stalePointA" cx="1" cy="1" r="1"></circle></svg></div>
+      </div>
+      <div data-workspace-component="box" data-workspace-tab-id="tab-b">
+        <div class="svgbox"><svg id="boxSvgB"><circle id="activePointB" cx="1" cy="1" r="1"></circle></svg></div>
+      </div>
+    `;
+    const foreignHandler = jest.fn();
+    document.getElementById('activePointB').addEventListener('click', foreignHandler);
+    draw.mockImplementation(() => Promise.resolve(true));
+    lc.waitForAnimationFrames = jest.fn(() => Promise.resolve(true));
+    document.elementFromPoint = jest.fn(() => document.getElementById('activePointB'));
+    const event = new window.MouseEvent('click', {
+      bubbles: true,
+      cancelable: true,
+      clientX: 10,
+      clientY: 10
+    });
+    event.__graphitixUserTrusted = true;
+
+    document.getElementById('stalePointA').dispatchEvent(event);
+    // Simulate a stale compatibility getter while the canonical workspace
+    // state has already activated another tab.
+    window.Main.session.workspaceState.activeTabId = otherTab.id;
+    activeTab = tab;
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    expect(document.elementFromPoint).not.toHaveBeenCalled();
+    expect(foreignHandler).not.toHaveBeenCalled();
   });
 
   test('trusted resize-handle click does not begin a restored graph edit', () => {
@@ -707,11 +1389,126 @@ describe('componentLifecycle — graph edit cache invalidation', () => {
     target.dispatchEvent(down);
     document.dispatchEvent(move);
 
-    expect(draw).toHaveBeenCalledWith(expect.objectContaining({
-      reason: 'graph-edit-drag-live-redraw',
-      forceDraw: true,
-      userInitiated: true
-    }));
+    expect(draw).not.toHaveBeenCalled();
+    expect(tab.renderCache).toBeNull();
+    expect(tab.archiveRenderCache).toBeNull();
+  });
+
+  test('managed 3D rotation drag stays outside the generic restored-graph edit path', () => {
+    window.Shared.plot3d = {
+      isManagedRotationGestureTarget: jest.fn(() => true),
+      consumeManagedRotationClick: jest.fn(() => false)
+    };
+    document.body.innerHTML = `
+      <div data-workspace-component="box" data-workspace-tab-id="tab-a">
+        <div class="svgbox"><svg id="boxSvg"><circle id="rotationPoint" cx="1" cy="1" r="1"></circle></svg></div>
+      </div>
+    `;
+    const target = document.getElementById('rotationPoint');
+    const down = new window.MouseEvent('mousedown', {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+      clientX: 10,
+      clientY: 10
+    });
+    down.__graphitixUserTrusted = true;
+    const move = new window.MouseEvent('mousemove', {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+      clientX: 30,
+      clientY: 10
+    });
+    move.__graphitixUserTrusted = true;
+
+    target.dispatchEvent(down);
+    document.dispatchEvent(move);
+
+    expect(window.Shared.plot3d.isManagedRotationGestureTarget).toHaveBeenCalledWith(target);
+    expect(draw).not.toHaveBeenCalled();
+    expect(tab.renderCache).not.toBeNull();
+    expect(tab.archiveRenderCache).not.toBeNull();
+  });
+
+  test('managed legend drag stays outside the generic restored-graph edit path', () => {
+    window.Shared.isManagedLegendDragTarget = jest.fn(() => true);
+    document.body.innerHTML = `
+      <div data-workspace-component="box" data-workspace-tab-id="tab-a">
+        <div class="svgbox"><svg id="boxSvg"><g id="legend"><rect id="legendScale"></rect></g></svg></div>
+      </div>
+    `;
+    const target = document.getElementById('legendScale');
+    const down = new window.MouseEvent('mousedown', {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+      clientX: 10,
+      clientY: 10
+    });
+    down.__graphitixUserTrusted = true;
+    const move = new window.MouseEvent('mousemove', {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+      clientX: 30,
+      clientY: 10
+    });
+    move.__graphitixUserTrusted = true;
+
+    target.dispatchEvent(down);
+    document.dispatchEvent(move);
+    const click = new window.MouseEvent('click', {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+      clientX: 30,
+      clientY: 10
+    });
+    click.__graphitixUserTrusted = true;
+    target.dispatchEvent(click);
+
+    expect(window.Shared.isManagedLegendDragTarget).toHaveBeenCalledWith(target);
+    expect(draw).not.toHaveBeenCalled();
+    expect(tab.renderCache).not.toBeNull();
+    expect(tab.archiveRenderCache).not.toBeNull();
+  });
+
+  test('only the synthetic click following a moved managed rotation is consumed', () => {
+    const consumeManagedRotationClick = jest.fn()
+      .mockReturnValueOnce(true)
+      .mockReturnValueOnce(false);
+    window.Shared.plot3d = {
+      isManagedRotationGestureTarget: jest.fn(() => true),
+      consumeManagedRotationClick
+    };
+    document.body.innerHTML = `
+      <div data-workspace-component="box" data-workspace-tab-id="tab-a">
+        <div class="svgbox"><svg id="boxSvg"><circle id="rotationPoint" cx="1" cy="1" r="1"></circle></svg></div>
+      </div>
+    `;
+    const target = document.getElementById('rotationPoint');
+    const dispatchTrustedClick = () => {
+      const event = new window.MouseEvent('click', {
+        bubbles: true,
+        cancelable: true,
+        clientX: 10,
+        clientY: 10
+      });
+      event.__graphitixUserTrusted = true;
+      target.dispatchEvent(event);
+    };
+
+    dispatchTrustedClick();
+
+    expect(draw).not.toHaveBeenCalled();
+    expect(tab.renderCache).not.toBeNull();
+    expect(tab.archiveRenderCache).not.toBeNull();
+
+    dispatchTrustedClick();
+
+    expect(consumeManagedRotationClick).toHaveBeenCalledTimes(2);
+    expect(draw).not.toHaveBeenCalled();
     expect(tab.renderCache).toBeNull();
     expect(tab.archiveRenderCache).toBeNull();
   });
@@ -730,11 +1527,7 @@ describe('componentLifecycle — graph edit cache invalidation', () => {
 
     input.dispatchEvent(event);
 
-    expect(draw).toHaveBeenCalledWith(expect.objectContaining({
-      reason: 'graph-toolbar-input-live-redraw',
-      forceDraw: true,
-      userInitiated: true
-    }));
+    expect(draw).not.toHaveBeenCalled();
     expect(tab.renderCache).toBeNull();
     expect(tab.archiveRenderCache).toBeNull();
   });
@@ -759,11 +1552,7 @@ describe('componentLifecycle — graph edit cache invalidation', () => {
 
     button.dispatchEvent(event);
 
-    expect(draw).toHaveBeenCalledWith(expect.objectContaining({
-      reason: 'graph-toolbar-mousedown-live-redraw',
-      forceDraw: true,
-      userInitiated: true
-    }));
+    expect(draw).not.toHaveBeenCalled();
     expect(tab.renderCache).toBeNull();
     expect(tab.archiveRenderCache).toBeNull();
   });
@@ -997,6 +1786,39 @@ describe('componentLifecycle — createAsyncScope', () => {
       expect(callback).toHaveBeenCalledTimes(2);
       expect(callback).toHaveBeenCalledWith('tab-a');
       expect(callback).toHaveBeenCalledWith('tab-b');
+    }finally{
+      global.requestAnimationFrame = originalRequestAnimationFrame;
+      global.cancelAnimationFrame = originalCancelAnimationFrame;
+      jest.useRealTimers();
+    }
+  });
+
+  test('tab-scoped frame debouncer reports terminal stale discards to the owner', () => {
+    jest.useFakeTimers();
+    const originalRequestAnimationFrame = global.requestAnimationFrame;
+    const originalCancelAnimationFrame = global.cancelAnimationFrame;
+    global.requestAnimationFrame = cb => setTimeout(cb, 0);
+    global.cancelAnimationFrame = id => clearTimeout(id);
+    try{
+      const component = { __componentKey: 'roc' };
+      const callback = jest.fn();
+      const onStaleDiscard = jest.fn();
+      const debounced = lc.createTabScopedFrameDebouncer(component, 'roc', callback, {
+        reason: 'unit-roc-frame-discard',
+        onStaleDiscard
+      });
+
+      debounced({ tabId: 'tab-a', drawGeneration: 7, reason: 'scheduled-roc' });
+      component.__asyncScope.nextToken({ tabId: 'tab-a', reason: 'owner-generation-advanced' });
+      jest.runOnlyPendingTimers();
+
+      expect(callback).not.toHaveBeenCalled();
+      expect(onStaleDiscard).toHaveBeenCalledTimes(1);
+      expect(onStaleDiscard).toHaveBeenCalledWith(expect.objectContaining({
+        componentKey: 'roc',
+        tabId: 'tab-a',
+        args: [expect.objectContaining({ drawGeneration: 7, reason: 'scheduled-roc' })]
+      }));
     }finally{
       global.requestAnimationFrame = originalRequestAnimationFrame;
       global.cancelAnimationFrame = originalCancelAnimationFrame;
@@ -1298,6 +2120,77 @@ describe('componentLifecycle — createRuntimeOwner', () => {
       tabId: 'tab-b',
       reason: 'unit-bound-tab-schedule'
     }));
+  });
+
+  test('runtime sanitization preserves indexed sparse metadata and repeated durable references', () => {
+    const sharedColumn = { key: 'p', label: 'p value' };
+    const metaRow = new Array(5);
+    metaRow[4] = { pValueRaw: 0.0277, pValueOperator: '=' };
+    const source = {
+      firstColumn: sharedColumn,
+      secondColumn: sharedColumn,
+      cellMetaRows: [metaRow]
+    };
+    source.self = source;
+
+    const sanitized = lc.sanitizeRuntimeSnapshot(source, {
+      componentKey: 'roc',
+      tabId: 'tab-a',
+      reason: 'unit-indexed-runtime-sanitize'
+    });
+
+    expect(sanitized.firstColumn).toEqual(sharedColumn);
+    expect(sanitized.secondColumn).toEqual(sharedColumn);
+    expect(sanitized.firstColumn).not.toBe(sanitized.secondColumn);
+    expect(sanitized.cellMetaRows[0]).toEqual([
+      null,
+      null,
+      null,
+      null,
+      { pValueRaw: 0.0277, pValueOperator: '=' }
+    ]);
+    expect(sanitized).not.toHaveProperty('self');
+  });
+
+  test('internal state bridge preserves sparse indexed models and repeated aliases', () => {
+    const shared = { key: 'comparison', label: 'Comparison' };
+    const metaRow = new Array(5);
+    metaRow[4] = { pValueRaw: 0.01 };
+    const state = {
+      first: shared,
+      second: shared,
+      cellMetaRows: [metaRow]
+    };
+    const component = { __componentKey: 'survival' };
+    const bridge = lc.installInternalStateBridge(component, {
+      componentKey: 'survival',
+      targets: [{ key: 'state', get: () => state }]
+    });
+
+    const snapshot = bridge.capture({ tabId: 'tab-a', reason: 'unit-internal-structure-fidelity' });
+    expect(snapshot.targets.state.first).toEqual(shared);
+    expect(snapshot.targets.state.second).toEqual(shared);
+    expect(snapshot.targets.state.cellMetaRows[0]).toEqual([
+      null,
+      null,
+      null,
+      null,
+      { pValueRaw: 0.01 }
+    ]);
+
+    state.first = { key: 'changed' };
+    state.second = { key: 'changed-again' };
+    state.cellMetaRows = [[{ pValueRaw: 0.99 }]];
+    expect(bridge.apply(snapshot, { tabId: 'tab-a', reason: 'unit-internal-structure-fidelity-apply' })).toBe(true);
+    expect(state.first).toEqual(shared);
+    expect(state.second).toEqual(shared);
+    expect(state.cellMetaRows[0]).toEqual([
+      null,
+      null,
+      null,
+      null,
+      { pValueRaw: 0.01 }
+    ]);
   });
 
   test('runtime owner strips transient in-flight work from durable snapshots', () => {
@@ -2185,6 +3078,16 @@ describe('componentLifecycle — draw option sanitation', () => {
       viewOnly: true,
       circular: { keep: true },
       tabId: 'tab-b'
+    });
+  });
+
+  test('optional owner draw queues preserve absence instead of manufacturing phantom work', () => {
+    expect(lc.sanitizeOptionalComponentDrawOptions('heatmap', null, { tabId: 'tab-a' })).toBeNull();
+    expect(lc.sanitizeOptionalComponentDrawOptions('heatmap', {}, { tabId: 'tab-a' })).toBeNull();
+    expect(lc.sanitizeOptionalComponentDrawOptions('heatmap', { viewOnly: true }, { tabId: 'tab-a' })).toEqual({
+      viewOnly: true,
+      tabId: 'tab-a',
+      reason: 'heatmap-draw'
     });
   });
 });

@@ -6,6 +6,9 @@
   if (!Shared.graphArchiveSchema) {
     ctx.importScripts('../shared/graphArchiveSchema.js');
   }
+  if (!Shared.dataViewPersistence) {
+    ctx.importScripts('../shared/dataViewPersistence.js');
+  }
   const archiveSchema = Shared.graphArchiveSchema;
   const ARCHIVE_FORMAT = 'venn-graph-archive';
   const ARCHIVE_VERSION = 3;
@@ -210,7 +213,7 @@
         continue;
       }
       if (key === 'dataViews') {
-        config[key] = sanitizeDataViewsForArchive(payload[key], false);
+        config[key] = sanitizeDataViewsForArchive(payload[key], 'config');
         continue;
       }
       config[key] = payload[key];
@@ -325,38 +328,14 @@
     return byteLength >= policy.thresholdBytes ? 'lite' : 'full';
   }
 
-  function sanitizeDataViewsForArchive(dataViewsValue, includeData) {
-    if (!isPlainObject(dataViewsValue) || !Array.isArray(dataViewsValue.views)) {
-      return dataViewsValue;
+  function sanitizeDataViewsForArchive(dataViewsValue, mode) {
+    const persistence = Shared.dataViewPersistence;
+    if (mode === 'lite') {
+      const prepareLite = persistence?.prepareDataViewsForLiteArchive;
+      return typeof prepareLite === 'function' ? prepareLite(dataViewsValue) : dataViewsValue;
     }
-    if (includeData !== false) {
-      return dataViewsValue;
-    }
-    const sourceViews = dataViewsValue.views;
-    const nextViews = new Array(sourceViews.length);
-    let changed = false;
-    for (let i = 0; i < sourceViews.length; i += 1) {
-      const view = sourceViews[i];
-      if (!isPlainObject(view)) {
-        nextViews[i] = view;
-        continue;
-      }
-      if (!Object.prototype.hasOwnProperty.call(view, 'data')) {
-        nextViews[i] = view;
-        continue;
-      }
-      const nextView = { ...view };
-      delete nextView.data;
-      nextViews[i] = nextView;
-      changed = true;
-    }
-    if (!changed) {
-      return dataViewsValue;
-    }
-    return {
-      ...dataViewsValue,
-      views: nextViews
-    };
+    const stripAll = persistence?.stripAllDataViewMatrices;
+    return typeof stripAll === 'function' ? stripAll(dataViewsValue) : dataViewsValue;
   }
 
   function buildLitePayload(rawPayload) {
@@ -371,7 +350,7 @@
         continue;
       }
       if (key === 'dataViews') {
-        lite[key] = sanitizeDataViewsForArchive(rawPayload[key], false);
+        lite[key] = sanitizeDataViewsForArchive(rawPayload[key], 'lite');
         continue;
       }
       lite[key] = rawPayload[key];
@@ -419,12 +398,19 @@
       const payloadData = optimizePayloadForArchive(rehomeForRuntimeTab(tab.payload || null));
       const rawPayload = isPlainObject(payloadData) ? payloadData : null;
       const layout = tab.layout || null;
-      const rawData = buildRawDataExport(rawPayload ? rawPayload.data : null);
+      const rawDataResolver = Shared.dataViewPersistence?.resolveRawDataForPersistence;
+      const archiveRawData = typeof rawDataResolver === 'function'
+        ? rawDataResolver(rawPayload?.dataViews || null, rawPayload ? rawPayload.data : null)
+        : (rawPayload ? rawPayload.data : null);
+      const payloadWithCanonicalRawData = rawPayload && Array.isArray(archiveRawData)
+        ? { ...payloadData, data: archiveRawData }
+        : payloadData;
+      const rawData = buildRawDataExport(archiveRawData);
       const csvText = rawData.csvText || '';
       const rawCsvByteLength = estimateUtf8Bytes(csvText);
       const payloadMode = resolvePayloadModeFromByteLength(rawCsvByteLength, payloadPolicy);
-      const payloadForArchive = payloadMode === 'lite' ? buildLitePayload(payloadData) : payloadData;
-      const config = stripRawDataFromPayload(payloadData);
+      const payloadForArchive = payloadMode === 'lite' ? buildLitePayload(payloadWithCanonicalRawData) : payloadWithCanonicalRawData;
+      const config = stripRawDataFromPayload(payloadWithCanonicalRawData);
       const exclusions = rawPayload && Object.prototype.hasOwnProperty.call(rawPayload, 'exclusions')
         ? payloadData.exclusions
         : undefined;

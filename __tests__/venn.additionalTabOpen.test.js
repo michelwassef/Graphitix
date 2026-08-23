@@ -30,6 +30,18 @@ describe('Venn additional tab opening', () => {
   }
 
   beforeEach(() => {
+    // This integration suite reloads the application modules for every test. Dispose
+    // any Venn owners from the previous application instance first so delayed species/
+    // analysis work cannot target the freshly mounted DOM in the next test.
+    const previousVenn = window.Components?.venn || null;
+    const previousTabs = window.Main?.session?.workspaceState?.tabs || [];
+    if(previousVenn?.disposeTab){
+      previousTabs.filter(tab => tab?.type === 'venn').forEach(tab => {
+        previousVenn.disposeTab(tab, { tabId: tab.id, reason: 'venn-test-reset' });
+      });
+    }
+    delete window.Main;
+    delete window.Components;
     jest.resetModules();
     if (typeof global.__restoreTestDebugLogs === 'function') {
       global.__restoreTestDebugLogs();
@@ -143,6 +155,138 @@ describe('Venn additional tab opening', () => {
     await activateTabById(Main, vennTab.id, 'test-venn-sample-return');
     expect(Main.tabs.getActiveTab()?.id).toBe(vennTab.id);
     expect(venn.__getState().ui.inputs.A.value).toContain('BRCA1');
+  });
+
+  test('venn preserves a fourth table column immediately and through Welcome reactivation', async () => {
+    const Main = window.Main;
+    await handleGraphSelection(Main, 'venn');
+
+    const venn = window.Components?.venn;
+    const vennTab = Main.tabs.getActiveTab();
+    expect(venn).toBeTruthy();
+    expect(vennTab?.type).toBe('venn');
+
+    const hot = venn.__getState().ui.hot;
+    expect(hot).toBeTruthy();
+    hot.alter('insert_col_end', 2, 1, 'header-menu');
+    const persistedAfterInsert = vennTab.payload?.data?.table;
+    expect(Array.isArray(persistedAfterInsert)).toBe(true);
+    expect(persistedAfterInsert[0]).toHaveLength(hot.countCols());
+    expect(persistedAfterInsert[0][3]).toBe('');
+    hot.setDataAtCell([
+      [0, 0, 'Set A'],
+      [0, 1, 'Set B'],
+      [0, 2, 'Set C'],
+      [0, 3, 'Set D'],
+      [1, 0, 'A_ONLY'],
+      [1, 3, 'D_ONLY'],
+      [2, 0, 'AD_SHARED'],
+      [2, 3, 'AD_SHARED']
+    ], 'edit');
+    await flush();
+
+    expect(Array.isArray(vennTab.payload?.data?.table)).toBe(true);
+    expect(vennTab.payload.data.table[0][3]).toBe('Set D');
+    expect(vennTab.payload.data.table[1][3]).toBe('D_ONLY');
+    expect(vennTab.payload.data.table[2][3]).toBe('AD_SHARED');
+    expect(vennTab.payload.data.labelA).toBe('Set A');
+    expect(vennTab.payload.data.listA).toContain('AD_SHARED');
+
+    const welcomeTab = Main.session.workspaceState.tabs.find(tab => tab.isWelcome);
+    expect(welcomeTab).toBeTruthy();
+    await activateTabById(Main, welcomeTab.id, 'test-venn-fourth-column-away');
+    await activateTabById(Main, vennTab.id, 'test-venn-fourth-column-return');
+
+    const restoredHot = venn.__getState().ui.hot;
+    const restoredMatrix = restoredHot.getData();
+    expect(restoredMatrix[0][3]).toBe('Set D');
+    expect(restoredMatrix[1][3]).toBe('D_ONLY');
+    expect(restoredMatrix[2][3]).toBe('AD_SHARED');
+    expect(venn.getPayload().data.table[0][3]).toBe('Set D');
+  });
+
+  test('venn warns when an ignored column contains data even without a header, and hides the warning in UpSet mode', async () => {
+    const Main = window.Main;
+    await handleGraphSelection(Main, 'venn');
+
+    const venn = window.Components?.venn;
+    const state = venn?.__getState?.();
+    const hot = state?.ui?.hot;
+    const warning = state?.ui?.setLimitWarning;
+    const plotType = state?.ui?.plotType;
+    const syncFromTable = state?.ui?.syncInputsFromTable;
+
+    expect(venn).toBeTruthy();
+    expect(hot).toBeTruthy();
+    expect(warning).toBeTruthy();
+    expect(plotType).toBeTruthy();
+    expect(typeof syncFromTable).toBe('function');
+    expect(warning.hidden).toBe(true);
+
+    hot.alter('insert_col_end', 2, 1, 'header-menu');
+    hot.setDataAtCell(1, 3, 'D_ONLY', 'edit');
+    syncFromTable({ scheduleDraw: false, scheduleSpecies: false });
+    await flush();
+
+    expect(hot.getData()?.[0]?.[3] || '').toBe('');
+    expect(warning.hidden).toBe(false);
+    expect(warning.textContent).toMatch(/first three columns/i);
+    expect(warning.textContent).toMatch(/UpSet plot/i);
+
+    plotType.value = 'upset';
+    plotType.dispatchEvent(new Event('change', { bubbles: true }));
+    await flush();
+    expect(warning.hidden).toBe(true);
+
+    plotType.value = 'venn';
+    plotType.dispatchEvent(new Event('change', { bubbles: true }));
+    await flush();
+    expect(warning.hidden).toBe(false);
+
+    hot.setDataAtCell(1, 3, '', 'edit');
+    hot.setDataAtCell(0, 3, 'Set D', 'edit');
+    syncFromTable({ scheduleDraw: false, scheduleSpecies: false });
+    await flush();
+    expect(warning.hidden).toBe(true);
+  });
+
+  test('venn legacy A/B/C fields override their table columns without erasing additional sets', async () => {
+    const Main = window.Main;
+    await handleGraphSelection(Main, 'venn');
+
+    const venn = window.Components?.venn;
+    const tab = Main.tabs.getActiveTab();
+    const payload = venn.createEmptyPayload();
+    payload.data.table = [
+      ['Table A', 'Table B', 'Table C', 'Set D'],
+      ['TABLE_A_1', 'B_1', 'C_1', 'D_1'],
+      ['TABLE_A_2', '', '', 'D_2']
+    ];
+    payload.data.labelA = 'Legacy A';
+    payload.data.listA = 'LEGACY_A_1\nLEGACY_A_2';
+    payload.data.labelB = 'Table B';
+    payload.data.listB = 'B_1';
+    payload.data.labelC = 'Table C';
+    payload.data.listC = 'C_1';
+
+    venn.loadFromPayload(payload, {
+      tabId: tab.id,
+      reason: 'test-venn-legacy-table-reconcile'
+    });
+    await flush();
+
+    const matrix = venn.__getState().ui.hot.getData();
+    expect(matrix[0][0]).toBe('Legacy A');
+    expect(matrix[1][0]).toBe('LEGACY_A_1');
+    expect(matrix[2][0]).toBe('LEGACY_A_2');
+    expect(matrix[0][3]).toBe('Set D');
+    expect(matrix[1][3]).toBe('D_1');
+    expect(matrix[2][3]).toBe('D_2');
+
+    const normalized = venn.getPayload();
+    expect(normalized.data.labelA).toBe('Legacy A');
+    expect(normalized.data.listA).toBe('LEGACY_A_1\nLEGACY_A_2');
+    expect(normalized.data.table[0][3]).toBe('Set D');
   });
 
   test('venn control edits update the authoritative payload immediately', async () => {
@@ -405,6 +549,110 @@ describe('Venn additional tab opening', () => {
     expect(tab.payload.analysis.activeResultsTab).toBe('string');
   });
 
+  test('runtime replay falls back to the owner payload for durable GO and STRING results', async () => {
+    const Main = window.Main;
+    await handleGraphSelection(Main, 'venn');
+    const venn = window.Components?.venn;
+    const tab = Main.tabs.getActiveTab();
+    const payload = venn.createEmptyPayload();
+    payload.data.listA = 'BRCA1\nATM';
+    payload.data.listB = 'BRCA1\nBAP1';
+    payload.data.listC = 'BRCA1';
+    payload.analysis = {
+      ...payload.analysis,
+      goResult: [{ term_name: 'Payload GO term', source: 'GO:BP', p_value: 0.001 }],
+      goFormatted: ['BRCA1', 'ATM'],
+      goOrganism: 'hsapiens',
+      goPerformed: true,
+      stringSvg: '<svg xmlns="http://www.w3.org/2000/svg"><text>Payload STRING network</text></svg>',
+      stringEnrichment: [{ termDescription: 'Payload STRING enrichment', fdr: 0.01 }],
+      stringPerformed: true,
+      activeResultsTab: 'string'
+    };
+
+    venn.loadFromPayload(payload, {
+      tabId: tab.id,
+      source: 'runtime-owner-payload-fallback',
+      recordUndo: false
+    });
+    await flush();
+
+    const runtime = venn.__testHooks.captureRuntimeState({
+      tabId: tab.id,
+      tab,
+      reason: 'runtime-owner-payload-fallback-capture'
+    });
+    const session = venn.__testHooks.getSession(tab.id);
+    session.results = {
+      ...session.results,
+      lastGOResult: null,
+      lastGOFormatted: [],
+      goPerformed: false,
+      lastStringSVG: '',
+      lastStringEnrichment: null,
+      stringPerformed: false,
+      activeResultsTab: 'go'
+    };
+
+    expect(venn.__testHooks.applyRuntimeState(runtime, {
+      tabId: tab.id,
+      tab,
+      reason: 'runtime-owner-payload-fallback-apply'
+    })).toBe(true);
+    await flush();
+
+    expect(session.results.lastGOResult.map(item => item.term_name)).toContain('Payload GO term');
+    expect(session.results.lastStringEnrichment.map(item => item.termDescription)).toContain('Payload STRING enrichment');
+    expect(session.results.lastStringSVG).toContain('Payload STRING network');
+    expect(session.results.activeResultsTab).toBe('string');
+    expect(venn.__getState().ui.goResults.textContent).toContain('Payload GO term');
+    expect(venn.__getState().ui.stringResults.textContent).toContain('Payload STRING enrichment');
+    expect(venn.__getState().ui.stringNetwork.textContent).toContain('Payload STRING network');
+  });
+
+  test('applying runtime to an inactive venn owner never projects into the mounted sibling', async () => {
+    const Main = window.Main;
+    await handleGraphSelection(Main, 'venn');
+    const venn = window.Components?.venn;
+    const tabA = Main.tabs.getActiveTab();
+    const runtimeA = venn.__testHooks.captureRuntimeState({ tabId: tabA.id, tab: tabA, reason: 'seed-owner-a' });
+
+    Main.tabs.handleAddTabClick();
+    await flush();
+    await handleGraphSelection(Main, 'venn');
+    const tabB = Main.tabs.getActiveTab();
+    expect(tabB.id).not.toBe(tabA.id);
+
+    const beforeB = venn.__testHooks.captureRuntimeState({ tabId: tabB.id, tab: tabB, reason: 'capture-owner-b' });
+    const inactiveRuntime = {
+      ...runtimeA,
+      persistence: {
+        ...(runtimeA?.persistence || {}),
+        fileName: 'venn-owner-a-updated.graph',
+        fileHandle: null
+      },
+      ui: {
+        ...(runtimeA?.ui || {}),
+        totalGenes: '12345'
+      }
+    };
+
+    expect(venn.__testHooks.applyRuntimeState(inactiveRuntime, {
+      tabId: tabA.id,
+      tab: tabA,
+      reason: 'apply-inactive-owner-a'
+    })).toBe(true);
+    await flush();
+
+    expect(venn.__boundTabId).toBe(tabB.id);
+    const afterB = venn.__testHooks.captureRuntimeState({ tabId: tabB.id, tab: tabB, reason: 'recapture-owner-b' });
+    expect(afterB.persistence.fileName).toBe(beforeB.persistence.fileName);
+    expect(afterB.ui.totalGenes).toBe(beforeB.ui.totalGenes);
+    const ownerASession = venn.__testHooks.getSession(tabA.id);
+    expect(ownerASession?.state?.runtime?.persistence?.fileName).toBe('venn-owner-a-updated.graph');
+    expect(ownerASession?.managers?.fileHandle).toBeNull();
+  });
+
   test('restored venn GO and STRING tab click uses clicked root owner when active mirror is stale', async () => {
     const Main = window.Main;
     await handleGraphSelection(Main, 'venn');
@@ -502,7 +750,7 @@ describe('Venn additional tab opening', () => {
     expect(venn.__testHooks.getSession(tab.id).results.lastStringEnrichment.map(item => item.termDescription)).toContain('Drift STRING enrichment');
   });
 
-  test('restored venn GO and STRING survive first redraw with unprimed region signature', async () => {
+  test('restored venn GO and STRING survive runtime rehydration with a stale region signature', async () => {
     const Main = window.Main;
     await handleGraphSelection(Main, 'venn');
     const venn = window.Components?.venn;
@@ -531,8 +779,25 @@ describe('Venn additional tab opening', () => {
     await flush();
 
     const state = venn.__getState();
-    state.analysis.lastRegionSignature = null;
-    state.analysis.lastRegionCode = null;
+    const runtime = venn.__testHooks.captureRuntimeState({
+      tabId: tab.id,
+      reason: 'restore-redraw-region-signature-capture'
+    });
+    state.analysis.lastRegionSignature = 'A::STALE_OWNER_DATA';
+    state.analysis.lastRegionCode = 'A';
+    venn.__testHooks.applyRuntimeState(runtime, {
+      tabId: tab.id,
+      reason: 'restore-redraw-region-signature-apply'
+    });
+    await flush();
+
+    // Runtime application may synchronously project the durable owner snapshot,
+    // so the restored baseline can already be established before an explicit
+    // fallback draw. The injected stale signature must be replaced by the
+    // restored A-only owner region.
+    expect(state.analysis.lastRegionCode).toBe('A');
+    expect(state.analysis.lastRegionSignature).toBe('A::ATM');
+    expect(venn.__testHooks.getSession(tab.id).cache.analysisProjectionBaselinePending).toBe(false);
     venn.refreshDiagram();
     await flush();
     state.ui.analysisTabString.click();
@@ -544,6 +809,71 @@ describe('Venn additional tab opening', () => {
     expect(tab.payload.analysis.goResult.map(item => item.term_name)).toContain('Redraw GO term');
     expect(tab.payload.analysis.stringEnrichment.map(item => item.termDescription)).toContain('Redraw STRING enrichment');
     expect(state.analysis.lastRegionSignature).toBeTruthy();
+  });
+
+  test('restored numeric Venn region survives runtime rehydration before the first fallback draw', async () => {
+    const Main = window.Main;
+    await handleGraphSelection(Main, 'venn');
+    const venn = window.Components?.venn;
+    const tab = Main.tabs.getActiveTab();
+    const payload = venn.createEmptyPayload();
+    Object.assign(payload.data, {
+      labelA: 'Numeric Alpha',
+      labelB: 'Numeric Beta',
+      labelC: 'Numeric Gamma',
+      nA: '80',
+      nB: '60',
+      nC: '40',
+      nAB: '24',
+      nAC: '12',
+      nBC: '16',
+      nABC: '6'
+    });
+    payload.style.plotType = 'venn';
+    payload.analysis = {
+      ...payload.analysis,
+      regionSelectValue: 'ABC',
+      totalGenes: '300',
+      speciesValue: 'mmusculus'
+    };
+
+    venn.loadFromPayload(payload, {
+      tabId: tab.id,
+      source: 'numeric-region-runtime-rehydrate-test',
+      recordUndo: false
+    });
+    await flush();
+
+    const state = venn.__getState();
+    expect(state.ui.regionSelect.value).toBe('ABC');
+    expect(tab.payload.analysis.regionSelectValue).toBe('ABC');
+
+    const runtime = venn.__testHooks.captureRuntimeState({
+      tabId: tab.id,
+      reason: 'numeric-region-runtime-rehydrate-capture'
+    });
+    venn.__testHooks.applyRuntimeState(runtime, {
+      tabId: tab.id,
+      reason: 'numeric-region-runtime-rehydrate-apply'
+    });
+    await flush();
+
+    // Runtime rehydration invalidates data-derived caches, but applying the
+    // durable owner snapshot may immediately establish the restored baseline.
+    // The invariant is that ABC survives and no transient/default region wins.
+    expect(state.analysis.lastRegionCode).toBe('ABC');
+    expect(state.analysis.lastRegionSignature).toBe('ABC::');
+    expect(venn.__testHooks.getSession(tab.id).cache.analysisProjectionBaselinePending).toBe(false);
+    venn.refreshDiagram();
+    await flush();
+
+    expect(state.ui.regionSelect.value).toBe('ABC');
+    expect(state.analysis.lastRegionCode).toBe('ABC');
+    expect(state.analysis.lastRegionSignature).toBeTruthy();
+    expect(venn.__testHooks.getSession(tab.id).cache.analysisProjectionBaselinePending).toBe(false);
+    expect(tab.payload.analysis.regionSelectValue).toBe('ABC');
+    expect(tab.payload.analysis.totalGenes).toBe('300');
+    expect(tab.payload.analysis.speciesValue).toBe('mmusculus');
   });
 
   test('restored venn GO and STRING survive lifecycle persist from stale active mirror', async () => {
@@ -680,7 +1010,8 @@ describe('Venn additional tab opening', () => {
     expect(ownerSession.cache.asyncRequests).toEqual({
       go: null,
       string: null,
-      species: null
+      species: null,
+      stringOverlay: null
     });
     expect(venn.hasRenderedGraph({ tabId: tab.id, root: state.ui.root })).toBe(true);
     const cache = venn.captureRenderCache({ tabId: tab.id });

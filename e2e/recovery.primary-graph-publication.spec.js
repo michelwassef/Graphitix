@@ -38,10 +38,26 @@ const CASES = [
     type: 'venn', pageId: 'vennPage', exampleButtonId: 'sample', primarySelector: '#stage',
     renderedSelector: '[data-venn-trace-id], rect[data-upset-trace-kind], circle[data-upset-trace-kind], path[data-upset-trace-kind]'
   },
-  // Control case: Scatter already had an authoritative component-specific publication check.
   {
     type: 'scatter', pageId: 'scatterPage', exampleButtonId: 'scatterLoadExample', primarySelector: '#scatterPlot',
     renderedSelector: 'g[data-export-layer="scatter-points"] > *'
+  },
+  {
+    type: 'scatter', variant: '3d', label: 'scatter 3D', pageId: 'scatterPage', exampleButtonId: 'scatterLoadExample', primarySelector: '#scatterPlot',
+    renderedSelector: 'g[data-export-layer="scatter-points"] > *',
+    prepare: async page => {
+      await page.locator('#scatterPage:not([hidden]) #scatterViewMode').selectOption('3d');
+      await clickExampleButtonIfPresent(page, 'scatterLoadExample');
+      await page.waitForFunction(() => {
+        const svg = document.querySelector('#scatterPage:not([hidden]) #scatterSvg');
+        const component = window.Components?.scatter || null;
+        const root = document.querySelector('#scatterPage:not([hidden])');
+        return !!svg
+          && svg.dataset?.viewMode === '3d'
+          && svg.dataset?.rotationControlsAttached === 'true'
+          && component?.__testHooks?.isRestoredRenderCacheVisuallyReady?.(root) === true;
+      }, null, { timeout: 30_000 });
+    }
   }
 ];
 
@@ -182,7 +198,7 @@ async function reloadAndAcceptRecovery(page, component) {
 }
 
 for (const component of CASES) {
-  test(`lean crash recovery publishes ${component.type} before any resize`, async ({ page }) => {
+  test(`lean crash recovery publishes ${component.label || component.type} before any resize`, async ({ page }) => {
     test.setTimeout(150_000);
     const issues = registerIssueCollectors(page);
     await installLocalCdnOverrides(page);
@@ -192,6 +208,9 @@ for (const component of CASES) {
     await expect(page.locator('#welcomeScreen')).toBeVisible({ timeout: 20_000 });
     await openComponentFromWelcome(page, component, { first: true });
     await clickExampleButtonIfPresent(page, component.exampleButtonId);
+    if (typeof component.prepare === 'function') {
+      await component.prepare(page);
+    }
     await waitForPrimaryGraph(page, component);
 
     await seedLeanRecoverySnapshot(page);
@@ -200,6 +219,30 @@ for (const component of CASES) {
     // This assertion is deliberately made before any pointer, resize, tab-switch, or graph-type
     // interaction. The recovered payload itself must publish the graph.
     await waitForPrimaryGraph(page, component);
+
+    if (component.type === 'scatter' && component.variant === '3d') {
+      const publication = await page.evaluate(() => {
+        const state = window.Main?.session?.workspaceState || null;
+        const activeTab = state?.tabs?.find(tab => tab?.id === state.activeTabId) || null;
+        const root = activeTab
+          ? window.Shared?.workspaceTabs?.getMountedRoot?.(activeTab.id, 'scatter')
+          : null;
+        const svg = root?.querySelector?.('#scatterSvg') || null;
+        return {
+          activeTabId: activeTab?.id || null,
+          activeType: activeTab?.type || null,
+          viewMode: svg?.dataset?.viewMode || null,
+          rotationBound: svg?.dataset?.rotationControlsAttached || null,
+          visuallyReady: window.Components?.scatter?.__testHooks
+            ?.isRestoredRenderCacheVisuallyReady?.(root) === true
+        };
+      });
+      expect(publication.activeType).toBe('scatter');
+      expect(publication.viewMode).toBe('3d');
+      expect(publication.rotationBound).toBe('true');
+      expect(publication.visuallyReady).toBe(true);
+      expect(issues.all.some(entry => /workspace-post-restore-fallback-failed/i.test(entry.text || ''))).toBe(false);
+    }
 
     if (component.type === 'venn') {
       const runtime = await page.evaluate(() => {

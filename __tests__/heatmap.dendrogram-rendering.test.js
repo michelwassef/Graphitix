@@ -15,6 +15,8 @@ function loadHeatmapHarness() {
   require('../js/shared/componentLayout.js');
   require('../js/shared/dataTransforms.js');
   require('../js/shared/dataViews.js');
+  require('../js/shared/exportProjection.js');
+  require('../js/shared/exporter.js');
   require('../js/shared/workspaceToolbar.js');
   require('../js/shared/workspaceToolbarAccess.js');
   require('../js/components/heatmap.js');
@@ -26,6 +28,18 @@ describe('Heatmap dendrogram and dense projection geometry', () => {
   function leaf(index) {
     return { indices: [index], distance: 0 };
   }
+
+  test('color-scale gradient IDs are deterministic and owner-scoped', () => {
+    const buildId = window.Components.heatmap.__testHooks.buildScaleGradientId;
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.id = 'heatmapSvg';
+
+    expect(buildId('workspace-12', svg)).toBe('heatmap-scale-workspace-12');
+    expect(buildId('workspace-12', svg)).toBe('heatmap-scale-workspace-12');
+    expect(buildId('workspace:13 / heatmap', svg)).toBe('heatmap-scale-workspace-13-heatmap');
+    expect(buildId('workspace-13', svg)).not.toBe(buildId('workspace-12', svg));
+    expect(buildId(null, svg)).toBe('heatmap-scale-heatmapSvg');
+  });
 
   test('column dendrogram joins both leaf stems at the merge height', () => {
     const geometry = window.Components.heatmap.__testHooks.buildDendrogramGeometry({
@@ -76,6 +90,30 @@ describe('Heatmap dendrogram and dense projection geometry', () => {
     expect(geometry.path).toContain('M120 10V30');
   });
 
+  test('left row dendrogram grows away from the matrix without changing leaf geometry', () => {
+    const geometry = window.Components.heatmap.__testHooks.buildDendrogramGeometry({
+      tree: {
+        left: leaf(0),
+        right: leaf(1),
+        indices: [0, 1],
+        distance: 1
+      },
+      order: [0, 1],
+      startX: 100,
+      startY: 0,
+      length: 40,
+      cellStep: 20,
+      maxDistance: 2,
+      orientation: 'vertical',
+      direction: -1
+    });
+
+    expect(geometry.direction).toBe(-1);
+    expect(geometry.path).toContain('M80 10H100');
+    expect(geometry.path).toContain('M80 30H100');
+    expect(geometry.path).toContain('M80 10V30');
+  });
+
   test('render geometry normalizes non-monotonic linkage heights without changing leaf order', () => {
     const leftCluster = {
       left: leaf(0),
@@ -121,6 +159,55 @@ describe('Heatmap dendrogram and dense projection geometry', () => {
       { axis: 'horizontal', fixed: 3, start: 1, end: 6 }
     ]));
     expect(merged).toHaveLength(2);
+  });
+
+  test('portable export preserves non-scaling dendrogram semantics for the shared exporter', () => {
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('viewBox', '0 0 100 100');
+    svg.setAttribute('preserveAspectRatio', 'none');
+    svg.getBoundingClientRect = () => ({ width: 400, height: 200 });
+
+    const dendrogram = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    dendrogram.setAttribute('class', 'heatmap-dendrogram');
+    dendrogram.setAttribute('stroke', '#3d3d3d');
+    dendrogram.setAttribute('stroke-width', '4');
+    dendrogram.setAttribute('stroke-linecap', 'square');
+    dendrogram.setAttribute('vector-effect', 'non-scaling-stroke');
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('d', 'M10 20H50M50 10V30');
+    path.setAttribute('vector-effect', 'non-scaling-stroke');
+    dendrogram.appendChild(path);
+    svg.appendChild(dendrogram);
+
+    const exported = window.Components.heatmap.__testHooks.buildExportSvgFromSource(svg);
+    const exportedGroup = exported.querySelector('.heatmap-dendrogram');
+    const exportedPath = exportedGroup.querySelector('path');
+
+    expect(exported.getAttribute('viewBox')).toBe('0 0 100 100');
+    expect(exported.getAttribute('preserveAspectRatio')).toBe('none');
+    expect(exportedGroup.getAttribute('stroke-linecap')).toBe('square');
+    expect(exportedGroup.getAttribute('stroke-width')).toBe('4');
+    expect(exportedGroup.getAttribute('vector-effect')).toBe('non-scaling-stroke');
+    expect(exportedPath.getAttribute('d')).toBe('M10 20H50M50 10V30');
+    expect(exportedPath.getAttribute('vector-effect')).toBe('non-scaling-stroke');
+    expect(dendrogram.getAttribute('vector-effect')).toBe('non-scaling-stroke');
+    expect(path.getAttribute('vector-effect')).toBe('non-scaling-stroke');
+
+    const copiedXml = window.Shared.exporter.svgElementToXml(exported, 'heatmap-dendrogram-copy', {
+      ownerFrame: { width: 400, height: 200 }
+    });
+    const copiedSvg = new DOMParser().parseFromString(copiedXml, 'image/svg+xml').documentElement;
+    expect(Number(copiedSvg.getAttribute('width'))).toBeCloseTo(400, 6);
+    expect(Number(copiedSvg.getAttribute('height'))).toBeCloseTo(200, 6);
+    expect(copiedSvg.querySelector('.heatmap-dendrogram')?.getAttribute('vector-effect')).toBe('non-scaling-stroke');
+  });
+
+  test('fixed dendrogram thickness is point-based while auto mode keeps the calculated screen width', () => {
+    const resolveWidth = window.Components.heatmap.__testHooks.resolveDendrogramStrokeWidthCssPx;
+
+    expect(resolveWidth({ mode: 'fixed', thicknessPt: 1 }, 7)).toBeCloseTo(4 / 3, 12);
+    expect(resolveWidth({ mode: 'fixed', thicknessPt: 1.5 }, 7)).toBeCloseTo(2, 12);
+    expect(resolveWidth({ mode: 'auto', thicknessPt: 1 }, 2.75)).toBeCloseTo(2.75, 12);
   });
 
   test('dense label projection is bounded and preserves first and last labels', () => {
@@ -176,6 +263,35 @@ describe('Heatmap dendrogram and dense projection geometry', () => {
     expect(exported.querySelector('[data-layer="column-labels"] > text')?.outerHTML).toBe(columnText.outerHTML);
   });
 
+  test('tab preview preserves the rendered panel projection', () => {
+    const svgBox = document.createElement('div');
+    svgBox.className = 'svgbox';
+    svgBox.dataset.resizerWidth = '400';
+    svgBox.dataset.resizerHeight = '200';
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('viewBox', '0 0 100 100');
+    svg.setAttribute('preserveAspectRatio', 'none');
+    const dendrogram = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    dendrogram.setAttribute('class', 'heatmap-dendrogram');
+    dendrogram.setAttribute('stroke-width', '2');
+    dendrogram.setAttribute('vector-effect', 'non-scaling-stroke');
+    dendrogram.appendChild(document.createElementNS('http://www.w3.org/2000/svg', 'path'));
+    svg.appendChild(dendrogram);
+    svgBox.appendChild(svg);
+    document.body.appendChild(svgBox);
+
+    const preview = window.Components.heatmap.__testHooks.buildPreviewSvgFromSource(svg, {
+      ownerTabId: 'heatmap-preview-owner'
+    });
+
+    expect(preview.getAttribute('viewBox')).toBe('0 0 400 200');
+    expect(preview.getAttribute('width')).toBe('400');
+    expect(preview.getAttribute('height')).toBe('200');
+    expect(preview.getAttribute('data-workspace-tab-id')).toBe('heatmap-preview-owner');
+    expect(preview.getAttribute('data-heatmap-preview-projection')).toBe('rendered-panel');
+    expect(preview.firstElementChild?.getAttribute('transform')).toBe('matrix(4,0,0,2,0,0)');
+  });
+
 
   test('heavy export restores every sampled label with the live aspect projection', () => {
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -220,6 +336,7 @@ describe('Heatmap dendrogram and dense projection geometry', () => {
       labelPaddingY: 2,
       dataStartX: 10,
       dataStartY: 10,
+      heatmapWidth: 30,
       cellWidth: 10,
       cellHeight: 5
     };
@@ -227,7 +344,6 @@ describe('Heatmap dendrogram and dense projection geometry', () => {
     const exported = window.Components.heatmap.__testHooks.buildExportSvgFromSource(svg);
     const rows = Array.from(exported.querySelectorAll('[data-layer="row-labels"] > text'));
     const columns = Array.from(exported.querySelectorAll('[data-layer="column-labels"] > text'));
-
     expect(rows).toHaveLength(3);
     expect(columns).toHaveLength(2);
     expect(rows[0].getAttribute('fill')).toBe('#123456');
@@ -277,14 +393,20 @@ describe('heatmap draw scheduling lifecycle', () => {
 
   test('inline title edits do not schedule a full Heatmap redraw', () => {
     const source = fs.readFileSync(path.join(__dirname, '..', 'js', 'components', 'heatmap.js'), 'utf8');
-    const applyTitleStart = source.indexOf("const applyHeatmapTitle = (value, reason = 'heatmap-title-edit') =>");
+    const binderStart = source.indexOf('function bindHeatmapTitleInlineInteraction(title, ownerSession = null)');
+    const binderEnd = source.indexOf('function rehydrateHeatmapInlineTextInteractions', binderStart);
+    const applyTitleStart = source.indexOf("const applyTitle = (value, reason = 'heatmap-title-edit') =>", binderStart);
     const makeEditableStart = source.indexOf('makeEditable(title, txt =>', applyTitleStart);
-    expect(applyTitleStart).toBeGreaterThan(-1);
+    expect(binderStart).toBeGreaterThan(-1);
+    expect(binderEnd).toBeGreaterThan(binderStart);
+    expect(applyTitleStart).toBeGreaterThan(binderStart);
     expect(makeEditableStart).toBeGreaterThan(applyTitleStart);
+    const binderSource = source.slice(binderStart, binderEnd);
     const applyTitleSource = source.slice(applyTitleStart, makeEditableStart);
-    expect(applyTitleSource).toContain("patchHeatmapVisualState(ownerSession, { titleText: nextValue }");
+    expect(applyTitleSource).toContain("patchHeatmapVisualState(owner, { titleText: nextValue }");
     expect(applyTitleSource).not.toContain('scheduleHeatmapDrawForSession');
     expect(applyTitleSource).not.toContain('draw(');
+    expect(binderSource).toContain("onInput: value => applyTitle(value, 'heatmap-title-input')");
   });
 
   test('nested Heatmap reflow hands render ownership to the committed inner frame', () => {
@@ -426,7 +548,7 @@ describe('heatmap draw scheduling lifecycle', () => {
 
   test('render-cache validation requires a completed matrix layer, not incidental SVG content', () => {
     const hooks = window.Components.heatmap.__testHooks;
-    const makeCache = ({ complete, withCells }) => {
+    const makeCache = ({ complete, withCells, currentLayout = true }) => {
       const fragment = document.createDocumentFragment();
       const title = document.createElementNS('http://www.w3.org/2000/svg', 'text');
       title.textContent = 'Edited title';
@@ -443,13 +565,17 @@ describe('heatmap draw scheduling lifecycle', () => {
       return {
         plot: { fragment },
         svgRootState: {
-          attributes: complete ? { 'data-heatmap-render-complete': 'true' } : {}
+          attributes: complete ? {
+            'data-heatmap-render-complete': 'true',
+            ...(currentLayout ? { 'data-heatmap-row-layout': 'dendrogram-left-labels-right-v1' } : {})
+          } : {}
         }
       };
     };
 
     expect(hooks.hasCompleteRenderCache(makeCache({ complete: false, withCells: true }))).toBe(false);
     expect(hooks.hasCompleteRenderCache(makeCache({ complete: true, withCells: false }))).toBe(false);
+    expect(hooks.hasCompleteRenderCache(makeCache({ complete: true, withCells: true, currentLayout: false }))).toBe(false);
     expect(hooks.hasCompleteRenderCache(makeCache({ complete: true, withCells: true }))).toBe(true);
   });
 

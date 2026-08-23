@@ -4,6 +4,13 @@
   'use strict';
   const Shared = global.Shared = global.Shared || {};
   const hotNS = Shared.hot = Shared.hot || {};
+  if(!Shared.dataViewPersistence && typeof require === 'function'){
+    try{
+      require('./dataViewPersistence.js');
+    }catch(_err){
+      // Browser builds load dataViewPersistence.js before hot.js.
+    }
+  }
   const MIN_INPUT_COLS = 12;
   const tabTablePools = hotNS.__tabTablePools = hotNS.__tabTablePools || {};
   const resolveActiveTabId = () => {
@@ -658,7 +665,7 @@
       }
       try {
         if(typeof manager.updateActiveData === 'function' && typeof hotInstance.getData === 'function'){
-          manager.updateActiveData(hotInstance.getData() || []);
+          manager.updateActiveData(hotInstance.getData() || [], { userMutation: meta.dataMutation === true });
         }
         const updateExclusions = manager.updateActiveExclusions || manager.updateSharedExclusions;
         if (typeof updateExclusions === 'function') {
@@ -684,6 +691,28 @@
       }
     }
     return { checked: false, payload: null };
+  };
+
+  const mergeCapturedDataViewsIntoPayload = (nextPayload, dataViewsCapture) => {
+    if(!nextPayload || typeof nextPayload !== 'object' || !dataViewsCapture?.checked){
+      return nextPayload;
+    }
+    const dataViewsPayload = dataViewsCapture.payload;
+    const includeDataViews = !!(dataViewsPayload
+      && Array.isArray(dataViewsPayload.views)
+      && dataViewsPayload.views.length > 1);
+    if(!includeDataViews){
+      delete nextPayload.dataViews;
+      delete nextPayload.activeDataViewId;
+      return nextPayload;
+    }
+    nextPayload.dataViews = dataViewsPayload;
+    nextPayload.activeDataViewId = dataViewsPayload.activeViewId || null;
+    const rawData = Shared.dataViewPersistence?.resolveRawDataForPersistence?.(dataViewsPayload, nextPayload.data);
+    if(Array.isArray(rawData)){
+      nextPayload.data = rawData.map(row => Array.isArray(row) ? row.slice() : []);
+    }
+    return nextPayload;
   };
 
   // Component bootstrap seeds (header defaults) are system-originated table mutations.
@@ -841,6 +870,7 @@
       });
     }
     const component = resolveComponentForTab(tab);
+    const dataViewsCapture = captureAttachedDataViewsPayload(meta.hotInstance || null, { dataMutation: true });
     if (typeof component?.applyTablePayloadChanges !== 'function' && typeof session?.commitTabPayload === 'function') {
       const currentPayload = tab.payload && typeof tab.payload === 'object'
         ? tab.payload
@@ -866,23 +896,11 @@
         }
         row[change.col] = change.value;
       });
-      const dataViewsCapture = captureAttachedDataViewsPayload(meta.hotInstance || null);
-      if (dataViewsCapture.checked) {
-        const dataViewsPayload = dataViewsCapture.payload;
-        const includeDataViews = !!(dataViewsPayload
-          && Array.isArray(dataViewsPayload.views)
-          && dataViewsPayload.views.length > 1);
-        if (includeDataViews) {
-          nextPayload.dataViews = dataViewsPayload;
-          nextPayload.activeDataViewId = dataViewsPayload.activeViewId || null;
-        } else {
-          delete nextPayload.dataViews;
-          delete nextPayload.activeDataViewId;
-        }
-      }
+      mergeCapturedDataViewsIntoPayload(nextPayload, dataViewsCapture);
       return session.commitTabPayload(tab, nextPayload, {
         reason: effectiveReason,
-        origin: 'user'
+        origin: 'user',
+        renderEquivalent: meta.affectsAnalysis === false
       });
     }
     const updated = session.updateTabPayload(tab, draft => {
@@ -898,7 +916,7 @@
             source: meta.source || null
           });
           if (result && typeof result === 'object') {
-            return result;
+            return mergeCapturedDataViewsIntoPayload(result, dataViewsCapture);
           }
         } catch (err) {
           console.error('Shared.hot component table payload hook failed', {
@@ -931,24 +949,12 @@
         }
         row[change.col] = change.value;
       });
-      const dataViewsCapture = captureAttachedDataViewsPayload(meta.hotInstance || null);
-      if (dataViewsCapture.checked) {
-        const dataViewsPayload = dataViewsCapture.payload;
-        const includeDataViews = !!(dataViewsPayload
-          && Array.isArray(dataViewsPayload.views)
-          && dataViewsPayload.views.length > 1);
-        if (includeDataViews) {
-          nextPayload.dataViews = dataViewsPayload;
-          nextPayload.activeDataViewId = dataViewsPayload.activeViewId || null;
-        } else {
-          delete nextPayload.dataViews;
-          delete nextPayload.activeDataViewId;
-        }
-      }
+      mergeCapturedDataViewsIntoPayload(nextPayload, dataViewsCapture);
       return nextPayload;
     }, {
       reason: effectiveReason,
-      origin: 'user'
+      origin: 'user',
+      renderEquivalent: meta.affectsAnalysis === false
     });
     if (!updated) {
       if (payloadDataMatchesChanges(tab.payload, normalizedChanges)) {
@@ -1014,17 +1020,8 @@
         nextPayload = applied;
       }
     }
-    const dataViewsCapture = captureAttachedDataViewsPayload(meta.hotInstance || null);
-    if(dataViewsCapture.checked){
-      const payload = dataViewsCapture.payload;
-      if(payload && Array.isArray(payload.views) && payload.views.length > 1){
-        nextPayload.dataViews = payload;
-        nextPayload.activeDataViewId = payload.activeViewId || null;
-      }else{
-        delete nextPayload.dataViews;
-        delete nextPayload.activeDataViewId;
-      }
-    }
+    const dataViewsCapture = captureAttachedDataViewsPayload(meta.hotInstance || null, { dataMutation: true });
+    mergeCapturedDataViewsIntoPayload(nextPayload, dataViewsCapture);
     const liveExclusions = meta.hotInstance?.exportExclusions?.();
     if(liveExclusions && typeof liveExclusions === 'object'){
       nextPayload.exclusions = liveExclusions;
@@ -1102,19 +1099,7 @@
         : createPayloadForTab(tab);
       nextPayload.exclusions = normalized;
       const dataViewsCapture = captureAttachedDataViewsPayload(hotInstance, { exclusions: normalized });
-      if (dataViewsCapture.checked) {
-        const dataViewsPayload = dataViewsCapture.payload;
-        const includeDataViews = !!(dataViewsPayload
-          && Array.isArray(dataViewsPayload.views)
-          && dataViewsPayload.views.length > 1);
-        if (includeDataViews) {
-          nextPayload.dataViews = dataViewsPayload;
-          nextPayload.activeDataViewId = dataViewsPayload.activeViewId || null;
-        } else {
-          delete nextPayload.dataViews;
-          delete nextPayload.activeDataViewId;
-        }
-      }
+      mergeCapturedDataViewsIntoPayload(nextPayload, dataViewsCapture);
       return nextPayload;
     }, {
       reason: effectiveReason,
@@ -4949,6 +4934,27 @@
       return { row, col };
     };
 
+    const resolveActiveEditOverflowCell = ()=>{
+      if(!container || typeof container.querySelector !== 'function'){
+        return null;
+      }
+      return container.querySelector('.ag-cell.ag-cell-inline-editing.hot-cell-edit-overflow');
+    };
+
+    const selectionMatchesActiveEditOverflow = (selection)=>{
+      const normalized = normalizeRange(selection);
+      if(!normalized
+        || normalized.from.row !== normalized.to.row
+        || normalized.from.col !== normalized.to.col){
+        return false;
+      }
+      const editCell = resolveActiveEditOverflowCell();
+      const coords = resolveCellCoordsFromNode(editCell);
+      return !!(coords
+        && coords.row === normalized.from.row
+        && coords.col === normalized.from.col);
+    };
+
     const resolveFillHandleCell = (row, col)=>{
       if(!container || !Number.isInteger(row) || !Number.isInteger(col)){
         return null;
@@ -5528,11 +5534,14 @@
       outline.style.borderTopColor = placement.edgeVisibility.top ? outlineColor : 'transparent';
       outline.style.borderBottomColor = placement.edgeVisibility.bottom ? outlineColor : 'transparent';
       outline.style.zIndex = placement.zIndex;
+      const openRightEdgeForEditing = selectionMatchesActiveEditOverflow(selection);
       const edges = outline.querySelectorAll('.hot-selection-outline-edge');
       for(let edgeIndex = 0; edgeIndex < edges.length; edgeIndex += 1){
         const edge = edges[edgeIndex];
         const edgeName = edge?.dataset?.edge;
-        edge.style.display = placement.edgeVisibility[edgeName] ? 'block' : 'none';
+        const visible = !!placement.edgeVisibility[edgeName]
+          && !(openRightEdgeForEditing && edgeName === 'right');
+        edge.style.display = visible ? 'block' : 'none';
       }
       return true;
     };
@@ -5593,6 +5602,10 @@
         return;
       }
       updateSelectionOutlinePosition();
+      if(selectionMatchesActiveEditOverflow(selection)){
+        hideFillHandle();
+        return;
+      }
       const handle = ensureFillHandle();
       if(!handle){
         return;
@@ -8552,6 +8565,275 @@
       this._startedWithTyping = !!initialTypedValue;
       input.value = initialTypedValue || (clearOnEditStart ? '' : (rawCellValue == null ? '' : String(rawCellValue)));
       this.eInput = input;
+      this.editOverflowCell = null;
+      this.editOverflowViewport = null;
+      this.editOverflowMeasureContext = null;
+      this.editOverflowMeasureMetrics = null;
+      this.editOverflowBaseWidth = null;
+      this.editOverflowCellWidth = null;
+      this.editOverflowRafId = null;
+      const editOverflowViewportSelector = [
+        '.ag-center-cols-viewport',
+        '.ag-pinned-left-cols-viewport',
+        '.ag-pinned-right-cols-viewport',
+        '.ag-floating-top-viewport',
+        '.ag-pinned-top-viewport',
+        '.ag-body-viewport'
+      ].join(',');
+      const editOverflowTouchEpsilon = 0.5;
+      this.handleEditOverflowViewportScroll = ()=>{
+        this.scheduleEditOverflowSync?.('grid-scroll');
+      };
+      this.bindEditOverflowViewport = viewport=>{
+        if(this.editOverflowViewport === viewport){
+          return;
+        }
+        if(this.editOverflowViewport && this.handleEditOverflowViewportScroll){
+          this.editOverflowViewport.removeEventListener?.('scroll', this.handleEditOverflowViewportScroll);
+        }
+        this.editOverflowViewport = viewport || null;
+        if(this.editOverflowViewport && this.handleEditOverflowViewportScroll){
+          this.editOverflowViewport.addEventListener?.('scroll', this.handleEditOverflowViewportScroll, { passive: true });
+        }
+      };
+      this.resolveEditOverflowViewport = cell=>{
+        if(!cell || typeof cell.closest !== 'function'){
+          return null;
+        }
+        return cell.closest(editOverflowViewportSelector);
+      };
+      this.resolveEditOverflowPaintRight = (cell, viewport, contentRight, clipRight)=>{
+        if(!cell || !Number.isFinite(contentRight)){
+          return contentRight;
+        }
+        const row = cell.closest?.('.ag-row') || null;
+        if(!row || typeof row.querySelectorAll !== 'function'){
+          return Number.isFinite(clipRight) ? Math.min(contentRight, clipRight) : contentRight;
+        }
+        let sourceRect = null;
+        try{
+          sourceRect = cell.getBoundingClientRect?.() || null;
+        }catch(err){
+          sourceRect = null;
+        }
+        if(!sourceRect || !Number.isFinite(sourceRect.right)){
+          return Number.isFinite(clipRight) ? Math.min(contentRight, clipRight) : contentRight;
+        }
+
+        // Spreadsheet editors hide the complete contents of every neighbour that
+        // the edited text reaches. Snap the opaque editor surface to the far edge
+        // of each touched cell instead of stopping midway through that cell.
+        const sourceRight = Number(sourceRect.right);
+        let snappedPaintRight = null;
+        const candidates = Array.from(row.querySelectorAll('.ag-cell'));
+        for(let i = 0; i < candidates.length; i += 1){
+          const candidate = candidates[i];
+          if(!candidate || candidate === cell){
+            continue;
+          }
+          if(viewport && candidate.closest?.(editOverflowViewportSelector) !== viewport){
+            continue;
+          }
+          let rect = null;
+          try{
+            rect = candidate.getBoundingClientRect?.() || null;
+          }catch(err){
+            rect = null;
+          }
+          if(!rect || !(rect.width > 0) || !Number.isFinite(rect.left) || !Number.isFinite(rect.right)){
+            continue;
+          }
+          if(rect.right <= sourceRight + editOverflowTouchEpsilon){
+            continue;
+          }
+          if(rect.left >= contentRight - editOverflowTouchEpsilon){
+            continue;
+          }
+
+          // getBoundingClientRect() includes the cell's right border. Painting
+          // through rect.right therefore covers the gridline shared with the
+          // following cell. Excel-style overflow stops at the inner edge of
+          // that border, leaving the untouched cell boundary visible.
+          let borderRightWidth = 0;
+          try{
+            const candidateStyle = typeof win?.getComputedStyle === 'function'
+              ? win.getComputedStyle(candidate)
+              : null;
+            const parsedBorderRightWidth = Number.parseFloat(candidateStyle?.borderRightWidth);
+            if(Number.isFinite(parsedBorderRightWidth) && parsedBorderRightWidth > 0){
+              borderRightWidth = Math.min(parsedBorderRightWidth, Number(rect.width));
+            }
+          }catch(err){
+            borderRightWidth = 0;
+          }
+          const candidatePaintRight = Number(rect.right) - borderRightWidth;
+          snappedPaintRight = Number.isFinite(snappedPaintRight)
+            ? Math.max(snappedPaintRight, candidatePaintRight)
+            : candidatePaintRight;
+        }
+
+        // Once text reaches a neighbour, the editor surface belongs to whole
+        // cells rather than to the raw text extent. In particular, text may
+        // extend into the covered cell's own right-border strip without
+        // reaching the following cell. Keeping contentRight as a lower bound
+        // would then repaint that preserved gridline. Snap back to the inner
+        // edge of the furthest genuinely touched cell instead.
+        const paintRight = Number.isFinite(snappedPaintRight)
+          ? snappedPaintRight
+          : contentRight;
+        return Number.isFinite(clipRight) ? Math.min(paintRight, clipRight) : paintRight;
+      };
+      this.resolveEditOverflowMeasureMetrics = ()=>{
+        if(this.editOverflowMeasureMetrics){
+          return this.editOverflowMeasureMetrics;
+        }
+        let style = null;
+        try{
+          style = typeof win?.getComputedStyle === 'function' ? win.getComputedStyle(input) : null;
+        }catch(err){
+          style = null;
+        }
+        const fontSize = Number.parseFloat(style?.fontSize) || 12;
+        const fontFamily = style?.fontFamily || 'sans-serif';
+        const fontStyle = style?.fontStyle || 'normal';
+        const fontVariant = style?.fontVariant || 'normal';
+        const fontWeight = style?.fontWeight || '400';
+        const letterSpacingRaw = Number.parseFloat(style?.letterSpacing);
+        const letterSpacing = Number.isFinite(letterSpacingRaw) ? letterSpacingRaw : 0;
+        const paddingLeft = Number.parseFloat(style?.paddingLeft) || 0;
+        let context = null;
+        try{
+          const canvas = doc.createElement('canvas');
+          context = canvas.getContext?.('2d') || null;
+        }catch(err){
+          context = null;
+        }
+        if(context){
+          context.font = `${fontStyle} ${fontVariant} ${fontWeight} ${fontSize}px ${fontFamily}`;
+        }
+        this.editOverflowMeasureContext = context;
+        this.editOverflowMeasureMetrics = {
+          fontSize,
+          letterSpacing,
+          paddingLeft
+        };
+        return this.editOverflowMeasureMetrics;
+      };
+      this.measureEditOverflowTextRightOffset = ()=>{
+        const value = String(this.eInput?.value ?? '');
+        const metrics = this.resolveEditOverflowMeasureMetrics();
+        const context = this.editOverflowMeasureContext;
+        let textWidth = 0;
+        if(context && typeof context.measureText === 'function'){
+          try{
+            textWidth = Number(context.measureText(value).width) || 0;
+          }catch(err){
+            textWidth = 0;
+          }
+        }
+        if(!(textWidth > 0) && value){
+          textWidth = value.length * metrics.fontSize * 0.6;
+        }
+        if(metrics.letterSpacing && value.length > 1){
+          textWidth += metrics.letterSpacing * (value.length - 1);
+        }
+        // Cell coverage is driven by the rendered text edge only. Padding to the
+        // right of the text is empty editor chrome and must never make an
+        // untouched neighbouring cell disappear.
+        return Math.max(0, textWidth + metrics.paddingLeft);
+      };
+      this.syncEditOverflowWidth = reason=>{
+        if(!this.eInput || !container){
+          return false;
+        }
+        const cell = this.eInput.closest?.('.ag-cell.ag-cell-inline-editing') || null;
+        if(!cell || typeof cell.getBoundingClientRect !== 'function'){
+          return false;
+        }
+        if(this.editOverflowCell && this.editOverflowCell !== cell){
+          this.editOverflowCell.classList?.remove('hot-cell-edit-overflow');
+        }
+        this.editOverflowCell = cell;
+        const viewport = this.resolveEditOverflowViewport(cell);
+        this.bindEditOverflowViewport(viewport);
+        const cellRect = cell.getBoundingClientRect();
+        if(!cellRect || !(cellRect.width > 0)){
+          return false;
+        }
+        const inputRect = this.eInput.getBoundingClientRect?.() || null;
+        const wasExpanded = cell.classList?.contains('hot-cell-edit-overflow') === true;
+        const renderedInputWidth = Number(inputRect?.width);
+        if(!wasExpanded && renderedInputWidth > 0){
+          this.editOverflowBaseWidth = renderedInputWidth;
+        }else if(Number.isFinite(this.editOverflowBaseWidth)
+          && Number.isFinite(this.editOverflowCellWidth)
+          && Math.abs(Number(cellRect.width) - this.editOverflowCellWidth) > 0.5){
+          this.editOverflowBaseWidth = Math.max(
+            1,
+            this.editOverflowBaseWidth + Number(cellRect.width) - this.editOverflowCellWidth
+          );
+        }
+        this.editOverflowCellWidth = Number(cellRect.width);
+        const clipRect = viewport?.getBoundingClientRect?.() || container.getBoundingClientRect?.() || null;
+        const baseWidth = Number.isFinite(this.editOverflowBaseWidth) && this.editOverflowBaseWidth > 0
+          ? this.editOverflowBaseWidth
+          : Number(cellRect.width);
+        const clipRight = Number(clipRect?.right);
+        const inputLeft = Number(inputRect?.left);
+        const editorLeft = Number.isFinite(inputLeft) && renderedInputWidth > 0
+          ? inputLeft
+          : Number(cellRect.left || 0);
+        const textRight = editorLeft + this.measureEditOverflowTextRightOffset();
+        const shouldOverflowCell = textRight > Number(cellRect.right) + editOverflowTouchEpsilon;
+        const paintRight = shouldOverflowCell
+          ? this.resolveEditOverflowPaintRight(cell, viewport, textRight, clipRight)
+          : textRight;
+        const availableWidth = Number.isFinite(clipRight)
+          ? Math.max(baseWidth, clipRight - editorLeft)
+          : Math.max(baseWidth, paintRight - editorLeft);
+        const paintedWidth = Math.max(baseWidth, paintRight - editorLeft);
+        const appliedWidth = Math.max(baseWidth, Math.min(paintedWidth, availableWidth));
+        const shouldExpand = shouldOverflowCell && appliedWidth > baseWidth + 1;
+        if(shouldExpand){
+          // Preserve the exact sub-pixel cell boundary. Rounding the snapped
+          // width upward can paint into the following, untouched cell.
+          this.eInput.style.setProperty('--hot-cell-edit-overflow-width', `${appliedWidth}px`);
+          cell.classList?.add('hot-cell-edit-overflow');
+        }else{
+          cell.classList?.remove('hot-cell-edit-overflow');
+          this.eInput.style.removeProperty('--hot-cell-edit-overflow-width');
+        }
+        if(wasExpanded !== shouldExpand){
+          scheduleFillHandleUpdate(`cell-edit-overflow:${reason || 'sync'}`);
+        }
+        this.positionFunctionAssist?.();
+        return shouldExpand;
+      };
+      this.scheduleEditOverflowSync = reason=>{
+        if(this.editOverflowRafId != null){
+          return;
+        }
+        const raf = typeof win?.requestAnimationFrame === 'function'
+          ? win.requestAnimationFrame.bind(win)
+          : (fn)=>win.setTimeout(fn, 16);
+        this.editOverflowRafId = raf(()=>{
+          this.editOverflowRafId = null;
+          this.syncEditOverflowWidth?.(reason || 'scheduled');
+        });
+      };
+      this.clearEditOverflow = reason=>{
+        const cell = this.editOverflowCell || this.eInput?.closest?.('.ag-cell.ag-cell-inline-editing') || null;
+        const wasExpanded = cell?.classList?.contains('hot-cell-edit-overflow') === true;
+        cell?.classList?.remove('hot-cell-edit-overflow');
+        this.eInput?.style?.removeProperty?.('--hot-cell-edit-overflow-width');
+        this.bindEditOverflowViewport?.(null);
+        this.editOverflowCell = null;
+        this.editOverflowBaseWidth = null;
+        this.editOverflowCellWidth = null;
+        if(wasExpanded){
+          scheduleFillHandleUpdate(`cell-edit-overflow:${reason || 'clear'}`);
+        }
+      };
       this.fnSuggestions = [];
       this.fnSuggestionIndex = 0;
       this.fnPrefixContext = null;
@@ -8742,6 +9024,7 @@
         this.applyFunctionSuggestion(idx);
       };
       this.handleInput = ()=>{
+        this.scheduleEditOverflowSync?.('input');
         try{
           if(enableFormulaReferenceOverlay){
             setFormulaReferenceOverlay(this.eInput?.value || '', {
@@ -8845,6 +9128,7 @@
       };
       this.handleViewportChange = ()=>{
         this.positionFunctionAssist();
+        this.scheduleEditOverflowSync?.('viewport-change');
       };
       this.fnSuggestRoot.addEventListener('mousedown', this.handleSuggestMouseDown, true);
       input.addEventListener('input', this.handleInput);
@@ -8877,6 +9161,8 @@
       }catch(err){
         // ignore overlay update failures
       }
+      this.syncEditOverflowWidth?.('attached');
+      this.scheduleEditOverflowSync?.('attached-frame');
       this.updateFunctionAssist?.();
     };
     SharedFormulaCellEditor.prototype.getValue = function getValue(){
@@ -8890,6 +9176,18 @@
       return this.eInput?.value ?? '';
     };
     SharedFormulaCellEditor.prototype.destroy = function destroy(){
+      const doc = container?.ownerDocument || document;
+      const win = doc?.defaultView || global;
+      if(this.editOverflowRafId != null){
+        try{
+          win?.cancelAnimationFrame?.(this.editOverflowRafId);
+        }catch(err){
+          // fall through to timeout cancellation
+        }
+        win?.clearTimeout?.(this.editOverflowRafId);
+        this.editOverflowRafId = null;
+      }
+      this.clearEditOverflow?.('destroy');
       if(this.eInput){
         if(this.handleInput){
           this.eInput.removeEventListener('input', this.handleInput);
@@ -8909,8 +9207,6 @@
           this.eInput.removeEventListener('mouseup', this.handleCaretChange);
         }
       }
-      const doc = container?.ownerDocument || document;
-      const win = doc?.defaultView || global;
       if(this.handleViewportChange){
         win?.removeEventListener?.('resize', this.handleViewportChange, true);
         win?.removeEventListener?.('scroll', this.handleViewportChange, true);
@@ -8932,6 +9228,21 @@
       this.handleCaretChange = null;
       this.handleViewportChange = null;
       this.handleSuggestMouseDown = null;
+      this.handleEditOverflowViewportScroll = null;
+      this.bindEditOverflowViewport = null;
+      this.resolveEditOverflowViewport = null;
+      this.resolveEditOverflowPaintRight = null;
+      this.resolveEditOverflowMeasureMetrics = null;
+      this.measureEditOverflowTextRightOffset = null;
+      this.syncEditOverflowWidth = null;
+      this.scheduleEditOverflowSync = null;
+      this.clearEditOverflow = null;
+      this.editOverflowCell = null;
+      this.editOverflowViewport = null;
+      this.editOverflowMeasureContext = null;
+      this.editOverflowMeasureMetrics = null;
+      this.editOverflowBaseWidth = null;
+      this.editOverflowCellWidth = null;
       this.fnSuggestions = [];
       this.fnSuggestionIndex = 0;
       this.fnPrefixContext = null;
@@ -9766,25 +10077,27 @@
       }
       return dataHandle.current.length;
     };
+    const commitApiSelectionRange = (api, range, hookCoordinates)=>{
+      const normalized = normalizeRange(range);
+      if(!api || !normalized || shouldIgnoreApiSelectionRange(normalized)){
+        return false;
+      }
+      // The adapter owns the visible cell selection. AG Grid focus/range events
+      // are projections that must be committed back into that one selection
+      // state before the custom selection chrome is redrawn.
+      clearSelectedHeaderColumns();
+      clearSelectedHeaderRows();
+      clearPasteDrivenSelectionState();
+      setLastRange(normalized);
+      renderAg(api);
+      fireHook('afterSelectionEnd', ...hookCoordinates);
+      return true;
+    };
+
     const updateSelectionFromApi = (api)=>{
       if(!api || pendingSelectionReassertRange || selectionRangeOverride){
-        return;
+        return false;
       }
-      const commitApiSelection = (range, hookCoordinates)=>{
-        const normalized = normalizeRange(range);
-        if(!normalized || shouldIgnoreApiSelectionRange(normalized)){
-          return false;
-        }
-        // Explicit row/column-header selections are adapter-owned. Clear them
-        // only when AG Grid reports a concrete replacement cell selection.
-        clearSelectedHeaderColumns();
-        clearSelectedHeaderRows();
-        clearPasteDrivenSelectionState();
-        setLastRange(normalized);
-        renderAg(api);
-        fireHook('afterSelectionEnd', ...hookCoordinates);
-        return true;
-      };
       if(hasEnterprise && typeof api.getCellRanges === 'function'){
         try{
           const ranges = api.getCellRanges();
@@ -9796,11 +10109,11 @@
             const endColId = range.endColumn?.getColId?.() ?? startColId;
             const startCol = colIdToIndex(startColId);
             const endCol = colIdToIndex(endColId);
-            if(commitApiSelection({
+            if(commitApiSelectionRange(api, {
               from: { row: startRow, col: startCol },
               to: { row: endRow, col: endCol }
             }, [startRow, startCol, endRow, endCol])){
-              return;
+              return true;
             }
           }
         }catch(err){
@@ -9808,22 +10121,49 @@
         }
       }
       if(typeof api.getFocusedCell !== 'function'){
-        return;
+        return false;
       }
       try{
         const focused = api.getFocusedCell();
         if(!focused || !Number.isInteger(focused.rowIndex)){
-          return;
+          return false;
         }
         const row = focused.rowIndex;
         const col = colIdToIndex(focused.column?.getColId?.());
-        commitApiSelection(
+        return commitApiSelectionRange(
+          api,
           { from: { row, col }, to: { row, col } },
           [row, col, row, col]
         );
       }catch(err){
         hotDebug('Debug: ag focused cell not available', err);
       }
+      return false;
+    };
+
+    const updateSelectionFromFocusedCellEvent = (params)=>{
+      if(pendingSelectionReassertRange || selectionRangeOverride){
+        return false;
+      }
+      const api = params?.api || instance?.gridApi || null;
+      const row = params?.rowIndex;
+      const colId = params?.column?.getColId?.() ?? params?.colId ?? null;
+      if(!api || !Number.isInteger(row) || row < 0 || typeof colId !== 'string' || !colId.startsWith('c')){
+        return false;
+      }
+      const col = Number(colId.slice(1));
+      if(!Number.isInteger(col) || col < 0){
+        return false;
+      }
+      const nextRange = { from: { row, col }, to: { row, col } };
+      if(areNormalizedRangesEqual(getEffectiveSelectionRange(), nextRange)){
+        return false;
+      }
+      return commitApiSelectionRange(
+        api,
+        nextRange,
+        [row, col, row, col]
+      );
     };
 
     const resolveViewport = ()=>{
@@ -13305,7 +13645,7 @@
         }
       }
 
-      fireHook('afterColumnMove', null, null, null, true, true);
+      fireHook('afterColumnMove', null, null, null, true, true, permutationOldByNew.slice(), reason || 'columnPermutation');
       triggerSchedule('afterColumnMove', { source: reason || 'columnPermutation' });
       if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
         hotDebug('Debug: Shared.hot applied column permutation', { debugLabel, reason: reason || null });
@@ -13922,6 +14262,23 @@
         updateSelectionFromApi(params.api);
         maybeGrowRows('selection');
         maybeGrowCols('selection');
+      },
+      onCellFocused(params){
+        if(isDragSelecting || suppressApiSelectionSyncForSort || isApplyingSortSelectionSnapshot){
+          return;
+        }
+        if(selectedHeaderColumns.size || selectedHeaderPhysicalRows.size){
+          return;
+        }
+        const activeSelection = getEffectiveSelectionRange();
+        if(activeSelection && (activeSelection.from.row !== activeSelection.to.row || activeSelection.from.col !== activeSelection.to.col)){
+          return;
+        }
+        const changed = updateSelectionFromFocusedCellEvent(params);
+        if(changed){
+          maybeGrowRows('focus');
+          maybeGrowCols('focus');
+        }
       },
       onCellClicked(params){
         if(suppressNextCellClick){

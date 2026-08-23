@@ -4,6 +4,7 @@
   const Shared = global.Shared = global.Shared || {};
   const chartStyle = Shared.chartStyle = Shared.chartStyle || {};
   const graphSizing = Shared.graphSizing = Shared.graphSizing || {};
+  const GRAPH_SIZING_SCHEMA_VERSION = 2;
 
   const TYPE_TO_PAGE = Object.freeze({
     venn: { pageId: 'vennPage' },
@@ -20,6 +21,56 @@
   });
 
   let cssApplied = false;
+  const sizingApplyOwnerTokens = new Map();
+  const sizingApplyElementTokens = new WeakMap();
+  let sizingApplySequence = 0;
+
+  function normalizeTabId(value){
+    const id = String(value || '').trim();
+    return id || null;
+  }
+
+  function resolveSizingOwnerTabId(options = {}){
+    return normalizeTabId(options.tabId || options.workspaceTabId || options.ownerTabId);
+  }
+
+  function resolveOwnerSvgBox(type, ownerTabId){
+    const tabId = normalizeTabId(ownerTabId);
+    if(!tabId){
+      return null;
+    }
+    const helper = Shared.workspaceTabs || null;
+    let root = null;
+    try{
+      root = typeof helper?.getMountedRoot === 'function'
+        ? helper.getMountedRoot(tabId, type)
+        : null;
+      if(!root && typeof helper?.resolveTabScopedRoot === 'function'){
+        root = helper.resolveTabScopedRoot(type, tabId, { allowPageFallback: false }) || null;
+      }
+    }catch(err){
+      console.error('Shared.graphSizing.resolveOwnerSvgBox error', { type, ownerTabId: tabId, err });
+      return null;
+    }
+    return root?.querySelector?.('.svgbox') || null;
+  }
+
+  function resolveSizingSessionGeneration(type, ownerTabId, options = {}){
+    const explicit = Number(options.sessionGeneration || options.ownerSessionGeneration || 0);
+    if(Number.isFinite(explicit) && explicit > 0){
+      return explicit;
+    }
+    if(!ownerTabId){
+      return 0;
+    }
+    try{
+      const record = Shared.workspaceTabs?.getSessionRecord?.(ownerTabId, type) || null;
+      const generation = Number(record?.generation) || 0;
+      return generation > 0 ? generation : 0;
+    }catch(_err){
+      return 0;
+    }
+  }
 
   function debug(message, payload) {
     if (typeof Shared.debug === 'function') {
@@ -184,7 +235,6 @@
     const fallback = getSizingInternal({ context });
     const source = ensureObject(raw);
     const rawDisplay = source.display && typeof source.display === 'object' ? source.display : source;
-    const rawExport = source.export && typeof source.export === 'object' ? source.export : {};
 
     const widthPx = toPositiveNumber(rawDisplay.widthPx)
       || toPositiveNumber(rawDisplay.width)
@@ -219,15 +269,8 @@
       || isUnlimitedValue(rawDisplay.maxHeightPx)
       || isUnlimitedValue(rawDisplay.maxHeight);
 
-    const exportWidthPx = toPositiveNumber(rawExport.widthPx)
-      || toPositiveNumber(rawExport.width)
-      || widthPx;
-    const exportHeightPx = toPositiveNumber(rawExport.heightPx)
-      || toPositiveNumber(rawExport.height)
-      || heightPx;
-
     const record = {
-      version: 1,
+      version: GRAPH_SIZING_SCHEMA_VERSION,
       display: {
         widthPx,
         heightPx,
@@ -241,10 +284,6 @@
         aspectLocked,
         allowUnlimitedWidth,
         allowUnlimitedHeight
-      },
-      export: {
-        widthPx: exportWidthPx,
-        heightPx: exportHeightPx
       }
     };
     debug('Debug: graphSizing.buildNormalizedSizingRecord', { context, record });
@@ -301,7 +340,7 @@
       data.graphMaxHeightPx = display.allowUnlimitedHeight === true ? 'Infinity' : String(Math.round(display.maxHeightPx));
       data.graphAspectRatio = String(display.aspectRatio);
       data.graphAspectLocked = display.aspectLocked === true ? 'true' : 'false';
-      data.graphSizingVersion = String(record.version || 1);
+      data.graphSizingVersion = String(record.version || GRAPH_SIZING_SCHEMA_VERSION);
 
       data.resizerDefaultWidth = String(Math.round(defaultWidthPx));
       data.resizerDefaultHeight = String(Math.round(defaultHeightPx));
@@ -418,10 +457,6 @@
         aspectLocked,
         allowUnlimitedWidth,
         allowUnlimitedHeight
-      },
-      export: {
-        widthPx,
-        heightPx
       }
     }, { context });
   }
@@ -429,6 +464,10 @@
   function resolveSvgBoxForType(type, options = {}){
     if(options.element){
       return options.element;
+    }
+    const ownerTabId = resolveSizingOwnerTabId(options);
+    if(ownerTabId){
+      return resolveOwnerSvgBox(type, ownerTabId);
     }
     const descriptor = TYPE_TO_PAGE[type] || null;
     if(descriptor && global.document?.getElementById){
@@ -443,6 +482,115 @@
     return global.document?.querySelector?.('.page.active .svgbox')
       || global.document?.querySelector?.('.svgbox')
       || null;
+  }
+
+  function createSizingApplyTarget(type, options = {}){
+    const ownerTabId = resolveSizingOwnerTabId(options);
+    const explicitElement = options.element || null;
+    return {
+      ownerTabId,
+      sessionGeneration: resolveSizingSessionGeneration(type, ownerTabId, options),
+      element: explicitElement || (!ownerTabId ? resolveSvgBoxForType(type, options) : null),
+      ownerKey: ownerTabId ? `${String(type || 'graph')}::${ownerTabId}` : null
+    };
+  }
+
+  function claimSizingApply(target){
+    const token = Object.freeze({ id: ++sizingApplySequence });
+    if(target.ownerKey){
+      sizingApplyOwnerTokens.set(target.ownerKey, token);
+    }else if(target.element && typeof target.element === 'object'){
+      sizingApplyElementTokens.set(target.element, token);
+    }
+    return token;
+  }
+
+  function isSizingApplyClaimCurrent(target, token){
+    if(target.ownerKey){
+      return sizingApplyOwnerTokens.get(target.ownerKey) === token;
+    }
+    return !!target.element && sizingApplyElementTokens.get(target.element) === token;
+  }
+
+  function releaseSizingApplyClaim(target, token){
+    if(target.ownerKey){
+      if(sizingApplyOwnerTokens.get(target.ownerKey) === token){
+        sizingApplyOwnerTokens.delete(target.ownerKey);
+      }
+      return;
+    }
+    if(target.element && sizingApplyElementTokens.get(target.element) === token){
+      sizingApplyElementTokens.delete(target.element);
+    }
+  }
+
+  function isSizingApplyFresh(type, target, token, options = {}){
+    if(!isSizingApplyClaimCurrent(target, token)){
+      return false;
+    }
+    if(typeof options.isCurrent === 'function'){
+      try{
+        if(options.isCurrent({
+          type,
+          tabId: target.ownerTabId,
+          sessionGeneration: target.sessionGeneration
+        }) !== true){
+          return false;
+        }
+      }catch(err){
+        console.error('Shared.graphSizing.applyPayloadSizingForType freshness error', err);
+        return false;
+      }
+    }
+    if(target.ownerTabId && target.sessionGeneration > 0){
+      try{
+        const record = Shared.workspaceTabs?.getSessionRecord?.(target.ownerTabId, type) || null;
+        return !!record && Number(record.generation) === Number(target.sessionGeneration);
+      }catch(err){
+        console.error('Shared.graphSizing.applyPayloadSizingForType owner generation error', {
+          type,
+          tabId: target.ownerTabId,
+          sessionGeneration: target.sessionGeneration,
+          err
+        });
+        return false;
+      }
+    }
+    return true;
+  }
+
+  function resolveSizingApplyElement(type, target){
+    if(target.element){
+      if(target.ownerTabId){
+        const currentOwnerElement = resolveOwnerSvgBox(type, target.ownerTabId);
+        if(currentOwnerElement && currentOwnerElement !== target.element){
+          return null;
+        }
+      }
+      return target.element;
+    }
+    return target.ownerTabId ? resolveOwnerSvgBox(type, target.ownerTabId) : null;
+  }
+
+  function shouldSuppressSizingResizeCallback(type, target, element, options = {}){
+    if(options.suppressOnResize === true){
+      return true;
+    }
+    // Inactive same-component workspace roots are detached while another sibling is
+    // projected. Updating the owner box is still correct, but its component-local
+    // resize callback can read module mirrors belonging to the visible sibling.
+    if(element?.isConnected === false){
+      return true;
+    }
+    if(!target.ownerTabId){
+      return false;
+    }
+    try{
+      const activeTabId = normalizeTabId(Shared.workspaceTabs?.getActiveSessionInfo?.(type)?.tabId || '');
+      return !!activeTabId && activeTabId !== target.ownerTabId;
+    }catch(_err){
+      return false;
+    }
   }
 
   graphSizing.getSizing = function getSizing(options){
@@ -480,10 +628,6 @@
         maxHeightPx: sizing.maxHeight,
         aspectRatio: sizing.aspectRatio,
         aspectLocked: sizing.aspectLocked
-      },
-      export: {
-        widthPx: sizing.width,
-        heightPx: sizing.height
       }
     }, { context: options.context || element.id || 'element' });
     return applySizingRecordToElement(element, record, options);
@@ -696,60 +840,88 @@
     if(!record){
       return false;
     }
+
+    const target = createSizingApplyTarget(type, options);
+    if(!target.ownerTabId && !target.element){
+      debug('Debug: graphSizing.applyPayloadSizingForType skipped', {
+        type,
+        context,
+        reason: 'missing-pinned-target'
+      });
+      return false;
+    }
+
     const updateDefaults = options.updateDefaults === true;
     const attempts = Array.isArray(options.retryDelaysMs) && options.retryDelaysMs.length
       ? options.retryDelaysMs
       : [0, 40, 120, 260];
+    const token = claimSizingApply(target);
     let applied = false;
+    let remainingAttempts = attempts.length;
+
     attempts.forEach(delay => {
       global.setTimeout(() => {
-        const element = resolveSvgBoxForType(type, options);
-        if(!element || applied){
+        remainingAttempts = Math.max(0, remainingAttempts - 1);
+        const finalAttempt = remainingAttempts === 0;
+        if(applied || !isSizingApplyFresh(type, target, token, options)){
+          if(finalAttempt){
+            releaseSizingApplyClaim(target, token);
+          }
           return;
         }
+
+        const element = resolveSizingApplyElement(type, target);
+        if(!element){
+          if(finalAttempt){
+            releaseSizingApplyClaim(target, token);
+          }
+          return;
+        }
+
         let result = null;
         if(typeof Shared.applyResizableBoxSize === 'function'){
           result = Shared.applyResizableBoxSize(element, {
             width: record.display.widthPx,
             height: record.display.heightPx,
             axis: typeof options.axis === 'string' && options.axis ? options.axis : 'both',
-            reason: options.context || `${type || 'graph'}-apply`,
+            reason: context,
             simulateAspectLock: record.display.aspectLocked === true,
             updateDefaults,
             updateAspectRatio: options.updateAspectRatio !== false,
             preserveAspectLock: options.preserveAspectLock !== false,
-            forceExact: options.forceExact !== false
+            forceExact: options.forceExact !== false,
+            suppressOnResize: shouldSuppressSizingResizeCallback(type, target, element, options)
           });
           if(result){
             debug('Debug: graphSizing.applyPayloadSizingForType used resizer helper', {
               type,
               delay,
+              ownerTabId: target.ownerTabId,
+              sessionGeneration: target.sessionGeneration,
               widthPx: record.display.widthPx,
               heightPx: record.display.heightPx
             });
           }
         }
-        if(!result){
-          result = applySizingRecordToElement(element, record, {
-            context: options.context || `${type || 'graph'}-apply`,
-            delay,
-            updateDefaults
-          });
-        }else{
-          applySizingRecordToElement(element, record, {
-            context: options.context || `${type || 'graph'}-apply`,
-            delay,
-            updateDefaults
-          });
-        }
-        if(result){
+
+        const appliedRecord = applySizingRecordToElement(element, record, {
+          context,
+          delay,
+          updateDefaults
+        });
+        if(result || appliedRecord){
           applied = true;
+          releaseSizingApplyClaim(target, token);
           debug('Debug: graphSizing.applyPayloadSizingForType success', {
             type,
             delay,
+            ownerTabId: target.ownerTabId,
+            sessionGeneration: target.sessionGeneration,
             widthPx: record.display.widthPx,
             heightPx: record.display.heightPx
           });
+        }else if(finalAttempt){
+          releaseSizingApplyClaim(target, token);
         }
       }, Math.max(0, Number(delay) || 0));
     });

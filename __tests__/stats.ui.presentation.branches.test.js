@@ -150,6 +150,7 @@ describe('UI statistical presentation branches', () => {
     require('../js/shared/stats.js');
     require('../js/shared/boxStatsModel.js');
     require('../js/shared/stats-table.js');
+    require('../js/shared/exampleDatasets.js');
     require('../js/shared/colorPicker.js');
     require('../js/shared/editHighlight.js');
     require('../js/shared/axisControls.js');
@@ -310,23 +311,58 @@ describe('UI statistical presentation branches', () => {
 
   test('pie stats render goodness-of-fit and pairwise contingency branches', async () => {
     await activateWorkspace('pie');
-    document.getElementById('pieLoadExample').click();
-    await flushAsyncWork(60);
+    const pie = window.Components?.pie;
+    const singleDatasetPayload = pie.getPayload();
+    singleDatasetPayload.data = [
+      ['Response', 'Observed'],
+      ['Complete', 10],
+      ['Partial', 20],
+      ['None', 30]
+    ];
+    singleDatasetPayload.config.stats.scope = 'gof';
+    singleDatasetPayload.config.stats.valueColumn = 1;
+    singleDatasetPayload.config.stats.expectedColumn = null;
+    pie.loadFromPayload(singleDatasetPayload);
+    await flushAsyncWork(40);
 
     const computeBtn = document.getElementById('pieComputeStats');
     expect(computeBtn).toBeTruthy();
     const statsResults = document.getElementById('pieStatsResults');
+    const controls = document.getElementById('pieStatsControls');
+    const expectedDistribution = getLabeledSelect(controls, 'Expected distribution:');
+    expect(expectedDistribution).toBeTruthy();
+    expect(expectedDistribution.disabled).toBe(true);
+    expect(expectedDistribution.value).toBe('equal-proportions');
     computeBtn.click();
-    await waitFor(() => /Goodness-of-fit test|Observed vs expected/i.test(statsResults?.textContent || ''));
-    expect(statsResults?.textContent || '').toMatch(/Goodness-of-fit test|Observed vs expected/i);
+    await waitFor(() => /equal expected proportions/i.test(statsResults?.textContent || ''));
+    expect(statsResults?.textContent || '').toMatch(/Goodness-of-fit test/i);
+    expect(statsResults?.textContent || '').toMatch(/equal expected proportions/i);
+    expect(statsResults?.textContent || '').toMatch(/10\.0000/);
     expect(statsResults?.textContent || '').toContain('Reporting and reproducibility');
     expectReportHostAtBottom('pieStatsReportHost');
+    const singleDatasetStats = pie.getPayload()?.config?.stats;
+    expect(singleDatasetStats?.expectedColumn).toBeNull();
+    expect(JSON.stringify(singleDatasetStats?.reportModel || {})).toMatch(/equal expected proportions/i);
 
-    const controls = document.getElementById('pieStatsControls');
+    const pairwisePayload = pie.getPayload();
+    pairwisePayload.data = [
+      ['Subtype', 'Control', 'Treatment'],
+      ['Luminal A', 24, 18],
+      ['Luminal B', 13, 21],
+      ['Basal-like', 9, 16]
+    ];
+    pie.loadFromPayload(pairwisePayload);
+    await flushAsyncWork(40);
+
     const scopeSelect = getLabeledSelect(controls, 'Comparison scope:');
     expect(scopeSelect).toBeTruthy();
     scopeSelect.value = 'all';
     scopeSelect.dispatchEvent(new Event('change', { bubbles: true }));
+    await flushAsyncWork(20);
+    Array.from(controls.querySelectorAll('.stats-conditions-checkboxes input[type="checkbox"]'))
+      .filter(input => !input.checked)
+      .slice(0, 2)
+      .forEach(input => input.click());
     await flushAsyncWork(20);
 
     computeBtn.click();

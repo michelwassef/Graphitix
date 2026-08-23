@@ -7,6 +7,8 @@
   const TAB_PREVIEW_MIN_HEIGHT = 120;
   const TAB_PREVIEW_MAX_HEIGHT = 220;
   const TAB_PREVIEW_MAX_CHARS = 120000;
+  const TAB_PREVIEW_MIN_RASTER_SCALE = 2;
+  const TAB_PREVIEW_MAX_RASTER_SCALE = 3;
   const TAB_PREVIEW_NS = 'http://www.w3.org/2000/svg';
 
   let tabPreviewTooltipEl = null;
@@ -236,6 +238,18 @@
     if (Number.isFinite(sizing.boxW) && sizing.boxW > 0 && Number.isFinite(sizing.boxH) && sizing.boxH > 0) {
       svg.setAttribute('viewBox', `${Number.isFinite(sizing.minX) ? sizing.minX : 0} ${Number.isFinite(sizing.minY) ? sizing.minY : 0} ${sizing.boxW} ${sizing.boxH}`);
     }
+    const previewScale = Math.min(
+      sizing.targetWidth / sizing.boxW,
+      sizing.targetHeight / sizing.boxH
+    );
+    if (Number.isFinite(previewScale) && previewScale > 0) {
+      svg.querySelectorAll?.('[vector-effect="non-scaling-stroke"]')?.forEach?.(node => {
+        const strokeWidth = Number.parseFloat(node.getAttribute?.('stroke-width'));
+        if (Number.isFinite(strokeWidth) && strokeWidth > 0) {
+          node.setAttribute('stroke-width', String(strokeWidth * previewScale));
+        }
+      });
+    }
   }
 
   function ensurePreviewBackground(svg, sizing) {
@@ -299,6 +313,15 @@
     return Number.isFinite(seq) && seq > 0 ? seq : 0;
   }
 
+  function resolvePngPreviewRasterScale() {
+    const deviceScale = Number(window.devicePixelRatio);
+    const requestedScale = Number.isFinite(deviceScale) && deviceScale > 0 ? deviceScale : 1;
+    return Math.min(
+      TAB_PREVIEW_MAX_RASTER_SCALE,
+      Math.max(TAB_PREVIEW_MIN_RASTER_SCALE, requestedScale)
+    );
+  }
+
   function buildPngPreviewMarkup(dataUrl, tab, sizing) {
     if (!dataUrl || !tab?.id || !sizing) {
       return '';
@@ -355,6 +378,7 @@
       || typeof exporter.blobToDataUrl !== 'function') {
       return false;
     }
+    const rasterScale = resolvePngPreviewRasterScale();
     const request = {
       id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
       tab,
@@ -364,6 +388,7 @@
       payloadVersion: Number(meta.payloadVersion ?? tab.payloadVersion ?? 0),
       layoutVersion: Number(meta.layoutVersion ?? tab.layoutVersion ?? 0),
       renderCacheSequence: Number(meta.renderCacheSequence ?? getRenderCacheSequence(tab)),
+      rasterScale,
       sizing,
       reason: meta.reason || 'png'
     };
@@ -373,10 +398,10 @@
       && existing.layoutSignature === request.layoutSignature
       && existing.payloadVersion === request.payloadVersion
       && existing.layoutVersion === request.layoutVersion
-      && existing.renderCacheSequence === request.renderCacheSequence) {
+      && existing.renderCacheSequence === request.renderCacheSequence
+      && existing.rasterScale === request.rasterScale) {
       return true;
     }
-    tabPreviewPngRequests.set(tab.id, request);
     request.promise = new Promise(resolve => setTimeout(resolve, 0))
       .then(async () => {
         if (!previewRequestStillMatches(tab, request)) {
@@ -392,7 +417,7 @@
         return exporter.svgElementToPngBlob(svg, {
           width: sizing.targetWidth,
           height: sizing.targetHeight,
-          pngScale: 1,
+          pngScale: request.rasterScale,
           backgroundColor: '#ffffff',
           contextLabel: `tab-preview-${tab.type || 'unknown'}`
         });
@@ -414,6 +439,9 @@
           size: markup.length,
           format: 'png',
           rasterized: true,
+          rasterScale: request.rasterScale,
+          pixelWidth: Math.max(1, Math.round(sizing.targetWidth * request.rasterScale)),
+          pixelHeight: Math.max(1, Math.round(sizing.targetHeight * request.rasterScale)),
           renderCacheSequence: getRenderCacheSequence(tab),
           layoutSignature: request.layoutSignature,
           payloadVersion: request.payloadVersion,
@@ -423,21 +451,15 @@
         };
         syncTabPreviewIndicator(tab);
         updateVisiblePreviewTooltip(tab, markup);
-        try {
-          Main.session?.markTabRenderCommitted?.(tab, { reason: request.reason });
-        } catch (err) {
-          console.debug('Debug: PNG preview render commit mark skipped', {
-            tabId: tab.id,
-            type: tab.type,
-            message: err?.message || String(err)
-          });
-        }
         console.debug('Debug: PNG preview stored', {
           tabId: tab.id,
           type: tab.type,
           length: markup.length,
           width: sizing.targetWidth,
-          height: sizing.targetHeight
+          height: sizing.targetHeight,
+          rasterScale: request.rasterScale,
+          pixelWidth: Math.max(1, Math.round(sizing.targetWidth * request.rasterScale)),
+          pixelHeight: Math.max(1, Math.round(sizing.targetHeight * request.rasterScale))
         });
         return true;
       })
@@ -639,7 +661,7 @@
     );
     if (hasCanvas || hasArchivedCanvasBitmap || markup.length > TAB_PREVIEW_MAX_CHARS) {
       const reason = hasCanvas || hasArchivedCanvasBitmap ? 'canvas-backed-svg' : 'oversized-svg';
-      const scheduled = schedulePngPreviewCapture(tab, svg, sizing, {
+      const scheduled = schedulePngPreviewCapture(tab, hasCanvas ? svg : clone, sizing, {
         reason,
         payloadSignature: tab?.payloadSignature || null,
         layoutSignature: tab?.layoutSignature || null,
@@ -1014,6 +1036,9 @@
       && tab.previewMeta?.layoutSignature !== layoutSignature;
     const needsPayloadVersionRefresh = Number(tab.previewMeta?.payloadVersion || 0) !== payloadVersion;
     const needsLayoutVersionRefresh = Number(tab.previewMeta?.layoutVersion || 0) !== layoutVersion;
+    const expectedRasterScale = resolvePngPreviewRasterScale();
+    const needsRasterScaleRefresh = tab.previewMeta?.format === 'png'
+      && Number(tab.previewMeta?.rasterScale || 0) !== expectedRasterScale;
     const needsPlaceholderRefresh = isPreviewPlaceholderMarkup(tab.previewMarkup)
       && hasLivePreviewSource
       && !tabPreviewPngRequests.has(tab.id);
@@ -1034,6 +1059,7 @@
       || needsLayoutRefresh
       || needsPayloadVersionRefresh
       || needsLayoutVersionRefresh
+      || needsRasterScaleRefresh
       || needsPlaceholderRefresh
       || needsLegacyMixedPreviewRefresh;
     if (shouldCapture && shouldPreserveExistingPreviewWithoutLiveSource(tab, meta, { hasLivePreviewSource })) {
@@ -1043,6 +1069,7 @@
         reason: meta?.reason || 'preserve-existing-no-live-source',
         needsRenderCacheRefresh,
         needsLayoutRefresh,
+        needsRasterScaleRefresh,
         needsPlaceholderRefresh,
         forceCapture: !!meta.forceCapture
       });
@@ -1069,15 +1096,6 @@
         updatedAt: Date.now(),
         reason: meta.reason || 'capture'
       };
-      try {
-        session?.markTabRenderCommitted?.(tab, { reason: meta.reason || 'preview-capture' });
-      } catch (err) {
-        console.debug('Debug: preview render commit mark skipped', {
-          tabId: tab.id,
-          type: tab.type,
-          message: err?.message || String(err)
-        });
-      }
       syncTabPreviewIndicator(tab);
       console.debug('Debug: preview stored', {
         tabId: tab.id,
@@ -1372,7 +1390,9 @@
     TAB_PREVIEW_TARGET_WIDTH,
     TAB_PREVIEW_MIN_HEIGHT,
     TAB_PREVIEW_MAX_HEIGHT,
-    TAB_PREVIEW_MAX_CHARS
+    TAB_PREVIEW_MAX_CHARS,
+    TAB_PREVIEW_MIN_RASTER_SCALE,
+    TAB_PREVIEW_MAX_RASTER_SCALE
   };
   console.debug('Debug: Main previews module initialized', { constants: namespace.constants });
 })();

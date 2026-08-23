@@ -60,14 +60,14 @@ describe('chartStyle.formatScientific', () => {
 
   test('formats negative large numbers correctly', () => {
     const { chartStyle } = window.Shared;
-    expect(chartStyle.formatScientific(-10000)).toBe('-10⁴');
-    expect(chartStyle.formatScientific(-50000)).toBe('-5×10⁴');
+    expect(chartStyle.formatScientific(-10000)).toBe('−10⁴');
+    expect(chartStyle.formatScientific(-50000)).toBe('−5×10⁴');
   });
 
   test('formats negative small numbers correctly', () => {
     const { chartStyle } = window.Shared;
-    expect(chartStyle.formatScientific(-0.001)).toBe('-10⁻³');
-    expect(chartStyle.formatScientific(-0.0005)).toBe('-5×10⁻⁴');
+    expect(chartStyle.formatScientific(-0.001)).toBe('−10⁻³');
+    expect(chartStyle.formatScientific(-0.0005)).toBe('−5×10⁻⁴');
   });
 
   test('formats decimals between thresholds normally', () => {

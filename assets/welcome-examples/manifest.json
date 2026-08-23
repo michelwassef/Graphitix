@@ -1,0 +1,452 @@
+{
+  "schemaVersion": 6,
+  "generator": "scripts/generate-welcome-example-thumbnails.cjs",
+  "assetFormat": "svg",
+  "previewSource": "Graphitix owner-scoped SVG projection",
+  "width": 320,
+  "height": 220,
+  "sourceFingerprint": "17093295c1b3477294527fb0c9f31008a48ebb393bbe155fee3111453d15a516",
+  "registry": {
+    "file": "thumbnails.js",
+    "sha256": "01f1d5ee6f49489803d52e185e87008a9e7edecbbc5d426d9c18c0cea9527b15",
+    "inline": true
+  },
+  "examples": [
+    {
+      "type": "box",
+      "file": "box.svg",
+      "width": 320,
+      "height": 220,
+      "source": "Graphitix owner-scoped SVG projection",
+      "captureMode": "canonical-export",
+      "sourceFormat": "svg",
+      "sourceWidth": 452,
+      "sourceHeight": 392,
+      "sourceViewBox": {
+        "x": 0,
+        "y": 0,
+        "width": 452,
+        "height": 392
+      },
+      "sourcePreserveAspectRatio": "none",
+      "exportProjection": "svg",
+      "inlineReady": true,
+      "rasterImageCount": 0,
+      "legendSuppression": {
+        "mode": "control",
+        "controlId": "boxShowLegend",
+        "requested": true,
+        "changed": false,
+        "verified": true
+      },
+      "graphTitleSuppression": {
+        "mode": "control",
+        "selector": ".resizer-graph-title-checkbox",
+        "requested": true,
+        "changed": true,
+        "verified": true
+      },
+      "proportionalStrokeContract": "source-viewport-baked-strokes-v1",
+      "visualScale": 0.510204081633,
+      "nonScalingStrokeCount": 0,
+      "sourceFingerprint": "ebc75bb25e85f740586ebf5cf1c68b4ffca7b27605b0f59882a2d3416d913c5f",
+      "sha256": "6de92894633772f802a39b04acde09047ec77bea4f20e8bd420695c57a683220"
+    },
+    {
+      "type": "scatter",
+      "file": "scatter.svg",
+      "width": 320,
+      "height": 220,
+      "source": "Graphitix owner-scoped SVG projection",
+      "captureMode": "canonical-export",
+      "sourceFormat": "svg",
+      "sourceWidth": 452,
+      "sourceHeight": 392,
+      "sourceViewBox": {
+        "x": 0,
+        "y": 0,
+        "width": 452,
+        "height": 392
+      },
+      "sourcePreserveAspectRatio": "xMidYMid meet",
+      "exportProjection": "svg",
+      "inlineReady": true,
+      "rasterImageCount": 0,
+      "legendSuppression": {
+        "mode": "control",
+        "controlId": "scatterShowLegend",
+        "requested": true,
+        "changed": false,
+        "verified": true
+      },
+      "graphTitleSuppression": {
+        "mode": "control",
+        "selector": ".resizer-graph-title-checkbox",
+        "requested": true,
+        "changed": true,
+        "verified": true
+      },
+      "proportionalStrokeContract": "source-viewport-baked-strokes-v1",
+      "visualScale": 0.510204081633,
+      "nonScalingStrokeCount": 0,
+      "sourceFingerprint": "974420ae5dd61827ac8ab15444ae905c21581b079e3b42fe8eb0a78c20c6da06",
+      "sha256": "d16592f7cf69ac3ed39efc9fedbc6a3966b54d5d92224b7224742da42d1a20b7"
+    },
+    {
+      "type": "line",
+      "file": "line.svg",
+      "width": 320,
+      "height": 220,
+      "source": "Graphitix owner-scoped SVG projection",
+      "captureMode": "canonical-export",
+      "sourceFormat": "svg",
+      "sourceWidth": 482.133333,
+      "sourceHeight": 480,
+      "sourceViewBox": {
+        "x": 0,
+        "y": 0,
+        "width": 482.133333,
+        "height": 480
+      },
+      "sourcePreserveAspectRatio": "xMidYMid meet",
+      "exportProjection": "svg",
+      "inlineReady": true,
+      "rasterImageCount": 0,
+      "legendSuppression": {
+        "mode": "control",
+        "controlId": "lineShowLegend",
+        "requested": true,
+        "changed": true,
+        "verified": true
+      },
+      "graphTitleSuppression": {
+        "mode": "control",
+        "selector": ".resizer-graph-title-checkbox",
+        "requested": true,
+        "changed": true,
+        "verified": true
+      },
+      "proportionalStrokeContract": "source-viewport-baked-strokes-v1",
+      "visualScale": 0.416666666667,
+      "nonScalingStrokeCount": 0,
+      "sourceFingerprint": "79560f40ef0f3c719101638ed3a89222f878bd04814d2e29be0967d177e85eaf",
+      "sha256": "9518dae8ac3568f8683a3dfe898cf57ccf3477cc75cff3c7207b858fd2eb01a6"
+    },
+    {
+      "type": "hist",
+      "file": "hist.svg",
+      "width": 320,
+      "height": 220,
+      "source": "Graphitix owner-scoped SVG projection",
+      "captureMode": "canonical-export",
+      "sourceFormat": "svg",
+      "sourceWidth": 450,
+      "sourceHeight": 392,
+      "sourceViewBox": {
+        "x": 0,
+        "y": 0,
+        "width": 450,
+        "height": 392
+      },
+      "sourcePreserveAspectRatio": "xMidYMid meet",
+      "exportProjection": "svg",
+      "inlineReady": true,
+      "rasterImageCount": 0,
+      "legendSuppression": {
+        "mode": "control",
+        "controlId": "histShowLegend",
+        "requested": true,
+        "changed": true,
+        "verified": true
+      },
+      "graphTitleSuppression": {
+        "mode": "control",
+        "selector": ".resizer-graph-title-checkbox",
+        "requested": true,
+        "changed": true,
+        "verified": true
+      },
+      "proportionalStrokeContract": "source-viewport-baked-strokes-v1",
+      "visualScale": 0.510204081633,
+      "nonScalingStrokeCount": 0,
+      "sourceFingerprint": "57fcce0681e9d1f98ea0d078e98f53cde340b8d23020a09631faa860088ce94c",
+      "sha256": "4cd1e2857856f145640d564dff0b7586b2c99f36b4608ef4a5a0b5e635377f4a"
+    },
+    {
+      "type": "heatmap",
+      "file": "heatmap.svg",
+      "width": 320,
+      "height": 220,
+      "source": "Graphitix owner-scoped SVG projection",
+      "captureMode": "canonical-export",
+      "sourceFormat": "svg",
+      "sourceWidth": 3864.650001551766,
+      "sourceHeight": 3392.7543685705546,
+      "sourceViewBox": {
+        "x": 0,
+        "y": 0,
+        "width": 450,
+        "height": 392.861608
+      },
+      "sourcePreserveAspectRatio": "xMinYMid meet",
+      "exportProjection": "svg",
+      "inlineReady": true,
+      "rasterImageCount": 0,
+      "legendSuppression": {
+        "mode": "not-applicable",
+        "requested": false,
+        "reason": "continuous-color-scale"
+      },
+      "graphTitleSuppression": {
+        "mode": "control",
+        "selector": ".resizer-graph-title-checkbox",
+        "requested": true,
+        "changed": true,
+        "verified": true
+      },
+      "proportionalStrokeContract": "source-viewport-baked-strokes-v1",
+      "visualScale": 0.058949154072,
+      "nonScalingStrokeCount": 10,
+      "sourceFingerprint": "48925009d09ebe0907b0248dc523210cec385fb907a99c8cbb332ceefd525544",
+      "sha256": "387df3180e10c1bfd67527fddb39a903e2504f52dfd866ab55d3a423e4b99617"
+    },
+    {
+      "type": "pca",
+      "file": "pca.svg",
+      "width": 320,
+      "height": 220,
+      "source": "Graphitix owner-scoped SVG projection",
+      "captureMode": "canonical-export",
+      "sourceFormat": "svg",
+      "sourceWidth": 671.77,
+      "sourceHeight": 392,
+      "sourceViewBox": {
+        "x": 0,
+        "y": 0,
+        "width": 671.77,
+        "height": 392
+      },
+      "sourcePreserveAspectRatio": "xMidYMid meet",
+      "exportProjection": "svg",
+      "inlineReady": true,
+      "rasterImageCount": 0,
+      "legendSuppression": {
+        "mode": "control",
+        "controlId": "pcaShowLegend",
+        "requested": true,
+        "changed": true,
+        "verified": true
+      },
+      "graphTitleSuppression": {
+        "mode": "control",
+        "selector": ".resizer-graph-title-checkbox",
+        "requested": true,
+        "changed": true,
+        "verified": true
+      },
+      "proportionalStrokeContract": "source-viewport-baked-strokes-v1",
+      "visualScale": 0.446581419236,
+      "nonScalingStrokeCount": 0,
+      "sourceFingerprint": "67f5b94c5a5ef8c2d48bae611d81606856e7a6b72fcc5cb9e095f6b87b3e1263",
+      "sha256": "546113c007f84f7f5b0634e81b1c2c8f392ffb93975bb243043a7f0fff76332a"
+    },
+    {
+      "type": "pie",
+      "file": "pie.svg",
+      "width": 320,
+      "height": 220,
+      "source": "Graphitix owner-scoped SVG projection",
+      "captureMode": "canonical-export",
+      "sourceFormat": "svg",
+      "sourceWidth": 450,
+      "sourceHeight": 392,
+      "sourceViewBox": {
+        "x": 0,
+        "y": 0,
+        "width": 450,
+        "height": 392
+      },
+      "sourcePreserveAspectRatio": "xMidYMid meet",
+      "exportProjection": "svg",
+      "inlineReady": true,
+      "rasterImageCount": 0,
+      "legendSuppression": {
+        "mode": "control",
+        "controlId": "pieShowLegend",
+        "requested": true,
+        "changed": true,
+        "verified": true
+      },
+      "graphTitleSuppression": {
+        "mode": "control",
+        "selector": ".resizer-graph-title-checkbox",
+        "requested": true,
+        "changed": true,
+        "verified": true
+      },
+      "proportionalStrokeContract": "source-viewport-baked-strokes-v1",
+      "visualScale": 0.510204081633,
+      "nonScalingStrokeCount": 0,
+      "sourceFingerprint": "0c681f3577b6d7c5f98775a07d8b113f416a7a0a340a0daa185e270c5270624b",
+      "sha256": "c5cacc3faa59d30e7ed4ceb7d47be19ce13f967b8bb29d9b845ddbe3848d2db9"
+    },
+    {
+      "type": "roc",
+      "file": "roc.svg",
+      "width": 320,
+      "height": 220,
+      "source": "Graphitix owner-scoped SVG projection",
+      "captureMode": "canonical-export",
+      "sourceFormat": "svg",
+      "sourceWidth": 452,
+      "sourceHeight": 392,
+      "sourceViewBox": {
+        "x": 0,
+        "y": 0,
+        "width": 452,
+        "height": 392
+      },
+      "sourcePreserveAspectRatio": "xMidYMid meet",
+      "exportProjection": "svg",
+      "inlineReady": true,
+      "rasterImageCount": 0,
+      "legendSuppression": {
+        "mode": "control",
+        "controlId": "rocShowLegend",
+        "requested": true,
+        "changed": true,
+        "verified": true
+      },
+      "graphTitleSuppression": {
+        "mode": "control",
+        "selector": ".resizer-graph-title-checkbox",
+        "requested": true,
+        "changed": true,
+        "verified": true
+      },
+      "proportionalStrokeContract": "source-viewport-baked-strokes-v1",
+      "visualScale": 0.510204081633,
+      "nonScalingStrokeCount": 0,
+      "sourceFingerprint": "f5f1bcea6e6ea0e458151eda17ff373be9839416ac52b928241e3723ec8d7dde",
+      "sha256": "5216f758df0a919492ca1411086996a77740fc3689cf745e2e6e8b8944573da8"
+    },
+    {
+      "type": "survival",
+      "file": "survival.svg",
+      "width": 320,
+      "height": 220,
+      "source": "Graphitix owner-scoped SVG projection",
+      "captureMode": "canonical-export",
+      "sourceFormat": "svg",
+      "sourceWidth": 452,
+      "sourceHeight": 392,
+      "sourceViewBox": {
+        "x": 0,
+        "y": 0,
+        "width": 452,
+        "height": 392
+      },
+      "sourcePreserveAspectRatio": "xMidYMid meet",
+      "exportProjection": "svg",
+      "inlineReady": true,
+      "rasterImageCount": 0,
+      "legendSuppression": {
+        "mode": "control",
+        "controlId": "survivalShowLegend",
+        "requested": true,
+        "changed": true,
+        "verified": true
+      },
+      "graphTitleSuppression": {
+        "mode": "control",
+        "selector": ".resizer-graph-title-checkbox",
+        "requested": true,
+        "changed": true,
+        "verified": true
+      },
+      "proportionalStrokeContract": "source-viewport-baked-strokes-v1",
+      "visualScale": 0.510204081633,
+      "nonScalingStrokeCount": 0,
+      "sourceFingerprint": "2f432099a53be7cb9831eb303bfefa5e170433850af21f9b25276bd9eb837d6c",
+      "sha256": "ee307f544fef3b624fe9fa1be652ac6690ef3972bf7d589f46d27c3bfbb66aa1"
+    },
+    {
+      "type": "venn",
+      "file": "venn.svg",
+      "width": 320,
+      "height": 220,
+      "source": "Graphitix owner-scoped SVG projection",
+      "captureMode": "canonical-export",
+      "sourceFormat": "svg",
+      "sourceWidth": 450,
+      "sourceHeight": 392,
+      "sourceViewBox": {
+        "x": 0,
+        "y": 0,
+        "width": 450,
+        "height": 392
+      },
+      "sourcePreserveAspectRatio": "xMidYMid meet",
+      "exportProjection": "svg",
+      "inlineReady": true,
+      "rasterImageCount": 0,
+      "legendSuppression": {
+        "mode": "not-applicable",
+        "requested": false,
+        "reason": "no-legend-control"
+      },
+      "graphTitleSuppression": {
+        "mode": "control",
+        "selector": ".resizer-graph-title-checkbox",
+        "requested": true,
+        "changed": true,
+        "verified": true
+      },
+      "proportionalStrokeContract": "source-viewport-baked-strokes-v1",
+      "visualScale": 0.510204081633,
+      "nonScalingStrokeCount": 0,
+      "sourceFingerprint": "682b025cdadff7f78d18f3dc3f4457249014183bf4008b767c50d3d1d7dca033",
+      "sha256": "fbe30d61de1bffa959d7f7edfb3b0f9bbde53c1bf0a11454ce2deefcf5b46877"
+    },
+    {
+      "type": "surface",
+      "file": "surface.svg",
+      "width": 320,
+      "height": 220,
+      "source": "Graphitix owner-scoped SVG projection",
+      "captureMode": "canonical-export",
+      "sourceFormat": "svg",
+      "sourceWidth": 458,
+      "sourceHeight": 400,
+      "sourceViewBox": {
+        "x": 0,
+        "y": 0,
+        "width": 458,
+        "height": 400
+      },
+      "sourcePreserveAspectRatio": "xMidYMid meet",
+      "exportProjection": "svg",
+      "inlineReady": true,
+      "rasterImageCount": 0,
+      "legendSuppression": {
+        "mode": "control",
+        "controlId": "surfaceShowLegend",
+        "requested": true,
+        "changed": true,
+        "verified": true
+      },
+      "graphTitleSuppression": {
+        "mode": "control",
+        "selector": ".resizer-graph-title-checkbox",
+        "requested": true,
+        "changed": true,
+        "verified": true
+      },
+      "proportionalStrokeContract": "source-viewport-baked-strokes-v1",
+      "visualScale": 0.5,
+      "nonScalingStrokeCount": 0,
+      "sourceFingerprint": "07882efba2717f5f396380d95ce1bd9025c7d15c6714d4ee7fa659fe5955aef1",
+      "sha256": "fa93dec8ef661e5c780a547b19988f8dad8b5d2387d62c4b78627860c809fd8f"
+    }
+  ]
+}

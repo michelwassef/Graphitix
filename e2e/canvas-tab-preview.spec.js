@@ -74,6 +74,10 @@ async function assertCanvasPreview(page, preview, type) {
   expect(preview.hasPreview).toBe(true);
   expect(preview.meta?.format).toBe('png');
   expect(preview.meta?.rasterized).toBe(true);
+  expect(preview.meta?.rasterScale).toBeGreaterThanOrEqual(2);
+  expect(preview.meta?.rasterScale).toBeLessThanOrEqual(3);
+  expect(preview.meta?.pixelWidth).toBe(Math.round(preview.meta.width * preview.meta.rasterScale));
+  expect(preview.meta?.pixelHeight).toBe(Math.round(preview.meta.height * preview.meta.rasterScale));
   expect(preview.markup).toContain('data-tab-preview-format="png"');
   expect(preview.markup).not.toContain('<svg');
   expect(preview.markup).not.toContain('data-preview-placeholder');
@@ -85,8 +89,8 @@ async function assertCanvasPreview(page, preview, type) {
   const tooltip = await hoverStoredPreview(page, preview.tabId);
   expect(tooltip.width).toBeGreaterThan(0);
   expect(tooltip.height).toBeGreaterThan(0);
-  expect(tooltip.naturalWidth).toBeGreaterThanOrEqual(tooltip.width);
-  expect(tooltip.naturalHeight).toBeGreaterThanOrEqual(tooltip.height);
+  expect(tooltip.naturalWidth).toBeGreaterThanOrEqual(tooltip.width * 2);
+  expect(tooltip.naturalHeight).toBeGreaterThanOrEqual(tooltip.height * 2);
   expect(tooltip.imageSrc).toMatch(/^data:image\/png;base64,/);
   expect(tooltip.imageSrc.length).toBeGreaterThan(100);
   expect(tooltip.hasPlaceholder).toBe(false);

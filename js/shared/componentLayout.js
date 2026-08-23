@@ -293,9 +293,24 @@
         reason: 'component-layout-control-sync',
         preserveGeometry: true
       });
+      if(typeof Shared.aspectLock?.apply === 'function'){
+        Shared.aspectLock.apply(svgBox.dataset, aspectLocked, { syncGraph: true });
+      }else{
+        const token = aspectLocked ? 'true' : 'false';
+        svgBox.dataset.resizerAspectLocked = token;
+        svgBox.dataset.graphAspectLocked = token;
+        svgBox.dataset.aspectLocked = token;
+      }
       return true;
     }
-    svgBox.dataset.resizerAspectLocked = aspectLocked ? 'true' : 'false';
+    const token = aspectLocked ? 'true' : 'false';
+    if(typeof Shared.aspectLock?.apply === 'function'){
+      Shared.aspectLock.apply(svgBox.dataset, aspectLocked, { syncGraph: true });
+    }else{
+      svgBox.dataset.resizerAspectLocked = token;
+      svgBox.dataset.graphAspectLocked = token;
+      svgBox.dataset.aspectLocked = token;
+    }
     const checkbox = svgBox.querySelector?.('.resizer-aspect-checkbox') || null;
     if(checkbox){
       checkbox.checked = !!aspectLocked;
@@ -438,7 +453,9 @@
       }
       dataset.resizerWidth = displayWidthPx;
       dataset.resizerBaseWidth = String(Math.round(graphWidth));
-      dataset.resizerDefaultWidth = String(Math.round(graphWidth));
+      if(!Number.isFinite(parsePositivePx(dataset.resizerDefaultWidth))){
+        dataset.resizerDefaultWidth = String(Math.round(graphWidth));
+      }
     }
     if(Number.isFinite(graphHeight) && graphHeight > 0){
       const displayHeightPx = toDisplayPx(graphHeight);
@@ -448,7 +465,9 @@
       }
       dataset.resizerHeight = displayHeightPx;
       dataset.resizerBaseHeight = String(Math.round(graphHeight));
-      dataset.resizerDefaultHeight = String(Math.round(graphHeight));
+      if(!Number.isFinite(parsePositivePx(dataset.resizerDefaultHeight))){
+        dataset.resizerDefaultHeight = String(Math.round(graphHeight));
+      }
     }
     if(hasGraphAspectLocked){
       const locked = !!aspectState.locked;
@@ -468,7 +487,9 @@
       }
     }
     if(Number.isFinite(graphWidth) && graphWidth > 0 && Number.isFinite(graphHeight) && graphHeight > 0){
-      dataset.resizerAspectRatio = String(graphWidth / graphHeight);
+      if(!Number.isFinite(parsePositivePx(dataset.resizerAspectRatio))){
+        dataset.resizerAspectRatio = String(graphWidth / graphHeight);
+      }
       const aspectRatioStyle = `${Math.round(graphWidth)} / ${Math.round(graphHeight)}`;
       if(element.style.aspectRatio !== aspectRatioStyle){
         element.style.aspectRatio = aspectRatioStyle;
@@ -587,6 +608,100 @@
     return { width: baseWidth, height: baseHeight, aspectLocked, zoomScale };
   }
 
+  function readResizableApiState(element){
+    const api = element?.__sharedResizableBoxApi || null;
+    return api && typeof api.getState === 'function' ? api.getState() : null;
+  }
+
+  function projectResizableApiStateToDataset(dataset, apiState){
+    if(!dataset || !apiState){
+      return dataset;
+    }
+    const writePositive = (key, value) => {
+      const numeric = Number(value);
+      if(Number.isFinite(numeric) && numeric > 0){
+        dataset[key] = String(numeric);
+      }
+    };
+    writePositive('resizerDefaultWidth', apiState.defaultWidth);
+    writePositive('resizerDefaultHeight', apiState.defaultHeight);
+    writePositive('resizerMinWidth', apiState.minWidth);
+    writePositive('resizerMinHeight', apiState.minHeight);
+    writePositive('resizerAspectRatio', apiState.aspectRatio);
+    writePositive('resizerZoomLevel', apiState.zoomLevel);
+    writePositive('resizerZoom', apiState.zoomLevel);
+    const writeBound = (key, value, unlimited) => {
+      if(unlimited === true || value === Number.POSITIVE_INFINITY){
+        dataset[key] = 'Infinity';
+      }else{
+        writePositive(key, value);
+      }
+    };
+    writeBound('resizerMaxWidth', apiState.maxWidth, apiState.allowUnlimitedWidth);
+    writeBound('resizerMaxHeight', apiState.maxHeight, apiState.allowUnlimitedHeight);
+    dataset.resizerUnlimitedWidth = apiState.allowUnlimitedWidth === true ? 'true' : 'false';
+    dataset.resizerUnlimitedHeight = apiState.allowUnlimitedHeight === true ? 'true' : 'false';
+    const aspectLocked = apiState.aspectLocked === true;
+    if(typeof Shared.aspectLock?.apply === 'function'){
+      Shared.aspectLock.apply(dataset, aspectLocked, { syncGraph: true });
+    }else{
+      const token = aspectLocked ? 'true' : 'false';
+      dataset.resizerAspectLocked = token;
+      dataset.graphAspectLocked = token;
+      dataset.aspectLocked = token;
+    }
+    return dataset;
+  }
+
+  function resolveLayoutResizableState(svgBox, snapshot = {}, size = null){
+    const liveDataset = svgBox?.dataset || {};
+    const savedDataset = snapshot?.dataset && typeof snapshot.dataset === 'object' ? snapshot.dataset : {};
+    const readPositive = key => parsePositivePx(savedDataset[key]) || parsePositivePx(liveDataset[key]);
+    const readBound = key => {
+      const saved = savedDataset[key];
+      const live = liveDataset[key];
+      if(String(saved ?? live ?? '').toLowerCase() === 'infinity'){
+        return Number.POSITIVE_INFINITY;
+      }
+      return parsePositivePx(saved) || parsePositivePx(live);
+    };
+    return {
+      defaultWidth: readPositive('resizerDefaultWidth') || size?.width,
+      defaultHeight: readPositive('resizerDefaultHeight') || size?.height,
+      minWidth: readPositive('resizerMinWidth'),
+      minHeight: readPositive('resizerMinHeight'),
+      maxWidth: readBound('resizerMaxWidth'),
+      maxHeight: readBound('resizerMaxHeight'),
+      aspectRatio: readPositive('resizerAspectRatio'),
+      aspectLocked: String(savedDataset.resizerAspectLocked ?? liveDataset.resizerAspectLocked) === 'true',
+      allowUnlimitedWidth: String(savedDataset.resizerUnlimitedWidth ?? liveDataset.resizerUnlimitedWidth) === 'true',
+      allowUnlimitedHeight: String(savedDataset.resizerUnlimitedHeight ?? liveDataset.resizerUnlimitedHeight) === 'true'
+    };
+  }
+
+  function resizableApiMatchesLayout(svgBox, snapshot = {}){
+    const actual = readResizableApiState(svgBox);
+    if(!actual){
+      return true;
+    }
+    const size = resolveLayoutApplySize(svgBox, snapshot);
+    const expected = resolveLayoutResizableState(svgBox, snapshot, size);
+    const sameNumber = (left, right) => {
+      if(left === Number.POSITIVE_INFINITY || right === Number.POSITIVE_INFINITY){
+        return left === right;
+      }
+      return !Number.isFinite(Number(right)) || Math.abs(Number(left) - Number(right)) <= 0.5;
+    };
+    return sameNumber(actual.defaultWidth, expected.defaultWidth)
+      && sameNumber(actual.defaultHeight, expected.defaultHeight)
+      && sameNumber(actual.minWidth, expected.minWidth)
+      && sameNumber(actual.minHeight, expected.minHeight)
+      && sameNumber(actual.maxWidth, expected.maxWidth)
+      && sameNumber(actual.maxHeight, expected.maxHeight)
+      && sameNumber(actual.aspectRatio, expected.aspectRatio)
+      && actual.aspectLocked === expected.aspectLocked;
+  }
+
   function normalizeIntrinsicPx(value){
     const numeric = Number.parseFloat(String(value == null ? '' : value));
     return Number.isFinite(numeric) && numeric > 0 ? Math.max(1, Math.round(numeric)) : NaN;
@@ -682,16 +797,26 @@
       }
       return null;
     }
+    const resizableState = resolveLayoutResizableState(svgBox, snapshot, size);
+    const resizerApi = svgBox.__sharedResizableBoxApi || null;
+    const canRestoreSizingState = typeof resizerApi?.restoreSizingState === 'function';
+    if(canRestoreSizingState){
+      resizerApi.restoreSizingState(resizableState, {
+        reason: options.reason || `${componentName}-layout-restore-sizing-state`
+      });
+    }
     let result = null;
     try{
       result = Shared.applyResizableBoxSize(svgBox, {
         axis: 'both',
         width: size.width,
         height: size.height,
+        defaultWidth: resizableState.defaultWidth,
+        defaultHeight: resizableState.defaultHeight,
         forceExact: true,
         preserveAspectLock: true,
-        updateAspectRatio: true,
-        updateDefaults: true,
+        updateAspectRatio: !canRestoreSizingState,
+        updateDefaults: !canRestoreSizingState,
         suppressOnResize: true,
         reason: options.reason || `${componentName}-layout-apply-size`
       });
@@ -708,7 +833,10 @@
         tabId: options.tabId || null,
         width: size.width,
         height: size.height,
+        defaultWidth: resizableState.defaultWidth,
+        defaultHeight: resizableState.defaultHeight,
         aspectLocked: size.aspectLocked,
+        restoredSizingState: canRestoreSizingState,
         applied: !!result,
         result
       });
@@ -901,6 +1029,28 @@
       rootRef: preferredRoot
     });
     const layoutTabId = resolveElementTabId(elements, config);
+    const runAspectLockPolicy = (reason = 'component-layout-aspect-policy', options = {}) => {
+      if(typeof config?.syncAspectLockPolicy !== 'function'){
+        return false;
+      }
+      try{
+        return config.syncAspectLockPolicy({
+          componentName,
+          tabId: layoutTabId || null,
+          elements,
+          reason,
+          ...(options || {})
+        }) === true;
+      }catch(err){
+        console.error('Shared.componentLayout aspect-lock policy error', {
+          component: componentName,
+          tabId: layoutTabId || null,
+          reason,
+          err
+        });
+        return false;
+      }
+    };
     const activeSessionTabId = normalizeTabId(global.Main?.session?.getActiveTab?.()?.id);
     if(layoutTabId && activeSessionTabId && layoutTabId !== activeSessionTabId){
       console.warn('componentLayout tabId conflict resolved', {
@@ -1492,6 +1642,30 @@
           return;
         }
         if(typeof userResizeOptions.onResize === 'function'){
+          const userInitiatedResize = phase === 'start'
+            || phase === 'move'
+            || phase === 'drag'
+            || phase === 'end'
+            || phase === 'reset'
+            || phase === 'undo'
+            || phase === 'redo';
+          const resizeMeta = {
+            source: 'resize',
+            phase: phase || null,
+            component: componentName,
+            componentKey: componentName,
+            tabId: layoutTabId || null,
+            reason: `component-layout-resize-${phase || 'unknown'}`,
+            userInitiated: userInitiatedResize
+          };
+          const lifecycleSuppressed = typeof Shared.componentLifecycle?.shouldSuppressDraw === 'function'
+            && Shared.componentLifecycle.shouldSuppressDraw(componentName, resizeMeta) === true;
+          if(lifecycleSuppressed){
+            if(isDebugEnabled()){
+              console.debug('Debug: componentLayout component resize callback suppressed by lifecycle', resizeMeta);
+            }
+            return;
+          }
           try{
             userResizeOptions.onResize(phase, { elements, component: componentName });
           }catch(err){
@@ -1586,6 +1760,7 @@
       const dataset = snapshot.dataset && typeof snapshot.dataset === 'object'
         ? { ...snapshot.dataset }
         : {};
+      projectResizableApiStateToDataset(dataset, readResizableApiState(element));
       const style = snapshot.style && typeof snapshot.style === 'object'
         ? { ...snapshot.style }
         : {};
@@ -1654,6 +1829,7 @@
         });
         return null;
       }
+      runAspectLockPolicy('capture-state', { phase: 'capture' });
       const aspectCheckbox = elements.svgBox?.querySelector?.('.resizer-aspect-checkbox') || null;
       if(aspectCheckbox && elements.svgBox?.dataset){
         elements.svgBox.dataset.resizerAspectLocked = aspectCheckbox.checked ? 'true' : 'false';
@@ -1807,7 +1983,8 @@
         && datasetSnapshotMatches(elements.graphPanel, state.graphPanel?.dataset, { reset: options.resetDataset === true, tabId })
         && styleSnapshotMatches(elements.configPanel, state.configPanel?.style, { reset: options.resetStyles === true })
         && styleSnapshotMatches(elements.svgBox, state.svgBox?.style, { reset: options.resetStyles === true })
-        && datasetSnapshotMatches(elements.svgBox, state.svgBox?.dataset, { reset: options.resetDataset === true, tabId });
+        && datasetSnapshotMatches(elements.svgBox, state.svgBox?.dataset, { reset: options.resetDataset === true, tabId })
+        && resizableApiMatchesLayout(elements.svgBox, state.svgBox);
     };
 
     const applyState = (state, options = {}) => {
@@ -1917,12 +2094,13 @@
       const skipSchedule = options.skipSchedule === true;
       syncPanels({ skipSchedule });
       harmonizeSvgBoxStyleWithGraphDataset(elements.svgBox, componentName, options.reason || 'layout-apply-post-sync');
-      // Keep the shared resizer API's internal defaults/aspect-lock state in sync
-      // after panel sync, so restored layout snapshots remain the final authority.
+      // Restore the resizer runtime after panel sync so the saved frame and its
+      // sizing reference remain the final authority.
       syncResizableApiFromLayout(componentName, elements.svgBox, clonedState.svgBox, {
         tabId: options.tabId || layoutTabId || null,
         reason: `${componentName}-layout-apply-state-sync`
       });
+      runAspectLockPolicy(options.reason || 'layout-apply-policy', { phase: 'apply', state: clonedState, options });
       harmonizeSvgBoxStyleWithGraphDataset(elements.svgBox, componentName, options.reason || 'layout-apply-final-sync');
       console.debug('Debug: componentLayout applyState', {
         component: componentName,
@@ -1940,6 +2118,9 @@
       tabId: layoutTabId || null,
       elements,
       syncPanels,
+      syncAspectLockPolicy(reason = 'component-layout-api-policy', options = {}){
+        return runAspectLockPolicy(reason, options);
+      },
       setScheduleDraw(fn){
         scheduleDrawFn = typeof fn === 'function' ? fn : null;
         console.debug('Debug: componentLayout scheduleDraw updated', { component: componentName, hasSchedule: !!scheduleDrawFn });
@@ -2165,19 +2346,30 @@
       return false;
     }
     const entry = resolveRegistryEntry(componentName, { tabId, exact: true });
-    const tab = Shared.workspaceTabs?.resolveTab?.(tabId) || null;
-    const aspectLocked = tab?.sharedState?.layout?.resizer?.aspectLocked;
-    if(!entry?.elements?.svgBox || typeof aspectLocked !== 'boolean'){
+    if(!entry?.elements?.svgBox){
       return false;
     }
+    const tab = Shared.workspaceTabs?.resolveTab?.(tabId) || null;
+    const aspectLocked = tab?.sharedState?.layout?.resizer?.aspectLocked;
     applyTabScopedResizerFontResizeScope(entry.elements.svgBox, componentName, tab?.id || tabId);
-    const synced = applyAspectLockToSvgBox(entry.elements.svgBox, aspectLocked);
+    let synced = false;
+    if(typeof aspectLocked === 'boolean'){
+      synced = applyAspectLockToSvgBox(entry.elements.svgBox, aspectLocked);
+    }
+    const policySynced = typeof entry.syncAspectLockPolicy === 'function'
+      ? entry.syncAspectLockPolicy(options.reason || 'component-layout-tab-control-sync', {
+          phase: 'control-sync',
+          tab: tab || null,
+          requestedAspectLocked: typeof aspectLocked === 'boolean' ? aspectLocked : null
+        })
+      : false;
     console.debug('Debug: componentLayout tab controls synced', {
       component: componentName || null,
       tabId: tab?.id || tabId || null,
-      aspectLocked,
-      synced
+      aspectLocked: typeof aspectLocked === 'boolean' ? aspectLocked : null,
+      synced: synced || policySynced
     });
-    return synced;
+    return synced || policySynced;
   };
+
 })(window);

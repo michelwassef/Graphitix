@@ -58,6 +58,8 @@
   ]
 }
   </script>
+  <script defer src="assets/welcome-examples/thumbnails.js"></script>
+  <script defer src="js/main/bootstrap.js"></script>
   <script defer src="libs/ag-grid-community/ag-grid-community.min.noStyle.js"></script>
   <script defer src="libs/jstat.min.js"></script>
   <script defer src="js/vendor.js"></script>
@@ -72,6 +74,7 @@
   <script defer src="js/shared/publicationStyles.js"></script>
   <script defer src="js/shared/fileIO.js"></script>
   <script defer src="js/shared/graphArchiveSchema.js"></script>
+  <script defer src="js/shared/dataViewPersistence.js"></script>
   <script defer src="js/shared/graphArchive.js"></script>
   <script defer src="js/shared/debounce.js"></script>
   <script defer src="js/shared/performance.js"></script>
@@ -90,7 +93,9 @@
   <script defer src="js/shared/resizer.js"></script>
   <script defer src="js/shared/dom.js"></script>
   <script defer src="js/shared/notes.js"></script>
+  <script defer src="js/shared/svgGeometry.js"></script>
   <script defer src="js/shared/exampleDatasets.js"></script>
+  <script defer src="js/shared/exportProjection.js"></script>
   <script defer src="js/shared/exporter.js"></script>
   <script defer src="js/shared/chartStyle.js"></script>
   <script defer src="js/shared/visualProjection.js"></script>
@@ -135,7 +140,6 @@
   <script defer src="js/main/graphVariants.js"></script>
   <script defer src="js/main/tabDrag.js"></script>
   <script defer src="js/main/previews.js"></script>
-  <script defer src="js/main/bootstrap.js"></script>
   <script defer src="js/main/tabs/render.js"></script>
   <script defer src="js/main/tabs/unsavedPrompt.js"></script>
   <script defer src="js/main/tabs/duplicatePrompt.js"></script>
@@ -148,24 +152,37 @@
       <section id="welcomeScreen" class="welcome-screen" aria-label="Visualization selection">
         <div class="welcome-container">
           <div class="welcome-hero">
-            <h1 class="welcome-hero__title">Graphitix: create publication-ready visualizations and statistical analyses</h1>
-            <p class="welcome-hero__subtitle">Start with a blank graph, load an example instantly, or open a file.</p>
-            <div class="welcome-hero__tools">
-              <div id="welcomeFileDropZone" class="welcome-drop-zone" role="button" tabindex="0" aria-label="Open or drop a Graphitix, Prism, CSV, TSV, TXT, Excel, or ODS file">
-                <svg class="welcome-drop-zone__icon" viewBox="0 0 24 24" aria-hidden="true">
-                  <path fill="currentColor" d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8z" />
-                </svg>
+            <div class="welcome-hero__heading">
+              <h1 class="welcome-hero__title">Graphitix</h1>
+              <p class="welcome-hero__lede">Publication-ready visualizations and statistical analyses</p>
+            </div>
+            <div class="welcome-action-grid">
+              <div id="welcomeFileDropZone" class="welcome-drop-zone welcome-panel" role="button" tabindex="0" aria-label="Open or drop a Graphitix, Prism, CSV, TSV, TXT, Excel, or ODS file">
+                <div class="welcome-panel__header welcome-panel__header--compact">
+                  <div class="welcome-panel__copy">
+                    <h2 class="welcome-panel__title">Open or drop a file</h2>
+                  </div>
+                  <svg class="welcome-drop-zone__icon" viewBox="0 0 24 24" aria-hidden="true">
+                    <path fill="currentColor" d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8z" />
+                  </svg>
+                </div>
                 <div class="welcome-drop-zone__copy">
-                  <strong>Open or drop a file</strong>
+                  <span class="welcome-drop-zone__supporting">Import saved Graphitix workspaces or raw data tables.</span>
                   <span data-file-formats-label="welcome">.graph, .prism, .pzfx, .csv, .tsv, .txt, .xls, .xlsx, .ods</span>
                 </div>
+                <span class="welcome-drop-zone__action" aria-hidden="true">Browse</span>
               </div>
               <input type="file" id="welcomeGraphFileInput" data-file-formats="welcome" class="idx-inline-001" />
-              <div class="welcome-graph-finder welcome-picker" aria-labelledby="welcomeGraphFinderTitle">
-                <div class="welcome-graph-finder__copy">
-                  <h3 id="welcomeGraphFinderTitle" class="welcome-graph-finder__title">Find a graph type</h3>
-                  <p id="welcomeGraphFinderHint" class="welcome-graph-finder__hint">Search graph types or analyses, then click a result or press Enter to open it.</p>
+              <div class="welcome-graph-finder welcome-picker welcome-panel" aria-labelledby="welcomeGraphFinderTitle">
+                <div class="welcome-panel__header welcome-panel__header--compact">
+                  <div class="welcome-panel__copy">
+                    <h2 id="welcomeGraphFinderTitle" class="welcome-panel__title">Find a graph type</h2>
+                  </div>
+                  <svg class="welcome-graph-finder__icon" viewBox="0 0 24 24" aria-hidden="true">
+                    <path fill="currentColor" d="M10 4a6 6 0 1 0 3.88 10.58l4.27 4.27 1.41-1.41-4.27-4.27A6 6 0 0 0 10 4Zm0 2a4 4 0 1 1 0 8 4 4 0 0 1 0-8Z" />
+                  </svg>
                 </div>
+                <p id="welcomeGraphFinderHint" class="welcome-graph-finder__hint">Search graph types or analyses, then choose a result or press Enter to open it.</p>
                 <div class="welcome-hero__search-container">
                   <input
                     type="text"
@@ -180,260 +197,33 @@
                   <div id="welcomeGraphResults" class="welcome-hero__search-results" role="listbox" aria-label="Available graph types"></div>
                 </div>
               </div>
+              <section class="welcome-popular welcome-panel" aria-labelledby="welcomePopularExamplesTitle">
+                <div class="welcome-panel__header">
+                  <div class="welcome-panel__copy">
+                    <h2 id="welcomePopularExamplesTitle" class="welcome-panel__title">Popular examples</h2>
+                  </div>
+                  <button id="welcomeViewAllExamples" type="button" class="welcome-link-button" aria-haspopup="dialog">View all</button>
+                </div>
+                <div class="welcome-popular__carousel">
+                  <button id="welcomePopularExamplesPrev" type="button" class="welcome-carousel__button welcome-carousel__button--previous" aria-label="Show previous examples" aria-controls="welcomePopularExamplesList" disabled>
+                    <svg viewBox="0 0 20 20" aria-hidden="true" focusable="false"><path d="M12.5 4.5 7 10l5.5 5.5" /></svg>
+                  </button>
+                  <div id="welcomePopularExamplesList" class="welcome-popular__grid" role="list" aria-label="All editable examples" tabindex="0"></div>
+                  <button id="welcomePopularExamplesNext" type="button" class="welcome-carousel__button welcome-carousel__button--next" aria-label="Show next examples" aria-controls="welcomePopularExamplesList">
+                    <svg viewBox="0 0 20 20" aria-hidden="true" focusable="false"><path d="m7.5 4.5 5.5 5.5-5.5 5.5" /></svg>
+                  </button>
+                </div>
+              </section>
             </div>
           </div>
-          <div id="graphSelectionGrid" class="selection-grid" role="list" data-categorized="true">
-              <article class="graph-card" role="listitem" data-graph-type="box">
-                <div class="graph-card__main">
-                  <div class="graph-card__icon" aria-hidden="true"><svg class="welcome-graph-icon" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg" focusable="false" aria-hidden="true">
-      <path class="welcome-icon__axis" d="M10 38.5H40 M10 38.5V10" />
-      <g class="welcome-icon__primary" style="stroke-width:0.85; stroke-linecap:butt; stroke-linejoin:miter; shape-rendering:crispEdges;">
-        <path d="M16 16V34 M13.5 16H18.5 M13.5 34H18.5" />
-        <rect class="welcome-icon__box" x="13.5" y="22" width="5" height="8" fill="#6d28d9" style="stroke-width:0.85; stroke-linejoin:miter; shape-rendering:crispEdges;" />
-        <path d="M13.5 26H18.5" stroke="#ffffff" />
 
-        <path d="M25 13V34 M22.5 13H27.5 M22.5 34H27.5" />
-        <rect class="welcome-icon__box" x="22.5" y="19" width="5" height="10" fill="#6d28d9" style="stroke-width:0.85; stroke-linejoin:miter; shape-rendering:crispEdges;" />
-        <path d="M22.5 24H27.5" stroke="#ffffff" />
+          <section class="welcome-section-header" aria-labelledby="welcomeGraphFamiliesTitle">
+            <div class="welcome-section-header__copy">
+              <h2 id="welcomeGraphFamiliesTitle" class="welcome-section-header__title">Choose a graph type</h2>
+            </div>
+          </section>
 
-        <path d="M34 19V34 M31.5 19H36.5 M31.5 34H36.5" />
-        <rect class="welcome-icon__box" x="31.5" y="24" width="5" height="7" fill="#6d28d9" style="stroke-width:0.85; stroke-linejoin:miter; shape-rendering:crispEdges;" />
-        <path d="M31.5 27.5H36.5" stroke="#ffffff" />
-      </g>
-    </svg></div>
-                  <div class="graph-card__content">
-                    <span class="graph-card__hint">Group comparisons</span>
-                    <h3 class="graph-card__title">Distribution Charts</h3>
-                  </div>
-                </div>
-                <p class="graph-card__description">Compare groups with box plots, violin plots, bar charts, or individual value strips, plus statistical tests.</p>
-                <div class="graph-card__actions">
-                  <button type="button" class="graph-card__action graph-card__action--new" data-welcome-action="new" aria-label="New Distribution Charts">New</button>
-                  <button type="button" class="graph-card__action graph-card__action--example" data-welcome-action="example" aria-label="Load example Distribution Charts">Load example</button>
-                </div>
-              </article>
-              <article class="graph-card" role="listitem" data-graph-type="scatter">
-                <div class="graph-card__main">
-                  <div class="graph-card__icon" aria-hidden="true"><svg class="welcome-graph-icon" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg" focusable="false" aria-hidden="true">
-      <path class="welcome-icon__axis" d="M10 38.5H40 M10 38.5V10" />
-      <path class="welcome-icon__guide" d="M14.5 32L37.5 15" />
-      <g class="welcome-icon__points">
-        <circle cx="15.3" cy="31.6" r="1.55" />
-        <circle cx="17.5" cy="34.0" r="1.55" />
-        <circle cx="19.1" cy="27.8" r="1.55" />
-        <circle cx="21.9" cy="30.2" r="1.55" />
-        <circle cx="23.6" cy="21.4" r="1.55" />
-        <circle cx="25.2" cy="25.5" r="1.55" />
-        <circle cx="27.8" cy="26.8" r="1.55" />
-        <circle cx="29.0" cy="18.7" r="1.55" />
-        <circle cx="31.5" cy="21.0" r="1.55" />
-        <circle cx="33.1" cy="13.6" r="1.55" />
-        <circle cx="34.5" cy="18.2" r="1.55" />
-        <circle cx="37.1" cy="14.7" r="1.55" />
-      </g>
-    </svg></div>
-                  <div class="graph-card__content">
-                    <span class="graph-card__hint">Correlation &amp; expression</span>
-                    <h3 class="graph-card__title">XY Plots</h3>
-                  </div>
-                </div>
-                <p class="graph-card__description">Create scatter, volcano, or MA plots with regression, 2D/3D views, and density coloring.</p>
-                <div class="graph-card__actions">
-                  <button type="button" class="graph-card__action graph-card__action--new" data-welcome-action="new" aria-label="New XY Plots">New</button>
-                  <button type="button" class="graph-card__action graph-card__action--example" data-welcome-action="example" aria-label="Load example XY Plots">Load example</button>
-                </div>
-              </article>
-              <article class="graph-card" role="listitem" data-graph-type="line">
-                <div class="graph-card__main">
-                  <div class="graph-card__icon" aria-hidden="true"><svg class="welcome-graph-icon" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg" focusable="false" aria-hidden="true">
-      <path class="welcome-icon__axis" d="M10 38.5H40 M10 38.5V10" />
-      <path class="welcome-icon__area" d="M11 35L17 30L23 27L29 20L35 17L40 12V38H11Z" />
-      <path class="welcome-icon__primary" d="M11 35L17 30L23 27L29 20L35 17L40 12" />
-    </svg></div>
-                  <div class="graph-card__content">
-                    <span class="graph-card__hint">Trends &amp; forecasting</span>
-                    <h3 class="graph-card__title">Line &amp; Area Charts</h3>
-                  </div>
-                </div>
-                <p class="graph-card__description">Plot time series as lines or areas with regression, ARIMA/Holt-Winters forecasting, and correlation metrics.</p>
-                <div class="graph-card__actions">
-                  <button type="button" class="graph-card__action graph-card__action--new" data-welcome-action="new" aria-label="New Line &amp; Area Charts">New</button>
-                  <button type="button" class="graph-card__action graph-card__action--example" data-welcome-action="example" aria-label="Load example Line &amp; Area Charts">Load example</button>
-                </div>
-              </article>
-              <article class="graph-card" role="listitem" data-graph-type="hist">
-                <div class="graph-card__main">
-                  <div class="graph-card__icon" aria-hidden="true"><svg class="welcome-graph-icon" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg" focusable="false" aria-hidden="true">
-      <path class="welcome-icon__axis" d="M10 38.5H40 M10 38.5V10" />
-      <g class="welcome-icon__bars">
-        <rect x="14" y="28.5" width="4" height="9.5" />
-        <rect x="19" y="22.5" width="4" height="15.5" />
-        <rect x="24" y="17" width="4" height="21" />
-        <rect x="29" y="20" width="4" height="18" />
-        <rect x="34" y="26.5" width="4" height="11.5" />
-      </g>
-      <path class="welcome-icon__density" d="M13.5 31.5C17.2 24.5 21.2 18 26 18C30.8 18 34.2 24 38.5 31.5" />
-    </svg></div>
-                  <div class="graph-card__content">
-                    <span class="graph-card__hint">Frequency distribution</span>
-                    <h3 class="graph-card__title">Histogram / Density Plot</h3>
-                  </div>
-                </div>
-                <p class="graph-card__description">Summarize univariate distributions with adjustable binning, density plots, PDF/CDF overlays, and distribution fits.</p>
-                <div class="graph-card__actions">
-                  <button type="button" class="graph-card__action graph-card__action--new" data-welcome-action="new" aria-label="New Histogram / Density Plot">New</button>
-                  <button type="button" class="graph-card__action graph-card__action--example" data-welcome-action="example" aria-label="Load example Histogram / Density Plot">Load example</button>
-                </div>
-              </article>
-              <article class="graph-card" role="listitem" data-graph-type="heatmap">
-                <div class="graph-card__main">
-                  <div class="graph-card__icon" aria-hidden="true"><svg class="welcome-graph-icon" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg" focusable="false" aria-hidden="true">
-      <path class="welcome-icon__dendrogram" d="M10 23.5H13 M13 17V30 M13 17H18 M13 30H18 M18 14V20 M18 27V33 M18 14H23 M18 20H23 M18 27H23 M18 33H23" />
-      <g class="welcome-icon__heatmap-grid">
-        <rect class="welcome-icon__heat-1" x="25" y="11.5" width="6" height="6" />
-        <rect class="welcome-icon__heat-2" x="31" y="11.5" width="6" height="6" />
-        <rect class="welcome-icon__heat-3" x="37" y="11.5" width="6" height="6" />
-        <rect class="welcome-icon__heat-2" x="25" y="17.5" width="6" height="6" />
-        <rect class="welcome-icon__heat-3" x="31" y="17.5" width="6" height="6" />
-        <rect class="welcome-icon__heat-4" x="37" y="17.5" width="6" height="6" />
-        <rect class="welcome-icon__heat-3" x="25" y="23.5" width="6" height="6" />
-        <rect class="welcome-icon__heat-4" x="31" y="23.5" width="6" height="6" />
-        <rect class="welcome-icon__heat-5" x="37" y="23.5" width="6" height="6" />
-        <rect class="welcome-icon__heat-4" x="25" y="29.5" width="6" height="6" />
-        <rect class="welcome-icon__heat-5" x="31" y="29.5" width="6" height="6" />
-        <rect class="welcome-icon__heat-6" x="37" y="29.5" width="6" height="6" />
-      </g>
-    </svg></div>
-                  <div class="graph-card__content">
-                    <span class="graph-card__hint">Matrix view</span>
-                    <h3 class="graph-card__title">Heatmap &amp; Clustering</h3>
-                  </div>
-                </div>
-                <p class="graph-card__description">Visualize data values or correlation matrices with hierarchical clustering and dendrograms.</p>
-                <div class="graph-card__actions">
-                  <button type="button" class="graph-card__action graph-card__action--new" data-welcome-action="new" aria-label="New Heatmap &amp; Clustering">New</button>
-                  <button type="button" class="graph-card__action graph-card__action--example" data-welcome-action="example" aria-label="Load example Heatmap &amp; Clustering">Load example</button>
-                </div>
-              </article>
-              <article class="graph-card" role="listitem" data-graph-type="pca">
-                <div class="graph-card__main">
-                  <div class="graph-card__icon" aria-hidden="true"><svg class="welcome-graph-icon" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg" focusable="false" aria-hidden="true">
-      <path class="welcome-icon__axis" d="M10 38.5H40 M10 38.5V10" />
-      <ellipse class="welcome-icon__cluster-a" cx="20.5" cy="29" rx="7.2" ry="4.7" transform="rotate(-22 20.5 29)" />
-      <ellipse class="welcome-icon__cluster-b" cx="33.2" cy="19" rx="6.3" ry="4.3" transform="rotate(18 33.2 19)" />
-      <g class="welcome-icon__points">
-        <circle cx="16.8" cy="31.2" r="1.4" />
-        <circle cx="20.6" cy="27.6" r="1.4" />
-        <circle cx="24.1" cy="30.1" r="1.4" />
-        <circle cx="30.3" cy="18.8" r="1.4" />
-        <circle cx="34.4" cy="17.2" r="1.4" />
-        <circle cx="35.8" cy="22.2" r="1.4" />
-      </g>
-    </svg></div>
-                  <div class="graph-card__content">
-                    <span class="graph-card__hint">PCA / MDS / t-SNE / UMAP</span>
-                    <h3 class="graph-card__title">Dimensionality Reduction</h3>
-                  </div>
-                </div>
-                <p class="graph-card__description">Run PCA, MDS, t-SNE, or UMAP on wide tables with 2D/3D views and variance summaries.</p>
-                <div class="graph-card__actions">
-                  <button type="button" class="graph-card__action graph-card__action--new" data-welcome-action="new" aria-label="New Dimensionality Reduction">New</button>
-                  <button type="button" class="graph-card__action graph-card__action--example" data-welcome-action="example" aria-label="Load example Dimensionality Reduction">Load example</button>
-                </div>
-              </article>
-              <article class="graph-card" role="listitem" data-graph-type="pie">
-                <div class="graph-card__main">
-                  <div class="graph-card__icon" aria-hidden="true"><svg class="welcome-graph-icon" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg" focusable="false" aria-hidden="true">
-      <circle class="welcome-icon__donut-track" cx="24" cy="24" r="13" />
-      <circle class="welcome-icon__donut-a" cx="24" cy="24" r="13" pathLength="100" />
-      <circle class="welcome-icon__donut-b" cx="24" cy="24" r="13" pathLength="100" />
-      <circle class="welcome-icon__donut-c" cx="24" cy="24" r="13" pathLength="100" />
-      <circle class="welcome-icon__donut-hole" cx="24" cy="24" r="6" />
-    </svg></div>
-                  <div class="graph-card__content">
-                    <span class="graph-card__hint">Category proportions</span>
-                    <h3 class="graph-card__title">Pie, Donut &amp; Stacked Bar</h3>
-                  </div>
-                </div>
-                <p class="graph-card__description">Visualize category proportions as pie charts, donuts, or stacked bars with Chi-square tests.</p>
-                <div class="graph-card__actions">
-                  <button type="button" class="graph-card__action graph-card__action--new" data-welcome-action="new" aria-label="New Pie, Donut &amp; Stacked Bar">New</button>
-                  <button type="button" class="graph-card__action graph-card__action--example" data-welcome-action="example" aria-label="Load example Pie, Donut &amp; Stacked Bar">Load example</button>
-                </div>
-              </article>
-              <article class="graph-card" role="listitem" data-graph-type="roc">
-                <div class="graph-card__main">
-                  <div class="graph-card__icon" aria-hidden="true"><svg class="welcome-graph-icon" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg" focusable="false" aria-hidden="true">
-      <path class="welcome-icon__axis" d="M10 38.5H40 M10 38.5V10" />
-      <path class="welcome-icon__diagonal" d="M10 38.5L40 10" />
-      <path class="welcome-icon__primary" d="M10 38.5C11 17 18 11 40 11" />
-    </svg></div>
-                  <div class="graph-card__content">
-                    <span class="graph-card__hint">ROC &amp; precision-recall</span>
-                    <h3 class="graph-card__title">Classification Curves</h3>
-                  </div>
-                </div>
-                <p class="graph-card__description">Evaluate classifiers with ROC or precision-recall curves, AUC metrics, and DeLong comparisons.</p>
-                <div class="graph-card__actions">
-                  <button type="button" class="graph-card__action graph-card__action--new" data-welcome-action="new" aria-label="New Classification Curves">New</button>
-                  <button type="button" class="graph-card__action graph-card__action--example" data-welcome-action="example" aria-label="Load example Classification Curves">Load example</button>
-                </div>
-              </article>
-              <article class="graph-card" role="listitem" data-graph-type="survival">
-                <div class="graph-card__main">
-                  <div class="graph-card__icon" aria-hidden="true"><svg class="welcome-graph-icon" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg" focusable="false" aria-hidden="true">
-      <path class="welcome-icon__axis" d="M10 38.5H40 M10 38.5V10" />
-      <path class="welcome-icon__survival-a" d="M12 13H22V17H29V22H35V31H39" />
-      <path class="welcome-icon__survival-b" d="M12 15H16V20H19V24H23V29H26V34H30V38H33" />
-    </svg></div>
-                  <div class="graph-card__content">
-                    <span class="graph-card__hint">Time-to-event analysis</span>
-                    <h3 class="graph-card__title">Survival Analysis</h3>
-                  </div>
-                </div>
-                <p class="graph-card__description">Build Kaplan-Meier curves with confidence intervals, log-rank tests, and Cox regression.</p>
-                <div class="graph-card__actions">
-                  <button type="button" class="graph-card__action graph-card__action--new" data-welcome-action="new" aria-label="New Survival Analysis">New</button>
-                  <button type="button" class="graph-card__action graph-card__action--example" data-welcome-action="example" aria-label="Load example Survival Analysis">Load example</button>
-                </div>
-              </article>
-              <article class="graph-card" role="listitem" data-graph-type="venn">
-                <div class="graph-card__main">
-                  <div class="graph-card__icon" aria-hidden="true"><svg class="welcome-graph-icon" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg" focusable="false" aria-hidden="true">
-      <circle class="welcome-icon__venn-a" cx="21" cy="24" r="10" />
-      <circle class="welcome-icon__venn-b" cx="29" cy="24" r="10" />
-    </svg></div>
-                  <div class="graph-card__content">
-                    <span class="graph-card__hint">Set comparisons</span>
-                    <h3 class="graph-card__title">Venn Diagram / UpSet Plot</h3>
-                  </div>
-                </div>
-                <p class="graph-card__description">Visualize set overlaps as Venn diagrams or UpSet plots with region statistics, GO enrichment, and STRING network analysis.</p>
-                <div class="graph-card__actions">
-                  <button type="button" class="graph-card__action graph-card__action--new" data-welcome-action="new" aria-label="New Venn Diagram / UpSet Plot">New</button>
-                  <button type="button" class="graph-card__action graph-card__action--example" data-welcome-action="example" aria-label="Load example Venn Diagram / UpSet Plot">Load example</button>
-                </div>
-              </article>
-              <article class="graph-card" role="listitem" data-graph-type="surface">
-                <div class="graph-card__main">
-                  <div class="graph-card__icon" aria-hidden="true"><svg class="welcome-graph-icon" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg" focusable="false" aria-hidden="true">
-      <path class="welcome-icon__surface-back" d="M10.5 29.5L20 21L35 24.5L40.5 17" />
-      <path class="welcome-icon__surface-grid" d="M10.5 29.5L18 37L33 33.5L40.5 25.5 M20 21L18 37 M27.5 22.8L25.5 35.2 M35 24.5L33 33.5 M40.5 17L40.5 25.5" />
-      <path class="welcome-icon__surface-grid" d="M14.2 26.3L22.2 32.4L37 29 M17.2 23.7L25.4 29.1L40 24.8" />
-      <path class="welcome-icon__surface-ridge" d="M10.5 29.5C15.4 24.1 20 21.6 25.8 23.6C31.2 25.5 35.8 22.9 40.5 17" />
-    </svg></div>
-                  <div class="graph-card__content">
-                    <span class="graph-card__hint">3D visualization</span>
-                    <h3 class="graph-card__title">3D Surface Plot</h3>
-                  </div>
-                </div>
-                <p class="graph-card__description">Render 3D surfaces from X/Y/Z data with rotation, grid interpolation, and color ramps.</p>
-                <div class="graph-card__actions">
-                  <button type="button" class="graph-card__action graph-card__action--new" data-welcome-action="new" aria-label="New 3D Surface Plot">New</button>
-                  <button type="button" class="graph-card__action graph-card__action--example" data-welcome-action="example" aria-label="Load example 3D Surface Plot">Load example</button>
-                </div>
-              </article>
-          </div>
+          <div id="graphSelectionGrid" class="selection-grid" role="list" data-categorized="true"></div>
           <noscript>
             <section class="welcome-noscript" aria-label="Graphitix overview">
               <h2>Graphitix requires JavaScript</h2>
@@ -442,6 +232,20 @@
           </noscript>
         </div>
       </section>
+      <div id="welcomeExamplesDialog" class="welcome-dialog" hidden aria-hidden="true">
+        <div class="welcome-dialog__backdrop" data-welcome-dialog-close></div>
+        <div class="welcome-dialog__panel" role="dialog" aria-modal="true" aria-labelledby="welcomeExamplesDialogTitle" aria-describedby="welcomeExamplesDialogDescription" tabindex="-1">
+          <div class="welcome-dialog__header">
+            <div class="welcome-dialog__copy">
+              <p class="welcome-dialog__eyebrow">Example gallery</p>
+              <h2 id="welcomeExamplesDialogTitle" class="welcome-dialog__title">Explore Graphitix examples</h2>
+              <p id="welcomeExamplesDialogDescription" class="welcome-dialog__subtitle">Every thumbnail is generated from the built-in dataset by Graphitix itself. Select one to open the complete editable analysis.</p>
+            </div>
+            <button id="welcomeExamplesDialogClose" type="button" class="welcome-dialog__close" aria-label="Close examples gallery">Close</button>
+          </div>
+          <div id="welcomeAllExamplesList" class="welcome-all-examples" role="list" aria-label="All editable Graphitix examples"></div>
+        </div>
+      </div>
       <section id="workspacePages" class="workspace-pages">
   <!-- Venn diagram Section -->
   <div id="vennPage" class="workspace-page" data-plot="venn" hidden>
@@ -503,6 +307,9 @@
                   <option value="venn" selected>Venn diagram</option>
                   <option value="upset">UpSet plot</option>
                 </select>
+              </div>
+              <div id="vennSetLimitWarning" class="config-panel__warning" role="alert" aria-live="polite" hidden>
+                Venn diagrams use only the first three columns. Select UpSet plot to visualize overlaps across four or more sets.
               </div>
             </fieldset>
             <fieldset hidden>
@@ -880,6 +687,13 @@
                 <label class="idx-inline-024">
                   <input type="checkbox" id="boxViolinBandwidthAuto" checked /> Auto
                 </label>
+              </div>
+              <div class="control idx-inline-026" id="boxViolinExtentCtl" style="display:none">
+                <label for="boxViolinExtent">Violin extent</label>
+                <select id="boxViolinExtent">
+                  <option value="trimmed">Truncated at data range</option>
+                  <option value="extended" selected>Extended KDE tails</option>
+                </select>
               </div>
               <div class="control idx-inline-026" id="boxViolinSamplesCtl" style="display:none">
                 <label>Density samples</label>
@@ -1356,9 +1170,9 @@
                 </label>
                 <span class="control-help" title="For raw RNA-seq counts: DESeq2 median-ratio size factors, log2(normalized count + 1), and the 500 most variable genes.">ⓘ</span>
               </div>
-              <div class="control idx-inline-032" id="pcaScaleControl">
-                <label class="idx-inline-023">
-                  <input type="checkbox" id="pcaScale" /> Scale Variables
+              <div class="control idx-inline-032" id="pcaStandardizeVariablesControl">
+                <label class="idx-inline-023" title="Centers each input variable and divides it by its standard deviation before dimensionality reduction. For PCA, this is unit-variance (correlation-based) PCA. It changes the analysis, not graph axis geometry. If the entered variables are already standardized, enabling this option will not change the result.">
+                  <input type="checkbox" id="pcaStandardizeVariables" aria-label="Standardize input variables to unit variance" /> Standardize variables
                 </label>
               </div>
             </fieldset>
@@ -1376,7 +1190,6 @@
                 <label class="idx-inline-023"><input type="checkbox" id="pcaShowGrid" /> Show grid</label>
                 <label class="idx-inline-023"><input type="checkbox" id="pcaShowFrame" checked /> Show frame</label>
                 <label class="idx-inline-023"><input type="checkbox" id="pcaShowLegend" checked /> Show legend</label>
-                <label class="idx-inline-023"><input type="checkbox" id="pcaVarianceAxisScale" /> Variance-scaled axes</label>
               </div>
             </fieldset>
             <fieldset data-font-controls="1" hidden>
@@ -1508,6 +1321,7 @@
                 <label class="idx-inline-023"><input type="checkbox" id="surfaceShowGrid" checked /> Show grid</label>
                 <label class="idx-inline-023"><input type="checkbox" id="surfaceShowFrame" checked /> Show frame</label>
                 <label class="idx-inline-023"><input type="checkbox" id="surfaceShowPoints" /> Show points</label>
+                <label class="idx-inline-023"><input type="checkbox" id="surfaceShowLegend" checked /> Show legend</label>
               </div>
             </fieldset>
           </div>
@@ -1596,6 +1410,9 @@
                 <div class="control line-graph-regression-options-row">
                   <label class="idx-inline-023">
                     <input type="checkbox" id="lineShowPredictionIntervals" /> Show Prediction Interval
+                  </label>
+                  <label class="idx-inline-023">
+                    <input type="checkbox" id="lineShowPlotStats" /> Show stats on plot
                   </label>
                 </div>
               </div>
@@ -1696,10 +1513,10 @@
               </div>
               <div class="control idx-inline-045">
                 <label class="idx-inline-023">
-                  <input type="checkbox" id="lineForecastAuto" checked /> Auto-tune parameters (AIC/BIC)
+                  <input type="checkbox" id="lineForecastAuto" checked /> Auto-tune parameters
                 </label>
                 <label>
-                  Criterion
+                  ARIMA selection criterion
                   <select id="lineForecastCriterion">
                     <option value="bic" selected>BIC</option>
                     <option value="aic">AIC</option>
@@ -1787,8 +1604,17 @@
                   </label>
                   <label class="heatmap-control-block heatmap-control-grow">
                     <select id="heatmapSignificanceDisplay">
-                      <option value="star" selected>Star</option>
-                      <option value="pvalue">P value</option>
+                      <option value="star" selected>Marker</option>
+                      <option value="pvalue">P / adjusted value</option>
+                    </select>
+                  </label>
+                  <label class="heatmap-control-block heatmap-control-grow">
+                    <span class="heatmap-nowrap">Multiple testing</span>
+                    <select id="heatmapSignificanceCorrection" title="Correction applied across the unique pairwise correlations in the matrix">
+                      <option value="bh" selected>FDR (Benjamini–Hochberg)</option>
+                      <option value="by">FDR (Benjamini–Yekutieli)</option>
+                      <option value="holm">Holm</option>
+                      <option value="none">None (raw p)</option>
                     </select>
                   </label>
                 </div>
@@ -2006,6 +1832,7 @@
                 <label class="idx-inline-023"><input type="checkbox" id="rocShowGrid" /> Show grid</label>
                 <label class="idx-inline-023"><input type="checkbox" id="rocShowFrame" /> Show frame</label>
                 <label class="idx-inline-023"><input type="checkbox" id="rocShowLegend" checked /> Show legend</label>
+                <label class="idx-inline-023"><input type="checkbox" id="rocShowComparisonOnPlot" /> Show comparison on plot</label>
               </div>
             </fieldset>
             <fieldset data-font-controls="1" hidden>
@@ -2065,13 +1892,17 @@
                 <label class="idx-inline-023"><input type="checkbox" id="survivalShowCI" /> Show 95% Confidence Interval</label>
                 <label class="idx-inline-023"><input type="checkbox" id="survivalShowCensor" checked /> Show censor marks</label>
               </div>
+              <div class="control idx-inline-031">
+                <label class="idx-inline-023"><input type="checkbox" id="survivalShowRiskTable" checked /> Number at risk</label>
+                <label class="idx-inline-023"><input type="checkbox" id="survivalShowPlotStats" /> Show stats on plot</label>
+              </div>
             </fieldset>
             <fieldset>
               <legend>Grid &amp; axis</legend>
               <div class="control idx-inline-031">
                 <label class="idx-inline-023"><input type="checkbox" id="survivalShowGrid" /> Show grid</label>
                 <label class="idx-inline-023"><input type="checkbox" id="survivalShowFrame" /> Show frame</label>
-                <label class="idx-inline-023"><input type="checkbox" id="survivalShowLegend" checked /> Show legend</label>
+                <label class="idx-inline-023"><input type="checkbox" id="survivalShowLegend" /> Show legend</label>
               </div>
               <div class="control idx-inline-041">
                 <label class="idx-inline-023">Time max <input type="number" id="survivalTimeMax" step="0.1" /></label>
@@ -2141,15 +1972,35 @@
           <div class="config-panel">
             <fieldset data-graph-selection-fieldset="1">
               <legend>Graph</legend>
-              <div class="control idx-inline-031">
+              <div class="control idx-inline-031" id="histGraphPrimaryRow">
                 <label class="idx-inline-023">
                   Graph type
                   <select id="histPlotMode">
                     <option value="histogram" selected>Histogram</option>
-                  <option value="density">Density plot</option>
+                    <option value="density">Density plot</option>
+                  </select>
+                </label>
+                <label class="idx-inline-023">
+                  Series display
+                  <select id="histSeriesDisplay">
+                    <option value="overlay" selected>Overlay</option>
+                    <option value="panels">Separate panels</option>
                   </select>
                 </label>
                 <label class="idx-inline-023"><input type="checkbox" id="histShowLegend" checked /> Show legend</label>
+                <label class="idx-inline-023"><input type="checkbox" id="histShowStatsSummary" /> Show summary on plot</label>
+              </div>
+              <div class="control idx-inline-031" id="histPanelLayoutRow" hidden>
+                <label class="idx-inline-023" id="histPanelArrangementCtl">
+                  Panel arrangement
+                  <select id="histPanelArrangement">
+                    <option value="auto" selected>Auto</option>
+                    <option value="horizontal">Horizontal</option>
+                    <option value="vertical">Vertical</option>
+                    <option value="grid">Grid</option>
+                  </select>
+                </label>
+                <label class="idx-inline-023" id="histSharedYScaleCtl"><input type="checkbox" id="histSharedYScale" checked /> Shared Y scale</label>
               </div>
             </fieldset>
             <fieldset id="histBinsFieldset">
@@ -2327,6 +2178,7 @@
                 <label><input type="checkbox" id="pieShowPercents" /> Show percentages</label>
                 <label><input type="checkbox" id="pieShowFrame" /> Show frame</label>
                 <label><input type="checkbox" id="pieShowLegend" checked /> Show legend</label>
+                <label><input type="checkbox" id="pieShowStatsSummary" /> Show stats on plot</label>
               </div>
               <div class="control pie-radial-options" data-pie-radial-options="1">
                 <label>
@@ -2415,10 +2267,18 @@
         <h3 id="welcomeDataImportTitle" class="workspace-modal__title">Import data file</h3>
         <p id="welcomeDataImportMessage" class="workspace-modal__message">Choose where this table should be imported.</p>
         <div class="welcome-import-grid">
-          <label id="welcomeDataImportComponentField" class="welcome-import-field">
+          <div id="welcomeDataImportComponentField" class="welcome-import-field">
             <span>Graph type</span>
-            <select id="welcomeDataImportComponent"></select>
-          </label>
+            <div class="welcome-import-component-picker">
+              <button id="welcomeDataImportComponentButton" type="button" class="welcome-import-component-button" aria-haspopup="listbox" aria-expanded="false" aria-controls="welcomeDataImportComponentMenu">
+                <span id="welcomeDataImportComponentButtonIcon" class="welcome-import-component-icon graph-card__icon" aria-hidden="true"></span>
+                <span id="welcomeDataImportComponentButtonLabel" class="welcome-import-component-button__label"></span>
+                <svg class="welcome-import-component-button__chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6l4 4 4-4" /></svg>
+              </button>
+              <div id="welcomeDataImportComponentMenu" class="welcome-import-component-menu" role="listbox" hidden></div>
+              <select id="welcomeDataImportComponent" class="welcome-import-component-native" tabindex="-1" aria-hidden="true"></select>
+            </div>
+          </div>
           <label id="welcomeDataImportSheetField" class="welcome-import-field" hidden>
             <span>Sheet</span>
             <select id="welcomeDataImportSheet"></select>
@@ -2433,10 +2293,16 @@
               <option value="space">Space</option>
             </select>
           </label>
-          <label class="welcome-import-field">
-            <span>Start at row</span>
-            <input id="welcomeDataImportStartRow" type="number" min="1" step="1" value="1" />
-          </label>
+          <div class="welcome-import-start-fields">
+            <label class="welcome-import-field">
+              <span>Start at row</span>
+              <input id="welcomeDataImportStartRow" type="number" min="1" step="1" value="1" inputmode="numeric" />
+            </label>
+            <label class="welcome-import-field">
+              <span>Start at column</span>
+              <input id="welcomeDataImportStartColumn" type="number" min="1" step="1" value="1" inputmode="numeric" />
+            </label>
+          </div>
         </div>
         <div class="welcome-import-options">
           <label class="welcome-import-checkbox">
@@ -2447,6 +2313,17 @@
             <input id="welcomeDataImportTrim" type="checkbox" checked />
             <span>Trim spaces</span>
           </label>
+          <label class="welcome-import-checkbox">
+            <input id="welcomeDataImportTranspose" type="checkbox" />
+            <span>Transpose data</span>
+          </label>
+        </div>
+        <div id="welcomeDataImportFormatCheck" class="welcome-import-format-check" aria-live="polite" hidden>
+          <div class="welcome-import-format-check__icon" aria-hidden="true">!</div>
+          <div>
+            <strong id="welcomeDataImportFormatCheckTitle">Check data layout</strong>
+            <div id="welcomeDataImportFormatCheckMessage" class="welcome-import-format-check__message"></div>
+          </div>
         </div>
         <div class="welcome-import-preview" aria-live="polite">
           <div class="welcome-import-preview__bar">

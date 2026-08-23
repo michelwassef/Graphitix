@@ -89,6 +89,7 @@ Rules:
 - DataViews managers, notes controls, HOT managers, auxiliary UI managers, and analysis panels must be owned by the tab session or by a documented owner-keyed registry.
 - Component code and tests must be able to resolve the manager for a tab without relying on the currently active component singleton.
 - Lazy manager creation must take the owner tab id/session explicitly.
+- For DataView-enabled components, canonical top-level `payload.data` is Raw. Replace DataView matrices through the manager mutation APIs, never by assigning view `.data` directly; changing a source matrix must recursively invalidate replayability for already-materialized descendants so lite/adaptive reopen preserves the exact saved session.
 
 ### 3.7 Module-global registry retirement
 
@@ -285,7 +286,7 @@ Payloads must remain JSON-serializable. Do not store DOM nodes, functions, class
 ## 13. Shared Module Guide
 
 - Lifecycle/session: `componentLifecycle.js`, `workspaceTabs.js`, `tabContext.js`, `undo.js`, `styleUndo.js`.
-- Persistence/archive: `fileIO.js`, `graphArchive.js`, `graphArchiveSchema.js`, `graphSizing.js`.
+- Persistence/archive: `fileIO.js`, `graphArchive.js`, `graphArchiveSchema.js`, `dataViewPersistence.js`, `graphSizing.js`.
 - Layout/rendering: `componentLayout.js`, `resizer.js`, `dom.js`, `chartStyle.js`, `plot3d.js`.
 - Tables/data: `hot.js`, `agGridAdapter.js`, `tableImport.js`, `formulaEngine.js`, `dataPipeline.js`, `dataTransforms.js`, `dataViews.js`.
 - Styling/toolbars: `workspaceToolbar.js`, `toolbarOverflow.js`, `fontControls.js`, `axisControls.js`, `symbolToolbar.js`, `gridControls.js`, `significanceControls.js`, `colorSchemes.js`, `publicationStyles.js`.

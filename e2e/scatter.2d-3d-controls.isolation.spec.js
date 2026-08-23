@@ -127,8 +127,13 @@ async function captureActiveScatterTab(page) {
     const ok = window.Main?.session?.persistActiveTabState?.(tab, {
       reason: 'e2e-scatter-2d-3d-control-isolation',
       origin: 'lifecycle',
-      captureLivePayload: true,
-      allowSkipLivePayloadCapture: false
+      snapshotIntent: {
+        lifecycleSnapshot: true,
+        captureLivePayload: true,
+        allowSkipLivePayloadCapture: false,
+        reasonSkippable: false,
+        snapshotCapture: true
+      }
     });
     if (ok && typeof ok.then === 'function') {
       await ok;
@@ -136,7 +141,8 @@ async function captureActiveScatterTab(page) {
     return {
       tabId: tab.id,
       payload: tab.payload || null,
-      layoutState: tab.layoutState || null
+      layoutState: tab.layoutState || null,
+      tableRows: window.Shared?.hot?.__tabTablePools?.scatter?.byTab?.[tab.id]?.instance?.countRows?.() || 0
     };
   });
 }
@@ -193,6 +199,7 @@ test('scatter 2D lock ratio and frame state survive activation from a forced 3D 
   expect(captured.tabId).toBe(tab2d);
   expect(captured.payload?.config?.viewMode).toBe('2d');
   expect(captured.payload?.config?.showFrame).toBe(false);
+  expect(captured.tableRows).toBeGreaterThanOrEqual(100);
   expect(captured.layoutState?.graphSizing?.aspectLocked).not.toBe(true);
   expect(JSON.stringify(captured.layoutState || {})).not.toContain('"resizerAspectLocked":"true"');
 

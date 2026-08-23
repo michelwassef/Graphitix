@@ -1438,10 +1438,25 @@
       sharedState.styles[type].fontStyles = fontStyles;
       writePath(payload, resolveFontStylesPath(type, config), fontStyles);
     }
+    const statsReportingState = typeof global.Shared?.statsReporting?.captureTabState === 'function'
+      ? global.Shared.statsReporting.captureTabState(tab)
+      : null;
+    if(statsReportingState && typeof statsReportingState === 'object'){
+      if(!payload.meta || typeof payload.meta !== 'object' || Array.isArray(payload.meta)){
+        payload.meta = {};
+      }
+      payload.meta.statsReporting = {
+        ...(payload.meta.statsReporting && typeof payload.meta.statsReporting === 'object'
+          ? payload.meta.statsReporting
+          : {}),
+        ...statsReportingState
+      };
+    }
     debugLog('Debug: workspaceTabs shared payload state captured', {
       tabId: tab.id,
       type: type || null,
       hasFontStyles: !!fontStyles,
+      hasStatsReportingState: !!statsReportingState,
       reason: meta.reason || 'capture-shared-payload'
     });
     return payload;
@@ -1463,10 +1478,19 @@
       sharedState.styles[type].fontStyles = fontStyles;
       importFontStylesForTab(type, tab.id, fontStyles, config, { prune: true, broadcast: true });
     }
+    const statsReportingSource = payload?.meta?.statsReporting;
+    const appliedStatsReportingState = typeof global.Shared?.statsReporting?.applyTabState === 'function'
+      ? global.Shared.statsReporting.applyTabState(
+          tab,
+          statsReportingSource && typeof statsReportingSource === 'object' ? statsReportingSource : {},
+          { reason: meta.reason || 'apply-shared-payload' }
+        )
+      : null;
     debugLog('Debug: workspaceTabs shared payload state applied', {
       tabId: tab.id,
       type: type || null,
       hasFontStyles: !!fontStyles,
+      hasStatsReportingState: !!appliedStatsReportingState,
       reason: meta.reason || 'apply-shared-payload'
     });
     return true;

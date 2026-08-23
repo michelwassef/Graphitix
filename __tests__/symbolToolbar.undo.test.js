@@ -183,6 +183,66 @@ describe('Shared symbol and line control undo', () => {
     expect(state.B.fill.toLowerCase()).toBe('#00ff00');
   });
 
+  test('symbolToolbar wheel size burst applies live with declared step and records one undo command', () => {
+    jest.useFakeTimers();
+    const { Shared } = window;
+    const anchor = document.createElement('button');
+    anchor.id = 'symbolWheelUndoFontHost';
+    document.body.appendChild(anchor);
+
+    let size = 4;
+    const toolbarState = Shared.symbolToolbar.show({
+      document,
+      anchorId: 'symbolWheelUndoFontHost',
+      scopeId: 'symbolWheelUndo',
+      target: anchor,
+      fillShape: {
+        label: 'Fill',
+        showShapePicker: false,
+        getColor(){ return '#336699'; },
+        getShape(){ return 'circle'; },
+        onColorInput(){},
+        onColorChange(){},
+        onShapeChange(){}
+      },
+      border: {
+        getColor(){ return '#000000'; },
+        onColorChange(){},
+        getWidth(){ return 1; },
+        onWidthChange(){}
+      },
+      size: {
+        enabled: true,
+        step: 0.25,
+        get(){ return size; },
+        onChange(value){ size = Number(value); }
+      },
+      transparency: { enabled: false }
+    });
+
+    const chip = toolbarState.host.querySelector('.shared-fill-style-chip');
+    expect(chip).toBeTruthy();
+    for(let i = 0; i < 4; i += 1){
+      chip.dispatchEvent(new WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY: -100 }));
+    }
+
+    expect(size).toBe(4);
+    jest.advanceTimersByTime(0);
+    expect(size).toBe(5);
+    expect(Shared.undoManager.canUndo()).toBe(false);
+
+    jest.advanceTimersByTime(Shared.workspaceToolbar.numericWheelCommitDelayMs);
+    expect(Shared.undoManager.canUndo()).toBe(true);
+    expect(Shared.undoManager.undo()).toBe(true);
+    expect(size).toBe(4);
+    expect(Shared.undoManager.redo()).toBe(true);
+    expect(size).toBe(5);
+
+    Shared.workspaceToolbar.flushNumericWheelGesture({ commit: false, reason: 'test-cleanup' });
+    jest.runOnlyPendingTimers();
+    jest.useRealTimers();
+  });
+
   test('symbolToolbar undo restores per-target values after aggregate fill change', () => {
     const { Shared } = window;
     const anchor = document.createElement('button');
@@ -273,6 +333,85 @@ describe('Shared symbol and line control undo', () => {
     expect(state.A.fill.toLowerCase()).toBe('#ffaa00');
     expect(state.B.fill.toLowerCase()).toBe('#ffaa00');
     expect(state.C.fill.toLowerCase()).toBe('#ffaa00');
+  });
+
+  test('symbolToolbar uses one atomic callback for large aggregate shape undo', () => {
+    const { Shared } = window;
+    const anchor = document.createElement('button');
+    anchor.id = 'symbolAtomicShapeUndoFontHost';
+    document.body.appendChild(anchor);
+    const targetCount = 600;
+    const scopeOptions = [{ value: 'global', label: 'Global' }];
+    for(let index = 0; index < targetCount; index += 1){
+      const key = `P${index}`;
+      scopeOptions.push({
+        value: Shared.encodeScopeValue('point', key),
+        label: key,
+        scopeDataset: key,
+        scopeKind: 'point'
+      });
+    }
+    let state = {
+      globalShape: null,
+      pointShapes: Object.fromEntries(scopeOptions.slice(1).map((option, index) => [option.scopeDataset, index % 2 ? 'triangle' : 'circle']))
+    };
+    let aggregateApplyCount = 0;
+    let shapeMutationCount = 0;
+    let scopeChangeCount = 0;
+    const cloneState = () => JSON.parse(JSON.stringify(state));
+
+    const toolbarState = Shared.symbolToolbar.show({
+      document,
+      anchorId: anchor.id,
+      scopeId: 'symbolAtomicShapeUndo',
+      target: anchor,
+      scope: {
+        value: 'global',
+        options: scopeOptions,
+        onChange(){ scopeChangeCount += 1; }
+      },
+      aggregateUndo: {
+        capture(){ return cloneState(); },
+        apply(_field, snapshot){
+          aggregateApplyCount += 1;
+          state = JSON.parse(JSON.stringify(snapshot));
+        }
+      },
+      fillShape: {
+        shapeOptions: [
+          { value: 'circle', label: 'Circle' },
+          { value: 'square', label: 'Square' }
+        ],
+        getColor(){ return '#000000'; },
+        getShape(){ return state.globalShape || 'circle'; },
+        onColorInput(){},
+        onColorChange(){},
+        onShapeChange(value){
+          shapeMutationCount += 1;
+          state.globalShape = value;
+          state.pointShapes = {};
+        }
+      },
+      border: { getColor(){ return '#000000'; }, onColorChange(){}, getWidth(){ return 0; }, onWidthChange(){} },
+      size: { enabled: false },
+      transparency: { enabled: false }
+    });
+
+    toolbarState.host.querySelector('.shared-shape-color-swatch').click();
+    const squareInput = document.querySelector('.shared-color-picker__shape-input[value="square"]');
+    squareInput.checked = true;
+    squareInput.dispatchEvent(new Event('change', { bubbles: true }));
+
+    expect(shapeMutationCount).toBe(1);
+    expect(state.globalShape).toBe('square');
+    expect(scopeChangeCount).toBe(0);
+    expect(Shared.undoManager.undo()).toBe(true);
+    expect(aggregateApplyCount).toBe(1);
+    expect(shapeMutationCount).toBe(1);
+    expect(Object.keys(state.pointShapes)).toHaveLength(targetCount);
+    expect(Shared.undoManager.redo()).toBe(true);
+    expect(aggregateApplyCount).toBe(2);
+    expect(state).toEqual({ globalShape: 'square', pointShapes: {} });
   });
 
   test('additionalLineControls keeps scoped dataset identity for undo', () => {
@@ -413,6 +552,64 @@ describe('Shared symbol and line control undo', () => {
     expect(state.A.toLowerCase()).toBe('#111111');
     expect(state.B.toLowerCase()).toBe('#222222');
     expect(Shared.undoManager.undo()).toBe(false);
+  });
+
+  test('additionalLineControls supports atomic aggregate undo', () => {
+    const { Shared } = window;
+    const anchor = document.createElement('button');
+    anchor.id = 'lineAtomicUndoFontHost';
+    document.body.appendChild(anchor);
+    const scopeOptions = [{ value: 'global', label: 'Global' }].concat(
+      Array.from({ length: 600 }, (_, index) => ({
+        value: Shared.encodeScopeValue('series', `S${index}`),
+        label: `S${index}`,
+        scopeDataset: `S${index}`,
+        scopeKind: 'series'
+      }))
+    );
+    let state = Object.fromEntries(scopeOptions.slice(1).map((option, index) => [option.scopeDataset, index % 2 ? '#111111' : '#222222']));
+    let aggregateApplyCount = 0;
+    let mutationCount = 0;
+
+    Shared.additionalLineControls.show({
+      scopeId: 'lineAtomicUndo',
+      target: anchor,
+      controls: { showSummary: false, showScope: true, showPattern: false, showTransparency: false },
+      scope: { value: 'global', options: scopeOptions },
+      aggregateUndo: {
+        capture(){ return { ...state }; },
+        apply(_field, snapshot){
+          aggregateApplyCount += 1;
+          state = { ...snapshot };
+        }
+      },
+      getColor: () => Object.values(state)[0],
+      getThickness: () => 1,
+      getPattern: () => 'solid',
+      getTransparency: () => 0,
+      onColorChange(value){
+        mutationCount += 1;
+        Object.keys(state).forEach(key => { state[key] = value; });
+      },
+      onThicknessChange(){},
+      onPatternChange(){},
+      onTransparencyChange(){}
+    });
+
+    const panel = anchor.nextElementSibling.querySelector('.additional-line-controls-panel');
+    const colorInput = panel.querySelector('.additional-line-controls-panel__color-input');
+    colorInput.value = '#ffaa00';
+    colorInput.dispatchEvent(new Event('input', { bubbles: true }));
+    colorInput.dispatchEvent(new Event('change', { bubbles: true }));
+    const actionMutationCount = mutationCount;
+
+    expect(Shared.undoManager.undo()).toBe(true);
+    expect(aggregateApplyCount).toBe(1);
+    expect(mutationCount).toBe(actionMutationCount);
+    expect(new Set(Object.values(state))).toEqual(new Set(['#111111', '#222222']));
+    expect(Shared.undoManager.redo()).toBe(true);
+    expect(aggregateApplyCount).toBe(2);
+    expect(new Set(Object.values(state))).toEqual(new Set(['#ffaa00']));
   });
 
   test('gridControls color preview plus commit records one undo entry', () => {

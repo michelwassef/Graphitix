@@ -740,10 +740,9 @@ test.describe('Box flip axes with manual resize', () => {
     expect(restoredWithSignificance.significanceViewportExtensionPx).toBeGreaterThan(0);
     expect(restoredWithSignificance.bottomViewportExtensionPx + restoredWithSignificance.significanceViewportExtensionPx).toBeGreaterThan(0);
     expect(restoredWithSignificance.rightViewportExtensionPx).toBe(0);
+    expect(restoredWithSignificance.leftViewportExtensionPx).toBe(0);
     if (restoredWithSignificance.xTickRotateVertical) {
-      expect(restoredWithSignificance.leftViewportExtensionPx).toBeGreaterThan(0);
-    } else {
-      expect(restoredWithSignificance.leftViewportExtensionPx).toBe(0);
+      expect(restoredWithSignificance.bottomViewportExtensionPx).toBeGreaterThan(0);
     }
     expectTransposePair(afterSignificance, restoredWithSignificance, {
       label: 'unflip with significance',
@@ -801,10 +800,9 @@ test.describe('Box flip axes with manual resize', () => {
     expect(beforeFlip.significancePathCount).toBeGreaterThan(0);
     expect(beforeFlip.significanceViewportExtensionPx).toBeGreaterThan(0);
     expect(beforeFlip.rightViewportExtensionPx).toBe(0);
+    expect(beforeFlip.leftViewportExtensionPx).toBe(0);
     if (beforeFlip.xTickRotateVertical) {
-      expect(beforeFlip.leftViewportExtensionPx).toBeGreaterThan(0);
-    } else {
-      expect(beforeFlip.leftViewportExtensionPx).toBe(0);
+      expect(beforeFlip.bottomViewportExtensionPx).toBeGreaterThan(0);
     }
     expect(beforeFlip.plotWidthPx).not.toBeNull();
     expect(beforeFlip.plotHeightPx).not.toBeNull();

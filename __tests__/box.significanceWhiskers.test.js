@@ -3,6 +3,8 @@ describe('Box significance whisker modes', () => {
 
   beforeAll(() => {
     jest.resetModules();
+    require('../js/shared/chartStyle.js');
+    require('../js/shared/stats.js');
     require('../js/components/box.js');
     hooks = window.Components?.box?.__testHooks;
   });
@@ -130,7 +132,7 @@ describe('Box significance whisker modes', () => {
 
   test('p-value labels use scientific notation when enabled', () => {
     expect(hooks).toBeDefined();
-    expect(hooks.formatSignificanceLabel(0.0001, 'p', { scientific: true, decimals: 2 })).toBe('1.00e-4');
+    expect(hooks.formatSignificanceLabel(0.0001, 'p', { scientific: true, decimals: 2 })).toBe('1 × 10⁻⁴');
   });
 
   test('star labels are optically centered against the ns glyph', () => {
@@ -163,6 +165,96 @@ describe('Box significance whisker modes', () => {
       strokeWidth: 1
     });
     expect(layout.geometryByPair.get(pair)?.annotationCoord).toBeCloseTo(87, 6);
+  });
+
+  test('reference significance layout is invariant to pair endpoint order', () => {
+    expect(hooks).toBeDefined();
+    expect(typeof hooks.buildPairAnnotationLayout).toBe('function');
+    const canonicalPairs = [0, 1, 2, 3, 4].map(ai => ({ ai, bi: 5, rangeMax: 40, id: `${ai}-5` }));
+    const referenceFirstPairs = canonicalPairs.map(pair => ({
+      ai: pair.bi,
+      bi: pair.ai,
+      rangeMax: pair.rangeMax,
+      id: pair.id
+    }));
+    const options = {
+      orientation: 'vertical',
+      categoryCenter: idx => 100 + idx * 60,
+      valueToCoord: value => 500 - value * 8,
+      baseOffset: 25,
+      levelGap: 25,
+      strokeWidth: 1,
+      fontSize: 12,
+      separateConvergingEndpoints: true
+    };
+    const canonical = hooks.buildPairAnnotationLayout(canonicalPairs, options);
+    const reversed = hooks.buildPairAnnotationLayout(referenceFirstPairs, options);
+    expect(canonical.maxLevel).toBe(4);
+    expect(reversed.maxLevel).toBe(4);
+    const byId = layout => Object.fromEntries(layout.sorted.map(pair => {
+      const geometry = layout.geometryByPair.get(pair);
+      return [pair.id, {
+        level: pair.level,
+        x1: geometry?.x1,
+        x2: geometry?.x2,
+        annotationCoord: geometry?.annotationCoord,
+        traceAtX1: geometry?.traceAtX1,
+        traceAtX2: geometry?.traceAtX2
+      }];
+    }));
+    expect(byId(reversed)).toEqual(byId(canonical));
+  });
+
+  test('adaptive significance rendering is invariant when reference pairs are stored reference-first', () => {
+    expect(hooks).toBeDefined();
+    expect(typeof hooks.buildBoxPairAnnotationRuntime).toBe('function');
+    const svgNS = 'http://www.w3.org/2000/svg';
+    const render = pairs => {
+      const svg = document.createElementNS(svgNS, 'svg');
+      svg.setAttribute('viewBox', '0 0 700 400');
+      svg.setAttribute('width', '700');
+      svg.setAttribute('height', '400');
+      svg.getBoundingClientRect = () => ({ width: 700, height: 400, top: 0, left: 0, right: 700, bottom: 400 });
+      const runtime = hooks.buildBoxPairAnnotationRuntime({
+        svg,
+        traces: Array.from({ length: 6 }, (_, idx) => ({ rawY: [10 + idx, 12 + idx] })),
+        significanceEnabled: true,
+        annotationOpts: {
+          showWhiskers: true,
+          whiskerMode: 'adaptive',
+          fontSize: 12,
+          strokeWidth: 1
+        },
+        helpers: {
+          annotationStyle: {
+            showWhiskers: true,
+            whiskerMode: 'adaptive',
+            fontSize: 12,
+            strokeWidth: 1
+          }
+        },
+        orientation: 'vertical',
+        categoryCenter: idx => 100 + idx * 90,
+        valueToCoord: value => 340 - value * 10,
+        baseOffset: 25,
+        levelGap: 25,
+        levelStep: 25,
+        annotationBracketSize: 10,
+        annotationMaxByTrace: [12, 13, 14, 15, 16, 17]
+      });
+      runtime.renderPairs(pairs);
+      return Array.from(svg.querySelectorAll('path.box-significance-annotation'))
+        .map(path => ({
+          d: path.getAttribute('d'),
+          x1: path.getAttribute('data-sig-x1'),
+          x2: path.getAttribute('data-sig-x2'),
+          inner: path.getAttribute('data-sig-inner')
+        }))
+        .sort((a, b) => Number(a.x1) - Number(b.x1) || Number(a.x2) - Number(b.x2) || Number(a.inner) - Number(b.inner));
+    };
+    const canonical = [0, 1, 2, 3, 4].map(ai => ({ ai, bi: 5, rangeMax: 40, p: 0.01 }));
+    const referenceFirst = canonical.map(pair => ({ ...pair, ai: pair.bi, bi: pair.ai }));
+    expect(render(referenceFirst)).toEqual(render(canonical));
   });
 
   test('plot frame expands around significance annotations in both orientations', () => {

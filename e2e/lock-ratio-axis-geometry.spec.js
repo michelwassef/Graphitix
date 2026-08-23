@@ -18,7 +18,6 @@ const CARTESIAN_COMPONENTS = [
   },
   { type: 'box', pageId: 'boxPage', exampleButtonId: 'boxLoadExample' },
   { type: 'scatter', pageId: 'scatterPage', exampleButtonId: 'scatterLoadExample' },
-  { type: 'pca', pageId: 'pcaPage', exampleButtonId: 'pcaLoadExample', forced: true },
   { type: 'line', pageId: 'linePage', exampleButtonId: 'lineLoadExample' },
   { type: 'roc', pageId: 'rocPage', exampleButtonId: 'rocLoadExample' },
   { type: 'survival', pageId: 'survivalPage', exampleButtonId: 'survivalLoadExample' },
@@ -54,12 +53,6 @@ const FORCED_3D_COMPONENTS = [
         return data.some((row, index) => index > 0 && Array.isArray(row) && row[3] !== '' && row[3] != null);
       }, null, { timeout: 30_000 });
     }
-  },
-  {
-    type: 'pca',
-    pageId: 'pcaPage',
-    exampleButtonId: 'pcaLoadExample',
-    prepare: page => page.locator('#pcaPage:not([hidden]) #pcaViewMode').selectOption('3d')
   },
   { type: 'surface', pageId: 'surfacePage', exampleButtonId: 'surfaceLoadExample' }
 ];

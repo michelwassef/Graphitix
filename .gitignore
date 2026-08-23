@@ -15,6 +15,7 @@ artifacts/
 benchmarks/
 
 # Temporary files and local scratch work
+assets/.welcome-examples-*/
 tmp/
 *.log
 *.tmp

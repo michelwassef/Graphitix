@@ -28,7 +28,10 @@ describe('shared graph frame publication', () => {
     expect(replacement.dataset.graphFramePublication).toBe('staged');
     expect(replacement.dataset.graphFrameOwnerTabId).toBe('tab-a');
     expect(replacement.style.visibility).toBe('hidden');
+    expect(window.Shared.framePublication.hasStaged({ component: 'test', tabId: 'tab-a', root: container })).toBe(true);
+    expect(window.Shared.framePublication.getStagedCount({ component: 'test', tabId: 'tab-a' })).toBe(1);
     expect(publication.commit()).toBe(true);
+    expect(window.Shared.framePublication.hasStaged({ component: 'test', tabId: 'tab-a', root: container })).toBe(false);
     expect(container.querySelector('#graphSvg')).toBe(replacement);
     expect(previous.parentNode).toBeNull();
     expect(replacement.dataset.graphFramePublication).toBe('committed');
@@ -50,8 +53,10 @@ describe('shared graph frame publication', () => {
     });
 
     expect(publication.commit()).toBe(false);
+    expect(window.Shared.framePublication.hasStaged({ root: container })).toBe(true);
     expect(publication.cleanup()).toBe(true);
     expect(publication.state).toBe('discarded');
+    expect(window.Shared.framePublication.hasStaged({ root: container })).toBe(false);
     expect(container.childNodes).toHaveLength(1);
     expect(container.querySelector('#graphSvg')).toBe(previous);
     expect(replacement.parentNode).toBeNull();

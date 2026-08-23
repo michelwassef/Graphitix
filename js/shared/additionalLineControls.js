@@ -208,6 +208,14 @@
     };
   }
 
+  function contextsMatch(a, b){
+    if(!a || !b){ return false; }
+    return a.target === b.target
+      && String(a.scope || '') === String(b.scope || '')
+      && String(a.scopeValue || '') === String(b.scopeValue || '')
+      && String(a.scopeDataset || '') === String(b.scopeDataset || '');
+  }
+
   function buildContextFromScopeOption(option){
     const rawScopeValue = String(option?.value == null ? '' : option.value).trim();
     const parsedScope = decodeScopedValue(rawScopeValue);
@@ -273,6 +281,19 @@
     if(!config || !scopeSelect){
       return null;
     }
+    const aggregateUndo = config.aggregateUndo && typeof config.aggregateUndo === 'object'
+      ? config.aggregateUndo
+      : null;
+    if(aggregateUndo && typeof aggregateUndo.capture === 'function' && typeof aggregateUndo.apply === 'function'){
+      const aggregateSnapshot = Shared.styleUndo?.captureAggregateState?.({
+        field: type,
+        context,
+        capture: (field, captureContext) => aggregateUndo.capture(field, captureContext)
+      }) || null;
+      if(aggregateSnapshot){
+        return aggregateSnapshot;
+      }
+    }
     return Shared.styleUndo?.captureScopedValues?.({
       context,
       getter: scopedContext => readScopedLineValue(config, type, scopedContext),
@@ -333,8 +354,10 @@
     if(!Number.isFinite(numeric)){
       return '0px';
     }
-    const rounded = Math.round(numeric * 10) / 10;
-    return `${rounded}px`;
+    const toolbarApi = Shared.getWorkspaceToolbarApi?.() || Shared.workspaceToolbar || null;
+    const formatted = toolbarApi?.formatNumericValue?.(numeric, thicknessInput?.step || 0.25)
+      || String(Math.round(numeric * 100) / 100);
+    return `${formatted}px`;
   }
 
   function syncStyleChipUi(){
@@ -378,21 +401,33 @@
     input.step = thicknessInput?.step || '0.25';
     input.value = thicknessInput?.value || '0';
     input.setAttribute('aria-label', controls.thicknessLabel || 'Line width');
-    input.addEventListener('input', () => {
-      if(!thicknessInput){ return; }
-      thicknessInput.value = input.value;
-      thicknessInput.dispatchEvent(new Event('input', { bubbles: true }));
-    });
-    input.addEventListener('change', () => {
-      if(!thicknessInput){ return; }
-      thicknessInput.value = input.value;
-      thicknessInput.dispatchEvent(new Event('change', { bubbles: true }));
-    });
+    const toolbarApi = Shared.getWorkspaceToolbarApi?.() || Shared.workspaceToolbar || null;
+    const mirrorCleanup = typeof toolbarApi?.bindNumericInputMirror === 'function'
+      ? toolbarApi.bindNumericInputMirror(input, thicknessInput)
+      : (() => {
+          const onInput = () => {
+            if(!thicknessInput){ return; }
+            thicknessInput.value = input.value;
+            thicknessInput.dispatchEvent(new Event('input', { bubbles: true }));
+          };
+          const onChange = () => {
+            if(!thicknessInput){ return; }
+            thicknessInput.value = input.value;
+            thicknessInput.dispatchEvent(new Event('change', { bubbles: true }));
+          };
+          input.addEventListener('input', onInput);
+          input.addEventListener('change', onChange);
+          return () => {
+            input.removeEventListener('input', onInput);
+            input.removeEventListener('change', onChange);
+          };
+        })();
     field.appendChild(input);
     row.appendChild(field);
     section.appendChild(row);
     overlayEl.insertBefore(section, overlayEl.firstChild || null);
     return () => {
+      mirrorCleanup();
       if(section.parentNode){
         section.parentNode.removeChild(section);
       }
@@ -485,9 +520,16 @@
       ? equals
       : ((a, b) => (a === b) || (a === null && b === null));
     const contextSnapshot = snapshotContext(options?.contextSnapshot || getContext());
-    const scopedPrevious = Array.isArray(options?.scopedPrevious)
+    const baseline = options && Object.prototype.hasOwnProperty.call(options, 'scopedPrevious')
       ? options.scopedPrevious
       : captureScopedLineValues(config, type, contextSnapshot);
+    const aggregatePrevious = Shared.styleUndo?.isAggregateStateSnapshot?.(baseline)
+      ? baseline
+      : null;
+    const aggregateNext = aggregatePrevious
+      ? captureScopedLineValues(config, aggregatePrevious.field || type, contextSnapshot)
+      : null;
+    const scopedPrevious = !aggregatePrevious && Array.isArray(baseline) ? baseline : null;
     const parts = ['additionalLine'];
     if(config?.scopeId){ parts.push(config.scopeId); }
     if(activeScope){ parts.push(String(activeScope)); }
@@ -502,6 +544,11 @@
       to: nextValue,
       equals: compare,
       scopedFrom: scopedPrevious,
+      aggregateFrom: aggregatePrevious,
+      aggregateTo: aggregateNext,
+      applyAggregate: aggregatePrevious && aggregateNext
+        ? (state, applyContext, phase) => config.aggregateUndo.apply(aggregatePrevious.field || type, state, applyContext, phase)
+        : null,
       context: contextSnapshot,
       restoreContext: restoreScopeFromSnapshot,
       beforeApply(){ applyingFromUndo = true; },
@@ -536,6 +583,7 @@
       if(panelEl.contains(evt.target)){ return; }
       if(activeConfig?.keepOpenWithinHost && activeHost && activeHost.contains && activeHost.contains(evt.target)){ return; }
       if(evt.target?.dataset?.additionalLineControl === '1'){ return; }
+      if(typeof Shared.isColorPickerOpenFor === 'function' && (Shared.isColorPickerOpenFor(panelEl) || Shared.isColorPickerOpenFor(activeHost))){ return; }
       if(evt.target?.closest && evt.target.closest('.shared-color-picker')){ return; }
       closePanel('outside');
     });
@@ -751,55 +799,73 @@
       syncPanelInputsFromConfig(activeConfig);
     });
 
-    const applyThicknessFromInput = (recordUndo) => {
+    let thicknessInteraction = null;
+    const applyThicknessFromInput = recordUndo => {
       if(applyingFromUndo){ return; }
       if(!activeConfig || typeof activeConfig.onThicknessChange !== 'function'){ return; }
       const config = activeConfig;
       const context = getContext();
       const controls = resolveControls(config);
-      const scopedPrevious = captureScopedLineValues(config, 'thickness', context);
-      const previousValue = sanitizeThicknessValue(config.getThickness ? config.getThickness(context) : null);
+      const contextSnapshot = snapshotContext(context);
+      if(
+        !thicknessInteraction
+        || thicknessInteraction.config !== config
+        || !contextsMatch(thicknessInteraction.contextSnapshot, contextSnapshot)
+      ){
+        thicknessInteraction = {
+          config,
+          contextSnapshot,
+          previousValue: sanitizeThicknessValue(config.getThickness ? config.getThickness(context) : null),
+          scopedPrevious: captureScopedLineValues(config, 'thickness', context)
+        };
+      }
       const requestedRaw = sanitizeThicknessValue(thicknessInput.value);
       const requested = requestedRaw == null ? null : Math.max(controls.thicknessMin, requestedRaw);
       config.onThicknessChange(requested, context);
       const nextValue = sanitizeThicknessValue(config.getThickness ? config.getThickness(context) : null);
       syncPanelInputsFromConfig(config);
-      if(recordUndo){
-        const scopeSnapshot = snapshotContext(context);
-        recordStyleStateChange(
-          config,
-          'thickness',
-          previousValue,
-          nextValue,
-          (value, applyContext) => {
-            const normalizedRaw = sanitizeThicknessValue(value);
-            const normalized = normalizedRaw == null ? null : Math.max(controls.thicknessMin, normalizedRaw);
-            config.onThicknessChange(normalized, applyContext || getContext(scopeSnapshot));
-          },
-          undefined,
-          { contextSnapshot: scopeSnapshot, scopedPrevious }
-        );
+      if(!recordUndo){
+        return;
       }
+      const interaction = thicknessInteraction;
+      thicknessInteraction = null;
+      recordStyleStateChange(
+        config,
+        'thickness',
+        interaction.previousValue,
+        nextValue,
+        (value, applyContext) => {
+          const normalizedRaw = sanitizeThicknessValue(value);
+          const normalized = normalizedRaw == null ? null : Math.max(controls.thicknessMin, normalizedRaw);
+          config.onThicknessChange(normalized, applyContext || getContext(interaction.contextSnapshot));
+        },
+        undefined,
+        {
+          contextSnapshot: interaction.contextSnapshot,
+          scopedPrevious: interaction.scopedPrevious
+        }
+      );
     };
     thicknessInput.addEventListener('input', () => applyThicknessFromInput(false));
     thicknessInput.addEventListener('change', () => applyThicknessFromInput(true));
+    toolbarUiApi?.bindNumericWheelEnd?.(thicknessInput, detail => {
+      if(detail.committed !== true){
+        thicknessInteraction = null;
+      }
+    });
 
     if(styleChipEl){
-      styleChipEl.addEventListener('wheel', evt => {
-        evt.preventDefault();
-        const step = evt.deltaY < 0 ? 0.5 : -0.5;
-        const current = sanitizeThicknessValue(thicknessInput?.value);
-        const next = (current == null ? 0 : current) + step;
-        if(thicknessInput){
-          thicknessInput.value = String(next);
-          thicknessInput.dispatchEvent(new Event('input', { bubbles: true }));
-        }
-      }, { passive: false });
+      if(typeof toolbarUiApi.bindNumericWheelProxy === 'function'){
+        toolbarUiApi.bindNumericWheelProxy(styleChipEl, thicknessInput);
+      }
       const onStyleDragMove = evt => {
         if(!styleDragState || !thicknessInput){ return; }
         const deltaX = evt.clientX - styleDragState.startX;
         const steps = Math.round(deltaX / 8);
-        const next = styleDragState.startValue + (steps * 0.5);
+        const dragStep = typeof toolbarUiApi.getNumericWheelStep === 'function'
+          ? toolbarUiApi.getNumericWheelStep(thicknessInput)
+          : (Number(thicknessInput.step) || 0.25);
+        const next = styleDragState.startValue + (steps * dragStep);
         thicknessInput.value = String(next);
         thicknessInput.dispatchEvent(new Event('input', { bubbles: true }));
       };
@@ -827,6 +893,7 @@
         evt.preventDefault();
         evt.stopPropagation();
       }, true);
+
       if(typeof Shared.openColorPicker === 'function'){
         styleChipEl.addEventListener('click', evt => {
           evt.preventDefault();

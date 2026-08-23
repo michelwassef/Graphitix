@@ -269,5 +269,21 @@ describe('Format toolbar exclusivity', () => {
     const host = panel.closest('.font-toolbar-host');
     expect(host).toBeTruthy();
     expect(host.classList.contains('font-toolbar-host--visible')).toBe(true);
+
+    const scaleFields = Array.from(panel.querySelectorAll('[data-heatmap-value-scale-field]'));
+    expect(scaleFields).toHaveLength(2);
+    scaleFields.forEach(field => {
+      expect(field.hidden).toBe(true);
+      expect(field.querySelector('input')?.disabled).toBe(true);
+    });
+
+    const viewSelect = document.getElementById('heatmapView');
+    viewSelect.value = 'values';
+    viewSelect.dispatchEvent(new Event('change', { bubbles: true }));
+    await flushAsyncWork(8);
+    scaleFields.forEach(field => {
+      expect(field.hidden).toBe(false);
+      expect(field.querySelector('input')?.disabled).toBe(false);
+    });
   });
 });

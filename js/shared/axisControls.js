@@ -57,8 +57,11 @@
   let hasDocListener = false;
   let applyingFromUndo = false;
   let panelRefreshFrame = 0;
+  let axisLengthWheelInteraction = null;
   const AXIS_CONTROLS_STATE_KEY = 'axisControls';
   const AXIS_LENGTH_UI_STATE_KEY = 'axisLengthUi';
+  const AXIS_CONTROLS_RUNTIME_KEY = 'axisControls';
+  const AXIS_LENGTH_GENERATIONS_RUNTIME_KEY = 'axisLengthGenerations';
 
 
   function normalizeAxisControlsTabId(value){
@@ -173,6 +176,125 @@
     return store;
   }
 
+  function getAxisLengthGenerationKey(config, axisKey){
+    const scopeKey = getAxisLengthUiScopeKey(config);
+    return `${scopeKey}::${axisKey === 'y' ? 'y' : 'x'}`;
+  }
+
+  function ensureAxisControlsRuntime(config, target, reason){
+    const tabId = resolveAxisControlsTabId({ ...(config || {}), target });
+    if(!tabId){
+      return null;
+    }
+    const runtime = Shared.workspaceTabs?.ensureRuntimeBucket?.(tabId, AXIS_CONTROLS_RUNTIME_KEY, {
+      tabId,
+      componentKey: AXIS_CONTROLS_RUNTIME_KEY,
+      reason: reason || 'axis-controls-runtime',
+      strictTabOwnership: true
+    });
+    return runtime ? { tabId, runtime } : null;
+  }
+
+  function nextAxisLengthGeneration(config, target, axisKey){
+    const runtimeOwner = ensureAxisControlsRuntime(config, target, 'axis-length-generation-next');
+    if(!runtimeOwner){
+      return null;
+    }
+    const generations = runtimeOwner.runtime[AXIS_LENGTH_GENERATIONS_RUNTIME_KEY]
+      || (runtimeOwner.runtime[AXIS_LENGTH_GENERATIONS_RUNTIME_KEY] = {});
+    const key = getAxisLengthGenerationKey(config, axisKey);
+    const previous = Number(generations[key]);
+    const generation = Number.isFinite(previous) ? previous + 1 : 1;
+    generations[key] = generation;
+    return { tabId: runtimeOwner.tabId, key, generation };
+  }
+
+  function isAxisLengthGenerationCurrent(token){
+    if(!token?.tabId || !token?.key || !Number.isFinite(Number(token.generation))){
+      return false;
+    }
+    const runtime = Shared.workspaceTabs?.ensureRuntimeBucket?.(token.tabId, AXIS_CONTROLS_RUNTIME_KEY, {
+      tabId: token.tabId,
+      componentKey: AXIS_CONTROLS_RUNTIME_KEY,
+      reason: 'axis-length-generation-check',
+      strictTabOwnership: true
+    });
+    const generations = runtime?.[AXIS_LENGTH_GENERATIONS_RUNTIME_KEY];
+    return Number(generations?.[token.key]) === Number(token.generation);
+  }
+
+  function resetAxisLengthWheelInteraction(){
+    axisLengthWheelInteraction = null;
+  }
+
+  function getNumericWheelPhase(input){
+    const toolbarApi = Shared.getWorkspaceToolbarApi?.() || Shared.workspaceToolbar || null;
+    return typeof toolbarApi?.getNumericWheelPhase === 'function'
+      ? toolbarApi.getNumericWheelPhase(input)
+      : null;
+  }
+
+
+  function bindWheelAwareAxisNumericInput(input, spec){
+    if(!input || !spec || typeof spec.read !== 'function' || typeof spec.apply !== 'function'){
+      return;
+    }
+    let interaction = null;
+    const run = commit => {
+      if(applyingFromUndo || !activeConfig || input.disabled){ return; }
+      const config = activeConfig;
+      if(typeof spec.isSupported === 'function' && !spec.isSupported(config)){
+        interaction = null;
+        if(typeof spec.onUnsupported === 'function'){
+          spec.onUnsupported(config, input);
+        }
+        return;
+      }
+      if(!interaction || !configsMatch(interaction.config, config)){
+        interaction = {
+          config,
+          previousValue: spec.read(config)
+        };
+      }
+      const requestedValue = typeof spec.parse === 'function'
+        ? spec.parse(input.value, config)
+        : input.value;
+      if(typeof spec.log === 'function'){
+        spec.log({ config, raw: input.value, requestedValue, commit });
+      }
+      spec.apply(config, requestedValue);
+      const nextValue = spec.read(config, requestedValue);
+      if(spec.sync !== false){
+        syncPanelInputsFromConfig(config);
+      }
+      if(!commit){
+        return;
+      }
+      const previousValue = interaction.previousValue;
+      interaction = null;
+      recordAxisStateChange(
+        config,
+        spec.stateKey,
+        previousValue,
+        nextValue,
+        value => spec.apply(config, value),
+        spec.equals
+      );
+    };
+    input.addEventListener('input', () => {
+      if(getNumericWheelPhase(input) === 'live'){
+        run(false);
+      }
+    });
+    input.addEventListener('change', () => run(true));
+    const toolbarApi = Shared.getWorkspaceToolbarApi?.() || Shared.workspaceToolbar || null;
+    toolbarApi?.bindNumericWheelEnd?.(input, detail => {
+      if(detail.committed !== true){
+        interaction = null;
+      }
+    });
+  }
+
   function resolveToolbarHost(scopeId){
     const toolbarApi = Shared.getWorkspaceToolbarApi();
     if(typeof toolbarApi.resolveHost === 'function'){
@@ -181,10 +303,10 @@
     return null;
   }
 
-  function showToolbarHost(host, hostClass){
+  function showToolbarHost(host, hostClass, ownerTabId){
     const toolbarApi = Shared.getWorkspaceToolbarApi();
     if(typeof toolbarApi.showHost === 'function'){
-      toolbarApi.showHost(host, { hostClass });
+      toolbarApi.showHost(host, { hostClass, ownerTabId });
       return;
     }
     if(!host){ return; }
@@ -227,7 +349,10 @@
     if(axisA !== axisB){ return false; }
     const scopeA = a.scopeId || '';
     const scopeB = b.scopeId || '';
-    return scopeA === scopeB;
+    if(scopeA !== scopeB){ return false; }
+    const tabA = normalizeAxisControlsTabId(a.tabId || a.workspaceTabId || resolveAxisControlsTabIdFromNode(a.target || a.svg || a.host || a.root || null));
+    const tabB = normalizeAxisControlsTabId(b.tabId || b.workspaceTabId || resolveAxisControlsTabIdFromNode(b.target || b.svg || b.host || b.root || null));
+    return !tabA && !tabB ? true : tabA === tabB;
   }
 
   function sanitizeTickValue(value){
@@ -368,6 +493,24 @@
     }
     return areNumbersClose(left.width, right.width, 1e-6)
       && areNumbersClose(left.height, right.height, 1e-6);
+  }
+
+  function isAxisLengthProportionLocked(config){
+    if(!config || typeof config !== 'object'){
+      return false;
+    }
+    if(typeof config.isAxisLengthProportionLocked === 'function'){
+      try{
+        return config.isAxisLengthProportionLocked(config.axis, config) === true;
+      }catch(err){
+        logDebug('axis length proportion-lock read failed', {
+          axis: config.axis || null,
+          scopeId: config.scopeId || null,
+          error: err && err.message
+        });
+      }
+    }
+    return config.axisLengthProportionLocked === true;
   }
 
   function getAxisLengthUiState(config){
@@ -1142,8 +1285,10 @@
     if(!Number.isFinite(numeric)){
       return '0px';
     }
-    const rounded = Math.round(numeric * 10) / 10;
-    return `${rounded}px`;
+    const toolbarApi = Shared.getWorkspaceToolbarApi?.() || Shared.workspaceToolbar || null;
+    const formatted = toolbarApi?.formatNumericValue?.(numeric, thicknessInput?.step || 0.25)
+      || String(Math.round(numeric * 100) / 100);
+    return `${formatted}px`;
   }
 
   function syncStyleChipUi(){
@@ -1189,21 +1334,33 @@
     input.step = thicknessInput?.step || '0.25';
     input.value = thicknessInput?.value || '1';
     input.setAttribute('aria-label', 'Line width');
-    input.addEventListener('input', () => {
-      if(!thicknessInput){ return; }
-      thicknessInput.value = input.value;
-      thicknessInput.dispatchEvent(new Event('input', { bubbles: true }));
-    });
-    input.addEventListener('change', () => {
-      if(!thicknessInput){ return; }
-      thicknessInput.value = input.value;
-      thicknessInput.dispatchEvent(new Event('change', { bubbles: true }));
-    });
+    const toolbarApi = Shared.getWorkspaceToolbarApi?.() || Shared.workspaceToolbar || null;
+    const mirrorCleanup = typeof toolbarApi?.bindNumericInputMirror === 'function'
+      ? toolbarApi.bindNumericInputMirror(input, thicknessInput)
+      : (() => {
+          const onInput = () => {
+            if(!thicknessInput){ return; }
+            thicknessInput.value = input.value;
+            thicknessInput.dispatchEvent(new Event('input', { bubbles: true }));
+          };
+          const onChange = () => {
+            if(!thicknessInput){ return; }
+            thicknessInput.value = input.value;
+            thicknessInput.dispatchEvent(new Event('change', { bubbles: true }));
+          };
+          input.addEventListener('input', onInput);
+          input.addEventListener('change', onChange);
+          return () => {
+            input.removeEventListener('input', onInput);
+            input.removeEventListener('change', onChange);
+          };
+        })();
     field.appendChild(input);
     row.appendChild(field);
     section.appendChild(row);
     overlayEl.insertBefore(section, overlayEl.firstChild || null);
     return () => {
+      mirrorCleanup();
       if(section.parentNode){
         section.parentNode.removeChild(section);
       }
@@ -1358,6 +1515,16 @@
         }
       };
 
+      startInput.addEventListener('input', () => {
+        if(getNumericWheelPhase(startInput) === 'live'){
+          updateSegment();
+        }
+      });
+      endInput.addEventListener('input', () => {
+        if(getNumericWheelPhase(endInput) === 'live'){
+          updateSegment();
+        }
+      });
       startInput.addEventListener('change', updateSegment);
       endInput.addEventListener('change', updateSegment);
 
@@ -1486,7 +1653,7 @@
 
       additionalTicksContainer.appendChild(row);
 
-      const commitRow = () => {
+      const commitRow = (options = {}) => {
         if(applyingFromUndo){ return; }
         if(!config || typeof config.onAdditionalTickChange !== 'function'){ return; }
         const numericValue = Number(valueInput.value);
@@ -1507,10 +1674,17 @@
           showTick: !!tickToggleInput.checked,
           showLine: !!lineToggleInput.checked
         });
-        syncPanelInputsFromConfig(config);
-        setAdditionalTicksConfigExpanded(true);
+        if(options.sync !== false){
+          syncPanelInputsFromConfig(config);
+          setAdditionalTicksConfigExpanded(true);
+        }
       };
 
+      valueInput.addEventListener('input', () => {
+        if(getNumericWheelPhase(valueInput) === 'live'){
+          commitRow({ sync: false });
+        }
+      });
       valueInput.addEventListener('change', commitRow);
       tickToggleInput.addEventListener('change', commitRow);
       lineToggleInput.addEventListener('change', commitRow);
@@ -1729,8 +1903,15 @@
         axisLengthInput.placeholder = unit === AXIS_LENGTH_UNIT_MM ? 'mm' : 'px';
         axisLengthUnitSelect.disabled = false;
         axisLengthUnitSelect.value = unit;
-        axisLengthPreserveToggleInput.disabled = false;
-        axisLengthPreserveToggleInput.checked = uiState.preserveProportions === true;
+        const proportionLocked = isAxisLengthProportionLocked(config);
+        if(proportionLocked){
+          uiState.preserveProportions = true;
+        }
+        axisLengthPreserveToggleInput.disabled = proportionLocked;
+        axisLengthPreserveToggleInput.checked = proportionLocked || uiState.preserveProportions === true;
+        axisLengthPreserveToggleInput.title = proportionLocked
+          ? 'Axis proportions are fixed by this graph type.'
+          : '';
       }else{
         axisLengthFieldEl.hidden = true;
         axisLengthFieldEl.dataset.disabled = '1';
@@ -1740,6 +1921,7 @@
         axisLengthUnitSelect.value = AXIS_LENGTH_UNIT_PX;
         axisLengthPreserveToggleInput.disabled = true;
         axisLengthPreserveToggleInput.checked = false;
+        axisLengthPreserveToggleInput.title = '';
       }
     }
 
@@ -1992,6 +2174,7 @@
       const target = evt.target;
       if(panelEl.contains(target)){ return; }
       if(target?.dataset?.axisControl === '1'){ return; }
+      if(typeof Shared.isColorPickerOpenFor === 'function' && Shared.isColorPickerOpenFor(panelEl)){ return; }
       if(target?.closest && (target.closest('.shared-color-picker') || target.closest('[data-font-controls-overlay="1"]'))){ return; }
       closePanel('outside');
     });
@@ -2501,117 +2684,78 @@
     }
 
     if(minorTicksSubdivInput){
-      minorTicksSubdivInput.addEventListener('change', () => {
-        if(applyingFromUndo){ return; }
-        if(!activeConfig){ return; }
-        if(!isMinorTicksSupported(activeConfig)){
+      bindWheelAwareAxisNumericInput(minorTicksSubdivInput, {
+        stateKey: 'minorSubdivisions',
+        isSupported: config => isMinorTicksSupported(config) && typeof config.onMinorTickSubdivisionsChange === 'function',
+        onUnsupported: () => {
           minorTicksSubdivInput.value = String(DEFAULT_MINOR_SUBDIVISIONS);
-          return;
+        },
+        read: (config, fallback = DEFAULT_MINOR_SUBDIVISIONS) => sanitizeMinorSubdivisionValue(
+          config.getMinorTickSubdivisions ? config.getMinorTickSubdivisions(config.axis) : fallback
+        ),
+        parse: value => sanitizeMinorSubdivisionValue(value),
+        apply: (config, value) => {
+          config.onMinorTickSubdivisionsChange(sanitizeMinorSubdivisionValue(value), config.axis);
+        },
+        log: ({ config, requestedValue, commit }) => {
+          logDebug('minor tick subdivisions change', {
+            axis: config.axis,
+            requestedValue,
+            phase: commit ? 'commit' : 'live'
+          });
         }
-        const config = activeConfig;
-        if(typeof config.onMinorTickSubdivisionsChange !== 'function'){
-          return;
-        }
-        const previousValue = sanitizeMinorSubdivisionValue(
-          config.getMinorTickSubdivisions ? config.getMinorTickSubdivisions(config.axis) : DEFAULT_MINOR_SUBDIVISIONS
-        );
-        const requestedValue = sanitizeMinorSubdivisionValue(minorTicksSubdivInput.value);
-        logDebug('minor tick subdivisions change',{ axis: config.axis, requestedValue });
-        if(config.onMinorTickSubdivisionsChange){
-          config.onMinorTickSubdivisionsChange(requestedValue, config.axis);
-        }
-        const nextValue = sanitizeMinorSubdivisionValue(
-          config.getMinorTickSubdivisions ? config.getMinorTickSubdivisions(config.axis) : requestedValue
-        );
-        minorTicksSubdivInput.value = String(nextValue);
-        syncPanelInputsFromConfig(config);
-        recordAxisStateChange(
-          config,
-          'minorSubdivisions',
-          previousValue,
-          nextValue,
-          value => {
-            if(config.onMinorTickSubdivisionsChange){
-              config.onMinorTickSubdivisionsChange(sanitizeMinorSubdivisionValue(value), config.axis);
-            }
-          }
-        );
       });
     }
 
-    tickInput.addEventListener('change', () => {
-      if(applyingFromUndo){ return; }
-      if(!activeConfig || tickInput.disabled){ return; }
-      const config = activeConfig;
-      const raw = tickInput.value;
-      const previousValue = sanitizeTickValue(config.getTickInterval ? config.getTickInterval(config.axis) : null);
-      const requestedValue = sanitizeTickValue(raw);
-      logDebug('tick interval change',{ raw, value: requestedValue, axis: config.axis });
-      if(config.onTickIntervalChange){
-        config.onTickIntervalChange(requestedValue, config.axis);
+    bindWheelAwareAxisNumericInput(tickInput, {
+      stateKey: 'tick',
+      isSupported: config => !tickInput.disabled && typeof config.onTickIntervalChange === 'function',
+      read: config => sanitizeTickValue(config.getTickInterval ? config.getTickInterval(config.axis) : null),
+      parse: value => sanitizeTickValue(value),
+      apply: (config, value) => {
+        config.onTickIntervalChange(value, config.axis);
+      },
+      log: ({ config, raw, requestedValue, commit }) => {
+        logDebug('tick interval change', {
+          raw,
+          value: requestedValue,
+          axis: config.axis,
+          phase: commit ? 'commit' : 'live'
+        });
       }
-      const nextValue = sanitizeTickValue(config.getTickInterval ? config.getTickInterval(config.axis) : null);
-      syncPanelInputsFromConfig(config);
-      recordAxisStateChange(
-        config,
-        'tick',
-        previousValue,
-        nextValue,
-        value => {
-          if(config.onTickIntervalChange){
-            config.onTickIntervalChange(value, config.axis);
-          }
-        }
-      );
     });
 
     if(majorTickLengthInput){
-      majorTickLengthInput.addEventListener('change', () => {
-        if(applyingFromUndo){ return; }
-        if(!activeConfig || majorTickLengthInput.disabled){ return; }
-        const config = activeConfig;
-        if(typeof config.onMajorTickLengthChange !== 'function'){ return; }
-        const previousValue = sanitizeMajorTickLengthValue(config.getMajorTickLength ? config.getMajorTickLength(config.axis) : null);
-        const requestedValue = sanitizeMajorTickLengthValue(majorTickLengthInput.value);
-        config.onMajorTickLengthChange(requestedValue, config.axis);
-        const nextValue = sanitizeMajorTickLengthValue(config.getMajorTickLength ? config.getMajorTickLength(config.axis) : requestedValue);
-        syncPanelInputsFromConfig(config);
-        recordAxisStateChange(
-          config,
-          'majorTickLength',
-          previousValue,
-          nextValue,
-          value => config.onMajorTickLengthChange(sanitizeMajorTickLengthValue(value), config.axis)
-        );
+      bindWheelAwareAxisNumericInput(majorTickLengthInput, {
+        stateKey: 'majorTickLength',
+        isSupported: config => typeof config.onMajorTickLengthChange === 'function',
+        read: (config, fallback = null) => sanitizeMajorTickLengthValue(
+          config.getMajorTickLength ? config.getMajorTickLength(config.axis) : fallback
+        ),
+        parse: value => sanitizeMajorTickLengthValue(value),
+        apply: (config, value) => {
+          config.onMajorTickLengthChange(sanitizeMajorTickLengthValue(value), config.axis);
+        }
       });
     }
 
     if(datasetSpacingInput){
-      datasetSpacingInput.addEventListener('change', () => {
-        if(applyingFromUndo){ return; }
-        if(!activeConfig || datasetSpacingInput.disabled){ return; }
-        const config = activeConfig;
-        if(typeof config.onDatasetSpacingChange !== 'function'){
-          return;
+      bindWheelAwareAxisNumericInput(datasetSpacingInput, {
+        stateKey: 'datasetSpacing',
+        isSupported: config => typeof config.onDatasetSpacingChange === 'function',
+        read: config => sanitizeDatasetSpacingValue(config.getDatasetSpacing ? config.getDatasetSpacing(config.axis) : null),
+        parse: value => sanitizeDatasetSpacingValue(value),
+        apply: (config, value) => {
+          config.onDatasetSpacingChange(value, config.axis);
+        },
+        log: ({ config, raw, requestedValue, commit }) => {
+          logDebug('dataset spacing change', {
+            raw,
+            value: requestedValue,
+            axis: config.axis,
+            phase: commit ? 'commit' : 'live'
+          });
         }
-        const raw = datasetSpacingInput.value;
-        const previousValue = sanitizeDatasetSpacingValue(config.getDatasetSpacing ? config.getDatasetSpacing(config.axis) : null);
-        const requestedValue = sanitizeDatasetSpacingValue(raw);
-        logDebug('dataset spacing change',{ raw, value: requestedValue, axis: config.axis });
-        config.onDatasetSpacingChange(requestedValue, config.axis);
-        const nextValue = sanitizeDatasetSpacingValue(config.getDatasetSpacing ? config.getDatasetSpacing(config.axis) : null);
-        syncPanelInputsFromConfig(config);
-        recordAxisStateChange(
-          config,
-          'datasetSpacing',
-          previousValue,
-          nextValue,
-          value => {
-            if(config.onDatasetSpacingChange){
-              config.onDatasetSpacingChange(value, config.axis);
-            }
-          }
-        );
       });
     }
 
@@ -2636,6 +2780,11 @@
         if(!activeConfig){ return; }
         const config = activeConfig;
         const uiState = getAxisLengthUiState(config);
+        if(isAxisLengthProportionLocked(config)){
+          uiState.preserveProportions = true;
+          axisLengthPreserveToggleInput.checked = true;
+          return;
+        }
         uiState.preserveProportions = axisLengthPreserveToggleInput.checked === true;
         logDebug('axis length preserve toggle', {
           axis: config.axis,
@@ -2646,40 +2795,105 @@
     }
 
     if(axisLengthInput){
+      const readAxisLengthRequest = config => {
+        const uiState = getAxisLengthUiState(config);
+        const unit = sanitizeAxisLengthUnit(uiState.unit);
+        const proportionLocked = isAxisLengthProportionLocked(config);
+        if(proportionLocked){
+          uiState.preserveProportions = true;
+        }
+        return {
+          unit,
+          preserveProportions: proportionLocked || uiState.preserveProportions === true,
+          requestedPx: convertAxisLengthToPx(axisLengthInput.value, unit)
+        };
+      };
+      const interactionMatches = config => (
+        !!axisLengthWheelInteraction
+        && configsMatch(axisLengthWheelInteraction.config, config)
+      );
+      axisLengthInput.addEventListener('input', () => {
+        if(getNumericWheelPhase(axisLengthInput) !== 'live'){ return; }
+        if(applyingFromUndo || !activeConfig || axisLengthInput.disabled){ return; }
+        const config = activeConfig;
+        if(typeof config.onAxisLengthChange !== 'function' || typeof config.getAxisLength !== 'function'){
+          return;
+        }
+        const request = readAxisLengthRequest(config);
+        if(request.requestedPx == null){ return; }
+        if(!interactionMatches(config)){
+          const previousLengthPx = readAxisLengthPx(config);
+          const previousSize = readGraphSizeSnapshot(config);
+          const previousBasis = previousSize
+            ? Number(config.axis === 'y' ? previousSize.height : previousSize.width)
+            : NaN;
+          const numericPreviousLength = Number(previousLengthPx);
+          const basisOffsetPx = Number.isFinite(previousBasis) && Number.isFinite(numericPreviousLength)
+            ? Math.max(0, previousBasis - numericPreviousLength)
+            : null;
+          axisLengthWheelInteraction = {
+            config,
+            previousLengthPx,
+            previousSize,
+            basisOffsetPx,
+            preserveProportions: request.preserveProportions
+          };
+        }
+        config.onAxisLengthChange(request.requestedPx, config.axis, {
+          unit: request.unit,
+          preserveProportions: request.preserveProportions,
+          axisBasisOffsetPx: axisLengthWheelInteraction.basisOffsetPx,
+          reason: 'axis-length-wheel-live',
+          refine: false
+        });
+        syncPanelInputsFromConfig(config);
+      });
+
       axisLengthInput.addEventListener('change', () => {
         if(applyingFromUndo){ return; }
         if(!activeConfig || axisLengthInput.disabled){ return; }
         const config = activeConfig;
         if(typeof config.onAxisLengthChange !== 'function' || typeof config.getAxisLength !== 'function'){
+          resetAxisLengthWheelInteraction();
           syncPanelInputsFromConfig(config);
           return;
         }
-        const uiState = getAxisLengthUiState(config);
-        const unit = sanitizeAxisLengthUnit(uiState.unit);
-        const preserveAtChange = uiState.preserveProportions === true;
-        const requestedPx = convertAxisLengthToPx(axisLengthInput.value, unit);
-        if(requestedPx == null){
+        const request = readAxisLengthRequest(config);
+        if(request.requestedPx == null){
+          resetAxisLengthWheelInteraction();
           syncPanelInputsFromConfig(config);
           return;
         }
-        const previousLengthPx = readAxisLengthPx(config);
-        const previousSize = readGraphSizeSnapshot(config);
+        const wheelCommit = getNumericWheelPhase(axisLengthInput) === 'commit' && interactionMatches(config);
+        const previousLengthPx = wheelCommit
+          ? axisLengthWheelInteraction.previousLengthPx
+          : readAxisLengthPx(config);
+        const previousSize = wheelCommit
+          ? axisLengthWheelInteraction.previousSize
+          : readGraphSizeSnapshot(config);
+        const preserveAtChange = wheelCommit
+          ? axisLengthWheelInteraction.preserveProportions
+          : request.preserveProportions;
         logDebug('axis length change requested', {
           axis: config.axis,
           scopeId: config.scopeId,
-          unit,
+          unit: request.unit,
           requestedInput: axisLengthInput.value,
-          requestedPx,
-          preserveProportions: preserveAtChange
-        });
-        config.onAxisLengthChange(requestedPx, config.axis, {
-          unit,
+          requestedPx: request.requestedPx,
           preserveProportions: preserveAtChange,
-          reason: 'axis-length-input'
+          source: wheelCommit ? 'wheel-commit' : 'change'
+        });
+        config.onAxisLengthChange(request.requestedPx, config.axis, {
+          unit: request.unit,
+          preserveProportions: preserveAtChange,
+          axisBasisOffsetPx: wheelCommit ? axisLengthWheelInteraction.basisOffsetPx : null,
+          reason: wheelCommit ? 'axis-length-wheel-commit' : 'axis-length-input',
+          refine: true
         });
         const nextLengthPx = readAxisLengthPx(config);
         const nextSize = readGraphSizeSnapshot(config);
         syncPanelInputsFromConfig(config);
+        resetAxisLengthWheelInteraction();
         const canRecordGraphSizeUndo = previousSize && nextSize && typeof config.onGraphSizeChange === 'function';
         if(canRecordGraphSizeUndo){
           recordAxisStateChange(
@@ -2708,7 +2922,8 @@
               config.onAxisLengthChange(value, config.axis, {
                 unit: AXIS_LENGTH_UNIT_PX,
                 preserveProportions: preserveAtChange,
-                reason: 'axis-length-undo'
+                reason: 'axis-length-undo',
+                refine: true
               });
             }
           },
@@ -2721,6 +2936,12 @@
             return areNumbersClose(left, right, 1e-6);
           }
         );
+      });
+      const toolbarApi = Shared.getWorkspaceToolbarApi?.() || Shared.workspaceToolbar || null;
+      toolbarApi?.bindNumericWheelEnd?.(axisLengthInput, detail => {
+        if(detail.committed !== true){
+          resetAxisLengthWheelInteraction();
+        }
       });
     }
 
@@ -2783,21 +3004,26 @@
     };
     thicknessInput.addEventListener('input', applyThicknessFromInput);
     thicknessInput.addEventListener('change', commitThicknessFromInput);
+    (Shared.getWorkspaceToolbarApi?.() || Shared.workspaceToolbar)?.bindNumericWheelEnd?.(thicknessInput, detail => {
+      if(detail.committed !== true){
+        thicknessInteractionActive = false;
+        thicknessInteractionStartValue = null;
+      }
+    });
 
     if(styleChipEl){
-      styleChipEl.addEventListener('wheel', evt => {
-        evt.preventDefault();
-        const step = evt.deltaY < 0 ? 0.5 : -0.5;
-        const current = sanitizeThicknessValue(thicknessInput?.value);
-        const next = (current == null ? 0 : current) + step;
-        thicknessInput.value = String(next);
-        thicknessInput.dispatchEvent(new Event('input', { bubbles: true }));
-      }, { passive: false });
+      const toolbarApi = Shared.getWorkspaceToolbarApi();
+      if(typeof toolbarApi.bindNumericWheelProxy === 'function'){
+        toolbarApi.bindNumericWheelProxy(styleChipEl, thicknessInput);
+      }
       const onStyleDragMove = evt => {
         if(!styleDragState){ return; }
         const deltaX = evt.clientX - styleDragState.startX;
         const steps = Math.round(deltaX / 8);
-        const next = styleDragState.startValue + (steps * 0.5);
+        const dragStep = typeof toolbarApi.getNumericWheelStep === 'function'
+          ? toolbarApi.getNumericWheelStep(thicknessInput)
+          : (Number(thicknessInput?.step) || 0.25);
+        const next = styleDragState.startValue + (steps * dragStep);
         thicknessInput.value = String(next);
         thicknessInput.dispatchEvent(new Event('input', { bubbles: true }));
       };
@@ -2994,30 +3220,36 @@
   }
 
   function ensureAxisOverlay(axisElement){
-    if(!axisElement || axisElement.__axisControlOverlay){
-      if(axisElement && axisElement.__axisControlOverlay){
-        const info = axisElement.__axisControlOverlay;
-        updateOverlayBounds(axisElement, info.element, info.padding);
-        return info;
-      }
+    if(!axisElement){
       return null;
     }
+    if(axisElement.__axisControlOverlay){
+      const info = axisElement.__axisControlOverlay;
+      updateOverlayBounds(axisElement, info.element, info.padding);
+      return info;
+    }
     const svg = axisElement.ownerSVGElement;
-    if(!svg || typeof svg.ownerDocument?.createElementNS !== 'function'){ return null; }
-    const overlay = svg.ownerDocument.createElementNS(SVG_NS, 'rect');
+    const parent = axisElement.parentNode;
+    if(!svg || !parent || typeof svg.ownerDocument?.createElementNS !== 'function'){
+      return null;
+    }
+
+    // Render-cache serialization preserves DOM nodes but not expando properties or
+    // listeners. Re-adopt the cached hit target when it is still the axis' immediate
+    // sibling instead of appending a duplicate transparent overlay on every restore.
+    let overlay = axisElement.nextElementSibling;
+    const reusedCachedOverlay = overlay?.dataset?.axisHitTarget === '1';
+    if(!reusedCachedOverlay){
+      overlay = svg.ownerDocument.createElementNS(SVG_NS, 'rect');
+      parent.insertBefore(overlay, axisElement.nextSibling);
+    }
     overlay.setAttribute('fill', 'transparent');
     overlay.setAttribute('stroke', 'none');
     overlay.setAttribute('pointer-events', 'fill');
     overlay.dataset.axisControl = '1';
     overlay.dataset.axisHitTarget = '1';
     overlay.style.cursor = 'pointer';
-    const parent = axisElement.parentNode;
-    if(parent && typeof parent.insertBefore === 'function'){
-      parent.insertBefore(overlay, axisElement.nextSibling);
-    } else {
-      logDebug('overlay missing parent',{ hasParent: !!parent });
-      return null;
-    }
+
     const padding = 6;
     const bounds = updateOverlayBounds(axisElement, overlay, padding);
     const observer = typeof MutationObserver === 'function'
@@ -3027,15 +3259,15 @@
       observer.observe(axisElement, { attributes: true, attributeFilter: ['x1','y1','x2','y2','transform','x','y','width','height'] });
     }
     let removalObserver = null;
-    if(parent && typeof MutationObserver === 'function'){
+    if(typeof MutationObserver === 'function'){
       removalObserver = new MutationObserver(records => {
         for(let i = 0; i < records.length; i += 1){
           const record = records[i];
           if(record.type !== 'childList'){ continue; }
           const removed = Array.from(record.removedNodes || []);
           if(removed.includes(axisElement) || removed.includes(overlay)){
-            if(observer){ observer.disconnect(); }
-            if(removalObserver){ removalObserver.disconnect(); }
+            observer?.disconnect?.();
+            removalObserver?.disconnect?.();
             overlay.remove();
             axisElement.__axisControlOverlay = null;
             return;
@@ -3052,7 +3284,7 @@
       meta: bounds
     };
     axisElement.__axisControlOverlay = overlayInfo;
-    logDebug('axis overlay ensured',{ inflate: bounds ? bounds.inflate : null });
+    logDebug('axis overlay ensured',{ inflate: bounds ? bounds.inflate : null, reused: reusedCachedOverlay });
     return overlayInfo;
   }
 
@@ -3103,6 +3335,7 @@
       console.error('axisControls closePanel highlight error', highlightErr);
     }
     logDebug('panel closed',{ reason });
+    resetAxisLengthWheelInteraction();
     activeConfig = null;
     activeHost = null;
   }
@@ -3137,7 +3370,7 @@
         host.appendChild(panelEl);
       }
       clearHostSizing(host);
-      showToolbarHost(host, 'font-toolbar-host--axis');
+      showToolbarHost(host, 'font-toolbar-host--axis', resolveAxisControlsTabId(config));
       updateAxisSectionActiveState(host, true);
       activeHost = host;
     } else {
@@ -3329,6 +3562,74 @@
       .sort((a, b) => b.dx - a.dx)[0]?.line || null;
   }
 
+  function computeAxisLengthResizeRequest(options = {}){
+    const axisKey = options.axis === 'y' ? 'y' : 'x';
+    const requestedLength = sanitizeAxisLengthValue(options.requestedLength);
+    const currentAxisLength = sanitizeAxisLengthValue(options.currentAxisLength);
+    const currentSize = sanitizeGraphSizeSnapshot(options.currentSize);
+    if(requestedLength == null || currentAxisLength == null || !currentSize){
+      return null;
+    }
+
+    if(options.preserveProportions === true){
+      // Proportional axis-length editing is a scale operation, not an additive
+      // one. `frame += axisError` assumes one frame pixel always changes the
+      // rendered axis by one pixel. Metric plots such as PCA can have a much
+      // steeper response, which makes additive refinement overshoot/oscillate.
+      const currentBasis = sanitizeAxisLengthValue(axisKey === 'y' ? currentSize.height : currentSize.width);
+      if(currentBasis == null){
+        return null;
+      }
+      const previousBasis = sanitizeAxisLengthValue(options.previousSample?.basis);
+      const previousLength = sanitizeAxisLengthValue(options.previousSample?.length);
+      const basisDelta = previousBasis == null ? NaN : currentBasis - previousBasis;
+      const lengthDelta = previousLength == null ? NaN : currentAxisLength - previousLength;
+      const measuredSensitivity = Number.isFinite(basisDelta) && Math.abs(basisDelta) > 0.25
+        && Number.isFinite(lengthDelta)
+        ? lengthDelta / basisDelta
+        : NaN;
+      const scaledTargetBasis = currentBasis * (requestedLength / currentAxisLength);
+      const sensitivityTargetBasis = Number.isFinite(measuredSensitivity) && measuredSensitivity > 0.01
+        ? currentBasis + ((requestedLength - currentAxisLength) / measuredSensitivity)
+        : NaN;
+      const targetBasis = Number.isFinite(sensitivityTargetBasis) && sensitivityTargetBasis > 0
+        ? sensitivityTargetBasis
+        : scaledTargetBasis;
+      const scale = targetBasis / currentBasis;
+      if(!Number.isFinite(scale) || scale <= 0){
+        return null;
+      }
+      return {
+        axis: 'both',
+        width: Math.max(1, currentSize.width * scale),
+        height: Math.max(1, currentSize.height * scale),
+        scale,
+        sensitivity: Number.isFinite(measuredSensitivity) ? measuredSensitivity : null
+      };
+    }
+
+    const currentBasis = sanitizeAxisLengthValue(axisKey === 'y' ? currentSize.height : currentSize.width);
+    if(currentBasis == null){
+      return null;
+    }
+    const requestedOffset = options.axisBasisOffsetPx === null
+      || options.axisBasisOffsetPx === undefined
+      || options.axisBasisOffsetPx === ''
+      ? null
+      : Number(options.axisBasisOffsetPx);
+    const currentOffset = Math.max(0, currentBasis - currentAxisLength);
+    const axisOffset = requestedOffset != null && Number.isFinite(requestedOffset) && requestedOffset >= 0
+      ? requestedOffset
+      : currentOffset;
+    const nextBasis = requestedLength + axisOffset;
+    return {
+      axis: axisKey,
+      width: axisKey === 'x' ? nextBasis : undefined,
+      height: axisKey === 'y' ? nextBasis : undefined,
+      scale: null
+    };
+  }
+
   function resolveAxisLengthBoundsFromTarget(target, axis){
     const api = target && target.__sharedResizableBoxApi;
     if(!api || typeof api.getState !== 'function'){
@@ -3361,10 +3662,52 @@
   }
 
   function registerAxisElement(element, config){
-    if(!element || !config){ return; }
+    if(!element || !config){ return false; }
+    const axisKey = config.axis === 'y' ? 'y' : 'x';
     element.dataset.axisControl = '1';
+    element.dataset.axisKey = axisKey;
+    if(config.scopeId){ element.dataset.axisScope = String(config.scopeId); }
+    else{ delete element.dataset.axisScope; }
+    if(config.tabId){ element.dataset.axisTabId = String(config.tabId); }
+    else{ delete element.dataset.axisTabId; }
+    try{
+      const bounds = typeof config.getAxisBounds === 'function' ? config.getAxisBounds() : null;
+      const min = Number(bounds?.min);
+      const max = Number(bounds?.max);
+      if(Number.isFinite(min) && Number.isFinite(max) && max > min){
+        element.dataset.axisBoundMin = String(min);
+        element.dataset.axisBoundMax = String(max);
+      }else{
+        delete element.dataset.axisBoundMin;
+        delete element.dataset.axisBoundMax;
+      }
+    }catch(_err){}
+    try{
+      const interval = typeof config.getEffectiveTickInterval === 'function' ? Number(config.getEffectiveTickInterval()) : NaN;
+      if(Number.isFinite(interval) && interval > 0){
+        element.dataset.axisEffectiveTickInterval = String(interval);
+      }else{
+        delete element.dataset.axisEffectiveTickInterval;
+      }
+    }catch(_err){}
     element.style.cursor = 'pointer';
+
+    const previousBinding = element.__graphitixAxisControlBinding || null;
+    if(previousBinding?.handler){
+      element.removeEventListener('click', previousBinding.handler);
+    }
+    if(previousBinding?.overlay && previousBinding?.handler){
+      previousBinding.overlay.removeEventListener?.('click', previousBinding.handler);
+    }
+
     const overlayInfo = ensureAxisOverlay(element);
+    if(overlayInfo?.element?.dataset){
+      overlayInfo.element.dataset.axisKey = axisKey;
+      if(config.scopeId){ overlayInfo.element.dataset.axisScope = String(config.scopeId); }
+      else{ delete overlayInfo.element.dataset.axisScope; }
+      if(config.tabId){ overlayInfo.element.dataset.axisTabId = String(config.tabId); }
+      else{ delete overlayInfo.element.dataset.axisTabId; }
+    }
     const handler = evt => {
       evt.preventDefault();
       evt.stopPropagation();
@@ -3450,6 +3793,7 @@
           return null;
         }
         const axisKey = axisName === 'y' ? 'y' : 'x';
+        const generationToken = nextAxisLengthGeneration(config, target, axisKey);
         const desiredDatasetKey = axisKey === 'y' ? 'axisDesiredLengthY' : 'axisDesiredLengthX';
         const desiredTimestampKey = axisKey === 'y' ? 'axisDesiredLengthYTs' : 'axisDesiredLengthXTs';
         const desiredTimestamp = Date.now();
@@ -3460,44 +3804,61 @@
         const currentAxisElement = resolveAxisControlElementFromTarget(target, axisKey) || element;
         const currentSize = resolveResizeTargetGraphSize(target);
         const currentAxisLength = resolveAxisDisplayLength(currentAxisElement, axisKey);
-        const currentBasis = currentSize ? sanitizeAxisLengthValue(axisKey === 'y' ? currentSize.height : currentSize.width) : null;
-        const currentAxisOffset = (currentBasis != null && currentAxisLength != null)
-          ? Math.max(0, currentBasis - currentAxisLength)
-          : 0;
-        const nextBasis = (
-          currentBasis != null
-          && currentAxisLength != null
-          && currentAxisLength >= 0
-        )
-          ? (numericLength + currentAxisOffset)
-          : numericLength;
-        const request = {
+        const resizePlan = computeAxisLengthResizeRequest({
           axis: axisKey,
-          width: axisKey === 'x' ? nextBasis : undefined,
-          height: axisKey === 'y' ? nextBasis : undefined,
+          requestedLength: numericLength,
+          currentAxisLength,
+          currentSize,
+          preserveProportions: options.preserveProportions === true,
+          axisBasisOffsetPx: options.axisBasisOffsetPx
+        });
+        if(!resizePlan){
+          return null;
+        }
+        const initialBasis = currentSize
+          ? sanitizeAxisLengthValue(axisKey === 'y' ? currentSize.height : currentSize.width)
+          : null;
+        const initialSample = initialBasis != null && currentAxisLength != null
+          ? { basis: initialBasis, length: currentAxisLength }
+          : null;
+        const request = {
+          axis: resizePlan.axis,
+          width: resizePlan.width,
+          height: resizePlan.height,
           reason: options.reason || `axis-length-${axisKey}`,
           updateDefaults: false,
           updateAspectRatio: false,
           preserveAspectLock: true,
           forceExact: true,
-          simulateAspectLock: options.preserveProportions === true
+          simulateAspectLock: options.preserveProportions === true,
+          resizePhase: options.refine === false ? 'move' : 'programmatic'
         };
         logDebug('axis length apply request', {
           axis: axisKey,
           scopeId: config.scopeId || null,
           currentAxisLength,
-          currentBasis,
+          currentSize,
           requestedAxisLength: numericLength,
+          proportionalScale: resizePlan.scale,
           request
         });
         const firstApply = Shared.applyResizableBoxSize(target, request);
+        if(options.refine === false){
+          return firstApply;
+        }
         const scheduledTabId = resolveAxisControlsTabId({ ...(config || {}), target });
-        const runRefine = (pass = 0) => {
-          if(pass >= 6 || !scheduledTabId){
+        const runRefine = (pass = 0, previousSample = null) => {
+          if(pass >= 6 || !scheduledTabId || !generationToken || !isAxisLengthGenerationCurrent(generationToken)){
             return;
           }
           scheduleAxisControlFrame({ ...(config || {}), tabId: scheduledTabId }, target, `${options.reason || `axis-length-${axisKey}`}-refine-frame`, () => {
+            if(!isAxisLengthGenerationCurrent(generationToken)){
+              return;
+            }
             scheduleAxisControlTimeout({ ...(config || {}), tabId: scheduledTabId }, target, `${options.reason || `axis-length-${axisKey}`}-refine-delay`, () => {
+              if(!isAxisLengthGenerationCurrent(generationToken)){
+                return;
+              }
               const latestTarget = resolveResizeTarget();
               if(!latestTarget || latestTarget.isConnected === false || typeof Shared.applyResizableBoxSize !== 'function'){
                 return;
@@ -3520,11 +3881,21 @@
               if(Math.abs(delta) < 0.25){
                 return;
               }
-              const correctedBasis = Math.max(1, latestBasis + delta);
-              const refineRequest = {
+              const refinePlan = computeAxisLengthResizeRequest({
                 axis: axisKey,
-                width: axisKey === 'x' ? correctedBasis : undefined,
-                height: axisKey === 'y' ? correctedBasis : undefined,
+                requestedLength: numericLength,
+                currentAxisLength: measuredLength,
+                currentSize: latestSize,
+                preserveProportions: options.preserveProportions === true,
+                previousSample
+              });
+              if(!refinePlan){
+                return;
+              }
+              const refineRequest = {
+                axis: refinePlan.axis,
+                width: refinePlan.width,
+                height: refinePlan.height,
                 reason: `${options.reason || `axis-length-${axisKey}`}-refine`,
                 updateDefaults: false,
                 updateAspectRatio: false,
@@ -3536,17 +3907,20 @@
                 axis: axisKey,
                 scopeId: config.scopeId || null,
                 tabId: scheduledTabId,
+                generation: generationToken.generation,
                 requestedAxisLength: numericLength,
                 measuredLength,
                 delta,
+                proportionalScale: refinePlan.scale,
+                measuredSensitivity: refinePlan.sensitivity,
                 refineRequest
               });
               Shared.applyResizableBoxSize(latestTarget, refineRequest);
-              runRefine(pass + 1);
+              runRefine(pass + 1, { basis: latestBasis, length: measuredLength });
             }, 90);
           });
         };
-        runRefine(0);
+        runRefine(0, initialSample);
         return firstApply;
       };
       const fallbackOnGraphSizeChange = (nextSize, axisName, options = {}) => {
@@ -3617,6 +3991,8 @@
           const target = resolveResizeTarget();
           return !!(target && target.__sharedResizableBoxApi && typeof Shared.applyResizableBoxSize === 'function');
         }),
+        isAxisLengthProportionLocked: config.isAxisLengthProportionLocked,
+        axisLengthProportionLocked: config.axisLengthProportionLocked === true,
         getGraphSize: config.getGraphSize || fallbackGetGraphSize,
         onGraphSizeChange: config.onGraphSizeChange || fallbackOnGraphSizeChange,
         isAdditionalTicksSupported: config.isAdditionalTicksSupported,
@@ -3671,7 +4047,72 @@
     if(overlayInfo){
       overlayInfo.element.addEventListener('click', handler);
     }
+    element.__graphitixAxisControlBinding = {
+      handler,
+      overlay: overlayInfo?.element || null,
+      axis: axisKey,
+      scopeId: config.scopeId || null
+    };
     logDebug('axis element registered',{ axis: config.axis, scopeId: config.scopeId, overlay: overlayInfo ? overlayInfo.meta : null });
+    return true;
+  }
+
+  function inferAxisKeyFromElement(element){
+    const explicit = String(element?.dataset?.axisKey || '').trim().toLowerCase();
+    if(explicit === 'x' || explicit === 'y'){
+      return explicit;
+    }
+    const x1 = Number(element?.getAttribute?.('x1'));
+    const x2 = Number(element?.getAttribute?.('x2'));
+    const y1 = Number(element?.getAttribute?.('y1'));
+    const y2 = Number(element?.getAttribute?.('y2'));
+    if([x1, x2, y1, y2].every(Number.isFinite)){
+      const dx = Math.abs(x2 - x1);
+      const dy = Math.abs(y2 - y1);
+      if(dx > dy){ return 'x'; }
+      if(dy > dx){ return 'y'; }
+    }
+    return null;
+  }
+
+  function getAxisElementMetadata(element){
+    const min = Number(element?.dataset?.axisBoundMin);
+    const max = Number(element?.dataset?.axisBoundMax);
+    const effectiveTickInterval = Number(element?.dataset?.axisEffectiveTickInterval);
+    return {
+      axis: inferAxisKeyFromElement(element),
+      scopeId: element?.dataset?.axisScope || null,
+      tabId: element?.dataset?.axisTabId || null,
+      bounds: Number.isFinite(min) && Number.isFinite(max) && max > min ? { min, max } : null,
+      effectiveTickInterval: Number.isFinite(effectiveTickInterval) && effectiveTickInterval > 0 ? effectiveTickInterval : null
+    };
+  }
+
+  function rehydrateAxisElements(root, configFactory){
+    if(!root || typeof root.querySelectorAll !== 'function' || typeof configFactory !== 'function'){
+      return false;
+    }
+    const elements = Array.from(root.querySelectorAll('[data-axis-control="1"]'))
+      .filter(element => element?.dataset?.axisHitTarget !== '1');
+    if(!elements.length){
+      return true;
+    }
+    let bound = 0;
+    for(const element of elements){
+      const axis = inferAxisKeyFromElement(element);
+      if(!axis){
+        logDebug('axis rehydrate rejected', { reason: 'axis-key-unresolved' });
+        return false;
+      }
+      const config = configFactory(axis, element, getAxisElementMetadata(element));
+      if(!config || registerAxisElement(element, { ...config, axis }) !== true){
+        logDebug('axis rehydrate rejected', { axis, reason: 'config-or-bind-failed' });
+        return false;
+      }
+      bound += 1;
+    }
+    logDebug('axis elements rehydrated', { total: elements.length, bound });
+    return bound === elements.length;
   }
 
   axisControls.disposeTab = function disposeTab(tabLike, meta = {}){
@@ -3687,6 +4128,10 @@
 
   axisControls.ensurePanel = ensurePanel;
   axisControls.registerAxisElement = registerAxisElement;
+  axisControls.rehydrateAxisElements = rehydrateAxisElements;
+  axisControls.getAxisElementMetadata = getAxisElementMetadata;
+  axisControls.isAxisElementBound = element => !!element?.__graphitixAxisControlBinding?.handler;
+  axisControls.computeAxisLengthResizeRequest = options => computeAxisLengthResizeRequest(options);
   axisControls.measureRenderedAxes = function measureRenderedAxes(target, options = {}){
     let xElement = resolveAxisControlElementFromTarget(target, 'x');
     let yElement = resolveAxisControlElementFromTarget(target, 'y');

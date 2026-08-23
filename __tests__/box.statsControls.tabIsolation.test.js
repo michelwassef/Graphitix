@@ -92,6 +92,19 @@ function setStatsTestValue(value){
   select.dispatchEvent(new window.Event('change', { bubbles: true }));
 }
 
+function setStatsScopeValue(value){
+  const select = getBoxNodeInActiveTab('#boxStatsScope');
+  expect(select).toBeTruthy();
+  select.value = value;
+  select.dispatchEvent(new window.Event('change', { bubbles: true }));
+}
+
+function getCustomPairsInput(){
+  const rows = Array.from(getBoxNodeInActiveTab('#statsControls')?.querySelectorAll?.('.box-stats-options__row') || []);
+  const row = rows.find(node => /^Pairs:\s*/.test(node.textContent || '')) || null;
+  return row?.querySelector?.('input[type="text"]') || null;
+}
+
 function createSeedPayload(boxComponent){
   const payload = boxComponent.createEmptyPayload();
   payload.data = [
@@ -141,6 +154,45 @@ async function computeBoxStatsForActiveTab(boxComponent){
 
 function getBoxStatsButton(){
   return getBoxNodeInActiveTab('#boxComputeStats');
+}
+
+function getBoxFlipAxesControl(){
+  return getBoxNodeInActiveTab('#boxFlipAxes');
+}
+
+function setBoxFlipAxesValue(value){
+  const control = getBoxFlipAxesControl();
+  expect(control).toBeTruthy();
+  control.checked = !!value;
+  control.dispatchEvent(new window.Event('change', { bubbles: true }));
+}
+
+function readActiveBoxFlipSnapshot(boxComponent, reason){
+  const activeTab = window.Main?.session?.getActiveTab?.() || null;
+  const control = getBoxFlipAxesControl();
+  const payload = boxComponent.getPayload?.() || null;
+  const runtime = boxComponent.captureRuntimeState?.({
+    tab: activeTab,
+    tabId: activeTab?.id || null,
+    reason: reason || 'test-box-flip-snapshot'
+  }) || null;
+  return {
+    tabId: activeTab?.id || null,
+    checkbox: !!control?.checked,
+    moduleMirror: boxComponent.__getState?.()?.flipAxes === true,
+    payload: payload?.config?.flipAxes === true,
+    runtime: runtime?.ownedRuntime?.controls?.flipAxes === true,
+    transitionOrientation: boxComponent.__getState?.()?.flipTransition?.active?.orientation || null
+  };
+}
+
+function expectBoxFlipSnapshot(snapshot, tabId, expectedFlip){
+  expect(snapshot.tabId).toBe(tabId);
+  expect(snapshot.checkbox).toBe(expectedFlip);
+  expect(snapshot.moduleMirror).toBe(expectedFlip);
+  expect(snapshot.payload).toBe(expectedFlip);
+  expect(snapshot.runtime).toBe(expectedFlip);
+  expect(snapshot.transitionOrientation).toBe(expectedFlip ? 'horizontal' : 'vertical');
 }
 
 function getBoxNodeInActiveTab(selector){
@@ -198,6 +250,7 @@ describe('Box stats controls tab isolation with render cache', () => {
     require('../js/shared/stats.js');
     require('../js/shared/boxStatsModel.js');
     require('../js/shared/stats-table.js');
+    require('../js/shared/exampleDatasets.js');
     require('../js/shared/colorPicker.js');
     require('../js/shared/editHighlight.js');
     require('../js/shared/axisControls.js');
@@ -294,6 +347,53 @@ describe('Box stats controls tab isolation with render cache', () => {
     expect(findStatsTestSelect()?.value).toBe('parametric');
   });
 
+  test('flip axes remains owner-scoped across repeated same-component tab reuse', async () => {
+    await activateWorkspace('box');
+
+    const boxComponent = window.Components?.box;
+    const main = window.Main;
+    expect(boxComponent).toBeTruthy();
+    expect(main?.tabs).toBeTruthy();
+
+    await loadSeedPayloadForActiveTab(boxComponent, 'test-flip-isolation-a');
+    await flushAsyncWork(20);
+    const tabA = main.session.getActiveTab();
+    expect(tabA?.type).toBe('box');
+    expectBoxFlipSnapshot(readActiveBoxFlipSnapshot(boxComponent, 'test-flip-a-initial'), tabA.id, false);
+
+    main.tabs.handleAddTabClick();
+    await flushAsyncWork(10);
+    await activateWorkspace('box');
+    const duplicatePrompt = document.getElementById('duplicatePrompt');
+    if(duplicatePrompt && !duplicatePrompt.hasAttribute('hidden')){
+      const emptyButton = document.getElementById('duplicateEmpty');
+      expect(emptyButton).toBeTruthy();
+      emptyButton.click();
+      await flushAsyncWork(20);
+    }
+
+    await loadSeedPayloadForActiveTab(boxComponent, 'test-flip-isolation-b');
+    await flushAsyncWork(20);
+    const tabB = main.session.getActiveTab();
+    expect(tabB?.id).not.toBe(tabA.id);
+
+    setBoxFlipAxesValue(true);
+    await flushAsyncWork(30);
+    expectBoxFlipSnapshot(readActiveBoxFlipSnapshot(boxComponent, 'test-flip-b-after-enable'), tabB.id, true);
+
+    const sequence = [
+      [tabA.id, false, 'test-flip-switch-a-1'],
+      [tabB.id, true, 'test-flip-switch-b-1'],
+      [tabA.id, false, 'test-flip-switch-a-2'],
+      [tabB.id, true, 'test-flip-switch-b-2'],
+      [tabA.id, false, 'test-flip-switch-a-3']
+    ];
+    for(const [tabId, expectedFlip, reason] of sequence){
+      await activateTabById(tabId, reason);
+      expectBoxFlipSnapshot(readActiveBoxFlipSnapshot(boxComponent, `${reason}-snapshot`), tabId, expectedFlip);
+    }
+  }, 120000);
+
   test('new empty box tab resets stats button label to Calculate statistics', async () => {
     await activateWorkspace('box');
     const boxComponent = window.Components?.box;
@@ -320,6 +420,112 @@ describe('Box stats controls tab isolation with render cache', () => {
     }
 
     expect(getBoxStatsButton()?.textContent).toBe('Calculate statistics');
+  });
+
+  test('custom pair edits write through before blur and calculate on the first click', async () => {
+    await activateWorkspace('box');
+    const boxComponent = window.Components?.box;
+    expect(boxComponent).toBeTruthy();
+
+    await loadSeedPayloadForActiveTab(boxComponent, 'test-custom-pairs-first-click');
+    await flushAsyncWork(20);
+
+    setStatsScopeValue('custom');
+
+    let pairInput = getCustomPairsInput();
+    expect(pairInput).toBeTruthy();
+    pairInput.focus();
+    await flushAsyncWork(20);
+    expect(getCustomPairsInput()).toBe(pairInput);
+    expect(document.activeElement).toBe(pairInput);
+
+    pairInput.value = '1-2';
+    pairInput.dispatchEvent(new window.Event('input', { bubbles: true }));
+    pairInput.focus();
+
+    const activeTab = window.Main?.session?.getActiveTab?.() || null;
+    const renderCache = boxComponent.captureRenderCache?.({
+      tab: activeTab,
+      tabId: activeTab?.id || null,
+      payload: activeTab?.payload || null,
+      reason: 'test-custom-pairs-focus-capture'
+    });
+    expect(renderCache).toBeTruthy();
+    expect(boxComponent.restoreRenderCache?.(renderCache, {
+      tab: activeTab,
+      tabId: activeTab?.id || null,
+      payload: activeTab?.payload || null,
+      reason: 'test-custom-pairs-focus-restore',
+      restoreLiveAfterCapture: true,
+      skipStateMutation: true
+    })).toBe(true);
+    expect(getCustomPairsInput()).toBe(pairInput);
+    expect(document.activeElement).toBe(pairInput);
+
+    pairInput.dispatchEvent(new window.Event('change', { bubbles: true }));
+    await flushAsyncWork(10);
+    expect(boxComponent.__getState().statsPairsText).toBe('1-2');
+    expect(boxComponent.__getState().statsCustomPairs).toHaveLength(1);
+    const pairwiseProcedure = getBoxNodeInActiveTab('#boxStatsPostHoc');
+    expect(pairwiseProcedure).toBeTruthy();
+    expect(pairwiseProcedure.closest('.box-stats-options__row')?.hidden).toBe(false);
+    expect(pairwiseProcedure.disabled).toBe(true);
+    expect(pairwiseProcedure.selectedOptions?.[0]?.textContent).toBe('None');
+
+    await computeBoxStatsForActiveTab(boxComponent);
+
+    pairInput = getCustomPairsInput();
+    expect(pairInput).toBeTruthy();
+    const pairwiseProcedureAfterCompute = getBoxNodeInActiveTab('#boxStatsPostHoc');
+    expect(pairwiseProcedureAfterCompute).toBeTruthy();
+    expect(pairwiseProcedureAfterCompute.selectedOptions?.[0]?.textContent).toBe('None');
+    pairInput.focus();
+    pairInput.value = '1-2,2-3';
+    pairInput.dispatchEvent(new window.Event('input', { bubbles: true }));
+
+    expect(boxComponent.__getState().statsPairsText).toBe('1-2,2-3');
+    expect(boxComponent.__getState().statsCustomPairs).toHaveLength(2);
+    expect(getCustomPairsInput()).toBe(pairInput);
+    expect(document.activeElement).toBe(pairInput);
+    expect(getBoxNodeInActiveTab('#boxStatsPostHoc')).toBe(pairwiseProcedureAfterCompute);
+    expect(pairwiseProcedureAfterCompute.selectedOptions?.[0]?.textContent).toBe('Manual pairs');
+    const correction = getBoxNodeInActiveTab('#boxStatsCorrection');
+    expect(correction).toBeTruthy();
+    expect(correction.closest('.box-stats-options__row')?.hidden).toBe(false);
+    expect(getBoxNodeInActiveTab('#statsCorrectionNote')?.textContent || '').toMatch(/2 tests/);
+
+    const calculateButton = getBoxStatsButton();
+    expect(calculateButton?.textContent).toBe('Calculate statistics');
+    pairInput.dispatchEvent(new window.Event('change', { bubbles: true }));
+    expect(getBoxStatsButton()).toBe(calculateButton);
+    calculateButton.click();
+
+    await flushAsyncWork(80);
+    expect((await waitForStatsButtonText('Recalculate statistics'))?.textContent).toBe('Recalculate statistics');
+    expect(boxComponent.__getState().statsLastRunVersion).toBeGreaterThan(0);
+    expect(boxComponent.__getState().statsLastRunVersion).toBe(boxComponent.__getState().statsContextVersion);
+  });
+
+  test('analysis-family changes do not queue a control-rebuilding draw ahead of statistics calculation', async () => {
+    await activateWorkspace('box');
+    const boxComponent = window.Components?.box;
+    expect(boxComponent).toBeTruthy();
+
+    await loadSeedPayloadForActiveTab(boxComponent, 'test-stats-family-immediate-compute');
+    await flushAsyncWork(20);
+    expect(await waitForBoxSvg()).toBeTruthy();
+
+    setStatsTestValue('parametric');
+    const calculateButton = getBoxStatsButton();
+    expect(calculateButton).toBeTruthy();
+    expect(calculateButton.disabled).toBe(false);
+    calculateButton.click();
+
+    await flushAsyncWork(80);
+    expect(getBoxStatsButton()).toBe(calculateButton);
+    expect((await waitForStatsButtonText('Recalculate statistics'))?.textContent).toBe('Recalculate statistics');
+    expect(boxComponent.__getState().statsLastRunVersion).toBeGreaterThan(0);
+    expect(boxComponent.__getState().statsLastRunVersion).toBe(boxComponent.__getState().statsContextVersion);
   });
 
   test('box stats calculation remains clickable after switching between box tabs', async () => {
@@ -584,5 +790,65 @@ describe('Box stats controls tab isolation with render cache', () => {
     const wrongFontNodes = Array.from(document.querySelectorAll('#boxPlot [data-font-tab-id]'))
       .filter(node => node.dataset.fontTabId && node.dataset.fontTabId !== tabA.id);
     expect(wrongFontNodes).toHaveLength(0);
+  });
+
+  test('violin extent remains owner-scoped and round-trips through payload hydration', async () => {
+    await activateWorkspace('box');
+
+    const boxComponent = window.Components?.box;
+    const main = window.Main;
+    expect(boxComponent?.createEmptyPayload).toBeInstanceOf(Function);
+    expect(boxComponent.createEmptyPayload().config.violin.extentMode).toBe('extended');
+
+    await loadSeedPayloadForActiveTab(boxComponent, 'test-violin-extent-a');
+    const tabA = main.session.getActiveTab();
+    const graphTypeA = getBoxNodeInActiveTab('#boxGraphType');
+    const extentA = getBoxNodeInActiveTab('#boxViolinExtent');
+    const extentControlA = getBoxNodeInActiveTab('#boxViolinExtentCtl');
+    graphTypeA.value = 'violin';
+    graphTypeA.dispatchEvent(new window.Event('change', { bubbles: true }));
+    expect(extentControlA.style.display).toBe('');
+    extentA.value = 'trimmed';
+    extentA.dispatchEvent(new window.Event('change', { bubbles: true }));
+    await flushAsyncWork(25);
+    expect(boxComponent.__getState().violin.extentMode).toBe('trimmed');
+
+    const payloadA = boxComponent.getPayload();
+    expect(payloadA.config.violin.extentMode).toBe('trimmed');
+
+    main.tabs.handleAddTabClick();
+    await flushAsyncWork(10);
+    await activateWorkspace('box');
+    const duplicatePrompt = document.getElementById('duplicatePrompt');
+    if(duplicatePrompt && !duplicatePrompt.hasAttribute('hidden')){
+      document.getElementById('duplicateEmpty')?.click();
+      await flushAsyncWork(25);
+    }
+    await loadSeedPayloadForActiveTab(boxComponent, 'test-violin-extent-b');
+    const tabB = main.session.getActiveTab();
+    expect(tabB.id).not.toBe(tabA.id);
+    expect(getBoxNodeInActiveTab('#boxViolinExtent').value).toBe('extended');
+
+    const legacyPayload = createSeedPayload(boxComponent);
+    delete legacyPayload.config.violin.extentMode;
+    await boxComponent.loadFromPayload(legacyPayload, {
+      source: 'test-violin-extent-legacy',
+      tabId: tabB.id,
+      tab: tabB
+    });
+    expect(getBoxNodeInActiveTab('#boxViolinExtent').value).toBe('extended');
+
+    await activateTabById(tabA.id, 'test-violin-extent-return-a');
+    expect(getBoxNodeInActiveTab('#boxViolinExtent').value).toBe('trimmed');
+    expect(boxComponent.__getState().violin.extentMode).toBe('trimmed');
+
+    await activateTabById(tabB.id, 'test-violin-extent-hydrate-b');
+    await boxComponent.loadFromPayload(payloadA, {
+      source: 'test-violin-extent-reopen',
+      tabId: tabB.id,
+      tab: tabB
+    });
+    expect(getBoxNodeInActiveTab('#boxViolinExtent').value).toBe('trimmed');
+    expect(boxComponent.__getState().violin.extentMode).toBe('trimmed');
   });
 });

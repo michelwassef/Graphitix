@@ -56,6 +56,7 @@ function readBoxAxisMetrics() {
   const svgBoxRect = svgBox.getBoundingClientRect();
   const svgRect = svg.getBoundingClientRect();
   const titleRect = yTitle?.getBoundingClientRect?.() || null;
+  const boxState = window.Components?.box?.__getState?.() || null;
   const yAxisScreenX = yAxis ? (yAxis.rectLeft + yAxis.rectRight) / 2 : null;
   return {
     svgBoxWidth: svgBoxRect.width,
@@ -70,6 +71,9 @@ function readBoxAxisMetrics() {
     yAxisScreenX,
     yAxisPageX: yAxisScreenX == null ? null : yAxisScreenX + window.scrollX,
     yTitlePageX: titleRect ? ((titleRect.left + titleRect.right) / 2) + window.scrollX : null,
+    plotHeight: Number(svg.dataset.boxPlotH),
+    bottomViewportExtensionPx: Number(boxState?.bottomViewportExtensionPx) || 0,
+    significanceViewportExtensionPx: Number(boxState?.significanceViewportExtensionPx) || 0,
     marginLeft: Number(yAxis?.x1)
   };
 }
@@ -87,7 +91,167 @@ async function prepareBox(page) {
       checkbox.dispatchEvent(new Event('change', { bubbles: true }));
     }
   });
+  await page.waitForFunction(() => {
+    const state = window.Components?.box?.__getState?.() || null;
+    return !!document.querySelector('#boxPlot svg')
+      && Number(state?.bottomViewportExtensionPx || 0) > 0;
+  }, null, { timeout: 20_000 });
   await page.waitForTimeout(600);
+}
+
+async function seedRichBoxRecoverySnapshot(page) {
+  return page.evaluate(async () => {
+    const request = window.indexedDB.open('graphitix-document-state', 1);
+    const db = await new Promise((resolve, reject) => {
+      request.onupgradeneeded = () => {
+        const opened = request.result;
+        if (!opened.objectStoreNames.contains('snapshots')) {
+          opened.createObjectStore('snapshots');
+        }
+      };
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error || new Error('IndexedDB open failed.'));
+    });
+    const context = window.Main?.tabs?.getSessionActionsContext?.();
+    const blob = await window.Main?.sessionActions?.buildWorkspaceArchiveBlob?.(context, {
+      scope: 'workspace',
+      snapshotKind: 'recovery',
+      policyMode: 'recovery',
+      reason: 'e2e-box-horizontal-resize-recovery',
+      useWorker: true
+    });
+    if (!blob) {
+      db.close();
+      throw new Error('Recovery archive was not created.');
+    }
+    const workspaceState = window.Main?.session?.workspaceState || {};
+    const graphTabs = Array.isArray(workspaceState.tabs)
+      ? workspaceState.tabs.filter(tab => tab && !tab.isWelcome && tab.type)
+      : [];
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction('snapshots', 'readwrite');
+      tx.objectStore('snapshots').put({
+        meta: {
+          app: 'Graphitix',
+          kind: 'recovery',
+          version: 1,
+          savedAt: new Date().toISOString(),
+          updatedAt: Date.now(),
+          reason: 'e2e-box-horizontal-resize-recovery',
+          dirty: true,
+          hasData: true,
+          tabCount: graphTabs.length,
+          fileName: workspaceState.sessionFileName || 'recovered.graph',
+          filePath: workspaceState.sessionFilePath || '',
+          fileScope: workspaceState.sessionFileScope || 'workspace'
+        },
+        blob
+      }, 'active-recovery');
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error || new Error('IndexedDB recovery write failed.'));
+    });
+    db.close();
+    return { bytes: blob.size, tabCount: graphTabs.length };
+  });
+}
+
+async function captureBoxWorkspaceArchive(page) {
+  const archive = await page.evaluate(async () => {
+    const context = window.Main?.tabs?.getSessionActionsContext?.();
+    const blob = await window.Main?.sessionActions?.buildWorkspaceArchiveBlob?.(context, {
+      scope: 'workspace',
+      snapshotKind: 'document-snapshot',
+      compression: 'STORE',
+      reason: 'e2e-box-horizontal-resize-reopen'
+    });
+    if (!blob) {
+      throw new Error('Box workspace archive was not created.');
+    }
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    const chunkSize = 0x8000;
+    let binary = '';
+    for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+      binary += String.fromCharCode.apply(null, bytes.subarray(offset, offset + chunkSize));
+    }
+    const activeTab = window.Main?.session?.getActiveTab?.() || null;
+    const viewport = activeTab?.payload?.layout?.boxGeometry?.viewportGeometry || null;
+    return {
+      base64: btoa(binary),
+      size: blob.size,
+      payloadBottomViewportExtensionPx: Number(viewport?.bottomViewportExtensionPx) || 0,
+      payloadSignificanceViewportExtensionPx: Number(viewport?.significanceViewportExtensionPx) || 0
+    };
+  });
+  return {
+    buffer: Buffer.from(archive.base64, 'base64'),
+    size: archive.size,
+    payloadBottomViewportExtensionPx: archive.payloadBottomViewportExtensionPx,
+    payloadSignificanceViewportExtensionPx: archive.payloadSignificanceViewportExtensionPx
+  };
+}
+
+async function reopenBoxWorkspaceArchive(page, archiveBuffer) {
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await expect(page.locator('#welcomeScreen')).toBeVisible({ timeout: 20_000 });
+  const input = page.locator('#workspaceSessionInput');
+  await expect(input).toHaveCount(1, { timeout: 20_000 });
+  await input.setInputFiles({
+    name: 'box-horizontal-resize-reopen.graph',
+    mimeType: 'application/octet-stream',
+    buffer: archiveBuffer
+  });
+  await page.waitForFunction(() => {
+    const state = window.Main?.session?.workspaceState || null;
+    return Array.isArray(state?.tabs) && state.tabs.some(tab => tab?.type === 'box' && !tab?.isWelcome);
+  }, null, { timeout: 60_000 });
+  const tabId = await page.evaluate(() => {
+    const state = window.Main?.session?.workspaceState || {};
+    return (state.tabs || []).find(tab => tab?.type === 'box' && !tab?.isWelcome)?.id || null;
+  });
+  if (!tabId) {
+    throw new Error('Box tab was not found after manual archive reopen.');
+  }
+  await page.evaluate(async id => {
+    const activateTab = window.Main?.tabs?.activateTab;
+    if (typeof activateTab !== 'function') {
+      return;
+    }
+    const result = activateTab(id, { reason: 'e2e-box-horizontal-resize-reopen-activate' });
+    if (result && typeof result.then === 'function') {
+      await result;
+    }
+  }, tabId);
+  await page.waitForFunction(id => {
+    const state = window.Main?.session?.workspaceState || null;
+    return state?.activeTabId === id
+      && !!document.querySelector('#boxPage:not([hidden]) #boxPlot svg');
+  }, tabId, { timeout: 60_000 });
+}
+
+async function reloadAndAcceptBoxRecovery(page) {
+  let recoveryAccepted = false;
+  const handler = async dialog => {
+    if (/recover|restore/i.test(dialog.message())) {
+      recoveryAccepted = true;
+    }
+    await dialog.accept();
+  };
+  page.on('dialog', handler);
+  try {
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await expect.poll(() => recoveryAccepted, {
+      timeout: 20_000,
+      message: 'Box crash-recovery prompt should be accepted'
+    }).toBe(true);
+    await page.waitForFunction(() => {
+      const state = window.Main?.session?.workspaceState || null;
+      const active = state?.tabs?.find(tab => tab?.id === state.activeTabId) || null;
+      return active?.type === 'box'
+        && !!document.querySelector('#boxPage:not([hidden]) #boxPlot svg');
+    }, null, { timeout: 60_000 });
+  } finally {
+    page.off('dialog', handler);
+  }
 }
 
 async function dragBoxWidthDense(page, dx, options = {}) {
@@ -170,6 +334,100 @@ test('box pointer horizontal drag keeps y-axis line stable in page coordinates',
 
   expect(summary.base).not.toBeNull();
   expect(summary.maxYAxisPageXDrift).toBeLessThanOrEqual(0.25);
+  expect(issues.critical).toEqual([]);
+});
+
+test('box crash recovery preserves the horizontal-resize y-axis anchor and x-label reserve', async ({ page }, testInfo) => {
+  test.setTimeout(150_000);
+  const issues = registerIssueCollectors(page);
+  await prepareBox(page);
+
+  const beforeRecovery = await page.evaluate(readBoxAxisMetrics);
+  expect(beforeRecovery).not.toBeNull();
+  expect(beforeRecovery.bottomViewportExtensionPx).toBeGreaterThan(0);
+  expect(beforeRecovery.significanceViewportExtensionPx).toBe(0);
+
+  const recovery = await seedRichBoxRecoverySnapshot(page);
+  expect(recovery.bytes).toBeGreaterThan(0);
+  await reloadAndAcceptBoxRecovery(page);
+  await page.waitForFunction(expectedReserve => {
+    const state = window.Components?.box?.__getState?.() || null;
+    return Number(state?.bottomViewportExtensionPx || 0) === Number(expectedReserve || 0);
+  }, beforeRecovery.bottomViewportExtensionPx, { timeout: 20_000 });
+
+  const recoveredBeforeDrag = await page.evaluate(readBoxAxisMetrics);
+  const samples = await dragBoxWidthDense(page, -130, { steps: 24 });
+  const summary = summarize(samples);
+  const plotHeights = samples
+    .map(sample => sample.metrics?.plotHeight)
+    .filter(Number.isFinite);
+  const maxPlotHeightDrift = plotHeights.length
+    ? Math.max(...plotHeights.map(value => Math.abs(value - plotHeights[0])))
+    : null;
+  await testInfo.attach('box-recovery-horizontal-pointer-drag-axis.metrics.json', {
+    body: Buffer.from(JSON.stringify({ beforeRecovery, recoveredBeforeDrag, recovery, summary, maxPlotHeightDrift, samples, issues: issues.all }, null, 2), 'utf8'),
+    contentType: 'application/json'
+  });
+
+  expect(recoveredBeforeDrag).not.toBeNull();
+  expect(recoveredBeforeDrag.bottomViewportExtensionPx).toBe(beforeRecovery.bottomViewportExtensionPx);
+  expect(recoveredBeforeDrag.significanceViewportExtensionPx).toBe(0);
+  expect(recoveredBeforeDrag.plotHeight).toBeCloseTo(beforeRecovery.plotHeight, 0);
+  expect(summary.maxYAxisPageXDrift).toBeLessThanOrEqual(0.25);
+  if (Number.isFinite(summary.maxYTitlePageXDrift)) {
+    expect(summary.maxYTitlePageXDrift).toBeLessThanOrEqual(0.5);
+  }
+  if (Number.isFinite(maxPlotHeightDrift)) {
+    expect(maxPlotHeightDrift).toBeLessThanOrEqual(1);
+  }
+  expect(issues.critical).toEqual([]);
+});
+
+test('box manual reopen preserves the first horizontal-resize y-axis anchor', async ({ page }, testInfo) => {
+  test.setTimeout(150_000);
+  const issues = registerIssueCollectors(page);
+  await prepareBox(page);
+
+  const beforeReopen = await page.evaluate(readBoxAxisMetrics);
+  expect(beforeReopen).not.toBeNull();
+  expect(beforeReopen.bottomViewportExtensionPx).toBeGreaterThan(0);
+
+  const archive = await captureBoxWorkspaceArchive(page);
+  expect(archive.size).toBeGreaterThan(0);
+  expect(archive.payloadBottomViewportExtensionPx).toBe(beforeReopen.bottomViewportExtensionPx);
+  expect(archive.payloadSignificanceViewportExtensionPx).toBe(beforeReopen.significanceViewportExtensionPx);
+  await reopenBoxWorkspaceArchive(page, archive.buffer);
+  await page.waitForFunction(() => {
+    const svg = document.querySelector('#boxPage:not([hidden]) #boxSvg');
+    return !!svg && window.Components?.box?.isIdleForSnapshot?.() === true;
+  }, null, { timeout: 20_000 });
+
+  const reopenedBeforeDrag = await page.evaluate(readBoxAxisMetrics);
+  const samples = await dragBoxWidthDense(page, -130, { steps: 24 });
+  const summary = summarize(samples);
+  const plotHeights = samples
+    .map(sample => sample.metrics?.plotHeight)
+    .filter(Number.isFinite);
+  const maxPlotHeightDrift = plotHeights.length
+    ? Math.max(...plotHeights.map(value => Math.abs(value - plotHeights[0])))
+    : null;
+
+  await testInfo.attach('box-reopen-horizontal-pointer-drag-axis.metrics.json', {
+    body: Buffer.from(JSON.stringify({ beforeReopen, reopenedBeforeDrag, summary, maxPlotHeightDrift, samples, issues: issues.all }, null, 2), 'utf8'),
+    contentType: 'application/json'
+  });
+
+  expect(reopenedBeforeDrag).not.toBeNull();
+  expect(reopenedBeforeDrag.bottomViewportExtensionPx).toBe(beforeReopen.bottomViewportExtensionPx);
+  expect(reopenedBeforeDrag.significanceViewportExtensionPx).toBe(beforeReopen.significanceViewportExtensionPx);
+  expect(reopenedBeforeDrag.plotHeight).toBeCloseTo(beforeReopen.plotHeight, 0);
+  expect(summary.maxYAxisPageXDrift).toBeLessThanOrEqual(0.25);
+  if (Number.isFinite(summary.maxYTitlePageXDrift)) {
+    expect(summary.maxYTitlePageXDrift).toBeLessThanOrEqual(0.5);
+  }
+  if (Number.isFinite(maxPlotHeightDrift)) {
+    expect(maxPlotHeightDrift).toBeLessThanOrEqual(1);
+  }
   expect(issues.critical).toEqual([]);
 });
 

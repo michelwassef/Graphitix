@@ -181,6 +181,7 @@ async function snapshotPie(page) {
       labelPositions: config.labelPositions || {},
       traceFills,
       activeViewTitle: activeView?.title || '',
+      activeViewData: activeView?.data || [],
       serializedActiveTitle: ((payload?.dataViews?.views || []).find(view => view.id === payload?.dataViews?.activeViewId) || {}).title || '',
       viewTitles: views.map(view => view?.title || ''),
       serializedViewTitles: (payload?.dataViews?.views || []).map(view => view.title),
@@ -261,7 +262,8 @@ function expectPieSnapshot(snapshot, expected) {
   expect(snapshot.size.resized).toBe('true');
   expectClose(snapshot.size.width, expected.size.width, 8, `${expected.label} graph width ${JSON.stringify(snapshot.size)}`);
   expectClose(snapshot.size.height, expected.size.height, 8, `${expected.label} graph height ${JSON.stringify(snapshot.size)}`);
-  expect(snapshot.data[1][1]).toBeCloseTo(Number(expected.data[1][1]) + expected.numericOffset, 3);
+  expect(snapshot.data[1][1]).toBeCloseTo(Number(expected.data[1][1]), 3);
+  expect(snapshot.activeViewData[1][1]).toBeCloseTo(Number(expected.data[1][1]) + expected.numericOffset, 3);
   for (const [label, color] of Object.entries(expected.colors)) {
     expect(String(snapshot.colors[label] || '').toLowerCase(), `${expected.label} payload color ${label}`).toBe(color);
     expect(String(snapshot.traceFills[label] || '').toLowerCase(), `${expected.label} SVG color ${label}`).toBe(color);

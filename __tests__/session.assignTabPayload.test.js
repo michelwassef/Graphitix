@@ -334,6 +334,104 @@ describe('session.assignTabPayload null-overwrite guard', () => {
   });
 
 
+  test('never captures the previously committed graph while a replacement frame is staged', () => {
+    const tab = createTabWithPayload();
+    tab.loadedFromArchive = false;
+    tab.userModified = true;
+    tab.payloadDirty = false;
+    tab.payloadSignature = session.serializePayloadSignature(tab.payload);
+    tab.layoutState = { version: 1, component: 'box', width: 468, height: 456 };
+    tab.layoutSignature = session.serializePayloadSignature(tab.layoutState);
+    tab.payloadVersion = 3;
+    tab.layoutVersion = 2;
+    tab.renderCommitVersion = 1;
+    session.workspaceState.activeTabId = tab.id;
+
+    window.Shared.framePublication = {
+      hasStaged: jest.fn(() => true)
+    };
+    const captureRenderCache = jest.fn(() => ({
+      plot: { count: 1, owner: tab.id },
+      __graphitixRenderCache: {
+        version: 2, component: 'box', type: 'box', tabId: tab.id, complete: true
+      }
+    }));
+    window.Main.components = {
+      registry: {
+        box: {
+          getPayload: jest.fn(() => tab.payload),
+          isIdleForSnapshot: jest.fn(() => true),
+          hasRenderedGraph: jest.fn(() => true),
+          captureRenderCache
+        }
+      }
+    };
+
+    session.persistActiveTabState(tab, {
+      reason: 'replacement-frame-staged',
+      origin: 'lifecycle',
+      captureRenderCache: true
+    });
+
+    expect(window.Shared.framePublication.hasStaged).toHaveBeenCalled();
+    expect(captureRenderCache).not.toHaveBeenCalled();
+    expect(tab.renderCache).toBeNull();
+    expect(tab.renderCommitVersion).toBe(1);
+  });
+
+
+  test('manual-render pending state saves canonical payload without certifying a stale graph cache', () => {
+    const tab = createTabWithPayload();
+    tab.loadedFromArchive = false;
+    tab.userModified = true;
+    tab.payloadDirty = false;
+    tab.payloadSignature = session.serializePayloadSignature(tab.payload);
+    tab.layoutState = { version: 1, component: 'box', width: 468, height: 456 };
+    tab.layoutSignature = session.serializePayloadSignature(tab.layoutState);
+    tab.payloadVersion = 4;
+    tab.layoutVersion = 2;
+    tab.renderCommitVersion = 2;
+    tab.renderCache = {
+      cache: { plot: { count: 1 } },
+      tabId: tab.id,
+      type: 'box',
+      payloadSignature: 'older-payload',
+      layoutSignature: tab.layoutSignature
+    };
+    tab.archiveRenderCache = { plot: { count: 1 } };
+    session.workspaceState.activeTabId = tab.id;
+
+    const captureRenderCache = jest.fn(() => ({
+      plot: { count: 1, owner: tab.id },
+      __graphitixRenderCache: {
+        version: 2, component: 'box', type: 'box', tabId: tab.id, complete: true
+      }
+    }));
+    window.Main.components = {
+      registry: {
+        box: {
+          getPayload: jest.fn(() => tab.payload),
+          isIdleForSnapshot: jest.fn(() => true),
+          isRenderCacheCurrent: jest.fn(() => false),
+          hasRenderedGraph: jest.fn(() => true),
+          captureRenderCache
+        }
+      }
+    };
+
+    session.persistActiveTabState(tab, {
+      reason: 'manual-render-pending',
+      origin: 'lifecycle',
+      captureRenderCache: true
+    });
+
+    expect(captureRenderCache).not.toHaveBeenCalled();
+    expect(tab.renderCache).toBeNull();
+    expect(tab.archiveRenderCache).toBeNull();
+    expect(tab.renderCommitVersion).toBe(2);
+    expect(tab.payload).toBeTruthy();
+  });
+
   test('captureRenderCacheIfNeeded reuses an exact archive-ready checkpoint', () => {
     const tab = createTabWithPayload();
     tab.loadedFromArchive = true;

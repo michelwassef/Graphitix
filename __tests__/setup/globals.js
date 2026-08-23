@@ -81,14 +81,14 @@ console.timeEnd = (label) => {
 if (!global.TextEncoder) global.TextEncoder = TextEncoder;
 if (!global.TextDecoder) global.TextDecoder = TextDecoder;
 
-// requestAnimationFrame/cancelAnimationFrame - fast microtask implementation
+// requestAnimationFrame/cancelAnimationFrame - deterministic zero-delay timer implementation
 (() => {
   const now = () => (global.performance && typeof global.performance.now === 'function'
     ? global.performance.now()
     : Date.now());
   let rafId = 0;
   const scheduled = new Map();
-  const schedule = (cb) => setTimeout(cb, 0);
+  const schedule = (cb) => global.setTimeout(cb, 0);
   const fastRaf = (cb) => {
     const id = ++rafId;
     const handle = schedule(() => {
@@ -105,12 +105,20 @@ if (!global.TextDecoder) global.TextDecoder = TextDecoder;
   const fastCancel = (id) => {
     const handle = scheduled.get(id);
     if (handle !== undefined) {
-      clearTimeout(handle);
+      global.clearTimeout(handle);
       scheduled.delete(id);
     }
   };
   global.requestAnimationFrame = fastRaf;
   global.cancelAnimationFrame = fastCancel;
+  // Jest's jsdom environment can expose `window` as a distinct object from the
+  // test global. Production modules receive `window`, so install the same fast
+  // RAF there as well; otherwise fake-timer tests accidentally use jsdom's
+  // native frame delay and `advanceTimersByTime(0)` does not flush live edits.
+  if (global.window && global.window !== global) {
+    global.window.requestAnimationFrame = fastRaf;
+    global.window.cancelAnimationFrame = fastCancel;
+  }
 })();
 
 // ResizeObserver minimal stub

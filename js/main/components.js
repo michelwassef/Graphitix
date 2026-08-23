@@ -101,6 +101,7 @@
     'captureUiState',
     'applyUiState',
     'awaitReadyForSnapshot',
+    'isRenderCacheCurrent',
     'captureRenderCache',
     'canRestoreRenderCache',
     'restoreRenderCache'
@@ -474,9 +475,6 @@
     }
     const type = workspace.type;
     captureDeclaredLifecycleCapabilities(workspace);
-    if (Shared.componentLifecycle?.attachWorkspace && !workspace.__lifecycleDescriptor) {
-      Shared.componentLifecycle.attachWorkspace(workspace, buildWorkspaceLifecycleDescriptor(type, workspace));
-    }
     if (typeof workspace.activateTab !== 'function') {
       workspace.activateTab = (tab, meta) => {
         const component = resolveComponentFromGlobal(type);
@@ -495,6 +493,9 @@
         }
         return result;
       };
+    }
+    if (Shared.componentLifecycle?.attachWorkspace && !workspace.__lifecycleDescriptor) {
+      Shared.componentLifecycle.attachWorkspace(workspace, buildWorkspaceLifecycleDescriptor(type, workspace));
     }
     if (typeof workspace.disposeTab !== 'function') {
       workspace.disposeTab = (tab, meta) => {
@@ -543,6 +544,14 @@
         }
         return Shared.componentLifecycle?.awaitReadyForSnapshot?.(component || workspace, { ...(meta || {}), componentKey: type, type })
           || Promise.resolve({ ok: true, type, skipped: true, reason: 'missing-componentLifecycle' });
+      };
+    }
+    if (typeof workspace.isRenderCacheCurrent !== 'function') {
+      workspace.isRenderCacheCurrent = meta => {
+        const component = resolveComponentFromGlobal(type);
+        return typeof component?.isRenderCacheCurrent === 'function'
+          ? component.isRenderCacheCurrent({ ...(meta || {}), componentKey: type, type }) !== false
+          : true;
       };
     }
     if (typeof workspace.roundTripPayload !== 'function' || workspace.roundTripPayload.__legacyRoundTripPayload === true) {

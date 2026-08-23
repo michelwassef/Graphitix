@@ -12,6 +12,29 @@ describe('Surface render cache redraw', () => {
     }
   }
 
+  async function waitForSurfaceGeometry(attempts = 120) {
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+      const svg = document.getElementById('surfaceSvg');
+      if (svg?.querySelectorAll('g.surface-faces polygon').length > 0) {
+        return svg;
+      }
+      await flush();
+    }
+    throw new Error('Surface geometry did not settle before the render-cache assertion.');
+  }
+
+  async function waitForSurfaceDraw(afterCursor, reason, timeoutMs = 8000) {
+    const activeTabId = window.Main?.session?.workspaceState?.activeTabId || null;
+    return window.Shared.componentLifecycle.waitForLifecycleEvent({
+      componentKey: 'surface',
+      tabId: activeTabId,
+      actions: ['draw-settled'],
+      afterCursor,
+      timeoutMs,
+      predicate: event => event.reason === reason
+    });
+  }
+
   function parseViewBox(svg) {
     return String(svg.getAttribute('viewBox') || '')
       .trim()
@@ -46,6 +69,8 @@ describe('Surface render cache redraw', () => {
     require('../js/vendor.js');
     require('../js/shared/fileIO.js');
     require('../js/shared/debounce.js');
+    require('../js/shared/componentLifecycle.js');
+    require('../js/shared/exampleDatasets.js');
     require('../js/shared/dataTransforms.js');
     require('../js/shared/dataViews.js');
     require('../js/shared/tabContext.js');
@@ -106,17 +131,18 @@ describe('Surface render cache redraw', () => {
 
     const exampleBtn = document.getElementById('surfaceLoadExample');
     expect(exampleBtn).toBeTruthy();
+    expect(window.Shared?.exampleDatasets?.get?.('surface')?.data?.length).toBeGreaterThan(1);
     exampleBtn.click();
-    await flushMany(12);
-
-    surface.draw();
-    await flushMany(8);
-
-    const svg = document.getElementById('surfaceSvg');
+    let svg = await waitForSurfaceGeometry();
     expect(svg).toBeTruthy();
     svg.getBBox = jest.fn(() => ({ x: -42, y: -26, width: 720, height: 520 }));
-    surface.draw();
-    await flushMany(8);
+    const redrawCursor = window.Shared.componentLifecycle.getLifecycleEventCursor();
+    surface.draw({ reason: 'surface-render-cache-test-bbox' });
+    await waitForSurfaceDraw(redrawCursor, 'surface-render-cache-test-bbox');
+    svg = await waitForSurfaceGeometry();
+    const settledOwnerSession = surface.__testHooks.getSession(Main.session.workspaceState.activeTabId);
+    expect(settledOwnerSession?.timers?.drawInFlight).toBe(0);
+    expect(surface.isIdleForSnapshot({ tabId: Main.session.workspaceState.activeTabId })).toBe(true);
 
     const originalFaceCount = svg.querySelectorAll('g.surface-faces polygon').length;
     const originalPointCount = svg.querySelectorAll('g.surface-points circle').length;
@@ -125,14 +151,39 @@ describe('Surface render cache redraw', () => {
     expect(frontFrameEdge).toBeTruthy();
     expect(Number(frontFrameEdge.getAttribute('stroke-width'))).toBeCloseTo(1);
 
-    const cache = surface.captureRenderCache();
+    const activeTabId = Main.session.workspaceState.activeTabId;
+    const cache = surface.captureRenderCache({ tabId: activeTabId });
     expect(cache).toBeTruthy();
+    expect(cache.rotationModel).toEqual(expect.objectContaining({
+      version: 1,
+      points: expect.any(Array),
+      faces: expect.any(Array),
+      corners: expect.any(Array)
+    }));
+    expect(cache.rotationModel.points.length).toBeGreaterThan(0);
+    expect(cache.rotationModel.corners).toHaveLength(8);
+    expect(surface.__testHooks.normalizeRotationModel({
+      ...cache.rotationModel,
+      width: 0
+    })).toBeNull();
+    expect(surface.__testHooks.normalizeRotationModel({
+      ...cache.rotationModel,
+      points: [{ x: 0, y: 0, z: Number.NaN }]
+    })).toBeNull();
+    expect(surface.__testHooks.normalizeRotationModel({
+      ...cache.rotationModel,
+      margin: null
+    })).toBeNull();
     expect(svg.getAttribute('preserveAspectRatio')).toBe('xMidYMid meet');
     expect(svg.getAttribute('width')).toBe('100%');
     expect(svg.getAttribute('height')).toBe('100%');
     let viewBox = parseViewBox(svg);
-    expect(viewBox[0]).toBeLessThan(0);
-    expect(viewBox[1]).toBeLessThan(0);
+    expect(viewBox).toEqual([
+      0,
+      0,
+      Number(svg.getAttribute('data-surface-base-width')),
+      Number(svg.getAttribute('data-surface-base-height'))
+    ]);
     expect(cache.svgRootState.attributes['data-surface-base-width']).toBeTruthy();
     expect(cache.svgRootState.attributes['data-surface-base-height']).toBeTruthy();
     const state = surface.__getState();
@@ -154,27 +205,74 @@ describe('Surface render cache redraw', () => {
     state._facePoolUsed = 0;
     state._pointPoolUsed = 0;
 
-    const restored = surface.restoreRenderCache(cache);
+    const restored = surface.restoreRenderCache(cache, { tabId: activeTabId });
     expect(restored).toBe(true);
     expect(svg.dataset.rotationControlsAttached).toBe('true');
     expect(svg.__plot3dRotationControl).toBeTruthy();
     expect(svg.__plot3dRotationControl.state).toBe(state.rotation);
     expect(typeof svg.__plot3dRotationControl.onChange).toBe('function');
+    const ownerSession = surface.__testHooks.getSession(activeTabId);
+    expect(ownerSession).toBeTruthy();
+    expect(ownerSession.tabId).toBe(activeTabId);
+    expect(ownerSession.refs.svg).toBe(svg);
+    expect(typeof ownerSession.refs.rotationRenderer).toBe('function');
+    expect(ownerSession.cache.rotationModel).toEqual(cache.rotationModel);
+    expect(ownerSession.refs.geometryPoolSvg).toBe(svg);
+    expect(ownerSession.cache).not.toHaveProperty('facePool');
+    expect(ownerSession.cache).not.toHaveProperty('pointPool');
+    expect(ownerSession.cache).not.toHaveProperty('geometryPoolSvg');
+    ownerSession.timers.rotationActive = true;
+    ownerSession.timers.rotationPending = true;
+    ownerSession.timers.rotationFrameId = 123;
+    ownerSession.timers.rotationViewport = { x: 0, y: 0, width: 1, height: 1 };
+    surface.cancelCurrentDraw({ tabId: activeTabId, reason: 'surface-rotation-test-cancel' });
+    expect(ownerSession.timers.rotationActive).toBe(false);
+    expect(ownerSession.timers.rotationPending).toBe(false);
+    expect(ownerSession.timers.rotationFrameId).toBeNull();
+    expect(ownerSession.timers.rotationViewport).toBeNull();
+    expect(svg.querySelectorAll('g.surface-layer-geometry')).toHaveLength(1);
+    expect(svg.querySelectorAll('g.surface-faces')).toHaveLength(1);
+    expect(svg.querySelectorAll('g.surface-points')).toHaveLength(originalPointCount > 0 ? 1 : 0);
     expect(svg.querySelectorAll('g.surface-faces polygon').length).toBe(originalFaceCount);
     expect(svg.querySelectorAll('g.surface-points circle').length).toBe(originalPointCount);
     expect(svg.getAttribute('preserveAspectRatio')).toBe('xMidYMid meet');
     expect(svg.getAttribute('width')).toBe('100%');
     expect(svg.getAttribute('height')).toBe('100%');
     viewBox = parseViewBox(svg);
-    expect(viewBox[0]).toBeLessThan(0);
-    expect(viewBox[1]).toBeLessThan(0);
+    expect(viewBox).toEqual([
+      0,
+      0,
+      Number(cache.svgRootState.attributes['data-surface-base-width']),
+      Number(cache.svgRootState.attributes['data-surface-base-height'])
+    ]);
     expect(svg.getAttribute('data-surface-base-width'))
       .toBe(cache.svgRootState.attributes['data-surface-base-width']);
     expect(svg.getAttribute('data-surface-base-height'))
       .toBe(cache.svgRootState.attributes['data-surface-base-height']);
 
-    surface.draw();
-    await flushMany(8);
+    const faceGroup = svg.querySelector('g.surface-faces');
+    const stalePolygon = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+    stalePolygon.setAttribute('points', '0,0 10,0 0,10');
+    faceGroup.appendChild(stalePolygon);
+    surface.__testHooks.syncGeometryPoolsFromDom('test-stale-frame', ownerSession, svg);
+    expect(ownerSession.refs.facePool).toHaveLength(originalFaceCount + 1);
+    expect(ownerSession.refs.rotationRenderer(ownerSession.state.rotation)).toBe(true);
+    expect(stalePolygon.style.display).toBe('none');
+    expect(Array.from(svg.querySelectorAll('[data-axis-label="1"]'))).not.toHaveLength(0);
+    expect(Array.from(svg.querySelectorAll('[data-axis-label="1"]')).every(node => (
+      node.dataset.fontEditable === '1' && node.dataset.fontScope === 'surface'
+    ))).toBe(true);
+    expect(Array.from(svg.querySelectorAll('[data-axis-tick-label="1"]'))).not.toHaveLength(0);
+    expect(Array.from(svg.querySelectorAll('[data-axis-tick-label="1"]')).every(node => (
+      node.dataset.fontEditable === '1' && node.dataset.fontScope === 'surface'
+    ))).toBe(true);
+    stalePolygon.remove();
+    surface.__testHooks.syncGeometryPoolsFromDom('test-stale-frame-cleanup', ownerSession, svg);
+
+    const finalDrawCursor = window.Shared.componentLifecycle.getLifecycleEventCursor();
+    surface.draw({ reason: 'surface-render-cache-final-redraw' });
+    await waitForSurfaceDraw(finalDrawCursor, 'surface-render-cache-final-redraw');
+    svg = await waitForSurfaceGeometry();
 
     expect(svg.querySelectorAll('g.surface-faces polygon').length).toBe(originalFaceCount);
     expect(svg.querySelectorAll('g.surface-points circle').length).toBe(originalPointCount);

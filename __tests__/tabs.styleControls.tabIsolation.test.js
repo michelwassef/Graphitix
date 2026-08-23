@@ -208,112 +208,62 @@ describe('Style controls remain functional and tab-isolated across components', 
       .map(node => node.getAttribute('fill'))).toEqual(legendTextBefore);
   });
 
-  test('color scheme and publication style controls apply on active tab without leaking to sibling tab', async () => {
+  test.each(WORKSPACES)('$type color scheme and publication style controls remain tab-isolated', async ({ type, pageId }) => {
     const Main = window.Main;
     const registry = Main.components.registry;
-    const failures = [];
+    const workspace = registry[type];
+    expect(workspace).toBeTruthy();
 
-    for (let i = 0; i < WORKSPACES.length; i += 1) {
-      const { type, pageId } = WORKSPACES[i];
-      const workspace = registry[type];
-      if (!workspace) {
-        failures.push(`${type}: missing workspace registry entry`);
-        continue;
-      }
+    await handleGraphSelection(Main, type);
+    const tabA = Main.tabs.getActiveTab();
+    expect(tabA).toEqual(expect.objectContaining({ type }));
 
-      try {
-        if (i > 0) {
-          Main.tabs.handleAddTabClick();
-          await flush();
-        }
+    Main.tabs.handleAddTabClick();
+    await flush();
+    await handleGraphSelection(Main, type);
+    const tabB = Main.tabs.getActiveTab();
+    expect(tabB).toEqual(expect.objectContaining({ type }));
+    expect(tabB.id).not.toBe(tabA.id);
 
-        await handleGraphSelection(Main, type);
-        const tabA = Main.tabs.getActiveTab();
-        if (!tabA || tabA.type !== type) {
-          failures.push(`${type}: failed to activate first tab`);
-          continue;
-        }
+    const payloadBBaseline = cloneValue(workspace.getPayload?.());
+    const schemeBBaseline = readSchemeId(type, payloadBBaseline);
+    await activateTabById(Main, tabA.id, `test-style-controls-${type}-to-a`);
 
-        Main.tabs.handleAddTabClick();
-        await flush();
-        await handleGraphSelection(Main, type);
-        const tabB = Main.tabs.getActiveTab();
-        if (!tabB || tabB.type !== type || tabB.id === tabA.id) {
-          failures.push(`${type}: failed to activate second tab`);
-          continue;
-        }
+    const page = document.getElementById(pageId);
+    expect(page).toBeTruthy();
+    const schemeSelect = page.querySelector(`select[data-color-scheme-select="1"][data-component-type="${type}"]`);
+    expect(schemeSelect).toBeTruthy();
+    const payloadABeforeScheme = cloneValue(workspace.getPayload?.());
+    const nextScheme = type === 'surface' ? 'surface-plasma' : 'dark';
+    schemeSelect.value = nextScheme;
+    schemeSelect.dispatchEvent(new Event('change', { bubbles: true }));
+    await flush();
+    await flush();
 
-        const payloadBBaseline = cloneValue(workspace.getPayload?.());
-        const schemeBBaseline = readSchemeId(type, payloadBBaseline);
-
-        await activateTabById(Main, tabA.id, `test-style-controls-${type}-to-a`);
-
-        const page = document.getElementById(pageId);
-        if (!page) {
-          failures.push(`${type}: missing page ${pageId}`);
-          continue;
-        }
-
-        const schemeSelect = page.querySelector(`select[data-color-scheme-select="1"][data-component-type="${type}"]`);
-        if (!schemeSelect) {
-          failures.push(`${type}: missing color scheme select`);
-          continue;
-        }
-        const payloadABeforeScheme = cloneValue(workspace.getPayload?.());
-        const nextScheme = type === 'surface' ? 'surface-plasma' : 'dark';
-        schemeSelect.value = nextScheme;
-        schemeSelect.dispatchEvent(new Event('change', { bubbles: true }));
-        await flush();
-        await flush();
-
-        const payloadAAfterScheme = cloneValue(workspace.getPayload?.());
-        const schemeAAfter = readSchemeId(type, payloadAAfterScheme);
-        if (type === 'venn') {
-          const beforeColor = String(payloadABeforeScheme?.style?.colorA || '');
-          const afterColor = String(payloadAAfterScheme?.style?.colorA || '');
-          if (!afterColor || afterColor === beforeColor) {
-            failures.push(`${type}: color scheme control did not update venn colors`);
-          }
-        } else if (!schemeAAfter || schemeAAfter !== nextScheme) {
-          failures.push(`${type}: color scheme control did not apply (${schemeAAfter || 'empty'})`);
-        }
-
-        await activateTabById(Main, tabB.id, `test-style-controls-${type}-to-b-after-scheme`);
-        const payloadBAfterScheme = cloneValue(workspace.getPayload?.());
-        const schemeBAfter = readSchemeId(type, payloadBAfterScheme);
-        if (schemeBAfter !== schemeBBaseline) {
-          failures.push(`${type}: color scheme leaked to sibling tab (expected ${schemeBBaseline} got ${schemeBAfter})`);
-        }
-
-        await activateTabById(Main, tabA.id, `test-style-controls-${type}-to-a-for-pub-style`);
-        const payloadABeforePreset = cloneValue(workspace.getPayload?.());
-
-        const publicationSelect = page.querySelector(`select[data-publication-style-select="1"][data-component-type="${type}"]`);
-        const publicationApply = page.querySelector(`[data-publication-style-apply="1"][data-component-type="${type}"]`);
-        if (!publicationSelect || !publicationApply) {
-          failures.push(`${type}: missing publication style controls`);
-          continue;
-        }
-        publicationSelect.value = 'npg_single';
-        publicationApply.click();
-        await flush();
-        await flush();
-
-        const payloadAAfterPreset = cloneValue(workspace.getPayload?.());
-        if (JSON.stringify(payloadAAfterPreset) === JSON.stringify(payloadABeforePreset)) {
-          failures.push(`${type}: publication style apply produced no payload change`);
-        }
-
-        await activateTabById(Main, tabB.id, `test-style-controls-${type}-to-b-after-pub-style`);
-        const payloadBAfterPreset = cloneValue(workspace.getPayload?.());
-        if (JSON.stringify(payloadBAfterPreset) === JSON.stringify(payloadAAfterPreset)) {
-          failures.push(`${type}: publication style leaked to sibling tab`);
-        }
-      } catch (err) {
-        failures.push(`${type}: ${err?.message || String(err)}`);
-      }
+    const payloadAAfterScheme = cloneValue(workspace.getPayload?.());
+    if (type === 'venn') {
+      expect(String(payloadAAfterScheme?.style?.colorA || '')).not.toBe(String(payloadABeforeScheme?.style?.colorA || ''));
+    } else {
+      expect(readSchemeId(type, payloadAAfterScheme)).toBe(nextScheme);
     }
 
-    expect(failures).toEqual([]);
-  });
+    await activateTabById(Main, tabB.id, `test-style-controls-${type}-to-b-after-scheme`);
+    expect(readSchemeId(type, cloneValue(workspace.getPayload?.()))).toBe(schemeBBaseline);
+
+    await activateTabById(Main, tabA.id, `test-style-controls-${type}-to-a-for-pub-style`);
+    const payloadABeforePreset = cloneValue(workspace.getPayload?.());
+    const publicationSelect = page.querySelector(`select[data-publication-style-select="1"][data-component-type="${type}"]`);
+    const publicationApply = page.querySelector(`[data-publication-style-apply="1"][data-component-type="${type}"]`);
+    expect(publicationSelect).toBeTruthy();
+    expect(publicationApply).toBeTruthy();
+    publicationSelect.value = 'npg_single';
+    publicationApply.click();
+    await flush();
+    await flush();
+
+    const payloadAAfterPreset = cloneValue(workspace.getPayload?.());
+    expect(payloadAAfterPreset).not.toEqual(payloadABeforePreset);
+    await activateTabById(Main, tabB.id, `test-style-controls-${type}-to-b-after-pub-style`);
+    expect(cloneValue(workspace.getPayload?.())).not.toEqual(payloadAAfterPreset);
+  }, 60000);
 });

@@ -29,6 +29,29 @@ describe('Main.components.ensureComponent', () => {
     expect(result).toBe(component);
   });
 
+  test('workspace lifecycle wrapping preserves component deactivation forwarding', () => {
+    const deactivateTab = jest.fn(() => true);
+    global.window.Components = { roc: { deactivateTab } };
+    global.window.Shared = {
+      debounceFrame: fn => fn,
+      componentLifecycle: {
+        register: jest.fn(descriptor => descriptor),
+        attachWorkspace: jest.fn(workspace => {
+          const originalDeactivate = workspace.deactivateTab;
+          workspace.__lifecycleDescriptor = {};
+          workspace.deactivateTab = (tab, meta) => originalDeactivate?.(tab, meta);
+          return workspace;
+        })
+      }
+    };
+    require('../js/main/components.js');
+
+    const tab = { id: 'roc-a', type: 'roc' };
+    window.Main.components.registry.roc.deactivateTab(tab, { reason: 'test-switch' });
+
+    expect(deactivateTab).toHaveBeenCalledWith(tab, { reason: 'test-switch' });
+  });
+
   test('resolves loaded component asynchronously when ensure returns a promise', async () => {
     if (typeof global.window.Components !== 'object') {
       global.window.Components = {};
@@ -119,10 +142,18 @@ describe('Main.components.ensureComponent', () => {
       allowText: false
     });
 
-    expect(window.Main.components.registry.venn.hasRenderedGraph({ root })).toBe(false);
+    expect(window.Main.components.registry.heatmap.hasRenderedGraph({ root })).toBe(false);
     expect(hasRenderableGraphContent).toHaveBeenLastCalledWith(root, {
-      selectors: ['#stage'],
-      contentSelectors: ['[data-venn-trace-id]', '[data-upset-trace-kind]'],
+      selectors: ['#heatmapSvg'],
+      contentSelectors: [
+        '[data-export-layer="heatmap-cells"] rect:not([data-heatmap-cell-hit-layer])',
+        '[data-export-layer="heatmap-cells"] path[data-heatmap-vector-cell-bucket]',
+        '[data-export-layer="heatmap-cells"] [data-heatmap-cell-value]',
+        '[data-export-layer="heatmap-cells"] canvas',
+        '[data-export-layer="heatmap-cells"] img[data-graphitix-render-cache-canvas-bitmap="true"]',
+        '[data-export-layer="heatmap-cells"] img[data-graphitix-render-cache-canvas-restored="true"]',
+        '[data-export-layer="heatmap-cells"] image[data-heatmap-raster-export="1"]'
+      ],
       allowText: false
     });
   });
@@ -149,7 +180,8 @@ describe('Main.components.ensureComponent', () => {
       ready: true,
       ensure: jest.fn(() => null),
       captureRuntimeState: jest.fn(() => ({ ready: true })),
-      applyRuntimeState: jest.fn(() => true)
+      applyRuntimeState: jest.fn(() => true),
+      isRenderCacheCurrent: jest.fn(() => false)
     };
     global.window.Components.box = component;
     require('../js/main/components.js');
@@ -159,8 +191,16 @@ describe('Main.components.ensureComponent', () => {
     const capabilities = window.Main.components.getLifecycleCapabilities('box');
     expect(capabilities.captureRuntimeState).toBe(true);
     expect(capabilities.applyRuntimeState).toBe(true);
+    expect(capabilities.isRenderCacheCurrent).toBe(true);
     expect(window.Main.components.registry.box.__lifecycleContract.captureRuntimeState).toBe(true);
     expect(window.Main.components.registry.box.__lifecycleContract.applyRuntimeState).toBe(true);
+    expect(window.Main.components.registry.box.__lifecycleContract.isRenderCacheCurrent).toBe(true);
+    expect(window.Main.components.registry.box.isRenderCacheCurrent({ tabId: 'box-a' })).toBe(false);
+    expect(component.isRenderCacheCurrent).toHaveBeenCalledWith(expect.objectContaining({
+      tabId: 'box-a',
+      componentKey: 'box',
+      type: 'box'
+    }));
   });
 
   test('Heatmap registry draw delegates directly to its owner-scoped draw cycle', () => {

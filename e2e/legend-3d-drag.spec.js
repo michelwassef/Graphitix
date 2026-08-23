@@ -71,6 +71,60 @@ async function dragLegendFromChild(page, { svgId, startFromChild = true, deltaX 
   }, { svgId, startFromChild, deltaX, deltaY });
 }
 
+async function replaceRecoverySnapshot(page, reason) {
+  await page.evaluate(async snapshotReason => {
+    const openDb = () => new Promise((resolve, reject) => {
+      const request = indexedDB.open('graphitix-document-state', 1);
+      request.onupgradeneeded = () => {
+        if (!request.result.objectStoreNames.contains('snapshots')) request.result.createObjectStore('snapshots');
+      };
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    const db = await openDb();
+    const context = window.Main.tabs.getSessionActionsContext();
+    const blob = await window.Main.sessionActions.buildWorkspaceArchiveBlob(context, {
+      scope: 'workspace',
+      snapshotKind: 'recovery',
+      policyMode: 'recovery',
+      reason: snapshotReason,
+      useWorker: false
+    });
+    const state = window.Main.session.workspaceState;
+    const graphTabs = (state.tabs || []).filter(tab => tab && !tab.isWelcome && tab.type);
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction('snapshots', 'readwrite');
+      tx.objectStore('snapshots').put({
+        meta: {
+          app: 'Graphitix', kind: 'recovery', version: 1,
+          savedAt: new Date().toISOString(), updatedAt: Date.now(), reason: snapshotReason,
+          dirty: true, hasData: true, tabCount: graphTabs.length,
+          fileName: 'workspace.graph', fileScope: 'workspace'
+        },
+        blob
+      }, 'active-recovery');
+      tx.oncomplete = resolve;
+      tx.onerror = () => reject(tx.error);
+    });
+    db.close();
+  }, reason);
+}
+
+async function recoveredLegendFrame(page, svgId) {
+  return page.evaluate(id => {
+    const svg = document.getElementById(id);
+    const legend = svg?.querySelector?.('[data-legend-viewport-content="true"]') || null;
+    const svgBox = svg?.closest?.('.svgbox') || null;
+    const rect = svgBox?.getBoundingClientRect?.() || null;
+    return {
+      managed: window.Shared?.isManagedLegendDragTarget?.(legend) === true,
+      viewBox: svg?.getAttribute?.('viewBox') || null,
+      width: rect?.width || 0,
+      height: rect?.height || 0
+    };
+  }, svgId);
+}
+
 // ─── PCA 3D ───────────────────────────────────────────────────────────────────
 
 test.describe('3D legend drag', () => {
@@ -143,4 +197,41 @@ test.describe('3D legend drag', () => {
     expect(dragResult.error, `PCA 2D drag error: ${dragResult.error}`).toBeUndefined();
     expect(dragResult.moved, 'Legend should move in 2D mode too').toBe(true);
   });
+});
+
+test('recovered Line legend drag preserves the SVG container and does not redraw', async ({ page }) => {
+  test.setTimeout(150_000);
+  await installLocalCdnOverrides(page);
+  const issues = registerIssueCollectors(page);
+  await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
+  await openComponentFromWelcome(page, { type: 'line', pageId: 'linePage' }, { first: true, loadExample: true });
+  await clickExampleButtonIfPresent(page, 'lineLoadExample');
+  await page.waitForSelector('#linePage:not([hidden]) #lineSvg [data-legend-viewport-content="true"]', { timeout: 30_000 });
+  await page.evaluate(() => {
+    document.querySelectorAll('#linePlot [data-legend-viewport-content="true"]').forEach(legend => {
+      delete legend.dataset.legendCanonicalOriginX;
+      delete legend.dataset.legendCanonicalOriginY;
+    });
+  });
+  await replaceRecoverySnapshot(page, 'e2e-line-legend-recovery');
+
+  let accepted = false;
+  page.on('dialog', async dialog => {
+    accepted = /recover|restore/i.test(dialog.message()) || accepted;
+    await dialog.accept().catch(() => {});
+  });
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await expect.poll(() => accepted, { timeout: 20_000 }).toBe(true);
+  await page.waitForSelector('#linePage:not([hidden]) #lineSvg [data-legend-viewport-content="true"]', { timeout: 60_000 });
+
+  const before = await recoveredLegendFrame(page, 'lineSvg');
+  expect(before.managed).toBe(true);
+  const drag = await dragLegendFromChild(page, { svgId: 'lineSvg', deltaX: -55, deltaY: 24 });
+  expect(drag.error).toBeUndefined();
+  expect(drag.moved).toBe(true);
+  const after = await recoveredLegendFrame(page, 'lineSvg');
+  expect(after.viewBox).toBe(before.viewBox);
+  expect(Math.abs(after.width - before.width)).toBeLessThanOrEqual(1);
+  expect(Math.abs(after.height - before.height)).toBeLessThanOrEqual(1);
+  expect(issues.all.some(entry => /graph-edit-(click|drag)/i.test(entry.text || ''))).toBe(false);
 });

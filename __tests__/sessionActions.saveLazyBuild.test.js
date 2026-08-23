@@ -289,6 +289,77 @@ describe('sessionActions save lazy archive build', () => {
     }));
   });
 
+  test('recovery aborts before live owner capture when rotation starts during readiness', async () => {
+    const sessionActions = installSessionActions();
+    let rotationActive = false;
+    window.Shared.plot3d = {
+      hasActiveRotationGesture: jest.fn(() => rotationActive)
+    };
+    const ready = jest.fn(async () => {
+      rotationActive = true;
+      return { ok: true };
+    });
+    const context = createContext({
+      workspaces: {
+        scatter: { awaitReadyForSnapshot: ready }
+      }
+    });
+
+    await expect(sessionActions.createDocumentCheckpoint(context, {
+      scope: 'workspace',
+      snapshotKind: 'recovery',
+      policyMode: 'recovery',
+      reason: 'recovery-interval'
+    })).rejects.toMatchObject({
+      code: 'GRAPHITIX_RECOVERY_INTERACTION_ACTIVE',
+      stage: 'after-readiness'
+    });
+    expect(context.session.persistActiveTabState).not.toHaveBeenCalled();
+  });
+
+  test('does not capture canonical owner state when snapshot readiness is rejected', async () => {
+    const sessionActions = installSessionActions();
+    const ready = jest.fn().mockResolvedValue({ ok: false, reason: 'frame-publication-pending' });
+    const context = createContext({
+      workspaces: {
+        scatter: { awaitReadyForSnapshot: ready }
+      }
+    });
+
+    await expect(sessionActions.createDocumentCheckpoint(context, {
+      scope: 'workspace',
+      snapshotKind: 'archive-save',
+      policyMode: 'manual-save',
+      reason: 'toolbar-save'
+    })).rejects.toMatchObject({
+      code: 'GRAPHITIX_SNAPSHOT_NOT_READY',
+      tabId: 'tab-1',
+      component: 'scatter',
+      reason: 'frame-publication-pending'
+    });
+    expect(context.session.persistActiveTabState).not.toHaveBeenCalled();
+  });
+
+  test('autosave defers cleanly when the active owner has not published a settled frame', async () => {
+    const sessionActions = installSessionActions();
+    window.Shared.fileIO.saveGraphFileAs = jest.fn();
+    const context = createContext({
+      workspaces: {
+        scatter: { awaitReadyForSnapshot: jest.fn().mockResolvedValue({ ok: false, reason: 'component-not-idle' }) }
+      }
+    });
+
+    const result = await sessionActions.saveWorkspaceArchiveWithScope(context, {
+      scope: 'workspace',
+      reason: 'autosave',
+      snapshotKind: 'autosave'
+    });
+
+    expect(result).toEqual({ status: 'skipped', reason: 'snapshot-not-ready' });
+    expect(context.session.persistActiveTabState).not.toHaveBeenCalled();
+    expect(window.Shared.fileIO.saveGraphFileAs).not.toHaveBeenCalled();
+  });
+
   test('serializes the active cache captured by the shared session checkpoint owner', async () => {
     const sessionActions = installSessionActions();
     const serializedCache = {

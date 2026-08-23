@@ -167,6 +167,57 @@ describe('componentLayout zoom behavior contract', () => {
     expect(lastSyncCall[4]?.skipSchedule).toBe(true);
   });
 
+  test('component-owned resize callback respects lifecycle draw suppression', () => {
+    const syncPanelSpy = jest.fn((table, graph, config, scheduleDraw, options) => ({
+      table,
+      graph,
+      config,
+      options
+    }));
+    window.Shared.syncPanelWidths = syncPanelSpy;
+    const shouldSuppressDraw = jest.fn(() => true);
+    window.Shared.componentLifecycle = { shouldSuppressDraw };
+
+    const scheduleDraw = jest.fn();
+    const userResize = jest.fn();
+    const layout = window.Shared.componentLayout.createStandardPanels({
+      componentName: 'line',
+      tabId: 'line-passive-tab',
+      selectors: {
+        tablePanel: '#lineTablePanel',
+        graphPanel: '#lineGraphPanel',
+        configPanel: '#lineConfigPanel',
+        panelResizer: '#linePanelResizer',
+        svgBox: '#lineSvgBox',
+        resizeTarget: '#lineSvgBox'
+      },
+      scheduleDraw,
+      resizableBoxOptions: {
+        onResize: userResize
+      }
+    });
+
+    scheduleDraw.mockClear();
+    userResize.mockClear();
+    shouldSuppressDraw.mockClear();
+    window.Shared.applyResizableBoxSize(layout.elements.svgBox, {
+      width: 520,
+      height: 460,
+      reason: 'passive-activation-layout-sync'
+    });
+
+    expect(scheduleDraw).not.toHaveBeenCalled();
+    expect(userResize).not.toHaveBeenCalled();
+    expect(shouldSuppressDraw).toHaveBeenCalledWith('line', expect.objectContaining({
+      component: 'line',
+      componentKey: 'line',
+      tabId: 'line-passive-tab',
+      source: 'resize',
+      phase: 'programmatic',
+      userInitiated: false
+    }));
+  });
+
   test('layout registry is scoped by component type and tab id', () => {
     document.body.innerHTML = `
       <div id="tabA" data-workspace-tab-id="scatter-a">
@@ -328,6 +379,61 @@ describe('componentLayout zoom behavior contract', () => {
     expect(frame.height).toBe(340);
     expect(frame.constrained).toBe(true);
   });
+
+  test('component aspect policy is authoritative across capture and layout restore', () => {
+    window.Shared.syncPanelWidths = jest.fn();
+    const policy = jest.fn(({ elements }) => {
+      const svgBox = elements.svgBox;
+      svgBox.__sharedResizableBoxApi?.setAspectLocked?.(true, {
+        reason: 'forced-component-policy',
+        preserveGeometry: true
+      });
+      window.Shared.aspectLock.apply(svgBox.dataset, true, { syncGraph: true });
+      const checkbox = svgBox.querySelector('.resizer-aspect-checkbox');
+      if(checkbox){
+        checkbox.checked = true;
+        checkbox.disabled = true;
+      }
+      return true;
+    });
+
+    const layout = window.Shared.componentLayout.createStandardPanels({
+      componentName: 'line',
+      selectors: {
+        tablePanel: '#lineTablePanel',
+        graphPanel: '#lineGraphPanel',
+        configPanel: '#lineConfigPanel',
+        panelResizer: '#linePanelResizer',
+        svgBox: '#lineSvgBox',
+        resizeTarget: '#lineSvgBox'
+      },
+      syncAspectLockPolicy: policy
+    });
+
+    const svgBox = layout.elements.svgBox;
+    const captured = layout.captureState();
+    expect(captured.svgBox.dataset).toEqual(expect.objectContaining({
+      resizerAspectLocked: 'true',
+      graphAspectLocked: 'true',
+      aspectLocked: 'true'
+    }));
+    expect(svgBox.__sharedResizableBoxApi.getState().aspectLocked).toBe(true);
+
+    const conflicting = JSON.parse(JSON.stringify(captured));
+    conflicting.svgBox.dataset.resizerAspectLocked = 'false';
+    conflicting.svgBox.dataset.graphAspectLocked = 'false';
+    conflicting.svgBox.dataset.aspectLocked = 'false';
+    layout.applyState(conflicting, { reason: 'forced-policy-restore' });
+
+    expect(svgBox.dataset).toEqual(expect.objectContaining({
+      resizerAspectLocked: 'true',
+      graphAspectLocked: 'true',
+      aspectLocked: 'true'
+    }));
+    expect(svgBox.__sharedResizableBoxApi.getState().aspectLocked).toBe(true);
+    expect(svgBox.querySelector('.resizer-aspect-checkbox').checked).toBe(true);
+    expect(policy).toHaveBeenCalled();
+  });
 });
 
 describe('componentLayout observer scheduling contract', () => {
@@ -399,4 +505,5 @@ describe('componentLayout observer scheduling contract', () => {
     expect(observerCall[4]?.forceSchedule).toBe(false);
     expect(scheduleDraw).not.toHaveBeenCalled();
   });
+
 });

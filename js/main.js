@@ -588,25 +588,113 @@
   function hasWelcomeDataImportPrompt() {
     return !!dom?.welcomeDataImportPrompt
       && !!dom?.welcomeDataImportComponent
+      && !!dom?.welcomeDataImportComponentButton
+      && !!dom?.welcomeDataImportComponentMenu
+      && !!dom?.welcomeDataImportStartColumn
+      && !!dom?.welcomeDataImportTranspose
       && !!dom?.welcomeDataImportFirstRow
       && !!dom?.welcomeDataImportOpen
       && !!dom?.welcomeDataImportCancel;
   }
 
-  function getWelcomeImportStartRow(input) {
+  function getWelcomeImportPositiveIndex(input) {
     const value = Number.parseInt(input?.value, 10);
     return Number.isFinite(value) && value > 0 ? value : 1;
   }
 
   function getWelcomeDataImportOptions() {
+    const component = dom.welcomeDataImportComponent?.value || 'box';
     return {
-      component: dom.welcomeDataImportComponent?.value || 'box',
+      component,
       delimiter: dom.welcomeDataImportDelimiter?.value || 'auto',
       sheetName: dom.welcomeDataImportSheet?.value || '',
-      sourceStartRow: getWelcomeImportStartRow(dom.welcomeDataImportStartRow),
+      sourceStartRow: getWelcomeImportPositiveIndex(dom.welcomeDataImportStartRow),
+      sourceStartColumn: getWelcomeImportPositiveIndex(dom.welcomeDataImportStartColumn),
       firstRowIsTitles: dom.welcomeDataImportFirstRow?.checked !== false,
-      trimCells: dom.welcomeDataImportTrim?.checked !== false
+      trimCells: dom.welcomeDataImportTrim?.checked !== false,
+      transposeData: dom.welcomeDataImportTranspose?.checked === true,
+      targetFirstRowIsHeader: component !== 'survival'
     };
+  }
+
+  function getWelcomeGraphDefinition(type) {
+    return GRAPH_TYPES.find(item => item.type === type) || null;
+  }
+
+  function setWelcomeComponentPickerOpen(open) {
+    const button = dom.welcomeDataImportComponentButton;
+    const menu = dom.welcomeDataImportComponentMenu;
+    if (!button || !menu) return;
+    const nextOpen = !!open;
+    button.setAttribute('aria-expanded', nextOpen ? 'true' : 'false');
+    menu.hidden = !nextOpen;
+  }
+
+  function syncWelcomeComponentPicker(type) {
+    const select = dom.welcomeDataImportComponent;
+    const button = dom.welcomeDataImportComponentButton;
+    const icon = dom.welcomeDataImportComponentButtonIcon;
+    const label = dom.welcomeDataImportComponentButtonLabel;
+    const menu = dom.welcomeDataImportComponentMenu;
+    if (!select) return;
+    const resolved = WELCOME_DATA_COMPONENTS.includes(type) ? type : (select.value || 'box');
+    if (select.value !== resolved) select.value = resolved;
+    const definition = getWelcomeGraphDefinition(resolved);
+    if (icon) icon.innerHTML = definition?.icon || '';
+    if (label) label.textContent = definition?.label || getWelcomeGraphLabel(resolved);
+    if (button) button.dataset.component = resolved;
+    menu?.querySelectorAll?.('[role="option"]').forEach(option => {
+      const selected = option.dataset.component === resolved;
+      option.setAttribute('aria-selected', selected ? 'true' : 'false');
+      option.classList.toggle('is-selected', selected);
+    });
+  }
+
+  function buildWelcomeComponentPicker() {
+    const select = dom.welcomeDataImportComponent;
+    const menu = dom.welcomeDataImportComponentMenu;
+    if (!select || !menu) return;
+    const types = WELCOME_DATA_COMPONENTS.filter(type => WORKSPACES[type]);
+    select.replaceChildren(...types.map(type => {
+      const option = document.createElement('option');
+      option.value = type;
+      option.textContent = getWelcomeGraphLabel(type);
+      return option;
+    }));
+    menu.replaceChildren(...types.map(type => {
+      const definition = getWelcomeGraphDefinition(type);
+      const option = document.createElement('button');
+      option.type = 'button';
+      option.className = 'welcome-import-component-option';
+      option.setAttribute('role', 'option');
+      option.dataset.component = type;
+      const icon = document.createElement('span');
+      icon.className = 'welcome-import-component-icon graph-card__icon';
+      icon.setAttribute('aria-hidden', 'true');
+      icon.innerHTML = definition?.icon || '';
+      const text = document.createElement('span');
+      text.textContent = definition?.label || getWelcomeGraphLabel(type);
+      option.append(icon, text);
+      return option;
+    }));
+  }
+
+  function renderWelcomeImportFormatAssessment(assessment) {
+    const panel = dom.welcomeDataImportFormatCheck;
+    if (!panel) return;
+    if (!assessment || assessment.status === 'ok') {
+      panel.hidden = true;
+      panel.removeAttribute('data-status');
+      return;
+    }
+    panel.hidden = false;
+    panel.dataset.status = assessment.status === 'ok' ? 'ok' : 'warning';
+    if (dom.welcomeDataImportFormatCheckTitle) {
+      dom.welcomeDataImportFormatCheckTitle.textContent = assessment.title || 'Check data layout';
+    }
+    if (dom.welcomeDataImportFormatCheckMessage) {
+      dom.welcomeDataImportFormatCheckMessage.textContent = assessment.message || '';
+    }
   }
 
   function syncWelcomeSheetOptions(sheetNames = [], selected = '') {
@@ -668,7 +756,11 @@
     } else {
       safeRows.forEach((sourceRow, r) => {
         const row = document.createElement('tr');
-        if (r === 0 && dom.welcomeDataImportFirstRow?.checked !== false) row.className = 'is-title-row';
+        if (r === 0
+          && dom.welcomeDataImportFirstRow?.checked !== false
+          && dom.welcomeDataImportComponent?.value !== 'survival') {
+          row.className = 'is-title-row';
+        }
         const numberCell = document.createElement('td');
         numberCell.className = 'row-number';
         numberCell.textContent = String(r + 1);
@@ -690,40 +782,41 @@
       ? promptOptions.component
       : '';
     if (!hasWelcomeDataImportPrompt()) {
-      return Promise.resolve({ component: fixedComponent || 'box', firstRowIsTitles: true });
+      return Promise.resolve({ component: fixedComponent || 'box', firstRowIsTitles: fixedComponent !== 'survival' });
     }
     const prompt = dom.welcomeDataImportPrompt;
     const message = dom.welcomeDataImportMessage;
     const select = dom.welcomeDataImportComponent;
     const componentField = dom.welcomeDataImportComponentField;
+    const componentButton = dom.welcomeDataImportComponentButton;
+    const componentMenu = dom.welcomeDataImportComponentMenu;
     const firstRow = dom.welcomeDataImportFirstRow;
     const openBtn = dom.welcomeDataImportOpen;
     const cancelBtn = dom.welcomeDataImportCancel;
     const delimiterField = dom.welcomeDataImportDelimiterField;
     const delimiter = dom.welcomeDataImportDelimiter;
     const startRow = dom.welcomeDataImportStartRow;
+    const startColumn = dom.welcomeDataImportStartColumn;
     const trim = dom.welcomeDataImportTrim;
+    const transpose = dom.welcomeDataImportTranspose;
     const status = dom.welcomeDataImportPreviewStatus;
     const ext = getFileExtension(file);
     const isSpreadsheet = ['xls', 'xlsx', 'ods'].includes(ext);
     let previewRun = 0;
 
-    select.replaceChildren(...WELCOME_DATA_COMPONENTS
-      .filter(type => WORKSPACES[type])
-      .map(type => {
-        const option = document.createElement('option');
-        option.value = type;
-        option.textContent = getWelcomeGraphLabel(type);
-        return option;
-      }));
+    buildWelcomeComponentPicker();
     select.value = fixedComponent || select.value || 'box';
+    syncWelcomeComponentPicker(select.value);
     if (componentField) componentField.hidden = !!fixedComponent;
-    firstRow.checked = true;
+    firstRow.checked = select.value !== 'survival';
     if (trim) trim.checked = true;
+    if (transpose) transpose.checked = false;
     if (startRow) startRow.value = '1';
+    if (startColumn) startColumn.value = '1';
     if (delimiter) delimiter.value = ext === 'tsv' ? 'tab' : 'auto';
     if (delimiterField) delimiterField.hidden = isSpreadsheet;
     syncWelcomeSheetOptions([], '');
+    renderWelcomeImportFormatAssessment(null);
     if (message) {
       message.textContent = fixedComponent
         ? `Import ${file?.name || 'this table'} into ${getWelcomeGraphLabel(fixedComponent)}.`
@@ -734,16 +827,22 @@
       const tableImport = Shared.tableImport;
       if (!tableImport || typeof tableImport.previewFile !== 'function') {
         renderWelcomeImportPreviewTable([]);
+        renderWelcomeImportFormatAssessment(null);
         if (status) status.textContent = 'Preview unavailable';
         return;
       }
       const runId = ++previewRun;
       if (status) status.textContent = 'Loading preview...';
       try {
-        const preview = await tableImport.previewFile(file, Object.assign(getWelcomeDataImportOptions(), { limit: 20 }));
+        const options = getWelcomeDataImportOptions();
+        const preview = await tableImport.previewFile(file, Object.assign({}, options, { limit: 20 }));
         if (runId !== previewRun) return;
         syncWelcomeSheetOptions(preview?.sheetNames || [], preview?.sheetName || '');
         renderWelcomeImportPreviewTable(preview?.rows || []);
+        const assessment = typeof tableImport.assessComponentLayout === 'function'
+          ? tableImport.assessComponentLayout(preview?.rows || [], options.component, options)
+          : null;
+        renderWelcomeImportFormatAssessment(assessment);
         const shown = preview?.rows?.length || 0;
         const total = preview?.totalRows || shown;
         const details = preview?.sheetName ? `, sheet: ${preview.sheetName}` : '';
@@ -751,6 +850,11 @@
       } catch (err) {
         if (runId !== previewRun) return;
         renderWelcomeImportPreviewTable([]);
+        renderWelcomeImportFormatAssessment({
+          status: 'warning',
+          title: 'Preview could not be validated',
+          message: err?.message || String(err)
+        });
         if (status) status.textContent = `Preview failed: ${err?.message || err}`;
       }
     };
@@ -761,14 +865,78 @@
         [dom.welcomeDataImportSheet, 'change', renderPreview],
         [delimiter, 'change', renderPreview],
         [startRow, 'input', renderPreview],
+        [startColumn, 'input', renderPreview],
         [firstRow, 'change', renderPreview],
-        [trim, 'change', renderPreview]
+        [trim, 'change', renderPreview],
+        [transpose, 'change', renderPreview]
       ].filter(([node]) => !!node);
+      const onComponentOptionClick = event => {
+        const option = event.target?.closest?.('[role="option"][data-component]');
+        if (!option || !componentMenu?.contains(option)) return;
+        const nextType = option.dataset.component;
+        if (!WELCOME_DATA_COMPONENTS.includes(nextType)) return;
+        select.value = nextType;
+        syncWelcomeComponentPicker(nextType);
+        setWelcomeComponentPickerOpen(false);
+        firstRow.checked = nextType !== 'survival';
+        componentButton?.focus?.();
+        void renderPreview();
+      };
+      const focusComponentOption = (direction = 0) => {
+        const options = Array.from(componentMenu?.querySelectorAll?.('[role="option"]') || []);
+        if (!options.length) return;
+        const activeIndex = options.indexOf(document.activeElement);
+        const selectedIndex = Math.max(0, options.findIndex(option => option.getAttribute('aria-selected') === 'true'));
+        const baseIndex = activeIndex >= 0 ? activeIndex : selectedIndex;
+        const nextIndex = direction === Number.POSITIVE_INFINITY
+          ? options.length - 1
+          : direction === Number.NEGATIVE_INFINITY
+            ? 0
+            : (baseIndex + direction + options.length) % options.length;
+        options[nextIndex]?.focus?.();
+      };
+      const onComponentButtonClick = () => {
+        const opening = componentMenu?.hidden !== false;
+        setWelcomeComponentPickerOpen(opening);
+        if (opening) window.requestAnimationFrame?.(() => focusComponentOption(0));
+      };
+      const onComponentButtonKeyDown = event => {
+        if (!['ArrowDown', 'ArrowUp'].includes(event.key)) return;
+        event.preventDefault();
+        setWelcomeComponentPickerOpen(true);
+        window.requestAnimationFrame?.(() => focusComponentOption(event.key === 'ArrowDown' ? 0 : Number.POSITIVE_INFINITY));
+      };
+      const onComponentMenuKeyDown = event => {
+        if (event.key === 'ArrowDown') {
+          event.preventDefault();
+          focusComponentOption(1);
+        } else if (event.key === 'ArrowUp') {
+          event.preventDefault();
+          focusComponentOption(-1);
+        } else if (event.key === 'Home') {
+          event.preventDefault();
+          focusComponentOption(Number.NEGATIVE_INFINITY);
+        } else if (event.key === 'End') {
+          event.preventDefault();
+          focusComponentOption(Number.POSITIVE_INFINITY);
+        }
+      };
+      const onDocumentPointerDown = event => {
+        if (componentMenu?.hidden !== false) return;
+        if (componentField?.contains?.(event.target)) return;
+        setWelcomeComponentPickerOpen(false);
+      };
       const cleanup = () => {
         prompt.setAttribute('hidden', 'hidden');
+        setWelcomeComponentPickerOpen(false);
         prompt.removeEventListener('keydown', onKeyDown);
         openBtn.removeEventListener('click', onOpen);
         cancelBtn.removeEventListener('click', onCancel);
+        componentButton?.removeEventListener('click', onComponentButtonClick);
+        componentButton?.removeEventListener('keydown', onComponentButtonKeyDown);
+        componentMenu?.removeEventListener('click', onComponentOptionClick);
+        componentMenu?.removeEventListener('keydown', onComponentMenuKeyDown);
+        document.removeEventListener('pointerdown', onDocumentPointerDown, true);
         listeners.forEach(([node, event, handler]) => node.removeEventListener(event, handler));
       };
       const finish = result => {
@@ -781,16 +949,32 @@
       const onCancel = () => finish(null);
       const onKeyDown = event => {
         if (event.key === 'Escape') {
+          if (componentMenu?.hidden === false) {
+            event.preventDefault();
+            setWelcomeComponentPickerOpen(false);
+            componentButton?.focus?.();
+            return;
+          }
           event.preventDefault();
           finish(null);
+          return;
+        }
+        if (event.key === 'Enter' && componentMenu?.hidden !== false) {
+          event.preventDefault();
+          onOpen();
         }
       };
       prompt.addEventListener('keydown', onKeyDown);
       openBtn.addEventListener('click', onOpen);
       cancelBtn.addEventListener('click', onCancel);
+      componentButton?.addEventListener('click', onComponentButtonClick);
+      componentButton?.addEventListener('keydown', onComponentButtonKeyDown);
+      componentMenu?.addEventListener('click', onComponentOptionClick);
+      componentMenu?.addEventListener('keydown', onComponentMenuKeyDown);
+      document.addEventListener('pointerdown', onDocumentPointerDown, true);
       listeners.forEach(([node, event, handler]) => node.addEventListener(event, handler));
       prompt.removeAttribute('hidden');
-      (fixedComponent ? delimiter : select)?.focus?.();
+      (fixedComponent ? delimiter : componentButton)?.focus?.();
       void renderPreview();
     });
   }
@@ -888,7 +1072,9 @@
       suppressPrismLimitations: options.suppressPrismLimitations ? 'true' : 'false',
       importDelimiter: options.delimiter || '',
       sourceStartRow: String(options.sourceStartRow || 1),
+      sourceStartColumn: String(options.sourceStartColumn || 1),
       trimCells: options.trimCells === false ? 'false' : 'true',
+      transposeData: options.transposeData ? 'true' : 'false',
       sheetName: options.sheetName || '',
       importOptionsConfirmed: 'true'
     };

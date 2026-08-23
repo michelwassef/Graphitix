@@ -26,25 +26,38 @@ async function selectControl(page, selector, value) {
   await page.waitForTimeout(100);
 }
 
-async function setThirdCondition(page, checked) {
-  const checkbox = page.locator(active('#statCol2'));
-  await expect(checkbox).toBeVisible({ timeout: 20_000 });
-  if ((await checkbox.isChecked()) !== checked) {
-    await checkbox.setChecked(checked);
-    await page.waitForTimeout(150);
+async function setConditionCount(page, count) {
+  const conditionCount = await page.locator(active('.stats-conditions-checkboxes input[type="checkbox"]')).count();
+  expect(conditionCount).toBeGreaterThanOrEqual(count);
+  for(let index = 0; index < conditionCount; index += 1){
+    const checkbox = page.locator(active(`#statCol${index}`));
+    const checked = index < count;
+    if ((await checkbox.isChecked()) !== checked) {
+      await checkbox.setChecked(checked);
+      await page.waitForTimeout(75);
+    }
   }
 }
 
-async function computeAndRead(page) {
+async function computeAndRead(page, expectedAnalysisId) {
   await page.locator(active('#boxComputeStats')).click();
-  await expect(page.locator(active('#boxStatsStatus'))).toContainText('Statistics up to date.', { timeout: 40_000 });
+  await page.waitForFunction(expected => {
+    const state = window.Components?.box?.__getState?.();
+    const status = document.querySelector('#boxPage:not([hidden]) #boxStatsStatus')?.textContent || '';
+    return state?.statsLastReport?.analysisSpec?.analysisId === expected
+      && /Statistics up to date\./i.test(status);
+  }, expectedAnalysisId, { timeout: 40_000 });
+  await expect(page.locator(active('#boxStatsStatus'))).toContainText('Statistics up to date.');
   return page.evaluate(() => {
     const root = document.querySelector('#boxPage:not([hidden])');
     const state = window.Components?.box?.__getState?.();
     const report = state?.statsLastReport || null;
     return {
       analysisId: report?.analysisSpec?.analysisId || null,
+      selectedColumns: Array.from(state?.selectedCols || []),
       testChoice: root?.querySelector('#boxStatsTestChoice')?.value || null,
+      statsLastRunVersion: Number(state?.statsLastRunVersion || 0),
+      statsContextVersion: Number(state?.statsContextVersion || 0),
       resultsText: root?.querySelector('#statsResults')?.textContent || '',
       reportText: root?.querySelector('#boxStatsReportHost')?.textContent || ''
     };
@@ -54,10 +67,12 @@ async function computeAndRead(page) {
 async function assertSelection(page, { family, design, groups, choice, expectedId, expectedText }) {
   await selectControl(page, '#boxStatsFamily', family);
   await selectControl(page, '#boxStatsDesign', design);
-  await setThirdCondition(page, groups === 3);
+  await setConditionCount(page, groups);
   await selectControl(page, '#boxStatsTestChoice', choice);
-  const result = await computeAndRead(page);
+  const result = await computeAndRead(page, expectedId);
+  expect(result.selectedColumns).toHaveLength(groups);
   expect(result.analysisId).toBe(expectedId);
+  expect(result.statsLastRunVersion).toBe(result.statsContextVersion);
   expect(result.testChoice).toBe(choice);
   expect(`${result.resultsText} ${result.reportText}`).toContain(expectedText);
 }
@@ -87,7 +102,9 @@ test('every Box test dropdown choice executes its exact analysis without fallbac
   ];
 
   for (const item of cases) {
-    await assertSelection(page, item);
+    await test.step(`${item.groups} groups: ${item.design} ${item.choice}`, async () => {
+      await assertSelection(page, item);
+    });
   }
 
   expect(issues.critical.filter(entry => entry.kind !== 'requestfailed')).toEqual([]);

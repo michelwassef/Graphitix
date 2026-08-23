@@ -224,6 +224,10 @@
           if (handleClickForRename(tab, event)) {
             return;
           }
+          if (tab.id === workspaceState.activeTabId) {
+            console.debug('Debug: active workspace tab click ignored', { tabId: tab.id });
+            return;
+          }
           console.debug('Debug: workspace tab selected', { tabId: tab.id });
           activateTab(tab.id);
         });

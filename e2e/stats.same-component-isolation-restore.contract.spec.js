@@ -5,7 +5,8 @@ const {
   installLocalCdnOverrides,
   registerIssueCollectors,
   openComponentFromWelcome,
-  clickExampleButtonIfPresent
+  clickExampleButtonIfPresent,
+  waitForDocumentOpenComplete
 } = require('./helpers/workspaceHarness');
 
 const TMP_DIR = path.resolve(__dirname, '.tmp');
@@ -57,6 +58,56 @@ const CASES = [
     assertVariant: snapshot => {
       expect(snapshot.hasControls).toBe(true);
       expect(snapshot.hasResultsModel || snapshot.hasReportModel || snapshot.tabHasResultsModel || snapshot.tabHasReportModel, JSON.stringify(snapshot)).toBe(true);
+    }
+  },
+  {
+    key: 'scatter',
+    component: { type: 'scatter', pageId: 'scatterPage' },
+    exampleButtonId: 'scatterLoadExample',
+    computeSelector: '#scatterComputeStats',
+    statusSelector: '#scatterStatsStatus',
+    resultsSelector: '#scatterStatsResults',
+    configure: async (page, variant) => {
+      await page.evaluate((value) => {
+        const state = window.Main?.session?.workspaceState;
+        const active = state?.tabs?.find(tab => tab?.id === state.activeTabId) || null;
+        const root = window.Shared?.workspaceTabs?.getMountedRoot?.(active?.id || null, 'scatter') || document;
+        const select = root.querySelector('#scatterRegressionMode');
+        if (!select) throw new Error('Scatter regression-mode select not found');
+        select.value = value;
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+      }, variant === 'A' ? 'linear' : 'exponential');
+    },
+    capture: async page => page.evaluate(() => {
+      const state = window.Main?.session?.workspaceState;
+      const active = state?.tabs?.find(tab => tab?.id === state.activeTabId) || null;
+      const root = window.Shared?.workspaceTabs?.getMountedRoot?.(active?.id || null, 'scatter') || document;
+      const payload = window.Components?.scatter?.getPayload?.() || {};
+      const stats = payload?.config?.stats || {};
+      const session = window.Components?.scatter?.__testHooks?.getSession?.(active?.id || null) || null;
+      const statsResults = root.querySelector('#scatterStatsResults');
+      const status = String(root.querySelector('#scatterStatsStatus')?.textContent || '').trim();
+      const results = String(statsResults?.textContent || '').replace(/\s+/g, ' ').trim();
+      const regressionMode = root.querySelector('#scatterRegressionMode')?.value || stats.regressionMode || null;
+      return {
+        option: regressionMode,
+        status,
+        results,
+        hasResultsModel: !!stats.resultsModel,
+        hasReportModel: !!stats.reportModel,
+        hasPrecomputedStats: !!stats.precomputedStats,
+        ownerHasPrecomputedStats: !!session?.state?.stats?.precomputedStats,
+        ownerResultsTargetMatchesRoot: !!(session?.refs?.statsResults && statsResults && session.refs.statsResults === statsResults),
+        resultsRendered: !!statsResults?.querySelector?.('.stats-table-card, .stats-report-panel, table')
+      };
+    }),
+    assertVariant: snapshot => {
+      expect(snapshot.status).toMatch(/Statistics up to date/i);
+      expect(snapshot.results).not.toMatch(/Statistics will appear after calculation/i);
+      expect(snapshot.resultsRendered).toBe(true);
+      expect(snapshot.hasPrecomputedStats).toBe(true);
+      expect(snapshot.ownerHasPrecomputedStats).toBe(true);
+      expect(snapshot.ownerResultsTargetMatchesRoot).toBe(true);
     }
   },
   {
@@ -139,6 +190,19 @@ const CASES = [
       });
       await expect(page.locator('#rocStatsResults')).toContainText(/ROC metrics|AUC|Reporting and reproducibility/i, { timeout: 40_000 });
     },
+    settleAfterRestore: async page => {
+      await page.evaluate(async () => {
+        const drawResult = window.Components?.roc?.draw?.({ reason: 'e2e-stats-contract-restore' });
+        if (drawResult && typeof drawResult.then === 'function') {
+          await drawResult;
+        }
+        await window.Components?.roc?.awaitReadyForSnapshot?.({ reason: 'e2e-stats-contract-restore-ready' });
+      });
+      await expect(page.locator('#rocStatsResults')).toContainText(
+        /ROC metrics|AUC|Precision.?Recall|Reporting and reproducibility/i,
+        { timeout: 40_000 }
+      );
+    },
     capture: async page => page.evaluate(() => {
       const state = window.Main?.session?.workspaceState;
       const active = state?.tabs?.find(tab => tab?.id === state.activeTabId) || null;
@@ -163,7 +227,7 @@ const CASES = [
     assertVariant: snapshot => {
       expect(snapshot.option).toMatch(/^\d+,\d+$/);
       expect(snapshot.selectedText).toMatch(/\S+\s+vs\s+\S+/i);
-      expect(snapshot.hasResultsModel || snapshot.hasReportModel).toBe(true);
+      expect(snapshot.results).toMatch(/ROC metrics|AUC|Precision.?Recall|Reporting and reproducibility/i);
       expect(snapshot.reportAfterMetrics).toBe(true);
     }
   }
@@ -286,6 +350,40 @@ async function prepareVariant(page, componentCase, variant) {
   return snapshot;
 }
 
+async function captureActivePValueFormat(page, componentCase) {
+  return page.evaluate(({ type, resultsSelector }) => {
+    const state = window.Main?.session?.workspaceState;
+    const active = state?.tabs?.find(tab => tab?.id === state.activeTabId) || null;
+    const root = window.Shared?.workspaceTabs?.getMountedRoot?.(active?.id || null, type) || document;
+    const panel = root.querySelector(resultsSelector);
+    const button = panel?.querySelector?.('.stats-pvalue-format-toggle') || null;
+    return {
+      tabId: active?.id || null,
+      buttonText: String(button?.textContent || '').trim(),
+      payload: active?.payload?.meta?.statsReporting?.pValueScientific,
+      reporting: window.Shared?.statsReporting?.getPValueFormatScientific?.({
+        target: panel,
+        tabId: active?.id || null
+      }) === true
+    };
+  }, { type: componentCase.key, resultsSelector: componentCase.resultsSelector });
+}
+
+async function setActivePValueScientific(page, componentCase) {
+  await page.evaluate(({ type, resultsSelector }) => {
+    const state = window.Main?.session?.workspaceState;
+    const active = state?.tabs?.find(tab => tab?.id === state.activeTabId) || null;
+    const root = window.Shared?.workspaceTabs?.getMountedRoot?.(active?.id || null, type) || document;
+    const button = root.querySelector(`${resultsSelector} .stats-pvalue-format-toggle`);
+    if(!button) throw new Error(`${type} p-value format control not found`);
+    if(String(button.textContent || '').trim() === 'Scientific') button.click();
+  }, { type: componentCase.key, resultsSelector: componentCase.resultsSelector });
+  await page.waitForFunction(id => {
+    const tab = (window.Main?.session?.workspaceState?.tabs || []).find(item => item?.id === id);
+    return tab?.payload?.meta?.statsReporting?.pValueScientific === true;
+  }, (await captureActivePValueFormat(page, componentCase)).tabId, { timeout: 20_000 });
+}
+
 async function captureArchive(page, key) {
   const archive = await page.evaluate(async () => {
     const tabsApi = window.Main?.tabs;
@@ -316,11 +414,11 @@ async function loadArchive(page, archivePath) {
   await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
   await expect(page.locator('#welcomeScreen')).toBeVisible({ timeout: 20_000 });
   await page.locator('#workspaceSessionInput').setInputFiles(archivePath);
+  await waitForDocumentOpenComplete(page);
   await page.waitForFunction(() => {
     const tabs = window.Main?.session?.workspaceState?.tabs || [];
     return Array.isArray(tabs) && tabs.some(tab => tab && !tab.isWelcome && tab.type);
   }, null, { timeout: 30_000 });
-  await page.waitForTimeout(4000);
 }
 
 for (const componentCase of CASES) {
@@ -337,6 +435,11 @@ for (const componentCase of CASES) {
     const tabA = (await getTabIds(page)).find(id => !beforeA.has(id));
     expect(tabA).toBeTruthy();
     const snapshotA = await prepareVariant(page, componentCase, 'A');
+    expect(await captureActivePValueFormat(page, componentCase)).toMatchObject({
+      tabId: tabA,
+      buttonText: 'Scientific',
+      reporting: false
+    });
 
     const beforeB = new Set(await getTabIds(page));
     await openComponentTab(page, componentCase, { first: false });
@@ -345,17 +448,35 @@ for (const componentCase of CASES) {
     expect(tabB).not.toBe(tabA);
     const snapshotB = await prepareVariant(page, componentCase, 'B');
     expect(snapshotB.option).not.toBe(snapshotA.option);
+    await setActivePValueScientific(page, componentCase);
+    expect(await captureActivePValueFormat(page, componentCase)).toMatchObject({
+      tabId: tabB,
+      buttonText: 'Decimal',
+      payload: true,
+      reporting: true
+    });
 
     await activateTab(page, tabA);
     const switchedA = await componentCase.capture(page);
     componentCase.assertVariant(switchedA);
     expect(switchedA.option).toBe(snapshotA.option);
     expect(switchedA.results.length).toBeGreaterThan(20);
+    const switchedAPFormat = await captureActivePValueFormat(page, componentCase);
+    expect(switchedAPFormat).toMatchObject({
+      buttonText: 'Scientific',
+      reporting: false
+    });
+    expect(switchedAPFormat.payload).not.toBe(true);
 
     await activateTab(page, tabB);
     const switchedB = await componentCase.capture(page);
     componentCase.assertVariant(switchedB);
     expect(switchedB.option).toBe(snapshotB.option);
+    expect(await captureActivePValueFormat(page, componentCase)).toMatchObject({
+      buttonText: 'Decimal',
+      payload: true,
+      reporting: true
+    });
 
     const archivePath = await captureArchive(page, componentCase.key);
     await loadArchive(page, archivePath);
@@ -364,13 +485,26 @@ for (const componentCase of CASES) {
     expect(reopenedIds.length).toBeGreaterThanOrEqual(2);
 
     await activateTab(page, reopenedIds[0], componentCase);
+    if (typeof componentCase.settleAfterRestore === 'function') {
+      await componentCase.settleAfterRestore(page);
+    }
     const reopenedFirst = await componentCase.capture(page);
     componentCase.assertVariant(reopenedFirst);
+    const reopenedFirstPFormat = await captureActivePValueFormat(page, componentCase);
 
     await activateTab(page, reopenedIds[1], componentCase);
+    if (typeof componentCase.settleAfterRestore === 'function') {
+      await componentCase.settleAfterRestore(page);
+    }
     const reopenedSecond = await componentCase.capture(page);
     componentCase.assertVariant(reopenedSecond);
+    const reopenedSecondPFormat = await captureActivePValueFormat(page, componentCase);
     expect(new Set([reopenedFirst.option, reopenedSecond.option])).toEqual(new Set([snapshotA.option, snapshotB.option]));
+    expect(new Set([reopenedFirstPFormat.reporting, reopenedSecondPFormat.reporting])).toEqual(new Set([false, true]));
+    expect(new Set([
+      reopenedFirstPFormat.payload === true,
+      reopenedSecondPFormat.payload === true
+    ])).toEqual(new Set([false, true]));
 
     expect(issues.critical).toEqual([]);
   });

@@ -3,6 +3,7 @@ const {
   COMPONENT_MATRIX,
   installLocalCdnOverrides,
   registerIssueCollectors,
+  installParameterIsolationHarness,
   openComponentFromWelcome,
   clickExampleButtonIfPresent
 } = require('./helpers/workspaceHarness');
@@ -176,6 +177,7 @@ for (const component of COMPONENT_MATRIX) {
     await installLocalCdnOverrides(page);
     await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
     await expect(page.locator('#welcomeScreen')).toBeVisible();
+    await installParameterIsolationHarness(page);
 
     const beforeFirst = new Set(await getWorkspaceTabIds(page));
     await openComponentTab(page, component, { first: true });
@@ -247,6 +249,23 @@ for (const component of COMPONENT_MATRIX) {
         expect(Math.abs(firstAgain.topDelta - first.topDelta)).toBeLessThan(8);
       }
     }
+    const parameterIsolation = await page.evaluate(async ({ type, tabAId, tabBId }) => {
+      return window.GraphitixParameterIsolation.runSameTypeIsolation({
+        type,
+        tabAId,
+        tabBId,
+        reopen: true
+      });
+    }, { type: component.type, tabAId: firstNew, tabBId: secondNew });
+    await testInfo.attach(`${component.type}-same-type-parameter-isolation.json`, {
+      body: Buffer.from(JSON.stringify(parameterIsolation, null, 2), 'utf8'),
+      contentType: 'application/json'
+    });
+    expect(parameterIsolation.parameterCount, `${component.type}: no user-visible parameter leaves were discovered`).toBeGreaterThan(0);
+    expect(parameterIsolation.uncovered, `${component.type}: user-state leaves lack an independent valid-value adapter`).toEqual([]);
+    expect(parameterIsolation.exercisedCount, `${component.type}: not every discovered parameter was exercised independently`).toBe(parameterIsolation.parameterCount);
+    expect(parameterIsolation.archiveCount, `${component.type}: parameter batches must share one archive/reopen`).toBe(1);
+    expect(parameterIsolation.failures, `${component.type}: same-type parameter isolation defects`).toEqual([]);
     expect(issues.critical).toEqual([]);
   });
 }

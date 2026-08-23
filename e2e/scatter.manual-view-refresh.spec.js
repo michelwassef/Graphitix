@@ -32,7 +32,7 @@ async function waitForCountIncrease(page, label, before, timeout = 30000) {
 async function waitForScatterIdle(page, timeout = 90000) {
   await page.waitForFunction(() => {
     const state = window.Components?.scatter?.__testGetState?.();
-    const layer = document.querySelector('#scatterPlot svg [data-layer="points"]');
+    const layer = document.querySelector('#scatterPage:not([hidden]) #scatterPlot svg [data-layer="points"]');
     const mode = layer?.getAttribute?.('data-render-mode') || null;
     return !!state
       && state.drawInProgress !== true
@@ -44,7 +44,7 @@ async function waitForScatterIdle(page, timeout = 90000) {
 
 async function waitForScatterPointCanvas(page, timeout = 180000) {
   await page.waitForFunction(() => {
-    const layer = document.querySelector('#scatterPlot svg [data-layer="points"]');
+    const layer = document.querySelector('#scatterPage:not([hidden]) #scatterPlot svg [data-layer="points"]');
     return !!layer
       && layer.getAttribute('data-render-mode') === 'canvas'
       && !!layer.querySelector('foreignObject[data-point-renderer="canvas-preview"] canvas')
@@ -87,7 +87,7 @@ test.describe('Scatter live updates with view-only optimizations', () => {
     await waitForScatterIdle(page, 180000);
 
     const largeRenderMeta = await page.evaluate(() => {
-      const layer = document.querySelector('#scatterPlot svg [data-layer="points"]');
+      const layer = document.querySelector('#scatterPage:not([hidden]) #scatterPlot svg [data-layer="points"]');
       return {
         renderMode: layer?.getAttribute?.('data-render-mode') || null,
         canvasStrategy: layer?.getAttribute?.('data-canvas-render-strategy') || null,
@@ -112,20 +112,21 @@ test.describe('Scatter live updates with view-only optimizations', () => {
     let beforeDraw = await collectCount(page, 'scatter.draw');
     let beforeCollect = await collectCount(page, 'scatter.data.collect');
     await page.evaluate(() => {
-      const input = document.getElementById('scatterFill');
+      const input = document.querySelector('#scatterPage:not([hidden]) #scatterFill');
       if(input){
         input.value = '#1f78b4';
         input.dispatchEvent(new Event('input', { bubbles: true }));
       }
     });
     await waitForCountIncrease(page, 'scatter.draw', beforeDraw, 60000);
+    await waitForScatterIdle(page, 60000);
     let afterCollect = await collectCount(page, 'scatter.data.collect');
     expect(afterCollect, 'fill color change should not recollect data').toBe(beforeCollect);
 
     beforeDraw = await collectCount(page, 'scatter.draw');
     beforeCollect = afterCollect;
     await page.evaluate(() => {
-      const plot = document.getElementById('scatterPlot');
+      const plot = document.querySelector('#scatterPage:not([hidden]) #scatterPlot');
       const state = { sawGap: false, initialVisiblePoints: false, hadVisiblePoints: false };
       const hasVisiblePoints = () => {
         const svgs = Array.from(plot?.querySelectorAll('svg') || []);
@@ -157,13 +158,14 @@ test.describe('Scatter live updates with view-only optimizations', () => {
       window.__scatterPointGapObserver = { observer, state };
     });
     await page.evaluate(() => {
-      const toggle = document.getElementById('scatterShowLine');
+      const toggle = document.querySelector('#scatterPage:not([hidden]) #scatterShowLine');
       if(toggle){
         toggle.checked = !toggle.checked;
         toggle.dispatchEvent(new Event('change', { bubbles: true }));
       }
     });
     await waitForCountIncrease(page, 'scatter.draw', beforeDraw, 60000);
+    await waitForScatterIdle(page, 60000);
     const pointGapState = await page.evaluate(() => {
       const payload = window.__scatterPointGapObserver;
       if(payload?.observer && typeof payload.observer.disconnect === 'function'){
@@ -201,6 +203,7 @@ test.describe('Scatter live updates with view-only optimizations', () => {
     });
     expect(selectedCount, 'row selection should apply immediately without update button').toBeGreaterThan(0);
     await waitForCountIncrease(page, 'scatter.draw', beforeDraw, 60000);
+    await waitForScatterIdle(page, 60000);
     afterCollect = await collectCount(page, 'scatter.data.collect');
     expect(afterCollect, 'row selection label update should not recollect data').toBe(beforeCollect);
 
@@ -234,12 +237,12 @@ test.describe('Scatter live updates with view-only optimizations', () => {
     }, null, { timeout: 60000 });
 
     await page.evaluate(() => {
-      const typeSelect = document.getElementById('scatterGraphType');
+      const typeSelect = document.querySelector('#scatterPage:not([hidden]) #scatterGraphType');
       if(typeSelect){
         typeSelect.value = 'volcano';
         typeSelect.dispatchEvent(new Event('change', { bubbles: true }));
       }
-      const thresholdToggle = document.getElementById('scatterShowSignificantLabels');
+      const thresholdToggle = document.querySelector('#scatterPage:not([hidden]) #scatterShowSignificantLabels');
       if(thresholdToggle){
         thresholdToggle.checked = true;
       }
@@ -259,7 +262,7 @@ test.describe('Scatter live updates with view-only optimizations', () => {
     });
 
     await page.waitForFunction(() => {
-      const layer = document.querySelector('#scatterPlot svg [data-layer="points"]');
+      const layer = document.querySelector('#scatterPage:not([hidden]) #scatterPlot svg [data-layer="points"]');
       return !!layer && layer.getAttribute('data-render-mode') === 'canvas'
         && !!layer.querySelector('foreignObject[data-point-renderer="canvas-preview"] canvas');
     }, null, { timeout: 120000 });
@@ -267,10 +270,10 @@ test.describe('Scatter live updates with view-only optimizations', () => {
     const state = await page.evaluate(() => {
       const hot = window.Components?.scatter?.__ensureHotForActiveTab?.();
       const selectedCount = hot?.gridApi?.getSelectedNodes?.()?.length || 0;
-      const layer = document.querySelector('#scatterPlot svg [data-layer="points"]');
-      const thresholdControls = document.getElementById('scatterThresholdControls');
-      const significantOptions = document.getElementById('scatterSignificantOptions');
-      const significantToggle = document.getElementById('scatterShowSignificantLabels');
+      const layer = document.querySelector('#scatterPage:not([hidden]) #scatterPlot svg [data-layer="points"]');
+      const thresholdControls = document.querySelector('#scatterPage:not([hidden]) #scatterThresholdControls');
+      const significantOptions = document.querySelector('#scatterPage:not([hidden]) #scatterSignificantOptions');
+      const significantToggle = document.querySelector('#scatterPage:not([hidden]) #scatterShowSignificantLabels');
       const defaultLabels = document.querySelectorAll('#scatterPlot svg [data-layer="point-labels"] text');
       return {
         selectedCount,
@@ -294,7 +297,7 @@ test.describe('Scatter live updates with view-only optimizations', () => {
     expect(state.defaultLabelCount).toBe(0);
 
     await page.evaluate(() => {
-      const significantToggle = document.getElementById('scatterShowSignificantLabels');
+      const significantToggle = document.querySelector('#scatterPage:not([hidden]) #scatterShowSignificantLabels');
       if(significantToggle){
         significantToggle.checked = true;
         significantToggle.dispatchEvent(new Event('change', { bubbles: true }));
@@ -310,11 +313,23 @@ test.describe('Scatter live updates with view-only optimizations', () => {
       const hot = window.Components?.scatter?.__ensureHotForActiveTab?.();
       const labels = Array.from(document.querySelectorAll('#scatterPlot svg [data-layer="point-labels"] text'))
         .map(node => node.textContent || '');
+      const svg = document.querySelector('#scatterPlot svg');
+      const viewBox = svg?.viewBox?.baseVal;
+      const boundaryOverflowCount = svg && viewBox
+        ? Array.from(svg.querySelectorAll('[data-layer="point-labels"] text')).filter(node => {
+          const box = node.getBBox();
+          return box.x < viewBox.x - 0.5
+            || box.y < viewBox.y - 0.5
+            || box.x + box.width > viewBox.x + viewBox.width + 0.5
+            || box.y + box.height > viewBox.y + viewBox.height + 0.5;
+        }).length
+        : -1;
       return {
         selectedCount: hot?.gridApi?.getSelectedNodes?.()?.length || 0,
         labelCount: labels.length,
         hasFirstLabel: labels.includes('GENE_1'),
-        hasLastExpectedLabel: labels.includes('GENE_12')
+        hasLastExpectedLabel: labels.includes('GENE_12'),
+        boundaryOverflowCount
       };
     });
 
@@ -322,6 +337,7 @@ test.describe('Scatter live updates with view-only optimizations', () => {
     expect(explicitLabelState.labelCount).toBeGreaterThanOrEqual(12);
     expect(explicitLabelState.hasFirstLabel).toBe(true);
     expect(explicitLabelState.hasLastExpectedLabel).toBe(true);
+    expect(explicitLabelState.boundaryOverflowCount).toBe(0);
   });
 
   test('large plain scatter keeps auto density while avoiding large label bookkeeping', async ({ page }) => {
@@ -342,12 +358,12 @@ test.describe('Scatter live updates with view-only optimizations', () => {
     }, null, { timeout: 60000 });
 
     await page.evaluate(() => {
-      const typeSelect = document.getElementById('scatterGraphType');
+      const typeSelect = document.querySelector('#scatterPage:not([hidden]) #scatterGraphType');
       if(typeSelect){
         typeSelect.value = 'scatter';
         typeSelect.dispatchEvent(new Event('change', { bubbles: true }));
       }
-      const colorMode = document.getElementById('scatterColorMode');
+      const colorMode = document.querySelector('#scatterPage:not([hidden]) #scatterColorMode');
       if(colorMode){
         colorMode.value = 'auto';
         colorMode.dispatchEvent(new Event('change', { bubbles: true }));
@@ -368,7 +384,7 @@ test.describe('Scatter live updates with view-only optimizations', () => {
     });
 
     await page.waitForFunction(() => {
-      const layer = document.querySelector('#scatterPlot svg [data-layer="points"]');
+      const layer = document.querySelector('#scatterPage:not([hidden]) #scatterPlot svg [data-layer="points"]');
       return !!layer && layer.getAttribute('data-render-mode') === 'canvas'
         && !!layer.querySelector('foreignObject[data-point-renderer="canvas-preview"] canvas');
     }, null, { timeout: 120000 });
@@ -394,7 +410,7 @@ test.describe('Scatter live updates with view-only optimizations', () => {
         pointCount: 20000,
         viewMode: '2d'
       }) || {};
-      const layer = document.querySelector('#scatterPlot svg [data-layer="points"]');
+      const layer = document.querySelector('#scatterPage:not([hidden]) #scatterPlot svg [data-layer="points"]');
       const canvas = layer?.querySelector?.('foreignObject[data-point-renderer="canvas-preview"] canvas') || null;
       return {
         ...state,
@@ -432,7 +448,7 @@ test.describe('Scatter live updates with view-only optimizations', () => {
     await waitForScatterPointCanvas(page, 180000);
 
     const legacy = await page.evaluate(() => {
-      const layer = document.querySelector('#scatterPlot svg [data-layer="points"]');
+      const layer = document.querySelector('#scatterPage:not([hidden]) #scatterPlot svg [data-layer="points"]');
       const canvas = layer?.querySelector?.('foreignObject[data-point-renderer="canvas-preview"] canvas') || null;
       return {
         strategy: layer?.getAttribute?.('data-canvas-render-strategy') || null,

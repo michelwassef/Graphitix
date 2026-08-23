@@ -55,6 +55,15 @@ async function openComponentTab(page, component, { first = false } = {}) {
   const after = await getWorkspaceTabIds(page);
   const tabId = after.find(id => !before.has(id));
   expect(tabId).toBeTruthy();
+  const tableShape = await page.evaluate(({ type, tabId }) => {
+    const hot = window.Shared?.hot?.__tabTablePools?.[type]?.byTab?.[tabId]?.instance || null;
+    return {
+      rows: hot?.countRows?.() || 0,
+      cols: hot?.countCols?.() || 0
+    };
+  }, { type: component.type, tabId });
+  expect(tableShape.rows).toBeGreaterThanOrEqual(100);
+  expect(tableShape.cols).toBeGreaterThanOrEqual(10);
   return tabId;
 }
 

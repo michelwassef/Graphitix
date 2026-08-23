@@ -226,4 +226,29 @@ describe('chartStyle proportional font resize behavior', () => {
 
     expect(unlocked.renderer.fontSize).toBe(12);
   });
+
+  test('scoped font metrics apply graph, collection, then selection styles', () => {
+    const { chartStyle } = window.Shared;
+    const styles = {
+      __graph__: { fontSize: '12px', fontFamily: 'Arial' },
+      __scale__: { fontSize: '18px', fontFamily: 'Georgia' },
+      scaleMax: { fontSize: '20px' }
+    };
+
+    const scale = chartStyle.resolveScopedLabelMeasureFont({
+      styles,
+      collection: 'scale',
+      fallbackPx: 10
+    });
+    const selected = chartStyle.resolveScopedLabelMeasureFont({
+      styles,
+      collection: 'scale',
+      role: 'scaleMax',
+      fallbackPx: 10
+    });
+
+    expect(scale.fontSizePx).toBe(18);
+    expect(scale.fontFamily).toBe('Georgia');
+    expect(selected.fontSizePx).toBe(20);
+  });
 });

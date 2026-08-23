@@ -146,15 +146,7 @@ async function readSurvivalState(page) {
         hasSvg: !!svg,
         text,
         ciPathCount: svg ? Array.from(svg.querySelectorAll('path[fill-opacity="0.15"]')).length : 0,
-        censorMarkCount: svg ? Array.from(svg.querySelectorAll('line')).filter(line => {
-          const x1 = Number(line.getAttribute('x1'));
-          const x2 = Number(line.getAttribute('x2'));
-          const y1 = Number(line.getAttribute('y1'));
-          const y2 = Number(line.getAttribute('y2'));
-          return Number.isFinite(x1) && Number.isFinite(x2) && Number.isFinite(y1) && Number.isFinite(y2)
-            && Math.abs(y1 - y2) < 0.001
-            && Math.abs(x1 - x2) > 1;
-        }).length : 0
+        censorMarkCount: svg ? svg.querySelectorAll('[data-survival-censor-mark="1"]').length : 0
       },
       stats: {
         hazardText: root?.querySelector?.('#survivalStatsHazardRatios')?.textContent || '',

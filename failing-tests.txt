@@ -1,16 +1,670 @@
-Graphitix failing-test triage
-Updated: 2026-07-06
-Scope: Chromium. Firefox intentionally excluded.
+Graphitix full-suite failing-test triage
+Updated: 2026-08-15
+Source artifacts: artifacts/full-test-report.txt and artifacts/full-test-run-20260814-201255/*
+Scope: Jest integration + Playwright Chromium. Firefox intentionally excluded.
 
-Deferred
-- e2e/box.column-reorder.undo-*.spec.js
-  Status: deferred/reclassified. Browser drag path still does not reorder in headless Chromium, even through the header drag glyph. Unit coverage validates reorder undo flushing.
+Summary
+-------
+- Persistent failures after single-worker retry in the supplied run: 63
+- Proven stale-assumption/test-harness failures: 33
+- Persistent failures that expose real code issues: 30
+  - P1 / High severity: 25
+  - P2 / Medium severity: 5
+  - P3 / Low severity: 0
+- Initial failures that passed unchanged on single-worker retry: 12
+  These are not classified as stale. They are retry-resolved/possibly contention-sensitive and are retained unchanged.
+- Newly exposed by corrected targeted coverage after the supplied full run: 1 additional P2 Heatmap cache/republication issue
+  (`canvasRevision` increments on same-tab heavy-owner reactivation). It is tracked separately because the original stale
+  preview assertion prevented the supplied full run from reaching this later failure.
 
-- e2e/box.flip-axes.transpose-manual-resize.spec.js
-  Tests:
-  - state-machine flip cycles preserve per-orientation proportions and transpose geometry
-  - flipped significance adds horizontal reserve and grows svg container width without plot distortion
-  - computing significance before flip preserves transposed graph proportions
-  - non-flip significance off-on restores vertical reserve without plot distortion
-  - significance toggle-off after flip-unflip removes top reserve without axis stretch
-  Status: deferred per user instruction.
+Severity rubric
+---------------
+P1 / High
+  Breaks a Graphitix architectural invariant (tab ownership/isolation, reopen parity, canonical geometry/state),
+  breaks a broadly shared interaction, loses/restores the wrong owner state, or blocks an important workflow.
+
+P2 / Medium
+  Localized but user-visible correctness, interaction, or performance defect without demonstrated data loss or
+  broad cross-component corruption.
+
+P3 / Low
+  Cosmetic/minor defect with no meaningful correctness or workflow impact. None of the persistent real failures
+  in this run fit P3.
+
+Important triage rule used here
+-------------------------------
+A test was marked stale only where the current intended contract could be established independently from the
+failing assertion (current production code/architecture, current curated fixtures, or a false-positive assertion).
+A removed helper/function name alone was NOT considered sufficient evidence of staleness. In particular, the Box
+reserve source-contract tests remain real failures because independent browser tests reproduce the geometry defect.
+
+
+A. STALE-ASSUMPTION FAILURES — TESTS UPDATED
+--------------------------------------------
+
+S01 [Jest] __tests__/heatmap.dendrogram-rendering.test.js
+    Test: inline title edits do not schedule a full Heatmap redraw
+    Classification: STALE source-shape assumption.
+    Evidence: the test searched for the removed local helper `applyHeatmapTitle`. Current code implements the same
+    contract in owner-scoped `bindHeatmapTitleInlineInteraction()` / `applyTitle()`: live `onInput` patches
+    `titleText` directly and does not schedule a draw. Undo/redo may schedule a view-only refresh.
+    Test fix: assert the current owner-scoped binder and live-input path rather than the obsolete helper name.
+
+S02 [Jest] __tests__/chartStyle.formatScientific.test.js
+    Test: formats negative large numbers correctly
+    Classification: STALE presentation expectation.
+    Evidence: current scientific/report typography intentionally uses the Unicode mathematical minus (−), while the
+    test still expected ASCII hyphen-minus (-).
+    Test fix: expect −10⁴ and −5×10⁴.
+
+S03 [Jest] __tests__/chartStyle.formatScientific.test.js
+    Test: formats negative small numbers correctly
+    Classification: STALE presentation expectation.
+    Evidence/fix: same standardized Unicode-minus contract as S02; expect −10⁻³ and −5×10⁻⁴.
+
+S04 [Jest] __tests__/axis-major-tick-length.contract.test.js
+    Test: axis controls expose a tab-owned major tick length editor
+    Classification: STALE implementation-shape contract.
+    Evidence: major tick length now uses the shared owner-aware `bindWheelAwareAxisNumericInput()` path with
+    `stateKey: 'majorTickLength'`; the generic helper calls `recordAxisStateChange(config, spec.stateKey, ...)`.
+    The test still required an old dedicated literal call.
+    Test fix: assert the generic binding/state key and shared state-change path.
+
+S05 [Jest] __tests__/pie.percentLabels.test.js
+    Test: plot-stat summaries use the analysis-specific effect-size label
+    Classification: STALE report typography.
+    Evidence: the semantic labels remain correct, but reporting now standardizes spaces around `=`.
+    Test fix: `Cohen's w =` and `Cramer's V =`.
+
+S06 [Jest] __tests__/regression.persistence.test.js
+    Test: Scatter regression payload captures summary
+    Classification: STALE harness ownership contract.
+    Evidence: the test calls Scatter setup with a synthetic tab id but no owner root. Current Scatter setup is
+    owner-scoped and `bindScatterDomRefs()` requires an explicit resolvable root; without one the transient control
+    projection remains null and setup fails before regression logic is exercised. This is a harness failure, not a
+    regression-calculation failure.
+    Test fix: pass the real `#scatterPage` root together with the synthetic owner tab id.
+
+S07 [Jest] __tests__/box.significanceWhiskers.test.js
+    Test: p-value labels use scientific notation when enabled
+    Classification: STALE isolated-module bootstrap + stale notation expectation.
+    Evidence: production Box delegates scientific p-value formatting to `Shared.statsReporting`/shared formatters.
+    The isolated test loaded only `box.js`, so it exercised the component's standalone decimal fallback and expected
+    obsolete `1.00e-4` text. Production uses Graphitix report notation.
+    Test fix: load the production chartStyle/stats formatter dependencies and expect `1 × 10⁻⁴`.
+
+S08 [Jest] __tests__/hist.panel-layout.test.js
+    Test: plot summaries stay concise as dataset count increases
+    Classification: STALE report-format expectation.
+    Evidence: the summary is still one concise line, but reporting now uses spaced equals and standardized precision
+    (`n = 4 · Mean = 2.500 · SD = 1.291`).
+    Test fix: update only the formatting assertions; keep the line-count/conciseness assertions.
+
+S09 [Jest] __tests__/scatter.listenerBinding.contract.test.js
+    Test: module-level DOM bindings include the alpha value label used by payload apply and setup
+    Classification: STALE source-shape assumption.
+    Evidence: direct setup assignment `scatterAlphaVal=$('#scatterAlphaVal')` was intentionally replaced by the
+    owner-scoped `bindScatterDomRefs()` projection (`scatterAlphaVal = byId('scatterAlphaVal')`). This is the safer
+    tab-isolated architecture and still binds the required control.
+    Test fix: assert binding inside `bindScatterDomRefs()` rather than the removed direct setup assignment.
+
+S10 [Playwright] e2e/hist.frequency-distribution-autodraw-tab-isolation.spec.js
+    Test: Histogram async table import commits to the originating tab while inactive
+    Classification: STALE / false-positive assertion.
+    Evidence: the untouched tab did not contain the imported dataset, but its legitimate diagnostics contained the
+    AICc value `2560.202`; the regex `/Imported values|101|202|303/` therefore matched the substring `202` and falsely
+    reported cross-tab leakage.
+    Test fix: assert the untouched tab's canonical payload is not the imported 4-row matrix and separately reject the
+    unique imported header `Imported values` in rendered text. Arbitrary numeric substrings are no longer forbidden.
+
+S11 [Playwright] e2e/pca.stats-restore.spec.js
+    Test: PCA scree + biplot survive file reopen (archive load)
+    Classification: STALE fixture assumption.
+    Evidence: the current curated default PCA example uses Subject labels, while the test hard-coded an older CFC /
+    memantine example before it even performed reopen. This says nothing about restore correctness.
+    Test fix: require a meaningful initial legend and then assert exact reopened label equality to the captured initial
+    legend, which makes the restore contract stronger and independent of future curated example replacements.
+
+S12 [Playwright] e2e/pca.stats-restore.spec.js
+    Test: PCA scree + biplot survive crash recovery
+    Classification: STALE fixture assumption.
+    Evidence/fix: same outdated hard-coded CFC labels as S11; now assert exact recovery parity with the captured
+    initial legend.
+
+S13 [Playwright] e2e/stats-annotation.bounds-and-font.spec.js
+    Test: Line plot statistics stay multiline, clear of the example lines, and bounded through layout and font edits
+    Classification: STALE SVG structure selector.
+    Evidence: `renderStatsAnnotation()` now represents each formatted/math fragment as
+    `data-font-structure-part="line-fragment"` and marks the first fragment of every visual line with
+    `data-stats-line-start="1"`. The test searched for the removed `data-font-structure-part="line"` marker even
+    though the annotation itself was visible.
+    Test fix: count the stable semantic line-start markers before and after font editing.
+
+
+S14 [Jest] __tests__/symbolToolbar.undo.test.js
+    Test: symbolToolbar wheel size burst applies live with declared step and records one undo command
+    Classification: STALE TEST-HARNESS frame-timing assumption.
+    Evidence: the wheel input itself stepped, but the live consumer value remained unchanged after
+    `jest.advanceTimersByTime(0)`. The integration setup intentionally supplies a zero-delay RAF; modern Jest fake
+    timers were replacing that RAF with frame-clock semantics when `jest.useFakeTimers()` was enabled.
+    Test-harness fix: preserve the deterministic setup RAF when fake timers are enabled. The behavioral assertion is
+    unchanged.
+
+S15 [Jest] __tests__/toolbar.numericWheel.sharedControls.test.js
+    Test: grid line width uses its declared step, updates live once per frame, and records one undo entry
+    Classification: STALE TEST-HARNESS frame-timing assumption.
+    Evidence/fix: same unflushed fake-RAF frame as S14; the real-browser axis-thickness wheel test exercises the same
+    shared step/live transaction and passes far enough to isolate R06 to axis-length commit timing. No assertion was
+    weakened.
+
+S16 [Jest] __tests__/toolbar.numericWheel.sharedControls.test.js
+    Test: additional-line width keeps the configured tenth-pixel step instead of a hard-coded half-pixel step
+    Classification: STALE TEST-HARNESS frame-timing assumption.
+    Evidence/fix: three wheel steps changed the input but the consumer remained at its pre-frame value because the
+    test advanced zero milliseconds while Jest had substituted a frame-clock RAF. Preserve the setup RAF; retain the
+    exact 0.1-step assertion.
+
+S17 [Jest] __tests__/toolbar.numericWheel.sharedControls.test.js
+    Test: significance thickness keeps one owner-scoped undo transaction across a wheel burst
+    Classification: STALE TEST-HARNESS frame-timing assumption.
+    Evidence/fix: same S14 fake-RAF mismatch. The owner/undo expectations remain unchanged.
+
+S18 [Jest] __tests__/axisControls.init.test.js
+    Test: hover-wheel treats tick interval and tick length bursts as one undoable edit each
+    Classification: STALE TEST-HARNESS frame-timing assumption.
+    Evidence/fix: the expected live value is sampled immediately after `advanceTimersByTime(0)`, before Jest's
+    substituted frame clock runs. Preserve the deterministic setup RAF; retain the exact live and undo assertions.
+
+S19 [Jest] __tests__/axisControls.init.test.js
+    Test: wheel thickness uses the declared quarter-pixel step and records one edit for the burst
+    Classification: STALE TEST-HARNESS frame-timing assumption.
+    Evidence/fix: same S14 mismatch; retain the 0.25 px step and single-undo contract.
+
+S20 [Jest] __tests__/axisControls.init.test.js
+    Test: axis length wheel gesture coalesces rapid wheel length changes and performs one final authoritative commit
+    Classification: STALE TEST-HARNESS frame-timing assumption.
+    Evidence: no `axis-length-wheel-live` request had fired when the test sampled after zero milliseconds. That is a
+    missing fake-RAF flush, distinct from the real browser defect where commit/refinement can occur during a live
+    burst. The assertion remains unchanged after correcting the harness.
+
+S21 [Jest] __tests__/axisControls.init.test.js — RECLASSIFIED / NOT COUNTED AS STALE
+    Test: fallback refinement is latest-wins and stale scheduled passes cannot overwrite a newer request
+    Classification: MIXED. A stale fixture assumption masked a real shared fallback-axis defect.
+    Evidence: the original zero-live-request failure was caused by the fixture omitting `__sharedResizableBoxApi`, so the
+    fallback editor was correctly disabled. After correcting that fixture, authoritative Windows Jest reached the later
+    refinement assertion and exposed a production bug: manual changes pass `axisBasisOffsetPx: null`, while the fallback
+    converted it with `Number(null) === 0`. That erased the real non-axis frame offset and produced a 135 px final basis
+    instead of the expected 170 px. Direct shared-axis probing reproduces the exact 110 -> 120 request sequence and confirms
+    the error is in nullable offset parsing, not generation ordering.
+    Fix: treat null/undefined/empty `axisBasisOffsetPx` as absent and fall back to the measured current frame-minus-axis
+    offset; retain explicit numeric zero as valid. The regression now asserts immediate bases 140/155 and latest-only refine
+    170. This test is therefore counted under R06 as a real P1 shared-axis defect, not among the 33 stale cases.
+
+S22 [Jest] __tests__/dendrogramControls.numericWheel.test.js
+    Test: wheel burst applies thickness live and records one undo entry
+    Classification: STALE TEST-HARNESS frame-timing assumption.
+    Evidence/fix: same S14 mismatch; retain the live-value and one-undo assertions.
+
+Shared harness correction for S14-S20 and S22:
+    `__tests__/setup/globals.js` installs the deterministic zero-delay RAF on both the Jest global and its jsdom
+    `window`, and the integration Jest project now excludes request/cancelAnimationFrame from fake-timer replacement.
+    Its RAF remains backed by `setTimeout`, which *is* fake, so `advanceTimersByTime(0)` deterministically flushes one
+    live frame without changing production browser timing semantics.
+
+S23 [Jest] __tests__/heavy.canvas.reopen.recovery.regression.test.js
+    Test: scatter render-cache restore rehydrates archived bitmap images into canvases
+    Classification: STALE TEST-HARNESS owner-root assumption.
+    Evidence: the fixture activated `workspace-scatter-a` but left the static `#scatterPage` root unstamped. Real
+    workspace roots are stamped with `data-workspace-tab-id`, `data-tab-id`, `data-workspace-instance-root`, and the
+    component key before activation. The owner resolver therefore saw the test DOM id `scatterPage` instead of the
+    active workspace tab and correctly rejected live cache capture/restore for a non-owner root.
+    Test fix: stamp the fixture root exactly like the real workspace clone before activating the Scatter session.
+
+S24 [Jest] __tests__/heavy.canvas.reopen.recovery.regression.test.js
+    Test: scatter restoreRenderCache does not leave component-local draw gates behind
+    Classification: STALE TEST-HARNESS owner-root assumption.
+    Evidence/fix: same unstamped-root mismatch as S23. The draw-gate assertion remains unchanged after the fixture is
+    given the real workspace ownership markers.
+
+S25 [Jest] __tests__/heavy.canvas.reopen.recovery.regression.test.js
+    Test: scatter isIdleForSnapshot returns false while a scheduled draw is pending
+    Classification: STALE TEST-HARNESS owner-root assumption.
+    Evidence/fix: same unstamped-root mismatch as S23. The pending-work/idle assertions remain unchanged.
+
+S26 [Playwright] e2e/heatmap.heavy-small-tab-isolation.spec.js
+    Test: heavy and ordinary Heatmap tabs retain exact owner DOM, fonts, geometry, and previews
+    Classification: STALE preview-representation assumption.
+    Evidence: the test correctly verifies that the reactivated heavy owner DOM contains a live canvas with
+    `data-render-mode="canvas"`, but it also expected the *inactive preview SVG* itself to retain that canvas. Current
+    Heatmap preview publication intentionally rasterizes the heavy canvas layer into an SVG `<image>` marked
+    `data-preview-canvas-bitmap="true"` / `data-heatmap-raster-export="1"`; the tab preview is then stored as PNG.
+    Test fix: require that raster-image preview contract while retaining the independent live-owner canvas assertion.
+
+
+S27 [Playwright] e2e/scatter.2d-3d-controls.isolation.spec.js
+    Test: scatter 2D lock ratio and frame state survive activation from a forced 3D tab
+    Classification: STALE TEST-HARNESS snapshot-intent assumption.
+    Evidence: Scatter's live owner, mounted root, projected session and active workspace tab all resolve to the returned
+    2D owner, and `Components.scatter.getPayload()` reports `config.viewMode='2d'`. The test attempted to force canonical
+    live capture by placing `captureLivePayload` / `allowSkipLivePayloadCapture` at the top level of
+    `persistActiveTabState()`, but Main.session reads those controls only from `snapshotIntent`. The call was therefore
+    allowed to skip capture and the assertion sampled the older canonical payload, whose empty template intentionally
+    predates `viewMode`.
+    Test fix: put the force-capture flags in the supported `snapshotIntent` object. No Scatter production assertion is
+    weakened. The older independently recorded Scatter 2D frame-state issue remains open in issues.txt and is not
+    considered resolved by this harness correction.
+
+S28 [Playwright] e2e/surface.settings-dataviews-manual-overlay-tab-isolation.spec.js
+    Test: Surface settings, DataViews, manual-render, overlay, and scheduled work stay isolated across same-type tabs and reopen
+    Classification: STALE TEST-HARNESS canonical-seeding assumption.
+    Evidence: the test creates `Surface A` and `Surface B Large` by calling the component hydration API directly. A direct
+    Main/session probe shows the live Surface session contains the synthetic title/settings while the owning
+    `tab.payload` still contains the untouched empty/default payload; workspace archive construction correctly serializes
+    that canonical owner payload instead of scraping inactive DOM. The missing `Surface A` after reopen therefore does
+    not demonstrate production state loss.
+    Test fix: after each synthetic setup is complete, explicitly commit the active owner through
+    `Main.session.persistActiveTabState()` with a forced live `snapshotIntent`, matching the canonical mutation that real
+    user controls perform before the test switches tabs or builds its archive.
+
+S29 [Playwright] e2e/legend.viewport-invariant.spec.js
+    Test: scatter legend extends the SVG without shrinking its base viewport
+    Classification: STALE / OVER-CONSTRAINED outer-envelope geometry expectation.
+    Evidence: the original product contract is unchanged canonical plot geometry plus complete legend containment. The test
+    additionally required the shell reserve to equal a derived width/overflow quantity. The first R11 production change was
+    made solely to satisfy that extra equality and authoritative screenshots proved it under-reserved the shell and clipped
+    the legend. Original v25's conservative full SVG extension is the safe intended behavior.
+    Test fix: retain base-width/plot-span/payload assertions and require the shell to contain the SVG/legend; do not require
+    exact shell-width equality or artificial hidden-content edge symmetry.
+
+S30 [Playwright] e2e/legend.viewport-invariant.spec.js
+    Test: line legend extends the SVG without shrinking its base viewport
+    Classification: STALE / OVER-CONSTRAINED outer-envelope geometry expectation.
+    Evidence/fix: same S29 contract. Line's canonical plot span/base width were not the failing invariant; the test's exact
+    envelope optimization led directly to the visible clipping regression. Keep atomic frame/envelope publication and drag
+    assertions, but judge geometry by containment and canonical plot invariance.
+
+S31 [Playwright] e2e/legend.viewport-invariant.spec.js
+    Test: scatter 3D legend extends the SVG without shrinking its base viewport
+    Classification: STALE / OVER-CONSTRAINED outer-envelope geometry expectation.
+    Evidence/fix: same S29 contract. The safe outer reserve may be larger than raw rendered overflow; that is not canonical
+    plot distortion. Preserve 3D base/view geometry and require complete legend containment.
+
+S32 [Playwright] e2e/legend.viewport-invariant.spec.js
+    Test: line 3D legend extends the SVG without shrinking its base viewport
+    Classification: STALE / OVER-CONSTRAINED outer-envelope geometry expectation.
+    Evidence/fix: same S29/S31 contract. Exact envelope-width minimization is not a product invariant and must never take
+    precedence over keeping the legend inside the graph shell.
+
+S33 [Playwright] e2e/toolbar.numeric-wheel-gesture.spec.js
+    Test: axis X length wheel burst uses live-resize phase, defers refinement, and avoids reverse jumps
+    Classification: STALE TEST-HARNESS gesture-boundary assumption after the first production ordering fix.
+    Evidence: authoritative Windows request timestamps show the test was not generating one rapid wheel burst. It dispatched
+    one synthetic wheel event, awaited a complete animation frame/live axis resize, sampled the page, and only then created
+    the next wheel event. For the heavy axis-length path those synthetic events reached successive live publications roughly
+    430-680 ms apart, while the documented shared numeric-wheel idle boundary is 120 ms. The observed
+    `live -> commit -> live -> commit` sequence is therefore the expected result of several separate idle gestures, not proof
+    that a queued event was being committed mid-burst.
+    Test fix: dispatch all raw wheel events contiguously as one browser-task burst, register the observation rAF after that
+    burst, and retain the strong assertions that every pre-idle resize is move-phase live work, the raw input steps
+    monotonically, exactly one authoritative commit occurs after idle, refinement is bounded, undo is singular, and geometry
+    returns correctly.
+
+S34 [Playwright] e2e/toolbar.numeric-wheel-gesture.spec.js
+    Test: axis Y length wheel burst uses live-resize phase, defers refinement, and avoids reverse jumps
+    Classification: STALE TEST-HARNESS gesture-boundary assumption.
+    Evidence/fix: same as S33. The Windows trace shows the same several-hundred-millisecond synthetic inter-event gaps and
+    correctly timed commits between them. The corrected test now creates an actual rapid burst before yielding to rAF.
+
+B. REAL CODE ISSUES — GROUPED BY LIKELY ROOT CAUSE
+---------------------------------------------------
+
+R01 — PCA named palette identity/projection is rewritten as Custom
+Severity: P1 / High
+Root-cause confidence: High (two independent owner/style tests fail on the same state transition).
+Tests:
+  J01 __tests__/pca.colorScheme.roundTrip.test.js
+      Grayscale on tab B is retained after switching to tab A and back
+  J02 __tests__/tabs.styleControls.tabIsolation.test.js
+      PCA palette undo preserves graph size and skips layout restoration
+Finding:
+  A named palette (`grayscale` / `soft`) becomes `custom` in the live selector/projection even though the action is
+  supposed to retain named-scheme identity. This is a state/projection ownership defect, not an obsolete expectation.
+
+R02 — Box grouped example replacement leaves stale generated grouped columns
+Severity: P1 / High
+Root-cause confidence: High; already independently recorded in issues.txt.
+Tests:
+  J03 __tests__/ui.events.test.js
+      Box Plot: grouped example seeds condition names
+Finding:
+  Loading the canonical 2×3 grouped ToothGrowth example leaves generated Group 3/Group 4 columns and repeated dose
+  headings. Example replacement should be exact at the owning table/session boundary.
+
+R03 — Heatmap value-scale state is not propagated into current stats/view-only reporting
+Severity: P2 / Medium
+Root-cause confidence: High (serialization/view-state assertions succeed far enough to expose stale statistics).
+Tests:
+  J04 __tests__/heatmap.stats.test.js
+      value scale override and fixed legend height serialize and affect the rendered legend
+  J05 __tests__/heatmap.stats.test.js
+      value scale changes affect cached view-only redraws
+Finding:
+  After switching to Data-values and applying a custom numeric scale, the statistics projection can remain on the old
+  correlation context or keep the raw 0–40 range instead of the active 0–20/custom range. The current Heatmap code
+  explicitly supports value-scale stats, so the assertion is valid.
+
+R04 — Box canonical frame/reserve authority drifts across significance, flip, reopen, and resize
+Severity: P1 / High
+Root-cause confidence: High; source-contract failures are corroborated by four browser geometry failures and an
+existing verified issue.
+Tests:
+  J07 __tests__/box.statsAspect.contract.test.js
+      auxiliary frame reserves preserve canonical graph geometry
+  J21 __tests__/box.frameCommit.contract.test.js
+      auxiliary reserves resize the physical frame through one transaction
+  PW01 e2e/box.flip-axes.transpose-manual-resize.spec.js
+      repeated flips preserve exact drawable-axis transposition after manual resizing
+  PW02 e2e/box.flip-axes.transpose-manual-resize.spec.js
+      flipped significance adds horizontal reserve and grows svg container width without plot distortion
+  PW03 e2e/box.horizontal-resize-axis.spec.js
+      box manual reopen preserves the first horizontal-resize y-axis anchor
+  PW04 e2e/box.significance-layout.spec.js
+      box width resize keeps the graph clear of the bottom tray
+Finding:
+  The old reserve helper disappeared, but this is not merely source drift: current reserve/frame code mutates physical
+  frame authority and browser tests show ~6 px transposition loss, a 49 px reopened orthogonal drift, and a ~61%
+  axis-ratio error. One canonical user-owned frame/aspect authority is not being preserved through these transitions.
+
+R05 — RETIRED AFTER RE-ANALYSIS
+The four failures formerly grouped here are now S23-S26. The supplied failures did not demonstrate a production
+heavy-cache defect: three Scatter cases used an unstamped static root that cannot represent a real owner workspace
+root, and the Heatmap case asserted a live canvas inside an inactive rasterized preview. Existing parked heavy-cache
+diagnostics and separately demonstrated restore-interaction defects remain tracked in issues.txt, but they are not
+supported by these four failures.
+
+R06 — Shared axis-length interaction contract
+Severity: P1 / High
+Root-cause confidence: Very high; both browser and direct shared-axis traces now isolate the two independent defects.
+Status: wheel-burst path VERIFIED PASS on Windows Chromium; manual fallback-offset fix applied, pending Windows Jest rerun.
+Tests:
+  PW32/PW33 e2e/toolbar.numeric-wheel-gesture.spec.js
+      X/Y rapid wheel burst lifecycle
+  J21 __tests__/axisControls.init.test.js
+      fallback refinement is latest-wins and stale scheduled passes cannot overwrite a newer request
+  e2e/toolbar.numeric-wheel-gesture.spec.js
+      X/Y manual length edits preserve the existing non-axis frame offset
+Findings/fixes:
+  1. The first production correction remains valid: numeric-wheel idle timing is armed only after RAF-coalesced live
+     publication returns, and a gesture synchronously closed/rebound by a live handler cannot be resurrected.
+  2. Instrumented Windows Chromium proved the old PW32/PW33 harness generated several separate idle gestures by awaiting a
+     complete expensive resize between synthetic wheel events. The corrected true-burst harness now passes all 3 R06
+     Chromium tests (thickness + X length + Y length), so no second debounce/timing workaround is justified.
+  3. Correcting J21's disabled-resizer fixture exposed a separate real fallback-axis bug. Manual axis-length `change` events
+     intentionally supply no wheel basis (`axisBasisOffsetPx: null`), but fallback code used `Number(null) === 0` and treated
+     that absence as an explicit zero offset. The graph basis therefore collapsed to the requested axis length instead of
+     preserving frame chrome, and latest-only refinement landed at 135 px instead of 170 px. The fix distinguishes absent
+     values from numeric zero and uses the measured current basis-minus-axis offset when absent. A direct owner-axis probe
+     now produces immediate bases 140 -> 155 and one latest-generation refinement to 170. Browser coverage now also
+     changes X/Y axis lengths through the actual numeric field and asserts the non-axis frame offset is preserved.
+
+R07 — PCA unlocked one-axis resize changes the orthogonal drawn axis
+Severity: P1 / High
+Root-cause confidence: High; already independently recorded in issues.txt.
+Tests:
+  PW05 e2e/graph-axis-resize-invariants.spec.js
+      unlocked one-axis graph resize preserves the orthogonal SVG axis scale in every component
+Finding:
+  PCA vertical resize changes the horizontal drawn axis by ~72.6 px. This violates the shared unlocked-resize invariant.
+
+R08 — Venn forced Lock-ratio state and rendered ratio disagree
+Severity: P2 / Medium
+Root-cause confidence: High; both state and geometry assertions fail and the defect is already recorded in issues.txt.
+Tests:
+  PW06 e2e/graph-resize-undo.spec.js
+      svgbox drag resize undo and redo restore dimensions in every component
+  PW22 e2e/lock-ratio-axis-geometry.spec.js
+      Lock ratio is toggle-neutral and preserves Cartesian axis proportions across components
+Finding:
+  Venn can disable/check the forced-ratio control while the resizer dataset reports unlocked, and the rendered axis
+  ratio drifts beyond tolerance. The UI, resizer authority, persisted layout, and renderer do not share one lock state.
+
+R09 — Large Data-values Heatmap cancel/retry could reuse a stale committed model
+Severity: P1 / High
+Root-cause confidence: Very high; worker completion plus the cancelled render checkpoint isolate the stale-cache transition.
+Status: FIX APPLIED 2026-08-15; authoritative Chromium reruns no longer show the former 180 s stall. The 2026-08-16 settled-state reruns now reach and validate the correct committed `values` model at 7,358 x 3. Two downstream assertions inherited from the original v25 test were stale and had previously been unreachable: the imported two-condition matrix intentionally changes the data-aware settings signature, and column-label export needs an aspect-correction matrix only when the live column labels actually carry one. The final full-spec rerun remains pending because later resize/export assertions have not yet executed to completion.
+Tests:
+  PW08 e2e/heatmap.large-data-values.responsiveness.spec.js
+      large Data-values heatmap stays responsive and completes exact clustering
+Finding:
+  Exact clustering was not hanging: the 7,358-row worker had already completed. Before the candidate render model was
+  committed, the draw path wrote the new data/settings signatures into the committed render runtime. Cancelling at the
+  delayed render checkpoint therefore left the old WDBC `lastRenderModel` paired with the new large-data signatures.
+  Retry saw matching signatures, accepted that stale model as a cache hit, hid the overlay, and never published the
+  7,358-row graph.
+Fix:
+  Request signatures remain on the owner-scoped async draw token until `renderModelWithView()` commits the matching
+  model. Model-derived value-scale state is likewise no longer published before commit, and every committed-model clear
+  now clears its signature pair through one shared helper. The E2E captures committed model/signature metadata before
+  import, after worker completion, after cancellation, and after retry: the first three must remain identical, while the
+  successful retry must atomically advance to the 7,358 x 3 model and new data/settings signatures. The 2026-08-16 Windows reruns showed both that Retry can settle before Playwright observes an intermediate `data-job-status=running` and that the imported two-condition matrix legitimately changes the data-aware `showValues` default relative to the 40-condition WDBC example. Neither transient overlay visibility nor equality with the old settings signature is part of the settled contract.
+
+R10 — Heatmap replacement title is not kept hidden during inline editing
+Severity: P2 / Medium
+Root-cause confidence: High; browser assertion observes the actual replacement title lifecycle.
+Tests:
+  PW09 e2e/heatmap.title-inline-edit-background.spec.js
+      Heatmap replacement title stays hidden during inline editing
+Finding:
+  This is distinct from stale S01. The live-input path correctly avoids a full redraw, but when background replacement
+  occurs during editing the replacement title becomes visible instead of preserving the inline-edit hiding contract.
+
+R11 — Legend toggle projection violates payload and/or canonical viewport invariants
+Severity: P1 / High
+Root-cause confidence: Very high for the state/payload defect. The original geometry failure is reclassified as an
+over-constrained browser expectation; the attempted production geometry correction introduced a real regression and is reverted.
+Status: STATE/PAYLOAD FIX RETAINED; SHARED GEOMETRY CHANGE REVERTED 2026-08-15; authoritative Chromium rerun required.
+State/payload manifestation:
+  The owner-write-through half is supported by the Windows run: restored first-drag cases pass and the related Pie /
+  Survival / ROC / Histogram same-component isolation matrix passes 4/4. PCA/ROC/Survival/Histogram/Pie continue to use
+  strict `persistOwnedUserState()` owner/type/active-tab validation. Survival write-through is deliberately scoped only
+  to its legend toggle; the first R11 patch had unnecessarily widened persistence to every control in its central scheduler.
+Geometry re-analysis:
+  Original v25 already published the full rendered SVG extension as the outer shell reserve. The first R11 patch replaced
+  that conservative value with `svgWidth - svgBoxWidth` solely to satisfy an exact-envelope assertion. Authoritative Windows
+  screenshots prove that change was wrong: because the SVG starts inside `.svgbox` after its left border/padding, subtracting
+  widths under-reserved the shell and allowed categorical legends to protrude outside the visible container.
+Correction:
+  Restore `stageGraphContentViewport()` geometry publication exactly to original v25 (`rendered.extensionWidth`). No new
+  envelope formula is substituted. This is the smallest evidence-based fix and restores the known-safe containment behavior.
+  The browser contract now asserts the actual invariant: checkbox/payload parity, unchanged base width/plot span, legend
+  inside the SVG, and the outer shell extending at least far enough to contain all rendered SVG/legend content. Extra safe
+  shell chrome is allowed; exact width equality and artificial symmetric hidden-content margins are not product contracts.
+Acceptance:
+  Re-run the non-Box 2D/3D legend matrix: the visible legend must never protrude beyond the shell, owner payload must match
+  the checkbox, canonical plot geometry must remain unchanged, and cache restore/first drag must remain live.
+
+R12 — Restored Box/Histogram axes are not interactive on the first click
+Severity: P1 / High
+Root-cause confidence: High at the interaction-rehydration layer; component-specific marker/binding differences still
+need comparison against components that pass.
+Tests:
+  PW25 e2e/reopen.graph-edit-cache-invalidation.spec.js
+      box axes open their toolbar on the first click after archive reopen
+  PW26 e2e/reopen.graph-edit-cache-invalidation.spec.js
+      hist axes open their toolbar on the first click after archive reopen
+Finding:
+  The restored SVG is present, but axis hit/semantic bindings are not live enough to open the owner axis toolbar on the
+  first click. This directly violates reopened-session interaction parity.
+
+R13 — RETIRED AFTER RE-ANALYSIS
+The supplied PW27 failure is now S27. It did not demonstrate a new Scatter production defect: the test put force-capture
+controls outside the supported `snapshotIntent`, so Main.session legitimately skipped live capture and the assertion
+sampled an older canonical payload. The separately recorded historical Scatter 2D frame-state issue remains open in
+issues.txt on its independent evidence.
+
+R14 — Line statistics lose their data/result readiness across archive and recovery restore
+Severity: P1 / High
+Root-cause confidence: Very high.
+Status: FOLLOW-UP FIX APPLIED 2026-08-15; authoritative Chromium rerun required.
+Tests:
+  PW29 e2e/stats.archive-reopen-tab-switch.persistence.spec.js
+      archive reopen keeps line statistics after tab switch
+  PW30 e2e/stats.archive-reopen-tab-switch.persistence.spec.js
+      recovery restore keeps line statistics after tab switch
+Finding:
+  Windows Chromium reproduced the original symptom after the first fix: both branches still reached
+  `Statistics unavailable until data is loaded.` The render-cache reconciliation was correct when owner HOT data already
+  existed, but archive/recovery can restore the SVG before the owning HOT manager finishes rehydrating, so that early
+  attempt legitimately has no series context.
+Follow-up fix:
+  Keep the single reusable 2D owner-data model and cache-restore reconciliation, then add the definitive lazy backstop in
+  `handleLineStatsComputeClick()`: if the transient context is absent when the user actually requests calculation, rebuild
+  it from the owning HOT included-data matrix immediately and calculate normally. If the active restored session has not yet
+  rebound its HOT manager, the same owner-scoped `line.__ensureHotForActiveTab()` path used by normal activation/payload
+  capture is invoked first. This does not serialize derived context, force a graph redraw, or read another tab's DOM. The
+  unit regression deliberately clears context after cache restore and requires the compute action to rebuild it.
+
+R15 — RETIRED AFTER RE-ANALYSIS
+The supplied PW31 failure is now S28. Its synthetic Surface setup hydrated component/session state directly but never
+committed that setup to the owning canonical tab payload before archive capture. Save/reopen correctly used canonical
+payload state. The test now performs the missing explicit owner capture after synthetic setup; no Surface production
+save/restore logic is changed.
+
+R16 — Venn restored analysis families can be cleared by a stale derived-region identity
+Severity: P1 / High
+Root-cause confidence: Very high.
+Status: FIX APPLIED 2026-08-15; pending official repository-runner verification.
+Tests:
+  PW34 e2e/venn.restore-recovery.spec.js
+      two button-run venn tabs keep GO and STRING after archive reopen and result-tab clicks
+Finding:
+  The reopened owner payload and owner session already contain the correct GO and STRING families. The loss occurs later:
+  Venn invalidates parsed/region data caches while replacing a payload but previously left `lastRegionSignature` and
+  `lastRegionCode` behind. A transient/default draw can therefore leave an old signature (reproduced as `A::`); when
+  the restored dataset is projected, `populateRegion()` interprets the new signature as a genuine user data change and
+  calls `clearAnalysis()`, which writes cleared GO/STRING state back into the correct owner payload.
+Fix:
+  `clearVennDerivedCaches()` now invalidates the derived region signature/code together with the data they describe.
+  Venn also keeps one owner-session transient `analysisProjectionBaselinePending` marker when a payload/runtime snapshot
+  with durable analysis UI/results is hydrated. The first valid region projection consumes that marker and establishes
+  the restored dataset/region as the new baseline instead of treating restore as a user data mutation. The marker is
+  non-serializable, owner-scoped and does not bypass invalidation after ordinary settled user edits. A two-owner direct
+  reopen probe now retains independent ALPHA/BETA GO and STRING families through result-tab clicks.
+
+R17 — Venn selected numeric region is cleared by the same first-projection analysis invalidation
+Severity: P1 / High
+Root-cause confidence: Very high.
+Status: FIX APPLIED 2026-08-15 by the same R16 baseline contract; pending official repository-runner verification.
+Tests:
+  PW35 e2e/venn.upset-numeric-species-reopen-isolation.spec.js
+      venn UpSet, numeric counts, species state, selected region, and archive reopen stay tab-isolated
+Finding:
+  Numeric Venn restore has the same lifecycle but no GO/STRING result family, so the old R16 heuristic did not protect it.
+  After runtime rehydration cleared the derived signature, the first fallback draw saw restored `ABC` with no previous
+  signature and called `clearAnalysis()`. That routine rebuilt the canonical analysis patch with an empty
+  `regionSelectValue`, turning the persisted `ABC` into `A`/default on later projection even though numeric counts and
+  species state were intact.
+Fix:
+  The explicit owner-session projection-baseline marker covers every durable restored analysis form (GO, STRING,
+  significance, selected region, total-gene background and species), rather than inferring restore intent from GO/STRING
+  presence. A focused runtime-rehydration regression and direct Main/session probe keep `ABC` in the UI and canonical
+  payload with no `venn-analysis-clear` write-back.
+
+
+C. RETRY-RESOLVED INITIAL FAILURES — RETAINED UNCHANGED
+-------------------------------------------------------
+These 12 failed in the initial full run but passed unchanged on the supplied single-worker retry. They are therefore
+not stale-assumption tests and are not counted among the persistent real-code failures. The current evidence is
+insufficient to assign a persistent root cause; keep them as concurrency/timing/performance watch items and re-run
+with the next full suite.
+
+  RT01 [Jest] __tests__/heatmap.stats.test.js
+       graph title stays above long vertical column labels
+  RT02 [PW] e2e/box.duplicate-computed-stats.recalc.spec.js
+       box duplicate tab with precomputed stats can recalculate without annotation crash
+  RT03 [PW] e2e/box.large-resize-live-svg.spec.js
+       keeps SVG geometry live during resize move while reusing canvas point layer
+  RT04 [PW] e2e/box.loading-overlay.stop.spec.js
+       large Box draws remain stoppable and retry restores progress
+  RT05 [PW] e2e/box.stats-reporting-sections.regression.spec.js
+       Box diagnostic and reporting sections survive tab switching and archive reopen
+  RT06 [PW] e2e/graph.live-style.spec.js
+       roc applies axis style without replacing or clearing the committed frame
+  RT07 [PW] e2e/graph.live-style.spec.js
+       survival applies axis style without replacing or clearing the committed frame
+  RT08 [PW] e2e/graph.live-style.spec.js
+       stacked bar applies axis style without replacing or clearing the committed frame
+  RT09 [PW] e2e/hist.panel-layout.spec.js
+       Density plots expose the same separate-panel layouts as histograms
+  RT10 [PW] e2e/roc.advisor-compare-tab-isolation.spec.js
+       ROC advisor and exact comparison controls stay isolated across same-type tabs and reopen
+  RT11 [PW] e2e/stats.same-component-isolation-restore.contract.spec.js
+       box stats stay isolated across same-component tabs and archive restore
+  RT12 [PW] e2e/venn.upset.live-resize.text-stability.spec.js
+       UpSet defaults to unlocked ratio and redraws live during fixed-font axis drag
+
+
+D. CURRENT STATUS AFTER CUMULATIVE TRIAGE/FIXES
+-------------------------------------------------
+The supplied run's 63 persistent failures now classify as 34 proven stale/harness failures plus 29 genuine code
+failures (24 P1, 5 P2). R13/PW27 and R15/PW31 were reclassified only after direct Main/session reproduction proved the
+failure mechanism belonged to their synthetic test setup rather than production owner state.
+
+Applied production changes currently awaiting authoritative re-verification include the non-Box R11 owner-state fix,
+the R14 Line restore-readiness follow-up, and the shared R16/R17 Venn restore-baseline correction. R06 no longer carries a
+second unresolved production defect: the instrumented Windows trace proves PW32/PW33 were generating multiple idle
+gestures rather than one burst. The first production ordering correction remains, and the browser harness is corrected as
+S33/S34 without adding another timing workaround. Box-specific failures remain intentionally outside the current implementation scope. No official
+pass is claimed from this environment: the repository Jest invocation still fails validation on its configured
+`jest-circus` runner before executing tests, and Playwright's configured Chromium headless-shell executable is not
+installed here.
+
+E. WINDOWS TARGETED VALIDATION — 2026-08-15
+-------------------------------------------
+This section records authoritative user-side Windows results after the cumulative patch. It does not alter the original
+63-failure accounting above; a new full-suite run is required before claiming a new total failure count.
+
+Jest targeted run:
+  - 25 suites / 466 tests: 22 suites passed; 461 tests passed; 5 tests initially failed.
+  - Post-validation rerun of the three failing suites: 35/39 tests passed; four remained.
+  - S21 is now proven to be an invalid disabled-input fixture (missing shared resizable-box API), not a production wheel
+    failure. Venn numeric species restore passes in an isolated real Main/session jsdom lifecycle probe; the suite is now
+    reset/disposed between tests so delayed previous-owner work cannot target the next test DOM. Survival likewise passes a
+    fresh-session smoke with a real `Time` title and non-null payload; its test/application lifetime is now reset between
+    cases and the over-broad R11 persistence change is narrowed to legend-only.
+
+Chromium R11:
+  - Authoritative rerun after reverting the bad shell-width optimization: 17/17 legend containment/ownership tests passed,
+    covering Scatter/PCA/Line/ROC/Survival/Histogram/Pie 2D, Scatter/PCA/Line 3D, restored first drag, and same-component
+    render-cache owner transfer.
+  - Related Pie/Survival/ROC/Histogram same-component isolation: 4/4 passed.
+  - Box-specific legend work remains outside this task scope.
+
+Chromium R06:
+  - Authoritative Windows rerun after correcting the burst harness: 3/3 PASS (thickness, X length, Y length).
+  - This verifies the shared wheel-burst transaction behavior and confirms no second production debounce change is needed.
+Jest R06 follow-up:
+  - `workspaceToolbar.numericWheel.test.js`: PASS.
+  - `axisControls.init.test.js`: 35/36 PASS; the remaining latest-wins test now reaches a real manual fallback geometry bug
+    previously masked by its disabled-resizer fixture. `axisBasisOffsetPx: null` was coerced to zero; the production fix is
+    applied and awaits authoritative Windows rerun.
+
+Chromium R14 / Heatmap:
+  - Line archive reopen statistics: PASS.
+  - Line recovery restore statistics: PASS.
+  - Heavy Heatmap still changes `canvasRevision` 1 -> 2 on same-owner reactivation while the rest of the captured signature
+    stays stable. This remains a newly exposed P2 cache/republication issue and is unrelated to R14's now-passing Line fix.
+
+Chromium R16/R17 / corrected harnesses:
+  - Corrected Scatter 2D/3D owner-state case: PASS.
+  - Corrected Surface same-component reopen case: PASS.
+  - Venn two-owner GO/STRING reopen still FAILS: Beta GO is empty after result-tab interaction.
+  - Venn numeric UpSet reopen still FAILS: restored selected region is `A` instead of `ABC`.
+
+Net status:
+  The current audited build has authoritative targeted confirmation for R11 containment/ownership, R14 Line restore, and
+  the R06 browser wheel-burst lifecycle. R16/R17 Venn and the newly exposed heavy-Heatmap canvas reuse issue remain open.
+  R06 has one newly exposed shared manual-axis fallback fix pending Jest verification; the former browser remainder was
+  proven to be stale burst simulation rather than a second production transaction bug, and its corrected acceptance
+  still requires rerun. The new full-suite failure count must still be established by rerunning the complete suite; do not
+  infer a lower total from partial targeted runs.

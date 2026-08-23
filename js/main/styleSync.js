@@ -247,6 +247,7 @@
           setIfDefined(configPatch, 'showFrame', cfg.showFrame);
           setIfDefined(configPatch, 'showIntervals', cfg.showIntervals);
           setIfDefined(configPatch, 'showDiagnostics', cfg.showDiagnostics);
+          setIfDefined(configPatch, 'showPlotStats', cfg.showPlotStats);
           if (cfg.regression && hasOwn(cfg.regression, 'mode')) {
             configPatch.regression = Object.assign({}, configPatch.regression || {}, {
               mode: cfg.regression.mode
@@ -324,6 +325,7 @@
           setIfDefined(configPatch, 'showLine', cfg.showLine);
           setIfDefined(configPatch, 'showIntervals', cfg.showIntervals);
           setIfDefined(configPatch, 'showDiagnostics', cfg.showDiagnostics);
+          setIfDefined(configPatch, 'showPlotStats', cfg.showPlotStats);
           setIfDefined(configPatch, 'graphType', cfg.graphType);
           setIfDefined(configPatch, 'log2fcThreshold', cfg.log2fcThreshold);
           setIfDefined(configPatch, 'negLogPThreshold', cfg.negLogPThreshold);
@@ -383,6 +385,7 @@
           setIfDefined(configPatch, 'bins', cfg.bins);
           setIfDefined(configPatch, 'showGrid', cfg.showGrid);
           setIfDefined(configPatch, 'gridStyle', cfg.gridStyle);
+          setIfDefined(configPatch, 'showStatsSummary', cfg.showStatsSummary);
           return { config: configPatch };
         },
         axes: payload => {
@@ -424,6 +427,7 @@
           setIfDefined(configPatch, 'chartType', cfg.chartType);
           setIfDefined(configPatch, 'showPercents', cfg.showPercents);
           setIfDefined(configPatch, 'showFrame', cfg.showFrame);
+          setIfDefined(configPatch, 'showStatsSummary', cfg.showStatsSummary);
           setIfDefined(configPatch, 'startAngle', cfg.startAngle);
           setIfDefined(configPatch, 'borderColor', cfg.borderColor);
           setIfDefined(configPatch, 'borderWidth', cfg.borderWidth);
@@ -594,7 +598,7 @@
           'config.colorScheme', 'config.borderWidth',
           'config.showGrid', 'config.gridStyle', 'config.showFrame', 'config.showLegend',
           'config.labelColors', 'config.labelStrokeWidth', 'config.labelOpacity', 'config.labelLinePattern',
-          'config.graphType'
+          'config.graphType', 'config.showComparisonOnPlot'
         ]),
         axes: payload => pickPaths(payload || {}, ['config.axis']),
         fonts: payload => pickPaths(payload || {}, ['config.fontSize', 'config.fontStyles']),
@@ -607,13 +611,22 @@
         appearance: payload => pickPaths(payload || {}, [
           'config.colorScheme',
           'config.labelColors', 'config.labelStrokeWidth', 'config.labelOpacity', 'config.labelLinePattern',
-          'config.showCI', 'config.showCensor', 'config.showHazardRatios', 'config.fitCoxModel',
+          'config.showCI', 'config.showCensor', 'config.showPlotStats', 'config.showHazardRatios', 'config.fitCoxModel',
           'config.pairwiseCorrection', 'config.showGrid', 'config.gridStyle', 'config.showFrame', 'config.showLegend',
           'config.timeMax'
         ]),
         axes: payload => pickPaths(payload || {}, ['config.axis']),
         fonts: payload => pickPaths(payload || {}, ['config.fontSize', 'config.fontStyles']),
         titles: payload => pickPaths(payload || {}, ['config.title', 'config.xLabel', 'config.yLabel']),
+        riskTable: payload => {
+          const cfg = payload?.config || {};
+          const configPatch = {};
+          setIfDefined(configPatch, 'showRiskTable', cfg.showRiskTable);
+          if(cfg.fontStyles?.riskTable && typeof cfg.fontStyles.riskTable === 'object'){
+            configPatch.fontStyles = { riskTable: cloneValue(cfg.fontStyles.riskTable) };
+          }
+          return { config: configPatch };
+        },
         layout: () => ({ layout: true })
       }
     }
@@ -1083,6 +1096,7 @@
           const payloadClone = cloneFn?.call(state.session, payload) || cloneValue(payload);
           state.domControls.applyWorkspacePayload(config, payloadClone, {
             reason: 'style-sync',
+            tabId: tab.id,
             styleOnly: true,
             skipDataLoad: true,
             viewOnly: true

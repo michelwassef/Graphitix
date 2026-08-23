@@ -87,6 +87,9 @@ describe('PCA view controls', () => {
     require('../js/shared/resizer.js');
     require('../js/shared/colorPicker.js');
     require('../js/shared/editHighlight.js');
+    require('../js/shared/dataViewPersistence.js');
+    require('../js/shared/dataTransforms.js');
+    require('../js/shared/dataViews.js');
     require('../js/shared/hot.js');
     require('../js/shared/componentLayout.js');
     require('../js/shared/chartStyle.js');
@@ -96,6 +99,7 @@ describe('PCA view controls', () => {
     require('../js/shared/significanceControls.js');
     require('../js/shared/stats.js');
     require('../js/shared/stats-table.js');
+    require('../js/shared/exampleDatasets.js');
     require('../js/shared/formControls.js');
     require('../js/shared/dom.js');
     require('../js/components/pca.js');
@@ -167,6 +171,94 @@ describe('PCA view controls', () => {
     expect(tab.payloadDirty).toBe(false);
   });
 
+  test('PCA DataView changes dirty the owning payload before deactivation', async () => {
+    const tab = window.Main?.session?.getActiveTab?.();
+    expect(tab).toBeTruthy();
+
+    document.getElementById('pcaLoadExample').click();
+    await flushAll();
+
+    expect(tab.payloadDirty).toBe(false);
+    const hot = window.Components?.pca?.getHotInstance?.();
+    const manager = hot?.__pcaDataViewsManager || null;
+    const rawView = manager?.getView?.('raw') || null;
+    expect(manager).toBeTruthy();
+    expect(rawView).toBeTruthy();
+
+    const derived = manager.createDerivedView({
+      title: 'Persistence probe',
+      data: rawView.data.map(row => Array.isArray(row) ? row.slice() : row),
+      sourceViewId: 'raw',
+      transformSpec: { type: 'pca-persistence-probe' },
+      activate: true,
+      reason: 'pca-persistence-probe'
+    });
+
+    expect(derived).toBeTruthy();
+    expect(manager.getActiveView()?.id).toBe(derived.id);
+    expect(tab.payloadDirty).toBe(true);
+    expect(tab.payloadDirtyReason).toMatch(/^pca-data-view-/);
+
+    const payload = window.Components.pca.getPayload();
+    expect(payload.activeDataViewId).toBe(derived.id);
+    expect(payload.dataViews?.activeViewId).toBe(derived.id);
+    expect(payload.data).toEqual(rawView.data);
+  });
+
+  test('PCA axis selection writes through to the owning session before persistence', async () => {
+    const component = window.Components?.pca;
+    const hooks = component?.__testHooks;
+    document.getElementById('pcaLoadExample').click();
+    await flushAll(12);
+
+    const xAxis = document.getElementById('pcaXAxis');
+    const yAxis = document.getElementById('pcaYAxis');
+    expect(Array.from(xAxis.options).some(option => option.value === '2')).toBe(true);
+    expect(Array.from(yAxis.options).some(option => option.value === '3')).toBe(true);
+
+    xAxis.value = '2';
+    xAxis.dispatchEvent(new Event('change', { bubbles: true }));
+    yAxis.value = '3';
+    yAxis.dispatchEvent(new Event('change', { bubbles: true }));
+    await flushAll(12);
+
+    const ownerSession = hooks.getSession();
+    const ownerTab = window.Main?.session?.getActiveTab?.();
+    expect(ownerSession?.state?.state?.axisSelection).toEqual({ x: 2, y: 3, z: 1 });
+    expect(ownerTab?.payload?.config?.axisSelection).toEqual({ x: 2, y: 3, z: 1 });
+
+    // The module-level PCA state is only a visible projection mirror. Durable
+    // serialization must continue to read the owning session even if that mirror
+    // is temporarily stale during a same-component activation boundary.
+    component.__state.axisSelection = { x: 1, y: 2, z: 3 };
+    expect(hooks.snapshotConfig(ownerSession).axisSelection).toEqual({ x: 2, y: 3, z: 1 });
+    expect(component.getPayload().config.axisSelection).toEqual({ x: 2, y: 3, z: 1 });
+    expect(ownerTab?.payload?.config?.axisSelection).toEqual({ x: 2, y: 3, z: 1 });
+  });
+
+  test('PCA metric controls write through exact booleans to the owning canonical payload', async () => {
+    document.getElementById('pcaLoadExample').click();
+    await flushAll(12);
+
+    const tab = window.Main?.session?.getActiveTab?.();
+    const standardize = document.getElementById('pcaStandardizeVariables');
+    const equalAxisLengths = document.querySelector('#pcaPage .resizer-axeslength-checkbox--equal-scale');
+    expect(tab?.payload?.config?.standardizeVariables).toBe(false);
+    expect(tab?.payload?.config?.equalAxisLengths).toBe(false);
+
+    standardize.checked = true;
+    standardize.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(tab?.payload?.config?.standardizeVariables).toBe(true);
+
+    equalAxisLengths.checked = true;
+    equalAxisLengths.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(tab?.payload?.config?.equalAxisLengths).toBe(true);
+
+    equalAxisLengths.checked = false;
+    equalAxisLengths.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(tab?.payload?.config?.equalAxisLengths).toBe(false);
+  });
+
   test('PCA payload hydration projects view mode without firing a user redraw', () => {
     const component = window.Components?.pca;
     const viewSelect = document.getElementById('pcaViewMode');
@@ -185,6 +277,37 @@ describe('PCA view controls', () => {
     expect(component.getPayload().config.viewMode).toBe('3d');
     expect(structuralDrawSpy).not.toHaveBeenCalled();
     structuralDrawSpy.mockRestore();
+  });
+
+  test('PCA payloads use canonical standardization and equal-axis-length controls while accepting legacy keys', () => {
+    const component = window.Components?.pca;
+    expect(component).toBeTruthy();
+    expect(document.getElementById('pcaStandardizeVariables')).toBeTruthy();
+    expect(document.getElementById('pcaScale')).toBeNull();
+
+    const payload = component.getPayload();
+    expect(payload.config.standardizeVariables).toBe(false);
+    expect(payload.config.equalAxisLengths).toBe(false);
+    delete payload.config.standardizeVariables;
+    delete payload.config.equalAxisLengths;
+    payload.config.scale = true;
+    payload.config.equalScaleAxes = false;
+
+    component.loadFromPayload(payload, {
+      source: 'test-legacy-pca-control-migration',
+      skipDraw: true
+    });
+
+    const equalAxisLengths = document.querySelector('#pcaPage .resizer-axeslength-checkbox--equal-scale');
+    expect(document.getElementById('pcaStandardizeVariables').checked).toBe(true);
+    expect(equalAxisLengths).toBeTruthy();
+    expect(equalAxisLengths.checked).toBe(false);
+
+    const migrated = component.getPayload();
+    expect(migrated.config.standardizeVariables).toBe(true);
+    expect(migrated.config.equalAxisLengths).toBe(false);
+    expect(migrated.config).not.toHaveProperty('scale');
+    expect(migrated.config).not.toHaveProperty('equalScaleAxes');
   });
 
   test('grouped body edits do not rebuild AG Grid headers', async () => {
@@ -212,6 +335,68 @@ describe('PCA view controls', () => {
     expect(updateSettingsSpy).not.toHaveBeenCalled();
     updateSettingsSpy.mockRestore();
   });
+
+  test('grouped PCA styles resolve point over group and survive payload hydration', async () => {
+    const component = window.Components?.pca;
+    const hooks = component?.__testHooks;
+    const formatSelect = document.getElementById('pcaTableFormat');
+    const hot = component?.getHotInstance?.();
+    expect(component).toBeTruthy();
+    expect(hooks).toBeTruthy();
+    expect(formatSelect).toBeTruthy();
+    expect(hot).toBeTruthy();
+
+    formatSelect.value = 'grouped';
+    formatSelect.dispatchEvent(new Event('change', { bubbles: true }));
+    hot.loadData([
+      ['Labels', true, false, false, false],
+      ['Group', 'Control', '', 'Treated', ''],
+      ['Sample', 'A', 'B', 'C', 'D'],
+      ['Var1', 1, 2, 6, 7],
+      ['Var2', 2, 4, 7, 9],
+      ['Var3', 4, 3, 8, 6]
+    ]);
+    await flushAll(12);
+
+    const groupMeta = hooks.resolveGroupMeta(4, ['A', 'B', 'C', 'D'], {
+      columnIndices: [1, 2, 3, 4],
+      groupHeaderRow: ['', 'Control', '', 'Treated', '']
+    });
+    hooks.applyPointStylePatch('group', '0', { fill: '#aa0000', shape: 'square', size: 6 }, {
+      groupMeta,
+      reason: 'test-group-style'
+    });
+    hooks.applyPointStylePatch('point', 'column:2', { fill: '#00aaff', size: 9 }, {
+      groupMeta,
+      reason: 'test-point-style'
+    });
+
+    expect(hooks.resolvePointStyle({ label: 'A', columnIndex: 1 }, 0, 0)).toEqual(expect.objectContaining({
+      fill: '#aa0000', shape: 'square', size: 6
+    }));
+    expect(hooks.resolvePointStyle({ label: 'B', columnIndex: 2 }, 0, 1)).toEqual(expect.objectContaining({
+      fill: '#00aaff', shape: 'square', size: 9
+    }));
+
+    const payload = component.getPayload();
+    expect(payload.config.pointStyleScopes.groups['0']).toEqual(expect.objectContaining({
+      fill: '#aa0000', shape: 'square', size: 6
+    }));
+    expect(payload.config.pointStyleScopes.points['column:2']).toEqual(expect.objectContaining({
+      fill: '#00aaff', size: 9
+    }));
+
+    component.loadFromPayload(payload, {
+      source: 'test-grouped-point-style-reopen',
+      skipDraw: true
+    });
+    expect(hooks.resolvePointStyle({ label: 'A', columnIndex: 1 }, 0, 0)).toEqual(expect.objectContaining({
+      fill: '#aa0000', shape: 'square', size: 6
+    }));
+    expect(hooks.resolvePointStyle({ label: 'B', columnIndex: 2 }, 0, 1)).toEqual(expect.objectContaining({
+      fill: '#00aaff', shape: 'square', size: 9
+    }));
+  }, 180000);
 
   test('PCA scree data and eigen table export are generated for example dataset', async () => {
     const exampleBtn = document.getElementById('pcaLoadExample');
@@ -443,6 +628,45 @@ describe('PCA view controls', () => {
     expect(state.dataDirty).toBe(false);
     expect(state.viewDirty).toBe(false);
     expect(state.resizeWarmupPending).toBe(false);
+  }, 180000);
+
+  test('PCA render cache restore rehydrates component selectors from owner analysis metadata', async () => {
+    document.getElementById('pcaLoadExample').click();
+    await flushUntil(() => !!window.Components?.pca?.__state?.cachedRender, { limit: 80, step: 2 });
+
+    const component = window.Components?.pca;
+    const xAxis = document.getElementById('pcaXAxis');
+    const yAxis = document.getElementById('pcaYAxis');
+    expect(component).toBeTruthy();
+    expect(xAxis).toBeTruthy();
+    expect(yAxis).toBeTruthy();
+
+    xAxis.value = '2';
+    xAxis.dispatchEvent(new Event('change', { bubbles: true }));
+    yAxis.value = '3';
+    yAxis.dispatchEvent(new Event('change', { bubbles: true }));
+    await flushAll(12);
+
+    const ownerSession = component.__testHooks.getSession();
+    expect(ownerSession?.state?.state?.axisSelection).toEqual({ x: 2, y: 3, z: 1 });
+    const cache = component.captureRenderCache();
+    expect(cache?.runtimeCache?.dimensionMeta?.length).toBeGreaterThanOrEqual(3);
+
+    xAxis.innerHTML = '<option value="1">PC1</option>';
+    yAxis.innerHTML = '<option value="2">PC2</option>';
+    xAxis.disabled = true;
+    yAxis.disabled = true;
+    xAxis.value = '1';
+    yAxis.value = '2';
+
+    expect(component.restoreRenderCache(cache)).toBe(true);
+    expect(xAxis.disabled).toBe(false);
+    expect(yAxis.disabled).toBe(false);
+    expect(xAxis.options.length).toBeGreaterThanOrEqual(3);
+    expect(yAxis.options.length).toBeGreaterThanOrEqual(3);
+    expect(xAxis.value).toBe('2');
+    expect(yAxis.value).toBe('3');
+    expect(ownerSession?.state?.state?.axisSelection).toEqual({ x: 2, y: 3, z: 1 });
   }, 180000);
 
   test('user control refresh routes through the view-refresh suppression contract as userInitiated', async () => {
@@ -784,6 +1008,68 @@ describe('PCA view controls', () => {
     expect(state.rotationPending).toBe(false);
   });
 
+  test('3D render cache restore rebuilds the owner renderer before controls', async () => {
+    const exampleBtn = document.getElementById('pcaLoadExample');
+    expect(exampleBtn).toBeTruthy();
+    exampleBtn.click();
+    await flushUntil(() => !!window.Components?.pca?.__state?.cachedRender, { limit: 80, step: 2 });
+
+    const component = window.Components?.pca;
+    const viewSelect = document.getElementById('pcaViewMode');
+    expect(component).toBeTruthy();
+    expect(viewSelect).toBeTruthy();
+
+    viewSelect.value = '3d';
+    viewSelect.dispatchEvent(new Event('change', { bubbles: true }));
+    await flushUntil(() => {
+      const svg = document.querySelector('#pcaPlot #pcaSvg');
+      const tabId = window.Main?.session?.getActiveTab?.()?.id || null;
+      const session = component.__testHooks?.getSession?.(tabId) || null;
+      return svg?.dataset?.viewMode === '3d'
+        && svg.dataset?.rotationControlsAttached === 'true'
+        && session?.refs?.svg === svg
+        && typeof session?.refs?.rotationRenderer === 'function';
+    }, { limit: 100, step: 2 });
+
+    const tabId = window.Main?.session?.getActiveTab?.()?.id || null;
+    const session = component.__testHooks?.getSession?.(tabId) || null;
+    const originalSvg = document.querySelector('#pcaPlot #pcaSvg');
+    const originalRenderer = session?.refs?.rotationRenderer;
+    expect(session).toBeTruthy();
+    expect(originalSvg).toBeTruthy();
+    expect(typeof originalRenderer).toBe('function');
+
+    const cache = component.captureRenderCache();
+    expect(cache).toBeTruthy();
+    expect(cache.rotationModel).toEqual(expect.objectContaining({
+      version: 1,
+      points: expect.any(Array)
+    }));
+    expect(cache.rotationModel.points.length).toBeGreaterThan(0);
+    expect(() => JSON.stringify(cache.rotationModel)).not.toThrow();
+
+    session.refs.rotationRenderer = null;
+    delete session.cache.pca3dRotationModel;
+
+    expect(component.restoreRenderCache(cache)).toBe(true);
+    const restoredSvg = document.querySelector('#pcaPlot #pcaSvg');
+    expect(restoredSvg).toBe(originalSvg);
+    expect(session.refs.svg).toBe(restoredSvg);
+    expect(typeof session.refs.rotationRenderer).toBe('function');
+    expect(session.refs.rotationRenderer).not.toBe(originalRenderer);
+    expect(restoredSvg.dataset.rotationControlsAttached).toBe('true');
+
+    const beforeMarkup = restoredSvg.querySelector('[data-layer="pca-3d-rotation-dynamic"]')?.innerHTML || '';
+    const nextRotation = window.Shared.plot3d.createRotationState({
+      x: Number(session.state?.viewState?.rotation?.x || 0) + 0.15,
+      y: Number(session.state?.viewState?.rotation?.y || 0) + 0.1,
+      z: Number(session.state?.viewState?.rotation?.z || 0)
+    });
+    expect(session.refs.rotationRenderer(nextRotation)).toBe(true);
+    const afterMarkup = restoredSvg.querySelector('[data-layer="pca-3d-rotation-dynamic"]')?.innerHTML || '';
+    expect(afterMarkup).not.toBe(beforeMarkup);
+  }, 180000);
+
   test('graph resize reuses cached PCA geometry', async () => {
     const exampleBtn = document.getElementById('pcaLoadExample');
     expect(exampleBtn).toBeTruthy();
@@ -983,4 +1269,132 @@ describe('PCA view controls', () => {
     expect(() => hooks.preprocessRnaSeqCounts([[1, 2], [-1, 3]], ['a', 'b']))
       .toThrow(/non-negative integer raw counts/i);
   });
+
+  test('PCA axis-length presentation pads ranges without rescaling the coordinate metric', () => {
+    const hooks = window.Components?.pca?.__testHooks;
+    expect(hooks).toBeTruthy();
+
+    const equal2d = hooks.resolve2dMetricScales(
+      { min: -4, max: 2, ticks: [-4, -2, 0, 2], step: 2 },
+      { min: -4, max: 4, ticks: [-4, -2, 0, 2, 4], step: 2 },
+      true
+    );
+    expect(equal2d.x.max - equal2d.x.min).toBeCloseTo(8, 12);
+    expect(equal2d.y.max - equal2d.y.min).toBeCloseTo(8, 12);
+    expect(equal2d.x.ticks).toEqual([-4, -2, 0, 2]);
+    expect(equal2d.y.ticks).toEqual([-4, -2, 0, 2, 4]);
+
+    const natural2d = hooks.resolve2dMetricScales(
+      { min: -4, max: 2, ticks: [-4, -2, 0, 2], step: 2 },
+      { min: -4, max: 4, ticks: [-4, -2, 0, 2, 4], step: 2 },
+      false
+    );
+    expect(natural2d.x).toMatchObject({ min: -4, max: 2 });
+    expect(natural2d.y).toMatchObject({ min: -4, max: 4 });
+
+    const source3d = {
+      x: { min: -3, max: 5 },
+      y: { min: -2, max: 2 },
+      z: { min: -1, max: 2 }
+    };
+    const equal3d = hooks.resolve3dMetricRanges(source3d, true);
+    const equalSpans = ['x', 'y', 'z'].map(axis => equal3d[axis].max - equal3d[axis].min);
+    expect(Math.max(...equalSpans) - Math.min(...equalSpans)).toBeLessThan(1e-12);
+
+    const natural3d = hooks.resolve3dMetricRanges(source3d, false);
+    expect(natural3d).toEqual(source3d);
+  });
+
+  test('PCA metric layout exposes the final plotted dimensions used for tick-density decisions', () => {
+    const hooks = window.Components?.pca?.__testHooks;
+    expect(hooks).toBeTruthy();
+
+    const margin = { top: 40, right: 40, bottom: 60, left: 80 };
+    const layout = hooks.resolve2dMetricLayout(427, 300, margin,
+      { min: -1, max: 1, ticks: [-1, 0, 1], step: 1 },
+      { min: -0.5, max: 0.5, ticks: [-0.5, 0, 0.5], step: 0.5 },
+      false
+    );
+
+    expect(layout.spanX).toBeCloseTo(2, 12);
+    expect(layout.spanY).toBeCloseTo(1, 12);
+    expect(layout.plotH).toBeCloseTo(200, 12);
+    expect(layout.plotW).toBeCloseTo(400, 12);
+    expect(layout.plotW / layout.plotH).toBeCloseTo(2, 12);
+    expect(layout.plotW).toBeGreaterThan(427 - margin.left - margin.right);
+    expect(layout.rightExtension).toBeGreaterThan(0);
+  });
+
+  test('PCA axis-length transaction solves the final metric frame in one pass', () => {
+    const hooks = window.Components?.pca?.__testHooks;
+    expect(hooks).toBeTruthy();
+
+    // Geometry from the resize path that previously needed a visible second
+    // correction: 318 px outer frame, 229 px PCA canvas, 278.33 x 139.17 px
+    // metric axes (2:1). A 230 px X request therefore requires 115 px on Y.
+    const plan = hooks.compute2dAxisLengthResizePlan({
+      axis: 'x',
+      requestedLength: 230,
+      currentX: 278.3343684043447,
+      currentY: 139.16718420217234,
+      boxHeight: 318,
+      svgHeight: 229,
+      baseHeight: 229,
+      plotHeight: 139.16718420217234,
+      marginTop: 40,
+      marginBottom: 49.83281579782766,
+      frameAspect: 1
+    });
+
+    expect(plan).toBeTruthy();
+    expect(plan.metricAspect).toBeCloseTo(2, 12);
+    expect(plan.targetPhysicalY).toBeCloseTo(115, 12);
+    expect(plan.targetInternalPlotHeight).toBeCloseTo(115, 12);
+    expect(plan.targetBaseHeight).toBeCloseTo(204.83281579782766, 12);
+    expect(plan.width).toBeCloseTo(plan.height, 12);
+    expect(plan.height).toBeCloseTo(293.83281579782766, 12);
+
+    const lockedPlotHeight = plan.targetBaseHeight - 40 - 49.83281579782766;
+    expect(lockedPlotHeight).toBeCloseTo(115, 12);
+    expect(lockedPlotHeight * plan.metricAspect).toBeCloseTo(230, 12);
+  });
+
+  test('PCA biplot uses the selected component pair and preserves metric geometry', () => {
+    const hooks = window.Components?.pca?.__testHooks;
+    expect(hooks).toBeTruthy();
+    const snapshot = hooks.buildBiplotSnapshot(
+      [{ x: 1, y: 2, label: 'S1' }],
+      [
+        ...Array.from({ length: 9 }, (_, index) => ({
+          label: `PC1-PC2-${index + 1}`,
+          values: [10 - index * 0.2, 9 - index * 0.2, 0.01, -0.01]
+        })),
+        { label: 'PC3-PC4-target', values: [0.01, 0.02, 0.9, -0.8] }
+      ],
+      { x: 'PC3', y: 'PC4' },
+      { x: 2, y: 3 }
+    );
+    expect(snapshot.selectedAxes).toEqual({ x: 2, y: 3 });
+    expect(snapshot.vectors).toHaveLength(8);
+    const selectedAxisTarget = snapshot.vectors.find(vector => vector.label === 'PC3-PC4-target');
+    expect(selectedAxisTarget).toBeTruthy();
+    expect(Math.sign(selectedAxisTarget.x)).toBe(1);
+    expect(Math.sign(selectedAxisTarget.y)).toBe(-1);
+    expect(snapshot.vectorScaleNote).toMatch(/uniformly rescaled/i);
+
+    const svg = hooks.createMiniScatterSvg({
+      points: snapshot.points,
+      scalePoints: snapshot.points,
+      vectors: snapshot.vectors,
+      xLabel: snapshot.xLabel,
+      yLabel: snapshot.yLabel
+    });
+    const lines = Array.from(svg.querySelectorAll('line'));
+    const xAxis = lines[0];
+    const yAxis = lines[1];
+    const xLength = Math.abs(Number(xAxis.getAttribute('x2')) - Number(xAxis.getAttribute('x1')));
+    const yLength = Math.abs(Number(yAxis.getAttribute('y2')) - Number(yAxis.getAttribute('y1')));
+    expect(xLength).toBeCloseTo(yLength, 8);
+  });
+
 });

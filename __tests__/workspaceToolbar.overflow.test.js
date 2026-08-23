@@ -175,12 +175,35 @@ describe('workspace toolbar overflow integration', () => {
         caption: 'Data transformation',
         transformSection: true,
         transformKey: key,
-        buttons: [{
-          id: `${key}-normalize`,
-          label: 'Normalize rows',
-          classes: ['workspace-toolbar__button--text-only'],
-          dataset: { transformOption: 'normalizeRows' }
-        }]
+        buttons: [
+          {
+            type: 'checkbox',
+            id: `${key}-multiple`,
+            label: 'Multiple',
+            transformRow: 'selection',
+            dataset: { transformMultiToggle: '1' }
+          },
+          {
+            id: `${key}-apply`,
+            label: 'Apply selected',
+            classes: ['workspace-toolbar__button--text-only'],
+            transformRow: 'selection',
+            dataset: { transformApply: '1' }
+          },
+          {
+            id: `${key}-clear`,
+            label: 'Clear',
+            classes: ['workspace-toolbar__button--text-only'],
+            transformRow: 'selection',
+            dataset: { transformClear: '1' }
+          },
+          {
+            id: `${key}-normalize`,
+            label: 'Normalize rows',
+            classes: ['workspace-toolbar__button--text-only'],
+            dataset: { transformOption: 'normalizeRows' }
+          }
+        ]
       }]
     });
     window.Shared.workspaceToolbar.renderForElement(container);
@@ -189,11 +212,20 @@ describe('workspace toolbar overflow integration', () => {
     const section = container.querySelector('[data-transform-section="1"]');
     const panel = section.querySelector(':scope [data-toolbar-overflow-track="1"] > .workspace-toolbar__panel--transform');
     const title = panel?.querySelector(':scope > .workspace-toolbar__panel-title');
-    const buttons = panel?.querySelector(':scope > .workspace-toolbar__buttons');
+    const rows = Array.from(panel?.querySelectorAll(':scope > .workspace-toolbar__transform-row') || []);
+    const optionsRow = panel?.querySelector(':scope > .workspace-toolbar__transform-row--options');
+    const selectionRow = panel?.querySelector(':scope > .workspace-toolbar__transform-row--selection');
 
     expect(panel).not.toBeNull();
     expect(title?.textContent).toBe('Data transformation');
-    expect(buttons?.querySelector(`#${key}-normalize`)).not.toBeNull();
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toBe(optionsRow);
+    expect(rows[1]).toBe(selectionRow);
+    expect(optionsRow?.querySelector(`#${key}-normalize`)).not.toBeNull();
+    expect(optionsRow?.querySelector(`#${key}-multiple`)).toBeNull();
+    expect(selectionRow?.querySelector(`#${key}-multiple`)).not.toBeNull();
+    expect(selectionRow?.querySelector(`#${key}-apply`)).not.toBeNull();
+    expect(selectionRow?.querySelector(`#${key}-clear`)).not.toBeNull();
     expect(section.querySelector(':scope .workspace-toolbar__caption')).toBeNull();
   });
 });

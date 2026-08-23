@@ -55,7 +55,42 @@ describe('workspace tab document-operation lock', () => {
     const enabledButton = dom.tabsList.querySelector('.workspace-tab');
     expect(enabledButton.disabled).toBe(false);
     enabledButton.click();
-    expect(activateTab).toHaveBeenCalledWith(tab.id);
+    expect(activateTab).not.toHaveBeenCalled();
+  });
+
+  test('clicking an inactive rendered tab still activates it', () => {
+    const tabs = [
+      { id: 'workspace-1', title: 'Scatter', type: 'scatter', isWelcome: false, allowClose: true, isRenaming: false },
+      { id: 'workspace-2', title: 'Surface', type: 'surface', isWelcome: false, allowClose: true, isRenaming: false }
+    ];
+    const workspaceState = {
+      tabs,
+      activeTabId: tabs[0].id,
+      documentOperation: null
+    };
+    const activateTab = jest.fn();
+    const dom = { tabsList: document.getElementById('tabs') };
+    const helpers = window.Main.tabs.createRenderHelpers({
+      dom,
+      previews: {},
+      workspaceState,
+      session: {
+        generateUniqueTabTitle: title => title,
+        markSessionDirty: jest.fn()
+      },
+      getTabById: id => tabs.find(tab => tab.id === id) || null,
+      isInteractionLocked: () => false,
+      activateTab,
+      applyTabDragClasses: jest.fn(),
+      dragHandlers: {}
+    });
+
+    helpers.renderTabs();
+    const inactiveButton = dom.tabsList.querySelector('[data-tab-id="workspace-2"]');
+    inactiveButton.click();
+
+    expect(activateTab).toHaveBeenCalledTimes(1);
+    expect(activateTab).toHaveBeenCalledWith('workspace-2');
   });
 
   test('tab reordering is rejected at the mutation boundary', () => {

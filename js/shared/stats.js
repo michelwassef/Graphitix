@@ -8,14 +8,14 @@
       label: 'None (unadjusted)',
       shortLabel: 'None',
       description: 'No multiple-testing correction applied.',
-      footnote: count => `P-values are unadjusted${count > 0 ? ` (${count} comparison${count === 1 ? '' : 's'})` : ''}.`,
+      footnote: count => `p-values are unadjusted${count > 0 ? ` (${count} comparison${count === 1 ? '' : 's'})` : ''}.`,
       aliases: ['unadjusted']
     },
     bonferroni: {
       label: 'Bonferroni',
       shortLabel: 'Bonferroni',
       description: 'Controls family-wise error rate via Bonferroni adjustment.',
-      footnote: count => `Bonferroni-adjusted P values across ${count} test${count === 1 ? '' : 's'}.`,
+      footnote: count => `Bonferroni-adjusted p-values across ${count} test${count === 1 ? '' : 's'}.`,
       aliases: []
     },
     holm: {
@@ -402,9 +402,14 @@
   function createPValueDisplayString(text, rawValue, metadata = {}){
     const label = new String(String(text == null ? '' : text));
     const numeric = Number(rawValue);
+    const sourceOperator = typeof metadata.operator === 'string' && metadata.operator ? metadata.operator : '=';
+    const displayOperator = typeof metadata.displayOperator === 'string' && metadata.displayOperator
+      ? metadata.displayOperator
+      : sourceOperator;
     Object.defineProperties(label, {
       __statsPValueRaw: { value: Number.isFinite(numeric) ? numeric : NaN, enumerable: false },
-      __statsPValueOperator: { value: typeof metadata.operator === 'string' && metadata.operator ? metadata.operator : '=', enumerable: false },
+      __statsPValueOperator: { value: sourceOperator, enumerable: false },
+      __statsPValueDisplayOperator: { value: displayOperator, enumerable: false },
       __statsPValueScientific: { value: metadata.scientific === true, enumerable: false },
       __statsPValueThresholded: { value: metadata.thresholded === true, enumerable: false }
     });
@@ -469,10 +474,6 @@
     if(explicit){
       return explicit;
     }
-    const stored = normalizeStatsTabId(target?.dataset?.statsPvalueTabId || target?.__statsPValueTabId);
-    if(stored){
-      return stored;
-    }
     const closest = target?.closest?.('[data-tab-id], [data-workspace-tab-id], [data-graphitix-tab-id]');
     const closestId = normalizeStatsTabId(
       closest?.dataset?.tabId
@@ -486,7 +487,11 @@
     if(componentTabId){
       return componentTabId;
     }
-    return resolveActiveStatsTabId();
+    const activeTabId = resolveActiveStatsTabId();
+    if(activeTabId){
+      return activeTabId;
+    }
+    return normalizeStatsTabId(target?.dataset?.statsPvalueTabId || target?.__statsPValueTabId);
   }
 
   function ensurePanelPValueTabId(target, options = {}){
@@ -505,13 +510,72 @@
 
   function readStoredPValueScientificForTab(tabId){
     const key = normalizeStatsTabId(tabId);
+    const sharedState = getTabStatsReportingControlState(key, {
+      create: false,
+      reason: 'stats-reporting-pvalue-read'
+    });
+    if(sharedState && Object.prototype.hasOwnProperty.call(sharedState, 'pValueScientific')){
+      return sanitizePValueScientific(sharedState.pValueScientific, DEFAULT_PVALUE_FORMAT_SCIENTIFIC);
+    }
     if(key && tabPValueScientificState.has(key)){
       return tabPValueScientificState.get(key) === true;
     }
     return DEFAULT_PVALUE_FORMAT_SCIENTIFIC;
   }
 
+  function hasStoredPValueScientificForTab(tabId){
+    const key = normalizeStatsTabId(tabId);
+    if(!key){
+      return false;
+    }
+    const sharedState = getTabStatsReportingControlState(key, {
+      create: false,
+      reason: 'stats-reporting-pvalue-presence'
+    });
+    return !!(
+      sharedState
+      && Object.prototype.hasOwnProperty.call(sharedState, 'pValueScientific')
+    ) || tabPValueScientificState.has(key);
+  }
+
+  function setTabPValueScientific(tabLike, value, options = {}){
+    const resolved = resolveStatsTabReference(tabLike);
+    const next = sanitizePValueScientific(value, DEFAULT_PVALUE_FORMAT_SCIENTIFIC);
+    if(!resolved.tabId){
+      return next;
+    }
+    tabPValueScientificState.set(resolved.tabId, next);
+    const sharedState = getTabStatsReportingControlState(resolved.tabLike, {
+      create: true,
+      reason: options.reason || 'stats-reporting-pvalue-write'
+    });
+    if(sharedState){
+      sharedState.pValueScientific = next;
+    }
+    return next;
+  }
+
+  function clearTabPValueScientific(tabLike, options = {}){
+    const resolved = resolveStatsTabReference(tabLike);
+    if(!resolved.tabId){
+      return DEFAULT_PVALUE_FORMAT_SCIENTIFIC;
+    }
+    tabPValueScientificState.delete(resolved.tabId);
+    const sharedState = getTabStatsReportingControlState(resolved.tabLike, {
+      create: false,
+      reason: options.reason || 'stats-reporting-pvalue-clear'
+    });
+    if(sharedState){
+      delete sharedState.pValueScientific;
+    }
+    return DEFAULT_PVALUE_FORMAT_SCIENTIFIC;
+  }
+
   function getPanelPValueScientific(target, options = {}){
+    const tabId = resolveTargetStatsTabId(target, options);
+    if(tabId){
+      return readStoredPValueScientificForTab(tabId);
+    }
     if(target && target.nodeType === 1){
       if(panelPValueScientificState.has(target)){
         return panelPValueScientificState.get(target) === true;
@@ -523,16 +587,12 @@
         return sanitizePValueScientific(target.dataset.statsPvalueScientific, DEFAULT_PVALUE_FORMAT_SCIENTIFIC);
       }
     }
-    const tabId = resolveTargetStatsTabId(target, options);
-    return readStoredPValueScientificForTab(tabId);
+    return DEFAULT_PVALUE_FORMAT_SCIENTIFIC;
   }
 
-  function setPanelPValueScientific(target, value, options = {}){
+  function projectPanelPValueScientific(target, value, options = {}){
     const next = sanitizePValueScientific(value, DEFAULT_PVALUE_FORMAT_SCIENTIFIC);
-    const tabId = ensurePanelPValueTabId(target, options);
-    if(tabId){
-      tabPValueScientificState.set(tabId, next);
-    }
+    ensurePanelPValueTabId(target, options);
     if(target && target.nodeType === 1){
       panelPValueScientificState.set(target, next);
       target.__statsPValueScientific = next;
@@ -547,9 +607,61 @@
     const next = sanitizePValueScientific(value, DEFAULT_PVALUE_FORMAT_SCIENTIFIC);
     const tabId = normalizeStatsTabId(options?.tabId || options?.tab?.id) || resolveActiveStatsTabId();
     if(tabId){
-      tabPValueScientificState.set(tabId, next);
+      return setTabPValueScientific(tabId, next, {
+        reason: options.reason || 'stats-reporting-active-pvalue-write'
+      });
     }
     return next;
+  }
+
+  const REPORT_SUPERSCRIPT_MAP = Object.freeze({
+    '-': '⁻',
+    '+': '⁺',
+    '0': '⁰',
+    '1': '¹',
+    '2': '²',
+    '3': '³',
+    '4': '⁴',
+    '5': '⁵',
+    '6': '⁶',
+    '7': '⁷',
+    '8': '⁸',
+    '9': '⁹'
+  });
+
+  function toReportSuperscript(value){
+    return String(value).split('').map(char => REPORT_SUPERSCRIPT_MAP[char] || char).join('');
+  }
+
+  function formatScientificReportNumber(value, options = {}){
+    const numeric = Number(value);
+    if(!Number.isFinite(numeric)){
+      return String(value);
+    }
+    if(numeric === 0){
+      return '0';
+    }
+    const fractionalDigits = Number.isInteger(options.fractionalDigits) && options.fractionalDigits >= 0
+      ? Math.min(15, options.fractionalDigits)
+      : Math.max(0, clampSignificantDigits(options.significantDigits) - 1);
+    const chartFormatter = Shared.chartStyle?.formatScientific;
+    if(typeof chartFormatter === 'function'){
+      return chartFormatter(numeric, {
+        forceScientific: true,
+        maxDecimals: fractionalDigits,
+        mantissaMaxDecimals: fractionalDigits,
+        spaceAroundMultiplication: true,
+        omitUnitMantissa: false
+      });
+    }
+    const exponential = numeric.toExponential(fractionalDigits);
+    const match = /^([+-]?(?:\d+(?:\.\d*)?|\.\d+))e([+-]?\d+)$/i.exec(exponential);
+    if(!match){
+      return exponential;
+    }
+    const mantissa = match[1].startsWith('-') ? `−${match[1].slice(1)}` : match[1].replace(/^\+/, '');
+    const exponent = String(Number(match[2]));
+    return `${mantissa} × 10${toReportSuperscript(exponent)}`;
   }
 
   function sharedFormatPValue(value, options){
@@ -575,21 +687,34 @@
     const bounded = Math.max(0, Math.min(1, num));
     let formatted;
     let thresholded = false;
+    let operator = '=';
     if(scientific){
-      formatted = bounded.toExponential(fractionalDigits);
+      if(bounded === 0){
+        formatted = `<${formatScientificReportNumber(decimalThreshold, { significantDigits: digits })}`;
+        thresholded = true;
+        operator = '<';
+      }else{
+        formatted = formatScientificReportNumber(bounded, { significantDigits: digits });
+      }
     }else{
       if(bounded >= 0 && bounded < decimalThreshold){
         formatted = `<${formatFixedTrimmed(decimalThreshold, decimals)}`;
         thresholded = true;
+        operator = '<';
       }else{
         formatted = formatFixedTrimmed(bounded, decimals);
       }
     }
-    const result = finalizeNumberString(formatted);
+    const result = scientific ? String(formatted) : finalizeNumberString(formatted);
     if(statsDebugEnabled()){
       console.debug('Debug: Shared.formatPValue',{ input: value, formatted: result, scientific, thresholded, options });
     }
-    return createPValueDisplayString(result, bounded, { scientific, thresholded });
+    return createPValueDisplayString(result, bounded, {
+      scientific,
+      thresholded,
+      operator: '=',
+      displayOperator: operator
+    });
   }
 
   Shared.formatPValue = sharedFormatPValue;
@@ -633,6 +758,7 @@
   if(typeof formatters.formatFixedNumber !== 'function'){
     formatters.formatFixedNumber = formatFixedNumber;
   }
+  formatters.formatScientificNumber = formatScientificReportNumber;
   formatters.formatPValue = sharedFormatPValue;
 
   function sanitizeP(value){
@@ -774,6 +900,24 @@
       validCount: valid.length,
       omittedCount: values.length - valid.length,
       adjusted: output
+    });
+    return output;
+  };
+
+
+  stats.adjustHolmLogPValues = function(logPValues){
+    const values = Array.isArray(logPValues) ? logPValues.slice() : [];
+    const valid = values
+      .map((value, index) => ({ value: Number(value), index }))
+      .filter(entry => (Number.isFinite(entry.value) || entry.value === -Infinity) && entry.value <= 0)
+      .sort((left, right) => left.value - right.value);
+    const output = new Array(values.length).fill(null);
+    let runningLog = -Infinity;
+    valid.forEach((entry, rank) => {
+      const multiplier = valid.length - rank;
+      const candidate = Math.min(0, entry.value + Math.log(multiplier));
+      runningLog = Math.max(runningLog, candidate);
+      output[entry.index] = runningLog;
     });
     return output;
   };
@@ -1312,41 +1456,132 @@
     return prepared.values[n] - prepared.values[k] - prepared.values[n - k];
   }
 
-  function computeHypergeometricRightTail(params){
-    const {
-      populationSize,
-      successPopulation,
-      draws,
-      observedSuccesses,
-      cache
-    } = params || {};
-    const N = Math.max(0, Math.floor(populationSize || 0));
-    const K = Math.max(0, Math.floor(successPopulation || 0));
-    const n = Math.max(0, Math.floor(draws || 0));
-    const k = Math.max(0, Math.floor(observedSuccesses || 0));
-    if(!N || !n || K < 0){
+  function logAddExp(left, right){
+    if(left === -Infinity){ return right; }
+    if(right === -Infinity){ return left; }
+    if(!Number.isFinite(left) || !Number.isFinite(right)){
+      return NaN;
+    }
+    const maximum = Math.max(left, right);
+    return maximum + Math.log(Math.exp(left - maximum) + Math.exp(right - maximum));
+  }
+
+  function logChooseStable(n, k, cache){
+    if(!Number.isInteger(n) || !Number.isInteger(k) || n < 0 || k < 0 || k > n){
+      return -Infinity;
+    }
+    const reducedK = Math.min(k, n - k);
+    if(reducedK === 0){
       return 0;
     }
-    const store = ensureLogFactorialCache(cache?.logFactorial, N);
-    if(cache){
-      cache.logFactorial = store;
+    if(cache && n <= 100000){
+      return logChooseWithCache(n, reducedK, cache);
     }
-    const denominator = logChooseWithCache(N, n, store);
+    return logGamma(n + 1) - logGamma(reducedK + 1) - logGamma(n - reducedK + 1);
+  }
+
+  function hypergeometricLogRangeSum(N, K, n, start, end, denominator, cache){
+    if(start > end){
+      return -Infinity;
+    }
+    let current = logChooseStable(K, start, cache)
+      + logChooseStable(N - K, n - start, cache)
+      - denominator;
+    if(!Number.isFinite(current)){
+      return -Infinity;
+    }
+    let logTotal = current;
+    for(let value = start; value < end; value += 1){
+      const numeratorA = K - value;
+      const numeratorB = n - value;
+      const denominatorA = value + 1;
+      const denominatorB = N - K - n + value + 1;
+      if(numeratorA <= 0 || numeratorB <= 0 || denominatorA <= 0 || denominatorB <= 0){
+        break;
+      }
+      current += Math.log(numeratorA)
+        + Math.log(numeratorB)
+        - Math.log(denominatorA)
+        - Math.log(denominatorB);
+      if(Number.isFinite(current)){
+        logTotal = logAddExp(logTotal, current);
+      }
+    }
+    return logTotal;
+  }
+
+  function computeHypergeometricRightTailDetails(params){
+    const populationSize = Number(params?.populationSize);
+    const successPopulation = Number(params?.successPopulation);
+    const draws = Number(params?.draws);
+    const observedSuccesses = Number(params?.observedSuccesses);
+    const inputs = [populationSize, successPopulation, draws, observedSuccesses];
+    if(inputs.some(value => !Number.isFinite(value) || !Number.isInteger(value))){
+      return { valid: false, pValue: NaN, logPValue: NaN, underflow: false, reason: 'Hypergeometric inputs must be finite integers.' };
+    }
+    const N = populationSize;
+    const K = successPopulation;
+    const n = draws;
+    const k = observedSuccesses;
+    if(N <= 0 || K < 0 || K > N || n < 0 || n > N){
+      return { valid: false, pValue: NaN, logPValue: NaN, underflow: false, reason: 'Hypergeometric population and draw counts are incompatible.' };
+    }
+    const minimum = Math.max(0, n - (N - K));
+    const maximum = Math.min(K, n);
+    if(k < minimum || k > maximum){
+      return { valid: false, pValue: NaN, logPValue: NaN, underflow: false, reason: `Observed overlap must lie between ${minimum} and ${maximum}.` };
+    }
+    if(k === minimum){
+      return { valid: true, pValue: 1, logPValue: 0, underflow: false, reason: null, support: { minimum, maximum } };
+    }
+    let store = null;
+    if(N <= 100000){
+      store = ensureLogFactorialCache(params?.cache?.logFactorial, N);
+      if(params?.cache){
+        params.cache.logFactorial = store;
+      }
+    }
+    const denominator = logChooseStable(N, n, store);
     if(!Number.isFinite(denominator)){
-      return 0;
+      return { valid: false, pValue: NaN, logPValue: NaN, underflow: false, reason: 'Hypergeometric normalization could not be evaluated.' };
     }
-    let p = 0;
-    const maxIter = Math.min(K, n);
-    const start = Math.min(Math.max(k, 0), maxIter);
-    for(let i = start; i <= maxIter; i++){
-      const logTerm = logChooseWithCache(K, i, store) +
-        logChooseWithCache(N - K, n - i, store) -
-        denominator;
-      const term = Math.exp(logTerm);
-      p += term;
+    const expectedOverlap = (n * K) / N;
+    let logPValue;
+    if(k > expectedOverlap){
+      logPValue = Math.min(0, hypergeometricLogRangeSum(N, K, n, k, maximum, denominator, store));
+    }else{
+      const logLeftTail = hypergeometricLogRangeSum(N, K, n, minimum, k - 1, denominator, store);
+      if(logLeftTail === -Infinity){
+        logPValue = 0;
+      }else{
+        const leftTail = Math.min(1, Math.max(0, Math.exp(Math.min(0, logLeftTail))));
+        logPValue = leftTail >= 1 ? -Infinity : Math.log1p(-leftTail);
+      }
     }
-    console.debug('Debug: stats.hypergeom right tail',{ N, K, n, k, p }); // Debug: hypergeometric right tail
-    return p;
+    if(logPValue === -Infinity){
+      return { valid: true, pValue: 0, logPValue, underflow: true, reason: null, support: { minimum, maximum } };
+    }
+    if(!Number.isFinite(logPValue)){
+      return { valid: false, pValue: NaN, logPValue: NaN, underflow: false, reason: 'Hypergeometric right-tail probability could not be evaluated.' };
+    }
+    const minimumLog = Math.log(Number.MIN_VALUE);
+    const underflow = logPValue < minimumLog;
+    const pValue = underflow ? 0 : Math.min(1, Math.max(0, Math.exp(logPValue)));
+    if(statsDebugEnabled()){
+      console.debug('Debug: stats.hypergeom right tail', { N, K, n, k, pValue, logPValue, underflow });
+    }
+    return {
+      valid: true,
+      pValue,
+      logPValue,
+      underflow,
+      reason: null,
+      support: { minimum, maximum }
+    };
+  }
+
+  function computeHypergeometricRightTail(params){
+    return computeHypergeometricRightTailDetails(params).pValue;
   }
 
   stats.clampProbability = clampProbability;
@@ -1367,6 +1602,8 @@
   stats.ensureLogFactorialCache = ensureLogFactorialCache;
   stats.trimLogFactorialCache = trimLogFactorialCache;
   stats.logChooseWithCache = logChooseWithCache;
+  stats.logChooseStable = logChooseStable;
+  stats.computeHypergeometricRightTailDetails = computeHypergeometricRightTailDetails;
   stats.computeHypergeometricRightTail = computeHypergeometricRightTail;
 
   stats.listCorrections = function(){
@@ -1758,13 +1995,14 @@
 
   function renderStatsReportTextParts(parts, options = {}){
     const scientific = options.scientific === true;
-    return normalizeStatsReportTextParts(parts).map(part => {
+    const rendered = normalizeStatsReportTextParts(parts).map(part => {
       if(part.type === 'pValue'){
         const formatted = formatPValueFromParsedInfo({ value: part.value, operator: part.operator || '=' }, { scientific });
         return formatted == null ? (part.fallback || '—') : String(formatted);
       }
       return String(part.text || '');
     }).join('');
+    return normalizeStatNotationText(rendered);
   }
 
   function getReportSourceParts(source, baseName){
@@ -1917,10 +2155,15 @@
     if(typeof reporting.pinReportHostLast === 'function'){
       reporting.pinReportHostLast(target);
     }
+    const enhancementTarget = resolveTrackedStatsPanel(target);
+    if(enhancementTarget && typeof reporting.enhancePanelNow === 'function'){
+      reporting.enhancePanelNow(enhancementTarget, 'append-report-panel');
+    }
   };
 
-  const SIGNIFICANCE_THRESHOLD_STORAGE_KEY = 'venn.stats.significanceThreshold';
   const DEFAULT_SIGNIFICANCE_THRESHOLD = 0.05;
+  const STATS_REPORTING_CONTROL_KEY = 'statsReporting';
+  const panelSignificanceThresholdState = new WeakMap();
   const STATS_PANEL_SELECTORS = [
     '#statsResults',
     '#scatterStatsResults',
@@ -1937,6 +2180,17 @@
     '#survivalStatsCox'
   ];
   const COLLAPSED_STATS_SECTIONS = new Set(['diagnostics', 'supplementary']);
+
+  function resolveTrackedStatsPanel(target){
+    let current = target && target.nodeType === 1 ? target : null;
+    while(current){
+      if(current.id && trackedStatsPanelIdSet.has(current.id)){
+        return current;
+      }
+      current = current.parentElement || null;
+    }
+    return null;
+  }
   const STATS_SECTION_ORDER = Object.freeze({
     summary: 0,
     estimates: 1,
@@ -1992,33 +2246,179 @@
     if(numeric >= 0.01){
       return numeric.toFixed(3).replace(/0+$/,'').replace(/\.$/, '');
     }
-    return numeric.toExponential(2);
+    return formatScientificReportNumber(numeric, { significantDigits: 3 });
   }
 
-  function getStoredSignificanceThreshold(){
+  function resolveStatsTabReference(tabLike){
+    if(tabLike && typeof tabLike === 'object' && tabLike.id != null){
+      return {
+        tabLike,
+        tabId: normalizeStatsTabId(tabLike.id)
+      };
+    }
+    const tabId = normalizeStatsTabId(tabLike);
+    return {
+      tabLike: tabId,
+      tabId
+    };
+  }
+
+  function getTabStatsReportingControlState(tabLike, options = {}){
+    const resolved = resolveStatsTabReference(tabLike);
+    if(!resolved.tabId || !Shared.workspaceTabs){
+      return null;
+    }
     try{
-      if(global.localStorage){
-        const stored = global.localStorage.getItem(SIGNIFICANCE_THRESHOLD_STORAGE_KEY);
-        if(stored != null && stored !== ''){
-          return sanitizeSignificanceThreshold(stored, DEFAULT_SIGNIFICANCE_THRESHOLD);
-        }
-      }
+      const values = options.create === true
+        ? Shared.workspaceTabs.ensureSharedControlState?.(resolved.tabLike, STATS_REPORTING_CONTROL_KEY, {
+            tabId: resolved.tabId,
+            reason: options.reason || 'stats-reporting-threshold-ensure'
+          })
+        : Shared.workspaceTabs.getSharedControlState?.(resolved.tabLike, STATS_REPORTING_CONTROL_KEY, {
+            tabId: resolved.tabId,
+            reason: options.reason || 'stats-reporting-threshold-read'
+          });
+      return values && typeof values === 'object' ? values : null;
     }catch(err){
-      statsReportingDebug('readThresholdStorageError', { message: err?.message || String(err) });
+      statsReportingDebug('sharedControlError', {
+        tabId: resolved.tabId,
+        reason: options.reason || null,
+        message: err?.message || String(err)
+      });
+      return null;
+    }
+  }
+
+  function readStoredSignificanceThresholdForTab(tabLike){
+    const sharedState = getTabStatsReportingControlState(tabLike, {
+      create: false,
+      reason: 'stats-reporting-threshold-read'
+    });
+    if(sharedState && Object.prototype.hasOwnProperty.call(sharedState, 'significanceThreshold')){
+      return sanitizeSignificanceThreshold(sharedState.significanceThreshold, DEFAULT_SIGNIFICANCE_THRESHOLD);
     }
     return DEFAULT_SIGNIFICANCE_THRESHOLD;
   }
 
-  let sharedSignificanceThreshold = getStoredSignificanceThreshold();
+  function setTabSignificanceThreshold(tabLike, value, options = {}){
+    const previous = readStoredSignificanceThresholdForTab(tabLike);
+    const next = sanitizeSignificanceThreshold(value, previous);
+    const sharedState = getTabStatsReportingControlState(tabLike, {
+      create: true,
+      reason: options.reason || 'stats-reporting-threshold-write'
+    });
+    if(sharedState){
+      sharedState.significanceThreshold = next;
+    }
+    return next;
+  }
 
-  function persistSignificanceThreshold(value){
+  function setPanelPValueScientific(target, value, options = {}){
+    const next = sanitizePValueScientific(value, DEFAULT_PVALUE_FORMAT_SCIENTIFIC);
+    const tabId = ensurePanelPValueTabId(target, options);
+    if(tabId){
+      setTabPValueScientific(tabId, next, {
+        reason: options.reason || 'stats-reporting-panel-pvalue-write'
+      });
+    }
+    return projectPanelPValueScientific(target, next, { ...options, tabId });
+  }
+
+  function getPanelSignificanceThreshold(target, options = {}){
+    const tabId = resolveTargetStatsTabId(target, options);
+    if(tabId){
+      return readStoredSignificanceThresholdForTab(tabId);
+    }
+    if(target && target.nodeType === 1 && panelSignificanceThresholdState.has(target)){
+      return sanitizeSignificanceThreshold(
+        panelSignificanceThresholdState.get(target),
+        DEFAULT_SIGNIFICANCE_THRESHOLD
+      );
+    }
+    return DEFAULT_SIGNIFICANCE_THRESHOLD;
+  }
+
+  function setPanelSignificanceThreshold(target, value, options = {}){
+    const tabId = ensurePanelPValueTabId(target, options);
+    const previous = getPanelSignificanceThreshold(target, options);
+    const next = sanitizeSignificanceThreshold(value, previous);
+    if(tabId){
+      return setTabSignificanceThreshold(tabId, next, {
+        reason: options.reason || 'stats-reporting-panel-threshold-write'
+      });
+    }
+    if(target && target.nodeType === 1){
+      panelSignificanceThresholdState.set(target, next);
+    }
+    return next;
+  }
+
+  function persistStatsReportingStateForTab(tabId, options = {}){
+    const key = normalizeStatsTabId(tabId);
+    const sessionApi = global.Main?.session || null;
+    const activeTab = sessionApi?.getActiveTab?.() || null;
+    if(!key || !activeTab || normalizeStatsTabId(activeTab.id) !== key){
+      statsReportingDebug('statePersistSkipped', {
+        tabId: key || null,
+        activeTabId: activeTab?.id || null,
+        source: options.source || null
+      });
+      return false;
+    }
+    const persistOptions = {
+      reason: options.reason || 'stats-reporting-state-change',
+      origin: 'user',
+      affectsPayload: true,
+      snapshotIntent: {
+        captureLivePayload: true,
+        allowSkipLivePayloadCapture: false
+      }
+    };
     try{
-      if(global.localStorage){
-        global.localStorage.setItem(SIGNIFICANCE_THRESHOLD_STORAGE_KEY, String(value));
+      if(typeof sessionApi.updateTabPayload === 'function'){
+        return sessionApi.updateTabPayload(activeTab, draft => {
+          const payload = draft && typeof draft === 'object' && !Array.isArray(draft)
+            ? draft
+            : { type: activeTab.type || null };
+          if(!payload.meta || typeof payload.meta !== 'object' || Array.isArray(payload.meta)){
+            payload.meta = {};
+          }
+          const nextStatsReporting = {
+            ...(payload.meta.statsReporting && typeof payload.meta.statsReporting === 'object'
+              ? payload.meta.statsReporting
+              : {})
+          };
+          const sharedState = getTabStatsReportingControlState(key, {
+            create: false,
+            reason: 'stats-reporting-state-persist-read'
+          });
+          if(sharedState && Object.prototype.hasOwnProperty.call(sharedState, 'significanceThreshold')){
+            nextStatsReporting.significanceThreshold = readStoredSignificanceThresholdForTab(key);
+          }
+          if(hasStoredPValueScientificForTab(key)){
+            nextStatsReporting.pValueScientific = readStoredPValueScientificForTab(key);
+          }
+          payload.meta.statsReporting = nextStatsReporting;
+          return payload;
+        }, {
+          reason: persistOptions.reason,
+          origin: persistOptions.origin
+        }) !== false;
+      }
+      if(typeof sessionApi.persistUserModifiedTabState === 'function'){
+        return sessionApi.persistUserModifiedTabState(activeTab, persistOptions) !== false;
+      }
+      if(typeof sessionApi.persistActiveTabState === 'function'){
+        return sessionApi.persistActiveTabState(activeTab, persistOptions) !== false;
       }
     }catch(err){
-      statsReportingDebug('writeThresholdStorageError', { message: err?.message || String(err) });
+      statsReportingDebug('statePersistError', {
+        tabId: key,
+        source: options.source || null,
+        message: err?.message || String(err)
+      });
     }
+    return false;
   }
 
   function getPValueFormatLabel(scientific){
@@ -2029,29 +2429,84 @@
     return scientific ? 'Decimal' : 'Scientific';
   }
 
+  function normalizePValueOperator(operator){
+    const raw = typeof operator === 'string' ? operator.trim() : '=';
+    if(raw === '<=' || raw === '≤') return '≤';
+    if(raw === '>=' || raw === '≥') return '≥';
+    if(raw === '<' || raw === '>') return raw;
+    return '=';
+  }
+
+  function splitFormattedPValue(display){
+    const text = String(display == null ? '' : display).trim();
+    const match = /^(<=|>=|≤|≥|<|>)\s*(.*)$/.exec(text);
+    if(match){
+      return { operator: normalizePValueOperator(match[1]), valueText: match[2].trim() };
+    }
+    return { operator: '=', valueText: text };
+  }
+
+  function formatPValueComparatorBoundary(value, options = {}){
+    const numeric = Number(value);
+    if(!Number.isFinite(numeric)){
+      return String(value);
+    }
+    const bounded = Math.max(0, Math.min(1, numeric));
+    const scientific = options.scientific === true;
+    if(scientific && bounded !== 0){
+      return formatScientificReportNumber(bounded, { significantDigits: DEFAULT_PVALUE_SIG_DIGITS });
+    }
+    if(bounded === 0){
+      return '0';
+    }
+    const magnitudeDecimals = bounded < 1
+      ? Math.max(0, -Math.floor(Math.log10(bounded)) + DEFAULT_PVALUE_SIG_DIGITS - 1)
+      : 0;
+    const decimals = Math.min(15, Math.max(DEFAULT_REPORT_PVALUE_DECIMALS, magnitudeDecimals));
+    return formatFixedTrimmed(bounded, decimals);
+  }
+
   function formatPValueFromParsedInfo(pInfo, options){
     if(!pInfo || !Number.isFinite(Number(pInfo.value))){
       return null;
     }
     const numeric = Number(pInfo.value);
-    const operator = typeof pInfo.operator === 'string' ? pInfo.operator.trim() : '=';
+    const requestedOperator = normalizePValueOperator(pInfo.operator);
     const scientific = options?.scientific === true;
+    if(requestedOperator !== '='){
+      const boundaryText = formatPValueComparatorBoundary(numeric, { scientific });
+      return createPValueDisplayString(`${requestedOperator}${boundaryText}`, numeric, {
+        scientific,
+        operator: requestedOperator,
+        displayOperator: requestedOperator,
+        thresholded: false
+      });
+    }
     const formatted = sharedFormatPValue(numeric, { scientific, forceScientific: scientific });
-    const formattedText = String(formatted);
-    if(scientific){
-      return formatted;
+    const parsed = splitFormattedPValue(formatted);
+    if(parsed.operator === '='){
+      return createPValueDisplayString(parsed.valueText, numeric, { scientific, operator: '=', thresholded: false });
     }
-    if(operator === '<' || operator === '<='){
-      return formattedText.startsWith('<')
-        ? formatted
-        : `<${formattedText.replace(/^[<>=\s]+/, '')}`;
+    return createPValueDisplayString(`${parsed.operator}${parsed.valueText}`, numeric, {
+      scientific,
+      operator: '=',
+      displayOperator: parsed.operator,
+      thresholded: true
+    });
+  }
+
+  function formatPValueExpression(value, options = {}){
+    const numeric = Number(value);
+    if(!Number.isFinite(numeric)){
+      return typeof options.fallback === 'string' ? options.fallback : 'p = n/a';
     }
-    if(operator === '>' || operator === '>='){
-      return formattedText.startsWith('>')
-        ? formatted
-        : `>${formattedText.replace(/^[<>=\s]+/, '')}`;
-    }
-    return formatted;
+    const label = typeof options.label === 'string' && options.label.trim() ? options.label.trim() : 'p';
+    const scientific = typeof options.scientific === 'boolean'
+      ? options.scientific
+      : getPanelPValueScientific(options.target || null, options);
+    const display = formatPValueFromParsedInfo({ value: numeric, operator: options.operator || '=' }, { scientific });
+    const parsed = splitFormattedPValue(display);
+    return `${label} ${parsed.operator} ${parsed.valueText}`;
   }
 
   function formatInlinePValueReplacement(label, operator, numericText, options){
@@ -2059,22 +2514,11 @@
     if(!Number.isFinite(numeric)){
       return null;
     }
-    const display = formatPValueFromParsedInfo({ value: numeric, operator: operator || '=' }, options);
-    if(display == null){
-      return null;
-    }
-    const normalizedOperator = typeof operator === 'string' ? operator.trim() : '=';
-    const displayText = String(display);
-    if(normalizedOperator === '<' || normalizedOperator === '<=' || normalizedOperator === '>' || normalizedOperator === '>='){
-      if(options?.scientific === true){
-        return `${label}= ${displayText}`;
-      }
-      const symbolLength = (displayText.startsWith('<=') || displayText.startsWith('>=')) ? 2 : 1;
-      const symbol = displayText.slice(0, symbolLength);
-      const valueText = displayText.slice(symbolLength).trim();
-      return `${label}${symbol} ${valueText}`;
-    }
-    return `${label}${normalizedOperator || '='} ${displayText}`;
+    return formatPValueExpression(numeric, {
+      label: String(label || 'p').trim(),
+      operator: operator || '=',
+      scientific: options?.scientific === true
+    });
   }
 
   function replaceInlinePValueText(text, options){
@@ -2100,7 +2544,7 @@
     wrap.className = 'stats-pvalue-format-inline';
     const label = documentRef.createElement('span');
     label.className = 'stats-pvalue-format-inline__label';
-    label.textContent = `P-value format: ${getPValueFormatLabel(scientific)}`;
+    label.textContent = `p-value format: ${getPValueFormatLabel(scientific)}`;
     wrap.appendChild(label);
     const button = documentRef.createElement('button');
     button.type = 'button';
@@ -2110,7 +2554,11 @@
     button.addEventListener('click', event => {
       event.preventDefault();
       event.stopPropagation();
-      reporting.setPValueFormatScientific(!getPanelPValueScientific(target), { target, source: target?.id || null });
+      reporting.setPValueFormatScientific(!getPanelPValueScientific(target), {
+        target,
+        source: target?.id || null,
+        persist: true
+      });
     });
     wrap.appendChild(button);
     return wrap;
@@ -2364,7 +2812,7 @@
     badge.className = `stats-significance-badge ${token === 'NS' ? 'stats-significance-badge--ns' : 'stats-significance-badge--sig'}`;
     badge.textContent = token;
     const thresholdLabel = formatThresholdLabel(threshold);
-    badge.title = `Significance summary at p <= ${thresholdLabel}`;
+    badge.title = `Significance summary at p ≤ ${thresholdLabel}`;
     cell.appendChild(badge);
     return true;
   }
@@ -2602,6 +3050,9 @@
     if(node.nodeType !== 1){
       return null;
     }
+    if(node.classList?.contains('stats-table-abbreviations') || node.dataset?.statsAutoAbbreviationsContainer === '1'){
+      return null;
+    }
     // Stats-table cards carry interactive Download/Copy export controls
     // that the tag whitelist below would mangle into raw text and that cannot be re-wired
     // from markup. Capture the card's plain data model instead and re-render it (with live
@@ -2787,10 +3238,24 @@
       return false;
     }
     target.textContent = '';
+    const ownerTabId = ensurePanelPValueTabId(target);
     if(Object.prototype.hasOwnProperty.call(normalized, 'pValueScientific')){
-      setPanelPValueScientific(target, normalized.pValueScientific);
+      if(ownerTabId && hasStoredPValueScientificForTab(ownerTabId)){
+        projectPanelPValueScientific(target, readStoredPValueScientificForTab(ownerTabId), {
+          tabId: ownerTabId,
+          reason: 'stats-panel-model-project-owner'
+        });
+      }else{
+        setPanelPValueScientific(target, normalized.pValueScientific, {
+          tabId: ownerTabId || null,
+          reason: 'stats-panel-model-legacy-hydrate'
+        });
+      }
     }else{
-      ensurePanelPValueTabId(target);
+      projectPanelPValueScientific(target, getPanelPValueScientific(target, { tabId: ownerTabId || null }), {
+        tabId: ownerTabId || null,
+        reason: 'stats-panel-model-project-default'
+      });
     }
     normalized.children.forEach(childModel => {
       const child = renderStatsNodeModel(documentRef, childModel);
@@ -3016,13 +3481,18 @@
     }
     const thresholdInput = controls ? controls.querySelector('.stats-significance-controls__input') : null;
     if(thresholdInput){
-      thresholdInput.value = String(sharedSignificanceThreshold);
+      thresholdInput.value = String(getPanelSignificanceThreshold(target));
       if(state.thresholdInputEl !== thresholdInput){
-        thresholdInput.addEventListener('change', () => {
-          reporting.setSignificanceThreshold(thresholdInput.value, { source: target.id || null });
-        });
+        const commitThresholdInput = () => {
+          reporting.setSignificanceThreshold(thresholdInput.value, {
+            target,
+            source: target.id || null,
+            persist: true
+          });
+        };
+        thresholdInput.addEventListener('change', commitThresholdInput);
         thresholdInput.addEventListener('blur', () => {
-          thresholdInput.value = String(reporting.getSignificanceThreshold());
+          thresholdInput.value = String(reporting.getSignificanceThreshold({ target }));
         });
         state.thresholdInputEl = thresholdInput;
       }
@@ -3178,19 +3648,29 @@
         global.Shared.statsTable.refreshPValueFormatting(target);
       }
       rewriteInlinePValueElements(target);
-      const threshold = reporting.getSignificanceThreshold();
+      const threshold = reporting.getSignificanceThreshold({ target });
       let badgeCount = 0;
       const tables = target.querySelectorAll('table');
       tables.forEach(table => {
         rewriteTablePValueCells(table, target);
         badgeCount += annotateTablePValues(table, threshold);
       });
+      const abbreviationSummary = global.Shared?.statsTable && typeof global.Shared.statsTable.enhanceAbbreviations === 'function'
+        ? global.Shared.statsTable.enhanceAbbreviations(target)
+        : null;
       if(scaffold.hint){
         scaffold.hint.textContent = badgeCount
-          ? `Legend: NS, *, **, ***, **** (p <= ${formatThresholdLabel(threshold)})`
+          ? `Legend: NS, *, **, ***, **** (p ≤ ${formatThresholdLabel(threshold)})`
           : 'Applies when p-values are present.';
       }
-      statsReportingDebug('enhancePanel', { id: target.id || null, reason: reason || 'manual', badgeCount, tables: tables.length });
+      statsReportingDebug('enhancePanel', {
+        id: target.id || null,
+        reason: reason || 'manual',
+        badgeCount,
+        tables: tables.length,
+        abbreviationTerms: abbreviationSummary?.terms || 0,
+        reportAbbreviationTerms: abbreviationSummary?.reportTerms || 0
+      });
     }finally{
       state.applying = false;
       if(typeof global.setTimeout === 'function'){
@@ -3295,6 +3775,22 @@
     });
   }
 
+  function refreshEnhancedPanelsForTab(tabId, reason){
+    const key = normalizeStatsTabId(tabId);
+    if(!key){
+      return;
+    }
+    enhancedStatsPanels.forEach(panel => {
+      if(!panel || !panel.isConnected){
+        return;
+      }
+      if(normalizeStatsTabId(resolveTargetStatsTabId(panel)) !== key){
+        return;
+      }
+      schedulePanelEnhancement(panel, reason || 'refresh-tab');
+    });
+  }
+
   function nodeTouchesTrackedStatsPanel(node){
     if(!node || node.nodeType !== 1){
       return false;
@@ -3379,6 +3875,33 @@
     statsReportingDebug('installRescanObserverReady', { trackedPanels: TRACKED_STATS_PANEL_IDS.length });
   }
 
+  function replaceAsciiScientificNotation(text){
+    return String(text == null ? '' : text).replace(
+      /([+-]?(?:\d+(?:\.\d*)?|\.\d+))[eE]([+-]?\d+)/g,
+      (match, mantissaRaw, exponentRaw) => {
+        const mantissa = String(mantissaRaw).startsWith('-')
+          ? `−${String(mantissaRaw).slice(1)}`
+          : String(mantissaRaw).replace(/^\+/, '');
+        const exponent = String(Number(exponentRaw));
+        return `${mantissa} × 10${toReportSuperscript(exponent)}`;
+      }
+    );
+  }
+
+  function normalizeStatNotationText(text){
+    let source = String(text == null ? '' : text);
+    if(!source){
+      return source;
+    }
+    source = source
+      .replace(/=\s*(<=|>=|≤|≥|<|>)/g, '$1')
+      .replace(/\s*(<=|>=|≤|≥|=|<|>)\s*/g, (match, operator) => ` ${normalizePValueOperator(operator)} `)
+      .replace(/(<|>|≤|≥)\s+\1/g, '$1')
+      .replace(/\s{2,}/g, ' ')
+      .trim();
+    return replaceAsciiScientificNotation(source);
+  }
+
   reporting.pValue = function createStatsReportPValue(value, options = {}){
     const numeric = Number(value);
     const fallback = typeof options.fallback === 'string'
@@ -3396,12 +3919,82 @@
     return renderStatsReportTextParts(parts, { scientific: options.scientific === true });
   };
 
-  reporting.getSignificanceThreshold = function getSignificanceThreshold(){
-    return sharedSignificanceThreshold;
+  reporting.formatPValueExpression = formatPValueExpression;
+  reporting.formatScientificNumber = formatScientificReportNumber;
+  reporting.formatThresholdLabel = formatThresholdLabel;
+  reporting.normalizeNotationText = normalizeStatNotationText;
+
+  reporting.getSignificanceThreshold = function getSignificanceThreshold(options = {}){
+    const target = options?.target && options.target.nodeType === 1 ? options.target : null;
+    if(target){
+      return getPanelSignificanceThreshold(target, options);
+    }
+    const tabId = normalizeStatsTabId(options?.tabId || options?.tab?.id) || resolveActiveStatsTabId();
+    return readStoredSignificanceThresholdForTab(tabId);
+  };
+
+  reporting.captureTabState = function captureStatsReportingTabState(tabLike){
+    const resolved = resolveStatsTabReference(tabLike);
+    const sharedState = getTabStatsReportingControlState(tabLike, {
+      create: false,
+      reason: 'stats-reporting-tab-state-capture'
+    });
+    const captured = {};
+    if(sharedState && Object.prototype.hasOwnProperty.call(sharedState, 'significanceThreshold')){
+      captured.significanceThreshold = sanitizeSignificanceThreshold(
+        sharedState.significanceThreshold,
+        DEFAULT_SIGNIFICANCE_THRESHOLD
+      );
+    }
+    if(hasStoredPValueScientificForTab(resolved.tabId)){
+      captured.pValueScientific = readStoredPValueScientificForTab(resolved.tabId);
+    }
+    return Object.keys(captured).length ? captured : null;
+  };
+
+  reporting.applyTabState = function applyStatsReportingTabState(tabLike, source = {}, options = {}){
+    const tabId = normalizeStatsTabId(typeof tabLike === 'string' ? tabLike : tabLike?.id);
+    if(!tabId){
+      return null;
+    }
+    const applyReason = options.reason || 'stats-reporting-tab-state-apply';
+    const sharedState = getTabStatsReportingControlState(tabLike, {
+      create: false,
+      reason: applyReason
+    });
+    let significanceThreshold = DEFAULT_SIGNIFICANCE_THRESHOLD;
+    if(source && Object.prototype.hasOwnProperty.call(source, 'significanceThreshold')){
+      significanceThreshold = setTabSignificanceThreshold(
+        tabLike,
+        source.significanceThreshold,
+        { reason: applyReason }
+      );
+    }else if(sharedState){
+      delete sharedState.significanceThreshold;
+    }
+    let pValueScientific = DEFAULT_PVALUE_FORMAT_SCIENTIFIC;
+    if(source && Object.prototype.hasOwnProperty.call(source, 'pValueScientific')){
+      pValueScientific = setTabPValueScientific(
+        tabLike,
+        source.pValueScientific,
+        { reason: applyReason }
+      );
+    }else{
+      pValueScientific = clearTabPValueScientific(tabLike, {
+        reason: applyReason
+      });
+    }
+    refreshEnhancedPanelsForTab(tabId, `${applyReason}:project`);
+    return { significanceThreshold, pValueScientific };
   };
 
   reporting.getPValueFormatScientific = function getPValueFormatScientific(options = {}){
     return getPanelPValueScientific(options?.target || null, options || {});
+  };
+
+  reporting.hasPValueFormatScientific = function hasPValueFormatScientific(options = {}){
+    const tabId = resolveTargetStatsTabId(options?.target || null, options || {});
+    return hasStoredPValueScientificForTab(tabId);
   };
 
   reporting.setPanelPValueFormatScientific = function setPanelPValueFormatScientific(target, value, options = {}){
@@ -3426,7 +4019,7 @@
     });
     try{
       if(typeof global.dispatchEvent === 'function' && typeof global.CustomEvent === 'function'){
-        global.dispatchEvent(new global.CustomEvent('venn:stats-pvalue-format-change', {
+        global.dispatchEvent(new global.CustomEvent('stats:pvalue-format-change', {
           detail: { scientific: next, source: options?.source || null, targetId: target?.id || null, tabId }
         }));
       }
@@ -3436,30 +4029,77 @@
     if(target){
       schedulePanelEnhancement(target, previous === next ? 'pvalue-format-sync' : 'pvalue-format-change');
     }else{
-      refreshAllEnhancedPanels(previous === next ? 'pvalue-format-sync' : 'pvalue-format-change');
+      if(tabId){
+        refreshEnhancedPanelsForTab(tabId, previous === next ? 'pvalue-format-sync' : 'pvalue-format-change');
+      }else{
+        refreshAllEnhancedPanels(previous === next ? 'pvalue-format-sync' : 'pvalue-format-change');
+      }
+    }
+    if(options.persist === true && tabId){
+      persistStatsReportingStateForTab(tabId, {
+        source: options.source || null,
+        reason: options.reason || 'stats-pvalue-format-change'
+      });
     }
     return next;
   };
 
-  reporting.setSignificanceThreshold = function setSignificanceThreshold(value, options){
-    const previous = sharedSignificanceThreshold;
-    const next = sanitizeSignificanceThreshold(value, previous);
-    sharedSignificanceThreshold = next;
-    persistSignificanceThreshold(next);
-    if(previous !== next){
-      statsReportingDebug('setSignificanceThreshold', { previous, next, source: options?.source || null });
-      refreshAllEnhancedPanels('threshold-change');
-    }else{
-      refreshAllEnhancedPanels('threshold-sync');
+  reporting.setSignificanceThreshold = function setSignificanceThreshold(value, options = {}){
+    const target = options?.target && options.target.nodeType === 1 ? options.target : null;
+    const tabId = resolveTargetStatsTabId(target, options) || null;
+    const previous = target
+      ? getPanelSignificanceThreshold(target, options)
+      : readStoredSignificanceThresholdForTab(tabId);
+    const next = target
+      ? setPanelSignificanceThreshold(target, value, {
+          ...options,
+          reason: options.reason || 'stats-significance-threshold-change'
+        })
+      : setTabSignificanceThreshold(tabId, value, {
+          reason: options.reason || 'stats-significance-threshold-change'
+        });
+    statsReportingDebug('setSignificanceThreshold', {
+      previous,
+      next,
+      source: options?.source || null,
+      targetId: target?.id || null,
+      tabId
+    });
+    try{
+      if(typeof global.dispatchEvent === 'function' && typeof global.CustomEvent === 'function'){
+        global.dispatchEvent(new global.CustomEvent('stats:significance-threshold-change', {
+          detail: {
+            threshold: next,
+            previous,
+            source: options?.source || null,
+            targetId: target?.id || null,
+            tabId
+          }
+        }));
+      }
+    }catch(err){
+      statsReportingDebug('dispatchThresholdEventError', { message: err?.message || String(err) });
+    }
+    if(tabId){
+      refreshEnhancedPanelsForTab(tabId, previous === next ? 'threshold-sync' : 'threshold-change');
+    }else if(target){
+      schedulePanelEnhancement(target, previous === next ? 'threshold-sync' : 'threshold-change');
+    }
+    if(options.persist === true && tabId){
+      persistStatsReportingStateForTab(tabId, {
+        source: options.source || null,
+        reason: options.reason || 'stats-significance-threshold-change'
+      });
     }
     return next;
   };
 
-  reporting.getSignificanceToken = function getSignificanceToken(pValue, threshold){
+  reporting.getSignificanceToken = function getSignificanceToken(pValue, threshold, options = {}){
     const parsed = Number.isFinite(Number(pValue))
       ? { value: Number(pValue), operator: '=' }
       : null;
-    return resolveSignificanceToken(parsed, sanitizeSignificanceThreshold(threshold, sharedSignificanceThreshold));
+    const fallbackThreshold = reporting.getSignificanceThreshold(options);
+    return resolveSignificanceToken(parsed, sanitizeSignificanceThreshold(threshold, fallbackThreshold));
   };
 
   reporting.enhancePanelNow = function enhancePanelNow(target, reason){

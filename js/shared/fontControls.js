@@ -234,8 +234,29 @@
   ];
 
   const FONT_SCOPE_SELECTION = 'selection';
+  const FONT_SCOPE_LABELS = 'labels';
+  const FONT_SCOPE_LEGEND = 'legend';
+  const FONT_SCOPE_SCALE = 'scale';
   const FONT_SCOPE_GRAPH = 'graph';
   const GRAPH_SCOPE_TOKEN = '__graph__';
+  const LABELS_SCOPE_TOKEN = '__labels__';
+  const LEGEND_SCOPE_TOKEN = '__legend__';
+  const SCALE_SCOPE_TOKEN = '__scale__';
+  const LEGEND_FRAME_TOKEN = '__legendFrame__';
+  const LEGEND_FRAME_DEFAULTS = Object.freeze({
+    legendBorderWidth: 0,
+    legendBorderColor: '#1f2937',
+    legendBorderPattern: 'solid',
+    legendBorderTransparency: 0
+  });
+  const LEGEND_FRAME_STYLE_KEYS = Object.freeze([
+    'legendBorderWidth',
+    'legendBorderColor',
+    'legendBorderPattern',
+    'legendBorderTransparency'
+  ]);
+  const LEGEND_FRAME_PADDING_MIN = 4;
+  const LEGEND_FRAME_PADDING_SCALE = 0.35;
   const TAB_SCOPE_TOKEN_PREFIX = '@tab:';
   const FONT_CONTROLS_STATE_KEY = 'fontControls';
   const FONT_CONTROLS_DEFAULT_SCOPE = '__global__';
@@ -248,6 +269,8 @@
   const deferredTextNodes = typeof global.WeakSet === 'function' ? new global.WeakSet() : new Set();
   // DOM-only registries. Persistent/tab-specific font state is stored in workspaceTabs shared control state.
   const nodeGroupStore = new Map();
+  const legendFrameGroupStore = new Map();
+  const legendFrameGroupStoreKeyMap = typeof global.WeakMap === 'function' ? new global.WeakMap() : new Map();
   const toolbarHostMap = new Map();
   const undoManager = Shared.undoManager || null;
   let activeHost = null;
@@ -274,6 +297,25 @@
   let lastKnownFormatWidth = 0;
   let lastKnownComboWidth = 0;
   let colorInput = null;
+  let legendBorderFieldEl = null;
+  let legendBorderChipEl = null;
+  let legendBorderChipPreviewEl = null;
+  let legendBorderChipValueEl = null;
+  let legendBorderColorInput = null;
+  let legendBorderWidthInput = null;
+  let legendBorderPatternFieldEl = null;
+  let legendBorderPatternSelect = null;
+  let legendBorderTransparencyFieldEl = null;
+  let legendBorderTransparencyInput = null;
+  let legendBorderTransparencyValueEl = null;
+  let legendBorderPickerCleanup = null;
+  let legendBorderWidthInteraction = null;
+  let legendBorderColorInteraction = null;
+  let legendBorderTransparencyInteraction = null;
+  let legendBorderDragState = null;
+  let legendBorderDragCleanup = null;
+  let suppressLegendBorderChipClick = false;
+  let currentLegendFrameGroup = null;
   let boldToggle = null;
   let italicToggle = null;
   let underlineToggle = null;
@@ -284,6 +326,9 @@
   let targetLabelEl = null;
   let scopeFieldEl = null;
   let scopeSelectEl = null;
+  let scopeLabelsOptionEl = null;
+  let scopeLegendOptionEl = null;
+  let scopeScaleOptionEl = null;
   let footerEl = null;
   let currentTarget = null;
   let currentScope = null;
@@ -483,7 +528,7 @@
   }
 
   const STYLE_KEYS = ['fontFamily', 'fontWeight', 'fontStyle', 'fontSize', 'fill', 'textDecoration', 'baselineShift'];
-  const STYLE_META_KEYS = ['fontSizeResizeReference', 'hidden'];
+  const STYLE_META_KEYS = ['fontSizeResizeReference', 'hidden'].concat(LEGEND_FRAME_STYLE_KEYS);
   const STYLE_STATE_KEYS = STYLE_KEYS.concat(STYLE_META_KEYS);
   const STYLE_ATTR_MAP = {
     fontFamily: 'font-family',
@@ -753,6 +798,18 @@
   function resetInlineSegments(node){
     if(!node){ return; }
     if(!isSvgTextTarget(node)){ return; }
+    const structureParts = node.dataset?.fontPreserveStructure === 'children'
+      ? Array.from(node.children || []).filter(child => child?.dataset?.fontStructurePart)
+      : [];
+    if(structureParts.length){
+      if(node.dataset?.fontInlineSegmentsApplied === '1'){
+        structureParts.forEach(part => {
+          part.textContent = part.dataset?.fontStructureText ?? part.textContent ?? '';
+        });
+        delete node.dataset.fontInlineSegmentsApplied;
+      }
+      return;
+    }
     if(!node.firstChild){ return; }
     const textValue = node.textContent || '';
     node.textContent = textValue;
@@ -784,6 +841,49 @@
       computedFontSize = null;
     }
     const baseFontSizeSource = node.getAttribute?.('font-size') || computedFontSize || null;
+    const structureParts = node.dataset?.fontPreserveStructure === 'children'
+      ? Array.from(node.children || []).filter(child => child?.dataset?.fontStructurePart)
+      : [];
+    if(structureParts.length){
+      let structureOffset = 0;
+      structureParts.forEach(part => {
+        const partText = part.dataset?.fontStructureText ?? part.textContent ?? '';
+        const partEnd = structureOffset + partText.length;
+        const partSegments = sanitized
+          .filter(segment => segment.end > structureOffset && segment.start < partEnd)
+          .map(segment => ({
+            start: Math.max(0, segment.start - structureOffset),
+            end: Math.min(partText.length, segment.end - structureOffset),
+            style: segment.style
+          }));
+        const frag = doc.createDocumentFragment();
+        let partCursor = 0;
+        partSegments.forEach(segment => {
+          if(segment.start > partCursor){
+            frag.appendChild(doc.createTextNode(partText.slice(partCursor, segment.start)));
+          }
+          const styled = doc.createElementNS(ns, 'tspan');
+          styled.textContent = partText.slice(segment.start, segment.end);
+          STYLE_KEYS.forEach(key => {
+            const attr = STYLE_ATTR_MAP[key];
+            const value = segment.style?.[key];
+            if(attr && value !== undefined && value !== null && value !== ''){
+              styled.setAttribute(attr, value);
+            }
+          });
+          frag.appendChild(styled);
+          partCursor = segment.end;
+        });
+        if(partCursor < partText.length){
+          frag.appendChild(doc.createTextNode(partText.slice(partCursor)));
+        }
+        while(part.firstChild){ part.removeChild(part.firstChild); }
+        part.appendChild(frag);
+        structureOffset = partEnd;
+      });
+      node.dataset.fontInlineSegmentsApplied = '1';
+      return;
+    }
     const frag = doc.createDocumentFragment();
     let cursor = 0;
     sanitized.forEach(segment => {
@@ -1275,6 +1375,13 @@
       clone.hidden = true;
       hasValue = true;
     }
+    LEGEND_FRAME_STYLE_KEYS.forEach(key => {
+      if(!Object.prototype.hasOwnProperty.call(style, key)){ return; }
+      const value = style[key];
+      if(value === undefined || value === null || value === ''){ return; }
+      clone[key] = value;
+      hasValue = true;
+    });
     const segments = normalizeInlineSegments(style.inlineSegments || []);
     if(segments.length){
       clone.inlineSegments = segments.map(segment => ({
@@ -1398,8 +1505,8 @@
     const refA = a || {};
     const refB = b || {};
     const baseEqual = STYLE_STATE_KEYS.every(key => {
-      const valA = refA[key] || null;
-      const valB = refB[key] || null;
+      const valA = refA[key] ?? null;
+      const valB = refB[key] ?? null;
       return valA === valB;
     });
     if(!baseEqual){ return false; }
@@ -1466,11 +1573,11 @@
     const prevStoreClone = hasPrevStoreStyle ? cloneStyleSnapshot(meta.prevStoreStyle) : prevClone;
     const nextStoreClone = hasNextStoreStyle ? cloneStyleSnapshot(meta.nextStoreStyle) : nextClone;
     const patchKeys = Array.isArray(meta?.patchKeys) && meta.patchKeys.length ? meta.patchKeys.slice() : STYLE_KEYS;
-    const isGraphScopeUndo = isGraphStoreKey(storeContext.storeKey);
-    const prevScopeStyles = isGraphScopeUndo ? cloneScopeStylesSnapshot(meta?.prevScopeStyles) : null;
-    const nextScopeStyles = isGraphScopeUndo ? cloneScopeStylesSnapshot(meta?.nextScopeStyles) : null;
+    const isBulkScopeUndo = isBulkStoreKey(storeContext.storeKey);
+    const prevScopeStyles = isBulkScopeUndo ? cloneScopeStylesSnapshot(meta?.prevScopeStyles) : null;
+    const nextScopeStyles = isBulkScopeUndo ? cloneScopeStylesSnapshot(meta?.nextScopeStyles) : null;
     const applyScopeStyles = styles => {
-      if(!isGraphScopeUndo || !storeContext.scopeId){
+      if(!isBulkScopeUndo || !storeContext.scopeId){
         return false;
       }
       importScopeStyles(storeContext.scopeId, styles || null, {
@@ -1682,7 +1789,7 @@
     const datasetTab = normalizeTabId(node?.dataset?.fontTabId || node?.dataset?.tabId || null);
     const explicitTab = normalizeTabId(opts.tabId || opts.workspaceTabId || null);
     const activeTab = resolveActiveWorkspaceTabId();
-    return sanitizeTabToken(datasetTab || explicitTab || activeTab || null);
+    return sanitizeTabToken(explicitTab || datasetTab || activeTab || null);
   }
 
   function getScopeMode(scopeId, options){
@@ -1693,7 +1800,13 @@
   }
 
   function setScopeMode(scopeId, mode, options){
-    const normalized = mode === FONT_SCOPE_GRAPH ? FONT_SCOPE_GRAPH : FONT_SCOPE_SELECTION;
+    const normalized = mode === FONT_SCOPE_GRAPH
+      ? FONT_SCOPE_GRAPH
+      : (mode === FONT_SCOPE_LABELS
+          ? FONT_SCOPE_LABELS
+          : (mode === FONT_SCOPE_LEGEND
+              ? FONT_SCOPE_LEGEND
+              : (mode === FONT_SCOPE_SCALE ? FONT_SCOPE_SCALE : FONT_SCOPE_SELECTION)));
     activeScopeMode = normalized;
     const key = scopePreferenceKey(scopeId || currentScope);
     const tabToken = resolveStoreTabToken(options || { target: currentTarget || activeHost || panelEl || null });
@@ -1713,7 +1826,29 @@
   }
 
   function syncScopeModeForCurrentTarget(){
-    const mode = getScopeMode(currentScope, { target: currentTarget || activeHost || panelEl || null });
+    const supportsLabelsScope = currentTarget?.dataset?.fontCollection === 'labels';
+    const supportsLegendScope = currentTarget?.dataset?.fontCollection === 'legend';
+    const supportsScaleScope = currentTarget?.dataset?.fontCollection === 'scale';
+    if(scopeLabelsOptionEl){
+      scopeLabelsOptionEl.disabled = !supportsLabelsScope;
+      scopeLabelsOptionEl.hidden = !supportsLabelsScope;
+    }
+    if(scopeLegendOptionEl){
+      scopeLegendOptionEl.disabled = !supportsLegendScope;
+      scopeLegendOptionEl.hidden = !supportsLegendScope;
+    }
+    if(scopeScaleOptionEl){
+      scopeScaleOptionEl.disabled = !supportsScaleScope;
+      scopeScaleOptionEl.hidden = !supportsScaleScope;
+    }
+    const storedMode = getScopeMode(currentScope, { target: currentTarget || activeHost || panelEl || null });
+    const mode = supportsLegendScope || supportsScaleScope
+      ? (supportsLegendScope ? FONT_SCOPE_LEGEND : FONT_SCOPE_SCALE)
+      : ((storedMode === FONT_SCOPE_LABELS && !supportsLabelsScope)
+          || (storedMode === FONT_SCOPE_LEGEND && !supportsLegendScope)
+          || (storedMode === FONT_SCOPE_SCALE && !supportsScaleScope)
+        ? FONT_SCOPE_SELECTION
+        : storedMode);
     activeScopeMode = mode;
     if(scopeSelectEl){
       scopeSelectEl.value = mode;
@@ -1729,11 +1864,27 @@
     return activeScopeMode === FONT_SCOPE_GRAPH;
   }
 
+  function isLabelsScopeMode(){
+    return activeScopeMode === FONT_SCOPE_LABELS;
+  }
+
+  function isLegendScopeMode(){
+    return activeScopeMode === FONT_SCOPE_LEGEND;
+  }
+
+  function isScaleScopeMode(){
+    return activeScopeMode === FONT_SCOPE_SCALE;
+  }
+
   function resolveStoreContext(target, options){
     const dataset = target?.dataset || {};
     const scopeId = options?.scopeId ?? dataset.fontScope ?? currentScope ?? null;
     const key = options?.key ?? dataset.fontKey ?? currentKey ?? null;
-    const mode = options?.mode || getScopeMode(scopeId);
+    const mode = options?.mode || (
+      target === currentTarget && scopeId === currentScope
+        ? activeScopeMode
+        : getScopeMode(scopeId, { target })
+    );
     const tabId = options?.tabId ?? dataset.fontTabId ?? null;
     if(mode === FONT_SCOPE_GRAPH){
       return {
@@ -1742,6 +1893,33 @@
         tabId,
         mode,
         storeKey: buildStoreKey(scopeId, GRAPH_SCOPE_TOKEN, { target, tabId })
+      };
+    }
+    if(mode === FONT_SCOPE_LABELS){
+      return {
+        scopeId,
+        key: LABELS_SCOPE_TOKEN,
+        tabId,
+        mode,
+        storeKey: buildStoreKey(scopeId, LABELS_SCOPE_TOKEN, { target, tabId })
+      };
+    }
+    if(mode === FONT_SCOPE_LEGEND){
+      return {
+        scopeId,
+        key: LEGEND_SCOPE_TOKEN,
+        tabId,
+        mode,
+        storeKey: buildStoreKey(scopeId, LEGEND_SCOPE_TOKEN, { target, tabId })
+      };
+    }
+    if(mode === FONT_SCOPE_SCALE){
+      return {
+        scopeId,
+        key: SCALE_SCOPE_TOKEN,
+        tabId,
+        mode,
+        storeKey: buildStoreKey(scopeId, SCALE_SCOPE_TOKEN, { target, tabId })
       };
     }
     return {
@@ -1755,8 +1933,8 @@
 
   function handleInlineSelectionPatch(patch, meta){
     if(!currentTarget){ return { handled: false }; }
-    if(isGraphScopeMode()){
-      logDebug('inline selection patch skipped (graph scope active)', {
+    if(isGraphScopeMode() || isLabelsScopeMode() || isLegendScopeMode() || isScaleScopeMode()){
+      logDebug('inline selection patch skipped (bulk scope active)', {
         meta,
         patchKeys: Object.keys(patch || {})
       });
@@ -2749,7 +2927,13 @@
   function updatePanelContext(){
     if(!targetLabelEl){ return; }
     const parts = [];
-    const scopeModeLabel = isGraphScopeMode() ? 'Graph scope' : 'Selection scope';
+    const scopeModeLabel = isGraphScopeMode()
+      ? 'Graph scope'
+      : (isLabelsScopeMode()
+          ? 'Labels scope'
+          : (isLegendScopeMode()
+              ? 'Legend scope'
+              : (isScaleScopeMode() ? 'Scale scope' : 'Selection scope')));
     parts.push(scopeModeLabel);
     if(currentTarget){
       const role = humanizeToken(currentTarget.dataset?.fontRole || currentTarget.dataset?.fontKey);
@@ -2771,7 +2955,13 @@
     if(!footerEl){ return; }
     footerEl.textContent = isGraphScopeMode()
       ? 'Changes apply to all fonts in this graph.'
-      : 'Changes apply to the selected text group.';
+      : (isLabelsScopeMode()
+          ? 'Changes apply to all point labels in this graph.'
+          : (isLegendScopeMode()
+              ? 'Changes apply to all legend text in this graph.'
+              : (isScaleScopeMode()
+                  ? 'Changes apply to all numeric scale text in this graph.'
+                  : 'Changes apply only to the selected text.')));
   }
 
   function updatePreviewText(){
@@ -2936,6 +3126,451 @@
     }
   }
 
+  function sanitizeLegendBorderWidth(value){
+    const numeric = Number(value);
+    if(!Number.isFinite(numeric)){ return LEGEND_FRAME_DEFAULTS.legendBorderWidth; }
+    return Math.max(0, Math.min(10, Math.round(numeric * 100) / 100));
+  }
+
+  function sanitizeLegendBorderPattern(value){
+    const normalized = String(value || '').trim().toLowerCase();
+    return normalized === 'dashed' || normalized === 'dotted' ? normalized : 'solid';
+  }
+
+  function sanitizeLegendBorderTransparency(value){
+    const numeric = Number(value);
+    if(!Number.isFinite(numeric)){ return LEGEND_FRAME_DEFAULTS.legendBorderTransparency; }
+    return Math.max(0, Math.min(100, Math.round(numeric)));
+  }
+
+  function sanitizeLegendBorderColor(value){
+    const raw = String(value || '').trim();
+    if(!raw){ return LEGEND_FRAME_DEFAULTS.legendBorderColor; }
+    return parseColorToHex(raw);
+  }
+
+  function normalizeLegendFrameStyle(style){
+    const source = style && typeof style === 'object' ? style : {};
+    return {
+      legendBorderWidth: sanitizeLegendBorderWidth(source.legendBorderWidth),
+      legendBorderColor: sanitizeLegendBorderColor(source.legendBorderColor || LEGEND_FRAME_DEFAULTS.legendBorderColor),
+      legendBorderPattern: sanitizeLegendBorderPattern(source.legendBorderPattern),
+      legendBorderTransparency: sanitizeLegendBorderTransparency(source.legendBorderTransparency)
+    };
+  }
+
+  function legendFrameStylesEqual(a, b){
+    const left = normalizeLegendFrameStyle(a);
+    const right = normalizeLegendFrameStyle(b);
+    return left.legendBorderWidth === right.legendBorderWidth
+      && left.legendBorderColor === right.legendBorderColor
+      && left.legendBorderPattern === right.legendBorderPattern
+      && left.legendBorderTransparency === right.legendBorderTransparency;
+  }
+
+  function resolveLegendFrameGroupFromTarget(target){
+    if(!target){ return null; }
+    const targetCollection = normalizeFontCollection(
+      target.dataset?.fontCollection,
+      target.dataset?.fontRole || resolveInheritedFontDataset(target, 'fontRole')
+    );
+    if(targetCollection === 'scale'){ return null; }
+    if(target.matches?.('[data-font-legend="1"]')){ return target; }
+    const registered = target.closest?.('[data-font-legend="1"]') || null;
+    if(registered){ return registered; }
+    const role = target.dataset?.fontRole || resolveInheritedFontDataset(target, 'fontRole') || null;
+    if(role === 'legend'){
+      return target.closest?.('[data-legend-viewport-content="true"]') || null;
+    }
+    return null;
+  }
+
+  function resolveLegendFrameContext(group, options = {}){
+    if(!group){ return null; }
+    const firstText = group.querySelector?.('text[data-font-scope], text[data-font-key], text') || null;
+    const scopeId = options.scopeId
+      || group.dataset?.fontScope
+      || firstText?.dataset?.fontScope
+      || resolveInheritedFontDataset(firstText, 'fontScope')
+      || null;
+    if(!scopeId){ return null; }
+    const explicitTabId = sanitizeTabToken(options.tabId || options.workspaceTabId || null);
+    const tabId = explicitTabId || resolveStoreTabToken({
+      node: firstText || group,
+      tabId: group.dataset?.fontTabId
+        || firstText?.dataset?.fontTabId
+        || resolveInheritedFontDataset(firstText, 'fontTabId')
+        || null
+    });
+    if(group.dataset){
+      group.dataset.fontLegend = '1';
+      group.dataset.fontScope = String(scopeId);
+      if(tabId){ group.dataset.fontTabId = String(tabId); }
+    }
+    return {
+      scopeId,
+      tabId: tabId || null,
+      storeKey: buildStoreKey(scopeId, LEGEND_FRAME_TOKEN, { target: group, tabId })
+    };
+  }
+
+  function getLegendFrameStyle(context){
+    if(!context?.storeKey){ return normalizeLegendFrameStyle(null); }
+    const stored = getStoredStyle(context.storeKey, {
+      tabId: context.tabId || null,
+      reason: 'legend-frame-read'
+    });
+    return normalizeLegendFrameStyle(stored);
+  }
+
+  function unregisterLegendFrameGroupFromStore(group, storeKey){
+    if(!group || !storeKey){ return; }
+    const entry = legendFrameGroupStore.get(storeKey);
+    if(!entry){ return; }
+    if(supportsWeakRef){
+      entry.refs = entry.refs.filter(ref => {
+        const candidate = ref?.deref?.();
+        return !!candidate && candidate !== group;
+      });
+      if(!entry.refs.length){ legendFrameGroupStore.delete(storeKey); }
+    }else{
+      entry.nodes.delete(group);
+      if(!entry.nodes.size){ legendFrameGroupStore.delete(storeKey); }
+    }
+  }
+
+  function registerLegendFrameGroupForStore(group, storeKey){
+    if(!group || !storeKey){ return; }
+    const previousStoreKey = legendFrameGroupStoreKeyMap.get(group) || null;
+    if(previousStoreKey === storeKey){ return; }
+    if(previousStoreKey){ unregisterLegendFrameGroupFromStore(group, previousStoreKey); }
+    legendFrameGroupStoreKeyMap.set(group, storeKey);
+    let entry = legendFrameGroupStore.get(storeKey);
+    if(!entry){
+      entry = supportsWeakRef ? { refs: [], cleanupCounter: 0 } : { nodes: new Set() };
+      legendFrameGroupStore.set(storeKey, entry);
+    }
+    if(supportsWeakRef){
+      entry.refs.push(new global.WeakRef(group));
+      entry.cleanupCounter = (entry.cleanupCounter || 0) + 1;
+      if(entry.cleanupCounter >= 20){
+        cleanupWeakRefs(entry);
+        entry.cleanupCounter = 0;
+      }
+    }else{
+      entry.nodes.add(group);
+    }
+  }
+
+  function readLegendFallbackBounds(group){
+    const dataset = group?.dataset || {};
+    const x = Number(dataset.legendContentX);
+    const y = Number(dataset.legendContentY);
+    const width = Number(dataset.legendContentWidth);
+    const height = Number(dataset.legendContentHeight);
+    if(Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(width) && width >= 0
+      && Number.isFinite(height) && height >= 0){
+      return { x, y, width, height };
+    }
+    return null;
+  }
+
+  function findLegendFrame(group){
+    return Array.from(group?.children || []).find(node => node?.dataset?.fontLegendFrame === '1') || null;
+  }
+
+  function measureLegendContentBounds(group){
+    if(!group){ return null; }
+    const frame = findLegendFrame(group);
+    const previousDisplay = frame?.getAttribute?.('display');
+    if(frame){ frame.setAttribute('display', 'none'); }
+    try{
+      if(typeof group.getBBox === 'function'){
+        const bounds = group.getBBox();
+        if(bounds && Number.isFinite(Number(bounds.x)) && Number.isFinite(Number(bounds.y))
+          && Number.isFinite(Number(bounds.width)) && Number(bounds.width) >= 0
+          && Number.isFinite(Number(bounds.height)) && Number(bounds.height) >= 0){
+          return {
+            x: Number(bounds.x),
+            y: Number(bounds.y),
+            width: Number(bounds.width),
+            height: Number(bounds.height)
+          };
+        }
+      }
+    }catch(err){
+      logDebug('legend frame bounds unavailable', { error: err?.message || String(err) });
+    }finally{
+      if(frame){
+        if(previousDisplay === null || previousDisplay === undefined){
+          frame.removeAttribute('display');
+        }else{
+          frame.setAttribute('display', previousDisplay);
+        }
+      }
+    }
+    return readLegendFallbackBounds(group);
+  }
+
+  function resolveLegendFramePadding(group){
+    const datasetFontSize = Number(group?.dataset?.legendContentFontSize);
+    const firstText = group?.querySelector?.('text') || null;
+    const textFontSize = Number.parseFloat(firstText?.getAttribute?.('font-size') || '');
+    const fontSize = Number.isFinite(datasetFontSize) && datasetFontSize > 0
+      ? datasetFontSize
+      : (Number.isFinite(textFontSize) && textFontSize > 0 ? textFontSize : 12);
+    return Math.max(LEGEND_FRAME_PADDING_MIN, fontSize * LEGEND_FRAME_PADDING_SCALE);
+  }
+
+  function legendBorderDasharray(pattern, width){
+    const gridPattern = Shared.gridControls?.patternToDasharray;
+    if(typeof gridPattern === 'function'){
+      return gridPattern(pattern, width);
+    }
+    const normalized = sanitizeLegendBorderPattern(pattern);
+    const strokeWidth = Math.max(0.1, sanitizeLegendBorderWidth(width));
+    if(normalized === 'dashed'){
+      return `${Math.max(2, Math.round(strokeWidth * 3))},${Math.max(2, Math.round(strokeWidth * 2))}`;
+    }
+    if(normalized === 'dotted'){
+      return `${Math.max(1, Math.round(strokeWidth))},${Math.max(2, Math.round(strokeWidth * 2.2))}`;
+    }
+    return null;
+  }
+
+  function applyLegendFrameToGroup(group, styleOverride){
+    if(!group){ return false; }
+    const context = resolveLegendFrameContext(group);
+    if(!context){ return false; }
+    const style = normalizeLegendFrameStyle(styleOverride || getLegendFrameStyle(context));
+    const existing = findLegendFrame(group);
+    if(style.legendBorderWidth <= 0){
+      existing?.remove?.();
+      if(group.dataset){ delete group.dataset.legendBorderVisible; }
+      return true;
+    }
+    const bounds = measureLegendContentBounds(group);
+    if(!bounds || bounds.width < 0 || bounds.height < 0){ return false; }
+    const doc = group.ownerDocument || global.document;
+    if(!doc){ return false; }
+    const frame = existing || doc.createElementNS(SVG_NS, 'rect');
+    const padding = resolveLegendFramePadding(group);
+    const roundGeometry = value => Math.round(Number(value) * 1000) / 1000;
+    frame.setAttribute('x', String(roundGeometry(bounds.x - padding)));
+    frame.setAttribute('y', String(roundGeometry(bounds.y - padding)));
+    frame.setAttribute('width', String(roundGeometry(Math.max(0, bounds.width + (padding * 2)))));
+    frame.setAttribute('height', String(roundGeometry(Math.max(0, bounds.height + (padding * 2)))));
+    frame.setAttribute('fill', 'none');
+    frame.setAttribute('stroke', style.legendBorderColor);
+    frame.setAttribute('stroke-width', String(style.legendBorderWidth));
+    frame.setAttribute('stroke-opacity', String(Math.max(0, Math.min(1, 1 - (style.legendBorderTransparency / 100)))));
+    const dasharray = legendBorderDasharray(style.legendBorderPattern, style.legendBorderWidth);
+    if(dasharray){ frame.setAttribute('stroke-dasharray', dasharray); }
+    else{ frame.removeAttribute('stroke-dasharray'); }
+    frame.setAttribute('data-font-legend-frame', '1');
+    frame.setAttribute('aria-hidden', 'true');
+    frame.setAttribute('pointer-events', 'stroke');
+    if(frame.style){ frame.style.cursor = 'pointer'; }
+    if(!existing){
+      group.insertBefore(frame, group.firstChild || null);
+    }
+    if(group.dataset){ group.dataset.legendBorderVisible = '1'; }
+    return true;
+  }
+
+  function broadcastLegendFrame(storeKey, style){
+    if(!storeKey){ return; }
+    const entry = legendFrameGroupStore.get(storeKey);
+    if(!entry){ return; }
+    if(supportsWeakRef){
+      entry.refs = entry.refs.filter(ref => {
+        const group = ref?.deref?.();
+        if(!group || group.isConnected === false){ return false; }
+        applyLegendFrameToGroup(group, style);
+        return true;
+      });
+    }else{
+      const stale = [];
+      entry.nodes.forEach(group => {
+        if(!group || group.isConnected === false){
+          stale.push(group);
+          return;
+        }
+        applyLegendFrameToGroup(group, style);
+      });
+      stale.forEach(group => entry.nodes.delete(group));
+    }
+  }
+
+  function registerLegendFrameGroup(group, options = {}){
+    if(!group){ return null; }
+    const semanticTexts = Array.from(
+      group.querySelectorAll?.('text[data-font-role], text[data-font-collection]') || []
+    );
+    const isContinuousScale = semanticTexts.length > 0 && semanticTexts.every(node => (
+      normalizeFontCollection(node.dataset?.fontCollection, node.dataset?.fontRole) === 'scale'
+    ));
+    if(isContinuousScale){
+      const previousStoreKey = legendFrameGroupStoreKeyMap.get(group) || null;
+      if(previousStoreKey){ unregisterLegendFrameGroupFromStore(group, previousStoreKey); }
+      legendFrameGroupStoreKeyMap.delete(group);
+      findLegendFrame(group)?.remove?.();
+      if(group.dataset){ delete group.dataset.fontLegend; }
+      return null;
+    }
+    if(options.bounds && typeof options.bounds === 'object' && group.dataset){
+      const bounds = options.bounds;
+      ['x', 'y', 'width', 'height'].forEach(name => {
+        const numeric = Number(bounds[name]);
+        if(Number.isFinite(numeric)){
+          const suffix = name.charAt(0).toUpperCase() + name.slice(1);
+          group.dataset[`legendContent${suffix}`] = String(numeric);
+        }
+      });
+    }
+    if(Number.isFinite(Number(options.fontSize)) && Number(options.fontSize) > 0 && group.dataset){
+      group.dataset.legendContentFontSize = String(Number(options.fontSize));
+    }
+    const context = resolveLegendFrameContext(group, options);
+    if(!context){ return null; }
+    if(context.tabId && options.tabId && group.querySelectorAll){
+      group.querySelectorAll('[data-font-scope], [data-font-key], [data-font-role]').forEach(node => {
+        if(node?.dataset){ node.dataset.fontTabId = context.tabId; }
+      });
+    }
+    group.querySelectorAll?.('text[data-font-role], text[data-font-key], text[data-font-collection]').forEach(node => {
+      if(!node?.dataset){ return; }
+      const role = node.dataset.fontRole || null;
+      const collection = normalizeFontCollection(node.dataset.fontCollection, role);
+      if(!collection){ return; }
+      if(!node.dataset.fontCollection){ node.dataset.fontCollection = collection; }
+      if(!node.dataset.fontScope){ node.dataset.fontScope = context.scopeId; }
+      if(context.tabId){ node.dataset.fontTabId = context.tabId; }
+      if(!node.dataset.fontKey){ return; }
+      const selectionStoreKey = buildStoreKey(context.scopeId, node.dataset.fontKey, {
+        node,
+        tabId: context.tabId
+      });
+      const collectionToken = fontCollectionStoreToken(collection);
+      const collectionStoreKey = buildStoreKey(context.scopeId, collectionToken, {
+        node,
+        tabId: context.tabId
+      });
+      const graphStoreKey = buildStoreKey(context.scopeId, GRAPH_SCOPE_TOKEN, {
+        node,
+        tabId: context.tabId
+      });
+      registerNodeForKey(node, selectionStoreKey);
+      registerNodeForKey(node, collectionStoreKey);
+      registerNodeForKey(node, graphStoreKey);
+      applyEffectiveStyleForNode(node, { storeKey: collectionStoreKey, clearWhenEmpty: false });
+    });
+    registerLegendFrameGroupForStore(group, context.storeKey);
+    applyLegendFrameToGroup(group, getLegendFrameStyle(context));
+    return group;
+  }
+
+  function writeLegendFrameStyle(context, style, options = {}){
+    if(!context?.storeKey){ return false; }
+    const normalized = normalizeLegendFrameStyle(style);
+    const stored = setStoredStyle(context.storeKey, normalized, {
+      tabId: context.tabId || null,
+      reason: options.reason || 'legend-frame-write'
+    });
+    if(!stored){ return false; }
+    broadcastLegendFrame(context.storeKey, normalized);
+    if(options.dispatch !== false){
+      dispatchStyleChanged({
+        scopeId: context.scopeId || null,
+        tabId: context.tabId || null,
+        key: LEGEND_FRAME_TOKEN,
+        storeKey: context.storeKey,
+        style: cloneStyleSnapshot(normalized),
+        legendFrame: normalized
+      });
+    }
+    const activeContext = currentLegendFrameGroup ? resolveLegendFrameContext(currentLegendFrameGroup) : null;
+    if(activeContext?.storeKey === context.storeKey){
+      syncLegendFrameControlsFromTarget();
+    }
+    return true;
+  }
+
+  function recordLegendFrameUndo(context, previousStyle, nextStyle, label){
+    if(!context?.storeKey || legendFrameStylesEqual(previousStyle, nextStyle)){ return false; }
+    return Shared.styleUndo?.recordStateChange?.({
+      manager: Shared.undoManager || undoManager,
+      label: `font-controls:legend-border-${label || 'style'}`,
+      scope: inferUndoScopeForNode(currentTarget),
+      from: normalizeLegendFrameStyle(previousStyle),
+      to: normalizeLegendFrameStyle(nextStyle),
+      equals: legendFrameStylesEqual,
+      apply(value){
+        writeLegendFrameStyle(context, value, { reason: 'legend-frame-history' });
+      }
+    }) === true;
+  }
+
+  function currentLegendFrameContext(){
+    const group = currentLegendFrameGroup || resolveLegendFrameGroupFromTarget(currentTarget);
+    if(!group){ return null; }
+    currentLegendFrameGroup = registerLegendFrameGroup(group, {
+      scopeId: currentScope || null,
+      tabId: group.dataset?.fontTabId || currentTarget?.dataset?.fontTabId || null
+    }) || group;
+    return resolveLegendFrameContext(currentLegendFrameGroup);
+  }
+
+  function formatLegendBorderWidth(value){
+    const numeric = sanitizeLegendBorderWidth(value);
+    const toolbarApi = Shared.getWorkspaceToolbarApi?.() || Shared.workspaceToolbar || null;
+    const formatted = toolbarApi?.formatNumericValue?.(numeric, legendBorderWidthInput?.step || 0.25)
+      || String(Math.round(numeric * 100) / 100);
+    return `${formatted}px`;
+  }
+
+  function setLegendFrameControlsVisible(visible){
+    const show = visible === true;
+    [legendBorderFieldEl, legendBorderPatternFieldEl, legendBorderTransparencyFieldEl].forEach(field => {
+      if(field){ field.hidden = !show; }
+    });
+    if(panelEl){
+      if(show){ panelEl.dataset.legendControls = '1'; }
+      else{ delete panelEl.dataset.legendControls; }
+    }
+  }
+
+  function syncLegendFrameControlsFromTarget(){
+    if(!panelEl){ return; }
+    const group = resolveLegendFrameGroupFromTarget(currentTarget) || currentLegendFrameGroup;
+    if(!group){
+      currentLegendFrameGroup = null;
+      setLegendFrameControlsVisible(false);
+      return;
+    }
+    currentLegendFrameGroup = registerLegendFrameGroup(group, {
+      scopeId: currentScope || currentTarget?.dataset?.fontScope || null,
+      tabId: group.dataset?.fontTabId || currentTarget?.dataset?.fontTabId || null
+    }) || group;
+    const context = resolveLegendFrameContext(currentLegendFrameGroup);
+    if(!context){
+      setLegendFrameControlsVisible(false);
+      return;
+    }
+    const style = getLegendFrameStyle(context);
+    setLegendFrameControlsVisible(true);
+    if(legendBorderWidthInput){ legendBorderWidthInput.value = String(style.legendBorderWidth); }
+    if(legendBorderColorInput){ legendBorderColorInput.value = style.legendBorderColor; }
+    if(legendBorderPatternSelect){ legendBorderPatternSelect.value = style.legendBorderPattern; }
+    if(legendBorderTransparencyInput){ legendBorderTransparencyInput.value = String(style.legendBorderTransparency); }
+    if(legendBorderTransparencyValueEl){ legendBorderTransparencyValueEl.textContent = `${style.legendBorderTransparency}%`; }
+    if(legendBorderChipPreviewEl){
+      legendBorderChipPreviewEl.style.background = style.legendBorderColor;
+      legendBorderChipPreviewEl.style.opacity = String(Math.max(0.15, 1 - (style.legendBorderTransparency / 100)));
+    }
+    if(legendBorderChipValueEl){ legendBorderChipValueEl.textContent = formatLegendBorderWidth(style.legendBorderWidth); }
+  }
+
   function applyStyleToNode(node, style){
     if(!node || !style){ return; }
     const resolvedStyle = cloneStyleSnapshot(style) || {};
@@ -2947,7 +3582,11 @@
       );
     }
     const isSvgNode = isSvgTextTarget(node);
-    const applyToken = (attrName, cssProp, value) => {
+    const applyToken = (styleKey, attrName, cssProp) => {
+      if(!Object.prototype.hasOwnProperty.call(resolvedStyle, styleKey)){
+        return;
+      }
+      const value = resolvedStyle[styleKey];
       if(isSvgNode){
         if(value){ node.setAttribute(attrName, value); } else { node.removeAttribute(attrName); }
         return;
@@ -2963,13 +3602,13 @@
       }
       node.style[cssProp] = value || '';
     };
-    applyToken('font-family', 'fontFamily', resolvedStyle.fontFamily);
-    applyToken('font-weight', 'fontWeight', resolvedStyle.fontWeight);
-    applyToken('font-style', 'fontStyle', resolvedStyle.fontStyle);
-    applyToken('font-size', 'fontSize', resolvedStyle.fontSize);
-    applyToken('fill', 'color', resolvedStyle.fill);
-    applyToken('text-decoration', 'textDecoration', resolvedStyle.textDecoration);
-    applyToken('baseline-shift', 'verticalAlign', resolvedStyle.baselineShift);
+    applyToken('fontFamily', 'font-family', 'fontFamily');
+    applyToken('fontWeight', 'font-weight', 'fontWeight');
+    applyToken('fontStyle', 'font-style', 'fontStyle');
+    applyToken('fontSize', 'font-size', 'fontSize');
+    applyToken('fill', 'fill', 'color');
+    applyToken('textDecoration', 'text-decoration', 'textDecoration');
+    applyToken('baselineShift', 'baseline-shift', 'verticalAlign');
     if(node.style){
       // Title visibility is presentation state, not layout state. Keeping the
       // text in SVG geometry prevents title toggles from changing a user-sized
@@ -3001,7 +3640,7 @@
 
   function isStyleEmpty(style){
     if(!style){ return true; }
-    const baseEmpty = STYLE_KEYS.every(key => {
+    const baseEmpty = STYLE_STATE_KEYS.every(key => {
       const value = style[key];
       return value === undefined || value === null || value === '';
     });
@@ -3069,6 +3708,39 @@
     return resolveTokenFromStoreKey(storeKey) === GRAPH_SCOPE_TOKEN;
   }
 
+  function isLabelsStoreKey(storeKey){
+    return resolveTokenFromStoreKey(storeKey) === LABELS_SCOPE_TOKEN;
+  }
+
+  function isLegendStoreKey(storeKey){
+    return resolveTokenFromStoreKey(storeKey) === LEGEND_SCOPE_TOKEN;
+  }
+
+  function isScaleStoreKey(storeKey){
+    return resolveTokenFromStoreKey(storeKey) === SCALE_SCOPE_TOKEN;
+  }
+
+  function isBulkStoreKey(storeKey){
+    return isGraphStoreKey(storeKey) || isLabelsStoreKey(storeKey) || isLegendStoreKey(storeKey) || isScaleStoreKey(storeKey);
+  }
+
+  function normalizeFontCollection(collection, role){
+    const requested = String(collection || '').trim();
+    if(requested === 'labels' || requested === 'legend' || requested === 'scale'){
+      return requested;
+    }
+    if(role === 'legend'){ return 'legend'; }
+    if(role === 'scaleTick' || role === 'scaleTitle'){ return 'scale'; }
+    return null;
+  }
+
+  function fontCollectionStoreToken(collection){
+    if(collection === 'labels'){ return LABELS_SCOPE_TOKEN; }
+    if(collection === 'legend'){ return LEGEND_SCOPE_TOKEN; }
+    if(collection === 'scale'){ return SCALE_SCOPE_TOKEN; }
+    return null;
+  }
+
   function isStoreKeyInScope(storeKey, scope, tabToken){
     if(!storeKey || !scope){ return false; }
     if(tabToken){
@@ -3085,10 +3757,15 @@
     const changedStyle = options.style || null;
     const scope = dataset.fontScope || resolveScopeFromStoreKey(changedStoreKey) || null;
     const key = dataset.fontKey || resolveTokenFromStoreKey(changedStoreKey) || null;
+    const collection = normalizeFontCollection(dataset.fontCollection, dataset.fontRole);
     const tabId = dataset.fontTabId || resolveTabTokenFromStoreKey(changedStoreKey) || null;
     const graphStoreKey = buildStoreKey(scope, GRAPH_SCOPE_TOKEN, { node, tabId });
     const nodeStoreKey = key && key !== GRAPH_SCOPE_TOKEN
       ? buildStoreKey(scope, key, { node, tabId })
+      : null;
+    const collectionToken = fontCollectionStoreToken(collection);
+    const collectionStoreKey = collectionToken
+      ? buildStoreKey(scope, collectionToken, { node, tabId })
       : null;
     const graphStyle = hasChangedStyle && changedStoreKey === graphStoreKey
       ? changedStyle
@@ -3098,9 +3775,16 @@
           ? changedStyle
           : getStoredStyle(nodeStoreKey, { tabId, reason: 'effective-style-node' }))
       : null;
-    const hasStoredStyle = !!(cloneStyleSnapshot(graphStyle) || cloneStyleSnapshot(nodeStyle));
+    const collectionStyle = collectionStoreKey
+      ? (hasChangedStyle && changedStoreKey === collectionStoreKey
+          ? changedStyle
+          : getStoredStyle(collectionStoreKey, { tabId, reason: 'effective-style-collection' }))
+      : null;
+    const hasStoredStyle = !!(cloneStyleSnapshot(graphStyle)
+      || cloneStyleSnapshot(collectionStyle)
+      || cloneStyleSnapshot(nodeStyle));
     return {
-      style: mergeStyleSnapshots(graphStyle, nodeStyle),
+      style: mergeStyleSnapshots(mergeStyleSnapshots(graphStyle, collectionStyle), nodeStyle),
       hasStoredStyle
     };
   }
@@ -3171,8 +3855,51 @@
     return pruned;
   }
 
+  function pruneSelectionStylesForCollectionPatch(context, patchKeys, collection){
+    const scope = context?.scopeId || resolveScopeFromStoreKey(context?.storeKey) || null;
+    const collectionStoreKey = context?.storeKey || null;
+    const tabToken = resolveTabTokenFromStoreKey(collectionStoreKey)
+      || sanitizeTabToken(context?.tabId || null);
+    const keys = Array.isArray(patchKeys) ? patchKeys.filter(Boolean) : [];
+    if(!scope || !collectionStoreKey || !keys.length){ return 0; }
+    let pruned = 0;
+    const stale = [];
+    forEachStoredStyle(tabToken, (style, storeKey) => {
+      if(!isStoreKeyInScope(storeKey, scope, tabToken)
+        || storeKey === collectionStoreKey
+        || isBulkStoreKey(storeKey)){
+        return;
+      }
+      const registered = nodeGroupStore.get(storeKey);
+      let isCollectionNode = collection === 'labels'
+        && String(resolveTokenFromStoreKey(storeKey) || '').startsWith('pointLabel:');
+      if(supportsWeakRef){
+        isCollectionNode = isCollectionNode || !!registered?.refs?.some(ref => ref?.deref?.()?.dataset?.fontCollection === collection);
+      }else{
+        isCollectionNode = isCollectionNode || (!!registered?.nodes && Array.from(registered.nodes).some(node => node?.dataset?.fontCollection === collection));
+      }
+      if(!isCollectionNode){ return; }
+      const nextStyle = removeStyleProperties(style, keys);
+      if(nextStyle){
+        setStoredStyle(storeKey, nextStyle, { tabId: resolveTabTokenFromStoreKey(storeKey), reason: `${collection}-patch-prune-selection` });
+      }else{
+        stale.push(storeKey);
+      }
+      pruned += 1;
+    }, { reason: `${collection}-patch-prune-selection-iterate` });
+    stale.forEach(storeKey => deleteStoredStyle(storeKey, {
+      tabId: resolveTabTokenFromStoreKey(storeKey),
+      reason: `${collection}-patch-prune-empty-selection`
+    }));
+    return pruned;
+  }
+
   function broadcastStyle(storeKey, style, sourceNode){
     if(!storeKey){ return; }
+    if(storeKey.endsWith(`::${LEGEND_FRAME_TOKEN}`)){
+      broadcastLegendFrame(storeKey, style);
+      return;
+    }
     const entry = nodeGroupStore.get(storeKey);
     if(!entry){ return; }
     if(supportsWeakRef){
@@ -3182,6 +3909,8 @@
         if(node !== sourceNode){
           applyEffectiveStyleForNode(node, { storeKey, style, clearWhenEmpty: true });
         }
+        const frameGroup = resolveLegendFrameGroupFromTarget(node);
+        if(frameGroup){ registerLegendFrameGroup(frameGroup); }
         return true;
       });
     } else {
@@ -3193,6 +3922,8 @@
         }
         if(node === sourceNode){ return; }
         applyEffectiveStyleForNode(node, { storeKey, style, clearWhenEmpty: true });
+        const frameGroup = resolveLegendFrameGroupFromTarget(node);
+        if(frameGroup){ registerLegendFrameGroup(frameGroup); }
       });
       stale.forEach(node => entry.nodes.delete(node));
     }
@@ -3221,9 +3952,29 @@
           { scopeId: scope, tabId, storeKey },
           options?.patchKeys || STYLE_KEYS
         );
+      }else if(key === LABELS_SCOPE_TOKEN || isLabelsStoreKey(storeKey)){
+        pruneSelectionStylesForCollectionPatch(
+          { scopeId: scope, tabId, storeKey },
+          options?.patchKeys || STYLE_KEYS,
+          'labels'
+        );
+      }else if(key === LEGEND_SCOPE_TOKEN || isLegendStoreKey(storeKey)){
+        pruneSelectionStylesForCollectionPatch(
+          { scopeId: scope, tabId, storeKey },
+          options?.patchKeys || STYLE_KEYS,
+          'legend'
+        );
+      }else if(key === SCALE_SCOPE_TOKEN || isScaleStoreKey(storeKey)){
+        pruneSelectionStylesForCollectionPatch(
+          { scopeId: scope, tabId, storeKey },
+          options?.patchKeys || STYLE_KEYS,
+          'scale'
+        );
       }
       deleteStoredStyle(storeKey, { tabId, reason: 'store-style-for-node-clear' });
       broadcastStyle(storeKey, null, node);
+      const frameGroup = resolveLegendFrameGroupFromTarget(node);
+      if(frameGroup){ registerLegendFrameGroup(frameGroup); }
       logDebug('storeStyleForNode cleared', { scope, key, storeKey });
     } else {
       if(normalized.fontSize && !Number.isFinite(Number(normalized.fontSizeResizeReference))){
@@ -3234,9 +3985,29 @@
           { scopeId: scope, tabId, storeKey },
           options?.patchKeys || STYLE_KEYS
         );
+      }else if(key === LABELS_SCOPE_TOKEN || isLabelsStoreKey(storeKey)){
+        pruneSelectionStylesForCollectionPatch(
+          { scopeId: scope, tabId, storeKey },
+          options?.patchKeys || STYLE_KEYS,
+          'labels'
+        );
+      }else if(key === LEGEND_SCOPE_TOKEN || isLegendStoreKey(storeKey)){
+        pruneSelectionStylesForCollectionPatch(
+          { scopeId: scope, tabId, storeKey },
+          options?.patchKeys || STYLE_KEYS,
+          'legend'
+        );
+      }else if(key === SCALE_SCOPE_TOKEN || isScaleStoreKey(storeKey)){
+        pruneSelectionStylesForCollectionPatch(
+          { scopeId: scope, tabId, storeKey },
+          options?.patchKeys || STYLE_KEYS,
+          'scale'
+        );
       }
       setStoredStyle(storeKey, normalized, { tabId, reason: 'store-style-for-node-save' });
       broadcastStyle(storeKey, normalized, node);
+      const frameGroup = resolveLegendFrameGroupFromTarget(node);
+      if(frameGroup){ registerLegendFrameGroup(frameGroup); }
       logDebug('storeStyleForNode saved', {
         scope,
         key,
@@ -3527,6 +4298,7 @@
     updatePanelContext();
     updatePreviewText();
     updatePreviewFromInputs();
+    syncLegendFrameControlsFromTarget();
     logDebug('syncPanelStateFromTarget', {
       text: currentTarget.textContent,
       fontFamily: fontInput?.value || null,
@@ -3597,6 +4369,18 @@
     scopeGraphOpt.value = FONT_SCOPE_GRAPH;
     scopeGraphOpt.textContent = 'Graph';
     scopeSelectEl.appendChild(scopeSelectionOpt);
+    scopeLabelsOptionEl = doc.createElement('option');
+    scopeLabelsOptionEl.value = FONT_SCOPE_LABELS;
+    scopeLabelsOptionEl.textContent = 'Labels';
+    scopeSelectEl.appendChild(scopeLabelsOptionEl);
+    scopeLegendOptionEl = doc.createElement('option');
+    scopeLegendOptionEl.value = FONT_SCOPE_LEGEND;
+    scopeLegendOptionEl.textContent = 'Legend';
+    scopeSelectEl.appendChild(scopeLegendOptionEl);
+    scopeScaleOptionEl = doc.createElement('option');
+    scopeScaleOptionEl.value = FONT_SCOPE_SCALE;
+    scopeScaleOptionEl.textContent = 'Scale';
+    scopeSelectEl.appendChild(scopeScaleOptionEl);
     scopeSelectEl.appendChild(scopeGraphOpt);
     scopeWrapper.appendChild(scopeSelectEl);
     scopeWrapper.appendChild(scopeList);
@@ -4069,6 +4853,285 @@
     colorField.appendChild(colorInput);
     controlsRow.appendChild(colorField);
 
+    legendBorderFieldEl = doc.createElement('label');
+    legendBorderFieldEl.className = 'font-controls-panel__field additional-line-controls-panel__field font-controls-panel__field--legend-border';
+    legendBorderFieldEl.hidden = true;
+    const legendBorderLabel = doc.createElement('span');
+    legendBorderLabel.className = 'font-controls-panel__field-label additional-line-controls-panel__field-label';
+    legendBorderLabel.textContent = 'Legend border';
+    const legendBorderParts = toolbarApi.createBorderStyleControl({
+      chipTitle: 'Click to edit legend border color. Wheel or Alt+drag to adjust border width.',
+      chipAriaLabel: 'Legend border color and width',
+      includeThicknessInput: true,
+      thicknessInputClass: 'font-controls-panel__input additional-line-controls-panel__input additional-line-controls-panel__input--small',
+      thicknessInputAttrs: {
+        min: '0',
+        max: '10',
+        step: '0.25',
+        placeholder: '0',
+        'aria-label': 'Legend border width',
+        'data-undo-ignore': '1'
+      },
+      colorInputClass: 'shared-border-style-input font-controls-panel__color-input',
+      colorInputAttrs: {
+        'aria-label': 'Legend border color',
+        'data-undo-ignore': '1'
+      }
+    });
+    legendBorderWidthInput = legendBorderParts.thicknessInput;
+    legendBorderColorInput = legendBorderParts.colorInput;
+    legendBorderChipEl = legendBorderParts.chip;
+    legendBorderChipPreviewEl = legendBorderParts.preview;
+    legendBorderChipValueEl = legendBorderParts.value;
+    legendBorderFieldEl.appendChild(legendBorderLabel);
+    legendBorderFieldEl.appendChild(legendBorderWidthInput);
+    legendBorderFieldEl.appendChild(legendBorderParts.control);
+    controlsRow.appendChild(legendBorderFieldEl);
+
+    const legendPatternParts = toolbarApi.createLinePatternField({
+      label: 'Style',
+      fieldClass: 'font-controls-panel__field additional-line-controls-panel__field font-controls-panel__field--legend-pattern',
+      labelClass: 'font-controls-panel__field-label additional-line-controls-panel__field-label',
+      selectClass: 'font-controls-panel__input additional-line-controls-panel__input additional-line-controls-panel__input--select',
+      selectAttrs: { 'aria-label': 'Legend border style' },
+      options: [
+        { value: 'solid', label: 'Solid' },
+        { value: 'dashed', label: 'Dashed' },
+        { value: 'dotted', label: 'Dotted' }
+      ]
+    });
+    legendBorderPatternFieldEl = legendPatternParts?.field || null;
+    legendBorderPatternSelect = legendPatternParts?.select || null;
+    if(legendBorderPatternFieldEl){
+      legendBorderPatternFieldEl.hidden = true;
+      controlsRow.appendChild(legendBorderPatternFieldEl);
+    }
+
+    const legendTransparencyParts = toolbarApi.createTransparencyControl({
+      wrapClass: 'additional-line-controls-panel__range font-controls-panel__legend-transparency-range',
+      inputClass: 'additional-line-controls-panel__transparency-input',
+      inputAttrs: {
+        min: '0',
+        max: '100',
+        step: '1',
+        value: '0',
+        'aria-label': 'Legend border transparency',
+        'data-undo-ignore': '1'
+      },
+      valueClass: 'additional-line-controls-panel__range-value',
+      valueText: '0%'
+    });
+    const legendTransparencyFieldParts = toolbarApi.createLabeledField({
+      fieldClass: 'font-controls-panel__field additional-line-controls-panel__field additional-line-controls-panel__field--transparency font-controls-panel__field--legend-transparency',
+      label: 'Transparency',
+      labelClass: 'font-controls-panel__field-label additional-line-controls-panel__field-label',
+      control: legendTransparencyParts?.wrap || null
+    });
+    legendBorderTransparencyFieldEl = legendTransparencyFieldParts?.field || null;
+    legendBorderTransparencyInput = legendTransparencyParts?.input || null;
+    legendBorderTransparencyValueEl = legendTransparencyParts?.value || null;
+    if(legendBorderTransparencyFieldEl){
+      legendBorderTransparencyFieldEl.hidden = true;
+      controlsRow.appendChild(legendBorderTransparencyFieldEl);
+    }
+
+    const ensureLegendWidthInteraction = () => {
+      const context = currentLegendFrameContext();
+      if(!context){ return null; }
+      if(!legendBorderWidthInteraction || legendBorderWidthInteraction.context.storeKey !== context.storeKey){
+        legendBorderWidthInteraction = { context, before: getLegendFrameStyle(context) };
+      }
+      return legendBorderWidthInteraction;
+    };
+    const ensureLegendColorInteraction = () => {
+      const context = currentLegendFrameContext();
+      if(!context){ return null; }
+      if(!legendBorderColorInteraction || legendBorderColorInteraction.context.storeKey !== context.storeKey){
+        legendBorderColorInteraction = { context, before: getLegendFrameStyle(context) };
+      }
+      return legendBorderColorInteraction;
+    };
+    const ensureLegendTransparencyInteraction = () => {
+      const context = currentLegendFrameContext();
+      if(!context){ return null; }
+      if(!legendBorderTransparencyInteraction || legendBorderTransparencyInteraction.context.storeKey !== context.storeKey){
+        legendBorderTransparencyInteraction = { context, before: getLegendFrameStyle(context) };
+      }
+      return legendBorderTransparencyInteraction;
+    };
+    const applyLegendPatch = (interaction, patch, reason, options = {}) => {
+      if(!interaction?.context){ return null; }
+      const current = getLegendFrameStyle(interaction.context);
+      const next = normalizeLegendFrameStyle({ ...current, ...(patch || {}) });
+      writeLegendFrameStyle(interaction.context, next, {
+        reason: reason || 'legend-frame-input',
+        dispatch: options.dispatch !== false
+      });
+      return next;
+    };
+
+    legendBorderWidthInput?.addEventListener('input', () => {
+      const interaction = ensureLegendWidthInteraction();
+      if(!interaction){ return; }
+      applyLegendPatch(interaction, {
+        legendBorderWidth: sanitizeLegendBorderWidth(legendBorderWidthInput.value)
+      }, 'legend-border-width-live', { dispatch: false });
+    });
+    legendBorderWidthInput?.addEventListener('change', () => {
+      const interaction = ensureLegendWidthInteraction();
+      if(!interaction){ return; }
+      const next = applyLegendPatch(interaction, {
+        legendBorderWidth: sanitizeLegendBorderWidth(legendBorderWidthInput.value)
+      }, 'legend-border-width-commit');
+      if(next){ recordLegendFrameUndo(interaction.context, interaction.before, next, 'width'); }
+      legendBorderWidthInteraction = null;
+    });
+    toolbarApi.bindNumericWheelEnd?.(legendBorderWidthInput, detail => {
+      if(detail.committed !== true){ legendBorderWidthInteraction = null; }
+    });
+    toolbarApi.bindNumericWheelProxy?.(legendBorderChipEl, legendBorderWidthInput);
+
+    const onLegendBorderDragMove = evt => {
+      if(!legendBorderDragState || !legendBorderWidthInput){ return; }
+      const deltaX = evt.clientX - legendBorderDragState.startX;
+      const steps = Math.round(deltaX / 8);
+      const step = toolbarApi.getNumericWheelStep?.(legendBorderWidthInput) || Number(legendBorderWidthInput.step) || 0.25;
+      legendBorderWidthInput.value = String(legendBorderDragState.startValue + (steps * step));
+      legendBorderWidthInput.dispatchEvent(new Event('input', { bubbles: true }));
+    };
+    const cleanupLegendBorderDrag = () => {
+      global.removeEventListener('mousemove', onLegendBorderDragMove);
+      global.removeEventListener('mouseup', onLegendBorderDragEnd);
+      legendBorderDragCleanup = null;
+    };
+    const onLegendBorderDragEnd = () => {
+      const shouldCommit = !!legendBorderDragState && !!legendBorderWidthInput;
+      legendBorderDragState = null;
+      if(shouldCommit){
+        legendBorderWidthInput.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+      cleanupLegendBorderDrag();
+    };
+    legendBorderChipEl?.addEventListener('mousedown', evt => {
+      if(!evt.altKey || evt.button !== 0 || !legendBorderWidthInput){ return; }
+      evt.preventDefault();
+      suppressLegendBorderChipClick = true;
+      if(typeof legendBorderDragCleanup === 'function'){
+        legendBorderDragCleanup();
+      }
+      legendBorderDragState = {
+        startX: evt.clientX,
+        startValue: sanitizeLegendBorderWidth(legendBorderWidthInput.value)
+      };
+      legendBorderDragCleanup = cleanupLegendBorderDrag;
+      global.addEventListener('mousemove', onLegendBorderDragMove);
+      global.addEventListener('mouseup', onLegendBorderDragEnd);
+    });
+
+    legendBorderColorInput?.addEventListener('input', () => {
+      const interaction = ensureLegendColorInteraction();
+      if(!interaction){ return; }
+      applyLegendPatch(interaction, {
+        legendBorderColor: sanitizeLegendBorderColor(legendBorderColorInput.value)
+      }, 'legend-border-color-live', { dispatch: false });
+    });
+    legendBorderColorInput?.addEventListener('change', () => {
+      const interaction = ensureLegendColorInteraction();
+      if(!interaction){ return; }
+      const next = applyLegendPatch(interaction, {
+        legendBorderColor: sanitizeLegendBorderColor(legendBorderColorInput.value)
+      }, 'legend-border-color-commit');
+      if(next){ recordLegendFrameUndo(interaction.context, interaction.before, next, 'color'); }
+      legendBorderColorInteraction = null;
+    });
+
+    if(typeof Shared.openColorPicker === 'function'){
+      legendBorderChipEl?.addEventListener('click', evt => {
+        if(suppressLegendBorderChipClick){
+          suppressLegendBorderChipClick = false;
+          evt.preventDefault();
+          evt.stopPropagation();
+          return;
+        }
+        evt.preventDefault();
+        evt.stopPropagation();
+        const overlayEl = Shared.openColorPicker({
+          anchor: legendBorderChipEl,
+          color: legendBorderColorInput?.value || LEGEND_FRAME_DEFAULTS.legendBorderColor,
+          element: legendBorderColorInput,
+          onInput(value){
+            if(!legendBorderColorInput){ return; }
+            legendBorderColorInput.value = sanitizeLegendBorderColor(value);
+            legendBorderColorInput.dispatchEvent(new Event('input', { bubbles: true }));
+          },
+          onChange(value){
+            if(!legendBorderColorInput){ return; }
+            legendBorderColorInput.value = sanitizeLegendBorderColor(value);
+            legendBorderColorInput.dispatchEvent(new Event('change', { bubbles: true }));
+          },
+          onClose(){
+            if(typeof legendBorderPickerCleanup === 'function'){
+              legendBorderPickerCleanup();
+              legendBorderPickerCleanup = null;
+            }
+            legendBorderColorInteraction = null;
+            legendBorderWidthInteraction = null;
+          }
+        });
+        if(typeof legendBorderPickerCleanup === 'function'){
+          legendBorderPickerCleanup();
+          legendBorderPickerCleanup = null;
+        }
+        legendBorderPickerCleanup = toolbarApi.attachColorPickerNumericSection?.(overlayEl, {
+          canonicalInput: legendBorderWidthInput,
+          title: 'Border width',
+          ariaLabel: 'Legend border width',
+          sectionClass: 'shared-color-picker__section--legend-border'
+        }) || null;
+      });
+    }else if(typeof Shared.attachColorPickerNear === 'function'){
+      Shared.attachColorPickerNear(legendBorderColorInput);
+      legendBorderChipEl?.addEventListener('click', evt => {
+        if(suppressLegendBorderChipClick){
+          suppressLegendBorderChipClick = false;
+          evt.preventDefault();
+          evt.stopPropagation();
+          return;
+        }
+        evt.preventDefault();
+        legendBorderColorInput?.click?.();
+      });
+    }
+
+    legendBorderPatternSelect?.addEventListener('change', () => {
+      const context = currentLegendFrameContext();
+      if(!context){ return; }
+      const before = getLegendFrameStyle(context);
+      const next = normalizeLegendFrameStyle({
+        ...before,
+        legendBorderPattern: sanitizeLegendBorderPattern(legendBorderPatternSelect.value)
+      });
+      writeLegendFrameStyle(context, next, { reason: 'legend-border-pattern' });
+      recordLegendFrameUndo(context, before, next, 'style');
+    });
+
+    legendBorderTransparencyInput?.addEventListener('input', () => {
+      const interaction = ensureLegendTransparencyInteraction();
+      if(!interaction){ return; }
+      applyLegendPatch(interaction, {
+        legendBorderTransparency: sanitizeLegendBorderTransparency(legendBorderTransparencyInput.value)
+      }, 'legend-border-transparency-live', { dispatch: false });
+    });
+    legendBorderTransparencyInput?.addEventListener('change', () => {
+      const interaction = ensureLegendTransparencyInteraction();
+      if(!interaction){ return; }
+      const next = applyLegendPatch(interaction, {
+        legendBorderTransparency: sanitizeLegendBorderTransparency(legendBorderTransparencyInput.value)
+      }, 'legend-border-transparency-commit');
+      if(next){ recordLegendFrameUndo(interaction.context, interaction.before, next, 'transparency'); }
+      legendBorderTransparencyInteraction = null;
+    });
+
     logDebug('format toggles initialized', { toggleCount: formatButtonsRow.children.length });
     resolveFormatRowWidth();
 
@@ -4094,7 +5157,7 @@
     }
 
     function captureScopeStylesForUndo(storeContext){
-      if(!storeContext || !isGraphStoreKey(storeContext.storeKey) || !storeContext.scopeId){
+      if(!storeContext || !isBulkStoreKey(storeContext.storeKey) || !storeContext.scopeId){
         return null;
       }
       return cloneScopeStylesSnapshot(exportScopeStyles(storeContext.scopeId, {
@@ -4235,13 +5298,44 @@
       logDebug('colorInput input', { value: val, text: currentTarget.textContent });
     });
 
-    function applySizeValueChange(meta){
-      if(!currentTarget || !sizeInput){ return; }
-      const prevStyle = captureStyleSnapshot(currentTarget);
+    let sizeWheelInteraction = null;
+    const hasActiveInlineSelectionForSize = () => {
+      if(!currentTarget){ return false; }
+      if(isContentEditableTarget(currentTarget)){
+        const resolved = resolveContentEditableSelectionRange(currentTarget);
+        return !!(resolved?.range && !resolved.range.collapsed);
+      }
+      const inlineState = getInlineState(currentTarget);
+      if(!inlineState || typeof inlineState.describeSelection !== 'function'){
+        return false;
+      }
+      try{
+        return inlineState.describeSelection()?.hasSelection === true;
+      }catch(_err){
+        return false;
+      }
+    };
+    const captureSizeUndoBaseline = () => {
+      if(!currentTarget){ return null; }
       const storeContext = resolveStoreContext(currentTarget, { scopeId: currentScope, key: currentKey });
-      const prevStoreStyle = cloneStyleSnapshot(getStoredStyle(storeContext.storeKey, { reason: 'font-size-prev-store' }));
-      const prevScopeStyles = captureScopeStylesForUndo(storeContext);
-      const normalized = normalizeFontSizeValue(sizeInput.value, { source: meta?.source || 'change' });
+      return {
+        target: currentTarget,
+        prevStyle: captureStyleSnapshot(currentTarget),
+        storeContext,
+        prevStoreStyle: cloneStyleSnapshot(getStoredStyle(storeContext.storeKey, { reason: 'font-size-prev-store' })),
+        prevScopeStyles: captureScopeStylesForUndo(storeContext)
+      };
+    };
+
+    function applySizeValueChange(meta = {}){
+      if(!currentTarget || !sizeInput){ return; }
+      const baseline = meta.undoBaseline && meta.undoBaseline.target === currentTarget
+        ? meta.undoBaseline
+        : captureSizeUndoBaseline();
+      if(!baseline){ return; }
+      const shouldRecordUndo = meta.recordUndo !== false;
+      const { prevStyle, storeContext, prevStoreStyle, prevScopeStyles } = baseline;
+      const normalized = normalizeFontSizeValue(sizeInput.value, { source: meta.source || 'change' });
       sizeInput.value = normalized;
       highlightSizeMenuSelection(normalized);
       const raw = normalized.trim();
@@ -4255,7 +5349,7 @@
         }
       }
       const inlineResult = handleInlineSelectionPatch({ fontSize: val }, {
-        source: meta?.source || 'size-change',
+        source: meta.source || 'size-change',
         action: 'font-size'
       });
       if(inlineResult.handled){
@@ -4283,20 +5377,39 @@
         }
       }
       updatePreviewFromInputs();
-      recordStyleUndo(currentTarget, prevStyle, nextStyle, {
-        label: 'font-size',
-        storeContext,
-        prevStoreStyle,
-        nextStoreStyle: storePayload,
-        prevScopeStyles,
-        nextScopeStyles,
-        patchKeys
+      if(shouldRecordUndo){
+        recordStyleUndo(currentTarget, prevStyle, nextStyle, {
+          label: 'font-size',
+          storeContext,
+          prevStoreStyle,
+          nextStoreStyle: storePayload,
+          prevScopeStyles,
+          nextScopeStyles,
+          patchKeys
+        });
+      }
+      logDebug('sizeInput change', {
+        value: raw,
+        applied: nextStyle?.fontSize || null,
+        text: currentTarget.textContent,
+        phase: shouldRecordUndo ? 'commit' : 'live'
       });
-      logDebug('sizeInput change', { value: raw, applied: nextStyle?.fontSize || null, text: currentTarget.textContent });
     }
 
     sizeInput.addEventListener('change', () => {
-      applySizeValueChange({ source: 'change' });
+      const wheelCommit = toolbarApi.getNumericWheelPhase?.(sizeInput) === 'commit';
+      const baseline = wheelCommit ? sizeWheelInteraction : null;
+      sizeWheelInteraction = null;
+      applySizeValueChange({
+        source: wheelCommit ? 'wheel-commit' : 'change',
+        undoBaseline: baseline || undefined
+      });
+    });
+
+    toolbarApi?.bindNumericWheelEnd?.(sizeInput, detail => {
+      if(detail.committed !== true){
+        sizeWheelInteraction = null;
+      }
     });
 
     sizeInput.addEventListener('input', () => {
@@ -4307,7 +5420,18 @@
       }
       highlightSizeMenuSelection(sizeInput.value);
       updatePreviewFromInputs();
-      logDebug('sizeInput input preview', { value: sizeInput.value });
+      const wheelLive = toolbarApi.getNumericWheelPhase?.(sizeInput) === 'live';
+      if(wheelLive && currentTarget && !hasActiveInlineSelectionForSize()){
+        if(!sizeWheelInteraction || sizeWheelInteraction.target !== currentTarget){
+          sizeWheelInteraction = captureSizeUndoBaseline();
+        }
+        applySizeValueChange({
+          source: 'wheel-live',
+          recordUndo: false,
+          undoBaseline: sizeWheelInteraction || undefined
+        });
+      }
+      logDebug('sizeInput input preview', { value: sizeInput.value, wheelLive });
     });
 
     const toggleHandler = (btn, attr, activeValue, propKey, options) => {
@@ -4414,6 +5538,10 @@
         logDebug('panel click ignored (inline edit overlay)', {});
         return;
       }
+      if(typeof Shared.isColorPickerOpenFor === 'function' && (Shared.isColorPickerOpenFor(panelEl) || Shared.isColorPickerOpenFor(activeHost))){
+        logDebug('panel click ignored (owned color picker open)', {});
+        return;
+      }
       if(target?.closest?.('.shared-color-picker') || target?.closest?.('[data-font-controls-overlay="1"]')){
         logDebug('panel click ignored (color overlay focus)', {});
         return;
@@ -4466,6 +5594,19 @@
     if(colorInput){
       colorInput.__fontControlsAvoidRect = null;
     }
+    if(typeof legendBorderPickerCleanup === 'function'){
+      try{ legendBorderPickerCleanup(); }catch(_err){}
+      legendBorderPickerCleanup = null;
+    }
+    legendBorderWidthInteraction = null;
+    legendBorderColorInteraction = null;
+    legendBorderTransparencyInteraction = null;
+    if(typeof legendBorderDragCleanup === 'function'){
+      legendBorderDragCleanup();
+    }
+    legendBorderDragState = null;
+    suppressLegendBorderChipClick = false;
+    setLegendFrameControlsVisible(false);
     try {
       const editHighlight = Shared.editHighlight;
       if(editHighlight && typeof editHighlight.clearText === 'function'){
@@ -4479,6 +5620,7 @@
     currentTarget = null;
     currentScope = null;
     currentKey = null;
+    currentLegendFrameGroup = null;
     openerClickEventRef = null;
     openerClickEventStamp = null;
     logDebug('panel closed', { reason });
@@ -4494,6 +5636,13 @@
     currentTarget = target;
     currentScope = options?.scopeId || target.dataset?.fontScope || null;
     currentKey = options?.key || target.dataset?.fontKey || null;
+    currentLegendFrameGroup = resolveLegendFrameGroupFromTarget(target);
+    if(currentLegendFrameGroup){
+      registerLegendFrameGroup(currentLegendFrameGroup, {
+        scopeId: currentScope || null,
+        tabId: options?.tabId || target.dataset?.fontTabId || null
+      });
+    }
     rememberOpenerClickEvent(options?.triggerEvent || null);
     if(isContentEditableTarget(currentTarget)){
       cacheContentEditableSelection(currentTarget, 'panel-open');
@@ -4653,13 +5802,19 @@
     const svg = options.svg || node.ownerSVGElement || null;
     const scopeId = resolveInheritedFontDataset(node, 'fontScope') || svgScopeMap.get(svg) || null;
     const key = node.dataset?.fontKey || null;
+    const collection = node.dataset?.fontCollection || null;
     const tabToken = resolveStoreTabToken({
       node,
       tabId: resolveInheritedFontDataset(node, 'fontTabId') || svg?.dataset?.fontTabId || null
     });
     const storeKey = buildStoreKey(scopeId, key, { node, tabId: tabToken });
     const graphStoreKey = buildStoreKey(scopeId, GRAPH_SCOPE_TOKEN, { node, tabId: tabToken });
+    const collectionToken = fontCollectionStoreToken(normalizeFontCollection(collection, node.dataset?.fontRole));
+    const collectionStoreKey = collectionToken
+      ? buildStoreKey(scopeId, collectionToken, { node, tabId: tabToken })
+      : null;
     registerNodeForKey(node, storeKey);
+    if(collectionStoreKey){ registerNodeForKey(node, collectionStoreKey); }
     if(graphStoreKey !== storeKey){
       registerNodeForKey(node, graphStoreKey);
     }
@@ -4671,33 +5826,45 @@
   function handleSvgClick(evt){
     let target = evt.target;
     if(!target){ return; }
+    let frameGroup = resolveLegendFrameGroupFromTarget(target);
     if(target.tagName?.toLowerCase() !== 'text'){
-      if(typeof target.closest === 'function'){
+      const isLegendFrame = target.matches?.('[data-font-legend-frame="1"]') === true;
+      if(isLegendFrame && frameGroup){
+        target = frameGroup.querySelector?.('text[data-font-key], text') || target;
+      }else if(typeof target.closest === 'function'){
         const ownerText = target.closest('text');
-        if(ownerText){
-          target = ownerText;
-        }
+        if(ownerText){ target = ownerText; }
       }
     }
     if(!target || target.tagName?.toLowerCase() !== 'text'){ return; }
+    frameGroup = frameGroup || resolveLegendFrameGroupFromTarget(target);
+    const isFrameText = !!frameGroup;
     const editableFlag = target.dataset?.fontEditable
       ?? resolveInheritedFontDataset(target, 'fontEditable');
-    if(editableFlag === '0'){ return; }
-    const isEditable = editableFlag === '1' || editableFlag === null || typeof editableFlag === 'undefined';
+    if(editableFlag === '0' && !isFrameText){ return; }
+    const isEditable = isFrameText
+      || editableFlag === '1'
+      || editableFlag === null
+      || typeof editableFlag === 'undefined';
     if(!isEditable){ return; }
     const svg = evt.currentTarget;
     ensureDeferredTextRegistration(target, { svg });
     const scope = target.dataset?.fontScope
       || resolveInheritedFontDataset(target, 'fontScope')
+      || frameGroup?.dataset?.fontScope
       || svgScopeMap.get(svg)
       || null;
     const key = target.dataset?.fontKey || null;
-    const tabId = target.dataset?.fontTabId
+    const tabId = (frameGroup?.dataset?.fontTabId || null)
+      || target.dataset?.fontTabId
       || resolveInheritedFontDataset(target, 'fontTabId')
       || svg?.dataset?.fontTabId
       || null;
+    if(frameGroup){
+      registerLegendFrameGroup(frameGroup, { scopeId: scope, tabId });
+    }
     openPanelForTarget(target, { scopeId: scope, key, tabId, triggerEvent: evt });
-    // Ensure editable-text selection is handled by font controls only.
+    // Ensure editable text/legend selection is handled by font controls only.
     try{ evt.stopPropagation(); }catch(e){}
   }
 
@@ -4712,6 +5879,12 @@
       svg.dataset.fontTabId = tabToken;
     }
     svgScopeMap.set(svg, scopeId);
+    // Re-adopt serialized legend ownership before handling input. Cached/reopened
+    // SVG nodes may carry an old workspace tab id; the current owner supplied by
+    // the component interaction binder is authoritative for this SVG instance.
+    svg.querySelectorAll?.('[data-font-legend="1"], [data-legend-viewport-content="true"]').forEach(group => {
+      registerLegendFrameGroup(group, { scopeId, tabId: tabToken || null });
+    });
     if(svgRegistry.has(svg)){ return; }
     svg.addEventListener('click', handleSvgClick, true);
     svgRegistry.add(svg);
@@ -4728,38 +5901,57 @@
     const scopeId = options?.scopeId || node.dataset?.fontScope || null;
     const role = options?.role || null;
     const key = options?.key || role || null;
+    const collection = normalizeFontCollection(options?.collection, role);
     const tabToken = resolveStoreTabToken({ node, tabId: options?.tabId || null });
     const compactContext = options?.compactContext === true;
     const deferRegistration = options?.deferRegistration === true;
+    const frameGroup = role === 'legend'
+      ? (node.closest?.('[data-legend-viewport-content="true"]') || resolveLegendFrameGroupFromTarget(node))
+      : resolveLegendFrameGroupFromTarget(node);
     if(node.dataset){
       node.dataset.fontEditable = '1';
       if(scopeId && !compactContext){ node.dataset.fontScope = scopeId; }
       if(tabToken && !compactContext){ node.dataset.fontTabId = tabToken; }
       if(role){ node.dataset.fontRole = role; }
       if(key){ node.dataset.fontKey = key; }
+      if(collection){ node.dataset.fontCollection = collection; }
       if(deferRegistration){ deferredTextNodes.add(node); }
     }
     const storeKey = buildStoreKey(scopeId, key, { node, tabId: tabToken });
     const graphStoreKey = buildStoreKey(scopeId, GRAPH_SCOPE_TOKEN, { node, tabId: tabToken });
+    const collectionToken = fontCollectionStoreToken(collection);
+    const collectionStoreKey = collectionToken
+      ? buildStoreKey(scopeId, collectionToken, { node, tabId: tabToken })
+      : null;
     if(deferRegistration){
       const selectionStyle = key && key !== GRAPH_SCOPE_TOKEN
         ? getStoredStyle(storeKey, { tabId: tabToken, reason: 'deferred-text-selection-style' })
         : null;
-      if(selectionStyle && !isStyleEmpty(selectionStyle)){
+      const collectionStyle = collectionStoreKey
+        ? getStoredStyle(collectionStoreKey, { tabId: tabToken, reason: 'deferred-text-collection-style' })
+        : null;
+      const graphStyle = graphStoreKey
+        ? getStoredStyle(graphStoreKey, { tabId: tabToken, reason: 'deferred-text-graph-style' })
+        : null;
+      if([selectionStyle, collectionStyle, graphStyle].some(style => style && !isStyleEmpty(style))){
         registerNodeForKey(node, storeKey);
+        if(collectionStoreKey){ registerNodeForKey(node, collectionStoreKey); }
         if(graphStoreKey !== storeKey){
           registerNodeForKey(node, graphStoreKey);
         }
         deferredTextNodes.delete(node);
         applyEffectiveStyleForNode(node, { storeKey, clearWhenEmpty: false });
       }
+      if(frameGroup){ registerLegendFrameGroup(frameGroup, { scopeId, tabId: tabToken }); }
       return;
     }
     registerNodeForKey(node, storeKey);
+    if(collectionStoreKey){ registerNodeForKey(node, collectionStoreKey); }
     if(graphStoreKey !== storeKey){
       registerNodeForKey(node, graphStoreKey);
     }
     applyEffectiveStyleForNode(node, { storeKey, clearWhenEmpty: false });
+    if(frameGroup){ registerLegendFrameGroup(frameGroup, { scopeId, tabId: tabToken }); }
     logDebug('markText applied', { scopeId, tabToken: tabToken || null, role, key, text: node?.textContent });
   }
 
@@ -4783,6 +5975,11 @@
     Array.from(nodeGroupStore.keys()).forEach(storeKey => {
       if(isStoreKeyOwnedByTab(storeKey, tabToken)){
         nodeGroupStore.delete(storeKey);
+      }
+    });
+    Array.from(legendFrameGroupStore.keys()).forEach(storeKey => {
+      if(isStoreKeyOwnedByTab(storeKey, tabToken)){
+        legendFrameGroupStore.delete(storeKey);
       }
     });
     Array.from(toolbarHostMap.entries()).forEach(([key, host]) => {

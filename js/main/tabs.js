@@ -40,7 +40,7 @@
     });
     const WELCOME_EXAMPLE_MAX_ATTEMPTS = 10;
     const WELCOME_EXAMPLE_RETRY_DELAY_MS = 60;
-    const DEFAULT_GRAPH_CARD_ICON = '<svg class="welcome-graph-icon" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg" focusable="false" aria-hidden="true"><path class="welcome-icon__axis" d="M10 38.5H40 M10 38.5V10" /><path class="welcome-icon__primary" d="M14 32L21 25L28 29L36 17" /></svg>';
+
     let lastWelcomeVariantLaunch = null;
     const welcomePreloadPromises = new Map();
     normalizedGraphVariants.sort((a, b) => {
@@ -76,6 +76,14 @@
     let pickerDropdownOpen = false;
     let pickerDismissListenerBound = false;
     let resizeListenerBound = false;
+    let welcomeExamplesDialogBound = false;
+    let welcomeExamplesDialogReturnFocus = null;
+    let welcomePopularCarouselBound = false;
+    let welcomePopularCarouselResizeObserver = null;
+    let welcomePopularCarouselWheelFrame = 0;
+    let welcomePopularCarouselWheelTarget = 0;
+    let welcomePopularCarouselWheelIdleTimer = 0;
+    let welcomeExamplesDialogPreviousOverflow = null;
 
     if (!session || !previews || !domControls || !tabDrag || !dom || !workspaceState || typeof withSessionContext !== 'function') {
       const details = {
@@ -889,30 +897,12 @@
       console.debug('Debug: add tab invoked', { newTabId: newTab.id, duplicateSource: candidateSource });
     }
 
-    function setTextIfDifferent(element, value) {
-      if (element && element.textContent !== value) {
-        element.textContent = value;
-      }
-    }
-
-    function syncGraphCardContent(card, info) {
-      if (!card || !info) return;
-      const icon = card.querySelector('.graph-card__icon');
-      if (icon && !icon.querySelector('.welcome-graph-icon')) {
-        icon.innerHTML = info.icon || DEFAULT_GRAPH_CARD_ICON;
-      }
-      setTextIfDifferent(card.querySelector('.graph-card__hint'), info.hint || 'Workspace');
-      setTextIfDifferent(card.querySelector('.graph-card__title'), info.label || info.type);
-      setTextIfDifferent(card.querySelector('.graph-card__description'), info.description || '');
-    }
-
     function bindGraphCardActions(card, info) {
       if (!card || !info?.type || card.dataset.welcomeCardHydrated === 'true') {
         return false;
       }
       card.setAttribute('role', 'listitem');
       card.dataset.graphType = info.type;
-      syncGraphCardContent(card, info);
       bindWelcomeGraphPreload(card, info.type, 'welcome-card');
 
       const newButton = card.querySelector('[data-welcome-action="new"], .graph-card__action--new');
@@ -944,58 +934,343 @@
     }
 
     function createGraphCard(info) {
-      const card = document.createElement('article');
-      card.className = 'graph-card';
-      card.dataset.graphType = info.type;
-
-      const main = document.createElement('div');
-      main.className = 'graph-card__main';
-
-      const icon = document.createElement('div');
-      icon.className = 'graph-card__icon';
-      icon.setAttribute('aria-hidden', 'true');
-      icon.innerHTML = info.icon || DEFAULT_GRAPH_CARD_ICON;
-      main.appendChild(icon);
-
-      const content = document.createElement('div');
-      content.className = 'graph-card__content';
-
-      const hint = document.createElement('span');
-      hint.className = 'graph-card__hint';
-      hint.textContent = info.hint || 'Workspace';
-      content.appendChild(hint);
-
-      const title = document.createElement('h3');
-      title.className = 'graph-card__title';
-      title.textContent = info.label;
-      content.appendChild(title);
-
-      main.appendChild(content);
-      card.appendChild(main);
-
-      const description = document.createElement('p');
-      description.className = 'graph-card__description';
-      description.textContent = info.description;
-      card.appendChild(description);
-
-      const actions = document.createElement('div');
-      actions.className = 'graph-card__actions';
-
-      const newButton = document.createElement('button');
-      newButton.className = 'graph-card__action graph-card__action--new';
-      newButton.textContent = 'New';
-      newButton.dataset.welcomeAction = 'new';
-      actions.appendChild(newButton);
-
-      const exampleButton = document.createElement('button');
-      exampleButton.className = 'graph-card__action graph-card__action--example';
-      exampleButton.textContent = 'Load example';
-      exampleButton.dataset.welcomeAction = 'example';
-      actions.appendChild(exampleButton);
-
-      card.appendChild(actions);
+      const card = Main.bootstrap.createWelcomeGraphCard(info);
       bindGraphCardActions(card, info);
       return card;
+    }
+
+
+    function createWelcomeExampleCard(info, options = {}) {
+      if (!info?.type) {
+        return null;
+      }
+      const compact = options.compact === true;
+      const card = Main.bootstrap.createWelcomeExampleCard(info, options);
+      bindWelcomeGraphPreload(card, info.type, compact ? 'welcome-popular-example' : 'welcome-example-gallery');
+      card.addEventListener('click', event => {
+        event.preventDefault();
+        closeWelcomeExamplesDialog({ restoreFocus: false, reason: 'launch-example' });
+        void launchWelcomeGraph(info.type, {
+          loadExample: true,
+          reason: compact ? 'welcome-popular-example' : 'welcome-all-examples'
+        });
+      });
+      return card;
+    }
+
+    function renderWelcomeExampleCollection(container, items, options = {}) {
+      if (!container) {
+        return 0;
+      }
+      container.textContent = '';
+      const fragment = document.createDocumentFragment();
+      let count = 0;
+      items.forEach(info => {
+        const card = createWelcomeExampleCard(info, options);
+        if (!card) {
+          return;
+        }
+        const item = document.createElement('div');
+        item.className = 'welcome-example-item';
+        item.setAttribute('role', 'listitem');
+        item.appendChild(card);
+        fragment.appendChild(item);
+        count += 1;
+      });
+      if (count > 0) {
+        container.appendChild(fragment);
+      }
+      return count;
+    }
+
+    function getWelcomeExamplesDialogFocusableElements() {
+      const dialog = dom.welcomeExamplesDialog;
+      if (!dialog || dialog.hidden) {
+        return [];
+      }
+      return Array.from(dialog.querySelectorAll([
+        'button:not([disabled])',
+        '[href]',
+        'input:not([disabled])',
+        'select:not([disabled])',
+        'textarea:not([disabled])',
+        '[tabindex]:not([tabindex="-1"])'
+      ].join(','))).filter(element => {
+        if (!element || element.closest('[hidden]')) {
+          return false;
+        }
+        const style = window.getComputedStyle?.(element);
+        return style?.display !== 'none' && style?.visibility !== 'hidden';
+      });
+    }
+
+    function openWelcomeExamplesDialog() {
+      const dialog = dom.welcomeExamplesDialog;
+      if (!dialog || !dialog.hidden) {
+        return false;
+      }
+      welcomeExamplesDialogReturnFocus = document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : dom.welcomeViewAllExamples || null;
+      welcomeExamplesDialogPreviousOverflow = document.body.style.overflow;
+      dialog.hidden = false;
+      dialog.setAttribute('aria-hidden', 'false');
+      document.body.style.overflow = 'hidden';
+      window.requestAnimationFrame(() => {
+        const panel = dialog.querySelector('.welcome-dialog__panel');
+        panel?.focus?.();
+      });
+      return true;
+    }
+
+    function closeWelcomeExamplesDialog(options = {}) {
+      const dialog = dom.welcomeExamplesDialog;
+      if (!dialog || dialog.hidden) {
+        return false;
+      }
+      dialog.hidden = true;
+      dialog.setAttribute('aria-hidden', 'true');
+      document.body.style.overflow = welcomeExamplesDialogPreviousOverflow || '';
+      welcomeExamplesDialogPreviousOverflow = null;
+      const returnFocus = welcomeExamplesDialogReturnFocus;
+      welcomeExamplesDialogReturnFocus = null;
+      if (options.restoreFocus !== false) {
+        returnFocus?.focus?.();
+      }
+      return true;
+    }
+
+    function handleWelcomeExamplesDialogKeydown(event) {
+      const dialog = dom.welcomeExamplesDialog;
+      if (!dialog || dialog.hidden) {
+        return;
+      }
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        closeWelcomeExamplesDialog({ reason: 'escape' });
+        return;
+      }
+      if (event.key !== 'Tab') {
+        return;
+      }
+      const focusable = getWelcomeExamplesDialogFocusableElements();
+      if (!focusable.length) {
+        event.preventDefault();
+        dialog.querySelector('.welcome-dialog__panel')?.focus?.();
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      const active = document.activeElement;
+      const activeIndex = focusable.indexOf(active);
+      if (activeIndex === -1) {
+        event.preventDefault();
+        (event.shiftKey ? last : first).focus();
+      } else if (event.shiftKey && active === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && active === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+
+    function getWelcomeCarouselStep() {
+      const list = dom.welcomePopularExamplesList;
+      const firstItem = list?.querySelector?.('.welcome-example-item');
+      if (!list || !firstItem) {
+        return 0;
+      }
+      const style = getComputedStyle(list);
+      const gap = Number.parseFloat(style.columnGap || style.gap) || 0;
+      return firstItem.getBoundingClientRect().width + gap;
+    }
+
+    function updateWelcomeCarouselControls() {
+      const list = dom.welcomePopularExamplesList;
+      const previous = dom.welcomePopularExamplesPrev;
+      const next = dom.welcomePopularExamplesNext;
+      if (!list || !previous || !next) {
+        return;
+      }
+      const maxScrollLeft = Math.max(0, list.scrollWidth - list.clientWidth);
+      const tolerance = 1;
+      previous.disabled = list.scrollLeft <= tolerance;
+      next.disabled = list.scrollLeft >= maxScrollLeft - tolerance;
+    }
+
+    function cancelWelcomeCarouselWheelMotion() {
+      if (welcomePopularCarouselWheelFrame) {
+        cancelAnimationFrame(welcomePopularCarouselWheelFrame);
+        welcomePopularCarouselWheelFrame = 0;
+      }
+      if (welcomePopularCarouselWheelIdleTimer) {
+        clearTimeout(welcomePopularCarouselWheelIdleTimer);
+        welcomePopularCarouselWheelIdleTimer = 0;
+      }
+      dom.welcomePopularExamplesList?.classList.remove('is-wheel-scrolling');
+    }
+
+    function scrollWelcomeCarousel(direction) {
+      const list = dom.welcomePopularExamplesList;
+      const step = getWelcomeCarouselStep();
+      if (!list || !step || !Number.isFinite(direction)) {
+        return;
+      }
+      cancelWelcomeCarouselWheelMotion();
+      const behavior = window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches ? 'auto' : 'smooth';
+      list.scrollBy({ left: direction * step, behavior });
+    }
+
+    function normalizeWelcomeCarouselWheelDelta(event, list) {
+      const dominantDelta = Math.abs(event.deltaX) > Math.abs(event.deltaY)
+        ? event.deltaX
+        : event.deltaY;
+      if (event.deltaMode === WheelEvent.DOM_DELTA_LINE) {
+        return dominantDelta * 16;
+      }
+      if (event.deltaMode === WheelEvent.DOM_DELTA_PAGE) {
+        return dominantDelta * list.clientWidth;
+      }
+      return dominantDelta;
+    }
+
+    function animateWelcomeCarouselWheel(list) {
+      const distance = welcomePopularCarouselWheelTarget - list.scrollLeft;
+      if (Math.abs(distance) < 0.5) {
+        list.scrollLeft = welcomePopularCarouselWheelTarget;
+        welcomePopularCarouselWheelFrame = 0;
+        list.classList.remove('is-wheel-scrolling');
+        return;
+      }
+      list.scrollLeft += distance * 0.24;
+      welcomePopularCarouselWheelFrame = requestAnimationFrame(() => animateWelcomeCarouselWheel(list));
+    }
+
+    function settleWelcomeCarouselToCard(list) {
+      welcomePopularCarouselWheelIdleTimer = 0;
+      const step = getWelcomeCarouselStep();
+      const maxScrollLeft = Math.max(0, list.scrollWidth - list.clientWidth);
+      const snappedTarget = step
+        ? Math.min(maxScrollLeft, Math.max(0, Math.round(list.scrollLeft / step) * step))
+        : list.scrollLeft;
+      welcomePopularCarouselWheelTarget = snappedTarget;
+      if (welcomePopularCarouselWheelFrame) {
+        cancelAnimationFrame(welcomePopularCarouselWheelFrame);
+        welcomePopularCarouselWheelFrame = 0;
+      }
+      list.classList.remove('is-wheel-scrolling');
+      list.scrollTo({ left: snappedTarget, behavior: 'smooth' });
+    }
+
+    function ensureWelcomePopularCarouselHandlers() {
+      if (welcomePopularCarouselBound) {
+        updateWelcomeCarouselControls();
+        return;
+      }
+      const list = dom.welcomePopularExamplesList;
+      const previous = dom.welcomePopularExamplesPrev;
+      const next = dom.welcomePopularExamplesNext;
+      if (!list || !previous || !next) {
+        return;
+      }
+
+      previous.addEventListener('click', event => {
+        event.preventDefault();
+        scrollWelcomeCarousel(-1);
+      });
+      next.addEventListener('click', event => {
+        event.preventDefault();
+        scrollWelcomeCarousel(1);
+      });
+      list.addEventListener('scroll', updateWelcomeCarouselControls, { passive: true });
+      list.addEventListener('wheel', event => {
+        const delta = normalizeWelcomeCarouselWheelDelta(event, list);
+        if (!Number.isFinite(delta) || delta === 0) {
+          return;
+        }
+        const maxScrollLeft = Math.max(0, list.scrollWidth - list.clientWidth);
+        const currentTarget = welcomePopularCarouselWheelFrame
+          ? welcomePopularCarouselWheelTarget
+          : list.scrollLeft;
+        const nextTarget = Math.min(maxScrollLeft, Math.max(0, currentTarget + delta));
+        if (Math.abs(nextTarget - currentTarget) < 0.5) {
+          return;
+        }
+
+        event.preventDefault();
+        list.classList.add('is-wheel-scrolling');
+        // Cancel an in-progress CSS smooth scroll from the arrow controls before
+        // starting the owner-managed wheel animation. Two concurrent scroll
+        // engines can otherwise keep the settling class alive indefinitely.
+        list.scrollTo({ left: list.scrollLeft, behavior: 'auto' });
+        welcomePopularCarouselWheelTarget = nextTarget;
+        if (!welcomePopularCarouselWheelFrame) {
+          welcomePopularCarouselWheelFrame = requestAnimationFrame(() => animateWelcomeCarouselWheel(list));
+        }
+        if (welcomePopularCarouselWheelIdleTimer) {
+          clearTimeout(welcomePopularCarouselWheelIdleTimer);
+        }
+        welcomePopularCarouselWheelIdleTimer = window.setTimeout(
+          () => settleWelcomeCarouselToCard(list),
+          110
+        );
+      }, { passive: false });
+      list.addEventListener('keydown', event => {
+        if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') {
+          return;
+        }
+        event.preventDefault();
+        scrollWelcomeCarousel(event.key === 'ArrowLeft' ? -1 : 1);
+      });
+
+      if (typeof ResizeObserver === 'function') {
+        welcomePopularCarouselResizeObserver = new ResizeObserver(updateWelcomeCarouselControls);
+        welcomePopularCarouselResizeObserver.observe(list);
+      } else {
+        window.addEventListener('resize', updateWelcomeCarouselControls, { passive: true });
+      }
+      welcomePopularCarouselBound = true;
+      requestAnimationFrame(updateWelcomeCarouselControls);
+    }
+
+    function ensureWelcomeExamplesDialogHandlers() {
+      if (welcomeExamplesDialogBound) {
+        return;
+      }
+      dom.welcomeViewAllExamples?.addEventListener('click', event => {
+        event.preventDefault();
+        openWelcomeExamplesDialog();
+      });
+      dom.welcomeExamplesDialogClose?.addEventListener('click', event => {
+        event.preventDefault();
+        closeWelcomeExamplesDialog({ reason: 'close-button' });
+      });
+      dom.welcomeExamplesDialog?.addEventListener('click', event => {
+        if (event.target?.hasAttribute?.('data-welcome-dialog-close')) {
+          event.preventDefault();
+          closeWelcomeExamplesDialog({ reason: 'backdrop' });
+        }
+      });
+      document.addEventListener('keydown', handleWelcomeExamplesDialogKeydown);
+      welcomeExamplesDialogBound = true;
+    }
+
+    function initializeWelcomeExampleGallery() {
+      const allItems = graphTypes.slice();
+      const popularItems = allItems;
+      if (dom.welcomeViewAllExamples) {
+        dom.welcomeViewAllExamples.textContent = `View all ${allItems.length}`;
+        dom.welcomeViewAllExamples.setAttribute('aria-label', `View all ${allItems.length} Graphitix examples`);
+      }
+      renderWelcomeExampleCollection(dom.welcomePopularExamplesList, popularItems, { compact: true });
+      renderWelcomeExampleCollection(dom.welcomeAllExamplesList, allItems, { compact: false });
+      ensureWelcomePopularCarouselHandlers();
+      ensureWelcomeExamplesDialogHandlers();
+      console.debug('Debug: welcome example gallery rendered', {
+        popular: popularItems.length,
+        all: allItems.length
+      });
     }
 
     function createSelectionCards() {
@@ -1017,18 +1292,16 @@
         created += 1;
       });
 
-      const removedStale = existingByType.size;
       existingByType.forEach(card => card.remove());
       if (fragment.childNodes.length) {
         dom.selectionGrid.appendChild(fragment);
       }
-
-      console.debug('Debug: selection cards hydrated', {
+      console.debug('Debug: selection cards hydrated from canonical graph definitions', {
         total: graphTypes.length,
         preRendered: graphTypes.length - created,
         hydrated,
         created,
-        removedStale
+        removedStale: existingByType.size
       });
       return true;
     }
@@ -1300,6 +1573,7 @@
 
     function initializeWorkspace(callbacks = {}) {
       createSelectionCards();
+      initializeWelcomeExampleGallery();
       initializeVariantPicker();
       markWelcomeReady({ reason: 'initial-welcome-render' });
       const welcomeTab = session.createTab({ title: 'Welcome', isWelcome: true, allowClose: false });

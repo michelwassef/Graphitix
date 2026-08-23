@@ -14,60 +14,34 @@
 
   const ensureFiniteNumber = (value) => (Number.isFinite(value) ? value : NaN);
   regressionTools.ensureFiniteNumber = ensureFiniteNumber;
+  const POLYNOMIAL_POWER_LABELS = Object.freeze({ 1: 'x', 2: 'x²', 3: 'x³' });
+  const EQUATION_SUPERSCRIPT_DIGITS = Object.freeze({ '0':'⁰','1':'¹','2':'²','3':'³','4':'⁴','5':'⁵','6':'⁶','7':'⁷','8':'⁸','9':'⁹' });
+  const formatEquationNumber = value => Number(value).toFixed(4).replace(/^-0\.0000$/, '0.0000');
+  const formatPolynomialPowerLabel = power => {
+    if(POLYNOMIAL_POWER_LABELS[power]){ return POLYNOMIAL_POWER_LABELS[power]; }
+    const exponent = String(Math.max(0, Math.round(Number(power) || 0))).split('').map(char => EQUATION_SUPERSCRIPT_DIGITS[char] || char).join('');
+    return `x${exponent}`;
+  };
+  const formatSignedEquationTerm = (coefficient, factor = '') => {
+    const numeric = Number(coefficient);
+    const magnitude = formatEquationNumber(Math.abs(numeric));
+    return `${numeric < 0 ? '−' : '+'} ${magnitude}${factor}`;
+  };
+  const formatLinearEquation = (intercept, slope, response = 'y', predictor = 'x') => (
+    `${response} = ${formatEquationNumber(intercept)} ${formatSignedEquationTerm(slope, predictor)}`
+  );
+  const formatPolynomialEquation = coefficients => {
+    const values = Array.isArray(coefficients) ? coefficients : [];
+    if(!values.length){ return ''; }
+    let equation = `y = ${formatEquationNumber(values[0])}`;
+    for(let power = 1; power < values.length; power += 1){
+      equation += ` ${formatSignedEquationTerm(values[power], formatPolynomialPowerLabel(power))}`;
+    }
+    return equation;
+  };
+
 
   const hasMatrixOps = !!(jStatLib && typeof jStatLib.transpose === 'function' && typeof jStatLib.multiply === 'function');
-
-  const safeTranspose = (matrix) => {
-    if(!hasMatrixOps){
-      console.debug('Debug:', debugNs, 'transpose unavailable; returning null');
-      return null;
-    }
-    try{
-      return jStatLib.transpose(matrix);
-    }catch(err){
-      console.warn('transpose failed in regression calculations', err);
-      return null;
-    }
-  };
-
-  const safeMultiply = (a, b) => {
-    if(!hasMatrixOps){
-      console.debug('Debug:', debugNs, 'multiply unavailable; returning null');
-      return null;
-    }
-    try{
-      return jStatLib.multiply(a, b);
-    }catch(err){
-      console.warn('multiply failed in regression calculations', err);
-      return null;
-    }
-  };
-
-  const safeInverse = (matrix) => {
-    if(!hasMatrixOps){
-      return null;
-    }
-    let invResult = null;
-    try{
-      if(typeof jStatLib.inv === 'function'){
-        invResult = jStatLib.inv(matrix);
-      }
-    }catch(err){
-      console.warn('inv failed in regression calculations', err);
-      invResult = null;
-    }
-    if(!invResult){
-      try{
-        if(typeof jStatLib.pinv === 'function'){
-          invResult = jStatLib.pinv(matrix);
-        }
-      }catch(err){
-        console.warn('pinv failed in regression calculations', err);
-        invResult = null;
-      }
-    }
-    return invResult;
-  };
 
   const hasFiniteVector = (vector) => (
     Array.isArray(vector) && vector.length > 0 && vector.every(value => Number.isFinite(value))
@@ -415,33 +389,60 @@
 
 
 
-  const computeForecastVariance = (phiCoefficients, horizon, sigmaSq) => {
-    if(!Array.isArray(phiCoefficients) || phiCoefficients.length === 0){
-      const variances = [];
-      for(let h = 1; h <= horizon; h++){
-        variances.push(sigmaSq * h);
-      }
-      return variances;
-    }
-    const p = phiCoefficients.length;
-    const psi = [1];
-    for(let k = 1; k <= horizon; k++){
+  const computeArImpulseResponse = (phiCoefficients, horizon) => {
+    const phi = Array.isArray(phiCoefficients) ? phiCoefficients.map(Number) : [];
+    const response = new Array(Math.max(1, horizon)).fill(0);
+    response[0] = 1;
+    for(let step = 1; step < response.length; step += 1){
       let value = 0;
-      for(let i = 1; i <= Math.min(k, p); i++){
-        value += phiCoefficients[i - 1] * (psi[k - i] ?? 0);
+      for(let lag = 1; lag <= Math.min(step, phi.length); lag += 1){
+        value += (phi[lag - 1] || 0) * response[step - lag];
       }
-      psi[k] = value;
+      response[step] = value;
+    }
+    return response;
+  };
+
+  const computeIntegrationImpulseResponse = (order, horizon) => {
+    const response = new Array(Math.max(1, horizon)).fill(0);
+    if(order <= 0){
+      response[0] = 1;
+      return response;
+    }
+    for(let step = 0; step < response.length; step += 1){
+      response[step] = binomialCoefficient(order + step - 1, step);
+    }
+    return response;
+  };
+
+  const computeForecastVariance = (phiCoefficients, differencingOrder, horizon, sigmaSq) => {
+    const boundedHorizon = Math.max(0, Math.round(Number(horizon) || 0));
+    if(!boundedHorizon){
+      return [];
+    }
+    const arResponse = computeArImpulseResponse(phiCoefficients, boundedHorizon);
+    const integrationResponse = computeIntegrationImpulseResponse(Math.max(0, Math.round(Number(differencingOrder) || 0)), boundedHorizon);
+    const combinedResponse = new Array(boundedHorizon).fill(0);
+    for(let step = 0; step < boundedHorizon; step += 1){
+      let value = 0;
+      for(let index = 0; index <= step; index += 1){
+        value += integrationResponse[index] * arResponse[step - index];
+      }
+      combinedResponse[step] = value;
     }
     const variances = [];
-    for(let h = 1; h <= horizon; h++){
-      let sumSq = 0;
-      for(let i = 0; i < h; i++){
-        const psiVal = psi[i] ?? 0;
-        sumSq += psiVal * psiVal;
-      }
-      variances.push(Math.max(0, sigmaSq * sumSq));
+    let accumulated = 0;
+    for(let step = 0; step < boundedHorizon; step += 1){
+      accumulated += combinedResponse[step] * combinedResponse[step];
+      variances.push(Math.max(0, Number(sigmaSq) * accumulated));
     }
-    console.debug('Debug:', debugNs, 'computeForecastVariance', { horizon, sigmaSq, variances });
+    regressionDebug('computeForecastVariance', {
+      differencingOrder,
+      horizon: boundedHorizon,
+      sigmaSq,
+      combinedResponse,
+      variances
+    });
     return variances;
   };
 
@@ -681,46 +682,238 @@
 
   const evaluatePolynomial = (coeffs, x) => coeffs.reduce((sum, coeff, idx) => sum + coeff * Math.pow(x, idx), 0);
 
-  const solveLeastSquares = (design, yVector) => {
-    if(!hasMatrixOps){
-      return { coefficients: null, xtxInv: null };
+  const stableHypot = (values) => {
+    let scale = 0;
+    let sumSquares = 1;
+    let hasValue = false;
+    (Array.isArray(values) ? values : []).forEach(value => {
+      const abs = Math.abs(Number(value));
+      if(!Number.isFinite(abs) || abs === 0){
+        return;
+      }
+      hasValue = true;
+      if(scale < abs){
+        const ratio = scale / abs;
+        sumSquares = 1 + sumSquares * ratio * ratio;
+        scale = abs;
+      }else{
+        const ratio = abs / scale;
+        sumSquares += ratio * ratio;
+      }
+    });
+    return hasValue ? scale * Math.sqrt(sumSquares) : 0;
+  };
+
+  const solveUpperTriangular = (upper, rhs, tolerance) => {
+    const n = Array.isArray(upper) ? upper.length : 0;
+    if(!n || !Array.isArray(rhs) || rhs.length < n){
+      return null;
     }
-    const designT = safeTranspose(design);
-    if(!designT){
-      return { coefficients: null, xtxInv: null };
+    const result = new Array(n).fill(0);
+    for(let row = n - 1; row >= 0; row -= 1){
+      const diagonal = Number(upper[row]?.[row]);
+      if(!Number.isFinite(diagonal) || Math.abs(diagonal) <= tolerance){
+        return null;
+      }
+      let value = Number(rhs[row]);
+      if(!Number.isFinite(value)){
+        return null;
+      }
+      for(let col = row + 1; col < n; col += 1){
+        value -= (Number(upper[row]?.[col]) || 0) * result[col];
+      }
+      result[row] = value / diagonal;
     }
-    const xtx = safeMultiply(designT, design);
-    if(!xtx){
-      return { coefficients: null, xtxInv: null };
+    return result;
+  };
+
+  const invertUpperTriangular = (upper, tolerance) => {
+    const n = Array.isArray(upper) ? upper.length : 0;
+    if(!n){
+      return null;
     }
-    const xtxInv = safeInverse(xtx);
-    if(!xtxInv){
-      return { coefficients: null, xtxInv: null };
+    const inverse = Array.from({ length: n }, () => new Array(n).fill(0));
+    for(let col = 0; col < n; col += 1){
+      const rhs = new Array(n).fill(0);
+      rhs[col] = 1;
+      const solution = solveUpperTriangular(upper, rhs, tolerance);
+      if(!solution){
+        return null;
+      }
+      for(let row = 0; row < n; row += 1){
+        inverse[row][col] = solution[row];
+      }
     }
-    if(!hasFiniteMatrix(xtxInv)){
-      regressionDebug('least squares rejected non-finite inverse matrix', {
-        rows: Array.isArray(design) ? design.length : 0,
-        cols: Array.isArray(design?.[0]) ? design[0].length : 0
-      });
-      return { coefficients: null, xtxInv: null };
+    return inverse;
+  };
+
+  const multiplyPlainMatrices = (left, right) => {
+    const rows = Array.isArray(left) ? left.length : 0;
+    const shared = rows && Array.isArray(left[0]) ? left[0].length : 0;
+    const cols = Array.isArray(right?.[0]) ? right[0].length : 0;
+    if(!rows || !shared || !Array.isArray(right) || right.length !== shared || !cols){
+      return null;
     }
-    const xty = safeMultiply(designT, yVector);
-    if(!xty){
-      return { coefficients: null, xtxInv: null };
+    const result = Array.from({ length: rows }, () => new Array(cols).fill(0));
+    for(let row = 0; row < rows; row += 1){
+      for(let mid = 0; mid < shared; mid += 1){
+        const leftValue = Number(left[row]?.[mid]);
+        if(!Number.isFinite(leftValue) || leftValue === 0){
+          continue;
+        }
+        for(let col = 0; col < cols; col += 1){
+          const rightValue = Number(right[mid]?.[col]);
+          if(Number.isFinite(rightValue)){
+            result[row][col] += leftValue * rightValue;
+          }
+        }
+      }
     }
-    const betaMatrix = safeMultiply(xtxInv, xty);
-    if(!betaMatrix){
-      return { coefficients: null, xtxInv: null };
+    return result;
+  };
+
+  const transposePlainMatrix = (matrix) => {
+    const rows = Array.isArray(matrix) ? matrix.length : 0;
+    const cols = rows && Array.isArray(matrix[0]) ? matrix[0].length : 0;
+    if(!rows || !cols){
+      return null;
     }
-    const coefficients = betaMatrix.map(row => row?.[0]);
-    if(!hasFiniteVector(coefficients)){
-      regressionDebug('least squares rejected non-finite coefficients', {
-        rows: Array.isArray(design) ? design.length : 0,
-        cols: Array.isArray(design?.[0]) ? design[0].length : 0
-      });
-      return { coefficients: null, xtxInv: null };
+    return Array.from({ length: cols }, (_, col) => Array.from({ length: rows }, (_, row) => Number(matrix[row]?.[col]) || 0));
+  };
+
+  const transformCovariance = (covariance, transform) => {
+    const transformT = transposePlainMatrix(transform);
+    const left = multiplyPlainMatrices(transform, covariance);
+    return left && transformT ? multiplyPlainMatrices(left, transformT) : null;
+  };
+
+  const solveLeastSquares = (design, yVector, options = {}) => {
+    const rowCount = Array.isArray(design) ? design.length : 0;
+    const columnCount = rowCount && Array.isArray(design[0]) ? design[0].length : 0;
+    if(!rowCount || !columnCount || rowCount < columnCount || !Array.isArray(yVector) || yVector.length !== rowCount){
+      return { coefficients: null, xtxInv: null, rank: 0, conditionNumber: Infinity, method: 'qr-pivoted' };
     }
-    return { coefficients, xtxInv };
+    const target = yVector.map(value => Number(Array.isArray(value) ? value[0] : value));
+    if(target.some(value => !Number.isFinite(value)) || design.some(row => !Array.isArray(row) || row.length !== columnCount || row.some(value => !Number.isFinite(Number(value))))){
+      return { coefficients: null, xtxInv: null, rank: 0, conditionNumber: Infinity, method: 'qr-pivoted' };
+    }
+
+    const columnScales = new Array(columnCount).fill(1);
+    for(let col = 0; col < columnCount; col += 1){
+      const norm = stableHypot(design.map(row => Number(row[col])));
+      columnScales[col] = norm > 0 ? norm : 1;
+    }
+    const matrix = design.map(row => row.map((value, col) => Number(value) / columnScales[col]));
+    const transformedTarget = target.slice();
+    const permutation = Array.from({ length: columnCount }, (_, index) => index);
+    const diagonal = new Array(columnCount).fill(0);
+
+    for(let pivotIndex = 0; pivotIndex < columnCount; pivotIndex += 1){
+      let bestColumn = pivotIndex;
+      let bestNorm = -1;
+      for(let col = pivotIndex; col < columnCount; col += 1){
+        const norm = stableHypot(matrix.slice(pivotIndex).map(row => row[col]));
+        if(norm > bestNorm){
+          bestNorm = norm;
+          bestColumn = col;
+        }
+      }
+      if(bestColumn !== pivotIndex){
+        for(let row = 0; row < rowCount; row += 1){
+          const temporary = matrix[row][pivotIndex];
+          matrix[row][pivotIndex] = matrix[row][bestColumn];
+          matrix[row][bestColumn] = temporary;
+        }
+        const permutationValue = permutation[pivotIndex];
+        permutation[pivotIndex] = permutation[bestColumn];
+        permutation[bestColumn] = permutationValue;
+      }
+
+      const columnVector = matrix.slice(pivotIndex).map(row => row[pivotIndex]);
+      const norm = stableHypot(columnVector);
+      if(!(norm > 0)){
+        diagonal[pivotIndex] = 0;
+        continue;
+      }
+      const first = columnVector[0];
+      const alpha = first >= 0 ? -norm : norm;
+      const reflector = columnVector.slice();
+      reflector[0] -= alpha;
+      const reflectorNormSq = reflector.reduce((sum, value) => sum + value * value, 0);
+      if(!(reflectorNormSq > 0)){
+        diagonal[pivotIndex] = alpha;
+        matrix[pivotIndex][pivotIndex] = alpha;
+        continue;
+      }
+      const factor = 2 / reflectorNormSq;
+      for(let col = pivotIndex; col < columnCount; col += 1){
+        let projection = 0;
+        for(let offset = 0; offset < reflector.length; offset += 1){
+          projection += reflector[offset] * matrix[pivotIndex + offset][col];
+        }
+        projection *= factor;
+        for(let offset = 0; offset < reflector.length; offset += 1){
+          matrix[pivotIndex + offset][col] -= projection * reflector[offset];
+        }
+      }
+      let targetProjection = 0;
+      for(let offset = 0; offset < reflector.length; offset += 1){
+        targetProjection += reflector[offset] * transformedTarget[pivotIndex + offset];
+      }
+      targetProjection *= factor;
+      for(let offset = 0; offset < reflector.length; offset += 1){
+        transformedTarget[pivotIndex + offset] -= targetProjection * reflector[offset];
+      }
+      matrix[pivotIndex][pivotIndex] = alpha;
+      for(let row = pivotIndex + 1; row < rowCount; row += 1){
+        matrix[row][pivotIndex] = 0;
+      }
+      diagonal[pivotIndex] = alpha;
+    }
+
+    const maxDiagonal = Math.max(...diagonal.map(value => Math.abs(value)), 0);
+    const rankTolerance = Number.isFinite(Number(options.rankTolerance))
+      ? Math.max(Number(options.rankTolerance), 0)
+      : Math.max(rowCount, columnCount) * Number.EPSILON * Math.max(maxDiagonal, 1) * 32;
+    const rank = diagonal.reduce((count, value) => count + (Math.abs(value) > rankTolerance ? 1 : 0), 0);
+    const finiteDiagonals = diagonal.map(value => Math.abs(value)).filter(value => value > rankTolerance);
+    const conditionNumber = finiteDiagonals.length
+      ? Math.max(...finiteDiagonals) / Math.min(...finiteDiagonals)
+      : Infinity;
+    if(rank < columnCount){
+      regressionDebug('least squares rejected rank-deficient design', { rowCount, columnCount, rank, rankTolerance, conditionNumber });
+      return { coefficients: null, xtxInv: null, rank, conditionNumber, method: 'qr-pivoted', permutation };
+    }
+
+    const upper = Array.from({ length: columnCount }, (_, row) => Array.from({ length: columnCount }, (_, col) => col < row ? 0 : matrix[row][col]));
+    const pivotedCoefficients = solveUpperTriangular(upper, transformedTarget.slice(0, columnCount), rankTolerance);
+    const inverseUpper = invertUpperTriangular(upper, rankTolerance);
+    if(!pivotedCoefficients || !inverseUpper){
+      return { coefficients: null, xtxInv: null, rank, conditionNumber, method: 'qr-pivoted', permutation };
+    }
+    const covariancePivotedScaled = multiplyPlainMatrices(inverseUpper, transposePlainMatrix(inverseUpper));
+    if(!covariancePivotedScaled){
+      return { coefficients: null, xtxInv: null, rank, conditionNumber, method: 'qr-pivoted', permutation };
+    }
+
+    const coefficients = new Array(columnCount).fill(0);
+    const xtxInv = Array.from({ length: columnCount }, () => new Array(columnCount).fill(0));
+    for(let pivoted = 0; pivoted < columnCount; pivoted += 1){
+      const original = permutation[pivoted];
+      coefficients[original] = pivotedCoefficients[pivoted] / columnScales[original];
+    }
+    for(let pivotedRow = 0; pivotedRow < columnCount; pivotedRow += 1){
+      const originalRow = permutation[pivotedRow];
+      for(let pivotedCol = 0; pivotedCol < columnCount; pivotedCol += 1){
+        const originalCol = permutation[pivotedCol];
+        xtxInv[originalRow][originalCol] = covariancePivotedScaled[pivotedRow][pivotedCol]
+          / (columnScales[originalRow] * columnScales[originalCol]);
+      }
+    }
+    if(!hasFiniteVector(coefficients) || !hasFiniteMatrix(xtxInv)){
+      return { coefficients: null, xtxInv: null, rank, conditionNumber, method: 'qr-pivoted', permutation };
+    }
+    return { coefficients, xtxInv, rank, conditionNumber, method: 'qr-pivoted', permutation };
   };
 
   const computeLinearModel = ({ points, xVals, yVals, sst, alpha, domain }) => {
@@ -802,7 +995,7 @@
     const summary = {
       intercept,
       slope,
-      equation: `y = ${intercept.toFixed(4)} + ${slope.toFixed(4)}x`,
+      equation: formatLinearEquation(intercept, slope),
       parameters: {
         Intercept: intercept,
         Slope: slope
@@ -840,26 +1033,57 @@
     };
   };
 
-  const computePolynomialModel = ({ points, degree, alpha, domain, xVals, yVals, sst }) => {
-    if(!hasMatrixOps){
-      console.warn('Polynomial regression requires matrix operations that are unavailable');
-      return null;
+  const binomialCoefficient = (n, k) => {
+    if(k < 0 || k > n){
+      return 0;
     }
+    const reduced = Math.min(k, n - k);
+    let value = 1;
+    for(let index = 1; index <= reduced; index += 1){
+      value *= (n - reduced + index) / index;
+    }
+    return value;
+  };
+
+  const buildPolynomialTransform = (degree, center, scale) => {
+    const transform = Array.from({ length: degree + 1 }, () => new Array(degree + 1).fill(0));
+    for(let normalizedPower = 0; normalizedPower <= degree; normalizedPower += 1){
+      const scalePower = Math.pow(scale, normalizedPower);
+      for(let rawPower = 0; rawPower <= normalizedPower; rawPower += 1){
+        transform[rawPower][normalizedPower] = binomialCoefficient(normalizedPower, rawPower)
+          * Math.pow(-center, normalizedPower - rawPower)
+          / scalePower;
+      }
+    }
+    return transform;
+  };
+
+  const computePolynomialModel = ({ points, degree, alpha, domain, xVals, yVals, sst }) => {
     try{
-      const design = points.map(pt => {
-        const row = [];
-        for(let power = 0; power <= degree; power++){
-          row.push(Math.pow(pt.x, power));
-        }
-        return row;
+      const center = xVals.reduce((sum, value) => sum + value, 0) / Math.max(xVals.length, 1);
+      const scale = Math.max(...xVals.map(value => Math.abs(value - center)), 0);
+      if(!(scale > 0)){
+        return null;
+      }
+      const normalizeX = x => (x - center) / scale;
+      const normalizedDesign = points.map(pt => {
+        const normalizedX = normalizeX(pt.x);
+        return Array.from({ length: degree + 1 }, (_, power) => Math.pow(normalizedX, power));
       });
-      const yMatrix = yVals.map(val => [val]);
-      const solved = solveLeastSquares(design, yMatrix);
+      const solved = solveLeastSquares(normalizedDesign, yVals.map(value => [value]));
       if(!solved.coefficients || !solved.xtxInv){
         return null;
       }
-      const coefficients = solved.coefficients;
-      const predictions = xVals.map(x => evaluatePolynomial(coefficients, x));
+      const normalizedCoefficients = solved.coefficients;
+      const transform = buildPolynomialTransform(degree, center, scale);
+      const coefficientsMatrix = multiplyPlainMatrices(transform, normalizedCoefficients.map(value => [value]));
+      const covarianceRawBase = transformCovariance(solved.xtxInv, transform);
+      if(!coefficientsMatrix || !covarianceRawBase){
+        return null;
+      }
+      const coefficients = coefficientsMatrix.map(row => row[0]);
+      const predictNormalized = x => evaluatePolynomial(normalizedCoefficients, normalizeX(x));
+      const predictions = xVals.map(predictNormalized);
       const residuals = predictions.map((pred, idx) => yVals[idx] - pred);
       const sse = residuals.reduce((sum,val)=>sum+val*val,0);
       const r2 = sst === 0 ? 1 : 1 - (sse / sst);
@@ -869,40 +1093,50 @@
         predictions,
         parameterCount: coefficients.length
       });
-      const termLabels = coefficients.map((_, idx) => idx === 0 ? 'Intercept' : `x^${idx}`);
+      const termLabels = coefficients.map((_, idx) => idx === 0 ? 'Intercept' : formatPolynomialPowerLabel(idx));
       const coefficientStats = buildCoefficientStats({
         coefficients,
-        xtxInv: solved.xtxInv,
+        xtxInv: covarianceRawBase,
         residuals,
         alpha,
         termLabels,
         degreesOfFreedom: points.length - coefficients.length
       });
       const coefficientCovariance = buildCoefficientCovariance({
-        xtxInv: solved.xtxInv,
+        xtxInv: covarianceRawBase,
         residuals,
         coefficientCount: coefficients.length
       });
       const intervalInfo = buildIntervalSamples({
         xtxInv: solved.xtxInv,
-        coefficients,
+        coefficients: normalizedCoefficients,
         residuals,
         domain,
         alpha,
-        sampleCount: 160
+        sampleCount: 160,
+        basisBuilder: x => {
+          const normalizedX = normalizeX(x);
+          return normalizedCoefficients.map((_, power) => Math.pow(normalizedX, power));
+        }
       });
       const summary = {
         intercept: coefficients[0],
         slope: coefficients[1],
-        equation: coefficients.map((coeff, idx) => `${coeff.toFixed(4)}${idx === 0 ? '' : `x^${idx}`} `).join('+ ').replace(/\s\+/g,' + '),
+        equation: formatPolynomialEquation(coefficients),
         parameters: coefficients.reduce((acc, coeff, idx) => {
-          const label = idx === 0 ? 'Intercept' : `Coefficient x^${idx}`;
+          const label = idx === 0 ? 'Intercept' : `Coefficient ${formatPolynomialPowerLabel(idx)}`;
           acc[label] = coeff;
           return acc;
         }, {}),
         primaryParameter: {
           label: degree === 2 ? 'Quadratic coefficient' : 'Cubic coefficient',
           value: coefficients.length > degree ? coefficients[degree] : coefficients[coefficients.length - 1]
+        },
+        numericalBasis: {
+          kind: 'centered-scaled-polynomial',
+          center,
+          scale,
+          conditionNumber: solved.conditionNumber
         }
       };
       if(!Number.isFinite(summary.primaryParameter.value)){
@@ -913,6 +1147,7 @@
       }
       return {
         coefficients,
+        normalizedCoefficients,
         metrics: {
           sampleSize: points.length,
           predictors: degree,
@@ -921,10 +1156,12 @@
           r2,
           adjR2: points.length > (degree + 1) ? 1 - (1 - r2) * ((points.length - 1) / (points.length - degree - 1)) : r2,
           rmse: Math.sqrt(sse / points.length),
-          mae: residuals.reduce((sum,val)=>sum+Math.abs(val),0)/points.length
+          mae: residuals.reduce((sum,val)=>sum+Math.abs(val),0)/points.length,
+          conditionNumber: solved.conditionNumber
         },
         residuals: summarizeResiduals(residuals),
         predictions,
+        predict: predictNormalized,
         diagnostics,
         coefficientStats,
         coefficientCovariance,
@@ -1191,28 +1428,8 @@
       };
     }
     const jacobian = points.map(point => approximateDoseResponseGradientAtX(parameterVector, point.x));
-    const jacobianT = safeTranspose(jacobian);
-    if(!jacobianT){
-      return {
-        covariance: null,
-        standardErrors: new Array(parameterCount).fill(NaN),
-        sigmaSq: NaN,
-        tCritical: NaN,
-        degreesOfFreedom: dof
-      };
-    }
-    const jtj = safeMultiply(jacobianT, jacobian);
-    if(!jtj){
-      return {
-        covariance: null,
-        standardErrors: new Array(parameterCount).fill(NaN),
-        sigmaSq: NaN,
-        tCritical: NaN,
-        degreesOfFreedom: dof
-      };
-    }
-    const jtjInv = safeInverse(jtj);
-    if(!jtjInv){
+    const information = solveLeastSquares(jacobian, new Array(points.length).fill(0));
+    if(!information?.xtxInv || information.rank < parameterCount){
       return {
         covariance: null,
         standardErrors: new Array(parameterCount).fill(NaN),
@@ -1222,7 +1439,7 @@
       };
     }
     const sigmaSq = sse / Math.max(dof, 1);
-    const covariance = jtjInv.map(row => row.map(value => Number.isFinite(value) ? value * sigmaSq : NaN));
+    const covariance = information.xtxInv.map(row => row.map(value => Number.isFinite(value) ? value * sigmaSq : NaN));
     const standardErrors = covariance.map((row, idx) => {
       const variance = row?.[idx];
       return Number.isFinite(variance) && variance >= 0 ? Math.sqrt(variance) : NaN;
@@ -1456,7 +1673,7 @@
       summary: {
         intercept: params.bottom,
         slope: params.hillSlope,
-        equation: `y = ${params.bottom.toFixed(4)} + ${(params.top - params.bottom).toFixed(4)} / (1 + 10^((${params.logIC50.toFixed(4)} - x) * ${params.hillSlope.toFixed(4)}))`,
+        equation: `y = ${formatEquationNumber(params.bottom)} + ${formatEquationNumber(params.top - params.bottom)}/[1 + exp(ln(10) × (${formatEquationNumber(params.logIC50)} − x) × ${formatEquationNumber(params.hillSlope)})]`,
         parameters: {
           Bottom: params.bottom,
           Top: params.top,
@@ -1611,7 +1828,7 @@
     const minX=Number.isFinite(domain?.minX)?domain.minX:Math.min(...logisticPoints.map(pt=>pt.x));
     const maxX=Number.isFinite(domain?.maxX)?domain.maxX:Math.max(...logisticPoints.map(pt=>pt.x));
     const intervalSamples=[];
-    if(covariance && maxX>minX){
+    if(inferenceAvailable && covariance && maxX>minX){
       for(let i=0;i<160;i++){
         const x=i===159?maxX:minX+(maxX-minX)*i/159;
         const eta=beta0+beta1*x;
@@ -1620,14 +1837,74 @@
         intervalSamples.push({x,y:predict(x),ciLow:sigmoid(eta-half),ciHigh:sigmoid(eta+half),piLow:NaN,piHigh:NaN});
       }
     }
+    const diagnosticOnly = !inferenceAvailable;
+    const publicCoefficients = diagnosticOnly ? [NaN, NaN] : coefficients;
+    const summary = diagnosticOnly
+      ? {
+          intercept: NaN,
+          slope: NaN,
+          equation: 'Diagnostic probability curve only; ordinary logistic maximum-likelihood estimates are unavailable.',
+          parameters: {},
+          primaryParameter: { label: 'Odds ratio per unit X', value: NaN },
+          oddsRatioConfidenceInterval: null,
+          inferenceAvailable: false
+        }
+      : {
+          intercept: beta0,
+          slope: beta1,
+          equation: formatLinearEquation(beta0, beta1, 'logit(p)', 'x'),
+          parameters: { Intercept: beta0, Slope: beta1, OddsRatioPerUnitX: Math.exp(beta1) },
+          primaryParameter: { label: 'Odds ratio per unit X', value: Math.exp(beta1) },
+          oddsRatioConfidenceInterval: coefficientStats[1] ? { low: Math.exp(coefficientStats[1].ciLow), high: Math.exp(coefficientStats[1].ciHigh) } : null,
+          inferenceAvailable: true
+        };
+    const diagnosticMetrics = {
+      sampleSize:n,
+      predictors:1,
+      sse,
+      rmse,
+      mae,
+      logLikelihood:ll,
+      deviance:-2*ll,
+      nullDeviance:-2*nullLl,
+      r2:pseudoR2,
+      adjR2:NaN,
+      logLoss:-ll/n,
+      iterations:iteration+1,
+      converged,
+      inferenceAvailable:!!inferenceAvailable,
+      aic:-2*ll+4,
+      bic:-2*ll+2*Math.log(n)
+    };
+    const publicMetrics = diagnosticOnly
+      ? {
+          ...diagnosticMetrics,
+          logLikelihood:NaN,
+          deviance:NaN,
+          nullDeviance:NaN,
+          r2:NaN,
+          adjR2:NaN,
+          aic:NaN,
+          bic:NaN
+        }
+      : diagnosticMetrics;
     return {
-      available:true, coefficients,
-      metrics:{sampleSize:n,predictors:1,sse,rmse,mae,logLikelihood:ll,deviance:-2*ll,nullDeviance:-2*nullLl,r2:pseudoR2,adjR2:NaN,logLoss:-ll/n,iterations:iteration+1,converged,inferenceAvailable:!!inferenceAvailable,aic:-2*ll+4,bic:-2*ll+2*Math.log(n)},
+      available: !!inferenceAvailable,
+      diagnosticOnly,
+      coefficients: publicCoefficients,
+      diagnosticCoefficients: diagnosticOnly ? coefficients.slice() : null,
+      diagnosticMetrics: diagnosticOnly ? diagnosticMetrics : null,
+      metrics:publicMetrics,
       residuals:summarizeResiduals(residuals), predictions, predict,
-      diagnostics:buildExtendedRegressionDiagnostics({residuals,points:logisticPoints,predictions,parameterCount:2}),
-      coefficientStats, coefficientCovariance:covariance,
+      diagnostics:{
+        ...buildExtendedRegressionDiagnostics({residuals,points:logisticPoints,predictions,parameterCount:2}),
+        inferenceAvailable: !!inferenceAvailable,
+        inferenceReason: inferenceAvailable ? null : 'Ordinary logistic maximum-likelihood inference is unavailable because the fit did not converge or separation was detected.'
+      },
+      coefficientStats,
+      coefficientCovariance: inferenceAvailable ? covariance : null,
       intervals:intervalSamples.length?{alpha,zCritical,samples:intervalSamples,summary:null,kind:'mean-probability-confidence'}:null,
-      summary:{intercept:beta0,slope:beta1,equation:`logit(p) = ${beta0.toFixed(4)} + ${beta1.toFixed(4)}x`,parameters:{Intercept:beta0,Slope:beta1,OddsRatioPerUnitX:Math.exp(beta1)},primaryParameter:{label:'Odds ratio per unit X',value:Math.exp(beta1)},oddsRatioConfidenceInterval:coefficientStats[1]?{low:Math.exp(coefficientStats[1].ciLow),high:Math.exp(coefficientStats[1].ciHigh)}:null},
+      summary,
       warnings
     };
   };
@@ -1729,7 +2006,7 @@
       summary: {
         intercept: logA,
         slope: b,
-        equation: `y = ${a.toFixed(4)} · e^{${b.toFixed(4)}x}`,
+        equation: `y = ${formatEquationNumber(a)} exp(${formatEquationNumber(b)}x)`,
         parameters: {
           Amplitude: a,
           Rate: b
@@ -1845,7 +2122,7 @@
       summary: {
         intercept: logA,
         slope: b,
-        equation: `y = ${a.toFixed(4)} · x^{${b.toFixed(4)}}`,
+        equation: `y = ${formatEquationNumber(a)} exp[${formatEquationNumber(b)} ln(x)]`,
         parameters: {
           Scale: a,
           Exponent: b
@@ -1859,68 +2136,96 @@
     };
   };
 
+  const fitAutoregressiveSeries = (values, order) => {
+    const p = Math.max(0, Math.round(Number(order) || 0));
+    if(!Array.isArray(values) || values.length <= p){
+      return null;
+    }
+    const design = [];
+    const target = [];
+    for(let time = p; time < values.length; time += 1){
+      const row = [1];
+      for(let lag = 1; lag <= p; lag += 1){
+        row.push(values[time - lag]);
+      }
+      design.push(row);
+      target.push([values[time]]);
+    }
+    const solved = solveLeastSquares(design, target);
+    if(!solved.coefficients){
+      return null;
+    }
+    const coefficients = solved.coefficients;
+    const residuals = [];
+    const predictions = [];
+    for(let time = p; time < values.length; time += 1){
+      let prediction = coefficients[0];
+      for(let lag = 1; lag <= p; lag += 1){
+        prediction += coefficients[lag] * values[time - lag];
+      }
+      predictions[time] = prediction;
+      residuals.push(values[time] - prediction);
+    }
+    return { p, coefficients, residuals, predictions, solved };
+  };
+
+  const reconstructIntegratedValue = (highestDifference, levelHistory, differencingOrder) => {
+    const d = Math.max(0, Math.round(Number(differencingOrder) || 0));
+    if(d === 0){
+      return highestDifference;
+    }
+    const length = Array.isArray(levelHistory) ? levelHistory.length : 0;
+    if(length < d){
+      return NaN;
+    }
+    let value = highestDifference;
+    for(let lag = 1; lag <= d; lag += 1){
+      const previousLevel = Number(levelHistory[length - lag]);
+      if(!Number.isFinite(previousLevel)){
+        return NaN;
+      }
+      const sign = lag % 2 === 1 ? 1 : -1;
+      value += sign * binomialCoefficient(d, lag) * previousLevel;
+    }
+    return value;
+  };
+
   const autoSelectArimaOrder = (series, options = {}) => {
-    if(!Array.isArray(series) || series.length < 5){
-      return { p: 1, d: 0, criterion: NaN };
+    if(!Array.isArray(series) || series.length < 4){
+      return { p: 0, d: 0, criterion: NaN };
     }
     const maxP = Math.max(0, Math.min(Number(options.maxP) || 2, 5));
     const maxD = Math.max(0, Math.min(Number(options.maxD) || 2, 2));
     const criterion = options.criterion === 'aic' ? 'aic' : 'bic';
     let best = null;
-    for(let d = 0; d <= maxD; d++){
-      const diffed = differenceSeries(series, d);
-      const values = diffed.series;
-      if(values.length < 4){
+    for(let d = 0; d <= maxD; d += 1){
+      const values = differenceSeries(series, d).series;
+      if(values.length < 2){
         continue;
       }
-      for(let p = 0; p <= maxP; p++){
-        if(p === 0){
+      for(let p = 0; p <= maxP; p += 1){
+        const fit = fitAutoregressiveSeries(values, p);
+        if(!fit || !fit.residuals.length){
           continue;
         }
-        const design = [];
-        const target = [];
-        for(let t = p; t < values.length; t++){
-          const row = [1];
-          for(let lag = 1; lag <= p; lag++){
-            row.push(values[t - lag]);
-          }
-          design.push(row);
-          target.push([values[t]]);
-        }
-        const solved = solveLeastSquares(design, target);
-        if(!solved.coefficients){
-          continue;
-        }
-        const coeffs = solved.coefficients;
-        const residuals = [];
-        for(let t = p; t < values.length; t++){
-          let pred = coeffs[0];
-          for(let lag = 1; lag <= p; lag++){
-            pred += coeffs[lag] * values[t - lag];
-          }
-          residuals.push(values[t] - pred);
-        }
-        const nEff = residuals.length;
-        if(nEff <= 0){
-          continue;
-        }
-        const sse = residuals.reduce((sum,val)=>sum+val*val,0);
-        const sigmaSq = sse / Math.max(nEff, 1);
+        const nEff = fit.residuals.length;
+        const sse = fit.residuals.reduce((sum, value) => sum + value * value, 0);
+        const sigmaSq = sse / nEff;
         if(!Number.isFinite(sigmaSq) || sigmaSq <= 0){
           continue;
         }
-        const k = coeffs.length;
+        const estimatedParameterCount = fit.coefficients.length + 1;
         const logLikelihood = -0.5 * nEff * (Math.log(2 * Math.PI) + Math.log(sigmaSq) + 1);
-        const aic = 2 * k - 2 * logLikelihood;
-        const bic = Math.log(nEff) * k - 2 * logLikelihood;
+        const aic = 2 * estimatedParameterCount - 2 * logLikelihood;
+        const bic = Math.log(nEff) * estimatedParameterCount - 2 * logLikelihood;
         const score = criterion === 'aic' ? aic : bic;
-        console.debug('Debug:', debugNs, 'autoSelectArimaOrder candidate', { p, d, k, aic, bic, score });
+        console.debug('Debug:', debugNs, 'autoSelectArimaOrder candidate', { p, d, estimatedParameterCount, aic, bic, score });
         if(!best || score < best.score){
-          best = { p, d, score, aic, bic };
+          best = { p, d, score, aic, bic, criterion };
         }
       }
     }
-    return best || { p: 1, d: 0, criterion: NaN };
+    return best || { p: 0, d: 0, criterion: NaN };
   };
 
   const computeArimaModel = ({ points, alpha, domain, forecast }) => {
@@ -1931,115 +2236,104 @@
     const warnings = [];
     const yVals = sorted.map(pt => pt.y);
     const xVals = sorted.map(pt => pt.x);
-    const yMean = jStatLib.mean(yVals);
-    const sst = yVals.reduce((sum,val)=>sum+Math.pow(val - yMean,2),0);
     const forecastOptions = forecast || {};
     const horizon = clampPositiveInt(forecastOptions.horizon, { min: 1, max: 120, fallback: Math.max(1, Math.round(sorted.length * 0.25)) });
     const autoTune = !!forecastOptions.autoTune;
     const selection = autoTune ? autoSelectArimaOrder(yVals, forecastOptions) : null;
     if(autoTune){
       if(selection){
-        warnings.push(`Auto-selected ARIMA order p=${selection.p}, d=${selection.d} using ${(forecastOptions.criterion === 'aic' ? 'AIC' : 'BIC')}.`);
+        warnings.push(`Auto-selected ARIMA order = ${selection.p}, differencing order = ${selection.d} using ${(forecastOptions.criterion === 'aic' ? 'AIC' : 'BIC')}.`);
       }else{
         warnings.push('Automatic ARIMA search retained manual order.');
       }
     }
     const pRaw = Number.isInteger(forecastOptions.p) ? forecastOptions.p : 1;
     const dRaw = Number.isInteger(forecastOptions.d) ? forecastOptions.d : 0;
-    const p = Math.max(1, selection ? selection.p : Math.max(0, Math.min(pRaw, forecastOptions.maxP || 5)));
-    const d = Math.max(0, selection ? selection.d : Math.max(0, Math.min(dRaw, forecastOptions.maxD || 2)));
-    const differenced = differenceSeries(yVals, d);
-    const diffSeries = differenced.series;
-    if(diffSeries.length <= p){
+    const p = selection ? selection.p : Math.max(0, Math.min(pRaw, forecastOptions.maxP || 5));
+    const d = selection ? selection.d : Math.max(0, Math.min(dRaw, forecastOptions.maxD || 2));
+    const diffSeries = differenceSeries(yVals, d).series;
+    const autoregression = fitAutoregressiveSeries(diffSeries, p);
+    if(!autoregression){
       return null;
     }
-    const design = [];
-    const target = [];
-    for(let t = p; t < diffSeries.length; t++){
-      const row = [1];
-      for(let lag = 1; lag <= p; lag++){
-        row.push(diffSeries[t - lag]);
-      }
-      design.push(row);
-      target.push([diffSeries[t]]);
-    }
-    const solved = solveLeastSquares(design, target);
-    if(!solved.coefficients){
-      return null;
-    }
-    const coefficients = solved.coefficients;
+    const coefficients = autoregression.coefficients;
     const intercept = coefficients[0];
     const phi = coefficients.slice(1);
-    const residuals = [];
     const fitted = [];
-    const predictedDiff = [];
+    const residuals = [];
     const actualForResiduals = [];
-    for(let t = p; t < diffSeries.length; t++){
-      let pred = intercept;
-      for(let lag = 1; lag <= p; lag++){
-        pred += phi[lag - 1] * diffSeries[t - lag];
+    for(let time = p; time < diffSeries.length; time += 1){
+      const actualIndex = time + d;
+      const predictedDifference = autoregression.predictions[time];
+      const predictedActual = reconstructIntegratedValue(predictedDifference, yVals.slice(0, actualIndex), d);
+      if(!Number.isFinite(predictedActual) || !Number.isFinite(yVals[actualIndex])){
+        continue;
       }
-      predictedDiff[t] = pred;
-      const actualIndex = t + d;
-      const baseActual = yVals[actualIndex - 1];
-      const predictedActual = baseActual + pred;
       fitted[actualIndex] = predictedActual;
-      const resid = yVals[actualIndex] - predictedActual;
-      residuals.push(resid);
+      residuals.push(yVals[actualIndex] - predictedActual);
       actualForResiduals.push(yVals[actualIndex]);
     }
     const nEff = residuals.length;
+    if(!nEff){
+      return null;
+    }
     const sse = residuals.reduce((sum,val)=>sum+val*val,0);
-    const sigmaSq = nEff ? sse / Math.max(nEff, 1) : 0;
+    const sigmaSq = sse / nEff;
     const sigma = Math.sqrt(Math.max(sigmaSq, 0));
-    const rmse = nEff ? Math.sqrt(sse / nEff) : NaN;
-    const mae = nEff ? residuals.reduce((sum,val)=>sum+Math.abs(val),0)/nEff : NaN;
-    const mape = computeMeanAbsolutePercentageError(actualForResiduals, residuals.map((res, idx)=>actualForResiduals[idx] - res));
-    const smape = computeSymmetricMAPE(actualForResiduals, residuals.map((res, idx)=>actualForResiduals[idx] - res));
-    const k = coefficients.length;
-    const logLikelihood = nEff > 0 && sigmaSq > 0
+    const rmse = Math.sqrt(sse / nEff);
+    const mae = residuals.reduce((sum,val)=>sum+Math.abs(val),0)/nEff;
+    const fittedForErrors = residuals.map((residual, index) => actualForResiduals[index] - residual);
+    const mape = computeMeanAbsolutePercentageError(actualForResiduals, fittedForErrors);
+    const smape = computeSymmetricMAPE(actualForResiduals, fittedForErrors);
+    const estimatedParameterCount = coefficients.length + 1;
+    const logLikelihood = sigmaSq > 0
       ? -0.5 * nEff * (Math.log(2 * Math.PI) + Math.log(sigmaSq) + 1)
       : NaN;
-    const aic = Number.isFinite(logLikelihood) ? (2 * k) - (2 * logLikelihood) : NaN;
-    const bic = Number.isFinite(logLikelihood) ? (Math.log(nEff || 1) * k) - (2 * logLikelihood) : NaN;
+    const aic = Number.isFinite(logLikelihood) ? (2 * estimatedParameterCount) - (2 * logLikelihood) : NaN;
+    const bic = Number.isFinite(logLikelihood) ? (Math.log(nEff) * estimatedParameterCount) - (2 * logLikelihood) : NaN;
     const spacing = computeAverageSpacing(xVals);
     const lastX = xVals[xVals.length - 1];
-    let workingActual = yVals[yVals.length - 1];
-    const diffHistory = diffSeries.slice(-p);
+    const levelHistory = yVals.slice();
+    const diffHistory = diffSeries.slice();
     const forecastPoints = [];
-    const forecastVariances = computeForecastVariance(phi, horizon, sigmaSq);
+    const forecastVariances = computeForecastVariance(phi, d, horizon, sigmaSq);
     const zCritical = (jStatLib?.normal && typeof jStatLib.normal.inv === 'function')
       ? jStatLib.normal.inv(1 - alpha/2, 0, 1)
       : 1.96;
     const intervalSamples = [];
     sorted.forEach((pt, idx) => {
       const predicted = Number.isFinite(fitted[idx]) ? fitted[idx] : pt.y;
-      const ciLow = Number.isFinite(predicted) ? predicted - zCritical * sigma : NaN;
-      const ciHigh = Number.isFinite(predicted) ? predicted + zCritical * sigma : NaN;
-      const piLow = ciLow;
-      const piHigh = ciHigh;
-      intervalSamples.push({ x: pt.x, y: predicted, ciLow, ciHigh, piLow, piHigh });
+      const ciLow = Number.isFinite(fitted[idx]) ? predicted - zCritical * sigma : NaN;
+      const ciHigh = Number.isFinite(fitted[idx]) ? predicted + zCritical * sigma : NaN;
+      intervalSamples.push({ x: pt.x, y: predicted, ciLow, ciHigh, piLow: ciLow, piHigh: ciHigh });
     });
-    for(let h = 1; h <= horizon; h++){
-      let diffPred = intercept;
-      for(let lag = 1; lag <= p; lag++){
-        const historyIndex = diffHistory.length - lag;
-        diffPred += (phi[lag - 1] || 0) * (diffHistory[historyIndex] ?? 0);
+    for(let h = 1; h <= horizon; h += 1){
+      let predictedDifference = intercept;
+      for(let lag = 1; lag <= p; lag += 1){
+        predictedDifference += (phi[lag - 1] || 0) * (diffHistory[diffHistory.length - lag] ?? 0);
       }
-      diffHistory.push(diffPred);
-      workingActual = workingActual + diffPred;
+      diffHistory.push(predictedDifference);
+      const predictedActual = reconstructIntegratedValue(predictedDifference, levelHistory, d);
+      if(!Number.isFinite(predictedActual)){
+        return null;
+      }
+      levelHistory.push(predictedActual);
       const x = Number.isFinite(spacing) ? lastX + spacing * h : lastX + h;
       const variance = forecastVariances[h - 1] ?? sigmaSq;
-      const stdErr = Math.sqrt(Math.max(variance, sigmaSq));
-      const ciLow = workingActual - zCritical * stdErr;
-      const ciHigh = workingActual + zCritical * stdErr;
-      forecastPoints.push({ x, y: workingActual, lower: ciLow, upper: ciHigh, stdErr });
-      intervalSamples.push({ x, y: workingActual, ciLow, ciHigh, piLow: ciLow, piHigh: ciHigh });
+      const stdErr = Math.sqrt(Math.max(variance, 0));
+      const ciLow = predictedActual - zCritical * stdErr;
+      const ciHigh = predictedActual + zCritical * stdErr;
+      forecastPoints.push({ x, y: predictedActual, lower: ciLow, upper: ciHigh, stdErr });
+      intervalSamples.push({ x, y: predictedActual, ciLow, ciHigh, piLow: ciLow, piHigh: ciHigh });
     }
     const diagnostics = computeResidualDiagnostics(residuals);
     const residualSummary = summarizeResiduals(residuals);
+    const fittedMean = actualForResiduals.reduce((sum, value) => sum + value, 0) / nEff;
+    const sst = actualForResiduals.reduce((sum, value) => sum + Math.pow(value - fittedMean, 2), 0);
     const r2 = sst === 0 ? 1 : 1 - (sse / sst);
-    const adjR2 = nEff > (k + 1) ? 1 - (1 - r2) * ((nEff - 1) / (nEff - k - 1)) : r2;
+    const adjR2 = nEff > estimatedParameterCount
+      ? 1 - (1 - r2) * ((nEff - 1) / Math.max(nEff - estimatedParameterCount, 1))
+      : r2;
     const summaryParameters = {
       Intercept: intercept,
       Horizon: horizon,
@@ -2049,10 +2343,10 @@
     phi.forEach((value, idx) => {
       summaryParameters[`AR${idx + 1}`] = value;
     });
-    const primaryParameter = phi.length ? { label: `AR${1}`, value: phi[0] } : { label: 'Intercept', value: intercept };
+    const primaryParameter = phi.length ? { label: 'AR1', value: phi[0] } : { label: 'Intercept', value: intercept };
     const modelDomain = {
       minX: domain?.minX ?? Math.min(...xVals),
-      maxX: Math.max(domain?.maxX ?? Math.max(...xVals), forecastPoints.length ? forecastPoints[forecastPoints.length - 1].x : Math.max(...xVals))
+      maxX: Math.max(domain?.maxX ?? Math.max(...xVals), forecastPoints[forecastPoints.length - 1]?.x ?? Math.max(...xVals))
     };
     const intervals = intervalSamples.length ? {
       alpha,
@@ -2066,34 +2360,18 @@
       },
       samples: intervalSamples
     } : null;
-    if(intervals && intervals.summary){
-      if(!Number.isFinite(intervals.summary.ciMin)) intervals.summary.ciMin = NaN;
-      if(!Number.isFinite(intervals.summary.ciMax)) intervals.summary.ciMax = NaN;
-      if(!Number.isFinite(intervals.summary.piMin)) intervals.summary.piMin = NaN;
-      if(!Number.isFinite(intervals.summary.piMax)) intervals.summary.piMax = NaN;
+    if(intervals?.summary){
+      Object.keys(intervals.summary).forEach(key => {
+        if(!Number.isFinite(intervals.summary[key])){
+          intervals.summary[key] = NaN;
+        }
+      });
     }
     const predict = (x) => {
-      if(!intervalSamples.length){
-        return NaN;
-      }
       const direct = intervalSamples.find(sample => sample.x === x);
-      if(direct){
-        return direct.y;
-      }
-      return linearInterpolateSamples(intervalSamples, x);
+      return direct ? direct.y : linearInterpolateSamples(intervalSamples, x);
     };
-    console.debug('Debug:', debugNs, 'ARIMA model summary', {
-      p,
-      d,
-      horizon,
-      rmse,
-      mae,
-      mape,
-      smape,
-      aic,
-      bic,
-      residualCount: residuals.length
-    });
+    console.debug('Debug:', debugNs, 'ARIMA model summary', { p, d, horizon, rmse, mae, mape, smape, aic, bic, residualCount: nEff });
     return {
       coefficients,
       mode: 'arima',
@@ -2127,7 +2405,7 @@
       summary: {
         intercept,
         slope: phi[0] ?? intercept,
-        equation: `Conditional AR(${p}) fitted after ${d} difference${d===1?'':'s'}` ,
+        equation: `Conditional AR(${p}) fitted after ${d} difference${d === 1 ? '' : 's'}`,
         parameters: summaryParameters,
         primaryParameter
       },
@@ -2221,7 +2499,6 @@
   };
 
   const autoTuneHoltWinters = (values, seasonLength, options = {}) => {
-    const criteria = options.criterion === 'aic' ? 'aic' : 'bic';
     const candidates = options.gridValues && Array.isArray(options.gridValues) && options.gridValues.length
       ? options.gridValues
       : [0.2, 0.4, 0.6, 0.8];
@@ -2240,32 +2517,26 @@
           if(!residuals.length){
             return;
           }
-          const sse = residuals.reduce((sum,val)=>sum+val*val,0);
-          const sigmaSq = sse / Math.max(residuals.length, 1);
-          if(!Number.isFinite(sigmaSq) || sigmaSq <= 0){
+          const sse = residuals.reduce((sum, value) => sum + value * value, 0);
+          const rmse = Math.sqrt(sse / residuals.length);
+          if(!Number.isFinite(sse)){
             return;
           }
-          const k = seasonLength + 3;
-          const logLikelihood = -0.5 * residuals.length * (Math.log(2 * Math.PI) + Math.log(sigmaSq) + 1);
-          const aic = 2 * k - 2 * logLikelihood;
-          const bic = Math.log(residuals.length) * k - 2 * logLikelihood;
-          const score = criteria === 'aic' ? aic : bic;
           console.debug('Debug:', debugNs, 'autoTuneHoltWinters candidate', {
             alpha: alphaCandidate,
             beta: betaCandidate,
             gamma: gammaCandidate,
-            aic,
-            bic,
-            score
+            sse,
+            rmse
           });
-          if(!best || score < best.score){
+          if(!best || sse < best.score){
             best = {
               alpha: alphaCandidate,
               beta: betaCandidate,
               gamma: gammaCandidate,
-              score,
-              aic,
-              bic
+              score: sse,
+              rmse,
+              criterion: 'one-step-sse'
             };
           }
         });
@@ -2291,7 +2562,7 @@
     const tuned = autoTune ? autoTuneHoltWinters(yVals, seasonLength, forecastOptions) : null;
     if(autoTune){
       if(tuned){
-        warnings.push(`Auto-selected Holt-Winters α=${tuned.alpha.toFixed(2)}, β=${tuned.beta.toFixed(2)}, γ=${tuned.gamma.toFixed(2)} using ${(forecastOptions.criterion === 'aic' ? 'AIC' : 'BIC')}.`);
+        warnings.push(`Auto-selected Holt-Winters α=${tuned.alpha.toFixed(2)}, β=${tuned.beta.toFixed(2)}, γ=${tuned.gamma.toFixed(2)} by minimizing in-sample one-step-ahead SSE after seasonal initialization.`);
       }else{
         warnings.push('Automatic Holt-Winters tuning retained manual parameters.');
       }
@@ -2321,12 +2592,8 @@
     const smape = computeSymmetricMAPE(actualForErrors, predictedForErrors);
     const sigmaSq = sse / Math.max(residuals.length, 1);
     const sigma = Math.sqrt(Math.max(sigmaSq, 0));
-    const k = seasonLength + 3;
-    const logLikelihood = -0.5 * residuals.length * (Math.log(2 * Math.PI) + Math.log(sigmaSq) + 1);
-    const aic = 2 * k - 2 * logLikelihood;
-    const bic = Math.log(residuals.length) * k - 2 * logLikelihood;
     const r2 = sst === 0 ? 1 : 1 - (sse / sst);
-    const adjR2 = residuals.length > k ? 1 - (1 - r2) * ((residuals.length - 1) / (residuals.length - k - 1)) : r2;
+    const adjR2 = NaN;
     const zCritical = (jStatLib?.normal && typeof jStatLib.normal.inv === 'function')
       ? jStatLib.normal.inv(1 - alpha/2, 0, 1)
       : 1.96;
@@ -2405,8 +2672,8 @@
       mae,
       mape,
       smape,
-      aic,
-      bic
+      tuningCriterion: tuned?.criterion || 'manual',
+      tuningScore: tuned?.score ?? null
     });
     return {
       mode: 'holtWinters',
@@ -2422,8 +2689,11 @@
         mae,
         mape,
         smape,
-        aic,
-        bic,
+        aic: NaN,
+        bic: NaN,
+        selectionCriterion: tuned?.criterion || 'manual',
+        selectionScore: Number.isFinite(tuned?.score) ? tuned.score : NaN,
+        tuningRmse: Number.isFinite(tuned?.rmse) ? tuned.rmse : NaN,
         horizon
       },
       residuals: residualSummary,
@@ -2668,20 +2938,124 @@
     return params;
   };
 
-  const solveNormalEquations = (a, b) => {
-    const aInv = safeInverse(a);
-    if(!aInv){
+  const expandFreeParameterMatrix = (freeMatrix, parameterCount, freeIndices) => {
+    if(!Array.isArray(freeMatrix) || !Array.isArray(freeIndices)){
       return null;
     }
-    const delta = new Array(b.length).fill(0);
-    for(let r = 0; r < aInv.length; r++){
-      let sum = 0;
-      for(let c = 0; c < b.length; c++){
-        sum += (aInv[r]?.[c] || 0) * b[c];
+    const expanded = Array.from({ length: parameterCount }, () => new Array(parameterCount).fill(0));
+    for(let row = 0; row < freeIndices.length; row += 1){
+      for(let col = 0; col < freeIndices.length; col += 1){
+        expanded[freeIndices[row]][freeIndices[col]] = Number(freeMatrix[row]?.[col]);
       }
-      delta[r] = sum;
     }
-    return { delta, inverse: aInv };
+    return hasFiniteMatrix(expanded) ? expanded : null;
+  };
+
+  const scaleMatrix = (matrix, factor) => (
+    Array.isArray(matrix)
+      ? matrix.map(row => row.map(value => Number.isFinite(value) && Number.isFinite(factor) ? value * factor : NaN))
+      : null
+  );
+
+  const computeNonlinearInference = ({ points, params, residuals, weights, jacobian, freeIndices, method, converged, bounds }) => {
+    const parameterCount = Array.isArray(params) ? params.length : 0;
+    const freeCount = Array.isArray(freeIndices) ? freeIndices.length : 0;
+    const dof = Array.isArray(residuals) ? residuals.length - freeCount : NaN;
+    const resolvedMethod = typeof method === 'string' ? method.toLowerCase() : 'ols';
+    if(!converged){
+      return { available: false, reason: 'Optimization did not converge.', covariance: null, sigmaSq: NaN, dof, rank: 0, conditionNumber: Infinity, method: resolvedMethod };
+    }
+    if(!freeCount){
+      return { available: false, reason: 'All parameters were fixed; inferential covariance is not defined.', covariance: null, sigmaSq: NaN, dof, rank: 0, conditionNumber: Infinity, method: resolvedMethod };
+    }
+    if(!(dof > 0) || !Array.isArray(jacobian) || jacobian.length !== residuals.length){
+      return { available: false, reason: 'Insufficient residual degrees of freedom for nonlinear inference.', covariance: null, sigmaSq: NaN, dof, rank: 0, conditionNumber: Infinity, method: resolvedMethod };
+    }
+    const lower = Array.isArray(bounds?.lower) ? bounds.lower : [];
+    const upper = Array.isArray(bounds?.upper) ? bounds.upper : [];
+    const activeBound = freeIndices.find(index => {
+      const value = Number(params[index]);
+      const lo = Number(lower[index]);
+      const hi = Number(upper[index]);
+      const tolerance = Math.max(1e-8, Math.abs(value) * 1e-7);
+      return (Number.isFinite(lo) && Math.abs(value - lo) <= tolerance)
+        || (Number.isFinite(hi) && Math.abs(value - hi) <= tolerance);
+    });
+    if(activeBound !== undefined){
+      return { available: false, reason: `Parameter ${activeBound + 1} is active on a bound; ordinary Wald inference is unavailable.`, covariance: null, sigmaSq: NaN, dof, rank: 0, conditionNumber: Infinity, method: resolvedMethod };
+    }
+
+    const weightedDesign = jacobian.map((row, rowIndex) => {
+      const weight = resolvedMethod === 'ols' ? 1 : Math.max(Number(weights?.[rowIndex]) || 0, 0);
+      const rootWeight = Math.sqrt(weight);
+      return freeIndices.map(index => (Number(row?.[index]) || 0) * rootWeight);
+    });
+    const information = solveLeastSquares(weightedDesign, weightedDesign.map(() => [0]));
+    if(!information.xtxInv || information.rank < freeCount){
+      return {
+        available: false,
+        reason: 'The final nonlinear Jacobian is rank deficient; parameters are not identifiable.',
+        covariance: null,
+        sigmaSq: NaN,
+        dof,
+        rank: information.rank || 0,
+        conditionNumber: information.conditionNumber,
+        method: resolvedMethod
+      };
+    }
+
+    let covarianceFree = null;
+    let sigmaSq = NaN;
+    if(resolvedMethod === 'huber'){
+      const robustScale = resolveWeightedResidualScale(residuals);
+      sigmaSq = Number.isFinite(robustScale) ? robustScale * robustScale : NaN;
+      const meat = Array.from({ length: freeCount }, () => new Array(freeCount).fill(0));
+      for(let rowIndex = 0; rowIndex < residuals.length; rowIndex += 1){
+        const scoreResidual = (Number(weights?.[rowIndex]) || 0) * residuals[rowIndex];
+        const jacobianRow = freeIndices.map(index => Number(jacobian[rowIndex]?.[index]) || 0);
+        for(let row = 0; row < freeCount; row += 1){
+          for(let col = 0; col < freeCount; col += 1){
+            meat[row][col] += jacobianRow[row] * jacobianRow[col] * scoreResidual * scoreResidual;
+          }
+        }
+      }
+      const bread = information.xtxInv;
+      const sandwichLeft = multiplyPlainMatrices(bread, meat);
+      covarianceFree = sandwichLeft ? multiplyPlainMatrices(sandwichLeft, bread) : null;
+      if(covarianceFree){
+        covarianceFree = scaleMatrix(covarianceFree, residuals.length / dof);
+      }
+    }else{
+      const weightedSse = residuals.reduce((sum, residual, index) => {
+        const weight = resolvedMethod === 'wls' ? Math.max(Number(weights?.[index]) || 0, 0) : 1;
+        return sum + weight * residual * residual;
+      }, 0);
+      sigmaSq = weightedSse / dof;
+      covarianceFree = scaleMatrix(information.xtxInv, sigmaSq);
+    }
+    const covariance = expandFreeParameterMatrix(covarianceFree, parameterCount, freeIndices);
+    if(!covariance || !Number.isFinite(sigmaSq)){
+      return {
+        available: false,
+        reason: 'The final nonlinear covariance could not be computed.',
+        covariance: null,
+        sigmaSq,
+        dof,
+        rank: information.rank,
+        conditionNumber: information.conditionNumber,
+        method: resolvedMethod
+      };
+    }
+    return {
+      available: true,
+      reason: null,
+      covariance,
+      sigmaSq,
+      dof,
+      rank: information.rank,
+      conditionNumber: information.conditionNumber,
+      method: resolvedMethod
+    };
   };
 
   const fitNonlinearLeastSquares = ({ points, initialParams, predictFromParams, bounds, fixedMask, method, options }) => {
@@ -2691,13 +3065,13 @@
     let params = applyParameterBounds(initialParams.slice(), bounds);
     const locked = Array.isArray(fixedMask) ? fixedMask.map(Boolean) : new Array(params.length).fill(false);
     const freeIndices = [];
-    for(let i = 0; i < params.length; i++){
-      if(!locked[i]){
-        freeIndices.push(i);
+    for(let index = 0; index < params.length; index += 1){
+      if(!locked[index]){
+        freeIndices.push(index);
       }
     }
     let lambda = Number.isFinite(Number(options?.lambda)) ? Number(options.lambda) : 0.01;
-    let best = { params: params.slice(), sse: Infinity, residuals: [], predictions: [], weights: [], jacobian: null, covariance: null };
+    let best = { params: params.slice(), sse: Infinity, residuals: [], predictions: [], weights: [] };
     let converged = false;
     let iteration = 0;
 
@@ -2705,74 +3079,66 @@
       const predictions = points.map(pt => predictFromParams(params, pt.x));
       const residuals = predictions.map((pred, idx) => points[idx].y - pred);
       const weights = buildRegressionWeights({ points, method: resolvedMethod, options, residuals });
-      const sse = residuals.reduce((sum, r, idx) => sum + ((weights[idx] || 1) * r * r), 0);
+      const sse = residuals.reduce((sum, residual, idx) => sum + ((weights[idx] || 1) * residual * residual), 0);
+      const jacobian = computeJacobianNumeric({ points, params, predictFromParams });
       return {
         params: params.slice(),
         sse,
         residuals,
         predictions,
         weights,
-        jacobian: null,
-        covarianceBase: null,
+        jacobian,
         converged: true,
         iterations: 1,
-        freeParameterCount: 0
+        freeParameterCount: 0,
+        freeIndices,
+        inference: computeNonlinearInference({ points, params, residuals, weights, jacobian, freeIndices, method: resolvedMethod, converged: true, bounds })
       };
     }
 
-    for(iteration = 1; iteration <= maxIterations; iteration++){
+    for(iteration = 1; iteration <= maxIterations; iteration += 1){
       const predictions = points.map(pt => predictFromParams(params, pt.x));
       const residuals = predictions.map((pred, idx) => points[idx].y - pred);
       const weights = buildRegressionWeights({ points, method: resolvedMethod, options, residuals });
-      let sse = 0;
-      for(let i = 0; i < residuals.length; i++){
-        const r = residuals[i];
-        const w = weights[i] || 1;
-        sse += w * r * r;
-      }
+      const sse = residuals.reduce((sum, residual, idx) => sum + ((weights[idx] || 1) * residual * residual), 0);
       if(sse < best.sse){
-        best = { ...best, params: params.slice(), sse, residuals: residuals.slice(), predictions: predictions.slice(), weights: weights.slice() };
+        best = { params: params.slice(), sse, residuals: residuals.slice(), predictions: predictions.slice(), weights: weights.slice() };
       }
       const jacobian = computeJacobianNumeric({ points, params, predictFromParams });
-      const pCount = freeIndices.length;
-      const jtWj = Array.from({ length: pCount }, () => new Array(pCount).fill(0));
-      const jtWr = new Array(pCount).fill(0);
-      for(let i = 0; i < points.length; i++){
-        const w = weights[i] || 1;
-        const row = jacobian[i];
-        const r = residuals[i];
-        for(let aIdx = 0; aIdx < pCount; aIdx++){
-          const paramA = freeIndices[aIdx];
-          const ja = row[paramA];
-          jtWr[aIdx] += w * ja * r;
-          for(let bIdx = 0; bIdx < pCount; bIdx++){
-            const paramB = freeIndices[bIdx];
-            jtWj[aIdx][bIdx] += w * ja * row[paramB];
-          }
-        }
+      const freeCount = freeIndices.length;
+      const lmDesign = [];
+      const lmTarget = [];
+      for(let rowIndex = 0; rowIndex < points.length; rowIndex += 1){
+        const weight = Math.max(Number(weights[rowIndex]) || 0, 0);
+        const rootWeight = Math.sqrt(weight);
+        const row = jacobian[rowIndex];
+        lmDesign.push(freeIndices.map(index => (Number(row[index]) || 0) * rootWeight));
+        lmTarget.push([residuals[rowIndex] * rootWeight]);
       }
-      for(let d = 0; d < pCount; d++){
-        jtWj[d][d] += lambda;
+      const rootLambda = Math.sqrt(Math.max(lambda, 0));
+      for(let diagonal = 0; diagonal < freeCount; diagonal += 1){
+        const dampingRow = new Array(freeCount).fill(0);
+        dampingRow[diagonal] = rootLambda;
+        lmDesign.push(dampingRow);
+        lmTarget.push([0]);
       }
-      const solved = solveNormalEquations(jtWj, jtWr);
-      if(!solved){
+      const solved = solveLeastSquares(lmDesign, lmTarget);
+      if(!solved.coefficients){
         break;
       }
-      const delta = solved.delta;
-      const deltaNorm = Math.sqrt(delta.reduce((sum,val)=>sum + val * val,0));
+      const delta = solved.coefficients;
+      const deltaNorm = stableHypot(delta);
       const candidate = params.slice();
-      for(let d = 0; d < freeIndices.length; d++){
-        const paramIndex = freeIndices[d];
-        candidate[paramIndex] = params[paramIndex] + delta[d];
+      for(let index = 0; index < freeIndices.length; index += 1){
+        candidate[freeIndices[index]] = params[freeIndices[index]] + delta[index];
       }
       applyParameterBounds(candidate, bounds);
       const candidatePredictions = points.map(pt => predictFromParams(candidate, pt.x));
       const candidateResiduals = candidatePredictions.map((pred, idx) => points[idx].y - pred);
       const candidateWeights = buildRegressionWeights({ points, method: resolvedMethod, options, residuals: candidateResiduals });
-      let candidateSse = 0;
-      for(let i = 0; i < candidateResiduals.length; i++){
-        candidateSse += (candidateWeights[i] || 1) * candidateResiduals[i] * candidateResiduals[i];
-      }
+      const candidateSse = candidateResiduals.reduce((sum, residual, idx) => sum + ((candidateWeights[idx] || 1) * residual * residual), 0);
+      const objectiveTolerance = tolerance * Math.max(1, Math.abs(sse));
+      const objectiveChange = Math.abs(candidateSse - sse);
       if(candidateSse < sse){
         params = candidate;
         lambda = Math.max(1e-8, lambda * 0.7);
@@ -2782,86 +3148,101 @@
             sse: candidateSse,
             residuals: candidateResiduals.slice(),
             predictions: candidatePredictions.slice(),
-            weights: candidateWeights.slice(),
-            jacobian: jacobian.map(row => row.slice()),
-            covariance: solved.inverse
+            weights: candidateWeights.slice()
           };
         }
-        if(deltaNorm < tolerance){
+        if(deltaNorm <= tolerance || objectiveChange <= objectiveTolerance){
           converged = true;
           break;
         }
       }else{
         lambda = Math.min(1e8, lambda * 2);
-        if(deltaNorm < tolerance){
+        if(deltaNorm <= tolerance || objectiveChange <= objectiveTolerance){
+          converged = true;
           break;
         }
       }
     }
 
-    let expandedCovariance = null;
-    if(best.covariance){
-      expandedCovariance = Array.from({ length: params.length }, () => new Array(params.length).fill(0));
-      for(let r = 0; r < freeIndices.length; r++){
-        for(let c = 0; c < freeIndices.length; c++){
-          expandedCovariance[freeIndices[r]][freeIndices[c]] = best.covariance[r]?.[c] ?? 0;
-        }
-      }
-    }
-
+    const finalParams = best.params.slice();
+    const finalPredictions = points.map(pt => predictFromParams(finalParams, pt.x));
+    const finalResiduals = finalPredictions.map((prediction, index) => points[index].y - prediction);
+    const finalWeights = buildRegressionWeights({ points, method: resolvedMethod, options, residuals: finalResiduals });
+    const finalSse = finalResiduals.reduce((sum, residual, index) => sum + ((finalWeights[index] || 1) * residual * residual), 0);
+    const finalJacobian = computeJacobianNumeric({ points, params: finalParams, predictFromParams });
+    const inference = computeNonlinearInference({
+      points,
+      params: finalParams,
+      residuals: finalResiduals,
+      weights: finalWeights,
+      jacobian: finalJacobian,
+      freeIndices,
+      method: resolvedMethod,
+      converged,
+      bounds
+    });
     return {
-      params: best.params,
-      sse: best.sse,
-      residuals: best.residuals,
-      predictions: best.predictions,
-      weights: best.weights,
-      jacobian: best.jacobian,
-      covarianceBase: expandedCovariance,
+      params: finalParams,
+      sse: finalSse,
+      residuals: finalResiduals,
+      predictions: finalPredictions,
+      weights: finalWeights,
+      jacobian: finalJacobian,
       converged,
       iterations: iteration,
-      freeParameterCount: freeIndices.length
+      freeParameterCount: freeIndices.length,
+      freeIndices,
+      inference
     };
   };
 
-  const buildNonlinearCoefficientStats = ({ params, covarianceBase, residuals, alpha, termLabels, effectiveParamCount }) => {
-    if(!Array.isArray(params) || !params.length || !covarianceBase || !Array.isArray(residuals)){
-      return { stats: [], covariance: null, sigmaSq: NaN, tCritical: NaN, dof: NaN };
+  const buildNonlinearCoefficientStats = ({ params, inference, alpha, termLabels, fixedMask }) => {
+    if(!Array.isArray(params) || !params.length || !inference?.available || !Array.isArray(inference.covariance)){
+      return {
+        stats: [],
+        covariance: null,
+        sigmaSq: Number(inference?.sigmaSq),
+        tCritical: NaN,
+        dof: Number(inference?.dof),
+        available: false,
+        reason: inference?.reason || 'Nonlinear inference unavailable.'
+      };
     }
-    const usedParamCount = Number.isFinite(effectiveParamCount) ? Math.max(0, Math.round(effectiveParamCount)) : params.length;
-    const dof = residuals.length - usedParamCount;
-    if(dof <= 0){
-      return { stats: [], covariance: null, sigmaSq: NaN, tCritical: NaN, dof };
-    }
-    const sigmaSq = residuals.reduce((sum,val)=>sum + val * val,0) / Math.max(dof, 1);
-    const covariance = covarianceBase.map(row => row.map(val => Number.isFinite(val) ? val * sigmaSq : NaN));
-    const standardErrors = covariance.map((row, idx) => {
-      const variance = row?.[idx];
-      return Number.isFinite(variance) && variance >= 0 ? Math.sqrt(variance) : NaN;
-    });
+    const dof = inference.dof;
+    const covariance = inference.covariance;
     const tDist = jStatLib?.studentt;
     const tCritical = (tDist && typeof tDist.inv === 'function' && dof > 0)
       ? tDist.inv(1 - alpha / 2, dof)
       : NaN;
-    const stats = params.map((estimate, idx) => {
-      const standardError = standardErrors[idx];
-      const tStatistic = Number.isFinite(standardError) && standardError !== 0 ? estimate / standardError : NaN;
-      const pValue = (tDist && typeof tDist.cdf === 'function' && Number.isFinite(tStatistic) && dof > 0)
-        ? studentTTwoSidedPValue(tStatistic, dof)
-        : NaN;
-      const ciHalf = Number.isFinite(tCritical) && Number.isFinite(standardError)
-        ? tCritical * standardError
-        : NaN;
+    const stats = params.map((estimate, index) => {
+      const fixed = !!fixedMask?.[index];
+      const variance = covariance[index]?.[index];
+      const standardError = !fixed && Number.isFinite(variance) && variance >= 0 ? Math.sqrt(variance) : NaN;
+      const tStatistic = Number.isFinite(standardError) && standardError > 0 ? estimate / standardError : NaN;
+      const pValue = Number.isFinite(tStatistic) && dof > 0 ? studentTTwoSidedPValue(tStatistic, dof) : NaN;
+      const ciHalf = Number.isFinite(tCritical) && Number.isFinite(standardError) ? tCritical * standardError : NaN;
       return {
-        term: termLabels?.[idx] || `Param ${idx + 1}`,
+        term: termLabels?.[index] || `Param ${index + 1}`,
         estimate,
         standardError,
         tStatistic,
         pValue,
         ciLow: Number.isFinite(ciHalf) ? estimate - ciHalf : NaN,
-        ciHigh: Number.isFinite(ciHalf) ? estimate + ciHalf : NaN
+        ciHigh: Number.isFinite(ciHalf) ? estimate + ciHalf : NaN,
+        fixed,
+        distribution: 'student-t',
+        statisticLabel: 't'
       };
     });
-    return { stats, covariance, sigmaSq, tCritical, dof };
+    return {
+      stats,
+      covariance,
+      sigmaSq: inference.sigmaSq,
+      tCritical,
+      dof,
+      available: true,
+      reason: null
+    };
   };
 
   const buildNonlinearIntervals = ({ params, predictFromParams, covariance, sigmaSq, tCritical, domain, sampleCount = 180 }) => {
@@ -3000,7 +3381,7 @@
       summary: {
         intercept,
         slope,
-        equation: `y = ${slope.toFixed(4)}x`,
+        equation: `y = ${formatEquationNumber(slope)}x`,
         parameters: {
           Slope: slope,
           Intercept: 0
@@ -3008,7 +3389,8 @@
         primaryParameter: {
           label: 'Slope',
           value: slope
-        }
+        },
+        r2Kind: 'uncentered'
       },
       domain
     };
@@ -3263,11 +3645,16 @@
     }
     const coeffs = Array.isArray(model.coefficients) ? model.coefficients : [];
     const largeCoeff = coeffs.find(value => Number.isFinite(value) && Math.abs(value) > 1e9);
-    if(Number.isFinite(largeCoeff)){
+    const numericalBasis = model.summary?.numericalBasis;
+    const scaledBasisCondition = Number(numericalBasis?.conditionNumber ?? metrics.conditionNumber);
+    const usesStableScaledBasis = numericalBasis?.kind === 'centered-scaled-polynomial'
+      && Number.isFinite(scaledBasisCondition)
+      && scaledBasisCondition < 1e8;
+    if(Number.isFinite(largeCoeff) && !usesStableScaledBasis){
       appendModelWarning(model, 'Large coefficient magnitudes detected; model may be numerically unstable.');
     }
     const nonFiniteCoeff = coeffs.find(value => !Number.isFinite(value));
-    if(typeof nonFiniteCoeff !== 'undefined'){
+    if(!model.diagnosticOnly && typeof nonFiniteCoeff !== 'undefined'){
       appendModelWarning(model, 'Non-finite coefficient estimates detected.');
     }
     if(Number.isFinite(metrics.r2) && (metrics.r2 > 1.000001 || metrics.r2 < -0.000001)){
@@ -3343,11 +3730,10 @@
     }
     const coefficientInfo = buildNonlinearCoefficientStats({
       params: fit.params,
-      covarianceBase: fit.covarianceBase,
-      residuals: fit.residuals,
+      inference: fit.inference,
       alpha,
       termLabels: spec.paramLabels,
-      effectiveParamCount: fit.freeParameterCount
+      fixedMask: constrained.fixedMask
     });
     const intervalInfo = buildNonlinearIntervals({
       params: fit.params,
@@ -3362,7 +3748,10 @@
     const summary = spec.summary(fit.params);
     const warnings = [];
     if(!fit.converged){
-      warnings.push('Optimization did not fully converge; review parameter estimates with caution.');
+      warnings.push('Optimization did not converge; parameter inference was suppressed.');
+    }
+    if(!fit.inference?.available && fit.inference?.reason){
+      warnings.push(`Coefficient standard errors, confidence intervals, and p-values were suppressed: ${fit.inference.reason}`);
     }
     if(method && String(method).toLowerCase() !== 'ols'){
       warnings.push(`Model fitted using ${String(method).toUpperCase()} weighting.`);
@@ -3383,12 +3772,20 @@
         adjR2: points.length > (pCount + 1) ? 1 - (1 - r2) * ((points.length - 1) / (points.length - pCount - 1)) : r2,
         rmse: Math.sqrt(fit.sse / Math.max(points.length, 1)),
         mae: fit.residuals.reduce((sum,val)=>sum + Math.abs(val),0) / Math.max(points.length, 1),
-        iterations: fit.iterations
+        iterations: fit.iterations,
+        inferenceAvailable: !!fit.inference?.available,
+        conditionNumber: Number(fit.inference?.conditionNumber)
       },
       residuals: summarizeResiduals(fit.residuals),
       predictions: fit.predictions.slice(),
       predict: x => spec.predict(fit.params, x),
-      diagnostics: computeResidualDiagnostics(fit.residuals),
+      diagnostics: {
+        ...computeResidualDiagnostics(fit.residuals),
+        inferenceAvailable: !!fit.inference?.available,
+        inferenceReason: fit.inference?.reason || null,
+        jacobianRank: Number(fit.inference?.rank),
+        conditionNumber: Number(fit.inference?.conditionNumber)
+      },
       coefficientStats: coefficientInfo.stats,
       coefficientCovariance: coefficientInfo.covariance,
       intervals: intervalInfo ? {
@@ -3429,7 +3826,7 @@
       summary: (params) => ({
         intercept: params[0],
         slope: params[1],
-        equation: 'y = baseline + amplitude * exp(-0.5*((x-center)/sigma)^2)',
+        equation: 'y = Baseline + Amplitude exp[−(x − Center)²/(2σ²)]',
         parameters: {
           Baseline: params[0],
           Amplitude: params[1],
@@ -3462,7 +3859,7 @@
       summary: (params) => ({
         intercept: params[0],
         slope: params[2],
-        equation: 'y = Y0 + (Plateau - Y0) * (1 - exp(-K*x))',
+        equation: 'y = Y₀ + (Plateau − Y₀)[1 − exp(−Kx)]',
         parameters: { Y0: params[0], Plateau: params[1], K: params[2] },
         primaryParameter: { label: 'K', value: params[2] }
       })
@@ -3490,7 +3887,7 @@
       summary: (params) => ({
         intercept: params[0],
         slope: params[2],
-        equation: 'y = Plateau + (Y0 - Plateau) * exp(-K*x)',
+        equation: 'y = Plateau + (Y₀ − Plateau) exp(−Kx)',
         parameters: { Y0: params[0], Plateau: params[1], K: params[2] },
         primaryParameter: { label: 'K', value: params[2] }
       })
@@ -3522,7 +3919,7 @@
       summary: (params) => ({
         intercept: params[0],
         slope: params[2],
-        equation: 'y = Lower + (Upper-Lower) * exp(-exp(-K*(x-X0)))',
+        equation: 'y = Lower + (Upper − Lower) exp(−exp[−K(x − X₀)])',
         parameters: { Lower: params[0], Upper: params[1], K: params[2], X0: params[3] },
         primaryParameter: { label: 'K', value: params[2] }
       })
@@ -3551,7 +3948,7 @@
       summary: (params) => ({
         intercept: 0,
         slope: params[2],
-        equation: 'y = (Bmax*x)/(Kd + x) + NS*x',
+        equation: 'y = Bmax x/(Kd + x) + NS x',
         parameters: { Bmax: params[0], Kd: params[1], NS: params[2] },
         primaryParameter: { label: 'Kd', value: params[1] }
       })
@@ -3581,7 +3978,7 @@
       summary: (params) => ({
         intercept: params[1],
         slope: -params[3],
-        equation: 'y = Bottom + (Top-Bottom)/(1 + (x/IC50)^HillSlope)',
+        equation: 'y = Bottom + (Top − Bottom)/[1 + exp(HillSlope ln(x/IC50))]',
         parameters: { Top: params[0], Bottom: params[1], IC50: params[2], HillSlope: params[3] },
         primaryParameter: { label: 'IC50', value: params[2] }
       })
@@ -3610,7 +4007,7 @@
       summary: (params) => ({
         intercept: params[2],
         slope: params[0],
-        equation: 'v = Baseline + (Vmax*[S])/(Km + [S])',
+        equation: 'v = Baseline + Vmax[S]/(Km + [S])',
         parameters: { Vmax: params[0], Km: params[1], Baseline: params[2] },
         primaryParameter: { label: 'Km', value: params[1] }
       })
@@ -3640,7 +4037,7 @@
       summary: (params) => ({
         intercept: params[3],
         slope: -params[2],
-        equation: 'v = Baseline + Vmax/(1 + ([I]/IC50)^HillSlope)',
+        equation: 'v = Baseline + Vmax/[1 + exp(HillSlope ln([I]/IC50))]',
         parameters: { Vmax: params[0], IC50: params[1], HillSlope: params[2], Baseline: params[3] },
         primaryParameter: { label: 'IC50', value: params[1] }
       })
@@ -3678,7 +4075,7 @@
         return {
           intercept: 0,
           slope: params[2],
-          equation: 'y = Top / (1 + 10^((LogIC50 - x) * HillSlope))',
+          equation: 'y = Top/[1 + exp(ln(10) × (LogIC50 − x) × HillSlope)]',
           parameters: { Bottom: 0, Top: params[0], LogIC50: params[1], IC50: ic50, HillSlope: params[2] },
           primaryParameter: { label: 'IC50', value: ic50 }
         };
@@ -3719,7 +4116,7 @@
         return {
           intercept: params[0],
           slope: params[3],
-          equation: 'y = Bottom + (Top-Bottom) / (1 + 10^((LogIC50-x)*HillSlope))^Asymmetry',
+          equation: 'y = Bottom + (Top − Bottom) exp(−Asymmetry ln[1 + exp(ln(10) × (LogIC50 − x) × HillSlope)])',
           parameters: {
             Bottom: params[0],
             Top: params[1],
@@ -3945,12 +4342,15 @@
       if(Array.isArray(diagnosticsPredictions)){
         const residualValues = diagnosticsPredictions.map((prediction, idx) => cleanPoints[idx].y - prediction);
         const parameterCount = resolveModelParameterCount(model);
-        model.diagnostics = buildExtendedRegressionDiagnostics({
-          residuals: residualValues,
-          points: cleanPoints,
-          predictions: diagnosticsPredictions,
-          parameterCount
-        });
+        model.diagnostics = {
+          ...(model.diagnostics && typeof model.diagnostics === 'object' ? model.diagnostics : {}),
+          ...buildExtendedRegressionDiagnostics({
+            residuals: residualValues,
+            points: cleanPoints,
+            predictions: diagnosticsPredictions,
+            parameterCount
+          })
+        };
       }else if(!model.diagnostics){
         model.diagnostics = buildExtendedRegressionDiagnostics({
           residuals: [],
@@ -4572,6 +4972,7 @@
         metrics: {
           sampleSize: ensureFiniteNumber(metrics.sampleSize),
           r2: ensureFiniteNumber(metrics.r2),
+          r2Kind: typeof metrics.r2Kind === 'string' ? metrics.r2Kind : null,
           adjR2: ensureFiniteNumber(metrics.adjR2),
           rmse: ensureFiniteNumber(metrics.rmse),
           mae: ensureFiniteNumber(metrics.mae),
@@ -4583,7 +4984,12 @@
           smape: ensureFiniteNumber(metrics.smape),
           aic: ensureFiniteNumber(metrics.aic),
           bic: ensureFiniteNumber(metrics.bic),
-          horizon: ensureFiniteNumber(metrics.horizon)
+          horizon: ensureFiniteNumber(metrics.horizon),
+          predictors: ensureFiniteNumber(metrics.predictors),
+          selectionCriterion: typeof metrics.selectionCriterion === 'string' ? metrics.selectionCriterion : null,
+          selectionScore: ensureFiniteNumber(metrics.selectionScore),
+          tuningRmse: ensureFiniteNumber(metrics.tuningRmse),
+          inferenceAvailable: typeof metrics.inferenceAvailable === 'boolean' ? metrics.inferenceAvailable : null
         },
         residuals: {
           mean: ensureFiniteNumber(residuals.mean),
@@ -4596,6 +5002,10 @@
           kurtosis: ensureFiniteNumber(model.diagnostics.kurtosis),
           jarqueBera: ensureFiniteNumber(model.diagnostics.jarqueBera),
           jarqueBeraP: ensureFiniteNumber(model.diagnostics.jarqueBeraP),
+          inferenceAvailable: typeof model.diagnostics.inferenceAvailable === 'boolean' ? model.diagnostics.inferenceAvailable : null,
+          inferenceReason: model.diagnostics.inferenceReason || null,
+          jacobianRank: ensureFiniteNumber(model.diagnostics.jacobianRank),
+          conditionNumber: ensureFiniteNumber(model.diagnostics.conditionNumber),
           runsTest: model.diagnostics.runsTest ? {
             available: !!model.diagnostics.runsTest.available,
             runs: ensureFiniteNumber(model.diagnostics.runsTest.runs),
@@ -4655,7 +5065,14 @@
           slope: ensureFiniteNumber(model.summary.slope),
           equation: model.summary.equation || null,
           parameters: sanitizedParameters,
-          primaryParameter: sanitizedPrimary
+          primaryParameter: sanitizedPrimary,
+          r2Kind: typeof model.summary.r2Kind === 'string' ? model.summary.r2Kind : (typeof metrics.r2Kind === 'string' ? metrics.r2Kind : null),
+          numericalBasis: model.summary.numericalBasis && typeof model.summary.numericalBasis === 'object' ? {
+            kind: model.summary.numericalBasis.kind || null,
+            center: ensureFiniteNumber(model.summary.numericalBasis.center),
+            scale: ensureFiniteNumber(model.summary.numericalBasis.scale),
+            conditionNumber: ensureFiniteNumber(model.summary.numericalBasis.conditionNumber)
+          } : null
         } : null,
         domain: model.domain || null,
         warnings: Array.isArray(model.warnings) ? model.warnings.slice() : [],

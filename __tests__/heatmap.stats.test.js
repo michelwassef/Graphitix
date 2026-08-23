@@ -1,5 +1,7 @@
 const { initializeWorkspaceHarness } = require('./setup/workspaceHarness');
 
+const cloneForTest = value => JSON.parse(JSON.stringify(value));
+
 describe('Heatmap stats formatting', () => {
   let originalCreateStandardTable;
   async function flushAsyncWork(iterations = 20){
@@ -18,7 +20,16 @@ describe('Heatmap stats formatting', () => {
 
   beforeEach(() => {
     jest.resetModules();
-    initializeWorkspaceHarness();
+    const harness = initializeWorkspaceHarness();
+    const heatmapRoot = document.getElementById('heatmapPage');
+    heatmapRoot.hidden = false;
+    heatmapRoot.removeAttribute('hidden');
+    harness.setActiveTab('heatmap-stats-test-tab', 'heatmap');
+    harness.workspaceTabs.setMountedRoot(
+      'heatmap-stats-test-tab',
+      'heatmap',
+      heatmapRoot
+    );
     const canvasProto = window.HTMLCanvasElement?.prototype;
     if(canvasProto){
       canvasProto.getContext = jest.fn(() => ({
@@ -28,6 +39,7 @@ describe('Heatmap stats formatting', () => {
     }
     require('../js/vendor.js');
     require('../js/shared/chartStyle.js');
+    require('../js/shared/stats.js');
     require('../js/shared/debounce.js');
     require('../js/shared/componentLifecycle.js');
     require('../js/shared/resizer.js');
@@ -127,12 +139,20 @@ describe('Heatmap stats formatting', () => {
     viewSelect.value = 'values';
     viewSelect.dispatchEvent(new Event('change', { bubbles: true }));
     await flushAsyncWork(8);
-    heatmap.applyRuntimeState({
-      valueScale: { min: null, max: 30 },
-      legendHeightMode: 'fixed'
-    }, { tabId: window.Main?.tabs?.getActiveTab?.()?.id || null, reason: 'test-value-scale-override' });
-    heatmap.draw();
-    await flushAsyncWork(10);
+    await heatmap.draw({ force: true, viewOnly: false, reason: 'test-value-scale-values-view-ready' });
+    await flushAsyncWork(8);
+    expect(heatmap.__getState().lastStats?.type).toBe('values');
+    const valueScaleRuntime = cloneForTest(heatmap.captureRuntimeState({
+      tabId: window.Main?.tabs?.getActiveTab?.()?.id || null,
+      reason: 'test-value-scale-override-capture'
+    }));
+    valueScaleRuntime.valueScale = { min: null, max: 30 };
+    valueScaleRuntime.legendHeightMode = 'fixed';
+    heatmap.applyRuntimeState(valueScaleRuntime, {
+      tabId: window.Main?.tabs?.getActiveTab?.()?.id || null,
+      reason: 'test-value-scale-override'
+    });
+    await heatmap.draw();
 
     const savedPayload = heatmap.getPayload();
     expect(savedPayload.config.valueScale).toEqual({ min: null, max: 30 });
@@ -164,6 +184,54 @@ describe('Heatmap stats formatting', () => {
     }
   });
 
+  test('Data-values colors and legend share one canonical numeric domain', () => {
+    const hooks = window.Components.heatmap.__testHooks;
+    const palette = { negative: '#0000ff', zero: '#ffffff', positive: '#ff0000' };
+    const resolved = hooks.resolveValueScaleStats({ min: -2.62, max: 4.95 }, {});
+    const scale = hooks.createValueColorScale(resolved, palette, 2);
+    const mapper = hooks.createValueColorMapper(resolved, palette);
+
+    expect(resolved).toMatchObject({
+      min: -2.62,
+      max: 4.95,
+      domainMin: -4.95,
+      domainMax: 4.95,
+      domainMode: 'diverging'
+    });
+    expect(scale.ticks[0].value).toBe(-4.95);
+    expect(scale.ticks.at(-1).value).toBe(4.95);
+    expect(scale.valueToRatio(-4.95)).toBe(0);
+    expect(scale.valueToRatio(4.95)).toBe(1);
+    expect(mapper(-4.95)).toBe('rgb(0,0,255)');
+    expect(mapper(4.95)).toBe('rgb(255,0,0)');
+  });
+
+  test('custom and all-negative Data-values domains keep endpoints, ticks, and colors aligned', () => {
+    const hooks = window.Components.heatmap.__testHooks;
+    const palette = { negative: '#0000ff', zero: '#ffffff', positive: '#ff0000' };
+    const custom = hooks.resolveValueScaleStats(
+      { min: -10, max: 8 },
+      { min: -2, max: 4 }
+    );
+    expect(custom).toMatchObject({ min: -2, max: 4, domainMin: -4, domainMax: 4 });
+
+    const negative = hooks.resolveValueScaleStats({ min: -10, max: -2 }, {});
+    const scale = hooks.createValueColorScale(negative, palette, 2);
+    const mapper = hooks.createValueColorMapper(negative, palette);
+    expect(scale.ticks.map(tick => tick.value)).toEqual([-10, -8, -6, -4, -2]);
+    expect(scale.valueToRatio(-10)).toBe(0);
+    expect(scale.valueToRatio(-2)).toBe(1);
+    expect(mapper(-10)).toBe('rgb(0,0,255)');
+    expect(mapper(-2)).toBe('rgb(255,255,255)');
+
+    const positive = hooks.resolveValueScaleStats({ min: 2, max: 10 }, {});
+    const positiveScale = hooks.createValueColorScale(positive, palette, 2);
+    const positiveMapper = hooks.createValueColorMapper(positive, palette);
+    expect(positiveScale.ticks.map(tick => tick.value)).toEqual([2, 4, 6, 8, 10]);
+    expect(positiveMapper(2)).toBe('rgb(255,255,255)');
+    expect(positiveMapper(10)).toBe('rgb(255,0,0)');
+  });
+
   test('heavy Data-values canvas scene uses bounded display geometry', () => {
     const hooks = window.Components?.heatmap?.__testHooks;
     expect(hooks?.resolveHeavySceneLayout).toBeTruthy();
@@ -189,11 +257,97 @@ describe('Heatmap stats formatting', () => {
     expect(layout.heatmapHeight).toBeGreaterThan(60);
     expect(layout.cellWidth).toBeCloseTo(layout.heatmapWidth / 3, 8);
     expect(layout.cellHeight).toBeCloseTo(layout.heatmapHeight / 7358, 8);
-    expect(layout.dataStartX + layout.heatmapWidth + layout.rowDendroWidth + layout.dendrogramPadding + layout.scalePadding + layout.scaleWidth + layout.scaleLabelGap)
+    expect(layout.labelPaddingX).toBeCloseTo(layout.labelPaddingY, 8);
+    expect(layout.labelMatrixGapDisplayPx).toBeCloseTo(layout.labelPaddingY, 8);
+    expect(layout.scaleGapDisplayPx).toBeGreaterThanOrEqual(20);
+    expect(layout.scaleGapDisplayPx).toBeLessThanOrEqual(30);
+    expect(layout.dataStartX + layout.heatmapWidth + layout.labelColumnWidth + layout.scalePadding + layout.scaleWidth + layout.scaleLabelGap)
       .toBeLessThanOrEqual(layout.totalWidth);
+    expect(layout.dataStartX - layout.rowDendroWidth)
+      .toBe(layout.matrixLeft);
     expect(layout.dataStartY + layout.heatmapHeight + layout.columnDendroHeight + layout.dendrogramPadding)
       .toBeLessThanOrEqual(layout.totalHeight);
 
+  });
+
+  test('fixed legend height is display-space geometry and cannot shrink graph typography', () => {
+    const hooks = window.Components?.heatmap?.__testHooks;
+    expect(hooks?.resolveLegendLayout).toBeTruthy();
+    expect(hooks?.resolveRoleTextScales).toBeTruthy();
+
+    const fixed = hooks.resolveLegendLayout({
+      mode: 'fixed',
+      dataStartY: 140,
+      heatmapHeight: 600,
+      totalWidth: 900,
+      totalHeight: 1000,
+      drawableFrame: { width: 450, height: 500 },
+      rendererAspectLocked: true
+    });
+    expect(fixed.height).toBe(160);
+    expect(fixed.displayHeight).toBe(80);
+    expect(fixed.startY).toBe(140);
+
+    const horizontal = hooks.resolveRightRailLayout({
+      baseTotalWidth: 900,
+      totalHeight: 1000,
+      drawableFrame: { width: 450, height: 500 },
+      rendererAspectLocked: false,
+      maxRowLabelWidthPx: 42,
+      rowLabelFontSizePx: 12,
+      scaleLabelReservePx: 48
+    });
+    const projectedScaleX = 450 / (900 + horizontal.totalWidth);
+    expect(horizontal.labelColumnWidth * projectedScaleX).toBeCloseTo(48, 8);
+    expect(horizontal.labelPaddingX * projectedScaleX).toBeCloseTo(6, 8);
+    expect(horizontal.scalePadding * projectedScaleX).toBeCloseTo(20, 8);
+    expect(horizontal.scaleWidth * projectedScaleX).toBeCloseTo(15, 8);
+    expect(horizontal.scaleTickLength * projectedScaleX).toBeCloseTo(4.2, 8);
+    expect(horizontal.scaleTickLabelGap * projectedScaleX).toBeCloseTo(5, 8);
+
+    const common = {
+      rowCount: 30,
+      columnCount: 30,
+      cellSize: 20,
+      cellWidth: 20,
+      cellHeight: 20,
+      maxRowLabelFontSize: 12,
+      maxColumnLabelFontSize: 12,
+      scaleTickCount: 5,
+      scaleTickFontSize: 12
+    };
+    const matchScales = hooks.resolveRoleTextScales({
+      metrics: { ...common, scaleTickGap: 150 },
+      scaleX: 0.5,
+      scaleY: 0.5,
+      fallbackScale: 0.5,
+      independentLabels: false
+    });
+    const fixedScales = hooks.resolveRoleTextScales({
+      metrics: { ...common, scaleTickGap: 40 },
+      scaleX: 0.5,
+      scaleY: 0.5,
+      fallbackScale: 0.5,
+      independentLabels: false
+    });
+    expect(fixedScales).toEqual(matchScales);
+    expect(fixedScales.graphTitle).toBe(1);
+    expect(fixedScales.scaleTick).toBe(1);
+  });
+
+  test('correlation legend title reflects the plotted metric', () => {
+    const resolveTitle = window.Components?.heatmap?.__testHooks?.resolveCorrelationLegendTitle;
+    expect(resolveTitle).toBeTruthy();
+    expect(resolveTitle('pearson')).toEqual({
+      method: 'pearson',
+      text: 'Pearson correlation',
+      lines: ['Pearson', 'correlation']
+    });
+    expect(resolveTitle('spearman')).toEqual({
+      method: 'spearman',
+      text: 'Spearman correlation',
+      lines: ['Spearman', 'correlation']
+    });
   });
 
   test('render-runtime ownership clones cached models unless live retention is explicit', () => {
@@ -248,7 +402,6 @@ describe('Heatmap stats formatting', () => {
       showRowDendrogram: true,
       showColumnDendrogram: true,
       rendererAspectLocked: true,
-      extraLabelColumnWidth: 17,
       extraLabelRowHeight: 13
     });
 
@@ -257,10 +410,89 @@ describe('Heatmap stats formatting', () => {
     expect(base.cellHeight).toBe(20);
     expect(base.heatmapWidth).toBe(60);
     expect(base.heatmapHeight).toBe(80);
-    expect(extended.totalWidth - base.totalWidth).toBe(17);
+    expect(base.scaleGapDisplayPx).toBe(20);
+    expect(extended.totalWidth).toBe(base.totalWidth);
     expect(extended.totalHeight - base.totalHeight).toBe(13);
-    expect(extended.labelColumnWidth - base.labelColumnWidth).toBe(17);
+    expect(extended.labelColumnWidth).toBe(base.labelColumnWidth);
     expect(extended.labelRowHeight - base.labelRowHeight).toBe(13);
+  });
+
+  test.each([false, true])('logical Heatmap keeps an adaptive projected label-to-scale gap (lock=%s)', rendererAspectLocked => {
+    const layout = window.Components.heatmap.__testHooks.resolveLogicalSceneLayout({
+      rowCount: 30,
+      columnCount: 30,
+      cellSize: 20,
+      scaledFontSize: 12,
+      titleFontSize: 16,
+      maxRowLabelFontSize: 12,
+      maxColumnLabelFontSize: 12,
+      maxRowLabelWidth: 70,
+      maxColumnLabelWidth: 90,
+      showRowDendrogram: true,
+      showColumnDendrogram: true,
+      rendererAspectLocked,
+      drawableFrame: { width: 610, height: 600 }
+    });
+    const scaleX = 610 / layout.totalWidth;
+    const scaleY = 600 / layout.totalHeight;
+    const lockedScale = Math.min(scaleX, scaleY);
+    const projectionScale = rendererAspectLocked ? lockedScale : scaleX;
+    const projectionScaleY = rendererAspectLocked ? lockedScale : scaleY;
+    expect(layout.scaleGapDisplayPx).toBeGreaterThanOrEqual(20);
+    expect(layout.scaleGapDisplayPx).toBeLessThanOrEqual(30);
+    expect(layout.scalePadding * projectionScale).toBeCloseTo(layout.scaleGapDisplayPx, 6);
+    expect(layout.labelPaddingX * projectionScale)
+      .toBeCloseTo(layout.labelPaddingY * projectionScaleY, 2);
+    expect(layout.labelMatrixGapDisplayPx)
+      .toBeCloseTo(layout.labelPaddingY * projectionScaleY, 2);
+  });
+
+  test('right rail uses the projected label width instead of the unscaled width', () => {
+    const hooks = window.Components.heatmap.__testHooks;
+    const rail = hooks.resolveProjectedRowLabelRail({
+      maxRowLabelWidthPx: 100,
+      rowLabelFontSizePx: 16,
+      rowLabelDisplayScale: 0.4,
+      rowLabelPaddingPx: 6
+    });
+
+    expect(rail.displayedLabelWidthPx).toBe(40);
+    expect(rail.labelColumnWidthPx).toBe(46);
+    expect(rail.legendGapPx).toBe(20);
+
+    const roleScales = hooks.resolveRoleTextScales({
+      metrics: {
+        normalizedHeavyScene: false,
+        rowLabelDisplayScale: 0.4,
+        cellSize: 20,
+        maxRowLabelFontSize: 16,
+        maxColumnLabelFontSize: 16
+      },
+      scaleX: 0.7,
+      scaleY: 0.7,
+      fallbackScale: 0.7,
+      independentLabels: false
+    });
+    const expectedColumnScale = (20 * 0.7) / (16 * 1.15);
+    expect(roleScales.rowLabel).toBeCloseTo(expectedColumnScale, 8);
+    expect(roleScales.columnLabel).toBeCloseTo(expectedColumnScale, 8);
+
+    const committedCorrelationScale = hooks.resolveRoleTextScales({
+      metrics: {
+        normalizedHeavyScene: false,
+        rowLabelDisplayScale: 0.4,
+        correlationLabelDisplayScale: 0.72,
+        cellSize: 20,
+        maxRowLabelFontSize: 16,
+        maxColumnLabelFontSize: 16
+      },
+      scaleX: 0.7,
+      scaleY: 0.7,
+      fallbackScale: 0.7,
+      independentLabels: false
+    });
+    expect(committedCorrelationScale.rowLabel).toBe(0.72);
+    expect(committedCorrelationScale.columnLabel).toBe(0.72);
   });
 
   test('heavy Data-values label fitting is isolated from the normal font contract', () => {
@@ -455,8 +687,8 @@ describe('Heatmap stats formatting', () => {
       independentLabels: false
     });
 
-    expect(scales.rowLabel).toBeNull();
-    expect(scales.columnLabel).toBeNull();
+    expect(scales.rowLabel).toBe(1);
+    expect(scales.columnLabel).toBe(1);
     expect(scales.graphTitle).toBe(1);
     expect(scales.scaleTick).toBeGreaterThan(0.25);
   });
@@ -503,9 +735,16 @@ describe('Heatmap stats formatting', () => {
       expect(svg).toBeTruthy();
     }
 
-    const state = heatmap.__getState();
-    state.valueScale = { min: 0, max: 20 };
-    state.scheduleDraw({ viewOnly: true, reason: 'test-value-scale-view-only' });
+    const viewOnlyRuntime = cloneForTest(heatmap.captureRuntimeState({
+      tabId: window.Main?.tabs?.getActiveTab?.()?.id || null,
+      reason: 'test-value-scale-view-only-capture'
+    }));
+    viewOnlyRuntime.valueScale = { min: 0, max: 20 };
+    heatmap.applyRuntimeState(viewOnlyRuntime, {
+      tabId: window.Main?.tabs?.getActiveTab?.()?.id || null,
+      reason: 'test-value-scale-view-only'
+    });
+    await heatmap.draw({ viewOnly: true, reason: 'test-value-scale-view-only' });
     await flushAsyncWork(10);
 
     const afterRect = getCellRect() || svg.querySelector('rect');
@@ -795,6 +1034,131 @@ describe('Heatmap stats formatting', () => {
       { x: 3.45678, y: 4.56789 },
       { x: 5.67891, y: 6.78912 }
     )).toBe('M1.2346 4.5679H5.6789M1.2346 2.3457V4.5679M5.6789 4.5679V6.7891');
+  });
+
+
+  test('correlation significance correction defaults to BH and persists through payload state', async () => {
+    const correction = document.getElementById('heatmapSignificanceCorrection');
+    expect(correction).toBeTruthy();
+    expect(correction.value).toBe('bh');
+    correction.value = 'holm';
+    correction.dispatchEvent(new Event('change', { bubbles: true }));
+    await flushAsyncWork(4);
+    const payload = window.Components.heatmap.getPayload();
+    expect(payload.config.significanceCorrection).toBe('holm');
+    window.Components.heatmap.loadFromPayload(cloneForTest(payload), {
+      tabId: 'heatmap-stats-test-tab',
+      skipDraw: true,
+      skipInitialDraw: true
+    });
+    expect(document.getElementById('heatmapSignificanceCorrection').value).toBe('holm');
+  });
+
+
+  test('legacy payloads without a correction field preserve raw-p significance semantics on reopen', async () => {
+    const heatmap = window.Components.heatmap;
+    const payload = heatmap.getPayload();
+    delete payload.config.significanceCorrection;
+    heatmap.loadFromPayload(cloneForTest(payload), {
+      tabId: 'heatmap-stats-test-tab',
+      skipDraw: true,
+      skipInitialDraw: true,
+      source: 'legacy-raw-p-restore-test'
+    });
+    await flushAsyncWork(4);
+    expect(document.getElementById('heatmapSignificanceCorrection').value).toBe('none');
+    expect(heatmap.getPayload().config.significanceCorrection).toBe('none');
+  });
+
+  test('legacy recovery snapshots without a correction field preserve raw-p semantics', async () => {
+    const heatmap = window.Components.heatmap;
+    const snapshot = cloneForTest(heatmap.captureRuntimeState({
+      tabId: 'heatmap-stats-test-tab',
+      reason: 'heatmap-legacy-runtime-capture-test'
+    }));
+    expect(snapshot?.controls).toBeTruthy();
+    delete snapshot.controls.significanceCorrection;
+    expect(heatmap.applyRuntimeState(snapshot, {
+      tabId: 'heatmap-stats-test-tab',
+      reason: 'heatmap-legacy-runtime-apply-test'
+    })).toBe(true);
+    await flushAsyncWork(4);
+    expect(document.getElementById('heatmapSignificanceCorrection').value).toBe('none');
+    expect(heatmap.getPayload().config.significanceCorrection).toBe('none');
+  });
+
+  test('correlation reporting records the active multiplicity family and threshold', async () => {
+    const hot = global.__LAST_HEATMAP_HOT__;
+    const heatmap = window.Components.heatmap;
+    hot.loadData([
+      ['Gene', 'A', 'B', 'C'],
+      ['G1', 1, 1, 4],
+      ['G2', 2, 3, 3],
+      ['G3', 3, 2, 2],
+      ['G4', 4, 4, 1]
+    ]);
+    await ensureCorrelationView();
+    const showSignificance = document.getElementById('heatmapShowSignificance');
+    const correction = document.getElementById('heatmapSignificanceCorrection');
+    showSignificance.checked = true;
+    showSignificance.dispatchEvent(new Event('change', { bubbles: true }));
+    correction.value = 'bh';
+    correction.dispatchEvent(new Event('change', { bubbles: true }));
+    await heatmap.draw({ force: true, viewOnly: false, reason: 'heatmap-stats-reporting-test' });
+
+    const statsText = document.getElementById('heatmapStatsContent')?.textContent || '';
+    expect(statsText).toContain('Benjamini–Hochberg FDR');
+    expect(statsText).toContain('unique pairs');
+    expect(heatmap.__getState().lastStats).toMatchObject({
+      showSignificance: true,
+      significanceCorrection: 'bh',
+      testedPairCount: 3
+    });
+  });
+
+  test('Heatmap keeps the canonical horizontal edge gutter in both layout engines', () => {
+    const hooks = window.Components?.heatmap?.__testHooks;
+    const edge = window.Shared.chartStyle.GRAPH_HORIZONTAL_EDGE_PADDING_PX;
+    const common = {
+      rowCount: 6,
+      columnCount: 4,
+      scaledFontSize: 16,
+      titleFontSize: 18,
+      maxRowLabelFontSize: 16,
+      maxColumnLabelFontSize: 16,
+      maxRowLabelWidth: 72,
+      maxColumnLabelWidth: 88,
+      showRowDendrogram: true,
+      showColumnDendrogram: true
+    };
+    const heavy = hooks.resolveHeavySceneLayout({
+      ...common,
+      frameWidth: 640,
+      frameHeight: 520
+    });
+    const logical = hooks.resolveLogicalSceneLayout({
+      ...common,
+      cellSize: 26,
+      rendererAspectLocked: false
+    });
+
+    const trailingGap = layout => {
+      const dataStartX = Number.isFinite(layout.dataStartX)
+        ? layout.dataStartX
+        : layout.matrixLeft + layout.rowDendroWidth;
+      const rightmostContent = dataStartX
+        + layout.heatmapWidth
+        + layout.labelColumnWidth
+        + layout.scalePadding
+        + layout.scaleWidth
+        + layout.scaleLabelGap;
+      return layout.totalWidth - rightmostContent;
+    };
+
+    expect(heavy.matrixLeft).toBe(edge);
+    expect(logical.matrixLeft).toBe(edge);
+    expect(trailingGap(heavy)).toBeCloseTo(edge, 8);
+    expect(trailingGap(logical)).toBeCloseTo(edge, 8);
   });
 
 });

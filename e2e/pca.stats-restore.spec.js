@@ -41,6 +41,106 @@ function pcaStatsPresenceInPage() {
   };
 }
 
+function pcaLegendRecoveryStateInPage() {
+  const svg = document.querySelector('#pcaPage:not([hidden]) #pcaPlot #pcaSvg');
+  const legend = svg?.querySelector?.('[data-legend-viewport-content="true"]') || null;
+  const svgRect = svg?.getBoundingClientRect?.() || null;
+  const legendRect = legend?.getBoundingClientRect?.() || null;
+  const layeredRoot = svg?.closest?.('.pca-layered-plot') || null;
+  const plot = svg?.closest?.('#pcaPlot') || null;
+  const textVisibility = Array.from(legend?.querySelectorAll?.('text') || []).map(node => {
+    const rect = node.getBoundingClientRect();
+    let clipLeft = -Infinity;
+    let clipRight = Infinity;
+    let clipTop = -Infinity;
+    let clipBottom = Infinity;
+    let ancestor = node.parentElement;
+    while (ancestor) {
+      const style = getComputedStyle(ancestor);
+      const clipsX = /^(hidden|clip|auto|scroll)$/.test(style.overflowX);
+      const clipsY = /^(hidden|clip|auto|scroll)$/.test(style.overflowY);
+      if (clipsX || clipsY) {
+        const ancestorRect = ancestor.getBoundingClientRect();
+        if (clipsX) {
+          clipLeft = Math.max(clipLeft, ancestorRect.left);
+          clipRight = Math.min(clipRight, ancestorRect.right);
+        }
+        if (clipsY) {
+          clipTop = Math.max(clipTop, ancestorRect.top);
+          clipBottom = Math.min(clipBottom, ancestorRect.bottom);
+        }
+      }
+      if (ancestor === plot) break;
+      ancestor = ancestor.parentElement;
+    }
+    return {
+      text: node.textContent || '',
+      visible: rect.left >= clipLeft - 1 && rect.right <= clipRight + 1
+        && rect.top >= clipTop - 1 && rect.bottom <= clipBottom + 1,
+      rect: { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom },
+      clip: { left: clipLeft, right: clipRight, top: clipTop, bottom: clipBottom }
+    };
+  });
+  return {
+    hasSvg: !!svg,
+    hasLegend: !!legend,
+    fullyVisible: !!svgRect && !!legendRect
+      && legendRect.left >= svgRect.left - 1
+      && legendRect.right <= svgRect.right + 1
+      && legendRect.top >= svgRect.top - 1
+      && legendRect.bottom <= svgRect.bottom + 1
+      && textVisibility.every(entry => entry.visible),
+    managedDrag: window.Shared?.isManagedLegendDragTarget?.(legend) === true,
+    viewBox: svg?.getAttribute?.('viewBox') || null,
+    svgWidth: svg?.getAttribute?.('width') || null,
+    baseWidth: svg?.dataset?.legendBaseWidth || null,
+    reserveWidth: svg?.dataset?.legendReserveWidth || null,
+    contentReserveRight: svg?.dataset?.graphContentReserveRight || null,
+    labels: Array.from(legend?.querySelectorAll?.('text') || []).map(node => node.textContent || ''),
+    textVisibility,
+    svgOverflow: svg ? getComputedStyle(svg).overflow : null,
+    layeredOverflow: layeredRoot ? getComputedStyle(layeredRoot).overflow : null,
+    plotOverflow: plot ? getComputedStyle(plot).overflow : null,
+    layeredWidth: layeredRoot?.getBoundingClientRect?.().width || 0,
+    plotWidth: plot?.getBoundingClientRect?.().width || 0,
+    svgRect: svgRect ? { left: svgRect.left, top: svgRect.top, right: svgRect.right, bottom: svgRect.bottom, width: svgRect.width, height: svgRect.height } : null,
+    legendRect: legendRect ? { left: legendRect.left, top: legendRect.top, right: legendRect.right, bottom: legendRect.bottom, width: legendRect.width, height: legendRect.height } : null
+  };
+}
+
+async function dragRecoveredPcaLegend(page, deltaX = -45, deltaY = 20) {
+  return page.evaluate(async ({ deltaX, deltaY }) => {
+    const svg = document.querySelector('#pcaPage:not([hidden]) #pcaPlot #pcaSvg');
+    const legend = svg?.querySelector?.('[data-legend-viewport-content="true"]') || null;
+    const svgBox = svg?.closest?.('.svgbox') || null;
+    if (!svg || !legend || !svgBox) return { error: 'missing recovered PCA legend' };
+    const beforeBox = svgBox.getBoundingClientRect();
+    const beforeTransform = legend.getAttribute('transform');
+    const beforeViewBox = svg.getAttribute('viewBox');
+    const target = legend.querySelector('[data-legend-key], text, path, rect, circle') || legend;
+    const targetRect = target.getBoundingClientRect();
+    const x = targetRect.left + Math.max(1, targetRect.width / 2);
+    const y = targetRect.top + Math.max(1, targetRect.height / 2);
+    target.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, pointerId: 71, button: 0, isPrimary: true, clientX: x, clientY: y }));
+    window.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, cancelable: true, pointerId: 71, isPrimary: true, clientX: x + deltaX, clientY: y + deltaY }));
+    window.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, cancelable: true, pointerId: 71, button: 0, isPrimary: true, clientX: x + deltaX, clientY: y + deltaY }));
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    const currentSvg = document.querySelector('#pcaPage:not([hidden]) #pcaPlot #pcaSvg');
+    const currentLegend = currentSvg?.querySelector?.('[data-legend-viewport-content="true"]') || null;
+    const afterBox = svgBox.getBoundingClientRect();
+    return {
+      sameSvg: currentSvg === svg,
+      moved: currentLegend?.getAttribute('transform') !== beforeTransform,
+      beforeViewBox,
+      afterViewBox: currentSvg?.getAttribute('viewBox') || null,
+      beforeWidth: beforeBox.width,
+      afterWidth: afterBox.width,
+      beforeHeight: beforeBox.height,
+      afterHeight: afterBox.height
+    };
+  }, { deltaX, deltaY });
+}
+
 async function expectFullPcaStats(page, label) {
   await expect
     .poll(async () => (await page.evaluate(pcaStatsPresenceInPage)).screeSvgs, {
@@ -112,11 +212,16 @@ async function seedRecoverySnapshot(page) {
 
 test('PCA scree + biplot survive file reopen (archive load)', async ({ page }) => {
   test.setTimeout(180_000);
+  await page.setViewportSize({ width: 1920, height: 1080 });
   const issues = registerIssueCollectors(page);
   await installLocalCdnOverrides(page);
 
   await buildPca(page);
   await expectFullPcaStats(page, 'initial');
+  const initialLegend = await page.evaluate(pcaLegendRecoveryStateInPage);
+  expect(initialLegend.labels.length).toBeGreaterThan(1);
+  expect(initialLegend.labels.every(label => String(label || '').trim().length > 0)).toBe(true);
+  expect(initialLegend.fullyVisible, JSON.stringify(initialLegend, null, 2)).toBe(true);
   const archivePath = await captureWorkspaceArchive(page, 'pca-stats-reopen');
 
   await page.reload({ waitUntil: 'domcontentloaded' });
@@ -127,16 +232,46 @@ test('PCA scree + biplot survive file reopen (archive load)', async ({ page }) =
   await page.waitForSelector('#pcaPage:not([hidden])', { timeout: 30_000 });
 
   await expectFullPcaStats(page, 'after file reopen');
+  const reopenedLegend = await page.evaluate(pcaLegendRecoveryStateInPage);
+  expect(reopenedLegend, JSON.stringify({ initialLegend, reopenedLegend }, null, 2)).toMatchObject({
+    hasSvg: true,
+    hasLegend: true,
+    fullyVisible: true,
+    managedDrag: true
+  });
+  expect(reopenedLegend.labels).toEqual(initialLegend.labels);
+  const drag = await dragRecoveredPcaLegend(page);
+  expect(drag.error).toBeUndefined();
+  expect(drag.sameSvg).toBe(true);
+  expect(drag.moved).toBe(true);
+  expect(drag.afterViewBox).toBe(drag.beforeViewBox);
+  expect(Math.abs(drag.afterWidth - drag.beforeWidth)).toBeLessThanOrEqual(1);
+  expect(Math.abs(drag.afterHeight - drag.beforeHeight)).toBeLessThanOrEqual(1);
+  expect(issues.all.some(entry => /graph-edit-(click|drag)/i.test(entry.text || ''))).toBe(false);
   expect(issues.critical.filter(e => e.kind !== 'requestfailed')).toEqual([]);
 });
 
 test('PCA scree + biplot survive crash recovery', async ({ page }) => {
   test.setTimeout(180_000);
+  await page.setViewportSize({ width: 1920, height: 1080 });
   const issues = registerIssueCollectors(page);
   await installLocalCdnOverrides(page);
 
   await buildPca(page);
   await expectFullPcaStats(page, 'initial');
+  const initialLegend = await page.evaluate(pcaLegendRecoveryStateInPage);
+  expect(initialLegend.labels.length).toBeGreaterThan(1);
+  expect(initialLegend.labels.every(label => String(label || '').trim().length > 0)).toBe(true);
+  expect(initialLegend.fullyVisible).toBe(true);
+  expect(initialLegend.managedDrag).toBe(true);
+  // Model a recovery checkpoint created before the canonical legend-envelope
+  // contract existed. Such cached pixels must be rejected and rebuilt from payload.
+  await page.evaluate(() => {
+    document.querySelectorAll('#pcaPlot [data-legend-viewport-content="true"]').forEach(legend => {
+      delete legend.dataset.legendCanonicalOriginX;
+      delete legend.dataset.legendCanonicalOriginY;
+    });
+  });
   await seedRecoverySnapshot(page);
 
   const dialogHandler = async d => { await d.accept(); };
@@ -152,5 +287,21 @@ test('PCA scree + biplot survive crash recovery', async ({ page }) => {
   await page.waitForSelector('#pcaPage:not([hidden])', { timeout: 30_000 });
 
   await expectFullPcaStats(page, 'after crash recovery');
+  const recoveredLegend = await page.evaluate(pcaLegendRecoveryStateInPage);
+  expect(recoveredLegend, JSON.stringify({ initialLegend, recoveredLegend }, null, 2)).toMatchObject({
+    hasSvg: true,
+    hasLegend: true,
+    fullyVisible: true,
+    managedDrag: true
+  });
+  expect(recoveredLegend.labels).toEqual(initialLegend.labels);
+  const drag = await dragRecoveredPcaLegend(page);
+  expect(drag.error).toBeUndefined();
+  expect(drag.sameSvg).toBe(true);
+  expect(drag.moved).toBe(true);
+  expect(drag.afterViewBox).toBe(drag.beforeViewBox);
+  expect(Math.abs(drag.afterWidth - drag.beforeWidth)).toBeLessThanOrEqual(1);
+  expect(Math.abs(drag.afterHeight - drag.beforeHeight)).toBeLessThanOrEqual(1);
+  expect(issues.all.some(entry => /graph-edit-(click|drag)/i.test(entry.text || ''))).toBe(false);
   expect(issues.critical.filter(e => e.kind !== 'requestfailed')).toEqual([]);
 });

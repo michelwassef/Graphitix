@@ -24,24 +24,24 @@ function parseAspectRatio(value) {
 
 async function waitForHeatmapCells(page) {
   await page.waitForFunction(() => {
-    const cells = document.querySelectorAll('#heatmapSvg [data-export-layer="heatmap-cells"] rect');
+    const cells = document.querySelectorAll('#heatmapPage:not([hidden]) #heatmapSvg [data-export-layer="heatmap-cells"] rect');
     return cells.length >= 9;
   }, null, { timeout: 60_000 });
 }
 
 async function setHeatmapView(page, view) {
-  const current = await page.locator('#heatmapView').inputValue();
+  const current = await page.locator('#heatmapPage:not([hidden]) #heatmapView').inputValue();
   if (current === view) {
     return;
   }
-  await page.selectOption('#heatmapView', view);
+  await page.locator('#heatmapPage:not([hidden]) #heatmapView').selectOption(view);
   await page.waitForTimeout(300);
 }
 
 async function captureHeatmapGeometry(page) {
   return page.evaluate(() => {
-    const svgBox = document.querySelector('#heatmapGraphPanel .svgbox');
-    const svg = document.getElementById('heatmapSvg');
+    const svgBox = document.querySelector('#heatmapPage:not([hidden]) #heatmapGraphPanel .svgbox');
+    const svg = document.querySelector('#heatmapPage:not([hidden]) #heatmapSvg');
     const cellsGroup = svg?.querySelector('[data-export-layer="heatmap-cells"]');
     const firstRowLabel = svg?.querySelector('text[data-font-role="rowLabel"]') || null;
     const firstColumnLabel = svg?.querySelector('text[data-font-role="columnLabel"]') || null;
@@ -111,9 +111,18 @@ function expectNear(actual, expected, tolerance, label) {
   expect(Math.abs(actual - expected), `${label}: ${actual} vs ${expected}`).toBeLessThanOrEqual(tolerance);
 }
 
+function expectOptionalNear(actual, expected, tolerance, label) {
+  const actualFinite = Number.isFinite(actual);
+  const expectedFinite = Number.isFinite(expected);
+  expect(actualFinite, `${label}: presence changed`).toBe(expectedFinite);
+  if(actualFinite){
+    expectNear(actual, expected, tolerance, label);
+  }
+}
+
 function expectHeatmapVisualInvariants(restored, initial) {
   expect(restored.aspectLocked).toBe('true');
-  expect(restored.preserveAspectRatio).toBe('xMidYMid meet');
+  expect(restored.preserveAspectRatio).toBe('xMinYMid meet');
   expect(Math.abs(restored.svgBox.width - initial.svgBox.width)).toBeLessThan(2);
   expect(Math.abs(restored.svgBox.height - initial.svgBox.height)).toBeLessThan(2);
   expect(Math.abs(restored.svg.width - initial.svg.width)).toBeLessThan(2);
@@ -121,12 +130,16 @@ function expectHeatmapVisualInvariants(restored, initial) {
   expect(Math.abs(parseAspectRatio(restored.graphAspectRatio) - parseAspectRatio(initial.graphAspectRatio))).toBeLessThan(0.02);
   expectNear(restored.rowLabelFontPx, initial.rowLabelFontPx, 0.7, 'row-label font size');
   expectNear(restored.columnLabelFontPx, initial.columnLabelFontPx, 0.7, 'column-label font size');
-  expectNear(restored.cellValueFontPx, initial.cellValueFontPx, 0.7, 'cell-value font size');
+  expectOptionalNear(restored.cellValueFontPx, initial.cellValueFontPx, 0.7, 'cell-value font size');
   expectNear(restored.rowLabelRect.height, initial.rowLabelRect.height, 2, 'row-label rendered height');
   expectNear(restored.columnLabelRect.width, initial.columnLabelRect.width, 2, 'column-label rendered width');
+  expectNear(restored.rowLabelRect.height, restored.columnLabelRect.width, 1, 'correlation label rendered size parity');
   expectNear(restored.cellRect.height, initial.cellRect.height, 2, 'cell rect height');
-  expectNear(restored.cellValueRect.height, initial.cellValueRect.height, 2, 'cell value rendered height');
-  expectNear(
+  expect(restored.cellValueRect === null, 'cell-value presence changed').toBe(initial.cellValueRect === null);
+  if(restored.cellValueRect){
+    expectNear(restored.cellValueRect.height, initial.cellValueRect.height, 2, 'cell value rendered height');
+  }
+  expectOptionalNear(
     restored.cellValueToCellHeightRatio,
     initial.cellValueToCellHeightRatio,
     0.08,
@@ -166,6 +179,7 @@ for (const scenario of [
 
     const initial = await captureHeatmapGeometry(page);
     expect(initial.aspectLocked).toBe('true');
+    expectNear(initial.rowLabelRect.height, initial.columnLabelRect.width, 1, 'initial correlation label rendered size parity');
     expect(parseAspectRatio(initial.graphAspectRatio)).toBeGreaterThan(0);
     const initialStyleAspect = String(initial.styleAspectRatio || '').trim();
     if (initialStyleAspect) {

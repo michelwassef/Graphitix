@@ -160,13 +160,16 @@ Each component payload is a JSON-serializable object with top-level keys:
 - `exclusions` (common): row/point exclusion metadata
 - optional component-specific keys (`stats`, `series`, `analysis`, `style`, etc.)
 
+For DataView-enabled components, top-level `payload.data` is the canonical **Raw** table matrix, not the currently displayed derived projection. `activeDataViewId` / `dataViews.activeViewId` identifies the visible view, while derived matrices, transform specifications, and replay execution options live under `dataViews`. `Shared.dataViewPersistence.resolveRawDataForPersistence()` is the common Raw-view authority used by component payload capture, shared table write-through, and both archive builders. Full and lite/adaptive `.graph` saves canonicalize top-level data to Raw. Lite/adaptive saves move that Raw matrix to `raw/data.csv`; deterministic transform views may omit their matrices only when their transform and exact execution options are serialized, and are replayed on reopen, while specialized/materialized or user-edited derived views retain their matrices inline because replay would not reproduce the saved session exactly. A source-view matrix mutation recursively invalidates replayability for every existing descendant view, so a descendant generated before the mutation is materialized rather than silently recomputed from newer source data on reopen.
+
 ## 5. Default Payload Baselines by Component
 
 Derived from each `createEmptyPayload` implementation.
 
 - `venn` (`js/components/venn.js`)
   - top-level: `type`, `data`, `style`, `notes`, `analysis`
-  - data includes labels/lists/count fields (`labelA..labelC`, `listA..listC`, `nA..nABC`)
+  - `data.table` stores the complete table matrix, including sets beyond the first three columns
+  - legacy labels/lists/count fields (`labelA..labelC`, `listA..listC`, `nA..nABC`) remain for backward compatibility; legacy A/B/C values override only their corresponding first three table columns when they differ
 
 - `box` (`js/components/box.js`)
   - top-level: `type`, `data`, `exclusions`, `config`
@@ -198,6 +201,7 @@ Derived from each `createEmptyPayload` implementation.
 
 - `hist` (`js/components/hist.js`)
   - top-level: `type`, `data`, `exclusions`, `config`
+  - `config.seriesLayout`: `{ display, arrangement, sharedY }`; `display` is `overlay` or `panels`, and `arrangement` is `auto`, `horizontal`, `vertical`, or `grid`. The contract applies identically to Histogram and Density modes. Separate panels always share the X domain; Histogram panels also share pooled bin edges, while Density panels evaluate each KDE over that common domain. `sharedY` controls whether panel Y domains are common or series-specific. A user layout change updates the owning Histogram session first and then synchronously flushes the complete owner payload/runtime through `Main.session.persistUserModifiedTabState()` before its structural redraw is scheduled. Runtime snapshots may seed `seriesLayout` only for a tab with no existing Histogram owner session; otherwise the live owner value is retained during runtime replay. The second-row panel controls, axis-label reserves, regular tick thinning, and legend viewport envelopes are derived rendering state only: they are recomputed/projected per draw or activation, never persisted independently, and cannot change the common panel plot dimensions.
 
 - `pie` (`js/components/pie.js`)
   - top-level: `type`, `data`, `exclusions`, `config`

@@ -67,10 +67,7 @@ describe('tableImport owner projection transaction', () => {
     const tab = createPcaTab('PCA', [['old']]);
     session.workspaceState.activeTabId = tab.id;
     const events = [];
-    window.requestAnimationFrame = callback => window.setTimeout(() => {
-      events.push('paint');
-      callback();
-    }, 0);
+    window.requestAnimationFrame = callback => window.setTimeout(callback, 0);
     const container = document.createElement('div');
     container.dataset.workspaceTabId = tab.id;
     container.dataset.componentType = 'pca';
@@ -81,6 +78,19 @@ describe('tableImport owner projection transaction', () => {
     });
     await new Promise(resolve => window.setTimeout(resolve, 0));
     events.length = 0;
+    const awaitPaint = window.Shared.hot.awaitOwnerProjectionPaint;
+    jest.spyOn(window.Shared.hot, 'awaitOwnerProjectionPaint').mockImplementation(async transaction => {
+      const requestFrame = window.requestAnimationFrame;
+      window.requestAnimationFrame = callback => requestFrame(() => {
+        events.push('paint');
+        callback();
+      });
+      try {
+        return await awaitPaint(transaction);
+      } finally {
+        window.requestAnimationFrame = requestFrame;
+      }
+    });
     const updatePayload = jest.spyOn(session, 'updateTabPayload');
     const commitPayload = jest.spyOn(session, 'commitTabPayload');
     const scheduleDraw = jest.fn(meta => events.push(`draw:${meta.reason}`));

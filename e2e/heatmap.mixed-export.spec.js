@@ -117,6 +117,13 @@ test('mixed Heatmap copy exports retain the matrix and enter the clipboard befor
     const pngWasDeferred = pngItem?.items?.['image/png'] instanceof Promise;
     const pngBlob = await pngItem.items['image/png'];
     const bitmap = await createImageBitmap(pngBlob);
+    const pngWrapperWasDeferred = pngItem?.items?.['image/svg+xml'] instanceof Promise;
+    const pngWrapperBlob = await pngItem.items['image/svg+xml'];
+    const pngWrapperText = await pngWrapperBlob.text();
+    const pngWrapperRoot = new DOMParser().parseFromString(pngWrapperText, 'image/svg+xml').documentElement;
+    const pngWrapperImage = pngWrapperRoot.querySelector('image');
+    const embeddedPngBlob = await fetch(pngWrapperImage.getAttribute('href')).then(response => response.blob());
+    const embeddedPngBitmap = await createImageBitmap(embeddedPngBlob);
     const raster = document.createElement('canvas');
     raster.width = bitmap.width;
     raster.height = bitmap.height;
@@ -138,17 +145,30 @@ test('mixed Heatmap copy exports retain the matrix and enter the clipboard befor
     const svgWasDeferred = svgItem?.items?.['image/svg+xml'] instanceof Promise;
     const svgBlob = await svgItem.items['image/svg+xml'];
     const svgText = await svgBlob.text();
+    const svgRoot = new DOMParser().parseFromString(svgText, 'image/svg+xml').documentElement;
 
     return {
       pngOrderAfterDispatch,
       pngWasDeferred,
+      pngWrapperWasDeferred,
       pngType: pngBlob.type,
       pngSize: pngBlob.size,
+      pngWidth: bitmap.width,
+      pngHeight: bitmap.height,
+      pngWrapperType: pngWrapperBlob.type,
+      pngWrapperPhysicalWidth: Number.parseFloat(pngWrapperRoot.getAttribute('width')),
+      pngWrapperPhysicalHeight: Number.parseFloat(pngWrapperRoot.getAttribute('height')),
+      pngWrapperImageWidth: Number.parseFloat(pngWrapperImage.getAttribute('width')),
+      pngWrapperImageHeight: Number.parseFloat(pngWrapperImage.getAttribute('height')),
+      embeddedPngWidth: embeddedPngBitmap.width,
+      embeddedPngHeight: embeddedPngBitmap.height,
       red: pixel(40, 50),
       green: pixel(80, 50),
       svgOrderAfterDispatch,
       svgWasDeferred,
       svgType: svgBlob.type,
+      svgPhysicalWidth: Number.parseFloat(svgRoot.getAttribute('width')),
+      svgPhysicalHeight: Number.parseFloat(svgRoot.getAttribute('height')),
       svgHasVectorMatrix: /fill="#ff0000"/i.test(svgText)
         && /fill="#00ff00"/i.test(svgText),
       svgHasCanvasMarkup: /<(?:canvas|foreignObject)\b/i.test(svgText)
@@ -157,8 +177,18 @@ test('mixed Heatmap copy exports retain the matrix and enter the clipboard befor
 
   expect(result.pngOrderAfterDispatch).toEqual(['write']);
   expect(result.pngWasDeferred).toBe(true);
+  expect(result.pngWrapperWasDeferred).toBe(true);
   expect(result.pngType).toBe('image/png');
+  expect(result.pngWrapperType).toMatch(/^image\/svg\+xml(?:;|$)/);
   expect(result.pngSize).toBeGreaterThan(100);
+  expect(result.pngWidth).toBeCloseTo(result.svgPhysicalWidth, 0);
+  expect(result.pngHeight).toBeCloseTo(result.svgPhysicalHeight, 0);
+  expect(result.pngWrapperPhysicalWidth).toBeCloseTo(result.svgPhysicalWidth, 3);
+  expect(result.pngWrapperPhysicalHeight).toBeCloseTo(result.svgPhysicalHeight, 3);
+  expect(result.pngWrapperImageWidth).toBeCloseTo(result.svgPhysicalWidth, 3);
+  expect(result.pngWrapperImageHeight).toBeCloseTo(result.svgPhysicalHeight, 3);
+  expect(result.embeddedPngWidth).toBe(Math.round(result.svgPhysicalWidth * (300 / 96)));
+  expect(result.embeddedPngHeight).toBe(Math.round(result.svgPhysicalHeight * (300 / 96)));
   expect(result.red[0]).toBeGreaterThan(200);
   expect(result.red[1]).toBeLessThan(40);
   expect(result.green[0]).toBeLessThan(40);

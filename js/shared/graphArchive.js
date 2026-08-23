@@ -3,6 +3,13 @@
 
   const Shared = global.Shared = global.Shared || {};
   const graphArchive = Shared.graphArchive = Shared.graphArchive || {};
+  if(!Shared.dataViewPersistence && typeof require === 'function'){
+    try{
+      require('./dataViewPersistence.js');
+    }catch(_err){
+      // Browser builds load dataViewPersistence.js before graphArchive.js.
+    }
+  }
 
   const ARCHIVE_FORMAT = 'venn-graph-archive';
   const ARCHIVE_VERSION = 3;
@@ -486,7 +493,7 @@
         continue;
       }
       if (key === 'dataViews') {
-        config[key] = sanitizeDataViewsForArchive(payload[key], false);
+        config[key] = sanitizeDataViewsForArchive(payload[key], 'config');
         continue;
       }
       config[key] = payload[key];
@@ -498,38 +505,14 @@
     return !!value && typeof value === 'object' && !Array.isArray(value);
   }
 
-  function sanitizeDataViewsForArchive(dataViewsValue, includeData) {
-    if (!isPlainObject(dataViewsValue) || !Array.isArray(dataViewsValue.views)) {
-      return dataViewsValue;
+  function sanitizeDataViewsForArchive(dataViewsValue, mode) {
+    const persistence = Shared.dataViewPersistence;
+    if (mode === 'lite') {
+      const prepareLite = persistence?.prepareDataViewsForLiteArchive;
+      return typeof prepareLite === 'function' ? prepareLite(dataViewsValue) : dataViewsValue;
     }
-    if (includeData !== false) {
-      return dataViewsValue;
-    }
-    const sourceViews = dataViewsValue.views;
-    const nextViews = new Array(sourceViews.length);
-    let changed = false;
-    for (let i = 0; i < sourceViews.length; i += 1) {
-      const view = sourceViews[i];
-      if (!isPlainObject(view)) {
-        nextViews[i] = view;
-        continue;
-      }
-      if (!Object.prototype.hasOwnProperty.call(view, 'data')) {
-        nextViews[i] = view;
-        continue;
-      }
-      const nextView = { ...view };
-      delete nextView.data;
-      nextViews[i] = nextView;
-      changed = true;
-    }
-    if (!changed) {
-      return dataViewsValue;
-    }
-    return {
-      ...dataViewsValue,
-      views: nextViews
-    };
+    const stripAll = persistence?.stripAllDataViewMatrices;
+    return typeof stripAll === 'function' ? stripAll(dataViewsValue) : dataViewsValue;
   }
 
   function buildLitePayload(rawPayload) {
@@ -544,7 +527,7 @@
         continue;
       }
       if (key === 'dataViews') {
-        lite[key] = sanitizeDataViewsForArchive(rawPayload[key], false);
+        lite[key] = sanitizeDataViewsForArchive(rawPayload[key], 'lite');
         continue;
       }
       lite[key] = rawPayload[key];
@@ -699,6 +682,36 @@
     return Array.isArray(value);
   }
 
+  function replaySerializedDataViewTransform(sourceData, view) {
+    const transformsApi = Shared?.dataTransforms;
+    const transformSpec = view?.transformSpec;
+    const transformOptions = view?.transformOptions;
+    if (!transformsApi
+      || !transformSpec
+      || typeof transformSpec !== 'object'
+      || !transformOptions
+      || typeof transformOptions !== 'object'
+      || Array.isArray(transformOptions)) {
+      return null;
+    }
+    const replayOptions = { ...transformOptions, componentKey: 'graph-archive' };
+    const type = String(transformSpec.type || '').trim().toLowerCase();
+    if (type === 'pipeline') {
+      if (typeof transformsApi.applyPipeline !== 'function') {
+        return null;
+      }
+      return transformsApi.applyPipeline(
+        sourceData,
+        Array.isArray(transformSpec.specs) ? transformSpec.specs : [],
+        replayOptions
+      );
+    }
+    if (typeof transformsApi.applyTransform !== 'function') {
+      return null;
+    }
+    return transformsApi.applyTransform(sourceData, transformSpec, replayOptions);
+  }
+
   function hydratePayloadDataViews(payload) {
     if (!isPlainObject(payload) || !isPlainObject(payload.dataViews) || !Array.isArray(payload.dataViews.views)) {
       return payload;
@@ -749,7 +762,7 @@
     }
 
     const transformsApi = Shared?.dataTransforms;
-    if (transformsApi && typeof transformsApi.applyTransform === 'function') {
+    if (transformsApi && (typeof transformsApi.applyTransform === 'function' || typeof transformsApi.applyPipeline === 'function')) {
       const maxPasses = nextViews.length;
       for (let pass = 0; pass < maxPasses; pass += 1) {
         let progressed = false;
@@ -775,6 +788,10 @@
           if (!view.transformSpec) {
             continue;
           }
+          const replayableResolver = Shared.dataViewPersistence?.isViewReplayable;
+          if (typeof replayableResolver !== 'function' || replayableResolver(view) !== true) {
+            continue;
+          }
           const sourceViewId = String(view.sourceViewId || 'raw').trim() || 'raw';
           const sourceView = byId.get(sourceViewId);
           const sourceData = Array.isArray(sourceView?.data) ? sourceView.data : null;
@@ -782,7 +799,7 @@
             continue;
           }
           try {
-            const result = transformsApi.applyTransform(sourceData, view.transformSpec, { componentKey: 'graph-archive' });
+            const result = replaySerializedDataViewTransform(sourceData, view);
             if (!result || result.ok === false || !Array.isArray(result.data)) {
               continue;
             }
@@ -805,11 +822,21 @@
       }
     }
 
+    const canonicalRawData = Shared.dataViewPersistence?.resolveRawDataForPersistence?.(
+      { ...payload.dataViews, views: nextViews },
+      payload.data
+    );
+    const shouldCanonicalizeTopLevelData = Array.isArray(canonicalRawData) && canonicalRawData !== payload.data;
+    if (shouldCanonicalizeTopLevelData) {
+      changed = true;
+    }
+
     if (!changed) {
       return payload;
     }
     return {
       ...payload,
+      ...(shouldCanonicalizeTopLevelData ? { data: canonicalRawData } : {}),
       dataViews: {
         ...payload.dataViews,
         views: nextViews
@@ -875,12 +902,19 @@
       const payload = optimizePayloadForArchive(rehomeForRuntimeTab(tab?.payload || null));
       const rawPayload = isPlainObject(payload) ? payload : null;
       const layout = tab?.layout || null;
-      const rawData = buildRawDataExport(rawPayload ? rawPayload.data : null);
+      const rawDataResolver = Shared.dataViewPersistence?.resolveRawDataForPersistence;
+      const archiveRawData = typeof rawDataResolver === 'function'
+        ? rawDataResolver(rawPayload?.dataViews || null, rawPayload ? rawPayload.data : null)
+        : (rawPayload ? rawPayload.data : null);
+      const payloadWithCanonicalRawData = rawPayload && Array.isArray(archiveRawData)
+        ? { ...payload, data: archiveRawData }
+        : payload;
+      const rawData = buildRawDataExport(archiveRawData);
       const rawCsvText = rawData.csvText || '';
       const rawCsvByteLength = estimateUtf8Bytes(rawCsvText);
       const payloadMode = resolvePayloadModeFromByteLength(rawCsvByteLength, payloadPolicy);
-      const payloadForArchive = payloadMode === 'lite' ? buildLitePayload(payload) : payload;
-      const config = stripRawDataFromPayload(payload);
+      const payloadForArchive = payloadMode === 'lite' ? buildLitePayload(payloadWithCanonicalRawData) : payloadWithCanonicalRawData;
+      const config = stripRawDataFromPayload(payloadWithCanonicalRawData);
       const exclusions = rawPayload && Object.prototype.hasOwnProperty.call(rawPayload, 'exclusions')
         ? payload.exclusions
         : undefined;
@@ -1119,9 +1153,7 @@
           payload.exclusions = exclusions;
         }
       }
-      if (payloadMode === 'lite' || shouldHydrateData) {
-        payload = hydratePayloadDataViews(payload);
-      }
+      payload = hydratePayloadDataViews(payload);
       const tabInfo = await readJsonFileFromZip(zip, files.tab);
       const layout = await readJsonFileFromZip(zip, files.layout);
       const previewData = files.preview ? await readJsonFileFromZip(zip, files.preview) : null;

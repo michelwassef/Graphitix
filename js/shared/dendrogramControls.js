@@ -5,6 +5,7 @@
 
   let panelEl = null;
   let dendrogramLabelEl = null;
+  let modeSelect = null;
   let thicknessInput = null;
   let colorInput = null;
   let activeConfig = null;
@@ -20,10 +21,10 @@
     return null;
   }
 
-  function showToolbarHost(host, hostClass){
+  function showToolbarHost(host, hostClass, ownerTabId){
     const toolbarApi = Shared.getWorkspaceToolbarApi();
     if(typeof toolbarApi.showHost === 'function'){
-      toolbarApi.showHost(host, { hostClass });
+      toolbarApi.showHost(host, { hostClass, ownerTabId });
       return;
     }
     if(!host){ return; }
@@ -63,6 +64,44 @@
     return null;
   }
 
+  function normalizeTabId(value){
+    const text = String(value || '').trim();
+    return text || null;
+  }
+
+  function getActiveTabId(){
+    try{
+      return normalizeTabId(global.Main?.session?.getActiveTab?.()?.id);
+    }catch(_err){
+      return null;
+    }
+  }
+
+  function resolveOwnerTabId(node){
+    let cursor = node || null;
+    while(cursor && cursor !== global.document){
+      const tabId = normalizeTabId(
+        cursor.dataset?.workspaceTabId
+        || cursor.dataset?.tabId
+        || cursor.getAttribute?.('data-workspace-tab-id')
+        || cursor.getAttribute?.('data-tab-id')
+      );
+      if(tabId){
+        return tabId;
+      }
+      cursor = cursor.parentElement || cursor.parentNode || null;
+    }
+    return null;
+  }
+
+  function resolveConfigOwnerTabId(config){
+    return normalizeTabId(
+      config?.ownerTabId
+      || config?.tabId
+      || resolveOwnerTabId(config?.target || config?.element || null)
+    );
+  }
+
   function configsMatch(a, b){
     if(!a || !b){ return false; }
     const orientationA = a.orientation || '';
@@ -70,7 +109,14 @@
     if(orientationA !== orientationB){ return false; }
     const scopeA = a.scopeId || '';
     const scopeB = b.scopeId || '';
-    return scopeA === scopeB;
+    if(scopeA !== scopeB){ return false; }
+    const tabA = resolveConfigOwnerTabId(a);
+    const tabB = resolveConfigOwnerTabId(b);
+    return !tabA && !tabB ? true : tabA === tabB;
+  }
+
+  function sanitizeModeValue(value){
+    return value === 'fixed' ? 'fixed' : 'auto';
   }
 
   function sanitizeThicknessValue(value){
@@ -117,14 +163,18 @@
   }
 
   function updatePanelInputs(config){
-    if(!panelEl || !config || !thicknessInput || !colorInput){ return; }
+    if(!panelEl || !config || !modeSelect || !thicknessInput || !colorInput){ return; }
     const orientationLabel = config.orientation === 'horizontal' ? 'Column Dendrogram' : 'Row Dendrogram';
     if(dendrogramLabelEl){
       dendrogramLabelEl.textContent = orientationLabel;
     }
+    const mode = sanitizeModeValue(config.getMode ? config.getMode() : 'fixed');
+    modeSelect.value = mode;
+    modeSelect.disabled = typeof config.onModeChange !== 'function';
     const thicknessValueRaw = config.getThickness ? config.getThickness() : null;
     const thicknessValue = sanitizeThicknessValue(thicknessValueRaw);
     thicknessInput.value = thicknessValue === null ? '' : String(thicknessValue);
+    thicknessInput.disabled = typeof config.onThicknessChange !== 'function';
     const colorValueRaw = config.getColor ? config.getColor() : null;
     colorInput.value = toColorInputValue(colorValueRaw);
   }
@@ -181,6 +231,7 @@
       const target = evt.target;
       if(panelEl.contains(target)){ return; }
       if(target?.dataset?.dendrogramControl === '1'){ return; }
+      if(typeof Shared.isColorPickerOpenFor === 'function' && Shared.isColorPickerOpenFor(panelEl)){ return; }
       if(target?.closest && (target.closest('.shared-color-picker') || target.closest('[data-font-controls-overlay="1"]'))){ return; }
       closePanel('outside');
     });
@@ -216,6 +267,26 @@
     dendrogramGroup.appendChild(dendrogramLabelEl);
     row.appendChild(dendrogramGroup);
 
+    modeSelect = doc.createElement('select');
+    modeSelect.className = 'dendrogram-controls-panel__input dendrogram-controls-panel__input--select';
+    modeSelect.setAttribute('data-undo-ignore','1');
+    [
+      { value: 'auto', label: 'Auto' },
+      { value: 'fixed', label: 'Fixed' }
+    ].forEach(entry => {
+      const option = doc.createElement('option');
+      option.value = entry.value;
+      option.textContent = entry.label;
+      modeSelect.appendChild(option);
+    });
+    const modeFieldParts = toolbarApi.createLabeledField({
+      fieldClass: 'dendrogram-controls-panel__field',
+      label: 'Width mode',
+      labelClass: 'dendrogram-controls-panel__field-label',
+      control: modeSelect
+    });
+    row.appendChild(modeFieldParts.field);
+
     thicknessInput = doc.createElement('input');
     thicknessInput.type = 'number';
     thicknessInput.min = '0.25';
@@ -227,7 +298,7 @@
     thicknessInput.setAttribute('data-undo-ignore','1');
     const thicknessFieldParts = toolbarApi.createLabeledField({
       fieldClass: 'dendrogram-controls-panel__field dendrogram-controls-panel__field--numeric',
-      label: 'Thickness',
+      label: 'Thickness (pt)',
       labelClass: 'dendrogram-controls-panel__field-label',
       control: thicknessInput
     });
@@ -249,19 +320,68 @@
       Shared.attachColorPickerNear(colorInput);
     }
 
-    thicknessInput.addEventListener('change', () => {
-      if(applyingFromUndo){ return; }
-      if(!activeConfig){ return; }
+    modeSelect.addEventListener('change', () => {
+      if(applyingFromUndo || !activeConfig){ return; }
       const config = activeConfig;
+      const previousMode = sanitizeModeValue(config.getMode ? config.getMode() : 'fixed');
+      const requestedMode = sanitizeModeValue(modeSelect.value);
+      if(config.onModeChange){
+        config.onModeChange(requestedMode);
+      }
+      const nextMode = sanitizeModeValue(config.getMode ? config.getMode() : requestedMode);
+      syncPanelInputsFromConfig(config);
+      recordDendrogramStateChange(
+        config,
+        'mode',
+        previousMode,
+        nextMode,
+        value => {
+          if(config.onModeChange){
+            config.onModeChange(value);
+          }
+        }
+      );
+    });
+
+    let thicknessInteraction = null;
+    const applyThicknessFromInput = commit => {
+      if(applyingFromUndo || !activeConfig){ return; }
+      const config = activeConfig;
+      if(!thicknessInteraction || thicknessInteraction.config !== config){
+        thicknessInteraction = {
+          config,
+          previousValue: sanitizeThicknessValue(config.getThickness ? config.getThickness() : null)
+        };
+      }
       const raw = thicknessInput.value;
-      const previousValue = sanitizeThicknessValue(config.getThickness ? config.getThickness() : null);
       const requestedValue = sanitizeThicknessValue(raw);
-      logDebug('thickness change',{ raw, numeric: requestedValue });
+      const previousMode = sanitizeModeValue(config.getMode ? config.getMode() : 'fixed');
+      logDebug('thickness change', {
+        raw,
+        numeric: requestedValue,
+        phase: commit ? 'commit' : 'live'
+      });
+      if(requestedValue !== null && previousMode !== 'fixed' && config.onModeChange){
+        config.onModeChange('fixed');
+        const nextMode = sanitizeModeValue(config.getMode ? config.getMode() : 'fixed');
+        recordDendrogramStateChange(
+          config,
+          'mode',
+          previousMode,
+          nextMode,
+          value => config.onModeChange?.(value)
+        );
+      }
       if(config.onThicknessChange){
         config.onThicknessChange(requestedValue);
       }
-      const nextValue = sanitizeThicknessValue(config.getThickness ? config.getThickness() : null);
+      const nextValue = sanitizeThicknessValue(config.getThickness ? config.getThickness() : requestedValue);
       syncPanelInputsFromConfig(config);
+      if(!commit){
+        return;
+      }
+      const previousValue = thicknessInteraction.previousValue;
+      thicknessInteraction = null;
       recordDendrogramStateChange(
         config,
         'thickness',
@@ -273,6 +393,17 @@
           }
         }
       );
+    };
+    thicknessInput.addEventListener('input', () => {
+      if(toolbarApi.getNumericWheelPhase?.(thicknessInput) === 'live'){
+        applyThicknessFromInput(false);
+      }
+    });
+    thicknessInput.addEventListener('change', () => applyThicknessFromInput(true));
+    toolbarApi?.bindNumericWheelEnd?.(thicknessInput, detail => {
+      if(detail.committed !== true){
+        thicknessInteraction = null;
+      }
     });
 
     colorInput.addEventListener('input', () => {
@@ -473,7 +604,7 @@
         host.appendChild(panelEl);
       }
       clearHostSizing(host);
-      showToolbarHost(host, 'font-toolbar-host--dendrogram');
+      showToolbarHost(host, 'font-toolbar-host--dendrogram', resolveConfigOwnerTabId(config));
       activeHost = host;
     } else {
       activeHost = null;
@@ -504,11 +635,15 @@
       } catch(highlightErr){
         console.error('dendrogramControls registerDendrogramElement highlight error', highlightErr);
       }
+      const ownerTabId = normalizeTabId(config.ownerTabId || config.tabId || resolveOwnerTabId(element) || getActiveTabId());
       openPanel({
         orientation: config.orientation,
         scopeId: config.scopeId,
+        ownerTabId,
+        getMode: config.getMode,
         getThickness: config.getThickness,
         getColor: config.getColor,
+        onModeChange: config.onModeChange,
         onThicknessChange: config.onThicknessChange,
         onColorChange: config.onColorChange
       });

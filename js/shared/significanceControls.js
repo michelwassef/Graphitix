@@ -39,6 +39,44 @@
     return Shared.styleUndo?.getUndoManager?.() || null;
   }
 
+  function normalizeTabId(value){
+    const text = String(value || '').trim();
+    return text || null;
+  }
+
+  function getActiveTabId(){
+    try{
+      return normalizeTabId(global.Main?.session?.getActiveTab?.()?.id);
+    }catch(_err){
+      return null;
+    }
+  }
+
+  function resolveOwnerTabId(node){
+    let cursor = node || null;
+    while(cursor && cursor !== global.document){
+      const tabId = normalizeTabId(
+        cursor.dataset?.workspaceTabId
+        || cursor.dataset?.tabId
+        || cursor.getAttribute?.('data-workspace-tab-id')
+        || cursor.getAttribute?.('data-tab-id')
+      );
+      if(tabId){
+        return tabId;
+      }
+      cursor = cursor.parentElement || cursor.parentNode || null;
+    }
+    return null;
+  }
+
+  function resolveConfigOwnerTabId(config){
+    return normalizeTabId(
+      config?.ownerTabId
+      || config?.tabId
+      || resolveOwnerTabId(config?.target || config?.element || null)
+    );
+  }
+
   function configsMatch(a, b){
     if(!a || !b){ return false; }
     const orientationA = a.orientation || '';
@@ -46,7 +84,10 @@
     if(orientationA !== orientationB){ return false; }
     const scopeA = a.scopeId || '';
     const scopeB = b.scopeId || '';
-    return scopeA === scopeB;
+    if(scopeA !== scopeB){ return false; }
+    const tabA = resolveConfigOwnerTabId(a);
+    const tabB = resolveConfigOwnerTabId(b);
+    return !tabA && !tabB ? true : tabA === tabB;
   }
 
   function sanitizeThicknessValue(value){
@@ -170,8 +211,10 @@
     if(!Number.isFinite(numeric) || numeric <= 0){
       return '0px';
     }
-    const rounded = Math.round(numeric * 10) / 10;
-    return `${rounded}px`;
+    const toolbarApi = Shared.getWorkspaceToolbarApi?.() || Shared.workspaceToolbar || null;
+    const formatted = toolbarApi?.formatNumericValue?.(numeric, thicknessInput?.step || 0.25)
+      || String(Math.round(numeric * 100) / 100);
+    return `${formatted}px`;
   }
 
   function syncStyleChipUi(){
@@ -217,21 +260,33 @@
     input.step = thicknessInput?.step || '0.25';
     input.value = thicknessInput?.value || '1';
     input.setAttribute('aria-label', 'Line thickness');
-    input.addEventListener('input', () => {
-      if(!thicknessInput){ return; }
-      thicknessInput.value = input.value;
-      thicknessInput.dispatchEvent(new Event('input', { bubbles: true }));
-    });
-    input.addEventListener('change', () => {
-      if(!thicknessInput){ return; }
-      thicknessInput.value = input.value;
-      thicknessInput.dispatchEvent(new Event('change', { bubbles: true }));
-    });
+    const toolbarApi = Shared.getWorkspaceToolbarApi?.() || Shared.workspaceToolbar || null;
+    const mirrorCleanup = typeof toolbarApi?.bindNumericInputMirror === 'function'
+      ? toolbarApi.bindNumericInputMirror(input, thicknessInput)
+      : (() => {
+          const onInput = () => {
+            if(!thicknessInput){ return; }
+            thicknessInput.value = input.value;
+            thicknessInput.dispatchEvent(new Event('input', { bubbles: true }));
+          };
+          const onChange = () => {
+            if(!thicknessInput){ return; }
+            thicknessInput.value = input.value;
+            thicknessInput.dispatchEvent(new Event('change', { bubbles: true }));
+          };
+          input.addEventListener('input', onInput);
+          input.addEventListener('change', onChange);
+          return () => {
+            input.removeEventListener('input', onInput);
+            input.removeEventListener('change', onChange);
+          };
+        })();
     field.appendChild(input);
     row.appendChild(field);
     section.appendChild(row);
     overlayEl.insertBefore(section, overlayEl.firstChild || null);
     return () => {
+      mirrorCleanup();
       if(section.parentNode){
         section.parentNode.removeChild(section);
       }
@@ -306,6 +361,7 @@
         return;
       }
       if(evt.target?.dataset?.significanceControl === '1'){ return; }
+      if(typeof Shared.isColorPickerOpenFor === 'function' && (Shared.isColorPickerOpenFor(panelEl) || Shared.isColorPickerOpenFor(activeHost))){ return; }
       if(evt.target?.closest && evt.target.closest('.shared-color-picker')){ return; }
       closePanel('outside');
     });
@@ -514,25 +570,25 @@
         colorInput.click();
       });
     }
-    styleChipEl.addEventListener('wheel', evt => {
-      evt.preventDefault();
-      const current = sanitizeThicknessValue(thicknessInput.value) ?? 1;
-      const step = evt.deltaY < 0 ? 0.5 : -0.5;
-      thicknessInput.value = String(Math.max(0.25, current + step));
-      thicknessInput.dispatchEvent(new Event('change', { bubbles: true }));
-    }, { passive: false });
+    if(typeof toolbarApi.bindNumericWheelProxy === 'function'){
+      toolbarApi.bindNumericWheelProxy(styleChipEl, thicknessInput);
+    }
     let styleDragState = null;
     const onStyleMove = evt => {
       if(!styleDragState){ return; }
       const deltaX = evt.clientX - styleDragState.startX;
       const steps = Math.round(deltaX / 8);
-      const next = Math.max(0.25, styleDragState.startValue + (steps * 0.5));
+      const dragStep = typeof toolbarApi.getNumericWheelStep === 'function'
+        ? toolbarApi.getNumericWheelStep(thicknessInput)
+        : (Number(thicknessInput.step) || 0.25);
+      const next = Math.max(0.25, styleDragState.startValue + (steps * dragStep));
       thicknessInput.value = String(next);
-      thicknessInput.dispatchEvent(new Event('change', { bubbles: true }));
+      thicknessInput.dispatchEvent(new Event('input', { bubbles: true }));
     };
     const onStyleUp = () => {
       if(!styleDragState){ return; }
       styleDragState = null;
+      thicknessInput.dispatchEvent(new Event('change', { bubbles: true }));
       global.removeEventListener('mousemove', onStyleMove);
       global.removeEventListener('mouseup', onStyleUp);
     };
@@ -632,20 +688,30 @@
 
     textStyleButton = null;
 
-    thicknessInput.addEventListener('change', () => {
-      if(applyingFromUndo){ return; }
-      if(!activeConfig){ return; }
+    let thicknessInteraction = null;
+    const applyThicknessFromInput = commit => {
+      if(applyingFromUndo || !activeConfig){ return; }
       const config = activeConfig;
+      if(!thicknessInteraction || !configsMatch(thicknessInteraction.config, config)){
+        thicknessInteraction = {
+          config,
+          previousValue: sanitizeThicknessValue(config.getThickness ? config.getThickness() : null)
+        };
+      }
       const raw = thicknessInput.value;
-      const previousValue = sanitizeThicknessValue(config.getThickness ? config.getThickness() : null);
       const requestedValue = sanitizeThicknessValue(raw);
-      logDebug('thickness change',{ raw, numeric: requestedValue });
+      logDebug('thickness change',{ raw, numeric: requestedValue, phase: commit ? 'commit' : 'live' });
       if(config.onThicknessChange){
         config.onThicknessChange(requestedValue);
       }
       const nextValue = sanitizeThicknessValue(config.getThickness ? config.getThickness() : null);
       syncStyleChipUi();
       syncPanelInputsFromConfig(config);
+      if(!commit){
+        return;
+      }
+      const previousValue = thicknessInteraction.previousValue;
+      thicknessInteraction = null;
       recordSignificanceStateChange(
         config,
         'thickness',
@@ -657,6 +723,13 @@
           }
         }
       );
+    };
+    thicknessInput.addEventListener('input', () => applyThicknessFromInput(false));
+    thicknessInput.addEventListener('change', () => applyThicknessFromInput(true));
+    toolbarApi?.bindNumericWheelEnd?.(thicknessInput, detail => {
+      if(detail.committed !== true){
+        thicknessInteraction = null;
+      }
     });
 
     colorInput.addEventListener('input', () => {
@@ -768,30 +841,52 @@
       );
     });
 
-    pDecimalsInput.addEventListener('change', () => {
-      if(applyingFromUndo){ return; }
-      if(!activeConfig){ return; }
+    let pDecimalsInteraction = null;
+    const applyPDecimalsFromInput = commit => {
+      if(applyingFromUndo || !activeConfig){ return; }
       const config = activeConfig;
       if(!config.getPDecimals && !config.onPDecimalsChange){ return; }
-      const previousValue = sanitizeDecimalsValue(config.getPDecimals ? config.getPDecimals() : null);
+      if(!pDecimalsInteraction || !configsMatch(pDecimalsInteraction.config, config)){
+        pDecimalsInteraction = {
+          config,
+          previousValue: sanitizeDecimalsValue(config.getPDecimals ? config.getPDecimals() : null)
+        };
+      }
       const nextValue = sanitizeDecimalsValue(pDecimalsInput.value);
       pDecimalsInput.value = String(nextValue);
-      logDebug('p decimals change', { value: nextValue });
+      logDebug('p decimals change', { value: nextValue, phase: commit ? 'commit' : 'live' });
       if(config.onPDecimalsChange){
         config.onPDecimalsChange(nextValue);
       }
+      const resolvedNext = sanitizeDecimalsValue(config.getPDecimals ? config.getPDecimals() : nextValue);
       syncPanelInputsFromConfig(config);
+      if(!commit){
+        return;
+      }
+      const previousValue = pDecimalsInteraction.previousValue;
+      pDecimalsInteraction = null;
       recordSignificanceStateChange(
         config,
         'p-decimals',
         previousValue,
-        nextValue,
+        resolvedNext,
         value => {
           if(config.onPDecimalsChange){
             config.onPDecimalsChange(sanitizeDecimalsValue(value));
           }
         }
       );
+    };
+    pDecimalsInput.addEventListener('input', () => {
+      if(toolbarApi.getNumericWheelPhase?.(pDecimalsInput) === 'live'){
+        applyPDecimalsFromInput(false);
+      }
+    });
+    pDecimalsInput.addEventListener('change', () => applyPDecimalsFromInput(true));
+    toolbarApi?.bindNumericWheelEnd?.(pDecimalsInput, detail => {
+      if(detail.committed !== true){
+        pDecimalsInteraction = null;
+      }
     });
 
     ensureDocumentListener();
@@ -952,7 +1047,10 @@
       clearHostSizing(host);
       const toolbarApi = Shared.getWorkspaceToolbarApi();
       if(typeof toolbarApi.showHost === 'function'){
-        toolbarApi.showHost(host, { hostClass: 'font-toolbar-host--significance' });
+        toolbarApi.showHost(host, {
+          hostClass: 'font-toolbar-host--significance',
+          ownerTabId: resolveConfigOwnerTabId(config)
+        });
       }else{
         host.style.display = 'block';
         host.classList.add('font-toolbar-host--visible');
@@ -985,9 +1083,11 @@
       evt.preventDefault();
       evt.stopPropagation();
       logDebug('significance clicked',{ orientation: config.orientation, scopeId: config.scopeId });
+      const ownerTabId = normalizeTabId(config.ownerTabId || config.tabId || resolveOwnerTabId(element) || getActiveTabId());
       openPanel({
         orientation: config.orientation,
         scopeId: config.scopeId,
+        ownerTabId,
         undoScope: config.undoScope,
         getThickness: config.getThickness,
         getColor: config.getColor,

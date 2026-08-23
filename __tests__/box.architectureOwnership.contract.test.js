@@ -134,6 +134,26 @@ describe('Box architecture ownership contract', () => {
     expect(source).not.toMatch(/function persistTabState\s*\(/);
   });
 
+  test('flip-axis ownership is session-first across capture, activation and draw', () => {
+    const source = boxSource();
+    const captureControls = extractModuleFunction(source, 'readBoxOwnedRuntimeControls');
+    const bindOwned = extractModuleFunction(source, 'bindBoxOwnedRuntimeRecord');
+    const initUi = extractModuleFunction(source, 'initUI');
+    const pipeline = extractModuleFunction(source, 'executeBoxDrawPipeline');
+    const activation = extractModuleFunction(source, 'syncBoxActivationState');
+    const payload = extractModuleFunction(source, 'getPayload');
+
+    expect(captureControls).toContain('resolveBoxOwnedFlipAxes(owner.state, false)');
+    expect(bindOwned).toContain('state.flipAxes = ownedFlipAxes;');
+    expect(bindOwned).toContain("getBoxNodeById('boxFlipAxes', { root: recordRoot");
+    expect(initUi).toContain('resolveBoxOwnedFlipAxes(initialSession?.state, false)');
+    expect(initUi).not.toContain('state.flipAxes = !!els.boxFlipAxes.checked');
+    expect(pipeline).toContain('resolveBoxOwnedFlipAxes(drawSession?.state, false)');
+    expect(pipeline).not.toContain('const isFlipped = !!els.boxFlipAxes?.checked');
+    expect(activation).toContain('activate-tab-rebind-owned-runtime');
+    expect(payload).toContain('flipAxes: controlSnapshot.flipAxes');
+  });
+
   test('the undefined legacy workspace identifier cannot return', () => {
     expect(boxSource()).not.toMatch(/\bactiveWorkspaceTabId\b/);
   });

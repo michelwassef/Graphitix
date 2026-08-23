@@ -1562,6 +1562,14 @@
     if(!Number.isFinite(aspectRatio) || aspectRatio <= 0){
       aspectRatio = Number.isFinite(ratioFromDefaults) ? ratioFromDefaults : 1;
     }
+    const forcedAspectLocked = typeof opts.forceAspectLocked === 'boolean' ? opts.forceAspectLocked : null;
+    const showAspectControl = opts.showAspectControl !== false;
+    const liveViewportLockAxes = new Set(
+      Array.isArray(opts.liveViewportLockAxes)
+        ? opts.liveViewportLockAxes.filter(axis => axis === 'x' || axis === 'y')
+        : ['x', 'y']
+    );
+    const shouldApplyLiveViewportLock = axis => liveViewportLockAxes.has(axis);
     const lockState = resolveAspectLockState(data);
     const hasPersistedAspectLock = lockState.hasExplicit;
     let aspectLocked = lockState.locked;
@@ -1575,8 +1583,8 @@
       aspectLocked = defaultAspectLocked;
       console.debug('Debug: resizer aspect lock default applied', { container: containerLabel, aspectLocked }); // Debug: aspect lock default applied
     }
-    if(typeof opts.forceAspectLocked === 'boolean'){
-      aspectLocked = opts.forceAspectLocked;
+    if(forcedAspectLocked !== null){
+      aspectLocked = forcedAspectLocked;
       console.debug('Debug: resizer aspect lock forced', { container: containerLabel, aspectLocked }); // Debug: aspect lock forced
     }
     if(aspectLocked && (!Number.isFinite(aspectRatio) || aspectRatio <= 0)){
@@ -1818,7 +1826,8 @@
       const normalizedAxis = (axis === 'x' || axis === 'y') ? axis : 'both';
       container.dataset.resizerLastAxis = normalizedAxis;
       markOrthogonalViewportLock(normalizedAxis, reason || 'resize-apply', { capture: false });
-      if(Shared.graphViewport && typeof Shared.graphViewport.applyLiveResizeLock === 'function'){
+      if(shouldApplyLiveViewportLock(normalizedAxis)
+        && Shared.graphViewport && typeof Shared.graphViewport.applyLiveResizeLock === 'function'){
         try{
           Shared.graphViewport.applyLiveResizeLock(container, {
             axis: normalizedAxis,
@@ -1974,16 +1983,26 @@
     function applyProgrammaticResize(options = {}){
       const requestedWidth = parsePositive(options.width);
       const requestedHeight = parsePositive(options.height);
+      const requestedDefaultWidth = parsePositive(options.defaultWidth);
+      const requestedDefaultHeight = parsePositive(options.defaultHeight);
       const requestedAxis = typeof options.axis === 'string' && options.axis ? options.axis : 'both';
-      const simulateAspectLock = typeof options.simulateAspectLock === 'boolean'
+      const requestedSimulateAspectLock = typeof options.simulateAspectLock === 'boolean'
         ? options.simulateAspectLock
         : null;
+      // Immutable aspect policy is authoritative over programmatic resize hints.
+      // Axis-length controls may request a temporary lock state, but they must
+      // never bypass a component configured with forceAspectLocked.
+      const simulateAspectLock = forcedAspectLocked !== null && requestedSimulateAspectLock !== null
+        ? forcedAspectLocked
+        : requestedSimulateAspectLock;
       const hasSimulatedAspectLock = typeof simulateAspectLock === 'boolean';
       const updateDefaults = options.updateDefaults === true;
       const updateAspectRatio = options.updateAspectRatio !== false;
       const preserveAspectLock = options.preserveAspectLock !== false;
       const forceExact = options.forceExact !== false;
       const reason = options.reason || 'programmatic';
+      const requestedResizePhase = String(options.resizePhase || '').trim().toLowerCase();
+      const notifyPhase = requestedResizePhase === 'move' ? 'move' : 'programmatic';
       const authorityMode = options.authorityMode === 'transient' ? 'transient' : 'authoritative';
       const preserveManualResizeState = authorityMode === 'transient';
       const originalAspectLocked = aspectLocked;
@@ -2000,7 +2019,9 @@
         console.debug('Debug: resizer programmatic simulated aspect lock', {
           container: containerLabel,
           reason,
+          requestedSimulateAspectLock,
           simulateAspectLock,
+          forcedAspectLocked,
           previousAspectLocked: originalAspectLocked
         });
       }
@@ -2047,12 +2068,14 @@
         aspectLockedOverride: hasSimulatedAspectLock ? simulateAspectLock : null
       });
       if(updateDefaults){
-        if(Number.isFinite(requestedWidth) && requestedWidth > 0){
-          defaultWidth = Math.round(requestedWidth);
+        const nextDefaultWidth = Number.isFinite(requestedDefaultWidth) ? requestedDefaultWidth : requestedWidth;
+        const nextDefaultHeight = Number.isFinite(requestedDefaultHeight) ? requestedDefaultHeight : requestedHeight;
+        if(Number.isFinite(nextDefaultWidth) && nextDefaultWidth > 0){
+          defaultWidth = Math.round(nextDefaultWidth);
           data.resizerDefaultWidth = String(defaultWidth);
         }
-        if(Number.isFinite(requestedHeight) && requestedHeight > 0){
-          defaultHeight = Math.round(requestedHeight);
+        if(Number.isFinite(nextDefaultHeight) && nextDefaultHeight > 0){
+          defaultHeight = Math.round(nextDefaultHeight);
           data.resizerDefaultHeight = String(defaultHeight);
         }
       }
@@ -2066,11 +2089,16 @@
         container: containerLabel,
         reason,
         authorityMode,
+        notifyPhase,
         requestedAxis,
         requestedWidth,
         requestedHeight,
+        requestedDefaultWidth,
+        requestedDefaultHeight,
+        requestedSimulateAspectLock,
         simulateAspectLock,
         hasSimulatedAspectLock,
+        forcedAspectLocked,
         originalAspectLocked,
         applied,
         updateDefaults,
@@ -2078,7 +2106,13 @@
         finalAspectLocked: aspectLocked
       });
       if(options.suppressOnResize !== true){
-        notifyResize('programmatic', 'resizer onResize programmatic error');
+        if(notifyPhase === 'move'){
+          // Programmatic continuous interactions (for example axis-length wheel
+          // gestures) must participate in the same live layout phase as a drag
+          // handle without acquiring pointer/manual-resize state.
+          suppressObserverResize(180);
+        }
+        notifyResize(notifyPhase, `resizer onResize ${notifyPhase} error`);
       }
       return applied;
     }
@@ -2220,7 +2254,9 @@
           appliedHeight: applied?.height || null
         });
       }
-      if(changed && (reason === 'button-plus' || reason === 'button-minus' || reason === 'input')){
+      const markUserModified = options.markUserModified === true
+        || (changed && (reason === 'button-plus' || reason === 'button-minus' || reason === 'input'));
+      if(markUserModified){
         markResizerTabUserModified(container, opts, 'resizer-zoom-change');
       }
       return zoomLevel;
@@ -2233,13 +2269,16 @@
       });
     }
 
-    function commitZoomFromInput(rawValue){
+    function commitZoomFromInput(rawValue, options = {}){
       const numeric = Number.parseFloat(String(rawValue ?? '').replace('%', '').trim());
       if(!Number.isFinite(numeric) || numeric <= 0){
         syncZoomControls();
         return zoomLevel;
       }
-      return applyZoomLevel(numeric / 100, { reason: 'input' });
+      return applyZoomLevel(numeric / 100, {
+        reason: options.reason || 'input',
+        markUserModified: options.markUserModified === true
+      });
     }
 
     function updateIntrinsicMinSize(bounds = {}, options = {}){
@@ -2309,7 +2348,8 @@
         && activeResizerTabId !== workspaceActiveTabId){
         return false;
       }
-      const next = !!nextLocked;
+      const requested = !!nextLocked;
+      const next = forcedAspectLocked !== null ? forcedAspectLocked : requested;
       const changed = aspectLocked !== next;
       const ownerTab = resolveResizerTab(container, opts);
       const projectionMatches = data.resizerAspectLocked === (next ? 'true' : 'false')
@@ -2365,13 +2405,83 @@
         container: containerLabel,
         aspectLocked,
         changed,
+        requestedAspectLocked: requested,
+        forcedAspectLocked,
         reason: options.reason || null
       });
       return changed;
     };
 
+    function restoreSizingState(snapshot = {}, options = {}){
+      const nextDefaultWidth = parsePositive(snapshot.defaultWidth);
+      const nextDefaultHeight = parsePositive(snapshot.defaultHeight);
+      const nextMinWidth = parsePositive(snapshot.minWidth);
+      const nextMinHeight = parsePositive(snapshot.minHeight);
+      const nextAspectRatio = parsePositive(snapshot.aspectRatio);
+      const unlimitedWidth = snapshot.allowUnlimitedWidth === true || snapshot.maxWidth === Number.POSITIVE_INFINITY;
+      const unlimitedHeight = snapshot.allowUnlimitedHeight === true || snapshot.maxHeight === Number.POSITIVE_INFINITY;
+      const nextMaxWidth = unlimitedWidth ? Number.POSITIVE_INFINITY : parsePositive(snapshot.maxWidth);
+      const nextMaxHeight = unlimitedHeight ? Number.POSITIVE_INFINITY : parsePositive(snapshot.maxHeight);
+      if(Number.isFinite(nextDefaultWidth)){
+        defaultWidth = Math.round(nextDefaultWidth);
+      }
+      if(Number.isFinite(nextDefaultHeight)){
+        defaultHeight = Math.round(nextDefaultHeight);
+      }
+      if(Number.isFinite(nextMinWidth)){
+        MIN_W = Math.max(BASE_MIN_W, Math.round(nextMinWidth));
+      }
+      if(Number.isFinite(nextMinHeight)){
+        MIN_H = Math.max(BASE_MIN_H, Math.round(nextMinHeight));
+      }
+      if(unlimitedWidth || Number.isFinite(nextMaxWidth)){
+        MAX_W = unlimitedWidth ? Number.POSITIVE_INFINITY : Math.max(defaultWidth, Math.round(nextMaxWidth));
+      }
+      if(unlimitedHeight || Number.isFinite(nextMaxHeight)){
+        MAX_H = unlimitedHeight ? Number.POSITIVE_INFINITY : Math.max(defaultHeight, Math.round(nextMaxHeight));
+      }
+      if(Number.isFinite(nextAspectRatio)){
+        setAspectRatio(nextAspectRatio);
+      }
+      data.resizerDefaultWidth = String(defaultWidth);
+      data.resizerDefaultHeight = String(defaultHeight);
+      data.resizerMinWidth = String(MIN_W);
+      data.resizerMinHeight = String(MIN_H);
+      data.resizerMaxWidth = Number.isFinite(MAX_W) ? String(MAX_W) : 'Infinity';
+      data.resizerMaxHeight = Number.isFinite(MAX_H) ? String(MAX_H) : 'Infinity';
+      data.resizerUnlimitedWidth = unlimitedWidth ? 'true' : 'false';
+      data.resizerUnlimitedHeight = unlimitedHeight ? 'true' : 'false';
+      const zoomScale = Number.isFinite(zoomLevel) && zoomLevel > 0 ? zoomLevel : 1;
+      container.style.minWidth = px(MIN_W * zoomScale);
+      container.style.minHeight = px(MIN_H * zoomScale);
+      container.style.maxWidth = Number.isFinite(MAX_W) ? px(MAX_W * zoomScale) : 'none';
+      container.style.maxHeight = Number.isFinite(MAX_H) ? px(MAX_H * zoomScale) : 'none';
+      console.debug('Debug: resizer sizing state restored', {
+        container: containerLabel,
+        reason: options.reason || null,
+        defaultWidth,
+        defaultHeight,
+        minWidth: MIN_W,
+        minHeight: MIN_H,
+        maxWidth: MAX_W,
+        maxHeight: MAX_H,
+        aspectRatio
+      });
+      return {
+        defaultWidth,
+        defaultHeight,
+        minWidth: MIN_W,
+        minHeight: MIN_H,
+        maxWidth: MAX_W,
+        maxHeight: MAX_H,
+        aspectRatio,
+        aspectLocked
+      };
+    }
+
     container.__sharedResizableBoxApi = {
       applySize: applyProgrammaticResize,
+      restoreSizingState,
       setAspectLocked: setAspectLockedState,
       setIntrinsicMinSize: updateIntrinsicMinSize,
       setZoomLevel: (level, options = {}) => applyZoomLevel(level, options),
@@ -2385,6 +2495,7 @@
         maxHeight: MAX_H,
         aspectRatio,
         aspectLocked,
+        forcedAspectLocked,
         allowUnlimitedWidth,
         allowUnlimitedHeight,
         zoomLevel
@@ -2456,44 +2567,53 @@
         console.debug('Debug: resizer control tray created', { container: containerLabel }); // Debug: tray creation trace
       }
       let aspectControl = controlTray.querySelector('.resizer-aspect-control');
-      if(!aspectControl){
-        aspectControl = doc.createElement('label');
-        aspectControl.className = 'resizer-aspect-control';
-        aspectControl.title = 'Lock width/height ratio';
-        const checkbox = doc.createElement('input');
-        checkbox.type = 'checkbox';
-        checkbox.className = 'resizer-aspect-checkbox';
-        checkbox.setAttribute('aria-label', 'Lock width and height ratio');
-        const textSpan = doc.createElement('span');
-        textSpan.className = 'resizer-aspect-text';
-        textSpan.textContent = 'Lock ratio';
-        aspectControl.appendChild(checkbox);
-        aspectControl.appendChild(textSpan);
-        controlTray.appendChild(aspectControl);
-        console.debug('Debug: resizer aspect control created', { container: containerLabel }); // Debug: control creation
-        aspectCheckbox = checkbox;
+      if(!showAspectControl){
+        if(aspectControl){
+          aspectControl.remove();
+        }
+        aspectControl = null;
+        aspectCheckbox = null;
+        console.debug('Debug: resizer aspect control suppressed', { container: containerLabel }); // Debug: control suppression
       }else{
-        if(aspectControl.parentNode !== controlTray){
+        if(!aspectControl){
+          aspectControl = doc.createElement('label');
+          aspectControl.className = 'resizer-aspect-control';
+          aspectControl.title = 'Lock width/height ratio';
+          const checkbox = doc.createElement('input');
+          checkbox.type = 'checkbox';
+          checkbox.className = 'resizer-aspect-checkbox';
+          checkbox.setAttribute('aria-label', 'Lock width and height ratio');
+          const textSpan = doc.createElement('span');
+          textSpan.className = 'resizer-aspect-text';
+          textSpan.textContent = 'Lock ratio';
+          aspectControl.appendChild(checkbox);
+          aspectControl.appendChild(textSpan);
           controlTray.appendChild(aspectControl);
+          console.debug('Debug: resizer aspect control created', { container: containerLabel }); // Debug: control creation
+          aspectCheckbox = checkbox;
+        }else{
+          if(aspectControl.parentNode !== controlTray){
+            controlTray.appendChild(aspectControl);
+          }
+          aspectCheckbox = aspectControl.querySelector('input[type="checkbox"]');
         }
-        aspectCheckbox = aspectControl.querySelector('input[type="checkbox"]');
-      }
-      if(aspectCheckbox){
-        aspectCheckbox.setAttribute('data-undo-ignore', '1');
-        aspectCheckbox.checked = aspectLocked;
-        if(aspectCheckbox.__resizerAspectHandler){
-          aspectCheckbox.removeEventListener('change', aspectCheckbox.__resizerAspectHandler);
+        if(aspectCheckbox){
+          aspectCheckbox.setAttribute('data-undo-ignore', '1');
+          aspectCheckbox.checked = aspectLocked;
+          if(aspectCheckbox.__resizerAspectHandler){
+            aspectCheckbox.removeEventListener('change', aspectCheckbox.__resizerAspectHandler);
+          }
+          const onAspectChange = event => {
+            const aspectPersistReason = event?.isTrusted ? 'checkbox-change' : 'sync-change';
+            setAspectLockedState(!!aspectCheckbox.checked, {
+              reason: aspectPersistReason,
+              recordUndo: true,
+              resetAxisRatio: true
+            });
+          };
+          aspectCheckbox.addEventListener('change', onAspectChange);
+          aspectCheckbox.__resizerAspectHandler = onAspectChange;
         }
-        const onAspectChange = event => {
-          const aspectPersistReason = event?.isTrusted ? 'checkbox-change' : 'sync-change';
-          setAspectLockedState(!!aspectCheckbox.checked, {
-            reason: aspectPersistReason,
-            recordUndo: true,
-            resetAxisRatio: true
-          });
-        };
-        aspectCheckbox.addEventListener('change', onAspectChange);
-        aspectCheckbox.__resizerAspectHandler = onAspectChange;
       }
 
       let fontResizeControl = controlTray.querySelector('.resizer-fontresize-control');
@@ -2674,6 +2794,9 @@
             zoomValueNode.removeEventListener('change', zoomValueNode.__resizerZoomCommitHandler);
             zoomValueNode.removeEventListener('blur', zoomValueNode.__resizerZoomCommitHandler);
           }
+          if(zoomValueNode.__resizerZoomInputHandler){
+            zoomValueNode.removeEventListener('input', zoomValueNode.__resizerZoomInputHandler);
+          }
           if(zoomValueNode.__resizerZoomKeyHandler){
             zoomValueNode.removeEventListener('keydown', zoomValueNode.__resizerZoomKeyHandler);
           }
@@ -2685,8 +2808,26 @@
             if(event?.preventDefault){ event.preventDefault(); }
             adjustZoom(1);
           };
+          const getNumericWheelPhase = () => {
+            const toolbarApi = Shared.getWorkspaceToolbarApi?.() || Shared.workspaceToolbar || null;
+            return toolbarApi?.getNumericWheelPhase?.(zoomValueNode) || null;
+          };
+          const onZoomInput = () => {
+            if(getNumericWheelPhase() !== 'live'){
+              return;
+            }
+            const numeric = Number.parseFloat(String(zoomValueNode.value ?? '').replace('%', '').trim());
+            if(!Number.isFinite(numeric) || numeric <= 0){
+              return;
+            }
+            applyZoomLevel(numeric / 100, { reason: 'wheel-live' });
+          };
           const onZoomCommit = () => {
-            commitZoomFromInput(zoomValueNode.value);
+            const wheelCommit = getNumericWheelPhase() === 'commit';
+            commitZoomFromInput(zoomValueNode.value, {
+              reason: wheelCommit ? 'wheel-commit' : 'input',
+              markUserModified: wheelCommit
+            });
           };
           const onZoomKeyDown = (event) => {
             if(event?.key === 'Enter'){
@@ -2700,11 +2841,13 @@
           };
           decreaseButton.addEventListener('click', onDecrease);
           increaseButton.addEventListener('click', onIncrease);
+          zoomValueNode.addEventListener('input', onZoomInput);
           zoomValueNode.addEventListener('change', onZoomCommit);
           zoomValueNode.addEventListener('blur', onZoomCommit);
           zoomValueNode.addEventListener('keydown', onZoomKeyDown);
           decreaseButton.__resizerZoomHandler = onDecrease;
           increaseButton.__resizerZoomHandler = onIncrease;
+          zoomValueNode.__resizerZoomInputHandler = onZoomInput;
           zoomValueNode.__resizerZoomCommitHandler = onZoomCommit;
           zoomValueNode.__resizerZoomKeyHandler = onZoomKeyDown;
           zoomOutButton = decreaseButton;
@@ -2896,7 +3039,7 @@
       const snapshotAspectLocked = typeof snapshot.aspectLocked === 'boolean'
         ? snapshot.aspectLocked
         : snapshotDataset.resizerAspectLocked === 'true';
-      aspectLocked = !!snapshotAspectLocked;
+      aspectLocked = forcedAspectLocked !== null ? forcedAspectLocked : !!snapshotAspectLocked;
       data.resizerAspectLocked = aspectLocked ? 'true' : 'false';
       if(aspectCheckbox){
         aspectCheckbox.checked = aspectLocked;
@@ -3032,7 +3175,8 @@
           container.dataset.resizerResized = 'true';
           container.dataset.resizerWidth = container.style.width;
           container.dataset.resizerHeight = container.style.height;
-          if(Shared.graphViewport && typeof Shared.graphViewport.applyLiveResizeLock === 'function'){
+          if(shouldApplyLiveViewportLock(axis)
+            && Shared.graphViewport && typeof Shared.graphViewport.applyLiveResizeLock === 'function'){
             try{
               Shared.graphViewport.applyLiveResizeLock(container, {
                 axis,

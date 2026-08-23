@@ -1,9 +1,10 @@
 const fs = require('node:fs');
 const path = require('node:path');
+const { ensureGeneratedAssets } = require('./generate-welcome-example-thumbnails.cjs');
 
 const root = path.resolve(__dirname, '..');
 const output = path.join(root, '_site');
-const runtimeEntries = ['index.html', 'css', 'js', 'libs', 'LICENSE', 'README.md', '.nojekyll'];
+const runtimeEntries = ['index.html', 'css', 'js', 'libs', 'assets', 'LICENSE', 'README.md', '.nojekyll'];
 
 function copyEntry(relativePath) {
   const source = path.join(root, relativePath);
@@ -59,7 +60,8 @@ function copyStaticReferences() {
   }
 }
 
-function main() {
+async function main() {
+  await ensureGeneratedAssets();
   fs.rmSync(output, { recursive: true, force: true });
   fs.mkdirSync(output, { recursive: true });
   runtimeEntries.forEach(copyEntry);
@@ -68,4 +70,7 @@ function main() {
   console.log(`Built GitHub Pages site in ${path.relative(root, output)}`);
 }
 
-main();
+main().catch(error => {
+  console.error(error?.stack || error?.message || String(error));
+  process.exitCode = 1;
+});

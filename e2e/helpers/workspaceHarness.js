@@ -44,6 +44,23 @@ const CDN_OVERRIDE_ENTRIES = [
 
 const CDN_OVERRIDE_CACHE = new Map();
 
+const PARAMETER_ISOLATION_HARNESS_PATH = path.resolve(__dirname, '../../__tests__/tab-isolation-regression/parameter-harness.js');
+
+async function installParameterIsolationHarness(page) {
+  await page.addScriptTag({ path: PARAMETER_ISOLATION_HARNESS_PATH });
+  await page.waitForFunction(() => !!window.GraphitixParameterIsolation?.runSameTypeIsolation);
+}
+
+async function getWorkspaceTabIds(page, type = null) {
+  return page.evaluate(componentType => {
+    const state = window.Main?.session?.workspaceState || {};
+    return (state.tabs || [])
+      .filter(tab => tab && !tab.isWelcome && (!componentType || tab.type === componentType))
+      .map(tab => String(tab.id || '').trim())
+      .filter(Boolean);
+  }, type);
+}
+
 const COMPONENT_MATRIX = [
   { type: 'venn', pageId: 'vennPage', exampleButtonId: 'sample' },
   { type: 'box', pageId: 'boxPage', exampleButtonId: 'boxLoadExample' },
@@ -273,7 +290,11 @@ async function openComponentFromWelcome(page, component, options = {}) {
     const target = tileAction === 'example'
       ? card.getByRole('button', { name: /^Load example\b/i }).first()
       : card.getByRole('button', { name: /^New\b/i }).first();
-    await target.click({ timeout: 5000 });
+    // Welcome graph cards launch an in-page workspace action (`type=button` +
+    // `launchWelcomeGraph`); they do not navigate. Do not let Playwright wait on
+    // unrelated scheduled navigation bookkeeping after the click. The owner/tab
+    // transition below is the authoritative completion condition.
+    await target.click({ timeout: 5000, noWaitAfter: true });
     launched = await waitForActiveComponentLaunch(page, component, 20_000, expectedTabId);
   } catch (err) {
     lastError = err;
@@ -772,6 +793,8 @@ module.exports = {
   confirmDataImportPrompt,
   importDataFile,
   waitForDocumentOpenComplete,
+  installParameterIsolationHarness,
+  getWorkspaceTabIds,
   exerciseVisibleComponentControls,
   collectComponentPerformanceSnapshot,
   shouldIgnoreConsoleEntry

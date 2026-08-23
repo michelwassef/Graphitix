@@ -2,6 +2,7 @@
   'use strict';
   const Shared = global.Shared = global.Shared || {};
   const plot3d = Shared.plot3d = Shared.plot3d || {};
+  const svgGeometry = Shared.svgGeometry = Shared.svgGeometry || {};
 
   function debugLog(){
     if(typeof Shared.isDebugEnabled === 'function' && !Shared.isDebugEnabled()){
@@ -12,8 +13,146 @@
     }
   }
 
+  if(typeof svgGeometry.buildCompoundLinePath !== 'function' && typeof require === 'function'){
+    try{
+      require('./svgGeometry.js');
+    }catch(err){
+      debugLog('Debug: plot3d svgGeometry helper require failed', { message: err?.message || String(err) });
+    }
+  }
+
   const TAU = Math.PI * 2;
   const NS = 'http://www.w3.org/2000/svg';
+  const activeRotationControls = new Set();
+
+  function cloneRotationState(rotation){
+    const source = rotation || {};
+    const quaternion = source.quaternion || null;
+    return {
+      x: Number.isFinite(source.x) ? source.x : 0,
+      y: Number.isFinite(source.y) ? source.y : 0,
+      z: Number.isFinite(source.z) ? source.z : 0,
+      quaternion: quaternion && [quaternion.w, quaternion.x, quaternion.y, quaternion.z].every(Number.isFinite)
+        ? { w: quaternion.w, x: quaternion.x, y: quaternion.y, z: quaternion.z }
+        : null
+    };
+  }
+
+  function restoreRotationState(target, snapshot){
+    if(!target || !snapshot){
+      return false;
+    }
+    target.x = snapshot.x;
+    target.y = snapshot.y;
+    target.z = snapshot.z;
+    target.quaternion = snapshot.quaternion
+      ? { ...snapshot.quaternion }
+      : createQuaternion(snapshot.x, snapshot.y, snapshot.z);
+    return true;
+  }
+
+  function getRotationGestureOwner(control){
+    return {
+      tabId: String(control?.ownerSession?.tabId || control?.ownerSession?.id || '').trim() || null,
+      componentKey: String(control?.componentKey || control?.ownerSession?.componentKey || '').trim() || null
+    };
+  }
+
+  function dispatchRotationGestureEvent(control, phase, details = {}){
+    if(typeof global.dispatchEvent !== 'function' || typeof global.CustomEvent !== 'function'){
+      return;
+    }
+    const owner = getRotationGestureOwner(control);
+    try{
+      global.dispatchEvent(new global.CustomEvent('graphitix:plot3d-rotation-gesture', {
+        detail: {
+          phase,
+          activeCount: activeRotationControls.size,
+          tabId: owner.tabId,
+          componentKey: owner.componentKey,
+          ...details
+        }
+      }));
+    }catch(err){
+      debugLog('Debug: plot3d rotation gesture event dispatch failed', {
+        phase,
+        message: err?.message || String(err)
+      });
+    }
+  }
+
+  function registerActiveRotationControl(control){
+    if(!control){
+      return;
+    }
+    reconcileActiveRotationControls();
+    if(activeRotationControls.has(control)){
+      return;
+    }
+    activeRotationControls.add(control);
+    dispatchRotationGestureEvent(control, 'start');
+  }
+
+  function unregisterActiveRotationControl(control, details = {}){
+    if(!control || !activeRotationControls.delete(control)){
+      return;
+    }
+    dispatchRotationGestureEvent(control, 'end', details);
+  }
+
+  let rotationRegistryReconcileDepth = 0;
+
+  function reconcileActiveRotationControls(){
+    if(rotationRegistryReconcileDepth > 0){
+      return;
+    }
+    rotationRegistryReconcileDepth += 1;
+    try{
+      Array.from(activeRotationControls).forEach(control => {
+        if(control?.endingGesture === true){
+          return;
+        }
+        if(control?.pointerState?.active !== true){
+          unregisterActiveRotationControl(control, {
+            reason: 'registry-inactive',
+            didMove: false,
+            canceled: true,
+            rolledBack: false
+          });
+          return;
+        }
+        const svg = control.svg || null;
+        if(svg && svg.isConnected === false && typeof control.cancelActiveGesture === 'function'){
+          control.cancelActiveGesture('owner-detached');
+        }
+      });
+    }finally{
+      rotationRegistryReconcileDepth -= 1;
+    }
+  }
+
+  plot3d.getActiveRotationGestureCount = function(){
+    reconcileActiveRotationControls();
+    return activeRotationControls.size;
+  };
+
+  plot3d.hasActiveRotationGesture = function(){
+    return plot3d.getActiveRotationGestureCount() > 0;
+  };
+
+  plot3d.isRotationGestureActiveForTab = function(tabId, componentKey){
+    const expectedTabId = String(tabId || '').trim();
+    const expectedComponentKey = String(componentKey || '').trim();
+    if(!expectedTabId){
+      return false;
+    }
+    reconcileActiveRotationControls();
+    return Array.from(activeRotationControls).some(control => {
+      const owner = getRotationGestureOwner(control);
+      return owner.tabId === expectedTabId
+        && (!expectedComponentKey || owner.componentKey === expectedComponentKey);
+    });
+  };
 
   function wrapAngle(angle){
     if(!Number.isFinite(angle)){ return 0; }
@@ -234,6 +373,143 @@
     return false;
   };
 
+  function clearManagedRotationClickSuppression(control){
+    if(!control){
+      return;
+    }
+    control.suppressClickGeneration = (Number(control.suppressClickGeneration) || 0) + 1;
+    control.suppressNextClick = false;
+  }
+
+  function armManagedRotationClickSuppression(control){
+    if(!control){
+      return;
+    }
+    const generation = (Number(control.suppressClickGeneration) || 0) + 1;
+    control.suppressClickGeneration = generation;
+    control.suppressNextClick = true;
+    const clear = () => {
+      if(control.suppressClickGeneration === generation){
+        control.suppressNextClick = false;
+      }
+    };
+    if(typeof global.requestAnimationFrame === 'function'){
+      global.requestAnimationFrame(clear);
+    }else{
+      global.setTimeout(clear, 16);
+    }
+  }
+
+  function resolveManagedRotationControl(target){
+    if(!target || typeof target.closest !== 'function'){
+      return null;
+    }
+    const svg = target.closest('svg[data-rotation-controls-attached="true"]');
+    const control = svg?.__plot3dRotationControl || null;
+    if(!control || control.managesGraphEditGesture !== true){
+      return null;
+    }
+    if(control.ownerSession && control.componentKey
+      && typeof plot3d.isRotationOwnerActive === 'function'
+      && !plot3d.isRotationOwnerActive(control.ownerSession, control.componentKey, svg)){
+      return null;
+    }
+    if(typeof control.shouldIgnorePointer === 'function'){
+      try{
+        if(control.shouldIgnorePointer({ target })){
+          return null;
+        }
+      }catch(err){
+        debugLog('Debug: plot3d managed gesture target check failed', {
+          label: control.label || null,
+          message: err?.message || String(err)
+        });
+        return null;
+      }
+    }
+    return { svg, control };
+  }
+
+  plot3d.isManagedRotationGestureTarget = function(target){
+    return !!resolveManagedRotationControl(target);
+  };
+
+  plot3d.consumeManagedRotationClick = function(target){
+    const resolved = resolveManagedRotationControl(target);
+    if(!resolved || resolved.control.suppressNextClick !== true){
+      return false;
+    }
+    clearManagedRotationClickSuppression(resolved.control);
+    return true;
+  };
+
+  plot3d.isRotationOwnerTabActive = function(ownerSession, componentKey){
+    const tabId = String(ownerSession?.tabId || ownerSession?.id || '').trim();
+    const key = String(componentKey || ownerSession?.componentKey || '').trim();
+    if(!tabId || !key){
+      return false;
+    }
+    const ownerComponentKey = String(ownerSession?.componentKey || '').trim();
+    if(ownerComponentKey && ownerComponentKey !== key){
+      return false;
+    }
+    const workspaceState = global.Main?.session?.workspaceState || null;
+    if(!workspaceState || typeof workspaceState !== 'object'){
+      // Unit/non-workspace hosts have no workspace owner registry. Exact DOM
+      // ownership is still enforced by isRotationOwnerActive when an SVG exists.
+      return true;
+    }
+    const activeTabId = String(workspaceState.activeTabId || '').trim();
+    if(!activeTabId || activeTabId !== tabId){
+      return false;
+    }
+    if(Array.isArray(workspaceState.tabs)){
+      const activeTab = workspaceState.tabs.find(tab => String(tab?.id || '').trim() === activeTabId) || null;
+      const activeType = String(activeTab?.type || '').trim();
+      if(!activeTab || activeType !== key){
+        return false;
+      }
+    }
+    return true;
+  };
+
+  /**
+   * Return true only when a rotation callback still owns the currently active
+   * workspace projection and the supplied SVG is the DOM node mounted for that
+   * exact tab. Rotation callbacks are asynchronous, so component-level
+   * "active" mirrors are not a sufficient ownership guard after a tab switch.
+   */
+  plot3d.isRotationOwnerActive = function(ownerSession, componentKey, svgEl){
+    const tabId = String(ownerSession?.tabId || ownerSession?.id || '').trim();
+    const key = String(componentKey || ownerSession?.componentKey || '').trim();
+    if(!plot3d.isRotationOwnerTabActive(ownerSession, key)
+      || !svgEl
+      || svgEl.isConnected !== true){
+      return false;
+    }
+
+    const stampedTabId = String(svgEl.dataset?.workspaceTabId || svgEl.dataset?.tabId || '').trim();
+    if(stampedTabId && stampedTabId !== tabId){
+      return false;
+    }
+    const ownerSvg = ownerSession?.refs?.rotationSvg || ownerSession?.refs?.svg || null;
+    if(ownerSvg && ownerSvg !== svgEl){
+      return false;
+    }
+
+    const getMountedRoot = Shared.workspaceTabs?.getMountedRoot;
+    const mountedRoot = typeof getMountedRoot === 'function'
+      ? getMountedRoot(tabId, key)
+      : (ownerSession?.refs?.root || ownerSession?.root || null);
+    if(!mountedRoot || mountedRoot.isConnected === false){
+      return false;
+    }
+    if(typeof mountedRoot.contains !== 'function' || !mountedRoot.contains(svgEl)){
+      return false;
+    }
+    return true;
+  };
+
   function resolveSvgViewportLength(svgEl, attrName, fallback){
     const rawAttr = Number(svgEl && typeof svgEl.getAttribute === 'function' ? svgEl.getAttribute(attrName) : NaN);
     if(Number.isFinite(rawAttr) && rawAttr > 0){ return rawAttr; }
@@ -310,13 +586,31 @@
     const existingControl = svgEl.__plot3dRotationControl || null;
     if(svgEl.dataset.rotationControlsAttached === 'true'){
       if(existingControl){
-        existingControl.state = opts.state || existingControl.state || plot3d.createRotationState();
+        const nextState = opts.state || existingControl.state || plot3d.createRotationState();
+        const nextOwnerSession = opts.ownerSession || null;
+        const nextComponentKey = String(opts.componentKey || '').trim();
+        const ownerBindingChanged = existingControl.state !== nextState
+          || existingControl.ownerSession !== nextOwnerSession
+          || existingControl.componentKey !== nextComponentKey;
+        if(ownerBindingChanged && typeof existingControl.cancelActiveGesture === 'function'){
+          existingControl.cancelActiveGesture('rebind');
+        }
+        if(ownerBindingChanged){
+          existingControl.bindingGeneration = (Number(existingControl.bindingGeneration) || 0) + 1;
+        }
+        existingControl.state = nextState;
         existingControl.shouldIgnorePointer = resolveIgnorePointer(opts.shouldIgnorePointer);
         existingControl.label = opts.debugLabel || existingControl.label || 'plot3d-rotation';
         existingControl.onChange = typeof opts.onChange === 'function' ? opts.onChange : null;
         existingControl.onStart = typeof opts.onStart === 'function' ? opts.onStart : null;
         existingControl.onEnd = typeof opts.onEnd === 'function' ? opts.onEnd : null;
         existingControl.rotationScale = resolveRotationScale(opts.rotationScale);
+        existingControl.managesGraphEditGesture = opts.managesGraphEditGesture === true;
+        existingControl.ownerSession = nextOwnerSession;
+        existingControl.componentKey = nextComponentKey;
+        if(!existingControl.pointerState?.active){
+          clearManagedRotationClickSuppression(existingControl);
+        }
         svgEl.style.cursor = existingControl.pointerState?.active ? 'grabbing' : 'grab';
         svgEl.style.touchAction = 'none';
         svgEl.style.userSelect = 'none';
@@ -334,7 +628,16 @@
       onStart: typeof opts.onStart === 'function' ? opts.onStart : null,
       onEnd: typeof opts.onEnd === 'function' ? opts.onEnd : null,
       rotationScale: resolveRotationScale(opts.rotationScale),
-      pointerState: null
+      managesGraphEditGesture: opts.managesGraphEditGesture === true,
+      ownerSession: opts.ownerSession || null,
+      componentKey: String(opts.componentKey || '').trim(),
+      suppressNextClick: false,
+      suppressClickGeneration: 0,
+      bindingGeneration: 1,
+      pointerState: null,
+      cancelActiveGesture: null,
+      svg: svgEl,
+      endingGesture: false
     };
     svgEl.__plot3dRotationControl = control;
     svgEl.dataset.rotationControlsAttached = 'true';
@@ -342,7 +645,16 @@
     svgEl.style.touchAction = 'none';
     svgEl.style.userSelect = 'none';
     svgEl.style.webkitUserSelect = 'none';
-    const pointerState = { active: false, pointerId: null, lastX: 0, lastY: 0, captured: false };
+    const pointerState = {
+      active: false,
+      pointerId: null,
+      lastX: 0,
+      lastY: 0,
+      captured: false,
+      moved: false,
+      binding: null,
+      startingRotation: null
+    };
     control.pointerState = pointerState;
     const selectionGuards = { applied: false, previous: null };
     const disableSelection = () => {
@@ -371,16 +683,128 @@
       selectionGuards.previous = null;
       debugLog('Debug: plot3d selection restored', { label: control.label });
     };
-    const startDrag = (event) => {
-      if(!event){ return; }
-      const ignorePointer = typeof control.shouldIgnorePointer === 'function'
-        ? control.shouldIgnorePointer
-        : resolveIgnorePointer(null);
-      if(ignorePointer(event)){
-        debugLog('Debug: plot3d rotation pointerdown ignored', { label: control.label, tag: event.target && event.target.tagName });
+    const isBindingOwnerActive = binding => {
+      if(!binding?.ownerSession || !binding?.componentKey){
+        return true;
+      }
+      return plot3d.isRotationOwnerActive(binding.ownerSession, binding.componentKey, svgEl);
+    };
+    const captureBinding = () => ({
+      generation: Number(control.bindingGeneration) || 0,
+      state: control.state || (control.state = plot3d.createRotationState()),
+      shouldIgnorePointer: control.shouldIgnorePointer,
+      label: control.label,
+      onChange: control.onChange,
+      onStart: control.onStart,
+      onEnd: control.onEnd,
+      rotationScale: control.rotationScale,
+      managesGraphEditGesture: control.managesGraphEditGesture === true,
+      ownerSession: control.ownerSession || null,
+      componentKey: control.componentKey || ''
+    });
+    const invokeBindingCallback = (binding, callbackName, args) => {
+      const callback = binding?.[callbackName];
+      if(typeof callback !== 'function'){
         return;
       }
+      try {
+        callback(...args);
+      } catch(err){
+        debugLog(`Debug: plot3d rotation ${callbackName} callback error`, {
+          label: binding?.label || control.label,
+          message: err && err.message
+        });
+      }
+    };
+    const stopDrag = (event, reason, options = {}) => {
+      if(!pointerState.active){ return false; }
+      if(event && event.pointerId !== pointerState.pointerId){ return false; }
+      const binding = pointerState.binding || captureBinding();
+      control.endingGesture = true;
+      pointerState.active = false;
+      const didMove = pointerState.moved === true;
+      const canceled = options.canceled === true;
+      let rolledBack = false;
+      if(canceled && didMove && pointerState.startingRotation){
+        rolledBack = restoreRotationState(binding.state, pointerState.startingRotation);
+        if(rolledBack && isBindingOwnerActive(binding)){
+          invokeBindingCallback(binding, 'onChange', [event, binding.state, {
+            reason: reason || 'canceled',
+            rollback: true
+          }]);
+        }
+      }
+      pointerState.moved = false;
+      const capturedPointerId = pointerState.pointerId;
+      const hadCapture = pointerState.captured;
+      pointerState.pointerId = null;
+      pointerState.captured = false;
+      pointerState.binding = null;
+      pointerState.startingRotation = null;
+      svgEl.style.cursor = 'grab';
+      try {
+        if(hadCapture && typeof svgEl.releasePointerCapture === 'function'){
+          svgEl.releasePointerCapture(capturedPointerId);
+        }
+      } catch(err){
+        debugLog('Debug: plot3d rotation pointer capture release error', {
+          label: binding.label,
+          message: err && err.message
+        });
+      }
+      restoreSelection();
+      const finalReason = reason || 'unknown';
+      if(didMove && finalReason === 'pointerup' && binding.managesGraphEditGesture === true){
+        // Browser click follows pointerup in the same interaction turn. Keep the
+        // exemption alive for only that turn so a later ordinary click cannot be
+        // mistaken for part of the rotation gesture.
+        armManagedRotationClickSuppression(control);
+      }else if(options.preserveClickSuppression !== true){
+        clearManagedRotationClickSuppression(control);
+      }
+      debugLog('Debug: plot3d rotation drag end', {
+        label: binding.label,
+        reason: finalReason,
+        didMove,
+        rotation: { x: binding.state.x, y: binding.state.y, z: binding.state.z }
+      });
+      try{
+        invokeBindingCallback(binding, 'onEnd', [event, binding.state, {
+          reason: finalReason,
+          didMove,
+          canceled,
+          rolledBack
+        }]);
+      }finally{
+        control.endingGesture = false;
+        unregisterActiveRotationControl(control, {
+          reason: finalReason,
+          didMove,
+          canceled,
+          rolledBack
+        });
+      }
+      return true;
+    };
+    control.cancelActiveGesture = reason => stopDrag(null, reason || 'canceled', { canceled: true });
+    const startDrag = (event) => {
+      if(!event){ return; }
       if(pointerState.active){
+        return;
+      }
+      const binding = captureBinding();
+      const ignorePointer = typeof binding.shouldIgnorePointer === 'function'
+        ? binding.shouldIgnorePointer
+        : resolveIgnorePointer(null);
+      if(ignorePointer(event)){
+        debugLog('Debug: plot3d rotation pointerdown ignored', {
+          label: binding.label,
+          tag: event.target && event.target.tagName
+        });
+        return;
+      }
+      if(!isBindingOwnerActive(binding)){
+        debugLog('Debug: plot3d rotation pointerdown rejected for stale owner', { label: binding.label });
         return;
       }
       pointerState.active = true;
@@ -388,91 +812,72 @@
       pointerState.lastX = event.clientX;
       pointerState.lastY = event.clientY;
       pointerState.captured = false;
+      pointerState.moved = false;
+      pointerState.binding = binding;
+      pointerState.startingRotation = cloneRotationState(binding.state);
+      clearManagedRotationClickSuppression(control);
       if(typeof svgEl.setPointerCapture === 'function'){
         try {
           svgEl.setPointerCapture(event.pointerId);
           pointerState.captured = true;
         } catch(err){
-          debugLog('Debug: plot3d rotation pointer capture skipped', { label: control.label, message: err && err.message });
+          debugLog('Debug: plot3d rotation pointer capture skipped', {
+            label: binding.label,
+            message: err && err.message
+          });
         }
       }
       svgEl.style.cursor = 'grabbing';
       disableSelection();
-      const state = control.state || (control.state = plot3d.createRotationState());
-      debugLog('Debug: plot3d rotation drag start', { label: control.label, pointerId: event.pointerId });
-      if(control.onStart){
-        try {
-          control.onStart(event, state);
-        } catch(err){
-          debugLog('Debug: plot3d rotation start callback error', { label: control.label, message: err && err.message });
-        }
-      }
+      registerActiveRotationControl(control);
+      debugLog('Debug: plot3d rotation drag start', { label: binding.label, pointerId: event.pointerId });
+      invokeBindingCallback(binding, 'onStart', [event, binding.state]);
     };
     const moveDrag = (event) => {
       if(!pointerState.active || !event){ return; }
       if(event.pointerId !== pointerState.pointerId){ return; }
+      const binding = pointerState.binding;
+      if(!binding
+        || binding.generation !== (Number(control.bindingGeneration) || 0)
+        || !isBindingOwnerActive(binding)){
+        stopDrag(event, 'owner-inactive', { canceled: true });
+        return;
+      }
       const dx = event.clientX - pointerState.lastX;
       const dy = event.clientY - pointerState.lastY;
       pointerState.lastX = event.clientX;
       pointerState.lastY = event.clientY;
-      const scale = control.rotationScale || 0.01;
+      const scale = binding.rotationScale || 0.01;
       const yawAngle = dx * scale;
       const pitchAngle = dy * scale;
       if(yawAngle === 0 && pitchAngle === 0){
         return;
       }
-      const state = control.state || (control.state = plot3d.createRotationState());
+      pointerState.moved = true;
+      const state = binding.state;
       const yawQuat = axisAngleQuaternion(0, 1, 0, yawAngle);
       const pitchQuat = axisAngleQuaternion(1, 0, 0, pitchAngle);
       const deltaQuat = normalizeQuaternion(multiplyQuaternions(yawQuat, pitchQuat));
       const currentQuat = ensureQuaternion(state);
       state.quaternion = normalizeQuaternion(multiplyQuaternions(deltaQuat, currentQuat));
       plot3d.normalizeRotation(state);
-      debugLog('Debug: plot3d rotation updated', { label: control.label, rotation: { x: state.x, y: state.y, z: state.z } });
-      if(control.onChange){
-        try {
-          control.onChange(event, state);
-        } catch(err){
-          debugLog('Debug: plot3d rotation change callback error', { label: control.label, message: err && err.message });
-        }
-      }
-    };
-    const stopDrag = (event, reason) => {
-      if(!pointerState.active){ return; }
-      if(event && event.pointerId !== pointerState.pointerId){ return; }
-      pointerState.active = false;
-      const capturedPointerId = pointerState.pointerId;
-      const hadCapture = pointerState.captured;
-      pointerState.pointerId = null;
-      pointerState.captured = false;
-      svgEl.style.cursor = 'grab';
-      try {
-        if(hadCapture && typeof svgEl.releasePointerCapture === 'function'){
-          svgEl.releasePointerCapture(capturedPointerId);
-        }
-      } catch(err){
-        debugLog('Debug: plot3d rotation pointer capture release error', { label: control.label, message: err && err.message });
-      }
-      restoreSelection();
-      const state = control.state || (control.state = plot3d.createRotationState());
-      debugLog('Debug: plot3d rotation drag end', {
-        label: control.label,
-        reason: reason || 'unknown',
+      debugLog('Debug: plot3d rotation updated', {
+        label: binding.label,
         rotation: { x: state.x, y: state.y, z: state.z }
       });
-      if(control.onEnd){
-        try {
-          control.onEnd(event, state);
-        } catch(err){
-          debugLog('Debug: plot3d rotation end callback error', { label: control.label, message: err && err.message });
-        }
-      }
+      invokeBindingCallback(binding, 'onChange', [event, state]);
     };
     svgEl.addEventListener('pointerdown', startDrag);
     svgEl.addEventListener('pointermove', moveDrag);
     svgEl.addEventListener('pointerup', function(evt){ stopDrag(evt, 'pointerup'); });
-    svgEl.addEventListener('pointercancel', function(evt){ stopDrag(evt, 'pointercancel'); });
-    svgEl.addEventListener('pointerleave', function(evt){ stopDrag(evt, 'pointerleave'); });
+    svgEl.addEventListener('pointercancel', function(evt){ stopDrag(evt, 'pointercancel', { canceled: true }); });
+    svgEl.addEventListener('pointerleave', function(evt){
+      if(pointerState.active && pointerState.captured){
+        return;
+      }
+      stopDrag(evt, 'pointerleave', { canceled: true });
+    });
+    svgEl.addEventListener('lostpointercapture', function(evt){ stopDrag(evt, 'lostpointercapture', { canceled: true }); });
   };
 
   plot3d.resolveLegendShiftX = function(options){
@@ -981,6 +1386,37 @@
       targetNode.appendChild(line);
       return line;
     };
+    const appendCompoundLinePath = (segments, attrs, target) => {
+      if(!Array.isArray(segments) || !segments.length){
+        return null;
+      }
+      const projectedSegments = segments.map(segment => {
+        const start = project(segment.start);
+        const end = project(segment.end);
+        return { x1: start.x, y1: start.y, x2: end.x, y2: end.y };
+      });
+      const d = svgGeometry.buildCompoundLinePath?.(projectedSegments) || '';
+      if(!d){
+        return null;
+      }
+      const path = doc.createElementNS(NS, 'path');
+      path.setAttribute('d', d);
+      path.setAttribute('fill', 'none');
+      if(attrs){
+        for(const key in attrs){
+          if(Object.prototype.hasOwnProperty.call(attrs, key)){
+            path.setAttribute(key, String(attrs[key]));
+          }
+        }
+      }
+      const targetNode = target || axisTarget || svg;
+      if(targetNode === gridGroup || (targetNode && typeof targetNode.getAttribute === 'function' && targetNode.getAttribute('data-grid-control') === '1')){
+        path.setAttribute('data-grid-control', '1');
+      }
+      path.setAttribute('data-plot3d-compound-segment-count', String(projectedSegments.length));
+      targetNode.appendChild(path);
+      return path;
+    };
     if(paneGroup && showPanes){
       const paneDefs = [
         { corners: [0, 1, 3, 2] },
@@ -1061,29 +1497,60 @@
         const fixedValue = plane.fixed.value;
         const startMin = makePoint({ [axisA]: axisRanges[axisA]?.min, [axisB]: axisRanges[axisB]?.min, [fixedKey]: fixedValue });
         const endMax = makePoint({ [axisA]: axisRanges[axisA]?.max, [axisB]: axisRanges[axisB]?.max, [fixedKey]: fixedValue });
-        appendLine(rotatePoint(startMin), rotatePoint(makePoint({ [axisA]: axisRanges[axisA]?.max, [axisB]: axisRanges[axisB]?.min, [fixedKey]: fixedValue })), { stroke: gridOutlineColors.primary, 'stroke-width': gridOutlineWidth }, gridGroup);
-        appendLine(rotatePoint(startMin), rotatePoint(makePoint({ [axisA]: axisRanges[axisA]?.min, [axisB]: axisRanges[axisB]?.max, [fixedKey]: fixedValue })), { stroke: gridOutlineColors.primary, 'stroke-width': gridOutlineWidth }, gridGroup);
-        appendLine(rotatePoint(makePoint({ [axisA]: axisRanges[axisA]?.max, [axisB]: axisRanges[axisB]?.min, [fixedKey]: fixedValue })), rotatePoint(endMax), { stroke: gridOutlineColors.secondary, 'stroke-width': gridOutlineWidth }, gridGroup);
-        appendLine(rotatePoint(makePoint({ [axisA]: axisRanges[axisA]?.min, [axisB]: axisRanges[axisB]?.max, [fixedKey]: fixedValue })), rotatePoint(endMax), { stroke: gridOutlineColors.secondary, 'stroke-width': gridOutlineWidth }, gridGroup);
+        const primaryOutlineSegments = [
+          {
+            start: rotatePoint(startMin),
+            end: rotatePoint(makePoint({ [axisA]: axisRanges[axisA]?.max, [axisB]: axisRanges[axisB]?.min, [fixedKey]: fixedValue }))
+          },
+          {
+            start: rotatePoint(startMin),
+            end: rotatePoint(makePoint({ [axisA]: axisRanges[axisA]?.min, [axisB]: axisRanges[axisB]?.max, [fixedKey]: fixedValue }))
+          }
+        ];
+        const secondaryOutlineSegments = [
+          {
+            start: rotatePoint(makePoint({ [axisA]: axisRanges[axisA]?.max, [axisB]: axisRanges[axisB]?.min, [fixedKey]: fixedValue })),
+            end: rotatePoint(endMax)
+          },
+          {
+            start: rotatePoint(makePoint({ [axisA]: axisRanges[axisA]?.min, [axisB]: axisRanges[axisB]?.max, [fixedKey]: fixedValue })),
+            end: rotatePoint(endMax)
+          }
+        ];
+        appendCompoundLinePath(primaryOutlineSegments, {
+          stroke: gridOutlineColors.primary,
+          'stroke-width': gridOutlineWidth,
+          'data-plot3d-grid-role': 'outline-primary',
+          'data-plot3d-grid-plane': String(i)
+        }, gridGroup);
+        appendCompoundLinePath(secondaryOutlineSegments, {
+          stroke: gridOutlineColors.secondary,
+          'stroke-width': gridOutlineWidth,
+          'data-plot3d-grid-role': 'outline-secondary',
+          'data-plot3d-grid-plane': String(i)
+        }, gridGroup);
         const ticksA = axisInterior[axisA];
         const ticksB = axisInterior[axisB];
+        const interiorSegments = [];
         for(let j=0;j<ticksA.length;j+=1){
           const aVal = ticksA[j];
-          appendLine(
-            rotatePoint(makePoint({ [axisA]: aVal, [axisB]: axisRanges[axisB]?.min, [fixedKey]: fixedValue })),
-            rotatePoint(makePoint({ [axisA]: aVal, [axisB]: axisRanges[axisB]?.max, [fixedKey]: fixedValue })),
-            null,
-            gridGroup
-          );
+          interiorSegments.push({
+            start: rotatePoint(makePoint({ [axisA]: aVal, [axisB]: axisRanges[axisB]?.min, [fixedKey]: fixedValue })),
+            end: rotatePoint(makePoint({ [axisA]: aVal, [axisB]: axisRanges[axisB]?.max, [fixedKey]: fixedValue }))
+          });
         }
         for(let k=0;k<ticksB.length;k+=1){
           const bVal = ticksB[k];
-          appendLine(
-            rotatePoint(makePoint({ [axisA]: axisRanges[axisA]?.min, [axisB]: bVal, [fixedKey]: fixedValue })),
-            rotatePoint(makePoint({ [axisA]: axisRanges[axisA]?.max, [axisB]: bVal, [fixedKey]: fixedValue })),
-            null,
-            gridGroup
-          );
+          interiorSegments.push({
+            start: rotatePoint(makePoint({ [axisA]: axisRanges[axisA]?.min, [axisB]: bVal, [fixedKey]: fixedValue })),
+            end: rotatePoint(makePoint({ [axisA]: axisRanges[axisA]?.max, [axisB]: bVal, [fixedKey]: fixedValue }))
+          });
+        }
+        if(interiorSegments.length){
+          appendCompoundLinePath(interiorSegments, {
+            'data-plot3d-grid-role': 'interior',
+            'data-plot3d-grid-plane': String(i)
+          }, gridGroup);
         }
       }
       debugLog('Debug: plot3d grid rendered', { label: debugLabel });

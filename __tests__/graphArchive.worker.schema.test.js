@@ -144,6 +144,114 @@ describe('graphArchive worker schema', () => {
     });
   });
 
+  test('worker and main-thread builders both source raw.csv from the Raw DataView', async () => {
+    const payload = {
+      tabs: [{
+        title: 'Derived active',
+        type: 'scatter',
+        payload: {
+          type: 'scatter',
+          data: [['DERIVED']],
+          dataViews: {
+            version: 3,
+            activeViewId: 'view-2',
+            views: [
+              { id: 'raw', kind: 'raw', title: 'Raw', data: [['RAW'], [10]] },
+              { id: 'view-2', kind: 'derived', title: 'Derived', sourceViewId: 'raw', data: [['DERIVED'], [1]] }
+            ]
+          },
+          activeDataViewId: 'view-2',
+          config: {}
+        },
+        layout: null
+      }],
+      activeIndex: 0,
+      scope: 'tab',
+      fileName: 'raw-contract.graph',
+      payloadMode: 'full',
+      compression: 'STORE'
+    };
+
+    const mainFiles = await buildMainFiles(payload);
+    const workerFiles = await buildWorkerFiles(payload);
+    const mainManifest = JSON.parse(mainFiles['manifest.json']);
+    const workerManifest = JSON.parse(workerFiles['manifest.json']);
+    const mainRawPath = mainManifest.tabs[0].files.rawCsv;
+    const workerRawPath = workerManifest.tabs[0].files.rawCsv;
+
+    expect(mainFiles[mainRawPath]).toBe('RAW\r\n10');
+    expect(workerFiles[workerRawPath]).toBe('RAW\r\n10');
+    expect(workerFiles[workerRawPath]).toBe(mainFiles[mainRawPath]);
+
+    const mainPayloadPath = mainManifest.tabs[0].files.payload;
+    const workerPayloadPath = workerManifest.tabs[0].files.payload;
+    expect(JSON.parse(mainFiles[mainPayloadPath]).data).toEqual([['RAW'], [10]]);
+    expect(JSON.parse(workerFiles[workerPayloadPath]).data).toEqual([['RAW'], [10]]);
+  });
+
+
+  test('worker and main-thread lite payloads retain only non-replayable derived matrices', async () => {
+    const payload = {
+      tabs: [{
+        title: 'Lite DataViews',
+        type: 'heatmap',
+        payload: {
+          type: 'heatmap',
+          data: [['RAW']],
+          dataViews: {
+            version: 3,
+            activeViewId: 'materialized',
+            views: [
+              { id: 'raw', kind: 'raw', data: [['RAW']] },
+              {
+                id: 'replayable',
+                kind: 'derived',
+                sourceViewId: 'raw',
+                replayable: true,
+                transformOptions: { headerRows: 0, startCol: 0 },
+                transformSpec: { type: 'add', value: 1 },
+                data: [['REPLAYABLE']]
+              },
+              {
+                id: 'materialized',
+                kind: 'derived',
+                sourceViewId: 'raw',
+                replayable: false,
+                transformOptions: null,
+                transformSpec: { type: 'heatmapCorrelationMatrix' },
+                data: [['MATERIALIZED']]
+              }
+            ]
+          },
+          activeDataViewId: 'materialized',
+          config: {}
+        },
+        layout: null
+      }],
+      activeIndex: 0,
+      scope: 'tab',
+      fileName: 'lite-dataviews.graph',
+      payloadMode: 'lite',
+      compression: 'STORE'
+    };
+
+    const mainFiles = await buildMainFiles(payload);
+    const workerFiles = await buildWorkerFiles(payload);
+    const mainManifest = JSON.parse(mainFiles['manifest.json']);
+    const workerManifest = JSON.parse(workerFiles['manifest.json']);
+    const mainPayload = JSON.parse(mainFiles[mainManifest.tabs[0].files.payload]);
+    const workerPayload = JSON.parse(workerFiles[workerManifest.tabs[0].files.payload]);
+    const mainConfig = JSON.parse(mainFiles[mainManifest.tabs[0].files.config]);
+    const workerConfig = JSON.parse(workerFiles[workerManifest.tabs[0].files.config]);
+
+    expect(mainPayload.dataViews).toEqual(workerPayload.dataViews);
+    expect(Object.prototype.hasOwnProperty.call(mainPayload.dataViews.views[0], 'data')).toBe(false);
+    expect(Object.prototype.hasOwnProperty.call(mainPayload.dataViews.views[1], 'data')).toBe(false);
+    expect(mainPayload.dataViews.views[2].data).toEqual([['MATERIALIZED']]);
+    expect(mainConfig.dataViews.views.every(view => !Object.prototype.hasOwnProperty.call(view, 'data'))).toBe(true);
+    expect(workerConfig.dataViews.views.every(view => !Object.prototype.hasOwnProperty.call(view, 'data'))).toBe(true);
+  });
+
   test('main-thread and worker archive builders advertise the same schema files', async () => {
     const payload = {
       tabs: [{

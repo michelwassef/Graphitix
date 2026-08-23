@@ -45,9 +45,8 @@ async function captureActivePreview(page) {
 }
 
 async function captureActivePreviewWithRetry(page, expectedType) {
-  let preview = null;
+  let preview = await captureActivePreview(page);
   for (let attempt = 0; attempt < 12; attempt += 1) {
-    preview = await captureActivePreview(page);
     if (
       preview
       && preview.type === expectedType
@@ -58,6 +57,16 @@ async function captureActivePreviewWithRetry(page, expectedType) {
       return preview;
     }
     await page.waitForTimeout(250 + (attempt * 120));
+    preview = await page.evaluate(() => {
+      const state = window.Main?.session?.workspaceState || null;
+      const tab = state?.tabs?.find(item => item?.id === state.activeTabId) || null;
+      return tab ? {
+        tabId: tab.id,
+        type: tab.type,
+        markup: tab.previewMarkup || '',
+        meta: tab.previewMeta || null
+      } : null;
+    });
   }
   return preview;
 }
@@ -71,12 +80,26 @@ test.describe('Non-canvas tab previews', () => {
 
       await openComponentFromWelcome(page, component, { first: true });
       await clickExampleButtonIfPresent(page, component.exampleButtonId);
-      await page.waitForTimeout(700);
+      await page.waitForFunction(type => {
+        const state = window.Main?.session?.workspaceState || null;
+        const tab = state?.tabs?.find(item => item?.id === state.activeTabId) || null;
+        const config = window.Main?.components?.registry?.[type] || null;
+        const root = tab
+          ? window.Shared?.workspaceTabs?.getMountedRoot?.(tab.id, type)
+          : null;
+        return tab?.type === type
+          && typeof config?.hasRenderedGraph === 'function'
+          && config.hasRenderedGraph({ tab, tabId: tab.id, root }) === true;
+      }, component.type, { timeout: 60_000 });
 
       const preview = await captureActivePreviewWithRetry(page, component.type);
       expect(preview, `${component.type} should return preview metadata`).toBeTruthy();
       expect(preview.type).toBe(component.type);
-      expect(preview.markup).toContain('<svg');
+      const hasSvgPreview = preview.markup.includes('<svg');
+      const hasPngPreview = preview.markup.includes('<img')
+        && preview.markup.includes('data:image/png;base64,')
+        && preview.markup.includes('data-tab-preview-format="png"');
+      expect(hasSvgPreview || hasPngPreview).toBe(true);
       expect(preview.markup).not.toContain('data-preview-canvas-simplified');
       expect(preview.markup).not.toContain('data-preview-placeholder');
       expect(preview.markup).not.toContain('Preparing preview');
@@ -88,7 +111,7 @@ test.describe('Non-canvas tab previews', () => {
         return !!tooltip
           && tooltip.dataset.tabId === tabId
           && tooltip.style.display !== 'none'
-          && !!tooltip.querySelector('svg');
+          && !!tooltip.querySelector('svg, img[data-tab-preview-format="png"]');
       }, preview.tabId, { timeout: 20000 });
     });
   }

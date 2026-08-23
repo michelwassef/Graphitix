@@ -34,10 +34,7 @@ async function waitForGraphSvg(page, pageId) {
 async function disableAxisLengthConstraints(page, pageId) {
   await page.evaluate(({ pageId }) => {
     const root = document.querySelector(`#${pageId}:not([hidden])`);
-    const inputs = [
-      ...Array.from(root?.querySelectorAll?.('.resizer-axeslength-checkbox') || []),
-      ...Array.from(root?.querySelectorAll?.('#pcaVarianceAxisScale') || [])
-    ];
+    const inputs = Array.from(root?.querySelectorAll?.('.resizer-axeslength-checkbox') || []);
     inputs.forEach(input => {
       if(input?.checked){
         input.checked = false;
@@ -56,7 +53,7 @@ async function setLockRatio(page, pageId, checked) {
   await page.evaluate(({ pageId, checked }) => {
     const root = document.querySelector(`#${pageId}:not([hidden])`);
     const checkbox = root?.querySelector?.('.svgbox .resizer-aspect-checkbox');
-    if(checkbox && checkbox.checked !== checked){
+    if(checkbox && !checkbox.disabled && checkbox.checked !== checked){
       checkbox.checked = checked;
       checkbox.dispatchEvent(new Event('change', { bubbles: true }));
     }
@@ -141,23 +138,36 @@ test('svgbox drag resize undo and redo restore dimensions in every component', a
       await openComponentFromWelcome(page, component, { first: index === 0, loadExample: true });
       await clickExampleButtonIfPresent(page, component.exampleButtonId);
       await waitForGraphSvg(page, component.pageId);
-      await setLockRatio(page, component.pageId, false);
-      await waitForGraphSvg(page, component.pageId);
+      const pcaMetricResize = component.type === 'pca';
+      if (pcaMetricResize) {
+        await expect(page.locator(`#${component.pageId}:not([hidden]) .svgbox .resizer-aspect-checkbox`)).toHaveCount(0);
+      } else {
+        await setLockRatio(page, component.pageId, false);
+        await waitForGraphSvg(page, component.pageId);
+      }
       await page.waitForTimeout(350);
 
       const before = await collectResizeState(page, component.pageId);
       expect(before, `${component.type} should expose a resize state`).not.toBeNull();
-      if(before.checkboxDisabled){
+      if (pcaMetricResize) {
+        expect(before.aspectLocked, 'pca must keep its internal metric resize constraint').toBe('true');
+      } else if(before.checkboxDisabled){
         expect(before.aspectLocked, `${component.type} forced ratio mode should remain locked`).toBe('true');
         expect(before.checkboxChecked, `${component.type} forced ratio checkbox should remain checked`).toBe(true);
         return;
       }
       await clearActiveUndoHistory(page);
-      expect(before.aspectLocked, `${component.type} should be unlocked before drag`).toBe('false');
+      if (!pcaMetricResize) {
+        expect(before.aspectLocked, `${component.type} should be unlocked before drag`).toBe('false');
+      }
 
       await dragSvgBoxHandle(page, component.pageId, '.resizer-horizontal', 0, 76);
       const resized = await collectResizeState(page, component.pageId);
       expect(resized.height, `${component.type} drag should change height`).toBeGreaterThan(before.height + 20);
+      if (pcaMetricResize) {
+        expect(resized.width, 'pca forced metric resize should scale width with height').toBeGreaterThan(before.width + 20);
+        expect(resized.aspectLocked).toBe('true');
+      }
       expect(resized.canUndo, `${component.type} drag should record an undo entry`).toBeTruthy();
 
       await pressUndo(page);

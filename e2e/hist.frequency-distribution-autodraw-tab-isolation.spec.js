@@ -179,6 +179,10 @@ async function snapshotHist(page) {
   return page.evaluate(() => {
     const root = document.querySelector('#histPage:not([hidden])');
     const payload = window.Components?.hist?.getPayload?.() || null;
+    const workspaceState = window.Main?.session?.workspaceState || {};
+    const canonicalTab = (workspaceState.tabs || [])
+      .find(tab => tab && String(tab.id || '') === String(workspaceState.activeTabId || '')) || null;
+    const canonicalStats = canonicalTab?.type === 'hist' ? canonicalTab?.payload?.config?.stats || null : null;
     const wrapper = root?.querySelector?.('#histHotWrapper') || null;
     const manager = wrapper?.__dataViewsOwner || null;
     const activeView = manager?.getActiveView?.() || null;
@@ -204,10 +208,16 @@ async function snapshotHist(page) {
       showGrid: !!root?.querySelector?.('#histShowGrid')?.checked,
       traceOpacity: payload?.config?.traceOpacity ?? null,
       statsDiagnostics: root?.querySelector?.('#histStatsDiagnosticsMode')?.value || null,
+      statsComparison: root?.querySelector?.('#histStatsComparisonMode')?.value || null,
+      canonicalStatsDiagnostics: canonicalStats?.diagnosticsMode || null,
+      canonicalStatsComparison: canonicalStats?.comparisonMode || null,
       selectedDistributions,
       payloadFrequency: payload?.config?.frequency || null,
       payloadDistributions: payload?.config?.distributions || null,
       payloadDataRows: Array.isArray(payload?.data) ? payload.data.length : 0,
+      payloadDataHead: Array.isArray(payload?.data)
+        ? payload.data.slice(0, 4).map(row => Array.isArray(row) ? row.slice(0, 2) : row)
+        : [],
       activeViewTitle: activeView?.title || '',
       viewTitles: views.map(view => view?.title || ''),
       hasFrequencyView: views.some(view => view?.transformSpec?.type === 'histFrequencyTable'),
@@ -352,6 +362,9 @@ function expectFrequencySnapshot(snapshot) {
   expect(snapshot.showLegend).toBe(false);
   expect(snapshot.traceOpacity).toBeCloseTo(0.42, 6);
   expect(snapshot.statsDiagnostics).toBe('normal-fit');
+  expect(snapshot.statsComparison).toBe('off');
+  expect(snapshot.canonicalStatsDiagnostics).toBe('normal-fit');
+  expect(snapshot.canonicalStatsComparison).toBe('off');
   expect(snapshot.selectedDistributions).toEqual(['normal']);
   expect(snapshot.payloadFrequency.createMode).toBe('cumulative');
   expect(snapshot.payloadFrequency.tabulateMode).toBe('percent');
@@ -373,6 +386,7 @@ function expectDensitySnapshot(snapshot) {
   expect(snapshot.traceOpacity).toBeCloseTo(0.78, 6);
   expect(snapshot.showGrid).toBe(true);
   expect(snapshot.statsDiagnostics).toBe('normal-vs-lognormal');
+  expect(snapshot.canonicalStatsDiagnostics).toBe('normal-vs-lognormal');
   expect(snapshot.selectedDistributions).toEqual(['lognormal', 'normal']);
   expect(snapshot.payloadDistributions.showPdf).toBe(true);
   expect(snapshot.payloadDistributions.showCdf).toBe(false);
@@ -638,7 +652,13 @@ test('Histogram async table import commits to the originating tab while inactive
 
   const untouchedSnapshot = await snapshotHist(page);
   expect(untouchedSnapshot.payloadDataRows).toBeGreaterThan(1);
-  expect(untouchedSnapshot.svgText + untouchedSnapshot.statsText).not.toMatch(/Imported values|101|202|303/);
+  expect(untouchedSnapshot.payloadDataHead).not.toEqual([
+    ['Imported values'],
+    [101],
+    [202],
+    [303]
+  ]);
+  expect(untouchedSnapshot.svgText + untouchedSnapshot.statsText).not.toContain('Imported values');
 
   await activateTab(page, importTargetId);
   await page.waitForFunction(() => {

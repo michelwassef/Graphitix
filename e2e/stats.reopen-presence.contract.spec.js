@@ -40,7 +40,15 @@ const CASES = [
 ];
 
 function statsRichnessInPage(containerIds) {
-  const normalizeStatsText = value => String(value || '').replace(/\s+/g, ' ').trim();
+  const normalizeStatsText = value => {
+    const superscriptDigits = { '⁰': '0', '¹': '1', '²': '2', '³': '3', '⁴': '4', '⁵': '5', '⁶': '6', '⁷': '7', '⁸': '8', '⁹': '9', '⁻': '-', '⁺': '+' };
+    return String(value || '')
+      .replace(/([+-]?(?:\d+(?:\.\d*)?|\.\d+))\s*×\s*10([⁰¹²³⁴⁵⁶⁷⁸⁹⁻⁺]+)/g, (_match, mantissa, exponent) => (
+        `${mantissa}e${Array.from(exponent).map(char => superscriptDigits[char] || char).join('')}`
+      ))
+      .replace(/\s+/g, ' ')
+      .trim();
+  };
   const normalizePValueToken = value => {
     const numeric = Number(value);
     return Number.isFinite(numeric) ? String(Number(numeric.toPrecision(8))) : null;
@@ -124,6 +132,49 @@ function exportControlLivenessInPage(containerIds) {
   return { controls: true, opened: menu ? menu.hidden === false : false, items: menu ? menu.children.length : 0 };
 }
 
+function pValueFormatStateInPage(containerIds) {
+  const state = window.Main?.session?.workspaceState;
+  const active = state?.tabs?.find(tab => tab?.id === state.activeTabId) || null;
+  let panel = null;
+  let button = null;
+  for (const id of containerIds) {
+    const candidate = document.getElementById(id);
+    const candidateButton = candidate?.querySelector?.('.stats-pvalue-format-toggle') || null;
+    if (candidateButton) {
+      panel = candidate;
+      button = candidateButton;
+      break;
+    }
+  }
+  return {
+    available: !!button,
+    buttonText: String(button?.textContent || '').trim(),
+    reporting: panel
+      ? window.Shared?.statsReporting?.getPValueFormatScientific?.({ target: panel, tabId: active?.id || null }) === true
+      : false,
+    payload: active?.payload?.meta?.statsReporting?.pValueScientific
+  };
+}
+
+async function enableScientificPValueFormat(page, containerIds) {
+  const before = await page.evaluate(pValueFormatStateInPage, containerIds);
+  if (!before.available) return before;
+  if (!before.reporting) {
+    await page.evaluate(ids => {
+      for (const id of ids) {
+        const button = document.getElementById(id)?.querySelector?.('.stats-pvalue-format-toggle');
+        if (button) {
+          button.click();
+          return;
+        }
+      }
+    }, containerIds);
+  }
+  await expect.poll(() => page.evaluate(pValueFormatStateInPage, containerIds), { timeout: 25_000 })
+    .toMatchObject({ available: true, buttonText: 'Decimal', reporting: true, payload: true });
+  return page.evaluate(pValueFormatStateInPage, containerIds);
+}
+
 async function buildAndCompute(page, c) {
   await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
   await expect(page.locator('#welcomeScreen')).toBeVisible({ timeout: 20_000 });
@@ -172,8 +223,21 @@ function expectNoStatsLoss(before, after, label) {
   expect(after.textLen, `${label}: stats text shrank (${after.textLen} < ${Math.floor(before.textLen * 0.9)})`).toBeGreaterThanOrEqual(Math.floor(before.textLen * 0.9));
   expect(after.exportDropdowns, `${label}: stats export controls dropped (${after.exportDropdowns} < ${before.exportDropdowns})`).toBeGreaterThanOrEqual(before.exportDropdowns);
   if (before.pValues.length) {
-    const missing = before.pValues.filter(value => !after.pValues.includes(value));
-    expect(missing, `${label}: restored stats lost p-value facts`).toEqual([]);
+    const missing = before.pValues.filter(value => {
+      const expected = Number(value);
+      return !after.pValues.some(candidate => {
+        const actual = Number(candidate);
+        if (!Number.isFinite(expected) || !Number.isFinite(actual)) {
+          return candidate === value;
+        }
+        const tolerance = Math.max(Number.MIN_VALUE, Math.abs(expected) * 1e-5);
+        return Math.abs(actual - expected) <= tolerance;
+      });
+    });
+    expect(
+      missing,
+      `${label}: restored stats lost p-value facts; before=${JSON.stringify(before.pValues)} after=${JSON.stringify(after.pValues)}`
+    ).toEqual([]);
   }
 }
 
@@ -218,6 +282,7 @@ for (const c of CASES) {
     await installLocalCdnOverrides(page);
 
     await buildAndCompute(page, c);
+    const pValueFormatBefore = await enableScientificPValueFormat(page, c.containers);
     const before = await page.evaluate(statsRichnessInPage, c.containers);
     const rocBefore = c.key === 'roc' ? await captureRocStatsPersistenceState(page) : null;
     const archivePath = await captureArchive(page, `contract-${c.key}-reopen`);
@@ -232,6 +297,10 @@ for (const c of CASES) {
 
     const after = await page.evaluate(statsRichnessInPage, c.containers);
     expectNoStatsLoss(before, after, `${c.key} reopen`);
+    if (pValueFormatBefore.available) {
+      await expect.poll(() => page.evaluate(pValueFormatStateInPage, c.containers), { timeout: 25_000 })
+        .toMatchObject({ available: true, buttonText: 'Decimal', reporting: true, payload: true });
+    }
     if (c.key === 'roc') {
       expect(await captureRocStatsPersistenceState(page)).toStrictEqual(rocBefore);
     }

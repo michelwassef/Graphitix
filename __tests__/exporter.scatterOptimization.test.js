@@ -181,15 +181,68 @@ describe('Scatter SVG export optimization', () => {
     });
   });
 
-  test('preserves layer attributes after optimization', () => {
+  test('preserves the original layer and its attributes after optimization', () => {
     const svg = createScatterSvg(exporter.SCATTER_OPTIMIZATION_THRESHOLD + 50);
+    const originalLayer = svg.querySelector('[data-export-layer="scatter-points"]');
+    originalLayer.setAttribute('clip-path', 'url(#plot-clip)');
     
     exporter.optimizeScatterPoints(svg);
     
     const layer = svg.querySelector('[data-export-layer="scatter-points"]');
-    expect(layer).not.toBeNull();
+    expect(layer).toBe(originalLayer);
     expect(layer.getAttribute('data-layer')).toBe('points');
+    expect(layer.getAttribute('clip-path')).toBe('url(#plot-clip)');
     expect(layer.getAttribute('data-optimized')).toBe('true');
+  });
+
+  test('does not collapse transformed 3D markers to their untransformed coordinates', () => {
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('width', '800');
+    svg.setAttribute('height', '600');
+    svg.setAttribute('viewBox', '0 0 800 600');
+    const layer = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    layer.setAttribute('data-export-layer', 'scatter-points');
+    layer.setAttribute('data-render-mode', 'markers-3d');
+
+    for (let i = 0; i < exporter.SCATTER_OPTIMIZATION_THRESHOLD + 50; i++) {
+      const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      circle.setAttribute('cx', '0');
+      circle.setAttribute('cy', '0');
+      circle.setAttribute('r', '3');
+      circle.setAttribute('fill', '#0000ff');
+      circle.setAttribute('transform', `translate(${100 + (i % 25) * 12} ${120 + Math.floor(i / 25) * 8})`);
+      layer.appendChild(circle);
+    }
+    svg.appendChild(layer);
+
+    const stats = exporter.optimizeScatterPoints(svg);
+
+    expect(stats.optimized).toBe(false);
+    expect(stats.skippedReason).toBe('transformed markers');
+    expect(layer.querySelectorAll('circle')).toHaveLength(exporter.SCATTER_OPTIMIZATION_THRESHOLD + 50);
+    expect(layer.querySelector('circle')?.getAttribute('transform')).toBe('translate(100 120)');
+
+    const xml = exporter.svgElementToXml(svg, 'scatter-3d-preview-regression');
+    expect(xml).toContain('transform="translate(100 120)"');
+    expect(xml.match(/transform="translate\(/g)).toHaveLength(
+      exporter.SCATTER_OPTIMIZATION_THRESHOLD + 50
+    );
+  });
+
+  test('leaves mixed marker geometry intact instead of deleting non-circle points', () => {
+    const svg = createScatterSvg(exporter.SCATTER_OPTIMIZATION_THRESHOLD + 10);
+    const layer = svg.querySelector('[data-export-layer="scatter-points"]');
+    const diamond = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    diamond.setAttribute('d', 'M400 290L410 300L400 310L390 300Z');
+    diamond.setAttribute('fill', '#ff0000');
+    layer.appendChild(diamond);
+
+    const stats = exporter.optimizeScatterPoints(svg);
+
+    expect(stats.optimized).toBe(false);
+    expect(stats.skippedReason).toBe('mixed or nested marker geometry');
+    expect(layer.querySelectorAll('circle')).toHaveLength(exporter.SCATTER_OPTIMIZATION_THRESHOLD + 10);
+    expect(layer.querySelector('path')).toBe(diamond);
   });
 
   test('serializes canvas-backed scatter layers with bitmap data instead of blank canvas nodes', () => {

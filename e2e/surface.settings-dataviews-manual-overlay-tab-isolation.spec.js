@@ -65,6 +65,34 @@ function buildLargeSurfaceData(count) {
   return rows;
 }
 
+async function persistConfiguredSurfaceOwner(page, reason, expectedTitle) {
+  await page.evaluate(async ({ persistReason, expectedTitle: expected }) => {
+    const state = window.Main?.session?.workspaceState || {};
+    const tab = (state.tabs || []).find(item => item && item.id === state.activeTabId) || null;
+    if (!tab || tab.type !== 'surface') {
+      throw new Error('active tab is not surface');
+    }
+    const result = window.Main?.session?.persistActiveTabState?.(tab, {
+      reason: persistReason,
+      origin: 'user',
+      forcePreviewCapture: false,
+      snapshotIntent: {
+        lifecycleSnapshot: true,
+        captureLivePayload: true,
+        allowSkipLivePayloadCapture: false,
+        reasonSkippable: false,
+        snapshotCapture: true
+      }
+    });
+    if (result && typeof result.then === 'function') {
+      await result;
+    }
+    if (tab.payload?.config?.labels?.title !== expected) {
+      throw new Error(`surface synthetic setup was not committed to canonical owner ${tab.id}`);
+    }
+  }, { persistReason: reason, expectedTitle });
+}
+
 async function waitForSurfaceRender(page, pattern = /Surface Plot|Vertices|Faces|Points|Grid/i) {
   await page.waitForFunction(source => {
     const root = document.querySelector('#surfacePage:not([hidden])');
@@ -319,6 +347,7 @@ test('Surface settings, DataViews, manual-render, overlay, and scheduled work st
   const derivedId = await openSurfaceTab(page, { first: true });
   await configureDerivedSettingsTab(page);
   expectDerivedSnapshot(await snapshotSurface(page));
+  await persistConfiguredSurfaceOwner(page, 'e2e-surface-derived-settings-seed', 'Surface A');
 
   const manualId = await openSurfaceTab(page);
   expect(manualId).not.toBe(derivedId);
@@ -326,6 +355,7 @@ test('Surface settings, DataViews, manual-render, overlay, and scheduled work st
   expectManualThresholdSnapshot(await snapshotSurface(page));
   await renderManualSurface(page);
   expectManualSnapshot(await snapshotSurface(page));
+  await persistConfiguredSurfaceOwner(page, 'e2e-surface-manual-render-seed', 'Surface B Large');
 
   await page.evaluate(() => {
     const state = window.Components.surface.__getState?.();

@@ -127,4 +127,57 @@ describe('ROC statistical standardization', () => {
     expect(decimal.resultsModel.pValueScientific).toBe(false);
   });
 
+
+  test('legend metric labels use compact two-decimal ROC AUC while preserving PR formatting', () => {
+    const hooks = window.Components.roc.__testHooks;
+    const pairs = referencePairs();
+    const rocLabel = hooks.buildLegendMetricLabel({ name: 'Assay A', pairs }, 'roc', 'auto');
+    expect(rocLabel).toMatch(/^Assay A \(AUC=[0-9]+\.[0-9]{2}\)$/);
+    expect(rocLabel).not.toMatch(/CI|\[|\]/);
+    const prLabel = hooks.buildLegendMetricLabel({ name: 'Assay A', pairs }, 'pr', 'auto');
+    expect(prLabel).toMatch(/^Assay A — AP [0-9.]+$/);
+  });
+
+  test('default ROC axes stay equal and horizontal resize remains continuous from that baseline', () => {
+    const hooks = window.Components.roc.__testHooks;
+    const svgBox = document.createElement('div');
+    svgBox.dataset.resizerDefaultWidth = '427';
+    svgBox.dataset.resizerDefaultHeight = '427';
+    svgBox.dataset.resizerBaseWidth = '427';
+    svgBox.dataset.resizerBaseHeight = '427';
+    const baseMargin = { top: 38, right: 100, bottom: 66, left: 70 };
+
+    const effectivePlotWidth = (naturalWidth, adjustedMargin) => (
+      naturalWidth - (adjustedMargin.right - baseMargin.right)
+    );
+
+    // At canonical size the natural 313 px X span receives a fixed 79 px
+    // right-side gutter, making it equal to the 234 px Y span.
+    let adjusted = hooks.applyDefaultXAxisGutter(baseMargin, 313, 234, svgBox);
+    expect(adjusted.right).toBe(179);
+    expect(effectivePlotWidth(313, adjusted)).toBe(234);
+
+    // Horizontal drag keeps that same gutter. A 1 px / 32 px box shrink must
+    // therefore produce the same 1 px / 32 px X-axis shrink with no mode jump.
+    svgBox.dataset.resizerBaseWidth = '426';
+    adjusted = hooks.applyDefaultXAxisGutter(baseMargin, 312, 234, svgBox);
+    expect(adjusted.right).toBe(179);
+    expect(effectivePlotWidth(312, adjusted)).toBe(233);
+
+    svgBox.dataset.resizerBaseWidth = '395';
+    adjusted = hooks.applyDefaultXAxisGutter(baseMargin, 281, 234, svgBox);
+    expect(adjusted.right).toBe(179);
+    expect(effectivePlotWidth(281, adjusted)).toBe(202);
+
+    // Vertical resizing is independent: compensate the current height delta
+    // when deriving the canonical gutter, leaving the X geometry untouched.
+    svgBox.dataset.resizerBaseHeight = '400';
+    adjusted = hooks.applyDefaultXAxisGutter(baseMargin, 281, 207, svgBox);
+    expect(adjusted.right).toBe(179);
+    expect(effectivePlotWidth(281, adjusted)).toBe(202);
+
+    // Legacy/unbound DOM keeps the ordinary margin contract.
+    expect(hooks.applyDefaultXAxisGutter(baseMargin, 313, 234, null)).toEqual(baseMargin);
+  });
+
 });

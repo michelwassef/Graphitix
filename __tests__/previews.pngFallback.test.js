@@ -59,6 +59,31 @@ describe('tab preview PNG fallback', () => {
     await window.Main.previews.awaitPendingCaptures([tab.id]);
   });
 
+  test('scales non-scaling strokes as part of the thumbnail', () => {
+    const tab = {
+      id: 'heatmap-stroke-tab',
+      type: 'heatmap',
+      payloadSignature: 'payload-stroke',
+      layoutSignature: 'layout-stroke'
+    };
+    const { config } = mountSvg(
+      tab,
+      '<g class="heatmap-dendrogram" stroke-width="4" vector-effect="non-scaling-stroke"><path d="M 0 0 H 100" vector-effect="non-scaling-stroke"></path></g>'
+    );
+
+    window.Main.previews.updateTabPreviewFromWorkspace(tab, config, {
+      forceCapture: true,
+      reason: 'stroke-scale'
+    });
+
+    const template = document.createElement('template');
+    template.innerHTML = tab.previewMarkup;
+    const previewSvg = template.content.querySelector('svg');
+    const dendrogram = previewSvg.querySelector('.heatmap-dendrogram');
+    expect(Number(dendrogram.getAttribute('stroke-width'))).toBeCloseTo(1.375, 6);
+    expect(previewSvg.getAttribute('preserveAspectRatio')).toBe('xMidYMid meet');
+  });
+
   test('stores one PNG image when SVG markup exceeds the shared threshold', async () => {
     const tab = {
       id: 'large-line-tab',
@@ -79,23 +104,105 @@ describe('tab preview PNG fallback', () => {
 
     await window.Main.previews.awaitPendingCaptures([tab.id]);
 
-    expect(window.Shared.exporter.svgElementToPngBlob).toHaveBeenCalledWith(svg, expect.objectContaining({
-      pngScale: 1,
+    const rasterSvg = window.Shared.exporter.svgElementToPngBlob.mock.calls[0][0];
+    expect(rasterSvg).not.toBe(svg);
+    expect(rasterSvg.getAttribute('width')).toBe('220');
+    expect(window.Shared.exporter.svgElementToPngBlob).toHaveBeenCalledWith(rasterSvg, expect.objectContaining({
+      pngScale: expect.any(Number),
       width: expect.any(Number),
       height: expect.any(Number)
     }));
-    expect(window.Shared.exporter.svgElementToPngBlob.mock.calls[0][1].width).toBeLessThanOrEqual(320);
-    expect(window.Shared.exporter.svgElementToPngBlob.mock.calls[0][1].height).toBeLessThanOrEqual(220);
+    const pngOptions = window.Shared.exporter.svgElementToPngBlob.mock.calls[0][1];
+    expect(pngOptions.pngScale).toBeGreaterThanOrEqual(2);
+    expect(pngOptions.pngScale).toBeLessThanOrEqual(3);
+    expect(pngOptions.width).toBeLessThanOrEqual(320);
+    expect(pngOptions.height).toBeLessThanOrEqual(220);
     expect(tab.previewMarkup).toContain('<img');
     expect(tab.previewMarkup).toContain('data-tab-preview-format="png"');
     expect(tab.previewMarkup).not.toContain('<svg');
     expect(tab.previewMeta).toEqual(expect.objectContaining({
       format: 'png',
       rasterized: true,
+      rasterScale: pngOptions.pngScale,
+      pixelWidth: Math.round(tab.previewMeta.width * pngOptions.pngScale),
+      pixelHeight: Math.round(tab.previewMeta.height * pngOptions.pngScale),
       layoutSignature: 'layout-large',
       payloadVersion: 3,
       layoutVersion: 2
     }));
+  });
+
+  test('preview capture never advances the graph render-commit checkpoint', async () => {
+    const vectorTab = {
+      id: 'preview-vector-tab',
+      type: 'line',
+      payloadSignature: 'vector-payload',
+      layoutSignature: 'vector-layout'
+    };
+    const vector = mountSvg(vectorTab, '<path d="M 0 0 L 10 10"></path>');
+    window.Main.previews.updateTabPreviewFromWorkspace(vectorTab, vector.config, {
+      forceCapture: true,
+      reason: 'preview-vector-commit-barrier'
+    });
+    await window.Main.previews.awaitPendingCaptures([vectorTab.id]);
+
+    const rasterTab = {
+      id: 'preview-raster-tab',
+      type: 'scatter',
+      payloadSignature: 'raster-payload',
+      layoutSignature: 'raster-layout',
+      payloadVersion: 4,
+      layoutVersion: 3
+    };
+    const raster = mountSvg(
+      rasterTab,
+      '<foreignObject data-point-renderer="canvas"><canvas></canvas></foreignObject>'
+    );
+    window.Main.previews.updateTabPreviewFromWorkspace(rasterTab, raster.config, {
+      forceCapture: true,
+      reason: 'preview-raster-commit-barrier'
+    });
+    await window.Main.previews.awaitPendingCaptures([rasterTab.id]);
+
+    expect(window.Main.session.markTabRenderCommitted).toBeUndefined();
+  });
+
+  test('refreshes a legacy low-resolution PNG when its live owner is available', async () => {
+    const tab = {
+      id: 'legacy-raster-tab',
+      type: 'scatter',
+      payloadSignature: 'legacy-payload',
+      layoutSignature: 'legacy-layout',
+      payloadVersion: 1,
+      layoutVersion: 1,
+      previewSignature: 'legacy-payload',
+      previewMarkup: '<img src="data:image/png;base64,legacy" width="220" height="165" data-tab-preview-format="png">',
+      previewMeta: {
+        format: 'png',
+        rasterized: true,
+        rasterScale: 1,
+        width: 220,
+        height: 165,
+        layoutSignature: 'legacy-layout',
+        payloadVersion: 1,
+        layoutVersion: 1
+      }
+    };
+    const { config } = mountSvg(
+      tab,
+      '<foreignObject data-point-renderer="canvas"><canvas></canvas></foreignObject>'
+    );
+
+    const changed = window.Main.previews.updateTabPreviewFromWorkspace(tab, config, {
+      reason: 'refresh-raster-scale'
+    });
+    expect(changed).toBe(true);
+    await window.Main.previews.awaitPendingCaptures([tab.id]);
+
+    const pngOptions = window.Shared.exporter.svgElementToPngBlob.mock.calls[0][1];
+    expect(pngOptions.pngScale).toBeGreaterThanOrEqual(2);
+    expect(tab.previewMeta.rasterScale).toBe(pngOptions.pngScale);
+    expect(tab.previewMarkup).not.toContain('base64,legacy');
   });
 
   test.each(['box', 'scatter', 'heatmap'])(

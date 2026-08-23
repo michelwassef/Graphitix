@@ -37,6 +37,9 @@ describe('Pie tab host isolation', () => {
     require('../js/shared/dataViews.js');
     require('../js/shared/workspaceTabs.js');
     require('../js/shared/tabContext.js');
+    require('../js/shared/renderCacheSchema.js');
+    require('../js/shared/renderCacheDiagnostics.js');
+    require('../js/shared/componentLifecycle.js');
     require('../js/shared/undo.js');
     require('../js/shared/resizer.js');
     require('../js/shared/dom.js');
@@ -129,6 +132,58 @@ describe('Pie tab host isolation', () => {
     expect(fileClick).toHaveBeenCalledTimes(1);
   });
 
+  test('Pie DataView changes dirty the owning payload without contaminating an active sibling', async () => {
+    const Main = window.Main;
+    await handleGraphSelection(Main, 'pie');
+
+    const loadExample = document.getElementById('pieLoadExample');
+    expect(loadExample).toBeTruthy();
+    loadExample.click();
+    await flush();
+
+    const tabA = Main.session?.getActiveTab?.();
+    const rootA = window.Shared?.workspaceTabs?.getMountedRoot?.(tabA, 'pie')
+      || document.getElementById('piePage');
+    const wrapperA = rootA?.querySelector?.('#pieHotWrapper');
+    const managerA = wrapperA?.__dataViewsOwner || null;
+    expect(tabA?.id).toBeTruthy();
+    expect(managerA).toBeTruthy();
+
+    const rawA = managerA.getView?.('raw');
+    expect(Array.isArray(rawA?.data)).toBe(true);
+    const derivedA = managerA.createDerivedView({
+      title: 'Pie owner persistence derived',
+      data: rawA.data.map(row => Array.isArray(row) ? row.slice() : row),
+      transformSpec: { type: 'pie-owner-persistence-test' },
+      activate: true,
+      reason: 'pie-owner-persistence-test'
+    });
+    expect(derivedA?.id).toBeTruthy();
+
+    Main.tabs.handleAddTabClick();
+    await flush();
+    await handleGraphSelection(Main, 'pie');
+    const tabB = Main.session?.getActiveTab?.();
+    expect(tabB?.id).toBeTruthy();
+    expect(tabB.id).not.toBe(tabA.id);
+
+    tabA.payloadDirty = false;
+    tabA.payloadDirtyReason = '';
+    tabA.userModified = false;
+    tabB.payloadDirty = false;
+    tabB.payloadDirtyReason = '';
+    tabB.userModified = false;
+
+    managerA.activateView('raw', { reason: 'tab-click' });
+    await flush();
+
+    expect(tabA.payloadDirty).toBe(true);
+    expect(tabA.payloadDirtyReason).toBe('pie-data-view-activate');
+    expect(tabA.userModified).toBe(true);
+    expect(tabB.payloadDirty).toBe(false);
+    expect(tabB.userModified).toBe(false);
+  });
+
   test('user style control routes through the view-refresh suppression contract as userInitiated', async () => {
     const Main = window.Main;
     await handleGraphSelection(Main, 'pie');
@@ -169,4 +224,59 @@ describe('Pie tab host isolation', () => {
       window.Shared.componentLifecycle = previousLifecycle;
     }
   });
+
+  test('render-cache capture rollback preserves the live Pie statistics control DOM', async () => {
+    const Main = window.Main;
+    await handleGraphSelection(Main, 'pie');
+
+    const pie = window.Components?.pie;
+    expect(pie).toBeTruthy();
+    expect(window.Shared?.componentLifecycle?.detachCacheableChildren).toEqual(expect.any(Function));
+    const loadExample = document.getElementById('pieLoadExample');
+    expect(loadExample).toBeTruthy();
+    loadExample.click();
+    await flush();
+
+    const activeTab = Main.session?.getActiveTab?.() || null;
+    const plot = document.getElementById('piePlot');
+    expect(plot).toBeTruthy();
+    plot.replaceChildren();
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.id = 'pieSvg';
+    svg.setAttribute('viewBox', '0 0 100 100');
+    const trace = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    trace.setAttribute('data-pie-trace', '1');
+    trace.setAttribute('d', 'M 50 50 L 90 50 A 40 40 0 0 1 50 90 Z');
+    svg.appendChild(trace);
+    plot.appendChild(svg);
+    expect(plot.querySelector('#pieSvg [data-pie-trace="1"]')).toBe(trace);
+
+    const controls = document.getElementById('pieStatsControls');
+    const controlsSentinel = controls?.firstElementChild || null;
+    const focusTarget = controls?.querySelector('input:not([disabled]), select:not([disabled]), button:not([disabled])') || null;
+    expect(controlsSentinel).toBeTruthy();
+    expect(focusTarget).toBeTruthy();
+    focusTarget.focus();
+    expect(document.activeElement).toBe(focusTarget);
+
+    const renderCache = pie.captureRenderCache?.({
+      tab: activeTab,
+      tabId: activeTab?.id || null,
+      payload: activeTab?.payload || null,
+      reason: 'test-pie-capture-rollback'
+    });
+    expect(renderCache).toBeTruthy();
+    expect(pie.restoreRenderCache?.(renderCache, {
+      tab: activeTab,
+      tabId: activeTab?.id || null,
+      payload: activeTab?.payload || null,
+      reason: 'test-pie-capture-rollback',
+      restoreLiveAfterCapture: true,
+      skipStateMutation: true
+    })).toBe(true);
+
+    expect(controls.firstElementChild).toBe(controlsSentinel);
+    expect(document.activeElement).toBe(focusTarget);
+  });
+
 });

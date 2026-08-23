@@ -77,7 +77,7 @@ async function getGraphTabIds(page, type) {
   ).filter(Boolean), type);
 }
 
-async function openGraphTab(page, type, pageId, { first = false, reason = 'e2e-lock-ratio-open' } = {}) {
+async function openGraphTab(page, type, pageId, { first = false, reason = 'e2e-lock-ratio-open', expectLockControl = true } = {}) {
   const before = new Set(await getGraphTabIds(page, type));
   await page.evaluate(async ({ type, first, reason }) => {
     const tabs = window.Main?.tabs;
@@ -106,7 +106,9 @@ async function openGraphTab(page, type, pageId, { first = false, reason = 'e2e-l
     }
   }, { type, first, reason });
   await page.waitForSelector(`#${pageId}:not([hidden])`, { timeout: 30_000 });
-  await waitForLockRatioCheckbox(page, pageId);
+  if (expectLockControl) {
+    await waitForLockRatioCheckbox(page, pageId);
+  }
   const after = await getGraphTabIds(page, type);
   return after.find(id => !before.has(id)) || after[after.length - 1] || null;
 }
@@ -265,29 +267,20 @@ test.describe('Lock ratio subtype enforcement', () => {
     expect(state.disabled).toBe(true);
   });
 
-  test('pca always enforces lock ratio', async ({ page }) => {
+  test('pca hides generic Lock ratio and exposes only the metric-safe equal-axis-length option', async ({ page }) => {
     test.setTimeout(90_000);
     await installLocalCdnOverrides(page);
     await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
-    await openGraphTab(page, 'pca', 'pcaPage', { first: true });
-    await waitForLockRatioCheckbox(page, 'pcaPage');
-    await page.waitForTimeout(300);
-    let state = await getLockRatioState(page, 'pcaPage');
-    expect(state.present).toBe(true);
-    expect(state.checked).toBe(true);
-    expect(state.disabled).toBe(true);
-
-    await page.selectOption('#pcaViewMode', '3d');
-    await page.waitForTimeout(300);
-    state = await getLockRatioState(page, 'pcaPage');
-    expect(state.checked).toBe(true);
-    expect(state.disabled).toBe(true);
-
-    await page.selectOption('#pcaViewMode', '2d');
-    await page.waitForTimeout(300);
-    state = await getLockRatioState(page, 'pcaPage');
-    expect(state.checked).toBe(true);
-    expect(state.disabled).toBe(true);
+    await openGraphTab(page, 'pca', 'pcaPage', { first: true, expectLockControl: false });
+    await page.waitForTimeout(500);
+    await expect(page.locator('#pcaPage:not([hidden]) .resizer-aspect-checkbox')).toHaveCount(0);
+    await expect(page.locator('#pcaPage:not([hidden]) .resizer-axeslength-control')).toHaveCount(1);
+    await expect(page.locator('#pcaPage:not([hidden]) .resizer-axeslength-checkbox--equal-scale')).not.toBeChecked();
+    await expect(page.locator('#pcaPage:not([hidden]) .resizer-axeslength-item--equal-scale'))
+      .toHaveAttribute('title', /square in 2D \(cubic in 3D\).*same physical size.*not rescaled/i);
+    await expect(page.locator('#pcaPage:not([hidden]) .resizer-axeslength-checkbox--equal-length')).toHaveCount(0);
+    await expect(page.locator('#pcaPage:not([hidden]) .resizer-axeslength-checkbox--variance')).toHaveCount(0);
+    await expect(page.locator('#pcaPage:not([hidden]) #pcaVarianceAxisScale')).toHaveCount(0);
   });
 
   test('venn mode enforces lock ratio while upset mode remains user-toggleable', async ({ page }) => {

@@ -59,4 +59,33 @@ describe('Shared.styleUndo', () => {
     expect(Shared.undoManager.redo()).toBe(true);
     expect(state).toEqual({ A: '#ffaa00', B: '#ffaa00' });
   });
+
+  test('restores an atomic aggregate snapshot with one callback', () => {
+    const { Shared } = window;
+    let state = { global: 'square', targets: { A: 'circle', B: 'triangle' } };
+    let applyCount = 0;
+    const context = { scope: 'global', scopeValue: 'global', scopeDataset: null };
+    const capture = () => JSON.parse(JSON.stringify(state));
+    const before = Shared.styleUndo.captureAggregateState({ field: 'shape', context, capture });
+    state = { global: 'diamond', targets: {} };
+    const after = Shared.styleUndo.captureAggregateState({ field: 'shape', context, capture });
+
+    Shared.styleUndo.recordStateChange({
+      label: 'test:atomic-style',
+      context,
+      aggregateFrom: before,
+      aggregateTo: after,
+      applyAggregate(snapshot){
+        applyCount += 1;
+        state = JSON.parse(JSON.stringify(snapshot));
+      }
+    });
+
+    expect(Shared.undoManager.undo()).toBe(true);
+    expect(applyCount).toBe(1);
+    expect(state).toEqual({ global: 'square', targets: { A: 'circle', B: 'triangle' } });
+    expect(Shared.undoManager.redo()).toBe(true);
+    expect(applyCount).toBe(2);
+    expect(state).toEqual({ global: 'diamond', targets: {} });
+  });
 });

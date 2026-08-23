@@ -12,6 +12,10 @@
   const MIN_DEFAULT_SIZE = 320;
   const FALLBACK_VIEWPORT_WIDTH = 960;
   const COLOR_SWATCH_SIZE = 20;
+  // Canonical horizontal whitespace between the SVG viewport edge and the
+  // nearest rendered graph content. Axis-specific reserves are added inward
+  // from this edge so every component can share the same outer gutter.
+  const GRAPH_HORIZONTAL_EDGE_PADDING_PX = 8;
   const LEGEND_LAYOUT_CONSTANTS = Object.freeze({
     gapScale: 0.55,
     minGapPx: 12,
@@ -23,6 +27,11 @@
     minVerticalReservePx: 64
   });
   chartStyle.LEGEND_LAYOUT_CONSTANTS = LEGEND_LAYOUT_CONSTANTS;
+  chartStyle.GRAPH_HORIZONTAL_EDGE_PADDING_PX = GRAPH_HORIZONTAL_EDGE_PADDING_PX;
+  chartStyle.resolveGraphHorizontalEdgePadding = function resolveGraphHorizontalEdgePadding(value){
+    const numeric = Number(value);
+    return Number.isFinite(numeric) && numeric >= 0 ? numeric : GRAPH_HORIZONTAL_EDGE_PADDING_PX;
+  };
 
   function normalizeSwatchSize(candidate){
     const parsed = Number(candidate);
@@ -483,7 +492,6 @@
 
   chartStyle.makeFont = function makeFont(size){
     const font = `${size}px ${FONT_FAMILY}`;
-    console.debug('Debug: chartStyle.makeFont', {size, font}); // Debug: font computation trace
     return font;
   };
 
@@ -619,11 +627,21 @@
   chartStyle.commitFontResizeBaseline = commitFontResizeBaseline;
 
   chartStyle.computeResizeScale = function computeResizeScale(options){
-    const defaultWidth = Number(options?.defaultWidth) || DEFAULT_WIDTH;
-    const defaultHeight = Number(options?.defaultHeight) || DEFAULT_HEIGHT;
+    const svgBox = options?.svgBox || null;
+    const dataset = svgBox?.dataset || null;
+    const resizerState = typeof svgBox?.__sharedResizableBoxApi?.getState === 'function'
+      ? svgBox.__sharedResizableBoxApi.getState()
+      : null;
+    const explicitDefaultWidth = parsePositiveNumber(options?.defaultWidth);
+    const explicitDefaultHeight = parsePositiveNumber(options?.defaultHeight);
+    const apiDefaultWidth = parsePositiveNumber(resizerState?.defaultWidth);
+    const apiDefaultHeight = parsePositiveNumber(resizerState?.defaultHeight);
+    const storedDefaultWidth = parsePositiveNumber(dataset?.resizerDefaultWidth);
+    const storedDefaultHeight = parsePositiveNumber(dataset?.resizerDefaultHeight);
+    const defaultWidth = explicitDefaultWidth || apiDefaultWidth || storedDefaultWidth || DEFAULT_WIDTH;
+    const defaultHeight = explicitDefaultHeight || apiDefaultHeight || storedDefaultHeight || DEFAULT_HEIGHT;
     const rawWidth = Number(options?.width);
     const rawHeight = Number(options?.height);
-    const dataset = options?.svgBox && options.svgBox.dataset ? options.svgBox.dataset : null;
     const safeWidth = Number.isFinite(rawWidth) && rawWidth > 0 ? rawWidth : defaultWidth;
     const safeHeight = Number.isFinite(rawHeight) && rawHeight > 0 ? rawHeight : defaultHeight;
     const scaleX = safeWidth / (defaultWidth || 1);
@@ -1125,7 +1143,6 @@
     const opts = options || {};
     const numeric = Number(base);
     if(!Number.isFinite(numeric)){
-      console.debug('Debug: chartStyle.scaleLength fallback', { base, context: opts.context || 'length' });
       return 0;
     }
     const styleScale = clampScale(resolveStyleScale(scaleInfo));
@@ -1144,16 +1161,6 @@
     const min = Number.isFinite(opts.min) ? opts.min : 0;
     const max = Number.isFinite(opts.max) ? opts.max : Infinity;
     const clamped = Math.min(max, Math.max(min, scaled));
-    console.debug('Debug: chartStyle.scaleLength', {
-      base: numeric,
-      styleScale,
-      resizeOnlyScale,
-      lengthScale,
-      zoomScale,
-      zoomActive,
-      result: clamped,
-      context: opts.context || 'length'
-    }); // Debug: length scaling trace
     return clamped;
   };
 
@@ -1170,23 +1177,9 @@
     if(opts.exact === true){
       const exactValue = Number.isFinite(numeric) ? numeric : 0;
       const clampedExact = Math.min(max, Math.max(min, exactValue));
-      console.debug('Debug: chartStyle.scaleStrokeWidth exact applied', {
-        base,
-        min,
-        max,
-        result: clampedExact,
-        context: opts.context || 'stroke'
-      });
       return clampedExact;
     }
     const result = chartStyle.scaleLength(base, scaleInfo, { ...opts, min, max, context: opts.context || 'stroke' });
-    console.debug('Debug: chartStyle.scaleStrokeWidth applied', {
-      base,
-      min,
-      max,
-      result,
-      context: opts.context || 'stroke'
-    }); // Debug: stroke scaling trace
     return result;
   };
 
@@ -1286,6 +1279,7 @@
     const opts = options || {};
     const styles = opts.styles && typeof opts.styles === 'object' ? opts.styles : null;
     const role = typeof opts.role === 'string' ? opts.role.trim() : '';
+    const collection = typeof opts.collection === 'string' ? opts.collection.trim() : '';
     const fallbackPxRaw = Number(opts.fallbackPx);
     const fallbackPx = Number.isFinite(fallbackPxRaw) && fallbackPxRaw > 0 ? fallbackPxRaw : 12;
     const defaultFamily = typeof chartStyle.FONT_FAMILY === 'string' && chartStyle.FONT_FAMILY.trim()
@@ -1317,6 +1311,9 @@
     };
     if(styles){
       applyStyle(styles.__graph__);
+      if(collection){
+        applyStyle(styles[`__${collection}__`]);
+      }
       if(role){
         applyStyle(styles[role]);
       }
@@ -1360,8 +1357,8 @@
   const MANTISSA_INTEGER_TOLERANCE = 1e-9;
 
   /**
-   * Maximum decimal places for mantissa in scientific notation.
-   * Kept at 2 for readability on chart axes regardless of maxDecimals setting.
+   * Default maximum decimal places for mantissas on compact chart axes.
+   * Reporting contexts may opt into a higher limit without changing axis defaults.
    * @type {number}
    */
   const MANTISSA_MAX_DECIMALS = 2;
@@ -1408,18 +1405,25 @@
    * @param {number} value - The numeric value to format
    * @param {Object} [options] - Formatting options
    * @param {number} [options.maxDecimals=2] - Maximum decimal places for non-scientific notation.
-   *        Note: Mantissa in scientific notation is capped at 2 decimals for readability.
+   * @param {number} [options.mantissaMaxDecimals=2] - Maximum decimal places for the scientific mantissa.
    * @param {number} [options.thresholdHigh=10000] - Threshold above which to use scientific notation
    * @param {number} [options.thresholdLow=0.001] - Threshold at or below which to use scientific notation (for non-zero values)
    * @param {boolean} [options.forceScientific=false] - Always use scientific notation when true
+   * @param {boolean} [options.spaceAroundMultiplication=false] - Render spaces around the multiplication sign.
+   * @param {boolean} [options.omitUnitMantissa=true] - Omit a mantissa of ±1 (compact axis style).
    * @returns {string} - The formatted string representation
    */
   chartStyle.formatScientific = function formatScientific(value, options){
     const opts = options || {};
-    const maxDecimals = Number.isFinite(opts.maxDecimals) ? opts.maxDecimals : 2;
+    const maxDecimals = Number.isFinite(opts.maxDecimals) ? Math.max(0, Math.min(15, opts.maxDecimals)) : 2;
+    const mantissaMaxDecimals = Number.isFinite(opts.mantissaMaxDecimals)
+      ? Math.max(0, Math.min(15, opts.mantissaMaxDecimals))
+      : MANTISSA_MAX_DECIMALS;
     const thresholdHigh = Number.isFinite(opts.thresholdHigh) ? opts.thresholdHigh : SCIENTIFIC_THRESHOLD_HIGH;
     const thresholdLow = Number.isFinite(opts.thresholdLow) ? opts.thresholdLow : SCIENTIFIC_THRESHOLD_LOW;
     const forceScientific = opts.forceScientific === true;
+    const multiplication = opts.spaceAroundMultiplication === true ? ' × ' : '×';
+    const omitUnitMantissa = opts.omitUnitMantissa !== false;
 
     // Handle non-finite values
     if(!Number.isFinite(value)){
@@ -1449,20 +1453,21 @@
         // Integer mantissa
         mantissaStr = String(Math.round(mantissa));
       }else{
-        // Decimal mantissa - use up to MANTISSA_MAX_DECIMALS for readability
-        mantissaStr = mantissa.toFixed(Math.min(MANTISSA_MAX_DECIMALS, maxDecimals));
+        // Decimal mantissa - compact axes keep the default cap; reporting may request more precision.
+        mantissaStr = mantissa.toFixed(Math.min(mantissaMaxDecimals, maxDecimals));
         // Remove trailing zeros after decimal point
         mantissaStr = mantissaStr.replace(/\.?0+$/, '');
       }
 
-      // Format: mantissa×10ⁿ or just 10ⁿ if mantissa is 1
+      // Format: mantissa × 10ⁿ. Compact axes may omit a unit mantissa; reports retain it.
       const superExp = toSuperscript(exponent);
-      if(mantissaStr === '1'){
+      if(omitUnitMantissa && mantissaStr === '1'){
         return `10${superExp}`;
-      }else if(mantissaStr === '-1'){
-        return `-10${superExp}`;
+      }else if(omitUnitMantissa && mantissaStr === '-1'){
+        return `−10${superExp}`;
       }
-      return `${mantissaStr}×10${superExp}`;
+      const normalizedMantissa = mantissaStr.startsWith('-') ? `−${mantissaStr.slice(1)}` : mantissaStr;
+      return `${normalizedMantissa}${multiplication}10${superExp}`;
     }
 
     // Standard formatting for regular numbers
@@ -2314,6 +2319,26 @@
     return { margin, required, applied, info };
   };
 
+  chartStyle.computeXAxisEndpointLabelMargins = function computeXAxisEndpointLabelMargins(options){
+    const labels = Array.isArray(options?.labels) ? options.labels.map(value => String(value ?? '')) : [];
+    const edgePadding = chartStyle.resolveGraphHorizontalEdgePadding(options?.horizontalEdgePadding);
+    if(!labels.length){
+      return { left: edgePadding, right: edgePadding, firstLabelWidth: 0, lastLabelWidth: 0 };
+    }
+    const fallbackSize = Number(options?.fontSize) || 12;
+    const font = options?.labelMeasureFont || chartStyle.makeFont(fallbackSize);
+    const firstLabelWidth = chartStyle.measureText(labels[0], font);
+    const lastLabelWidth = chartStyle.measureText(labels[labels.length - 1], font);
+    const startInset = Math.max(0, Number(options?.startInset) || 0);
+    const endInset = Math.max(0, Number(options?.endInset) || 0);
+    return {
+      left: edgePadding + Math.max(0, firstLabelWidth / 2 - startInset),
+      right: edgePadding + Math.max(0, lastLabelWidth / 2 - endInset),
+      firstLabelWidth,
+      lastLabelWidth
+    };
+  };
+
   chartStyle.computeBaseMargins = function computeBaseMargins(options){
     const fontSize = options?.fontSize || 12;
     const legendWidth = options?.legendWidth || 0;
@@ -2330,17 +2355,28 @@
     const tickLabelGap = axisMetrics.tickLabelGap ?? Math.max(3, Math.round(fontSize * 0.35));
     const axisTitleGap = axisMetrics.axisTitleGap ?? Math.max(4, Math.round(fontSize * 0.75));
     const outerPadding = axisMetrics.outerPadding ?? Math.max(6, Math.round(fontSize * 0.6));
+    const horizontalEdgePadding = chartStyle.resolveGraphHorizontalEdgePadding(
+      options?.horizontalEdgePadding ?? axisMetrics.horizontalEdgePadding
+    );
+    const xEndpointMargins = chartStyle.computeXAxisEndpointLabelMargins({
+      labels: options?.xTickLabels,
+      labelMeasureFont: options?.xTickMeasureFont,
+      fontSize: xTickFontSize,
+      horizontalEdgePadding,
+      startInset: options?.xTickStartInset,
+      endInset: options?.xTickEndInset
+    });
     const yTitleThicknessRaw = Number(options?.yTitleThickness ?? options?.yTitleFontSize);
     const yTitleThickness = Number.isFinite(yTitleThicknessRaw) && yTitleThicknessRaw > 0 ? yTitleThicknessRaw : fontSize;
     const hasYTitle = explicitHasYTitle !== null ? explicitHasYTitle : legacyYTitleWidth > 0;
     const top = Math.max(36, Math.round(fontSize * BASE_BOTTOM_FACTOR));
     const leftTickReserve = maxYLabelWidth + tickLength + tickLabelGap;
-    const leftTickLabelReserve = leftTickReserve + yTickFontSize + outerPadding;
+    const leftTickLabelReserve = leftTickReserve + horizontalEdgePadding;
     const leftTitleReserve = hasYTitle
-      ? leftTickReserve + axisTitleGap + yTitleThickness + outerPadding
+      ? leftTickReserve + axisTitleGap + yTitleThickness + horizontalEdgePadding
       : 0;
-    const left = Math.max(56, Math.round(fontSize * 3.2), leftTickLabelReserve, leftTitleReserve);
-    const right = 24 + legendWidth;
+    const left = Math.max(leftTickLabelReserve, leftTitleReserve, xEndpointMargins.left);
+    const right = xEndpointMargins.right + legendWidth;
     const bottomSpacing = tickLength + tickLabelGap + xTickFontSize + axisTitleGap + fontSize + outerPadding;
     const bottom = Math.max(bottomSpacing, Math.max(36, Math.round(fontSize * BASE_BOTTOM_FACTOR)) + fontSize * 0.5);
     console.debug('Debug: chartStyle.computeBaseMargins', {
@@ -2350,6 +2386,8 @@
       legacyYTitleWidth,
       hasYTitle,
       yTitleThickness,
+      horizontalEdgePadding,
+      xEndpointMargins,
       xTickFontSize,
       yTickFontSize,
       axisMetrics,
@@ -2397,16 +2435,24 @@
       && Number.isFinite(lockUntil)
       && Date.now() <= lockUntil;
     const previous = axisResizeMarginLocks ? axisResizeMarginLocks.get(svgBox) : svgBox.__chartStyleAxisResizeMarginLock;
+    const commitBaseline = options?.commitBaseline !== false;
     if(lockActive && previous){
       locked.top = previous.top;
       locked.right = previous.right;
       locked.bottom = previous.bottom;
       locked.left = previous.left;
     }
-    if(axisResizeMarginLocks){
-      axisResizeMarginLocks.set(svgBox, { ...locked });
-    }else{
-      svgBox.__chartStyleAxisResizeMarginLock = { ...locked };
+    // Multi-pass renderers may need a provisional margin to calculate ticks before
+    // their final measured margin exists. A provisional pass may consume an
+    // existing baseline, but it must not publish a new one: after render-cache
+    // restore the WeakMap is empty, and publishing an estimate there would make
+    // the first one-axis resize freeze the estimate instead of the final margin.
+    if(commitBaseline){
+      if(axisResizeMarginLocks){
+        axisResizeMarginLocks.set(svgBox, { ...locked });
+      }else{
+        svgBox.__chartStyleAxisResizeMarginLock = { ...locked };
+      }
     }
     if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
       console.debug('Debug: chartStyle.stabilizeAxisResizeMargins', {
@@ -2414,6 +2460,7 @@
         axis,
         aspectLocked,
         lockActive,
+        commitBaseline,
         previous: previous || null,
         margin: locked
       });
@@ -2421,25 +2468,68 @@
     return locked;
   };
 
-  chartStyle.ensureSquarePlot = function ensureSquarePlot(totalWidth, totalHeight, margin){
-    const innerW = Math.max(20, totalWidth - margin.left - margin.right);
-    const innerH = Math.max(20, totalHeight - margin.top - margin.bottom);
-    const size = Math.min(innerW, innerH);
-    const adjusted = {top: margin.top, right: margin.right, bottom: margin.bottom, left: margin.left};
-    if(innerW > size){
-      adjusted.right += innerW - size;
+  chartStyle.fitPlotAspectPreservingHeight = function fitPlotAspectPreservingHeight(totalWidth, totalHeight, margin, aspectValue){
+    const baseMargin = {
+      top: Number(margin?.top) || 0,
+      right: Number(margin?.right) || 0,
+      bottom: Number(margin?.bottom) || 0,
+      left: Number(margin?.left) || 0
+    };
+    const width = Number(totalWidth);
+    const height = Number(totalHeight);
+    const innerW = Math.max(20, width - baseMargin.left - baseMargin.right);
+    const innerH = Math.max(20, height - baseMargin.top - baseMargin.bottom);
+    const aspect = Number(aspectValue);
+    if(!Number.isFinite(aspect) || aspect <= 0){
+      return {
+        margin: baseMargin,
+        plotW: innerW,
+        plotH: innerH,
+        rightExtension: 0,
+        renderWidth: width
+      };
     }
-    if(innerH > size){
-      adjusted.bottom += innerH - size;
+
+    // The Y span is the cross-component visual baseline. Aspect constraints vary
+    // the X span and, only when needed, extend the shared envelope to the right.
+    // They must never make the graph taller than its canonical frame.
+    const targetH = innerH;
+    const targetW = targetH * aspect;
+    if(!Number.isFinite(targetW) || targetW <= 0){
+      return {
+        margin: baseMargin,
+        plotW: innerW,
+        plotH: innerH,
+        rightExtension: 0,
+        renderWidth: width
+      };
     }
-    console.debug('Debug: chartStyle.ensureSquarePlot', {
-      totalWidth,
-      totalHeight,
-      originalMargin: margin,
+    const adjusted = { ...baseMargin };
+    let rightExtension = 0;
+    if(targetW < innerW){
+      adjusted.right += innerW - targetW;
+    }else if(targetW > innerW){
+      rightExtension = targetW - innerW;
+    }
+    const renderWidth = Math.max(1, width + rightExtension);
+    console.debug('Debug: chartStyle.fitPlotAspectPreservingHeight', {
+      totalWidth: width,
+      totalHeight: height,
+      aspect,
+      originalMargin: baseMargin,
       adjustedMargin: adjusted,
-      targetSize: size
-    }); // Debug: square enforcement summary
-    return {margin: adjusted, plotW: size, plotH: size};
+      plotW: targetW,
+      plotH: targetH,
+      rightExtension,
+      renderWidth
+    });
+    return {
+      margin: adjusted,
+      plotW: Math.max(20, targetW),
+      plotH: Math.max(20, targetH),
+      rightExtension,
+      renderWidth
+    };
   };
 
   chartStyle.applySvgDefaults = function applySvgDefaults(svg){
@@ -2462,7 +2552,7 @@
     }
     const scopeId = options.scopeId || svg.id || svg.dataset?.fontScope || svg.closest?.('.svgbox')?.id || null;
     try{
-      fontControls.enableForSvg(svg, { scopeId });
+      fontControls.enableForSvg(svg, { scopeId, tabId: options.tabId || null });
       console.debug('Debug: chartStyle.bindSvgInteractions fontControls attached', { scope: scopeId }); // Debug: font panel binding
       return true;
     }catch(err){
@@ -2867,9 +2957,26 @@
         const group = doc.createElementNS(NS, 'g');
         const posX = Number.isFinite(position?.x) ? Number(position.x) : 0;
         const posY = Number.isFinite(position?.y) ? Number(position.y) : 0;
+        const canonicalX = Number.isFinite(position?.canonicalX) ? Number(position.canonicalX) : posX;
+        const canonicalY = Number.isFinite(position?.canonicalY) ? Number(position.canonicalY) : posY;
         group.setAttribute('transform', `translate(${posX},${posY})`);
+        // Preserve the renderer-owned origin separately from the transform. Legend
+        // dragging may later replace the transform, while viewport finalization
+        // still needs a reliable fallback when SVG transform APIs are unavailable.
+        group.dataset.legendOriginX = String(posX);
+        group.dataset.legendOriginY = String(posY);
+        group.dataset.legendCanonicalOriginX = String(canonicalX);
+        group.dataset.legendCanonicalOriginY = String(canonicalY);
         group.dataset.legendColumnCount = String(columnCount);
         group.dataset.legendRowsPerColumn = String(rowsPerColumn);
+        // Persist renderer-owned local bounds so shared legend decoration can be
+        // reconstructed deterministically in DOM environments where getBBox() is
+        // unavailable (tests, cached/reopened SVG before layout is ready).
+        group.dataset.legendContentX = '0';
+        group.dataset.legendContentY = '0';
+        group.dataset.legendContentWidth = String(width);
+        group.dataset.legendContentHeight = String(height);
+        group.dataset.legendContentFontSize = String(fontSize);
         markLegendViewportContent(group);
         normalizedEntries.forEach((entry, idx) => {
           const columnIndex = Math.floor(idx / rowsPerColumn);
@@ -2973,57 +3080,197 @@
     };
   };
 
-  chartStyle.computeLegendViewport = function computeLegendViewport(options){
+  chartStyle.computeGraphContentViewport = function computeGraphContentViewport(options){
     const opts = options || {};
     const rawBaseWidth = Number(opts.baseWidth);
     const rawBaseHeight = Number(opts.baseHeight);
-    const rawLegendWidth = Number(opts.legendWidth);
+    const rawRightWidth = Number(opts.rightWidth ?? opts.legendWidth);
+    const rawBottomHeight = Number(opts.bottomHeight);
     const rawMinimumWidth = Number(opts.minimumWidth);
     const baseWidth = Number.isFinite(rawBaseWidth) && rawBaseWidth > 0 ? rawBaseWidth : 1;
     const baseHeight = Number.isFinite(rawBaseHeight) && rawBaseHeight > 0 ? rawBaseHeight : 1;
-    const legendWidth = Number.isFinite(rawLegendWidth) && rawLegendWidth > 0 ? rawLegendWidth : 0;
+    const rightWidth = Number.isFinite(rawRightWidth) && rawRightWidth > 0 ? rawRightWidth : 0;
+    const bottomHeight = Number.isFinite(rawBottomHeight) && rawBottomHeight > 0 ? rawBottomHeight : 0;
     const minimumWidth = Number.isFinite(rawMinimumWidth) && rawMinimumWidth > 0 ? rawMinimumWidth : 0;
-    const width = Math.max(baseWidth + legendWidth, minimumWidth);
+    const width = Math.max(baseWidth + rightWidth, minimumWidth);
     return {
       baseWidth,
       baseHeight,
-      legendWidth,
+      rightWidth,
+      bottomHeight,
+      legendWidth: rightWidth,
       extensionWidth: Math.max(0, width - baseWidth),
+      extensionHeight: bottomHeight,
       width,
-      height: baseHeight
+      height: baseHeight + bottomHeight
     };
   };
 
-  chartStyle.stageLegendViewport = function stageLegendViewport(options){
+  chartStyle.computeLegendViewport = function computeLegendViewport(options){
+    return chartStyle.computeGraphContentViewport(options);
+  };
+
+  chartStyle.stageGraphContentViewport = function stageGraphContentViewport(options){
     const opts = options || {};
-    const viewport = chartStyle.computeLegendViewport(opts);
+    let viewport = chartStyle.computeGraphContentViewport(opts);
     const svg = opts.svg || null;
     const plot = opts.plot || svg?.parentElement || null;
     const svgBox = opts.svgBox || plot?.closest?.('.svgbox') || svg?.closest?.('.svgbox') || null;
     const format = value => String(Math.round(value * 1000) / 1000);
-    const hasExtension = viewport.extensionWidth > 0;
+    const requestedLegendWidth = Number(opts.legendWidth);
+    const hasExplicitLegendWidth = Object.prototype.hasOwnProperty.call(opts, 'legendWidth');
+    let legendReserveWidth = hasExplicitLegendWidth && Number.isFinite(requestedLegendWidth) && requestedLegendWidth >= 0
+      ? requestedLegendWidth
+      : 0;
+    const resolveRenderedViewportMetrics = () => {
+      const zoomCandidate = Number(svgBox?.dataset?.resizerZoomLevel || svgBox?.dataset?.resizerZoom);
+      const zoomScale = Number.isFinite(zoomCandidate) && zoomCandidate > 0 ? zoomCandidate : 1;
+      const renderedWidth = viewport.width * zoomScale;
+      const renderedHeight = viewport.height * zoomScale;
+      return {
+        renderedWidth,
+        renderedHeight,
+        extensionWidth: viewport.extensionWidth * zoomScale,
+        extensionHeight: viewport.extensionHeight * zoomScale
+      };
+    };
     const applyViewportSlot = target => {
       if(!target?.dataset || !target?.style) return;
+      const hasRightExtension = viewport.extensionWidth > 0;
+      const hasBottomExtension = viewport.extensionHeight > 0;
+      const hasExtension = hasRightExtension || hasBottomExtension;
       if(hasExtension){
         target.dataset.graphContentViewport = 'true';
-        target.style.setProperty('--graph-content-viewport-width', `${format(viewport.width)}px`);
+        const rendered = resolveRenderedViewportMetrics();
+        if(hasRightExtension){
+          target.style.setProperty('--graph-content-viewport-width', `${format(viewport.width)}px`);
+          target.style.setProperty('--graph-content-rendered-width', `${format(rendered.renderedWidth)}px`);
+        }else{
+          target.style.removeProperty('--graph-content-viewport-width');
+          target.style.removeProperty('--graph-content-rendered-width');
+        }
+        if(hasBottomExtension){
+          target.style.setProperty('--graph-content-viewport-height', `${format(viewport.height)}px`);
+          target.style.setProperty('--graph-content-rendered-height', `${format(rendered.renderedHeight)}px`);
+        }else{
+          target.style.removeProperty('--graph-content-viewport-height');
+          target.style.removeProperty('--graph-content-rendered-height');
+        }
       }else{
         delete target.dataset.graphContentViewport;
         target.style.removeProperty('--graph-content-viewport-width');
+        target.style.removeProperty('--graph-content-rendered-width');
+        target.style.removeProperty('--graph-content-viewport-height');
+        target.style.removeProperty('--graph-content-rendered-height');
       }
+    };
+    const syncSvgViewportDatasets = () => {
+      if(!svg?.dataset) return;
+      svg.dataset.legendBaseWidth = format(viewport.baseWidth);
+      svg.dataset.legendBaseHeight = format(viewport.baseHeight);
+      svg.dataset.legendReserveWidth = format(legendReserveWidth);
+      svg.dataset.graphContentReserveRight = format(viewport.extensionWidth);
+      svg.dataset.graphContentReserveBottom = format(viewport.extensionHeight);
+    };
+    const readLegendTranslateX = legendNode => {
+      try{
+        const consolidated = legendNode?.transform?.baseVal?.consolidate?.();
+        const matrixX = Number(consolidated?.matrix?.e);
+        if(Number.isFinite(matrixX)) return matrixX;
+      }catch(err){}
+      const transform = String(legendNode?.getAttribute?.('transform') || '');
+      const match = transform.match(/translate\(\s*([-+]?\d*\.?\d+(?:e[-+]?\d+)?)/i);
+      if(match){
+        const parsed = Number(match[1]);
+        if(Number.isFinite(parsed)) return parsed;
+      }
+      const fallback = Number(legendNode?.dataset?.legendOriginX);
+      return Number.isFinite(fallback) ? fallback : 0;
+    };
+    const refineLegendReserveFromRenderedContent = () => {
+      if(opts.refineLegendReserve === false || !svg || legendReserveWidth <= 0){
+        return false;
+      }
+      const legendNode = svg.querySelector?.('[data-legend-viewport-content="true"]') || null;
+      if(!legendNode || typeof legendNode.getBBox !== 'function'){
+        return false;
+      }
+      let bbox = null;
+      try{
+        bbox = legendNode.getBBox();
+      }catch(err){
+        return false;
+      }
+      if(!bbox || !Number.isFinite(Number(bbox.x)) || !Number.isFinite(Number(bbox.width))){
+        return false;
+      }
+      const canonicalOriginX = Number(legendNode.dataset?.legendCanonicalOriginX);
+      const rightEdge = (Number.isFinite(canonicalOriginX) ? canonicalOriginX : readLegendTranslateX(legendNode))
+        + Number(bbox.x) + Number(bbox.width);
+      if(!Number.isFinite(rightEdge)){
+        return false;
+      }
+      const nonLegendRightReserve = Math.max(0, viewport.extensionWidth - legendReserveWidth);
+      const horizontalEdgePadding = chartStyle.resolveGraphHorizontalEdgePadding(opts.horizontalEdgePadding);
+      const desiredTotalExtension = Math.max(
+        nonLegendRightReserve,
+        rightEdge + horizontalEdgePadding - viewport.baseWidth
+      );
+      let desiredLegendReserve = Math.max(0, desiredTotalExtension - nonLegendRightReserve);
+      if(opts.allowLegendReserveShrink === false){
+        desiredLegendReserve = Math.max(legendReserveWidth, desiredLegendReserve);
+      }
+      const deltaLegendReserve = desiredLegendReserve - legendReserveWidth;
+      if(Math.abs(deltaLegendReserve) <= 0.25){
+        return false;
+      }
+
+      const viewBox = String(svg.getAttribute?.('viewBox') || '').trim().split(/[\s,]+/).map(Number);
+      const canAdjustViewBox = viewBox.length === 4 && viewBox.every(Number.isFinite) && viewBox[2] > 0 && viewBox[3] > 0;
+      if(canAdjustViewBox){
+        // autoResizeSvg appends legend width after fitting the non-legend viewport.
+        // Apply the same scale when replacing the pre-draw estimate with the
+        // measured legend width so the base plot keeps exactly the same scale.
+        const contentHeight = Math.max(1, viewport.baseHeight + viewport.extensionHeight);
+        const legendScale = viewBox[3] / contentHeight;
+        const nextViewWidth = Math.max(1, viewBox[2] + deltaLegendReserve * legendScale);
+        svg.setAttribute('viewBox', `${format(viewBox[0])} ${format(viewBox[1])} ${format(nextViewWidth)} ${format(viewBox[3])}`);
+      }
+
+      const previousViewportWidth = viewport.width;
+      legendReserveWidth = desiredLegendReserve;
+      viewport = chartStyle.computeGraphContentViewport({
+        baseWidth: viewport.baseWidth,
+        baseHeight: viewport.baseHeight,
+        rightWidth: desiredTotalExtension,
+        bottomHeight: viewport.extensionHeight
+      });
+      const numericSvgWidth = Number(svg.getAttribute?.('width'));
+      if(Number.isFinite(numericSvgWidth) && Math.abs(numericSvgWidth - previousViewportWidth) <= 0.5){
+        svg.setAttribute('width', format(viewport.width));
+      }
+      syncSvgViewportDatasets();
+      if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+        console.debug('Debug: chartStyle legend viewport refined from rendered content', {
+          baseWidth: viewport.baseWidth,
+          rightEdge,
+          horizontalEdgePadding,
+          nonLegendRightReserve,
+          desiredLegendReserve,
+          desiredTotalExtension,
+          viewportWidth: viewport.width
+        });
+      }
+      return true;
     };
     if(svg){
       if(opts.applySvgViewport !== false){
         svg.setAttribute('width', format(viewport.width));
         svg.setAttribute('height', format(viewport.height));
         svg.setAttribute('viewBox', `0 0 ${format(viewport.width)} ${format(viewport.height)}`);
-        if(svg.dataset){
-          svg.dataset.legendBaseWidth = format(viewport.baseWidth);
-          svg.dataset.legendBaseHeight = format(viewport.baseHeight);
-          svg.dataset.legendReserveWidth = format(viewport.extensionWidth);
-        }
+        syncSvgViewportDatasets();
       }
-      if(svg.style && hasExtension){
+      if(svg.style && (viewport.extensionWidth > 0 || viewport.extensionHeight > 0)){
         svg.style.overflow = 'visible';
       }else if(svg.style){
         svg.style.removeProperty('overflow');
@@ -3035,19 +3282,29 @@
       commit(){
         if(committed) return true;
         committed = true;
+        refineLegendReserveFromRenderedContent();
+        applyViewportSlot(svg);
         applyViewportSlot(plot);
         if(svgBox?.dataset && svgBox?.style){
+          const hasExtension = viewport.extensionWidth > 0 || viewport.extensionHeight > 0;
           if(hasExtension){
-            svgBox.style.setProperty('--graph-content-extra-right', `${format(viewport.extensionWidth)}px`);
+            const rendered = resolveRenderedViewportMetrics();
+            svgBox.style.setProperty('--graph-content-extra-right', `${format(rendered.extensionWidth)}px`);
+            svgBox.style.setProperty('--graph-content-extra-bottom', `${format(rendered.extensionHeight)}px`);
             svgBox.dataset.graphContentEnvelope = 'true';
           }else{
             delete svgBox.dataset.graphContentEnvelope;
             svgBox.style.removeProperty('--graph-content-extra-right');
+            svgBox.style.removeProperty('--graph-content-extra-bottom');
           }
         }
         return true;
       }
     });
+  };
+
+  chartStyle.stageLegendViewport = function stageLegendViewport(options){
+    return chartStyle.stageGraphContentViewport(options);
   };
 
   chartStyle.rehydrateLegendViewports = function rehydrateLegendViewports(root){
@@ -3063,24 +3320,44 @@
     svgs.forEach(svg => {
       const baseWidth = Number(svg.dataset?.legendBaseWidth);
       const reserveWidth = Number(svg.dataset?.legendReserveWidth);
+      const contentReserveWidth = Number(svg.dataset?.graphContentReserveRight);
       if(!Number.isFinite(baseWidth) || baseWidth <= 0 || !Number.isFinite(reserveWidth) || reserveWidth < 0){
         return;
       }
       const viewBoxValues = String(svg.getAttribute?.('viewBox') || '').trim().split(/[\s,]+/).map(Number);
       const fallbackHeight = Number.isFinite(viewBoxValues[3]) && viewBoxValues[3] > 0 ? viewBoxValues[3] : 1;
       const baseHeight = Number(svg.dataset?.legendBaseHeight);
-      chartStyle.stageLegendViewport({
+      const bottomHeight = Number(svg.dataset?.graphContentReserveBottom);
+      const plot = root !== svg && root.contains?.(svg)
+        ? root
+        : (svg.parentElement || null);
+      chartStyle.stageGraphContentViewport({
         svg,
-        plot: svg.parentElement || null,
+        plot,
         svgBox: svg.closest?.('.svgbox') || null,
         baseWidth,
         baseHeight: Number.isFinite(baseHeight) && baseHeight > 0 ? baseHeight : fallbackHeight,
+        rightWidth: Number.isFinite(contentReserveWidth) && contentReserveWidth >= 0 ? contentReserveWidth : reserveWidth,
         legendWidth: reserveWidth,
-        applySvgViewport: false
+        bottomHeight: Number.isFinite(bottomHeight) && bottomHeight > 0 ? bottomHeight : 0,
+        applySvgViewport: false,
+        allowLegendReserveShrink: false
       }).commit();
       restored += 1;
     });
     return restored;
+  };
+
+  chartStyle.hasCurrentLegendViewportContract = function hasCurrentLegendViewportContract(root){
+    if(!root){
+      return true;
+    }
+    const legends = [];
+    if(root.matches?.('[data-legend-viewport-content="true"]')){
+      legends.push(root);
+    }
+    root.querySelectorAll?.('[data-legend-viewport-content="true"]').forEach(node => legends.push(node));
+    return legends.every(legend => Number.isFinite(Number(legend.dataset?.legendCanonicalOriginX)));
   };
 
   chartStyle.drawPlotFrame = function drawPlotFrame(options){
@@ -3129,6 +3406,272 @@
   };
 
   const labelLayout = Shared.labelLayout = Shared.labelLayout || {};
+  const POINT_LABEL_DEFAULT_FONT_SIZE_PT = 10;
+  const POINT_LABEL_DEFAULT_FONT_SIZE_PX = POINT_LABEL_DEFAULT_FONT_SIZE_PT * PT_TO_PX;
+  const POINT_LABEL_MIN_FONT_SIZE_PT = 7;
+  const POINT_LABEL_MIN_FONT_SIZE_PX = POINT_LABEL_MIN_FONT_SIZE_PT * PT_TO_PX;
+
+  labelLayout.POINT_LABEL_DEFAULT_FONT_SIZE_PT = POINT_LABEL_DEFAULT_FONT_SIZE_PT;
+  labelLayout.POINT_LABEL_DEFAULT_FONT_SIZE_PX = POINT_LABEL_DEFAULT_FONT_SIZE_PX;
+  labelLayout.POINT_LABEL_MIN_FONT_SIZE_PT = POINT_LABEL_MIN_FONT_SIZE_PT;
+  labelLayout.POINT_LABEL_MIN_FONT_SIZE_PX = POINT_LABEL_MIN_FONT_SIZE_PX;
+
+  labelLayout.resolvePointLabelBaseFontSize = function resolvePointLabelBaseFontSize(){
+    return POINT_LABEL_DEFAULT_FONT_SIZE_PX;
+  };
+
+  labelLayout.resolvePointLabelLeaderGeometry = function resolvePointLabelLeaderGeometry(bbox, point, options){
+    const minX = Number(bbox?.minX) || 0;
+    const maxX = Number(bbox?.maxX) || 0;
+    const minY = Number(bbox?.minY) || 0;
+    const maxY = Number(bbox?.maxY) || 0;
+    const cx = Number(point?.cx) || 0;
+    const cy = Number(point?.cy) || 0;
+    const textY = Number(options?.textY) || 0;
+    const leaderGap = Math.max(2, Number(options?.leaderGap) || 2);
+    const sourceRadius = Math.max(0, Number(options?.sourceRadius) || 0);
+    const startX = minX - leaderGap;
+    const endX = maxX + leaderGap;
+    const topY = minY - leaderGap;
+    const bottomY = maxY + leaderGap;
+    const trimSource = points => {
+      if(sourceRadius <= 0 || points.length < 2){
+        return points;
+      }
+      const dx = points[1].x - cx;
+      const dy = points[1].y - cy;
+      const length = Math.hypot(dx, dy);
+      if(length <= sourceRadius + 0.5){
+        return points;
+      }
+      const inset = Math.min(length * 0.45, sourceRadius);
+      return [
+        { x: cx + dx * inset / length, y: cy + dy * inset / length },
+        ...points.slice(1)
+      ];
+    };
+    if(cx <= startX + 1e-6){
+      return {
+        style: 'straight',
+        side: 'start',
+        points: trimSource([{ x: cx, y: cy }, { x: minX, y: textY }]),
+        outsidePenalty: 0
+      };
+    }
+    if(cx >= endX - 1e-6){
+      return {
+        style: 'straight',
+        side: 'end',
+        points: trimSource([{ x: cx, y: cy }, { x: maxX, y: textY }]),
+        outsidePenalty: 0
+      };
+    }
+    if(cy <= topY + 1e-6 && cx >= minX && cx <= maxX){
+      return {
+        style: 'straight',
+        side: 'top',
+        points: trimSource([{ x: cx, y: cy }, { x: cx, y: minY }]),
+        outsidePenalty: 0
+      };
+    }
+    if(cy >= bottomY - 1e-6 && cx >= minX && cx <= maxX){
+      return {
+        style: 'straight',
+        side: 'bottom',
+        points: trimSource([{ x: cx, y: cy }, { x: cx, y: maxY }]),
+        outsidePenalty: 0
+      };
+    }
+    return null;
+  };
+
+  labelLayout.resolvePinnedPointLabelPlacement = function resolvePinnedPointLabelPlacement(entry, position, options){
+    const cx = Number(entry?.cx) || 0;
+    const cy = Number(entry?.cy) || 0;
+    const textWidth = Math.max(1, Number(options?.textWidth) || 1);
+    const labelHeight = Math.max(1, Number(options?.labelHeight) || 1);
+    const leaderGap = Math.max(2, Number(options?.leaderGap) || 2);
+    const containerLeft = Number.isFinite(Number(options?.containerLeft)) ? Number(options.containerLeft) : 0;
+    const containerRight = Number.isFinite(Number(options?.containerRight)) ? Number(options.containerRight) : containerLeft + textWidth + 4;
+    const containerTop = Number.isFinite(Number(options?.containerTop)) ? Number(options.containerTop) : 0;
+    const containerBottom = Number.isFinite(Number(options?.containerBottom)) ? Number(options.containerBottom) : containerTop + labelHeight + 4;
+    const padding = Math.max(0, Number(options?.containerPadding) || 2);
+    const anchor = position?.anchor === 'end' || position?.anchor === 'middle' ? position.anchor : 'start';
+    const proposedX = Number(position?.x);
+    const proposedY = Number(position?.y);
+    if(!Number.isFinite(proposedX) || !Number.isFinite(proposedY)){
+      return null;
+    }
+    const boxFromText = (textX, textY) => ({
+      minX: anchor === 'start' ? textX : (anchor === 'end' ? textX - textWidth : textX - textWidth * 0.5),
+      maxX: anchor === 'start' ? textX + textWidth : (anchor === 'end' ? textX : textX + textWidth * 0.5),
+      minY: textY - labelHeight * 0.5,
+      maxY: textY + labelHeight * 0.5
+    });
+    const textFromBox = box => ({
+      x: anchor === 'start' ? box.minX : (anchor === 'end' ? box.maxX : (box.minX + box.maxX) * 0.5),
+      y: (box.minY + box.maxY) * 0.5
+    });
+    const clampBox = source => {
+      const box = { ...source };
+      let shiftX = 0;
+      let shiftY = 0;
+      if(box.minX < containerLeft + padding){ shiftX = containerLeft + padding - box.minX; }
+      else if(box.maxX > containerRight - padding){ shiftX = containerRight - padding - box.maxX; }
+      if(box.minY < containerTop + padding){ shiftY = containerTop + padding - box.minY; }
+      else if(box.maxY > containerBottom - padding){ shiftY = containerBottom - padding - box.maxY; }
+      box.minX += shiftX;
+      box.maxX += shiftX;
+      box.minY += shiftY;
+      box.maxY += shiftY;
+      return box;
+    };
+    const fitsContainer = box => box.minX >= containerLeft + padding - 1e-6
+      && box.maxX <= containerRight - padding + 1e-6
+      && box.minY >= containerTop + padding - 1e-6
+      && box.maxY <= containerBottom - padding + 1e-6;
+    const makePlacement = box => {
+      const clamped = clampBox(box);
+      if(!fitsContainer(clamped)){ return null; }
+      const text = textFromBox(clamped);
+      const geometry = labelLayout.resolvePointLabelLeaderGeometry(clamped, { cx, cy }, {
+        textY: text.y,
+        leaderGap,
+        sourceRadius: Math.max(0, Number(entry?.radius) || 0)
+      });
+      if(!geometry){ return null; }
+      const leaderSegments = geometry.points.slice(1).map((point, index) => ({
+        x1: geometry.points[index].x,
+        y1: geometry.points[index].y,
+        x2: point.x,
+        y2: point.y
+      }));
+      return {
+        textX: text.x,
+        textY: text.y,
+        anchor,
+        leaderStyle: geometry.style,
+        leaderSide: geometry.side,
+        leaderPoints: geometry.points,
+        leaderSegments,
+        bbox: clamped,
+        envelope: leaderSegments.reduce((envelope, segment) => ({
+          minX: Math.min(envelope.minX, segment.x1, segment.x2),
+          maxX: Math.max(envelope.maxX, segment.x1, segment.x2),
+          minY: Math.min(envelope.minY, segment.y1, segment.y2),
+          maxY: Math.max(envelope.maxY, segment.y1, segment.y2)
+        }), { ...clamped }),
+        outsidePenalty: 0,
+        aesthetic: 0,
+        pinned: true
+      };
+    };
+    const proposedBox = clampBox(boxFromText(proposedX, proposedY));
+    const direct = makePlacement(proposedBox);
+    if(direct){ return direct; }
+    const width = proposedBox.maxX - proposedBox.minX;
+    const height = proposedBox.maxY - proposedBox.minY;
+    const candidates = [];
+    const addCandidate = box => {
+      const placement = makePlacement(box);
+      if(!placement){ return; }
+      const dx = placement.textX - proposedX;
+      const dy = placement.textY - proposedY;
+      candidates.push({ placement, distance: dx * dx + dy * dy });
+    };
+    addCandidate({ ...proposedBox, minX: cx + leaderGap, maxX: cx + leaderGap + width });
+    addCandidate({ ...proposedBox, minX: cx - leaderGap - width, maxX: cx - leaderGap });
+    const verticalMinX = Math.min(Math.max(cx - width * 0.5, containerLeft + padding), containerRight - padding - width);
+    addCandidate({ minX: verticalMinX, maxX: verticalMinX + width, minY: cy + leaderGap, maxY: cy + leaderGap + height });
+    addCandidate({ minX: verticalMinX, maxX: verticalMinX + width, minY: cy - leaderGap - height, maxY: cy - leaderGap });
+    candidates.sort((a, b) => a.distance - b.distance);
+    return candidates[0]?.placement || null;
+  };
+
+  labelLayout.enablePointLabelDrag = function enablePointLabelDrag(options = {}){
+    const textNode = options.textNode;
+    const leaderNode = options.leaderNode;
+    const svg = options.svg;
+    const entry = options.entry;
+    const initialPlacement = options.placement;
+    if(!textNode || !leaderNode || !svg || !entry || !initialPlacement || typeof Shared.enableLabelDrag !== 'function'){
+      return false;
+    }
+    const containerLeft = Number.isFinite(Number(options.containerLeft)) ? Number(options.containerLeft) : 0;
+    const containerRight = Number(options.containerRight);
+    const containerTop = Number.isFinite(Number(options.containerTop)) ? Number(options.containerTop) : 0;
+    const containerBottom = Number(options.containerBottom);
+    if(!Number.isFinite(containerRight) || !Number.isFinite(containerBottom)){
+      return false;
+    }
+    const textWidth = Math.max(1, initialPlacement.bbox.maxX - initialPlacement.bbox.minX);
+    const labelHeight = Math.max(1, initialPlacement.bbox.maxY - initialPlacement.bbox.minY);
+    const anchor = initialPlacement.anchor || 'start';
+    let currentPlacement = initialPlacement;
+    const applyLeader = placement => {
+      const start = placement?.leaderPoints?.[0];
+      const end = placement?.leaderPoints?.[1];
+      if(!start || !end){ return; }
+      leaderNode.setAttribute('x1', String(start.x));
+      leaderNode.setAttribute('y1', String(start.y));
+      leaderNode.setAttribute('x2', String(end.x));
+      leaderNode.setAttribute('y2', String(end.y));
+    };
+    const resolve = position => {
+      const placement = labelLayout.resolvePinnedPointLabelPlacement(entry, {
+        x: position.x,
+        y: position.y,
+        anchor
+      }, {
+        textWidth,
+        labelHeight,
+        leaderGap: options.leaderGap,
+        containerLeft,
+        containerRight,
+        containerTop,
+        containerBottom
+      });
+      if(placement){ currentPlacement = placement; }
+      return placement || currentPlacement;
+    };
+    textNode.setAttribute('pointer-events', 'all');
+    textNode.setAttribute('data-point-label-key', String(entry.labelKey || ''));
+    if(textNode.dataset){
+      textNode.dataset.pointLabelContainerLeft = String(containerLeft);
+      textNode.dataset.pointLabelContainerRight = String(containerRight);
+      textNode.dataset.pointLabelContainerTop = String(containerTop);
+      textNode.dataset.pointLabelContainerBottom = String(containerBottom);
+    }
+    applyLeader(initialPlacement);
+    Shared.enableLabelDrag(textNode, svg, {
+      normalizeDuringDrag: true,
+      recordUndo: true,
+      normalizePosition(position){
+        const placement = resolve(position);
+        return { x: placement.textX, y: placement.textY };
+      },
+      onDragMove(position){
+        const placement = resolve(position);
+        applyLeader(placement);
+      },
+      onPositionChange(position){
+        const placement = resolve(position);
+        applyLeader(placement);
+        if(typeof options.onPositionChange === 'function'){
+          const width = Math.max(1, containerRight - containerLeft);
+          const height = Math.max(1, containerBottom - containerTop);
+          options.onPositionChange({
+            x: placement.textX,
+            y: placement.textY,
+            relX: (placement.textX - containerLeft) / width,
+            relY: (placement.textY - containerTop) / height,
+            anchor: placement.anchor
+          });
+        }
+      }
+    });
+    return true;
+  };
 
   labelLayout.computeConvexHull2d = function computeConvexHull2d(points){
     if(!Array.isArray(points) || points.length === 0){
@@ -3205,305 +3748,701 @@
     const plotRight = Number(options?.plotRight) || 0;
     const plotTop = Number(options?.plotTop) || 0;
     const plotBottom = Number(options?.plotBottom) || 0;
+    const resolveContainerEdge = (value, fallback) => {
+      const numeric = Number(value);
+      return Number.isFinite(numeric) ? numeric : fallback;
+    };
+    const containerLeft = resolveContainerEdge(options?.containerLeft, plotLeft);
+    const containerRight = resolveContainerEdge(options?.containerRight, plotRight);
+    const containerTop = resolveContainerEdge(options?.containerTop, plotTop);
+    const containerBottom = resolveContainerEdge(options?.containerBottom, plotBottom);
     const labelFontSize = Math.max(6, Number(options?.labelFontSize) || 10);
     const leaderGap = Math.max(2, Number(options?.leaderGap) || 2);
+    const leaderScale = Math.max(0.45, Math.min(1, Number(options?.leaderScale) || 1));
     const angleSteps = Math.max(8, Math.min(36, Number(options?.angleSteps) || 16));
     const maxLeaderScale = Math.max(1, Math.min(5, Number(options?.maxLeaderScale) || 5));
-    const pointBounds = Array.isArray(options?.pointBounds) ? options.pointBounds : [];
+    const labelClearance = Math.max(1.5, labelFontSize * 0.12);
+    const leaderClearance = Math.max(1, labelFontSize * 0.08);
+    const pointClearance = Math.max(1, labelFontSize * 0.1);
     const measureText = typeof options?.measureText === 'function' ? options.measureText : null;
     const font = options?.font || null;
-    const labelHeight = Math.max(6, labelFontSize);
-    const leaderScale = Math.max(0.45, Math.min(1, Number(options?.leaderScale) || 1));
-    const minOffset = Math.max(labelFontSize * 0.85, 8);
-    const plotHull = Array.isArray(options?.plotHull) ? options.plotHull : null;
+    const fontStyles = options?.fontStyles && typeof options.fontStyles === 'object'
+      ? options.fontStyles
+      : null;
     const enforceHull = options?.enforceHull === true;
-    const hullPenalty = Number.isFinite(options?.hullPenalty) ? options.hullPenalty : 12;
-    let normalizedHull = null;
-    if(plotHull && plotHull.length >= 3){
-      normalizedHull = [];
-      for(let i = 0; i < plotHull.length; i += 1){
-        const pt = plotHull[i];
-        const x = Number(pt?.x);
-        const y = Number(pt?.y);
-        if(Number.isFinite(x) && Number.isFinite(y)){
-          normalizedHull.push({ x, y });
-        }
+    const hullPenalty = Math.max(1, Number(options?.hullPenalty) || 14);
+    const pointObstacleMap = new Map();
+    (Array.isArray(options?.pointBounds) ? options.pointBounds : []).forEach((point, index) => {
+      const normalized = {
+        cx: Number(point?.cx) || 0,
+        cy: Number(point?.cy) || 0,
+        r: Math.max(0, Number(point?.r) || 0),
+        pointId: point?.pointId ?? index,
+        count: 1
+      };
+      const key = `${Math.round(normalized.cx * 100)}:${Math.round(normalized.cy * 100)}:${Math.round(normalized.r * 100)}`;
+      const existing = pointObstacleMap.get(key);
+      if(existing){
+        existing.count += 1;
+        existing.pointId = null;
+      }else{
+        pointObstacleMap.set(key, normalized);
       }
-      if(normalizedHull.length < 3){
-        normalizedHull = null;
-      }
+    });
+    const pointBounds = Array.from(pointObstacleMap.values());
+    const obstacleBoxes = Array.isArray(options?.obstacleBoxes) ? options.obstacleBoxes : [];
+    const obstacleSegments = Array.isArray(options?.obstacleSegments) ? options.obstacleSegments : [];
+    const normalizedHull = (Array.isArray(options?.plotHull) ? options.plotHull : [])
+      .map(point => ({ x: Number(point?.x), y: Number(point?.y) }))
+      .filter(point => Number.isFinite(point.x) && Number.isFinite(point.y));
+    if(normalizedHull.length < 3){
+      normalizedHull.length = 0;
     }
-    const angles = [];
-    const tau = Math.PI * 2;
-    for(let i = 0; i < angleSteps; i += 1){
-      angles.push((i / angleSteps) * tau);
-    }
-    const estimateWidth = text => {
-      const value = text ? String(text) : '';
-      if(!value){
-        return labelFontSize * 0.5;
-      }
-      if(measureText && font){
-        const measured = measureText(value, font);
-        if(Number.isFinite(measured)){
-          return measured;
-        }
-      }
-      return Math.max(labelFontSize * 0.6, value.length * labelFontSize * 0.6);
+
+    const makeScore = (collisions = 0, severity = 0, aesthetic = 0) => ({ collisions, severity, aesthetic });
+    const addScore = (target, source) => {
+      target.collisions += source.collisions;
+      target.severity += source.severity;
+      target.aesthetic += source.aesthetic;
+      return target;
     };
-    const overlapArea = (a, b) => {
-      const overlapX = Math.max(0, Math.min(a.maxX, b.maxX) - Math.max(a.minX, b.minX));
-      const overlapY = Math.max(0, Math.min(a.maxY, b.maxY) - Math.max(a.minY, b.minY));
-      return overlapX * overlapY;
+    const compareScores = (a, b) => {
+      if(a.collisions !== b.collisions){ return a.collisions - b.collisions; }
+      if(a.severity !== b.severity){ return a.severity - b.severity; }
+      const aestheticDelta = a.aesthetic - b.aesthetic;
+      return Math.abs(aestheticDelta) > 1e-9 ? aestheticDelta : 0;
     };
     const pointOnSegment = (px, py, ax, ay, bx, by) => {
-      const crossVal = (px - ax) * (by - ay) - (py - ay) * (bx - ax);
-      if(Math.abs(crossVal) > 1e-6){
-        return false;
-      }
+      const cross = (px - ax) * (by - ay) - (py - ay) * (bx - ax);
+      if(Math.abs(cross) > 1e-6){ return false; }
       const dot = (px - ax) * (bx - ax) + (py - ay) * (by - ay);
-      if(dot < -1e-6){
-        return false;
-      }
-      const lenSq = (bx - ax) * (bx - ax) + (by - ay) * (by - ay);
-      if(dot - lenSq > 1e-6){
-        return false;
-      }
-      return true;
+      const lengthSq = (bx - ax) ** 2 + (by - ay) ** 2;
+      return dot >= -1e-6 && dot <= lengthSq + 1e-6;
     };
     const pointInPolygon = (x, y, polygon) => {
-      if(!Array.isArray(polygon) || polygon.length < 3){
-        return true;
-      }
-      for(let i = 0, j = polygon.length - 1; i < polygon.length; j = i++){
-        const xi = polygon[i].x;
-        const yi = polygon[i].y;
-        const xj = polygon[j].x;
-        const yj = polygon[j].y;
-        if(pointOnSegment(x, y, xi, yi, xj, yj)){
-          return true;
-        }
-      }
+      if(polygon.length < 3){ return true; }
       let inside = false;
       for(let i = 0, j = polygon.length - 1; i < polygon.length; j = i++){
-        const xi = polygon[i].x;
-        const yi = polygon[i].y;
-        const xj = polygon[j].x;
-        const yj = polygon[j].y;
-        const intersect = ((yi > y) !== (yj > y))
-          && (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
-        if(intersect){
+        const a = polygon[i];
+        const b = polygon[j];
+        if(pointOnSegment(x, y, a.x, a.y, b.x, b.y)){ return true; }
+        if(((a.y > y) !== (b.y > y)) && (x < (b.x - a.x) * (y - a.y) / (b.y - a.y) + a.x)){
           inside = !inside;
         }
       }
       return inside;
     };
-    const boxInsideHull = (minX, maxX, minY, maxY) => {
-      if(!normalizedHull){
-        return true;
-      }
-      return pointInPolygon(minX, minY, normalizedHull)
-        && pointInPolygon(maxX, minY, normalizedHull)
-        && pointInPolygon(maxX, maxY, normalizedHull)
-        && pointInPolygon(minX, maxY, normalizedHull);
-    };
-    const tryNudgeBoxInsideHull = (box, cx, cy) => {
-      if(!normalizedHull){
+    const boxInsideHull = box => !normalizedHull.length || (
+      pointInPolygon(box.minX, box.minY, normalizedHull)
+      && pointInPolygon(box.maxX, box.minY, normalizedHull)
+      && pointInPolygon(box.maxX, box.maxY, normalizedHull)
+      && pointInPolygon(box.minX, box.maxY, normalizedHull)
+    );
+    const nudgeBoxInsideHull = (box, sourceX, sourceY) => {
+      if(!normalizedHull.length || boxInsideHull(box)){
         return { shiftX: 0, shiftY: 0, inside: true };
       }
-      if(boxInsideHull(box.minX, box.maxX, box.minY, box.maxY)){
-        return { shiftX: 0, shiftY: 0, inside: true };
-      }
-      const centerX = (box.minX + box.maxX) / 2;
-      const centerY = (box.minY + box.maxY) / 2;
-      const targetX = Number.isFinite(cx) ? cx : centerX;
-      const targetY = Number.isFinite(cy) ? cy : centerY;
-      const dx = targetX - centerX;
-      const dy = targetY - centerY;
-      const steps = 8;
-      for(let step = 1; step <= steps; step += 1){
-        const t = step / steps;
-        const shiftX = dx * t;
-        const shiftY = dy * t;
-        const nextMinX = box.minX + shiftX;
-        const nextMaxX = box.maxX + shiftX;
-        const nextMinY = box.minY + shiftY;
-        const nextMaxY = box.maxY + shiftY;
-        if(boxInsideHull(nextMinX, nextMaxX, nextMinY, nextMaxY)){
-          return { shiftX, shiftY, inside: true };
+      const dx = sourceX - (box.minX + box.maxX) / 2;
+      const dy = sourceY - (box.minY + box.maxY) / 2;
+      for(let step = 1; step <= 12; step += 1){
+        const factor = step / 12;
+        const shifted = {
+          minX: box.minX + dx * factor,
+          maxX: box.maxX + dx * factor,
+          minY: box.minY + dy * factor,
+          maxY: box.maxY + dy * factor
+        };
+        if(boxInsideHull(shifted)){
+          return { shiftX: dx * factor, shiftY: dy * factor, inside: true };
         }
       }
       return { shiftX: 0, shiftY: 0, inside: false };
     };
-    const placedBoxes = [];
-    const placedLeaders = [];
-    const placements = [];
-    const distancePointToSegment = (px, py, ax, ay, bx, by) => {
-      const dx = bx - ax;
-      const dy = by - ay;
-      if(dx === 0 && dy === 0){
-        const rx = px - ax;
-        const ry = py - ay;
-        return Math.hypot(rx, ry);
+    const boxesIntersect = (a, b, clearance = 0) => a.minX < b.maxX + clearance
+      && a.maxX > b.minX - clearance
+      && a.minY < b.maxY + clearance
+      && a.maxY > b.minY - clearance;
+    const circleIntersectsBox = (point, box, clearance = 0) => {
+      const nearestX = Math.max(box.minX, Math.min(point.cx, box.maxX));
+      const nearestY = Math.max(box.minY, Math.min(point.cy, box.maxY));
+      return Math.hypot(point.cx - nearestX, point.cy - nearestY) < point.r + clearance;
+    };
+    const distancePointToSegment = (px, py, segment) => {
+      const dx = segment.x2 - segment.x1;
+      const dy = segment.y2 - segment.y1;
+      if(dx === 0 && dy === 0){ return Math.hypot(px - segment.x1, py - segment.y1); }
+      const raw = ((px - segment.x1) * dx + (py - segment.y1) * dy) / (dx * dx + dy * dy);
+      const t = Math.max(0, Math.min(1, raw));
+      return Math.hypot(px - (segment.x1 + t * dx), py - (segment.y1 + t * dy));
+    };
+    const segmentsIntersect = (a, b) => {
+      const orient = (p, q, r) => (q.y - p.y) * (r.x - q.x) - (q.x - p.x) * (r.y - q.y);
+      const p1 = { x: a.x1, y: a.y1 };
+      const q1 = { x: a.x2, y: a.y2 };
+      const p2 = { x: b.x1, y: b.y1 };
+      const q2 = { x: b.x2, y: b.y2 };
+      const o1 = orient(p1, q1, p2);
+      const o2 = orient(p1, q1, q2);
+      const o3 = orient(p2, q2, p1);
+      const o4 = orient(p2, q2, q1);
+      if(Math.abs(o1) < 1e-6 && pointOnSegment(p2.x, p2.y, p1.x, p1.y, q1.x, q1.y)){ return true; }
+      if(Math.abs(o2) < 1e-6 && pointOnSegment(q2.x, q2.y, p1.x, p1.y, q1.x, q1.y)){ return true; }
+      if(Math.abs(o3) < 1e-6 && pointOnSegment(p1.x, p1.y, p2.x, p2.y, q2.x, q2.y)){ return true; }
+      if(Math.abs(o4) < 1e-6 && pointOnSegment(q1.x, q1.y, p2.x, p2.y, q2.x, q2.y)){ return true; }
+      return (o1 > 0) !== (o2 > 0) && (o3 > 0) !== (o4 > 0);
+    };
+    const segmentDistance = (a, b) => {
+      if(segmentsIntersect(a, b)){ return 0; }
+      return Math.min(
+        distancePointToSegment(a.x1, a.y1, b),
+        distancePointToSegment(a.x2, a.y2, b),
+        distancePointToSegment(b.x1, b.y1, a),
+        distancePointToSegment(b.x2, b.y2, a)
+      );
+    };
+    const segmentIntersectsBox = (segment, box, clearance = 0) => {
+      const expanded = {
+        minX: box.minX - clearance,
+        maxX: box.maxX + clearance,
+        minY: box.minY - clearance,
+        maxY: box.maxY + clearance
+      };
+      const inside = (x, y) => x >= expanded.minX && x <= expanded.maxX && y >= expanded.minY && y <= expanded.maxY;
+      if(inside(segment.x1, segment.y1) || inside(segment.x2, segment.y2)){ return true; }
+      const edges = [
+        { x1: expanded.minX, y1: expanded.minY, x2: expanded.maxX, y2: expanded.minY },
+        { x1: expanded.maxX, y1: expanded.minY, x2: expanded.maxX, y2: expanded.maxY },
+        { x1: expanded.maxX, y1: expanded.maxY, x2: expanded.minX, y2: expanded.maxY },
+        { x1: expanded.minX, y1: expanded.maxY, x2: expanded.minX, y2: expanded.minY }
+      ];
+      return edges.some(edge => segmentsIntersect(segment, edge));
+    };
+    const pathIntersectsBox = (segments, box, clearance = 0) => segments.some(segment => segmentIntersectsBox(segment, box, clearance));
+    const pathsConflict = (a, b, clearance = 0) => a.some(first => b.some(second => segmentDistance(first, second) < clearance));
+    const leaderSegmentsFromPoints = points => points.slice(1).map((point, index) => ({
+      x1: points[index].x,
+      y1: points[index].y,
+      x2: point.x,
+      y2: point.y
+    }));
+    const leaderLength = segments => segments.reduce((total, segment) => total + Math.hypot(
+      segment.x2 - segment.x1,
+      segment.y2 - segment.y1
+    ), 0);
+    const envelopeFor = (box, segments) => segments.reduce((envelope, segment) => ({
+      minX: Math.min(envelope.minX, segment.x1, segment.x2),
+      maxX: Math.max(envelope.maxX, segment.x1, segment.x2),
+      minY: Math.min(envelope.minY, segment.y1, segment.y2),
+      maxY: Math.max(envelope.maxY, segment.y1, segment.y2)
+    }), { ...box });
+
+    const maxPointRadius = pointBounds.reduce((maximum, point) => Math.max(maximum, point.r), 0);
+    const pointCellSize = Math.max(16, labelFontSize * 2, maxPointRadius * 2 + pointClearance);
+    const pointGrid = new Map();
+    if(pointBounds.length > 128){
+      pointBounds.forEach(point => {
+        const cellX = Math.floor(point.cx / pointCellSize);
+        const cellY = Math.floor(point.cy / pointCellSize);
+        const key = `${cellX}:${cellY}`;
+        const bucket = pointGrid.get(key) || [];
+        bucket.push(point);
+        pointGrid.set(key, bucket);
+      });
+    }
+    const queryPoints = envelope => {
+      if(!pointGrid.size){ return pointBounds; }
+      const minCellX = Math.floor((envelope.minX - maxPointRadius - pointClearance) / pointCellSize);
+      const maxCellX = Math.floor((envelope.maxX + maxPointRadius + pointClearance) / pointCellSize);
+      const minCellY = Math.floor((envelope.minY - maxPointRadius - pointClearance) / pointCellSize);
+      const maxCellY = Math.floor((envelope.maxY + maxPointRadius + pointClearance) / pointCellSize);
+      if((maxCellX - minCellX + 1) * (maxCellY - minCellY + 1) > 256){ return pointBounds; }
+      const points = [];
+      for(let cellX = minCellX; cellX <= maxCellX; cellX += 1){
+        for(let cellY = minCellY; cellY <= maxCellY; cellY += 1){
+          const bucket = pointGrid.get(`${cellX}:${cellY}`);
+          if(bucket){ points.push(...bucket); }
+        }
       }
-      const t = ((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy);
-      const clamped = Math.max(0, Math.min(1, t));
-      const cx = ax + clamped * dx;
-      const cy = ay + clamped * dy;
-      return Math.hypot(px - cx, py - cy);
+      return points;
     };
-    const segmentsIntersect = (ax, ay, bx, by, cx, cy, dx, dy) => {
-      const eps = 1e-6;
-      const orient = (px, py, qx, qy, rx, ry) => (qy - py) * (rx - qx) - (qx - px) * (ry - qy);
-      const onSegment = (px, py, qx, qy, rx, ry) =>
-        Math.min(px, rx) - eps <= qx && qx <= Math.max(px, rx) + eps
-        && Math.min(py, ry) - eps <= qy && qy <= Math.max(py, ry) + eps;
-      const o1 = orient(ax, ay, bx, by, cx, cy);
-      const o2 = orient(ax, ay, bx, by, dx, dy);
-      const o3 = orient(cx, cy, dx, dy, ax, ay);
-      const o4 = orient(cx, cy, dx, dy, bx, by);
-      if(Math.abs(o1) < eps && onSegment(ax, ay, cx, cy, bx, by)) return true;
-      if(Math.abs(o2) < eps && onSegment(ax, ay, dx, dy, bx, by)) return true;
-      if(Math.abs(o3) < eps && onSegment(cx, cy, ax, ay, dx, dy)) return true;
-      if(Math.abs(o4) < eps && onSegment(cx, cy, bx, by, dx, dy)) return true;
-      return (o1 > 0 && o2 < 0 || o1 < 0 && o2 > 0)
-        && (o3 > 0 && o4 < 0 || o3 < 0 && o4 > 0);
+    const isOwnPoint = (entry, point) => {
+      if(entry?.pointId !== null && entry?.pointId !== undefined){
+        return point.count === 1 && entry.pointId === point.pointId;
+      }
+      return point.count === 1
+        && Math.abs((Number(entry?.cx) || 0) - point.cx) < 1e-6
+        && Math.abs((Number(entry?.cy) || 0) - point.cy) < 1e-6;
     };
+    const estimateWidth = (text, fontSpec, fontSize) => {
+      if(measureText && fontSpec){
+        const measured = measureText(text, fontSpec);
+        const width = Number.isFinite(measured) ? measured : Number(measured?.width);
+        if(Number.isFinite(width) && width > 0){ return width; }
+      }
+      return Math.max(fontSize * 0.6, text.length * fontSize * 0.6);
+    };
+    const staticCollisionScore = (entry, candidate, insideHull) => {
+      const score = makeScore(0, 0, candidate.aesthetic);
+      queryPoints(candidate.envelope).forEach(point => {
+        if(circleIntersectsBox(point, candidate.bbox, pointClearance)){
+          score.collisions += 1;
+          score.severity += 12;
+        }
+        if(!isOwnPoint(entry, point) && candidate.leaderSegments.some(segment =>
+          distancePointToSegment(point.cx, point.cy, segment) < point.r + pointClearance)){
+          score.collisions += 1;
+          score.severity += 7;
+        }
+      });
+      obstacleBoxes.forEach(box => {
+        if(boxesIntersect(candidate.bbox, box, labelClearance)){
+          score.collisions += 1;
+          score.severity += 12;
+        }
+        if(pathIntersectsBox(candidate.leaderSegments, box, leaderClearance)){
+          score.collisions += 1;
+          score.severity += 9;
+        }
+      });
+      obstacleSegments.forEach(segment => {
+        if(segmentIntersectsBox(segment, candidate.bbox, labelClearance)){
+          score.collisions += 1;
+          score.severity += 10;
+        }
+        if(candidate.leaderSegments.some(leader => segmentDistance(leader, segment) < leaderClearance)){
+          score.collisions += 1;
+          score.severity += 6;
+        }
+      });
+      const overflow = Math.max(0, containerLeft - candidate.bbox.minX)
+        + Math.max(0, candidate.bbox.maxX - containerRight)
+        + Math.max(0, containerTop - candidate.bbox.minY)
+        + Math.max(0, candidate.bbox.maxY - containerBottom);
+      if(overflow > 0){
+        score.collisions += 1;
+        score.severity += 15 + overflow;
+      }
+      if(candidate.outsidePenalty > 0){
+        score.collisions += 1;
+        score.severity += 12 + candidate.outsidePenalty;
+      }
+      if(normalizedHull.length && (!insideHull || (enforceHull && candidate.leaderPoints.some(point =>
+        !pointInPolygon(point.x, point.y, normalizedHull))))){
+        score.collisions += 1;
+        score.severity += hullPenalty;
+      }
+      return score;
+    };
+
+    const tau = Math.PI * 2;
+    const angles = Array.from({ length: angleSteps }, (_, index) => index * tau / angleSteps);
+    const ringStep = entries.length <= 80 ? 0.5 : 1;
     const scaleSteps = [];
-    for(let scale = 1; scale <= maxLeaderScale; scale += 1){
+    for(let scale = 1; scale <= maxLeaderScale + 1e-6; scale += ringStep){
       scaleSteps.push(scale);
     }
-    entries.forEach(entry => {
-      const cx = Number(entry?.cx) || 0;
-      const cy = Number(entry?.cy) || 0;
-      const textValue = entry?.text ? String(entry.text) : '';
-      if(!textValue){
-        return;
+    const candidateBudget = Math.max(24, Math.min(160, Number(options?.maxCandidatesPerLabel) || (
+      entries.length <= 24 ? 160 : entries.length <= 80 ? 96 : entries.length <= 200 ? 64 : 40
+    )));
+    let candidateId = 0;
+    const buildCandidates = model => {
+      const { entry, cx, cy, textWidth, baseOffset, fontSize, fontSpec, labelHeight: modelLabelHeight, leaderGap: modelLeaderGap } = model;
+      const pinned = entry?.pinnedPosition && typeof entry.pinnedPosition === 'object'
+        ? entry.pinnedPosition
+        : null;
+      if(pinned){
+        const width = Math.max(1, containerRight - containerLeft);
+        const height = Math.max(1, containerBottom - containerTop);
+        const pinnedX = Number.isFinite(Number(pinned.relX))
+          ? containerLeft + Number(pinned.relX) * width
+          : Number(pinned.x);
+        const pinnedY = Number.isFinite(Number(pinned.relY))
+          ? containerTop + Number(pinned.relY) * height
+          : Number(pinned.y);
+        const placement = labelLayout.resolvePinnedPointLabelPlacement(entry, {
+          x: pinnedX,
+          y: pinnedY,
+          anchor: pinned.anchor
+        }, {
+          textWidth,
+          labelHeight: modelLabelHeight,
+          leaderGap: modelLeaderGap,
+          containerLeft,
+          containerRight,
+          containerTop,
+          containerBottom
+        });
+        if(!placement){ return []; }
+        const candidate = {
+          id: candidateId++,
+          ...placement,
+          fontSize,
+          fontSpec,
+          leaderGap: modelLeaderGap
+        };
+        candidate.staticScore = staticCollisionScore(entry, candidate, boxInsideHull(candidate.bbox));
+        return [candidate];
       }
-      const baseOffset = Math.max(minOffset, (Number(entry?.radius) || 0) * 1.6) * 2 * leaderScale;
-      const textWidth = estimateWidth(textValue);
-      let best = null;
+      const candidates = [];
+      const seen = new Set();
       angles.forEach(angle => {
         const cos = Math.cos(angle);
         const sin = Math.sin(angle);
         scaleSteps.forEach(scale => {
-          let textX = cx + cos * (baseOffset * scale);
-          let textY = cy + sin * (baseOffset * scale);
+          let textX = cx + cos * baseOffset * scale;
+          let textY = cy + sin * baseOffset * scale;
           const anchor = cos >= 0 ? 'start' : 'end';
-          let minX = anchor === 'start' ? textX : textX - textWidth;
-          let maxX = anchor === 'start' ? textX + textWidth : textX;
-          let minY = textY - labelHeight * 0.5;
-          let maxY = textY + labelHeight * 0.5;
+          let bbox = {
+            minX: anchor === 'start' ? textX : textX - textWidth,
+            maxX: anchor === 'start' ? textX + textWidth : textX,
+            minY: textY - modelLabelHeight * 0.5,
+            maxY: textY + modelLabelHeight * 0.5
+          };
           let shiftX = 0;
-          if(minX < plotLeft + 2){
-            shiftX = (plotLeft + 2) - minX;
-          }else if(maxX > plotRight - 2){
-            shiftX = (plotRight - 2) - maxX;
-          }
           let shiftY = 0;
-          if(minY < plotTop + 2){
-            shiftY = (plotTop + 2) - minY;
-          }else if(maxY > plotBottom - 2){
-            shiftY = (plotBottom - 2) - maxY;
-          }
+          if(bbox.minX < containerLeft + 2){ shiftX = containerLeft + 2 - bbox.minX; }
+          else if(bbox.maxX > containerRight - 2){ shiftX = containerRight - 2 - bbox.maxX; }
+          if(bbox.minY < containerTop + 2){ shiftY = containerTop + 2 - bbox.minY; }
+          else if(bbox.maxY > containerBottom - 2){ shiftY = containerBottom - 2 - bbox.maxY; }
           if(shiftX || shiftY){
             textX += shiftX;
             textY += shiftY;
-            minX += shiftX;
-            maxX += shiftX;
-            minY += shiftY;
-            maxY += shiftY;
+            bbox = {
+              minX: bbox.minX + shiftX,
+              maxX: bbox.maxX + shiftX,
+              minY: bbox.minY + shiftY,
+              maxY: bbox.maxY + shiftY
+            };
           }
-          let insideHull = true;
-          if(normalizedHull){
-            if(enforceHull){
-              const nudge = tryNudgeBoxInsideHull({ minX, maxX, minY, maxY }, cx, cy);
-              if(nudge.shiftX || nudge.shiftY){
-                textX += nudge.shiftX;
-                textY += nudge.shiftY;
-                minX += nudge.shiftX;
-                maxX += nudge.shiftX;
-                minY += nudge.shiftY;
-                maxY += nudge.shiftY;
-              }
-              insideHull = nudge.inside;
-            }else{
-              insideHull = boxInsideHull(minX, maxX, minY, maxY);
-            }
+          if(bbox.minX < containerLeft + 2 - 1e-6
+            || bbox.maxX > containerRight - 2 + 1e-6
+            || bbox.minY < containerTop + 2 - 1e-6
+            || bbox.maxY > containerBottom - 2 + 1e-6){
+            return;
           }
-          let score = 0;
-          const labelArea = Math.max(1, textWidth * labelHeight);
-          placedBoxes.forEach(box => {
-            const area = overlapArea({ minX, maxX, minY, maxY }, box);
-            if(area > 0){
-              score += (area / labelArea) * 14;
+          let insideHull = boxInsideHull(bbox);
+          if(normalizedHull.length && enforceHull && !insideHull){
+            const nudge = nudgeBoxInsideHull(bbox, cx, cy);
+            const nudgedBox = {
+              minX: bbox.minX + nudge.shiftX,
+              maxX: bbox.maxX + nudge.shiftX,
+              minY: bbox.minY + nudge.shiftY,
+              maxY: bbox.maxY + nudge.shiftY
+            };
+            const nudgedGeometry = labelLayout.resolvePointLabelLeaderGeometry(nudgedBox, { cx, cy }, {
+              textY: textY + nudge.shiftY,
+              leaderGap: modelLeaderGap,
+              sourceRadius: Math.max(0, Number(entry?.radius) || 0)
+            });
+            if(nudge.inside && nudgedGeometry && (nudge.shiftX || nudge.shiftY)){
+              textX += nudge.shiftX;
+              textY += nudge.shiftY;
+              bbox = nudgedBox;
             }
+            insideHull = nudge.inside && !!nudgedGeometry;
+          }
+          if(bbox.minX < containerLeft + 2 - 1e-6
+            || bbox.maxX > containerRight - 2 + 1e-6
+            || bbox.minY < containerTop + 2 - 1e-6
+            || bbox.maxY > containerBottom - 2 + 1e-6){
+            return;
+          }
+          const geometry = labelLayout.resolvePointLabelLeaderGeometry(bbox, { cx, cy }, {
+            textY,
+            leaderGap: modelLeaderGap,
+            sourceRadius: Math.max(0, Number(entry?.radius) || 0)
           });
-          pointBounds.forEach(point => {
-            const pr = Math.max(0, Number(point?.r) || 0);
-            const px = Number(point?.cx) || 0;
-            const py = Number(point?.cy) || 0;
-            if(px >= minX - pr && px <= maxX + pr && py >= minY - pr && py <= maxY + pr){
-              score += 3;
-            }
-            const leaderDist = distancePointToSegment(px, py, cx, cy, textX, textY);
-            if(leaderDist < pr + 2){
-              score += 1 + (pr + 2 - leaderDist) * 0.2;
-            }
-          });
-          const lineX2 = textX + (anchor === 'start' ? -leaderGap : leaderGap);
-          let leaderCross = false;
-          placedLeaders.forEach(seg => {
-            if(segmentsIntersect(seg.x1, seg.y1, seg.x2, seg.y2, cx, cy, lineX2, textY)){
-              leaderCross = true;
-            }
-          });
-          if(leaderCross){
-            score += 3;
-          }
-          const overflow = Math.max(0, plotLeft - minX)
-            + Math.max(0, maxX - plotRight)
-            + Math.max(0, plotTop - minY)
-            + Math.max(0, maxY - plotBottom);
-          if(overflow > 0){
-            score += overflow * 0.2 + 6;
-          }
-          if(normalizedHull && !insideHull){
-            score += hullPenalty;
-          }
-          if(shiftX || shiftY){
-            score += 0.5;
-          }
-          score += (scale - 1) * 0.2;
-          if(best === null || score < best.score){
-            best = {
+          if(geometry){
+            const key = [
+              Math.round(textX * 10), Math.round(textY * 10), anchor,
+              geometry.side
+            ].join(':');
+            if(seen.has(key)){ return; }
+            seen.add(key);
+            const leaderSegments = leaderSegmentsFromPoints(geometry.points);
+            const verticalPreference = (sin + 1) * 0.06;
+            const verticalAttachmentCost = geometry.side === 'top' || geometry.side === 'bottom' ? 0.4 : 0;
+            const shiftCost = Math.hypot(shiftX, shiftY) / Math.max(1, fontSize) * 0.04;
+            const candidate = {
+              id: candidateId++,
               textX,
               textY,
               anchor,
-              lineX2,
-              lineY2: textY,
-              bbox: { minX, maxX, minY, maxY },
-              score
+              leaderStyle: geometry.style,
+              leaderSide: geometry.side,
+              leaderPoints: geometry.points,
+              leaderSegments,
+              bbox,
+              fontSize,
+              fontSpec,
+              leaderGap: modelLeaderGap,
+              outsidePenalty: geometry.outsidePenalty || 0,
+              aesthetic: (scale - 1) * 0.14
+                + leaderLength(leaderSegments) / Math.max(1, baseOffset) * 0.035
+                + verticalPreference + verticalAttachmentCost + shiftCost
             };
+            candidate.envelope = envelopeFor(bbox, leaderSegments);
+            candidate.staticScore = staticCollisionScore(entry, candidate, insideHull);
+            candidates.push(candidate);
           }
         });
       });
-      if(best){
-        placements.push({ entry, placement: best });
-        placedBoxes.push(best.bbox);
-        placedLeaders.push({ x1: entry.cx, y1: entry.cy, x2: best.lineX2, y2: best.lineY2 });
+      candidates.sort((a, b) => compareScores(a.staticScore, b.staticScore) || a.id - b.id);
+      return candidates.slice(0, candidateBudget);
+    };
+
+    let models = entries.map(entry => {
+      const text = entry?.text ? String(entry.text).trim() : '';
+      if(!text){ return null; }
+      const cx = Number(entry?.cx) || 0;
+      const cy = Number(entry?.cy) || 0;
+      const fontKey = typeof entry?.fontKey === 'string' && entry.fontKey.trim()
+        ? entry.fontKey.trim()
+        : (entry?.labelKey ? `pointLabel:${entry.labelKey}` : '');
+      const fontMetrics = chartStyle.resolveScopedLabelMeasureFont({
+        styles: fontStyles,
+        collection: 'labels',
+        role: fontKey,
+        fallbackPx: labelFontSize
+      });
+      const fontSize = Math.max(6, Number(fontMetrics?.fontSizePx) || labelFontSize);
+      const fontSpec = fontMetrics?.fontSpec || font || chartStyle.makeFont(fontSize);
+      const modelLabelHeight = Math.max(6, fontSize * 1.05);
+      const modelLeaderGap = Math.max(2, Number(entry?.leaderGap) || Math.max(leaderGap, fontSize * 0.2));
+      const baseOffset = Math.max(fontSize * 0.85, 8, (Number(entry?.radius) || 0) * 1.6) * 2 * leaderScale;
+      return {
+        entry,
+        cx,
+        cy,
+        text,
+        stableKey: `${entry?.pointId ?? ''}|${cx.toFixed(6)}|${cy.toFixed(6)}|${text}`,
+        textWidth: estimateWidth(text, fontSpec, fontSize),
+        fontSize,
+        fontSpec,
+        labelHeight: modelLabelHeight,
+        leaderGap: modelLeaderGap,
+        baseOffset,
+        candidates: []
+      };
+    }).filter(Boolean);
+    models.forEach(model => {
+      model.candidates = buildCandidates(model);
+      model.zeroStaticCandidates = model.candidates.reduce((count, candidate) =>
+        count + (candidate.staticScore.collisions === 0 ? 1 : 0), 0);
+      model.crowding = pointBounds.reduce((count, point) => count + (
+        Math.hypot(point.cx - model.cx, point.cy - model.cy) < labelFontSize * 6 ? 1 : 0
+      ), 0);
+    });
+    models = models.filter(model => model.candidates.length > 0);
+    if(!models.length){
+      return [];
+    }
+
+    const pairScore = (first, second) => {
+      const score = makeScore();
+      if(!boxesIntersect(first.envelope, second.envelope, labelClearance)){ return score; }
+      if(boxesIntersect(first.bbox, second.bbox, labelClearance)){
+        score.collisions += 1;
+        score.severity += 14;
+      }
+      if(pathIntersectsBox(first.leaderSegments, second.bbox, leaderClearance)){
+        score.collisions += 1;
+        score.severity += 11;
+      }
+      if(pathIntersectsBox(second.leaderSegments, first.bbox, leaderClearance)){
+        score.collisions += 1;
+        score.severity += 11;
+      }
+      if(pathsConflict(first.leaderSegments, second.leaderSegments, leaderClearance)){
+        score.collisions += 1;
+        score.severity += 8;
+      }
+      return score;
+    };
+    const candidateContribution = (modelIndex, candidateIndex, selected) => {
+      const candidate = models[modelIndex].candidates[candidateIndex];
+      const score = makeScore();
+      addScore(score, candidate.staticScore);
+      selected.forEach((selectedIndex, otherIndex) => {
+        if(otherIndex === modelIndex || selectedIndex < 0){ return; }
+        addScore(score, pairScore(candidate, models[otherIndex].candidates[selectedIndex]));
+      });
+      return score;
+    };
+    const chooseCandidate = (modelIndex, selected) => {
+      let bestIndex = 0;
+      let bestScore = null;
+      models[modelIndex].candidates.forEach((candidate, index) => {
+        const score = candidateContribution(modelIndex, index, selected);
+        if(bestScore === null || compareScores(score, bestScore) < 0
+          || (compareScores(score, bestScore) === 0 && candidate.id < models[modelIndex].candidates[bestIndex].id)){
+          bestIndex = index;
+          bestScore = score;
+        }
+      });
+      return bestIndex;
+    };
+    const selectionScore = selected => {
+      const score = makeScore();
+      selected.forEach((candidateIndex, modelIndex) => {
+        addScore(score, models[modelIndex].candidates[candidateIndex].staticScore);
+        for(let otherIndex = modelIndex + 1; otherIndex < selected.length; otherIndex += 1){
+          addScore(score, pairScore(
+            models[modelIndex].candidates[candidateIndex],
+            models[otherIndex].candidates[selected[otherIndex]]
+          ));
+        }
+      });
+      return score;
+    };
+    const constrainedOrder = models.map((model, index) => index).sort((a, b) => {
+      const first = models[a];
+      const second = models[b];
+      return first.zeroStaticCandidates - second.zeroStaticCandidates
+        || second.crowding - first.crowding
+        || second.textWidth - first.textWidth
+        || first.stableKey.localeCompare(second.stableKey);
+    });
+    const stableOrder = models.map((model, index) => index).sort((a, b) =>
+      models[a].stableKey.localeCompare(models[b].stableKey));
+    const startOrders = [constrainedOrder];
+    if(models.length <= 80){ startOrders.push(stableOrder); }
+    if(models.length <= 8){ startOrders.push(constrainedOrder.slice().reverse()); }
+    const uniqueOrders = startOrders.filter((order, index, all) =>
+      all.findIndex(candidate => candidate.join(',') === order.join(',')) === index);
+    const maxPasses = models.length <= 8 ? 5 : models.length <= 60 ? 3 : models.length <= 150 ? 2 : 1;
+    const constrainedRank = new Map(constrainedOrder.map((modelIndex, rank) => [modelIndex, rank]));
+    const refineSelection = (selected, passLimit = maxPasses) => {
+      for(let pass = 0; pass < passLimit; pass += 1){
+        const conflictLoad = selected.map((candidateIndex, modelIndex) => {
+          const score = models[modelIndex].candidates[candidateIndex].staticScore;
+          let collisions = score.collisions;
+          selected.forEach((otherCandidateIndex, otherIndex) => {
+            if(otherIndex === modelIndex){ return; }
+            collisions += pairScore(
+              models[modelIndex].candidates[candidateIndex],
+              models[otherIndex].candidates[otherCandidateIndex]
+            ).collisions;
+          });
+          return collisions;
+        });
+        const order = constrainedOrder.slice().sort((a, b) => conflictLoad[b] - conflictLoad[a]
+          || constrainedRank.get(a) - constrainedRank.get(b));
+        let changed = false;
+        order.forEach(modelIndex => {
+          const next = chooseCandidate(modelIndex, selected);
+          if(next !== selected[modelIndex]){
+            selected[modelIndex] = next;
+            changed = true;
+          }
+        });
+        if(!changed){ break; }
+      }
+      return selected;
+    };
+
+    let bestSelection = null;
+    let bestScore = null;
+    uniqueOrders.forEach(order => {
+      const selected = new Array(models.length).fill(-1);
+      order.forEach(modelIndex => {
+        selected[modelIndex] = chooseCandidate(modelIndex, selected);
+      });
+      refineSelection(selected);
+      const score = selectionScore(selected);
+      if(bestScore === null || compareScores(score, bestScore) < 0){
+        bestSelection = selected.slice();
+        bestScore = score;
       }
     });
-    return placements;
+
+    if(bestSelection && bestScore.collisions > 0 && models.length <= 40){
+      const conflictingPairs = [];
+      for(let first = 0; first < models.length; first += 1){
+        for(let second = first + 1; second < models.length; second += 1){
+          const score = pairScore(
+            models[first].candidates[bestSelection[first]],
+            models[second].candidates[bestSelection[second]]
+          );
+          if(score.collisions > 0){ conflictingPairs.push({ first, second, score }); }
+        }
+      }
+      conflictingPairs.sort((a, b) => b.score.severity - a.score.severity
+        || `${models[a.first].stableKey}|${models[a.second].stableKey}`
+          .localeCompare(`${models[b.first].stableKey}|${models[b.second].stableKey}`));
+      conflictingPairs.slice(0, 6).forEach(({ first, second }) => {
+        const firstLimit = Math.min(24, models[first].candidates.length);
+        const secondLimit = Math.min(24, models[second].candidates.length);
+        let bestFirst = bestSelection[first];
+        let bestSecond = bestSelection[second];
+        let bestPairScore = null;
+        const scorePairChoice = (firstCandidateIndex, secondCandidateIndex) => {
+          const firstCandidate = models[first].candidates[firstCandidateIndex];
+          const secondCandidate = models[second].candidates[secondCandidateIndex];
+          const score = makeScore();
+          addScore(score, firstCandidate.staticScore);
+          addScore(score, secondCandidate.staticScore);
+          addScore(score, pairScore(firstCandidate, secondCandidate));
+          bestSelection.forEach((candidateIndex, otherIndex) => {
+            if(otherIndex === first || otherIndex === second){ return; }
+            const other = models[otherIndex].candidates[candidateIndex];
+            addScore(score, pairScore(firstCandidate, other));
+            addScore(score, pairScore(secondCandidate, other));
+          });
+          return score;
+        };
+        for(let firstCandidate = 0; firstCandidate < firstLimit; firstCandidate += 1){
+          for(let secondCandidate = 0; secondCandidate < secondLimit; secondCandidate += 1){
+            const score = scorePairChoice(firstCandidate, secondCandidate);
+            if(bestPairScore === null || compareScores(score, bestPairScore) < 0){
+              bestPairScore = score;
+              bestFirst = firstCandidate;
+              bestSecond = secondCandidate;
+            }
+          }
+        }
+        const currentPairScore = scorePairChoice(bestSelection[first], bestSelection[second]);
+        if(compareScores(bestPairScore, currentPairScore) < 0){
+          bestSelection[first] = bestFirst;
+          bestSelection[second] = bestSecond;
+        }
+      });
+      refineSelection(bestSelection, 2);
+      bestScore = selectionScore(bestSelection);
+    }
+
+    return models.map((model, index) => {
+      const candidate = models[index].candidates[bestSelection[index]];
+      const localScore = candidateContribution(index, bestSelection[index], bestSelection);
+      return {
+        entry: model.entry,
+        placement: {
+          ...candidate,
+          collisionCount: localScore.collisions,
+          layoutCollisionCount: bestScore.collisions,
+          score: candidate.staticScore.aesthetic
+        }
+      };
+    });
   };
 
-  labelLayout.computePointLabelFontSize = function computePointLabelFontSize(baseFontSize, labelCount, plotWidth, plotHeight){
-    const safeBase = Math.max(5, Number(baseFontSize) || 10);
+  labelLayout.computePointLabelFontSize = function computePointLabelFontSize(baseFontSize, labelCount, plotWidth, plotHeight, options){
+    const requestedMinimum = Number(options?.minFontSize);
+    const minimum = Math.max(
+      POINT_LABEL_MIN_FONT_SIZE_PX,
+      Number.isFinite(requestedMinimum) && requestedMinimum > 0 ? requestedMinimum : 0
+    );
+    const maximum = Number(options?.maxFontSize);
+    const applyBounds = value => {
+      const capped = Number.isFinite(maximum) && maximum > 0 ? Math.min(value, maximum) : value;
+      return Math.max(minimum, capped);
+    };
+    const safeBase = Math.max(minimum, Number(baseFontSize) || 10);
     const count = Math.max(0, Number(labelCount) || 0);
     const width = Math.max(1, Number(plotWidth) || 0);
     const height = Math.max(1, Number(plotHeight) || 0);
     if(count <= 0){
-      return safeBase;
+      return applyBounds(safeBase);
     }
     const area = width * height;
     const density = count / Math.max(1, area);
@@ -3517,6 +4456,428 @@
     const densityScale = 1 / Math.sqrt(1 + densityRatio * densityRatio);
     const combinedScale = axisScale * countScale * densityScale;
     const scale = Math.max(0.12, Math.min(2.6, combinedScale));
-    return Math.max(4, safeBase * scale);
+    return applyBounds(safeBase * scale);
   };
+
+  /**
+   * Render a compact SVG-native statistical annotation.
+   * The helper is deliberately stateless: components own visibility, position,
+   * persistence, and owner/session writes. This keeps the shared layer safe for
+   * same-component tab isolation while normalizing presentation and dragging.
+   */
+  chartStyle.STATS_ANNOTATION_FONT_SCALE = 0.75;
+  chartStyle.STATS_ANNOTATION_MIN_FONT_SIZE = 8;
+  chartStyle.STATS_ANNOTATION_FONT_ROLE = 'statsSummary';
+  chartStyle.STATS_ANNOTATION_FONT_KEY = 'statsSummary';
+
+  function toFiniteChartNumber(value){
+    if(value === null || value === undefined || value === ''){ return null; }
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric : null;
+  }
+
+  chartStyle.resolveStatsAnnotationFontSize = function resolveStatsAnnotationFontSize(baseFontSize, options = {}){
+    const base = Math.max(1, Number(baseFontSize) || 12);
+    const scale = Number.isFinite(Number(options.scale))
+      ? Math.max(0.1, Number(options.scale))
+      : chartStyle.STATS_ANNOTATION_FONT_SCALE;
+    const min = Number.isFinite(Number(options.min))
+      ? Math.max(1, Number(options.min))
+      : chartStyle.STATS_ANNOTATION_MIN_FONT_SIZE;
+    return Math.max(min, base * scale);
+  };
+
+  chartStyle.resolveStatsAnnotationFontMetrics = function resolveStatsAnnotationFontMetrics(baseFontSize, options = {}){
+    const fallbackPx = chartStyle.resolveStatsAnnotationFontSize(baseFontSize, options);
+    if(typeof chartStyle.resolveScopedLabelMeasureFont !== 'function'){
+      return {
+        fontSizePx: fallbackPx,
+        fontSpec: chartStyle.makeFont(fallbackPx),
+        fontFamily: chartStyle.FONT_FAMILY,
+        fontStyle: 'normal',
+        fontWeight: 'normal'
+      };
+    }
+    return chartStyle.resolveScopedLabelMeasureFont({
+      styles: options.styles,
+      role: options.role || chartStyle.STATS_ANNOTATION_FONT_ROLE,
+      fallbackPx
+    });
+  };
+
+  /**
+   * Resolve a persisted statistical-annotation position against the current plot
+   * frame. Relative coordinates are authoritative when present so annotations
+   * preserve their visual position after graph resizing and archive reopen.
+   */
+  chartStyle.resolveStatsAnnotationPosition = function resolveStatsAnnotationPosition(stored, fallback, frame = {}){
+    const originX = toFiniteChartNumber(frame.originX) ?? 0;
+    const originY = toFiniteChartNumber(frame.originY) ?? 0;
+    const width = Math.max(1, toFiniteChartNumber(frame.width) ?? 1);
+    const height = Math.max(1, toFiniteChartNumber(frame.height) ?? 1);
+    const fallbackX = toFiniteChartNumber(fallback?.x);
+    const fallbackY = toFiniteChartNumber(fallback?.y);
+    const relX = toFiniteChartNumber(stored?.relX);
+    const relY = toFiniteChartNumber(stored?.relY);
+    if(relX !== null && relY !== null){
+      return { x: originX + relX * width, y: originY + relY * height };
+    }
+    const x = toFiniteChartNumber(stored?.x);
+    const y = toFiniteChartNumber(stored?.y);
+    if(x !== null && y !== null){
+      return { x, y };
+    }
+    return {
+      x: fallbackX ?? (originX + width),
+      y: fallbackY ?? originY
+    };
+  };
+
+  /**
+   * Persist both absolute and frame-relative annotation coordinates. Components
+   * remain the sole owners of the returned state and decide how it is committed
+   * to their tab/session payload.
+   */
+  chartStyle.captureStatsAnnotationPosition = function captureStatsAnnotationPosition(position, frame = {}){
+    const x = toFiniteChartNumber(position?.x);
+    const y = toFiniteChartNumber(position?.y);
+    if(x === null || y === null){
+      return null;
+    }
+    const originX = toFiniteChartNumber(frame.originX) ?? 0;
+    const originY = toFiniteChartNumber(frame.originY) ?? 0;
+    const width = Math.max(1, toFiniteChartNumber(frame.width) ?? 1);
+    const height = Math.max(1, toFiniteChartNumber(frame.height) ?? 1);
+    return {
+      x,
+      y,
+      relX: (x - originX) / width,
+      relY: (y - originY) / height
+    };
+  };
+
+  function readStatsAnnotationViewport(svg){
+    const base = svg?.viewBox?.baseVal;
+    if(base && Number.isFinite(base.x) && Number.isFinite(base.y)
+      && Number.isFinite(base.width) && base.width > 0
+      && Number.isFinite(base.height) && base.height > 0){
+      return { left: base.x, top: base.y, right: base.x + base.width, bottom: base.y + base.height };
+    }
+    const viewBox = String(svg?.getAttribute?.('viewBox') || '').trim().split(/[\s,]+/).map(Number);
+    if(viewBox.length === 4 && viewBox.every(Number.isFinite) && viewBox[2] > 0 && viewBox[3] > 0){
+      return {
+        left: viewBox[0],
+        top: viewBox[1],
+        right: viewBox[0] + viewBox[2],
+        bottom: viewBox[1] + viewBox[3]
+      };
+    }
+    const width = toFiniteChartNumber(svg?.getAttribute?.('width'));
+    const height = toFiniteChartNumber(svg?.getAttribute?.('height'));
+    return width !== null && width > 0 && height !== null && height > 0
+      ? { left: 0, top: 0, right: width, bottom: height }
+      : null;
+  }
+
+  function measureStatsAnnotationOffsets(text, lines, options = {}){
+    const x = Number(text?.getAttribute?.('x')) || 0;
+    const y = Number(text?.getAttribute?.('y')) || 0;
+    try{
+      const box = text?.getBBox?.();
+      if(box && Number.isFinite(box.x) && Number.isFinite(box.y)
+        && Number.isFinite(box.width) && box.width >= 0
+        && Number.isFinite(box.height) && box.height >= 0){
+        return {
+          minX: box.x - x,
+          maxX: box.x + box.width - x,
+          minY: box.y - y,
+          maxY: box.y + box.height - y
+        };
+      }
+    }catch(_err){}
+    const fontSize = Math.max(1, Number(options.fontSize) || 10);
+    const lineHeight = Math.max(fontSize, Number(options.lineHeight) || fontSize * 1.2);
+    const fontSpec = options.fontSpec || chartStyle.makeFont(fontSize);
+    const width = Math.max(1, ...lines.map(line => chartStyle.measureText(line, fontSpec)));
+    const anchor = options.textAnchor === 'start' || options.textAnchor === 'middle' ? options.textAnchor : 'end';
+    const minX = anchor === 'start' ? 0 : (anchor === 'middle' ? -width / 2 : -width);
+    return {
+      minX,
+      maxX: minX + width,
+      minY: -fontSize * 0.82,
+      maxY: Math.max(fontSize * 0.22, (lines.length - 1) * lineHeight + fontSize * 0.22)
+    };
+  }
+
+  function constrainStatsAnnotationPosition(position, offsets, viewport, padding){
+    const x = Number(position?.x);
+    const y = Number(position?.y);
+    if(!Number.isFinite(x) || !Number.isFinite(y) || !viewport || !offsets){
+      return { x, y };
+    }
+    const minX = viewport.left + padding - offsets.minX;
+    const maxX = viewport.right - padding - offsets.maxX;
+    const minY = viewport.top + padding - offsets.minY;
+    const maxY = viewport.bottom - padding - offsets.maxY;
+    return {
+      x: maxX >= minX ? Math.min(Math.max(x, minX), maxX) : minX,
+      y: maxY >= minY ? Math.min(Math.max(y, minY), maxY) : minY
+    };
+  }
+
+  function wrapStatsAnnotationLine(line, maxWidth, fontSpec){
+    if(!(maxWidth > 0) || chartStyle.measureText(line, fontSpec) <= maxWidth){
+      return [line];
+    }
+    const chunks = [];
+    const splitLongToken = token => {
+      let chunk = '';
+      Array.from(token).forEach(character => {
+        const candidate = chunk + character;
+        if(chunk && chartStyle.measureText(candidate, fontSpec) > maxWidth){
+          chunks.push(chunk);
+          chunk = character;
+        }else{
+          chunk = candidate;
+        }
+      });
+      return chunk;
+    };
+    let current = '';
+    String(line).split(/\s+/).filter(Boolean).forEach(word => {
+      const candidate = current ? `${current} ${word}` : word;
+      if(chartStyle.measureText(candidate, fontSpec) <= maxWidth){
+        current = candidate;
+        return;
+      }
+      if(current){ chunks.push(current); }
+      current = chartStyle.measureText(word, fontSpec) <= maxWidth ? word : splitLongToken(word);
+    });
+    if(current){ chunks.push(current); }
+    return chunks.length ? chunks : [line];
+  }
+
+  function parseStatsAnnotationMathFragments(source){
+    const text = String(source == null ? '' : source);
+    const fragments = [];
+    const push = (value, scriptDepth = 0) => {
+      if(!value){ return; }
+      const previous = fragments[fragments.length - 1];
+      if(previous && previous.scriptDepth === scriptDepth){
+        previous.text += value;
+      }else{
+        fragments.push({ text: value, scriptDepth });
+      }
+    };
+    const findBalancedEnd = (start, open, close) => {
+      let depth = 1;
+      for(let index = start; index < text.length; index += 1){
+        const char = text[index];
+        if(char === open){ depth += 1; }
+        else if(char === close){
+          depth -= 1;
+          if(depth === 0){ return index; }
+        }
+      }
+      return -1;
+    };
+    const parseRange = (start, end, scriptDepth = 0) => {
+      let cursor = start;
+      let plainStart = start;
+      const flushPlain = until => {
+        if(until > plainStart){ push(text.slice(plainStart, until), scriptDepth); }
+      };
+      while(cursor < end){
+        const expMatch = text.slice(cursor, end).match(/^exp\s*([\[(])/);
+        if(expMatch){
+          const open = expMatch[1];
+          const close = open === '(' ? ')' : ']';
+          const openIndex = cursor + expMatch[0].lastIndexOf(open);
+          const closeIndex = findBalancedEnd(openIndex + 1, open, close);
+          if(closeIndex >= 0 && closeIndex < end){
+            flushPlain(cursor);
+            push('e', scriptDepth);
+            parseRange(openIndex + 1, closeIndex, scriptDepth + 1);
+            cursor = closeIndex + 1;
+            plainStart = cursor;
+            continue;
+          }
+        }
+        if(text[cursor] === '^'){
+          let exponentStart = cursor + 1;
+          let exponentEnd = exponentStart;
+          let wrapped = false;
+          const open = text[exponentStart];
+          if(open === '(' || open === '['){
+            const close = open === '(' ? ')' : ']';
+            const closeIndex = findBalancedEnd(exponentStart + 1, open, close);
+            if(closeIndex >= 0 && closeIndex < end){
+              exponentStart += 1;
+              exponentEnd = closeIndex;
+              wrapped = true;
+            }
+          }else{
+            while(exponentEnd < end && /[0-9A-Za-z.+−-]/.test(text[exponentEnd])){
+              exponentEnd += 1;
+            }
+          }
+          if(exponentEnd > exponentStart){
+            flushPlain(cursor);
+            parseRange(exponentStart, exponentEnd, scriptDepth + 1);
+            cursor = wrapped ? exponentEnd + 1 : exponentEnd;
+            plainStart = cursor;
+            continue;
+          }
+        }
+        cursor += 1;
+      }
+      flushPlain(end);
+    };
+    parseRange(0, text.length, 0);
+    return fragments.length ? fragments : [{ text, scriptDepth: 0 }];
+  }
+
+  function appendStatsAnnotationMathLine(textNode, line, options = {}){
+    const doc = textNode?.ownerDocument;
+    if(!doc){ return []; }
+    const fragments = parseStatsAnnotationMathFragments(line);
+    const lineIndex = Number(options.lineIndex) || 0;
+    const x = Number(options.x);
+    const lineHeightEm = Number(options.lineHeightEm) || 1.2;
+    const created = [];
+    fragments.forEach((fragment, fragmentIndex) => {
+      const span = doc.createElementNS(NS, 'tspan');
+      const isLineStart = fragmentIndex === 0;
+      if(isLineStart && Number.isFinite(x)){
+        span.setAttribute('x', String(x));
+        span.setAttribute('dy', lineIndex === 0 ? '0' : `${lineHeightEm}em`);
+        span.setAttribute('data-stats-line-start', '1');
+      }
+      const depth = Math.max(0, Number(fragment.scriptDepth) || 0);
+      if(depth > 0){
+        const scale = Math.pow(0.78, depth);
+        span.setAttribute('font-size', `${scale.toFixed(4)}em`);
+        span.setAttribute('baseline-shift', depth === 1 ? 'super' : `${(0.58 * depth).toFixed(3)}em`);
+        span.setAttribute('data-stats-math-script-depth', String(depth));
+      }
+      span.setAttribute('data-font-structure-part', 'line-fragment');
+      span.setAttribute('data-font-structure-text', fragment.text);
+      span.textContent = fragment.text;
+      textNode.appendChild(span);
+      created.push(span);
+    });
+    return created;
+  }
+
+  chartStyle.parseStatsAnnotationMathFragments = parseStatsAnnotationMathFragments;
+
+  chartStyle.renderStatsAnnotation = function renderStatsAnnotation(svg, options = {}){
+    if(!svg || !svg.ownerDocument){
+      return null;
+    }
+    const notationNormalizer = Shared.statsReporting && typeof Shared.statsReporting.normalizeNotationText === 'function'
+      ? Shared.statsReporting.normalizeNotationText
+      : null;
+    const sourceLines = Array.isArray(options.lines)
+      ? options.lines
+          .map(value => String(value ?? '').trim())
+          .filter(Boolean)
+          .map(line => notationNormalizer ? notationNormalizer(line, { context: 'plot-annotation' }) : line)
+      : [];
+    if(!sourceLines.length){
+      return null;
+    }
+    const x = Number(options.x);
+    const y = Number(options.y);
+    const fontSize = Math.max(1, Number(options.fontSize) || 10);
+    if(!Number.isFinite(x) || !Number.isFinite(y)){
+      return null;
+    }
+    const padding = Math.max(0, Number(options.containerPadding) || Math.max(2, fontSize * 0.25));
+    const viewport = readStatsAnnotationViewport(svg);
+    const availableWidth = viewport ? Math.max(1, viewport.right - viewport.left - padding * 2) : Infinity;
+    const fontSpec = options.fontSpec || chartStyle.makeFont(fontSize);
+    const lines = sourceLines.flatMap(line => wrapStatsAnnotationLine(line, availableWidth, fontSpec));
+    const text = svg.ownerDocument.createElementNS(NS, 'text');
+    text.setAttribute('x', String(x));
+    text.setAttribute('y', String(y));
+    text.setAttribute('font-size', String(fontSize));
+    text.setAttribute('text-anchor', options.textAnchor || 'end');
+    text.setAttribute('fill', options.fill || TEXT_COLOR);
+    text.setAttribute('data-plot-stats-annotation', '1');
+    if(options.className){
+      text.setAttribute('class', String(options.className));
+    }
+    if(options.dataAttributes && typeof options.dataAttributes === 'object'){
+      Object.entries(options.dataAttributes).forEach(([key, value]) => {
+        if(value == null){ return; }
+        const attr = String(key).startsWith('data-') ? String(key) : `data-${String(key)}`;
+        text.setAttribute(attr, String(value));
+      });
+    }
+    const lineHeight = Math.max(fontSize, Number(options.lineHeight) || fontSize * 1.2);
+    const lineHeightEm = lineHeight / fontSize;
+    lines.forEach((line, index) => {
+      appendStatsAnnotationMathLine(text, line, {
+        lineIndex: index,
+        x,
+        lineHeightEm
+      });
+    });
+    text.setAttribute('data-font-preserve-structure', 'children');
+    svg.appendChild(text);
+    const fontScopeId = options.fontScopeId || options.scopeId || svg.dataset?.fontScope || null;
+    const fontKey = options.fontKey || chartStyle.STATS_ANNOTATION_FONT_KEY;
+    const fontRole = options.fontRole || chartStyle.STATS_ANNOTATION_FONT_ROLE;
+    if(global.Shared?.fontControls && typeof global.Shared.fontControls.markText === 'function'){
+      global.Shared.fontControls.markText(text, {
+        scopeId: fontScopeId,
+        role: fontRole,
+        key: fontKey,
+        tabId: options.tabId || null
+      });
+    }else if(text.dataset){
+      text.dataset.fontEditable = '1';
+      if(fontScopeId){ text.dataset.fontScope = fontScopeId; }
+      if(options.tabId){ text.dataset.fontTabId = String(options.tabId); }
+      text.dataset.fontRole = fontRole;
+      text.dataset.fontKey = fontKey;
+    }
+    const constrain = position => {
+      const viewport = readStatsAnnotationViewport(svg);
+      const offsets = measureStatsAnnotationOffsets(text, lines, {
+        fontSize,
+        lineHeight,
+        fontSpec: options.fontSpec,
+        textAnchor: options.textAnchor
+      });
+      return constrainStatsAnnotationPosition(position, offsets, viewport, padding);
+    };
+    const applyPosition = position => {
+      const next = constrain(position);
+      text.setAttribute('x', String(next.x));
+      text.setAttribute('y', String(next.y));
+      Array.from(text.children || []).forEach(child => {
+        if(child.dataset?.statsLineStart === '1'){
+          child.setAttribute('x', String(next.x));
+        }else{
+          child.removeAttribute('x');
+        }
+      });
+      return next;
+    };
+    applyPosition({ x, y });
+    if(options.draggable !== false && typeof Shared.enableLabelDrag === 'function'){
+      Shared.enableLabelDrag(text, svg, {
+        syncChildX: true,
+        normalizeDuringDrag: true,
+        normalizePosition: constrain,
+        onDragEnd: typeof options.onDragEnd === 'function'
+          ? position => options.onDragEnd(constrain(position))
+          : undefined
+      });
+    }
+    return text;
+  };
+
 })(window);

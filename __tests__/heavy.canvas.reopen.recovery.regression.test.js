@@ -8,6 +8,17 @@ describe('heavy canvas reopen/recovery regression guards', () => {
     };
   }
 
+  function stampWorkspaceOwnerRoot(root, tab) {
+    if (!root || !tab?.id) {
+      throw new Error('Workspace owner root and tab id are required for the heavy-cache harness.');
+    }
+    root.dataset.workspaceTabId = tab.id;
+    root.dataset.tabId = tab.id;
+    root.dataset.workspaceInstanceRoot = 'true';
+    root.dataset.workspaceComponent = tab.type;
+    return root;
+  }
+
   function makeScatterCacheWithBitmapImage(tabId = 'workspace-scatter-a') {
     const fragment = document.createDocumentFragment();
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -97,6 +108,7 @@ describe('heavy canvas reopen/recovery regression guards', () => {
       getActiveTab: () => activeTab
     };
     ensureWorkspaceRootResolver();
+    stampWorkspaceOwnerRoot(document.getElementById('scatterPage'), activeTab);
     require('../js/shared/workspaceTabs.js');
     require('../js/shared/componentLifecycle.js');
     require('../js/shared/hot.js');

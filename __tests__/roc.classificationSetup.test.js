@@ -5,6 +5,9 @@ describe('ROC explicit classification setup', () => {
     global.Components = {};
     window.Shared = global.Shared;
     window.Components = global.Components;
+    // ROC draw-queue normalization is intentionally owned by the shared lifecycle
+    // contract. Load that owner instead of reintroducing a component-local fallback.
+    require('../js/shared/componentLifecycle.js');
     require('../js/components/roc.js');
   });
 
@@ -100,4 +103,37 @@ describe('ROC explicit classification setup', () => {
     expect(hooks().createDurableState({ positiveClass: 0, negativeClass: 1, scoreDirection: 'lower' }))
       .toEqual(expect.objectContaining({ positiveClass: 0, negativeClass: 1, scoreDirection: 'lower' }));
   });
+  test('keeps manual auto-draw pending state separate from draw-publication runtime', () => {
+    const durable = hooks().createDurableState({ drawPending: true });
+    expect(durable).not.toHaveProperty('drawPending');
+
+    const runtime = hooks().createDrawRuntime({
+      scheduled: false,
+      inProgress: false,
+      pendingDrawOptions: { reason: 'legacy-pending-draw' }
+    });
+    expect(runtime).toEqual(expect.objectContaining({
+      scheduled: false,
+      inProgress: false,
+      requestOptions: null,
+      deferredOptions: null
+    }));
+    expect(runtime).not.toHaveProperty('pendingOptions');
+    expect(hooks().mergeDrawOptions(
+      { tabId: 'owner-a', viewOnly: false, reason: 'full-redraw' },
+      { tabId: 'owner-a', viewOnly: true, reason: 'resize' }
+    )).toMatchObject({ tabId: 'owner-a', viewOnly: false, reason: 'resize' });
+    expect(hooks().mergeDrawOptions(null, null)).toBeNull();
+
+    const deferred = hooks().createDrawRuntime({
+      scheduled: false,
+      inProgress: false,
+      deferredOptions: { tabId: 'owner-a', viewOnly: false, reason: 'inactive-replay' }
+    });
+    expect(hooks().isDrawRuntimeSnapshotIdle(deferred)).toBe(true);
+    expect(hooks().isDrawRuntimeCacheCurrent(deferred)).toBe(false);
+    expect(hooks().isDrawRuntimeSnapshotIdle({ scheduled: true, inProgress: false })).toBe(false);
+    expect(hooks().isDrawRuntimeSnapshotIdle({ scheduled: false, inProgress: true })).toBe(false);
+  });
+
 });

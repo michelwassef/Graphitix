@@ -47,6 +47,8 @@ test('Heatmap fits labels without shrinking independent title or color-scale sty
       columnThickness: column.getBoundingClientRect().width,
       titleThickness: title.getBoundingClientRect().height,
       scaleTickThickness: scaleTick.getBoundingClientRect().height,
+      scaleTickRole: scaleTick.dataset.fontRole,
+      scaleTickCollection: scaleTick.dataset.fontCollection,
       scaleStroke: Number(scaleRect.getAttribute('stroke-width'))
     };
   });
@@ -54,6 +56,8 @@ test('Heatmap fits labels without shrinking independent title or color-scale sty
   expect(metrics.rowThickness).toBeLessThan(metrics.columnThickness * 0.6);
   expect(metrics.titleThickness).toBeGreaterThan(metrics.rowThickness * 2);
   expect(metrics.scaleTickThickness).toBeGreaterThan(metrics.rowThickness * 2);
+  expect(metrics.scaleTickRole).toBe('scaleTick');
+  expect(metrics.scaleTickCollection).toBe('scale');
   expect(metrics.scaleStroke).toBe(1);
 
   await page.evaluate(() => {

@@ -458,4 +458,153 @@ describe('data view tab export menu', () => {
       reason: 'data-view-switch'
     });
   });
+
+  test('marks deterministic transforms replayable and user-edited derived views materialized', () => {
+    const manager = window.Shared.dataViews.createManager({ componentKey: 'unit' });
+    manager.initialize([
+      ['Gene', 'Value'],
+      ['A', 1],
+      ['B', 2]
+    ]);
+
+    const transformed = manager.applyTransform({ type: 'add', value: 1 }, {
+      transformOptions: { headerRows: 1, startCol: 1 }
+    });
+    expect(transformed.ok).toBe(true);
+    expect(manager.getActiveView()?.replayable).toBe(true);
+
+    manager.updateActiveData([
+      ['Gene', 'Value'],
+      ['A', 42],
+      ['B', 43]
+    ], { userMutation: true });
+
+    expect(manager.getActiveView()?.replayable).toBe(false);
+    const serialized = manager.serialize({ includeData: true });
+    expect(serialized.views[1].replayable).toBe(false);
+    expect(serialized.views[1].transformOptions).toEqual({ headerRows: 1, startCol: 1 });
+    expect(serialized.views[1].data[1][1]).toBe(42);
+  });
+
+  test('invalidates replayability recursively when a source DataView is edited', () => {
+    const manager = window.Shared.dataViews.createManager({ componentKey: 'unit' });
+    manager.initialize([
+      ['Gene', 'Value'],
+      ['A', 1],
+      ['B', 2]
+    ]);
+
+    const parent = manager.applyTransform({ type: 'add', value: 1 }, {
+      title: 'Parent',
+      transformOptions: { headerRows: 1, startCol: 1 }
+    });
+    expect(parent.ok).toBe(true);
+    const child = manager.applyTransform({ type: 'multiply', value: 2 }, {
+      title: 'Child',
+      transformOptions: { headerRows: 1, startCol: 1 }
+    });
+    expect(child.ok).toBe(true);
+    const sibling = manager.applyTransform({ type: 'subtract', value: 1 }, {
+      title: 'Raw sibling',
+      sourceViewId: 'raw',
+      transformOptions: { headerRows: 1, startCol: 1 }
+    });
+    expect(sibling.ok).toBe(true);
+
+    manager.activateView(parent.view.id);
+    manager.updateActiveData([
+      ['Gene', 'Value'],
+      ['A', 100],
+      ['B', 200]
+    ], { userMutation: true });
+
+    expect(manager.getView(parent.view.id)?.replayable).toBe(false);
+    expect(manager.getView(child.view.id)?.replayable).toBe(false);
+    expect(manager.getView(sibling.view.id)?.replayable).toBe(true);
+  });
+
+  test('invalidates every derived descendant when Raw is edited', () => {
+    const manager = window.Shared.dataViews.createManager({ componentKey: 'unit' });
+    manager.initialize([
+      ['Gene', 'Value'],
+      ['A', 1],
+      ['B', 2]
+    ]);
+
+    const parent = manager.applyTransform({ type: 'add', value: 1 }, {
+      transformOptions: { headerRows: 1, startCol: 1 }
+    });
+    const child = manager.applyTransform({ type: 'multiply', value: 2 }, {
+      transformOptions: { headerRows: 1, startCol: 1 }
+    });
+    expect(parent.ok).toBe(true);
+    expect(child.ok).toBe(true);
+
+    manager.activateView('raw');
+    manager.updateActiveData([
+      ['Gene', 'Value'],
+      ['A', 10],
+      ['B', 20]
+    ], { userMutation: true });
+
+    expect(manager.getView(parent.view.id)?.replayable).toBe(false);
+    expect(manager.getView(child.view.id)?.replayable).toBe(false);
+  });
+
+  test('programmatic source-matrix replacement invalidates replayable descendants', () => {
+    const manager = window.Shared.dataViews.createManager({ componentKey: 'unit' });
+    manager.initialize([
+      ['Gene', 'Value'],
+      ['A', 1],
+      ['B', 2]
+    ]);
+    const materialized = manager.createDerivedView({
+      title: 'Materialized source',
+      data: [
+        ['Gene', 'Value'],
+        ['A', 5],
+        ['B', 6]
+      ],
+      sourceViewId: 'raw',
+      transformSpec: { type: 'heatmapMaterialized' },
+      activate: true
+    });
+    const child = manager.applyTransform({ type: 'add', value: 1 }, {
+      sourceViewId: materialized.id,
+      transformOptions: { headerRows: 1, startCol: 1 }
+    });
+    expect(child.ok).toBe(true);
+    expect(manager.getView(child.view.id)?.replayable).toBe(true);
+
+    manager.updateViewData(materialized.id, [
+      ['Gene', 'Value'],
+      ['A', 50],
+      ['B', 60]
+    ], { invalidateDescendants: true });
+
+    expect(manager.getView(child.view.id)?.replayable).toBe(false);
+  });
+
+  test('serializes transform pipelines as replayable only when every step is deterministic', () => {
+    const manager = window.Shared.dataViews.createManager({ componentKey: 'unit' });
+    manager.initialize([
+      ['Gene', 'Value'],
+      ['A', 1],
+      ['B', 2]
+    ]);
+
+    const result = manager.applyPipeline([
+      { type: 'add', value: 1 },
+      { type: 'log2', pseudoCount: 1 }
+    ], {
+      transformOptions: { headerRows: 1, startCol: 1 }
+    });
+
+    expect(result.ok).toBe(true);
+    const serialized = manager.serialize({ includeData: true });
+    expect(serialized.views[1].transformSpec?.type).toBe('pipeline');
+    expect(serialized.views[1].transformOptions).toEqual({ headerRows: 1, startCol: 1 });
+    expect(serialized.views[1].replayable).toBe(true);
+  });
+
 });

@@ -1,10 +1,11 @@
 const fs = require('node:fs');
 const path = require('node:path');
+const { ensureGeneratedAssets } = require('../../scripts/generate-welcome-example-thumbnails.cjs');
 
 const desktopRoot = path.resolve(__dirname, '..');
 const repoRoot = path.resolve(desktopRoot, '..');
 const targetRoot = path.join(desktopRoot, 'app');
-const requiredEntries = ['index.html', 'css', 'js', 'libs'];
+const requiredEntries = ['index.html', 'css', 'js', 'libs', 'assets'];
 const nodeModulesRoots = [
   path.join(desktopRoot, 'node_modules'),
   path.join(repoRoot, 'node_modules')
@@ -235,7 +236,8 @@ function assertNoCdnDependencies() {
   }
 }
 
-function main() {
+async function main() {
+  await ensureGeneratedAssets();
   fs.rmSync(targetRoot, { recursive: true, force: true });
   fs.mkdirSync(targetRoot, { recursive: true });
   requiredEntries.forEach(copyEntry);
@@ -261,4 +263,7 @@ function main() {
   console.log(`[desktop:sync:web] synced ${requiredEntries.join(', ')} to ${targetRoot}`);
 }
 
-main();
+main().catch(error => {
+  console.error(error?.stack || error?.message || String(error));
+  process.exitCode = 1;
+});

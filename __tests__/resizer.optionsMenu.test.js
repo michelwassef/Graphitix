@@ -59,6 +59,57 @@ describe('Shared resizer graph options menu', () => {
     expect(tray.querySelector(':scope > .resizer-fontresize-control')).toBeNull();
   });
 
+  test('supports an immutable aspect policy without exposing a Lock ratio control', () => {
+    const box = createSvgBox();
+    box.dataset.resizerAspectLocked = 'false';
+
+    window.Shared.attachResizableBox(box, {
+      defaultWidth: 420,
+      defaultHeight: 320,
+      minWidth: 120,
+      minHeight: 90,
+      forceAspectLocked: true,
+      showAspectControl: false
+    });
+
+    expect(box.querySelector('.resizer-aspect-control')).toBeNull();
+    expect(box.querySelector('.resizer-aspect-checkbox')).toBeNull();
+    expect(box.dataset.resizerAspectLocked).toBe('true');
+    expect(box.__sharedResizableBoxApi.getState().aspectLocked).toBe(true);
+
+    box.__sharedResizableBoxApi.setAspectLocked(false, { reason: 'test-forced-policy' });
+    expect(box.dataset.resizerAspectLocked).toBe('true');
+    expect(box.__sharedResizableBoxApi.getState().aspectLocked).toBe(true);
+  });
+
+  test('immutable aspect policy cannot be bypassed by a programmatic simulated unlock', () => {
+    const box = createSvgBox();
+
+    window.Shared.attachResizableBox(box, {
+      defaultWidth: 420,
+      defaultHeight: 320,
+      minWidth: 120,
+      minHeight: 90,
+      forceAspectLocked: true,
+      showAspectControl: false
+    });
+
+    box.__sharedResizableBoxApi.applySize({
+      axis: 'x',
+      width: 500,
+      reason: 'test-forced-programmatic-axis-resize',
+      updateAspectRatio: false,
+      preserveAspectLock: true,
+      forceExact: true,
+      simulateAspectLock: false
+    });
+
+    const state = box.__sharedResizableBoxApi.getState();
+    expect(state.forcedAspectLocked).toBe(true);
+    expect(state.aspectLocked).toBe(true);
+    expect(box.dataset.resizerAspectLocked).toBe('true');
+  });
+
   test('adds tab-scoped graph and axes title controls when font controls are available', () => {
     const setRoleVisibility = jest.fn(() => true);
     const recordStateChange = jest.fn();

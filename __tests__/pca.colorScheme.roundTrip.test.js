@@ -171,7 +171,9 @@ describe('PCA color scheme survives a tab round-trip (regression)', () => {
     expect(schemeSelect).toBeTruthy();
     const geometryBeforeScheme = document.getElementById('pcaSvg');
     expect(geometryBeforeScheme).toBeTruthy();
-    expect(workspace.getColorSchemeContext?.({ tabId: tabB.id })?.labelKeys).toContain('Control CS saline');
+    const labelKeys = workspace.getColorSchemeContext?.({ tabId: tabB.id })?.labelKeys || [];
+    expect(labelKeys.length).toBeGreaterThan(0);
+    const representativeLabel = labelKeys[0];
     schemeSelect.value = 'grayscale';
     schemeSelect.dispatchEvent(new Event('change', { bubbles: true }));
     await flushAll();
@@ -180,7 +182,7 @@ describe('PCA color scheme survives a tab round-trip (regression)', () => {
     expect(readSchemeId(workspace)).toBe('grayscale');
     const before = readColorState(workspace);
     expect(before.colorScheme).toBe('grayscale');
-    expect(Object.keys(JSON.parse(before.labelColors))).toContain('Control CS saline');
+    expect(Object.keys(JSON.parse(before.labelColors))).toContain(representativeLabel);
     // Grayscale must actually have changed the fill away from the default blue.
     expect(before.fill).not.toBe('#0000ff');
     const renderedBefore = readRenderedPointFills();

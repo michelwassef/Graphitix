@@ -1030,6 +1030,18 @@
     return out;
   }
 
+  function clearStyleMapColorFields(styleMap, options){
+    const map = ensureObject(styleMap);
+    const out = {};
+    Object.keys(map).forEach(key => {
+      const style = clearStyleColorFields(map[key], options);
+      if(Object.keys(style).length){
+        out[key] = style;
+      }
+    });
+    return out;
+  }
+
   function recolorStyleMap(styleMap, keys, palette, options){
     const map = ensureObject(styleMap);
     const keyList = uniqueStrings(keys);
@@ -1052,7 +1064,20 @@
     const map = ensureObject(styleMap);
     const keys = Object.keys(map);
     if(!keys.length) return map;
-    return recolorStyleMap(map, keys, palette, options);
+    const colors = ensureArray(palette);
+    if(!colors.length) return map;
+    const out = {};
+    keys.forEach((key, position) => {
+      const numericKey = Number(key);
+      const paletteIndex = Number.isInteger(numericKey) && numericKey >= 0
+        ? numericKey
+        : position;
+      out[key] = patchStyleColorFields(map[key], {
+        ...options,
+        fill: colors[paletteIndex % colors.length]
+      });
+    });
+    return out;
   }
 
   function pickSequentialColor(scheme, index, fallback){
@@ -1544,6 +1569,30 @@
           cfg.grouped.colors = Array.from({ length: groupCount }, (_, i) => categorical[i % categorical.length]);
         }
       }
+      if(cfg.pointStyleScopes && typeof cfg.pointStyleScopes === 'object'){
+        const scopes = cfg.pointStyleScopes;
+        scopes.global = {
+          ...ensureObject(scopes.global),
+          fill: cfg.fill,
+          borderColor: cfg.border
+        };
+        const groupStyles = ensureObject(scopes.groups);
+        const groupKeys = Object.keys(groupStyles);
+        scopes.groups = recolorStyleMap(groupStyles, groupKeys, categorical, {
+          force: true,
+          fillFields: ['fill', 'color'],
+          stroke: tokens.borderColor || null,
+          strokeFields: ['borderColor', 'stroke']
+        });
+        const pointStyles = ensureObject(scopes.points);
+        const pointKeys = Object.keys(pointStyles);
+        scopes.points = recolorStyleMap(pointStyles, pointKeys, categorical, {
+          force: true,
+          fillFields: ['fill', 'color'],
+          stroke: tokens.borderColor || null,
+          strokeFields: ['borderColor', 'stroke']
+        });
+      }
       applyAxisTokens(cfg, scheme);
       return next;
     }
@@ -1623,11 +1672,16 @@
           fillFields: ['fill', 'color'],
           strokeFields: ['stroke', 'borderColor', 'border']
         });
-      cfg.shapeStyles = recolorIndexedStyleMap(cfg.shapeStyles, resolvedBoxPalette, {
-        fillFields: ['fill', 'color'],
-        stroke: unifiedBorder || tokens.borderColor || null,
-        strokeFields: ['stroke', 'borderColor', 'border']
-      });
+      cfg.shapeStyles = forceColors
+        ? clearStyleMapColorFields(cfg.shapeStyles, {
+          fillFields: ['fill', 'color'],
+          strokeFields: ['stroke', 'borderColor', 'border']
+        })
+        : recolorIndexedStyleMap(cfg.shapeStyles, resolvedBoxPalette, {
+          fillFields: ['fill', 'color'],
+          stroke: unifiedBorder || tokens.borderColor || null,
+          strokeFields: ['stroke', 'borderColor', 'border']
+        });
       cfg.pointGlobalStyle = forceColors
         ? clearStyleColorFields(cfg.pointGlobalStyle, {
           fillFields: ['fill', 'color', 'markerFill'],
@@ -1640,11 +1694,16 @@
           fillFields: ['fill', 'color', 'markerFill'],
           strokeFields: ['stroke', 'borderColor', 'markerStroke', 'border']
         });
-      cfg.pointStyles = recolorIndexedStyleMap(cfg.pointStyles, resolvedBoxPalette, {
-        fillFields: ['fill', 'color', 'markerFill'],
-        stroke: unifiedBorder || tokens.borderColor || null,
-        strokeFields: ['stroke', 'borderColor', 'markerStroke', 'border']
-      });
+      cfg.pointStyles = forceColors
+        ? clearStyleMapColorFields(cfg.pointStyles, {
+          fillFields: ['fill', 'color', 'markerFill'],
+          strokeFields: ['stroke', 'borderColor', 'markerStroke', 'border']
+        })
+        : recolorIndexedStyleMap(cfg.pointStyles, resolvedBoxPalette, {
+          fillFields: ['fill', 'color', 'markerFill'],
+          stroke: unifiedBorder || tokens.borderColor || null,
+          strokeFields: ['stroke', 'borderColor', 'markerStroke', 'border']
+        });
       cfg.summaryGlobalStyle = forceColors
         ? clearStyleColorFields(cfg.summaryGlobalStyle, {
           fillFields: ['color']
@@ -1659,10 +1718,12 @@
           force: false,
           fillFields: ['color']
         });
-      cfg.summaryStyles = recolorIndexedStyleMap(cfg.summaryStyles, grayscaleMode ? ['#000000'] : resolvedBoxPalette, {
-        force: true,
-        fillFields: ['color']
-      });
+      cfg.summaryStyles = forceColors
+        ? clearStyleMapColorFields(cfg.summaryStyles, { fillFields: ['color'] })
+        : recolorIndexedStyleMap(cfg.summaryStyles, grayscaleMode ? ['#000000'] : resolvedBoxPalette, {
+          force: false,
+          fillFields: ['color']
+        });
       applyAxisTokens(cfg, scheme);
       return next;
     }
@@ -1849,6 +1910,11 @@
       addDatasetColorMap(slots, 'config.labelColors', cfg.labelColors);
       addDatasetStyleMap(slots, 'config.labelPointStyles', cfg.labelPointStyles);
       addDatasetColorArray(slots, 'config.grouped.colors', cfg.grouped?.colors);
+      const individualPointStyles = Object.fromEntries(
+        Object.entries(ensureObject(cfg.pointStyleScopes?.points))
+          .filter(([key]) => String(key).startsWith('column:'))
+      );
+      addDatasetStyleMap(slots, 'config.pointStyleScopes.points', individualPointStyles);
     }else if(type === 'line'){
       addDatasetColorMap(slots, 'config.labelColors', cfg.labelColors);
       addDatasetStyleMap(slots, 'config.seriesStyles', cfg.seriesStyles);
@@ -2202,6 +2268,19 @@
         assignIfPresent(out, 'border', projectColorScalar(cfg, 'border', refCfg));
         assignIfPresent(out, 'labelColors', extractColorMap(cfg.labelColors, refCfg.labelColors));
         assignIfPresent(out, 'labelPointStyles', extractStyleMapColorFields(cfg.labelPointStyles, refCfg.labelPointStyles));
+        if(cfg.pointStyleScopes?.points || refCfg.pointStyleScopes?.points){
+          const scopedPoints = Object.fromEntries(
+            Object.entries(ensureObject(cfg.pointStyleScopes?.points))
+              .filter(([key]) => String(key).startsWith('column:'))
+          );
+          const referencePoints = Object.fromEntries(
+            Object.entries(ensureObject(refCfg.pointStyleScopes?.points))
+              .filter(([key]) => String(key).startsWith('column:'))
+          );
+          assignIfPresent(out, 'pointStyleScopes', {
+            points: extractStyleMapColorFields(scopedPoints, referencePoints)
+          });
+        }
         if(cfg.grouped || refCfg.grouped){
           assignIfPresent(out, 'groupedColors', extractColorArray(cfg.grouped?.colors, refCfg.grouped?.colors));
         }
@@ -2400,6 +2479,10 @@
       return false;
     }
     const nextPayload = cloneThemePayload(payload, type);
+    if(type === 'scatter'){
+      nextPayload.config = ensureObject(nextPayload.config);
+      nextPayload.config.colorSchemeUserOverride = true;
+    }
     const reason = opts.reason || `color-scheme-${type}`;
     if(typeof session.commitTabPayload === 'function'){
       session.commitTabPayload(tab, nextPayload, { reason, origin: 'user' });
@@ -3094,6 +3177,10 @@
 
   namespace.applyToActiveTab = function applyToActiveTab(type, schemeId, options){
     return applySchemeToActiveTab(type, schemeId, options);
+  };
+
+  namespace.refreshActiveTabVisuals = function refreshActiveTabVisuals(reason, options){
+    syncActiveTabVisuals(reason || 'color-scheme-external-state-change', options);
   };
 
   // Apply a scheme to an arbitrary payload without mutating global defaults.

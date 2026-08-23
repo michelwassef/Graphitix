@@ -574,6 +574,57 @@ test('flipped adaptive whiskers clear full-width P-value labels', async ({ page 
   expect(issues.critical).toEqual([]);
 });
 
+test('box versus-reference significance stacks correctly when the reference is the last dataset', async ({ page }) => {
+  test.setTimeout(90_000);
+  const issues = registerIssueCollectors(page);
+  await installLocalCdnOverrides(page);
+
+  await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
+  await expect(page.locator('#welcomeScreen')).toBeVisible();
+  await openComponentFromWelcome(page, { type: 'box', pageId: 'boxPage' }, { first: true });
+  await loadBoxExampleData(page);
+  await page.locator('#boxGraphType').selectOption('strip');
+  await page.waitForTimeout(300);
+
+  await page.locator('#boxStatsScope').selectOption('reference');
+  await page.waitForFunction(() => Array.from(document.querySelectorAll('label')).some(label => label.textContent?.trim() === 'Reference:'));
+  const referenceIndex = await page.evaluate(() => {
+    const label = Array.from(document.querySelectorAll('label')).find(node => node.textContent?.trim() === 'Reference:');
+    const select = label?.parentElement?.querySelector('select');
+    if (!select || !select.options.length) {
+      throw new Error('Reference selector is unavailable');
+    }
+    const lastIndex = select.options.length - 1;
+    select.value = String(lastIndex);
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+    return lastIndex;
+  });
+  expect(referenceIndex).toBe(5);
+
+  await ensureBoxStatsAndSignificanceReady(page);
+  await setBoxSignificanceToggle(page, true);
+  await waitForVerticalSignificanceAnnotations(page);
+  await page.waitForTimeout(700);
+
+  const layout = await page.evaluate(() => {
+    const state = window.Components?.box?.__getState?.() || null;
+    const paths = Array.from(document.querySelectorAll('#boxPlot path.box-significance-annotation[data-sig-orientation="vertical"]'));
+    return {
+      pairCount: paths.length,
+      levels: paths.map(path => Number(path.getAttribute('data-sig-level'))).filter(Number.isFinite).sort((a, b) => a - b),
+      modelPairs: Array.isArray(state?.statsLastAnnotationModel?.pairs)
+        ? state.statsLastAnnotationModel.pairs.map(pair => ({ ai: pair.ai, bi: pair.bi }))
+        : []
+    };
+  });
+
+  expect(layout.pairCount).toBe(5);
+  expect(layout.levels).toEqual([0, 1, 2, 3, 4]);
+  expect(layout.modelPairs).toHaveLength(5);
+  expect(layout.modelPairs.every(pair => pair.ai === 5 && pair.bi >= 0 && pair.bi < 5)).toBe(true);
+  expect(issues.critical).toEqual([]);
+});
+
 test('box pairwise significance stays stable without manual resize and after tab restore', async ({ page }) => {
   test.setTimeout(120_000);
   const issues = registerIssueCollectors(page);

@@ -214,8 +214,10 @@
     if(!Number.isFinite(numeric)){
       return '0px';
     }
-    const rounded = Math.round(numeric * 10) / 10;
-    return `${rounded}px`;
+    const toolbarApi = Shared.getWorkspaceToolbarApi?.() || Shared.workspaceToolbar || null;
+    const formatted = toolbarApi?.formatNumericValue?.(numeric, thicknessInput?.step || 0.25)
+      || String(Math.round(numeric * 100) / 100);
+    return `${formatted}px`;
   }
 
   function syncStyleChipUi(){
@@ -259,21 +261,33 @@
     input.step = thicknessInput?.step || '0.25';
     input.value = thicknessInput?.value || '1';
     input.setAttribute('aria-label', controls.thicknessLabel || 'Line width');
-    input.addEventListener('input', () => {
-      if(!thicknessInput){ return; }
-      thicknessInput.value = input.value;
-      thicknessInput.dispatchEvent(new Event('input', { bubbles: true }));
-    });
-    input.addEventListener('change', () => {
-      if(!thicknessInput){ return; }
-      thicknessInput.value = input.value;
-      thicknessInput.dispatchEvent(new Event('change', { bubbles: true }));
-    });
+    const toolbarApi = Shared.getWorkspaceToolbarApi?.() || Shared.workspaceToolbar || null;
+    const mirrorCleanup = typeof toolbarApi?.bindNumericInputMirror === 'function'
+      ? toolbarApi.bindNumericInputMirror(input, thicknessInput)
+      : (() => {
+          const onInput = () => {
+            if(!thicknessInput){ return; }
+            thicknessInput.value = input.value;
+            thicknessInput.dispatchEvent(new Event('input', { bubbles: true }));
+          };
+          const onChange = () => {
+            if(!thicknessInput){ return; }
+            thicknessInput.value = input.value;
+            thicknessInput.dispatchEvent(new Event('change', { bubbles: true }));
+          };
+          input.addEventListener('input', onInput);
+          input.addEventListener('change', onChange);
+          return () => {
+            input.removeEventListener('input', onInput);
+            input.removeEventListener('change', onChange);
+          };
+        })();
     field.appendChild(input);
     row.appendChild(field);
     section.appendChild(row);
     overlayEl.insertBefore(section, overlayEl.firstChild || null);
     return () => {
+      mirrorCleanup();
       if(section.parentNode){
         section.parentNode.removeChild(section);
       }
@@ -809,6 +823,7 @@
       if(panelEl.contains(target)){ return; }
       if(activeConfig?.keepOpenWithinHost && activeHost && typeof activeHost.contains === 'function' && activeHost.contains(target)){ return; }
       if(isGridClickTarget(target)){ return; }
+      if(typeof Shared.isColorPickerOpenFor === 'function' && (Shared.isColorPickerOpenFor(panelEl) || Shared.isColorPickerOpenFor(activeHost))){ return; }
       if(target?.closest && (target.closest('.shared-color-picker') || target.closest('[data-font-controls-overlay="1"]'))){ return; }
       closePanel('outside');
     });
@@ -912,45 +927,69 @@
     transparencyField.appendChild(transparencyWrap);
     fieldsRowEl.appendChild(transparencyField);
 
-    thicknessInput.addEventListener('input', () => {
+    let thicknessInteraction = null;
+    const applyThicknessFromInput = commit => {
       if(applyingSync){ return; }
       if(!activeConfig || typeof activeConfig.onStyleChange !== 'function'){ return; }
       const config = activeConfig;
       const context = getContext();
       const baseStyle = sanitizeStyle(typeof config.getStyle === 'function' ? config.getStyle(context) : null, config.defaults);
-      const previousThickness = sanitizeThickness(baseStyle.thickness, DEFAULTS.thickness);
-      const nextThickness = sanitizeThickness(thicknessInput.value, previousThickness);
+      if(
+        !thicknessInteraction
+        || thicknessInteraction.config !== config
+        || thicknessInteraction.target !== context.target
+      ){
+        thicknessInteraction = {
+          config,
+          target: context.target,
+          previousThickness: sanitizeThickness(baseStyle.thickness, DEFAULTS.thickness)
+        };
+      }
+      const nextThickness = sanitizeThickness(thicknessInput.value, thicknessInteraction.previousThickness);
       const style = Object.assign({}, baseStyle, { thickness: nextThickness });
       try{
         config.onStyleChange(style, context);
       }catch(err){
         logDebug('onStyleChange(thickness) failed', { error: err?.message || String(err) });
       }
-      recordGridStateChange(config, context.target, 'thickness', previousThickness, nextThickness, value => {
-        const applyContext = buildContext(config, context.target);
+      const resolvedStyle = sanitizeStyle(typeof config.getStyle === 'function' ? config.getStyle(context) : style, config.defaults);
+      const resolvedThickness = sanitizeThickness(resolvedStyle.thickness, nextThickness);
+      syncPanelFromConfig(config);
+      if(!commit){
+        return;
+      }
+      const previousThickness = thicknessInteraction.previousThickness;
+      const undoTarget = thicknessInteraction.target;
+      thicknessInteraction = null;
+      recordGridStateChange(config, undoTarget, 'thickness', previousThickness, resolvedThickness, value => {
+        const applyContext = buildContext(config, undoTarget);
         const current = sanitizeStyle(typeof config.getStyle === 'function' ? config.getStyle(applyContext) : null, config.defaults);
         const applied = Object.assign({}, current, { thickness: sanitizeThickness(value, current.thickness) });
         config.onStyleChange(applied, applyContext);
       });
-      syncPanelFromConfig(config);
+    };
+
+    thicknessInput.addEventListener('input', () => applyThicknessFromInput(false));
+    thicknessInput.addEventListener('change', () => applyThicknessFromInput(true));
+    (Shared.getWorkspaceToolbarApi?.() || Shared.workspaceToolbar)?.bindNumericWheelEnd?.(thicknessInput, detail => {
+      if(detail.committed !== true){
+        thicknessInteraction = null;
+      }
     });
 
     if(styleChipEl){
-      styleChipEl.addEventListener('wheel', evt => {
-        evt.preventDefault();
-        const step = evt.deltaY < 0 ? 0.5 : -0.5;
-        const current = sanitizeThickness(thicknessInput?.value, DEFAULTS.thickness);
-        const next = Math.max(0, current + step);
-        if(thicknessInput){
-          thicknessInput.value = String(next);
-          thicknessInput.dispatchEvent(new Event('input', { bubbles: true }));
-        }
-      }, { passive: false });
+      const toolbarApi = Shared.getWorkspaceToolbarApi();
+      if(typeof toolbarApi.bindNumericWheelProxy === 'function'){
+        toolbarApi.bindNumericWheelProxy(styleChipEl, thicknessInput);
+      }
       const onStyleDragMove = evt => {
         if(!styleDragState || !thicknessInput){ return; }
         const deltaX = evt.clientX - styleDragState.startX;
         const steps = Math.round(deltaX / 8);
-        const next = Math.max(0, styleDragState.startValue + (steps * 0.5));
+        const dragStep = typeof toolbarApi.getNumericWheelStep === 'function'
+          ? toolbarApi.getNumericWheelStep(thicknessInput)
+          : (Number(thicknessInput.step) || 0.25);
+        const next = Math.max(0, styleDragState.startValue + (steps * dragStep));
         thicknessInput.value = String(next);
         thicknessInput.dispatchEvent(new Event('input', { bubbles: true }));
       };
@@ -1210,7 +1249,10 @@
         : 'grid';
       const toolbarApi = Shared.getWorkspaceToolbarApi();
       if(typeof toolbarApi.showHost === 'function'){
-        toolbarApi.showHost(host, { hostClasses: ['font-toolbar-host--grid-dual', typeof config.hostClass === 'string' ? config.hostClass : ''].filter(Boolean) });
+        toolbarApi.showHost(host, {
+          hostClasses: ['font-toolbar-host--grid-dual', typeof config.hostClass === 'string' ? config.hostClass : ''].filter(Boolean),
+          ownerTabId: normalizeTabId(config.ownerTabId)
+        });
         host.classList.add('font-toolbar-host--grid');
         if(requestedHostDisplay !== 'flex'){
           host.style.display = requestedHostDisplay;
@@ -1290,6 +1332,9 @@
         ? global.requestAnimationFrame.bind(global)
         : (fn => global.setTimeout(fn, 0));
       enqueue(() => {
+        if(!isOwnerActive(openCfg)){
+          return;
+        }
         try{
           openPanel(openCfg);
         }catch(err){

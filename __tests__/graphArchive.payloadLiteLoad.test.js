@@ -58,7 +58,15 @@ describe('graphArchive payload lite load', () => {
           activeViewId: 'view-2',
           views: [
             { id: 'raw', kind: 'raw', title: 'Raw' },
-            { id: 'view-2', kind: 'derived', title: 'Derived', sourceViewId: 'raw', transformSpec: { type: 'add', value: 1 } }
+            {
+              id: 'view-2',
+              kind: 'derived',
+              title: 'Derived',
+              sourceViewId: 'raw',
+              replayable: true,
+              transformOptions: { headerRows: 0, startCol: 0 },
+              transformSpec: { type: 'add', value: 1 }
+            }
           ]
         },
         activeDataViewId: 'view-2'
@@ -90,6 +98,56 @@ describe('graphArchive payload lite load', () => {
     expect(Array.isArray(payload.dataViews.views[1].data)).toBe(true);
     expect(payload.dataViews.views[1].data.length).toBe(2);
     expect(transformsApi.applyTransform).toHaveBeenCalled();
+  });
+
+  test('full payload mode reconciles stale top-level data to the serialized Raw DataView', async () => {
+    const files = {
+      'manifest.json': JSON.stringify({
+        format: 'venn-graph-archive',
+        version: 3,
+        scope: 'tab',
+        activeIndex: 0,
+        tabCount: 1,
+        tabs: [{
+          index: 0,
+          title: 'XY Plots',
+          type: 'scatter',
+          payloadMode: 'full',
+          rawDataMode: 'matrix',
+          files: {
+            payload: 'tabs/XY Plots/payload.json'
+          }
+        }]
+      }),
+      'tabs/XY Plots/payload.json': JSON.stringify({
+        type: 'scatter',
+        data: [['DERIVED-ACTIVE-PROJECTION']],
+        dataViews: {
+          version: 3,
+          activeViewId: 'view-2',
+          views: [
+            { id: 'raw', kind: 'raw', title: 'Raw', data: [['RAW'], ['10']] },
+            {
+              id: 'view-2',
+              kind: 'derived',
+              title: 'Derived',
+              sourceViewId: 'raw',
+              transformSpec: { type: 'log10' },
+              data: [['DERIVED-ACTIVE-PROJECTION']]
+            }
+          ]
+        },
+        activeDataViewId: 'view-2'
+      })
+    };
+    const graphArchive = installGraphArchiveWithZipLoadMock(files, null);
+
+    const parsed = await graphArchive.parseArchiveBuffer(new Uint8Array([0x50, 0x4b, 0x03, 0x04]).buffer);
+    const payload = parsed.session.tabs[0].payload;
+
+    expect(payload.data).toEqual([['RAW'], ['10']]);
+    expect(payload.dataViews.activeViewId).toBe('view-2');
+    expect(payload.dataViews.views[1].data).toEqual([['DERIVED-ACTIVE-PROJECTION']]);
   });
 
   test('replays a sparse PCA RNA-seq filtered view from canonical raw data', async () => {
@@ -128,6 +186,8 @@ describe('graphArchive payload lite load', () => {
               kind: 'derived',
               title: 'RNA-seq log (filtered genes)',
               sourceViewId: 'raw',
+              replayable: true,
+              transformOptions: { headerRows: 2, startCol: 1 },
               transformSpec: {
                 type: 'rnaSeqNormalizedLog',
                 headerRows: 2,
@@ -159,4 +219,129 @@ describe('graphArchive payload lite load', () => {
     expect(payload.dataViews.views[1].data.slice(2).map(row => row[0]))
       .toEqual(['variable-d', 'variable-b']);
   });
+
+  test('replays deterministic transform pipelines whose matrices were omitted from lite payloads', async () => {
+    const files = {
+      'manifest.json': JSON.stringify({
+        format: 'venn-graph-archive',
+        version: 3,
+        scope: 'tab',
+        activeIndex: 0,
+        tabCount: 1,
+        tabs: [{
+          index: 0,
+          title: 'Pipeline',
+          type: 'scatter',
+          payloadMode: 'lite',
+          rawDataMode: 'matrix',
+          files: {
+            payload: 'tabs/Pipeline/payload.json',
+            rawCsv: 'tabs/Pipeline/raw/data.csv'
+          }
+        }]
+      }),
+      'tabs/Pipeline/payload.json': JSON.stringify({
+        type: 'scatter',
+        dataViews: {
+          version: 3,
+          activeViewId: 'pipeline-view',
+          views: [
+            { id: 'raw', kind: 'raw', title: 'Raw' },
+            {
+              id: 'pipeline-view',
+              kind: 'derived',
+              title: 'Pipeline',
+              sourceViewId: 'raw',
+              replayable: true,
+              transformOptions: { headerRows: 1, startCol: 1 },
+              transformSpec: {
+                type: 'pipeline',
+                specs: [{ type: 'add', value: 1 }, { type: 'log2', pseudoCount: 1 }]
+              }
+            }
+          ]
+        },
+        activeDataViewId: 'pipeline-view'
+      }),
+      'tabs/Pipeline/raw/data.csv': 'A,B\r\n1,2'
+    };
+    const transformsApi = {
+      applyTransform: jest.fn(),
+      applyPipeline: jest.fn((matrix, specs) => ({
+        ok: true,
+        data: [['A', 'B'], [1.5, 2]],
+        steps: specs.map(spec => ({ ok: true, spec }))
+      }))
+    };
+    const graphArchive = installGraphArchiveWithZipLoadMock(files, transformsApi);
+
+    const parsed = await graphArchive.parseArchiveBuffer(new Uint8Array([0x50, 0x4b, 0x03, 0x04]).buffer);
+    const payload = parsed.session.tabs[0].payload;
+
+    expect(transformsApi.applyPipeline).toHaveBeenCalledWith(
+      payload.dataViews.views[0].data,
+      [{ type: 'add', value: 1 }, { type: 'log2', pseudoCount: 1 }],
+      { headerRows: 1, startCol: 1, componentKey: 'graph-archive' }
+    );
+    expect(transformsApi.applyTransform).not.toHaveBeenCalled();
+    expect(payload.dataViews.views[1].data).toEqual([['A', 'B'], [1.5, 2]]);
+  });
+
+  test('retains non-replayable lite DataViews verbatim instead of attempting reconstruction', async () => {
+    const files = {
+      'manifest.json': JSON.stringify({
+        format: 'venn-graph-archive',
+        version: 3,
+        scope: 'tab',
+        activeIndex: 0,
+        tabCount: 1,
+        tabs: [{
+          index: 0,
+          title: 'Heatmap',
+          type: 'heatmap',
+          payloadMode: 'lite',
+          rawDataMode: 'matrix',
+          files: {
+            payload: 'tabs/Heatmap/payload.json',
+            rawCsv: 'tabs/Heatmap/raw/data.csv'
+          }
+        }]
+      }),
+      'tabs/Heatmap/payload.json': JSON.stringify({
+        type: 'heatmap',
+        dataViews: {
+          version: 3,
+          activeViewId: 'correlation',
+          views: [
+            { id: 'raw', kind: 'raw', title: 'Raw' },
+            {
+              id: 'correlation',
+              kind: 'derived',
+              title: 'Correlation',
+              sourceViewId: 'raw',
+              replayable: false,
+              transformSpec: { type: 'heatmapCorrelationMatrix' },
+              data: [['Feature', 'A'], ['A', 1]]
+            }
+          ]
+        },
+        activeDataViewId: 'correlation'
+      }),
+      'tabs/Heatmap/raw/data.csv': 'Feature,A\r\nA,10'
+    };
+    const transformsApi = {
+      applyTransform: jest.fn(),
+      applyPipeline: jest.fn()
+    };
+    const graphArchive = installGraphArchiveWithZipLoadMock(files, transformsApi);
+
+    const parsed = await graphArchive.parseArchiveBuffer(new Uint8Array([0x50, 0x4b, 0x03, 0x04]).buffer);
+    const payload = parsed.session.tabs[0].payload;
+
+    expect(payload.data).toEqual([['Feature', 'A'], ['A', '10']]);
+    expect(payload.dataViews.views[1].data).toEqual([['Feature', 'A'], ['A', 1]]);
+    expect(transformsApi.applyTransform).not.toHaveBeenCalled();
+    expect(transformsApi.applyPipeline).not.toHaveBeenCalled();
+  });
+
 });

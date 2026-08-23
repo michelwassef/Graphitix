@@ -47,6 +47,42 @@ describe('Shared stats reporting layout', () => {
     expect(target.querySelector('.stats-results-advanced-panel .stats-report-panel')).toBeNull();
   });
 
+  test('appending a report synchronously installs p-value controls on its tracked panel', () => {
+    const target = document.createElement('div');
+    target.id = 'pieStatsResults';
+    const table = document.createElement('table');
+    table.innerHTML = '<tbody><tr><th>P value</th><td>0.004</td></tr></tbody>';
+    target.appendChild(table);
+    document.body.appendChild(target);
+
+    global.Shared.statsReporting.appendReportPanel(target, {
+      methodsText: 'A chi-square test was used.',
+      resultsParts: ['p = ', { type: 'pValue', value: 0.004 }, '.']
+    });
+
+    expect(target.querySelector(':scope > .stats-significance-controls')).toBeTruthy();
+    expect(target.querySelector('.stats-significance-controls__input')?.value).toBe('0.05');
+    expect(target.querySelector('.stats-pvalue-format-inline')).toBeTruthy();
+    expect(target.querySelector('td .stats-significance-badge')?.textContent).toBe('**');
+  });
+
+  test('a separate report host enhances its tracked ancestor, not the host itself', () => {
+    const target = document.createElement('div');
+    target.id = 'scatterStatsResults';
+    const reportHost = document.createElement('div');
+    reportHost.className = 'stats-report-host';
+    target.appendChild(reportHost);
+    document.body.appendChild(target);
+
+    global.Shared.statsReporting.appendReportPanel(reportHost, {
+      methodsText: 'Regression inference was used.',
+      resultsText: 'The model was significant.'
+    });
+
+    expect(target.querySelector(':scope > .stats-significance-controls')).toBeTruthy();
+    expect(reportHost.querySelector(':scope > .stats-significance-controls')).toBeNull();
+  });
+
   test('explicit diagnostics stay collapsed while reporting remains a separate bottom section', async () => {
     const target = document.createElement('div');
     target.id = 'pieStatsResults';

@@ -522,6 +522,84 @@ describe('Box layout reserves under horizontal shrink', () => {
     }
   });
 
+  test('violin extent controls axis tails, preserves point-mode geometry, and uses closed stroked caps', async () => {
+    await activateWorkspace('box');
+    await loadBoxExample();
+
+    const graphType = getBoxNodeById('boxGraphType');
+    const pointMode = getBoxNodeById('boxPointMode');
+    const extentMode = getBoxNodeById('boxViolinExtent');
+    const state = window.Components?.box?.__getState?.();
+    expect(graphType).toBeTruthy();
+    expect(pointMode).toBeTruthy();
+    expect(extentMode).toBeTruthy();
+    expect(state?.scheduleDraw).toBeInstanceOf(Function);
+    expect(state?.hot?.loadData).toBeInstanceOf(Function);
+    state.hot.loadData([
+      ['Control', 'Extreme'],
+      [4, 8],
+      [5, 9],
+      [6, 10],
+      [7, 11],
+      [8, 50],
+      [9, 55],
+      [10, 60]
+    ], {
+      source: 'test:box-violin-soft-tail',
+      recordUndo: false
+    });
+    await flushAsyncWork(50);
+
+    const setViolinMode = async (extent, mode) => {
+      const previousDrawToken = Number(state.drawToken) || 0;
+      graphType.value = 'violin';
+      graphType.dispatchEvent(new Event('change', { bubbles: true }));
+      extentMode.value = extent;
+      extentMode.dispatchEvent(new Event('change', { bubbles: true }));
+      pointMode.value = mode;
+      pointMode.dispatchEvent(new Event('change', { bubbles: true }));
+      await waitFor(() => (Number(state.drawToken) || 0) > previousDrawToken, {
+        timeout: 15_000,
+        interval: 40
+      });
+      await flushAsyncWork(50);
+      const svg = getCommittedBoxSvg();
+      const numericTicks = Array.from(svg?.querySelectorAll?.('[data-box-axis-tick="y"]') || [])
+        .map(node => Number(String(node.textContent || '').replace(/[^0-9+-.eE]/g, '')))
+        .filter(Number.isFinite);
+      const violinPaths = Array.from(svg?.querySelectorAll?.('path[data-box-violin-extent]') || [])
+        .map(node => ({
+          d: node.getAttribute('d'),
+          stroke: node.getAttribute('stroke'),
+          extent: node.getAttribute('data-box-violin-extent')
+        }));
+      return { numericTicks, violinPaths };
+    };
+
+    const trimmedHidden = await setViolinMode('trimmed', 'none');
+    const trimmedOverlay = await setViolinMode('trimmed', 'overlay');
+    const extendedHidden = await setViolinMode('extended', 'none');
+    const extendedOverlay = await setViolinMode('extended', 'overlay');
+
+    expect(trimmedHidden.numericTicks.length).toBeGreaterThan(1);
+    expect(Math.max(...trimmedHidden.numericTicks)).toBeGreaterThanOrEqual(60);
+    expect(trimmedHidden.numericTicks).toEqual(trimmedOverlay.numericTicks);
+    expect(trimmedHidden.violinPaths.length).toBeGreaterThan(0);
+    expect(trimmedHidden.violinPaths).toEqual(trimmedOverlay.violinPaths);
+    trimmedHidden.violinPaths.forEach(path => {
+      expect(path.extent).toBe('trimmed');
+      expect(path.stroke).toBeTruthy();
+      expect(path.stroke).not.toBe('none');
+      expect(path.d.trim().endsWith('Z')).toBe(true);
+    });
+
+    expect(Math.max(...extendedHidden.numericTicks)).toBeGreaterThan(Math.max(...trimmedHidden.numericTicks));
+    expect(extendedHidden.numericTicks).toEqual(extendedOverlay.numericTicks);
+    expect(extendedHidden.violinPaths).toEqual(extendedOverlay.violinPaths);
+    expect(extendedHidden.violinPaths.every(path => path.extent === 'extended')).toBe(true);
+    expect(extendedHidden.violinPaths.map(path => path.d)).not.toEqual(trimmedHidden.violinPaths.map(path => path.d));
+  });
+
   test('x-label inset moves the y-axis with datasets while labels rotate on 50% width shrink (no significance)', async () => {
     await activateWorkspace('box');
     await loadBoxExample();
@@ -554,6 +632,33 @@ describe('Box layout reserves under horizontal shrink', () => {
     expect(after.yAxisX - before.yAxisX).toBeCloseTo(after.xLabelLeadingInsetPx, 0);
     expect(Math.abs(after.plotHeightPx - before.plotHeightPx)).toBeLessThanOrEqual(1.5);
     expect(after.xAxisSpan).toBeLessThan(before.xAxisSpan * 0.8);
+  });
+
+  test('payload preserves automatic x-label reserve separately from the user frame', async () => {
+    await activateWorkspace('box');
+    await loadBoxExample();
+    await applyLongBoxLabels();
+
+    const controller = createBoxDimensionController(1200, 520);
+    await setBoxWidthAndRedraw(controller, 1200, 520);
+    await setBoxWidthAndRedraw(controller, 600, 520);
+
+    const state = window.Components?.box?.__getState?.() || null;
+    const payload = window.Components?.box?.getPayload?.() || null;
+    const viewportGeometry = payload?.layout?.boxGeometry?.viewportGeometry || null;
+    const graphGeometry = payload?.layout?.boxGeometry?.graphGeometry || null;
+
+    expect(state).toBeTruthy();
+    expect(payload).toBeTruthy();
+    expect(Number(state.bottomViewportExtensionPx) || 0).toBeGreaterThan(0);
+    expect(Number(viewportGeometry?.bottomViewportExtensionPx) || 0)
+      .toBe(Number(state.bottomViewportExtensionPx) || 0);
+    expect(Number(graphGeometry?.reserves?.xLabelPx) || 0)
+      .toBe(Number(state.bottomViewportExtensionPx) || 0);
+    expect(Number(viewportGeometry?.significanceViewportExtensionPx) || 0).toBe(0);
+    expect(Number(graphGeometry?.reserves?.significancePx) || 0).toBe(0);
+    expect(Number(viewportGeometry?.userFrameWidthPx) || 0).toBeGreaterThan(0);
+    expect(Number(viewportGeometry?.userFrameHeightPx) || 0).toBeGreaterThan(0);
   });
 
   test('x-label and significance reserves stay integrated under 50% width shrink', async () => {
@@ -615,6 +720,45 @@ describe('Box layout reserves under horizontal shrink', () => {
     expect(Math.abs(after.yAxisSpan - before.xAxisSpan)).toBeLessThanOrEqual(1.5);
     expect(Math.abs(after.plotWidthPx - after.xAxisSpan)).toBeLessThanOrEqual(1.5);
     expect(Math.abs(after.plotHeightPx - after.yAxisSpan)).toBeLessThanOrEqual(1.5);
+  });
+
+  test('flip axes transposes visible axis lengths after categorical dataset spacing changes', async () => {
+    await activateWorkspace('box');
+    await loadBoxExample();
+
+    const controller = createBoxDimensionController(980, 560);
+    await setBoxWidthAndRedraw(controller, 980, 560);
+    const state = window.Components?.box?.__getState?.();
+    expect(state?.scheduleDraw).toBeInstanceOf(Function);
+    state.axisSettings.x.datasetSpacing = 0.5;
+    const previousDrawToken = Number(state.drawToken) || 0;
+    state.scheduleDraw({ force: true, reason: 'box-layout-test-dataset-spacing' });
+    await waitFor(() => (Number(window.Components?.box?.__getState?.()?.drawToken) || 0) > previousDrawToken, {
+      timeout: 15_000,
+      interval: 40
+    });
+    await flushAsyncWork(50);
+
+    const before = readBoxAxisMetrics();
+    expect(before).toBeTruthy();
+    expect(before.flipAxes).toBe(false);
+    expect(before.xAxisSpan).toBeLessThan(before.plotWidthPx * 0.75);
+
+    await setFlipAxesAndRedraw(true);
+    const after = readBoxAxisMetrics();
+    expect(after).toBeTruthy();
+    expect(after.flipAxes).toBe(true);
+    expect(state.axisSettings.y.datasetSpacing).toBe(0.5);
+    expect(Math.abs(after.xAxisSpan - before.yAxisSpan)).toBeLessThanOrEqual(1.5);
+    expect(Math.abs(after.yAxisSpan - before.xAxisSpan)).toBeLessThanOrEqual(1.5);
+
+    await setFlipAxesAndRedraw(false);
+    const restored = readBoxAxisMetrics();
+    expect(restored).toBeTruthy();
+    expect(restored.flipAxes).toBe(false);
+    expect(state.axisSettings.x.datasetSpacing).toBe(0.5);
+    expect(Math.abs(restored.xAxisSpan - before.xAxisSpan)).toBeLessThanOrEqual(1.5);
+    expect(Math.abs(restored.yAxisSpan - before.yAxisSpan)).toBeLessThanOrEqual(1.5);
   });
 
   test('manual value-axis tick interval follows repeated axis flips', async () => {

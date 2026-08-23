@@ -86,12 +86,12 @@
     }
   }
   const notesState = { text: '', open: false, control: null };
-  const exportFontStyles = scope => (fontControls && typeof fontControls.exportScopeStyles === 'function')
-    ? fontControls.exportScopeStyles(scope)
+  const exportFontStyles = (scope, options) => (fontControls && typeof fontControls.exportScopeStyles === 'function')
+    ? fontControls.exportScopeStyles(scope, options)
     : null;
-  const importFontStyles = (scope, styles) => {
+  const importFontStyles = (scope, styles, options) => {
     if(fontControls && typeof fontControls.importScopeStyles === 'function'){
-      fontControls.importScopeStyles(scope, styles, { prune: true });
+      fontControls.importScopeStyles(scope, styles, { prune: true, ...(options || {}) });
     }
   };
 
@@ -137,16 +137,15 @@
     }
   }
   const DEFAULT_FILE_NAME = 'surface.graph';
-  const DEFAULT_ROTATION = { x: 0.24, y: 1.96 };
+  const DEFAULT_ROTATION = { x: -0.55, y: 0.75 };
   const DEFAULT_AXIS_LABELS = Object.freeze({ x: 'X', y: 'Y', z: 'Z' });
   const SURFACE_LEGEND_TEXT_ROLE = 'scaleTick';
-  const SURFACE_LEGEND_LABELS = Object.freeze([
-    { id: 'max', key: 'surfaceLegendScaleMax', anchor: 'max' },
-    { id: 'min', key: 'surfaceLegendScaleMin', anchor: 'min' }
-  ]);
-  const SURFACE_LEGEND_BAR_REFERENCE_WIDTH = 360;
-  const SURFACE_LEGEND_BAR_MIN_WIDTH = 4;
-  const SURFACE_LEGEND_BAR_MAX_WIDTH_RATIO = 0.07;
+  const SURFACE_LEGEND_HEIGHT_PX = 80;
+  const SURFACE_LEGEND_WIDTH_PX = 15;
+  const SURFACE_LEGEND_TICK_LENGTH_PX = 4.2;
+  const SURFACE_LEGEND_TICK_LABEL_GAP_PX = 5;
+  const SURFACE_LEGEND_PLOT_GAP_PX = 20;
+  const SURFACE_LEGEND_TICK_COUNT = 5;
   const DEFAULT_SURFACE_SETTINGS = Object.freeze({
     colorRamp: 'viridis',
     interpolation: 'grid',
@@ -190,8 +189,7 @@
     headerRows: 1,
     startCol: 0
   });
-  // Parse safety caps to avoid blocking the main thread on extremely large tables
-  const SURFACE_MAX_PARSE_ROWS = 20000;
+  // Filter rows before applying the retained-geometry cap so invalid leading rows cannot starve the fit.
   const SURFACE_MAX_PARSE_POINTS = 100000;
 
   const state = {
@@ -321,6 +319,12 @@
       hotContainer: null,
       svg: null,
       svgBox: null,
+      rotationRenderer: null,
+      facePool: [],
+      pointPool: [],
+      facePoolUsed: 0,
+      pointPoolUsed: 0,
+      geometryPoolSvg: null,
       statsEl: null,
       messageEl: null,
       exportContainer: null,
@@ -339,6 +343,7 @@
       showGrid: null,
       showFrame: null,
       showPoints: null,
+      showLegend: null,
       loadExample: null,
       importButton: null,
       fileInput: null,
@@ -366,17 +371,16 @@
       refs: createDefaultSurfaceRefs(root || null),
       cache: {
         emptyPayloadTemplate: cloneSimple(emptyPayloadTemplate) || null,
-        facePool: [],
-        pointPool: [],
-        facePoolUsed: 0,
-        pointPoolUsed: 0
+        rotationModel: null
       },
       listeners: new Map(),
       timers: {
         scheduleDraw: null,
         pendingDrawOptions: null,
+        drawInFlight: 0,
         rotationActive: false,
         rotationPending: false,
+        rotationFrameId: null,
         rotationViewport: null
       },
       workers: new Map(),
@@ -409,16 +413,45 @@
     session.refs.root = session.refs.root || session.root || null;
     session.cache = session.cache && typeof session.cache === 'object' ? session.cache : {};
     if(!Object.prototype.hasOwnProperty.call(session.cache, 'emptyPayloadTemplate')){ session.cache.emptyPayloadTemplate = null; }
-    if(!Array.isArray(session.cache.facePool)){ session.cache.facePool = []; }
-    if(!Array.isArray(session.cache.pointPool)){ session.cache.pointPool = []; }
-    session.cache.facePoolUsed = Number(session.cache.facePoolUsed) || 0;
-    session.cache.pointPoolUsed = Number(session.cache.pointPoolUsed) || 0;
+    if(!Object.prototype.hasOwnProperty.call(session.cache, 'rotationModel')){ session.cache.rotationModel = null; }
+    // DOM pools are transient projections and belong in refs, never in the
+    // serializable/cache state. Migrate any in-memory record created by an older
+    // runtime once, then remove the duplicate source of truth.
+    const legacyFacePool = Array.isArray(session.cache.facePool) ? session.cache.facePool : [];
+    const legacyPointPool = Array.isArray(session.cache.pointPool) ? session.cache.pointPool : [];
+    const legacyFacePoolUsed = Number(session.cache.facePoolUsed) || 0;
+    const legacyPointPoolUsed = Number(session.cache.pointPoolUsed) || 0;
+    const hasLegacyGeometryPool = ['facePool', 'pointPool', 'facePoolUsed', 'pointPoolUsed', 'geometryPoolSvg']
+      .some(key => Object.prototype.hasOwnProperty.call(session.cache, key));
+    if(!Array.isArray(session.refs.facePool) || (hasLegacyGeometryPool && !session.refs.facePool.length && legacyFacePool.length)){
+      session.refs.facePool = legacyFacePool;
+    }
+    if(!Array.isArray(session.refs.pointPool) || (hasLegacyGeometryPool && !session.refs.pointPool.length && legacyPointPool.length)){
+      session.refs.pointPool = legacyPointPool;
+    }
+    const currentFacePoolUsed = Number(session.refs.facePoolUsed) || 0;
+    const currentPointPoolUsed = Number(session.refs.pointPoolUsed) || 0;
+    session.refs.facePoolUsed = currentFacePoolUsed || legacyFacePoolUsed;
+    session.refs.pointPoolUsed = currentPointPoolUsed || legacyPointPoolUsed;
+    if(!Object.prototype.hasOwnProperty.call(session.refs, 'geometryPoolSvg') || !session.refs.geometryPoolSvg){
+      session.refs.geometryPoolSvg = session.cache.geometryPoolSvg || null;
+    }
+    if(hasLegacyGeometryPool){
+      delete session.cache.facePool;
+      delete session.cache.pointPool;
+      delete session.cache.facePoolUsed;
+      delete session.cache.pointPoolUsed;
+      delete session.cache.geometryPoolSvg;
+    }
     session.listeners = session.listeners instanceof Map ? session.listeners : new Map();
     session.timers = session.timers && typeof session.timers === 'object' ? session.timers : {};
     if(!Object.prototype.hasOwnProperty.call(session.timers, 'scheduleDraw')){ session.timers.scheduleDraw = null; }
     if(!Object.prototype.hasOwnProperty.call(session.timers, 'pendingDrawOptions')){ session.timers.pendingDrawOptions = null; }
+    if(!Object.prototype.hasOwnProperty.call(session.timers, 'drawInFlight')){ session.timers.drawInFlight = 0; }
+    session.timers.drawInFlight = Math.max(0, Number(session.timers.drawInFlight) || 0);
     if(!Object.prototype.hasOwnProperty.call(session.timers, 'rotationActive')){ session.timers.rotationActive = false; }
     if(!Object.prototype.hasOwnProperty.call(session.timers, 'rotationPending')){ session.timers.rotationPending = false; }
+    if(!Object.prototype.hasOwnProperty.call(session.timers, 'rotationFrameId')){ session.timers.rotationFrameId = null; }
     if(!Object.prototype.hasOwnProperty.call(session.timers, 'rotationViewport')){ session.timers.rotationViewport = null; }
     session.workers = session.workers instanceof Map ? session.workers : new Map();
     session.managers = session.managers && typeof session.managers === 'object' ? session.managers : {};
@@ -486,8 +519,8 @@
 
   function isSurfaceCallbackOwnerActive(owner = null){
     const ownerTabId = String(owner?.tabId || owner?.session?.tabId || '').trim();
-    const activeTabId = getSurfaceActiveTabId();
-    return !!(!ownerTabId || (activeTabId && ownerTabId === activeTabId));
+    if(!ownerTabId){ return false; }
+    return !!owner?.session && isSurfaceSessionActive(owner.session);
   }
 
   function runSurfaceOwnedCallback(owner, callback, meta = {}){
@@ -528,19 +561,19 @@
   );
 
   function isSurfaceSessionActive(session = null){
-    const shaped = ensureSurfaceSessionOwnershipShape(session);
-    if(!shaped?.tabId){
+    if(!session || typeof session !== 'object' || !String(session.tabId || '').trim()){
       return false;
     }
-    return String(shaped.tabId) === String(getSurfaceProjectionTabId());
+    return Shared.componentLifecycle?.canOwnerUseLiveProjection?.('surface', session, {
+      component: surface,
+      projectedSession: projectedSurfaceSession,
+      session,
+      root: state.root || null
+    }) === true;
   }
 
-  function isSurfaceSessionActiveOrActivating(session = null){
-    const shaped = ensureSurfaceSessionOwnershipShape(session);
-    if(!shaped?.tabId){ return false; }
-    const workspaceActiveTabId = global.Main?.session?.workspaceState?.activeTabId || null;
-    return isSurfaceSessionActive(shaped)
-      || (workspaceActiveTabId && String(shaped.tabId) === String(workspaceActiveTabId));
+  function isSurfaceSessionActivationTarget(session = null){
+    return Shared.componentLifecycle?.isOwnerActivationTarget?.('surface', session, { component: surface }) === true;
   }
 
   function scheduleSurfaceDrawForSession(session = null, options = {}){
@@ -557,7 +590,7 @@
       : { ...sourceOptions, tabId: shaped.tabId || undefined, reason: sourceOptions.reason || 'surface-session-draw' };
     shaped.timers.pendingDrawOptions = scheduleOptions;
     shaped.updatedAt = Date.now();
-    if(!isSurfaceSessionActiveOrActivating(shaped)){
+    if(!isSurfaceSessionActive(shaped)){
       shaped.state.drawPending = true;
       debugLog('Debug: surface draw scheduled for inactive owner', {
         tabId: shaped.tabId || null,
@@ -565,7 +598,7 @@
       });
       return false;
     }
-    const scheduler = shaped.timers?.scheduleDraw || state.scheduleDraw;
+    const scheduler = state.scheduleDraw;
     if(typeof scheduler !== 'function'){
       return false;
     }
@@ -578,7 +611,7 @@
       ...(options || {}),
       reason: options.reason || 'surface-hot-draw'
     }, { create: false });
-    if(session && !isSurfaceSessionActiveOrActivating(session)){
+    if(session && !isSurfaceSessionActive(session)){
       session.state.drawPending = true;
       session.updatedAt = Date.now();
       return false;
@@ -619,12 +652,13 @@
 
   function patchSurfaceVisualState(session = null, patch = {}, meta = {}){
     const owner = ensureSurfaceSessionOwnershipShape(session || getActiveSurfaceSessionForState());
+    const ownerState = owner?.state || state;
     const hasLabels = Object.prototype.hasOwnProperty.call(patch || {}, 'labels');
     const hasPositions = Object.prototype.hasOwnProperty.call(patch || {}, 'labelPositions');
     const nextLabels = hasLabels
       ? Object.assign(createDefaultSurfaceLabels(), cloneSimple(patch.labels) || {})
-      : Object.assign(createDefaultSurfaceLabels(), cloneSimple(state.labels) || {});
-    const nextPositions = hasPositions ? normalizeSurfaceLabelPositions(patch.labelPositions) : normalizeSurfaceLabelPositions(state.labelPositions);
+      : Object.assign(createDefaultSurfaceLabels(), cloneSimple(ownerState.labels) || {});
+    const nextPositions = hasPositions ? normalizeSurfaceLabelPositions(patch.labelPositions) : normalizeSurfaceLabelPositions(ownerState.labelPositions);
     if(owner?.state){
       if(hasLabels){ owner.state.labels = nextLabels; }
       if(hasPositions){
@@ -638,7 +672,7 @@
         labelPositions: hasPositions
       });
     }
-    if(!owner || isSurfaceSessionActiveOrActivating(owner)){
+    if(!owner || isSurfaceSessionActive(owner)){
       if(hasLabels){ state.labels = nextLabels; }
       if(hasPositions){
         state.labelPositions = nextPositions;
@@ -648,11 +682,12 @@
   }
 
   function patchSurfaceLabelPosition(session = null, key, value, meta = {}){
+    const owner = ensureSurfaceSessionOwnershipShape(session || getActiveSurfaceSessionForState());
     const nextPositions = normalizeSurfaceLabelPositions({
-      ...normalizeSurfaceLabelPositions(state.labelPositions),
+      ...normalizeSurfaceLabelPositions(owner?.state?.labelPositions || state.labelPositions),
       [key]: value || null
     });
-    return patchSurfaceVisualState(session, { labelPositions: nextPositions }, meta);
+    return patchSurfaceVisualState(owner, { labelPositions: nextPositions }, meta);
   }
 
 
@@ -700,7 +735,7 @@
   function syncSurfaceSessionRefsFromActive(session = null){
     const shaped = ensureSurfaceSessionOwnershipShape(session || projectedSurfaceSession || getActiveSurfaceSessionForState());
     if(!shaped){ return null; }
-    if(shaped.tabId && !isSurfaceSessionActiveOrActivating(shaped)){
+    if(shaped.tabId && !isSurfaceSessionActive(shaped)){
       return shaped;
     }
     shaped.root = state.root || shaped.root || null;
@@ -731,6 +766,7 @@
       showGrid: state.controls?.showGrid || getSurfaceNodeById('surfaceShowGrid'),
       showFrame: state.controls?.showFrame || getSurfaceNodeById('surfaceShowFrame'),
       showPoints: state.controls?.showPoints || getSurfaceNodeById('surfaceShowPoints'),
+      showLegend: state.controls?.showLegend || getSurfaceNodeById('surfaceShowLegend'),
       loadExample: state.controls?.loadExample || getSurfaceNodeById('surfaceLoadExample'),
       importButton: state.controls?.importBtn || getSurfaceNodeById('surfaceImport'),
       fileInput: state.controls?.importFile || getSurfaceNodeById('surfaceFile'),
@@ -747,7 +783,7 @@
   function syncSurfaceSessionManagersFromActive(session = null){
     const shaped = ensureSurfaceSessionOwnershipShape(session || projectedSurfaceSession || getActiveSurfaceSessionForState());
     if(!shaped){ return null; }
-    const sessionIsActive = !shaped.tabId || isSurfaceSessionActiveOrActivating(shaped);
+    const sessionIsActive = !shaped.tabId || isSurfaceSessionActive(shaped);
     const stateHotTabId = String(
       state.hot?.__surfaceTabId
       || state.hot?.__workspaceTabId
@@ -766,10 +802,11 @@
       shaped.managers.fileHandle = state.fileHandle || shaped.managers.fileHandle || null;
       shaped.managers.autoDraw = surfaceAutoDrawManager || shaped.managers.autoDraw || null;
       shaped.timers.scheduleDraw = state.scheduleDraw || shaped.timers.scheduleDraw || null;
-      shaped.cache.facePool = Array.isArray(state._facePool) ? state._facePool.slice() : [];
-      shaped.cache.pointPool = Array.isArray(state._pointPool) ? state._pointPool.slice() : [];
-      shaped.cache.facePoolUsed = Number(state._facePoolUsed) || 0;
-      shaped.cache.pointPoolUsed = Number(state._pointPoolUsed) || 0;
+      shaped.refs.facePool = Array.isArray(state._facePool) ? state._facePool.slice() : [];
+      shaped.refs.pointPool = Array.isArray(state._pointPool) ? state._pointPool.slice() : [];
+      shaped.refs.facePoolUsed = Number(state._facePoolUsed) || 0;
+      shaped.refs.pointPoolUsed = Number(state._pointPoolUsed) || 0;
+      shaped.refs.geometryPoolSvg = shaped.refs.svg || state.svg || null;
     }
     shaped.cache.emptyPayloadTemplate = cloneSimple(emptyPayloadTemplate) || shaped.cache.emptyPayloadTemplate || null;
     shaped.updatedAt = Date.now();
@@ -796,7 +833,7 @@
   function captureSurfaceSessionStateFromActive(session = null, meta = {}){
     const shaped = ensureSurfaceSessionOwnershipShape(session || getActiveSurfaceSessionForState());
     if(!shaped){ return null; }
-    if(shaped.tabId && !isSurfaceSessionActiveOrActivating(shaped)){
+    if(shaped.tabId && !isSurfaceSessionActive(shaped)){
       shaped.updatedAt = Date.now();
       return shaped;
     }
@@ -824,10 +861,10 @@
       notes: createDefaultSurfaceNotesState(shaped.notes || durable.notes || {})
     });
     applySurfaceTabContextSnapshot(context, { syncUi: options.syncUi !== false, session: shaped });
-    state._facePool = Array.isArray(shaped.cache?.facePool) ? shaped.cache.facePool.slice() : [];
-    state._pointPool = Array.isArray(shaped.cache?.pointPool) ? shaped.cache.pointPool.slice() : [];
-    state._facePoolUsed = Number(shaped.cache?.facePoolUsed) || 0;
-    state._pointPoolUsed = Number(shaped.cache?.pointPoolUsed) || 0;
+    state._facePool = Array.isArray(shaped.refs?.facePool) ? shaped.refs.facePool.slice() : [];
+    state._pointPool = Array.isArray(shaped.refs?.pointPool) ? shaped.refs.pointPool.slice() : [];
+    state._facePoolUsed = Number(shaped.refs?.facePoolUsed) || 0;
+    state._pointPoolUsed = Number(shaped.refs?.pointPoolUsed) || 0;
     if(options.restoreEmptyPayload !== false && shaped.cache?.emptyPayloadTemplate){
       emptyPayloadTemplate = cloneSimple(shaped.cache.emptyPayloadTemplate) || emptyPayloadTemplate;
     }
@@ -853,9 +890,7 @@
     session.refs.root = root || session.refs.root || null;
     projectedSurfaceSession = session;
     surface.__surfaceSessionTabId = session.tabId;
-    if(!surface.__boundTabId){
-      surface.__boundTabId = session.tabId;
-    }
+    surface.__boundTabId = session.tabId;
     if(options.apply === true){
       applySurfaceSessionStateToActive(session, options);
     }
@@ -887,9 +922,24 @@
   }
 
   function resolveSurfaceRoot(tabLike){
-    return Shared.workspaceTabs?.getMountedRoot?.(tabLike || null, 'surface')
-      || state.root
-      || null;
+    const explicitTabId = normalizeSurfaceSessionTabId(tabLike || null, {});
+    const mountedRoot = Shared.workspaceTabs?.getMountedRoot?.(tabLike || null, 'surface') || null;
+    if(mountedRoot){
+      return mountedRoot;
+    }
+    if(explicitTabId){
+      const sessionRoot = getSurfaceSession(explicitTabId, {
+        tabId: explicitTabId,
+        reason: 'surface-resolve-root'
+      }, { create: false })?.root || null;
+      const sessionRootOwner = String(sessionRoot?.dataset?.workspaceTabId || sessionRoot?.dataset?.tabId || '').trim();
+      if(sessionRoot && sessionRootOwner === explicitTabId){
+        return sessionRoot;
+      }
+      const currentRootOwner = String(state.root?.dataset?.workspaceTabId || state.root?.dataset?.tabId || '').trim();
+      return state.root && currentRootOwner === explicitTabId ? state.root : null;
+    }
+    return state.root || null;
   }
 
   function querySurfaceRoot(selector, tabLike){
@@ -1152,30 +1202,35 @@
   }
 
 
-  function commitSurfaceRotationState(rotation, reason = 'surface-rotation-state'){
-    if(rotation && typeof rotation === 'object'){
-      state.rotation = rotation;
-    }else if(!state.rotation || typeof state.rotation !== 'object'){
-      state.rotation = createDefaultSurfaceRotation();
-    }
+  function commitSurfaceRotationState(rotation, reason = 'surface-rotation-state', ownerSession = null){
+    const session = ensureSurfaceSessionOwnershipShape(ownerSession || getActiveSurfaceSessionForState());
+    const current = session?.state?.rotation || state.rotation;
+    const nextRotation = rotation && typeof rotation === 'object'
+      ? rotation
+      : (current && typeof current === 'object' ? current : createDefaultSurfaceRotation());
     if(typeof plot3d.normalizeRotation === 'function'){
-      try{ plot3d.normalizeRotation(state.rotation); }catch(_err){}
+      try{ plot3d.normalizeRotation(nextRotation); }catch(_err){}
     }
-    const session = getActiveSurfaceSessionForState();
     if(session?.state){
-      session.state.rotation = state.rotation;
+      session.state.rotation = nextRotation;
       session.updatedAt = Date.now();
+    }
+    const shouldMirror = !session || (typeof plot3d.isRotationOwnerTabActive === 'function'
+      ? plot3d.isRotationOwnerTabActive(session, 'surface')
+      : isSurfaceSessionActive(session));
+    if(shouldMirror){
+      state.rotation = nextRotation;
     }
     debugLog('Debug: surface rotation state committed', {
       reason,
       tabId: session?.tabId || getSurfaceProjectionTabId() || null,
       rotation: {
-        x: state.rotation?.x,
-        y: state.rotation?.y,
-        z: state.rotation?.z
+        x: nextRotation?.x,
+        y: nextRotation?.y,
+        z: nextRotation?.z
       }
     });
-    return state.rotation;
+    return nextRotation;
   }
 
   function setSurfaceFileName(name, session = null){
@@ -1185,7 +1240,7 @@
       owner.state.fileName = normalized;
       owner.updatedAt = Date.now();
     }
-    if(!owner || isSurfaceSessionActiveOrActivating(owner)){
+    if(!owner || isSurfaceSessionActive(owner)){
       state.fileName = normalized;
     }
     return normalized;
@@ -1197,7 +1252,7 @@
       owner.managers.fileHandle = handle || null;
       owner.updatedAt = Date.now();
     }
-    if(!owner || isSurfaceSessionActiveOrActivating(owner)){
+    if(!owner || isSurfaceSessionActive(owner)){
       state.fileHandle = handle || null;
     }
     return handle || null;
@@ -1306,26 +1361,23 @@
     scheduleSurfaceDrawForSession(ownerSession || getActiveSurfaceSessionForState(), scheduleOptions);
   }
 
-  function markSurfaceRotationUserModified(){
+  function markSurfaceRotationUserModified(ownerSession = null){
     const sessionApi = global.Main?.session || null;
     if(!sessionApi){
       return false;
     }
-    const ownerSession = getActiveSurfaceSessionForState();
-    const tabId = normalizeSurfaceSessionTabId(ownerSession?.tabId || getSurfaceProjectionTabId() || sessionApi.workspaceState?.activeTabId || null, {});
+    const session = ensureSurfaceSessionOwnershipShape(ownerSession || getActiveSurfaceSessionForState());
+    const tabId = normalizeSurfaceSessionTabId(session?.tabId || getSurfaceProjectionTabId() || sessionApi.workspaceState?.activeTabId || null, {});
     const reason = 'surface-rotation-change';
     const meta = {
       origin: 'user',
       source: 'surface-rotation',
       affectsPayload: true
     };
-    if(tabId && typeof sessionApi.markTabUserModified === 'function'){
-      return !!sessionApi.markTabUserModified(tabId, reason, meta);
+    if(!tabId || typeof sessionApi.markTabUserModified !== 'function'){
+      return false;
     }
-    if(typeof sessionApi.markActiveTabUserModified === 'function'){
-      return !!sessionApi.markActiveTabUserModified(reason, meta);
-    }
-    return false;
+    return !!sessionApi.markTabUserModified(tabId, reason, meta);
   }
 
   function captureSurfaceRotationViewport(svg){
@@ -1359,52 +1411,388 @@
     return true;
   }
 
-  function scheduleSurfaceRotationRedraw(rotation = null){
-    commitSurfaceRotationState(rotation || state.rotation, 'surface-rotation-change');
-    markSurfaceRotationUserModified();
-    const session = ensureSurfaceSessionOwnershipShape(getActiveSurfaceSessionForState());
-    if(session?.timers?.rotationPending){
-      return;
+  function normalizeSurfaceRotationModel(model){
+    if(!model || typeof model !== 'object' || Number(model.version) !== 1){
+      return null;
     }
-    if(session?.timers){
-      session.timers.rotationPending = true;
+    const isFinitePoint = point => !!point
+      && Number.isFinite(Number(point.x))
+      && Number.isFinite(Number(point.y))
+      && Number.isFinite(Number(point.z));
+    const points = Array.isArray(model.points) ? model.points : [];
+    const faces = Array.isArray(model.faces) ? model.faces : [];
+    const corners = Array.isArray(model.corners) ? model.corners : [];
+    const ranges = model.ranges && typeof model.ranges === 'object' ? model.ranges : null;
+    const hasFiniteRange = axis => !!ranges?.[axis]
+      && Number.isFinite(Number(ranges[axis].min))
+      && Number.isFinite(Number(ranges[axis].max))
+      && Number(ranges[axis].max) >= Number(ranges[axis].min);
+    const width = Number(model.width);
+    const height = Number(model.height);
+    const margin = model.margin && typeof model.margin === 'object' ? model.margin : null;
+    const marginValid = !!margin && ['top', 'right', 'bottom', 'left'].every(key => (
+      Number.isFinite(Number(margin[key])) && Number(margin[key]) >= 0
+    ));
+    const zMin = Number(model.zMin);
+    const zMax = Number(model.zMax);
+    const shouldRenderFaces = model.shouldRenderFaces === true;
+    const shouldRenderPoints = model.shouldRenderPoints === true;
+    const facesValid = !shouldRenderFaces || (faces.length > 0 && faces.every(face => (
+      Array.isArray(face?.vertices)
+      && face.vertices.length >= 3
+      && face.vertices.every(isFinitePoint)
+      && Number.isFinite(Number(face.value))
+    )));
+    if(!points.length
+      || !points.every(isFinitePoint)
+      || corners.length !== 8
+      || !corners.every(isFinitePoint)
+      || !Number.isFinite(width)
+      || width <= 0
+      || !Number.isFinite(height)
+      || height <= 0
+      || !marginValid
+      || !Number.isFinite(zMin)
+      || !Number.isFinite(zMax)
+      || zMax < zMin
+      || !hasFiniteRange('x')
+      || !hasFiniteRange('y')
+      || !hasFiniteRange('z')
+      || (!shouldRenderFaces && !shouldRenderPoints)
+      || !facesValid){
+      return null;
     }
-    scheduleActiveSurfaceDraw({
-      viewOnly: true,
-      silentOverlay: true,
-      force: true,
-      userInitiated: true,
-      reason: 'rotation'
-    });
+    const clone = cloneSimple(model);
+    return clone && typeof clone === 'object' ? clone : null;
   }
 
-  function bindSurface3dRotationControls(svg, debugLabel){
+  function setSurfaceRotationModel(session = null, model = null){
+    const ownerSession = ensureSurfaceSessionOwnershipShape(session || getActiveSurfaceSessionForState());
+    if(!ownerSession){
+      return null;
+    }
+    ownerSession.cache.rotationModel = normalizeSurfaceRotationModel(model);
+    ownerSession.updatedAt = Date.now();
+    return ownerSession.cache.rotationModel;
+  }
+
+  function buildSurfaceRotationModel(options = {}){
+    return {
+      version: 1,
+      points: options.points || [],
+      faces: options.faces || [],
+      corners: options.corners || [],
+      ranges: options.ranges || null,
+      width: Number(options.width) || 0,
+      height: Number(options.height) || 0,
+      margin: options.margin || null,
+      legendShiftX: Number(options.legendShiftX) || 0,
+      axisTicks: options.axisTicks || null,
+      labels: options.labels || null,
+      fontSize: Number(options.fontSize) || 12,
+      tickFontSize: Number(options.tickFontSize) || Number(options.fontSize) || 12,
+      axisStrokeWidth: Number(options.axisStrokeWidth) || 1,
+      showGrid: !!options.showGrid,
+      showFrame: !!options.showFrame,
+      axisColor: options.axisColor || '#3b3b3b',
+      textColor: options.textColor || '#000000',
+      themeDark: !!options.themeDark,
+      gridColor: options.gridColor || DEFAULT_GRID_COLOR,
+      gridDash: options.gridDash || null,
+      gridOpacity: Number.isFinite(Number(options.gridOpacity)) ? Number(options.gridOpacity) : 1,
+      gridStrokeWidth: Number(options.gridStrokeWidth) || 1,
+      zMin: Number(options.zMin),
+      zMax: Number(options.zMax),
+      colorRamp: options.colorRamp || 'viridis',
+      shouldRenderFaces: !!options.shouldRenderFaces,
+      shouldRenderPoints: !!options.shouldRenderPoints
+    };
+  }
+
+  function bindSurfaceRotationRenderer(session = null, svg = null, modelOverride = null){
+    const ownerSession = ensureSurfaceSessionOwnershipShape(session || getActiveSurfaceSessionForState());
+    const targetSvg = svg || ownerSession?.refs?.svg || null;
+    const cachedModel = ownerSession?.cache?.rotationModel || null;
+    const model = (!modelOverride || modelOverride === cachedModel)
+      ? cachedModel
+      : normalizeSurfaceRotationModel(modelOverride);
+    if(!ownerSession || !targetSvg || !model || typeof plot3d.rotatePoint !== 'function' || typeof plot3d.createProjector !== 'function'){
+      if(ownerSession?.refs){
+        ownerSession.refs.rotationRenderer = null;
+      }
+      return false;
+    }
+    ownerSession.cache.rotationModel = model;
+    ownerSession.refs.svg = targetSvg;
+    ownerSession.refs.rotationRenderer = rotation => {
+      if(ownerSession.refs?.svg !== targetSvg
+        || (typeof plot3d.isRotationOwnerActive === 'function'
+          && !plot3d.isRotationOwnerActive(ownerSession, 'surface', targetSvg))){
+        return false;
+      }
+      const axisLayer = targetSvg.querySelector('g.surface-layer-axes');
+      const backgroundLayer = targetSvg.querySelector('g.surface-layer-background');
+      const frontLayer = targetSvg.querySelector('g.surface-layer-foreground');
+      const geometryLayer = targetSvg.querySelector('g.surface-layer-geometry');
+      if(!axisLayer || !backgroundLayer || !frontLayer || !geometryLayer){
+        return false;
+      }
+      ensureSurfaceGeometryPoolsSynced('surface-rotation-renderer', ownerSession, targetSvg);
+      const fastRotate = point => plot3d.rotatePoint(point, rotation);
+      const fastRotatedCorners = model.corners.map(fastRotate);
+      const fastRotatedPoints = model.points.map(fastRotate);
+      const fastProjector = plot3d.createProjector({
+        rotatedPoints: fastRotatedPoints.concat(fastRotatedCorners),
+        rotatedCorners: fastRotatedCorners,
+        width: model.width,
+        height: model.height,
+        margin: model.margin,
+        shiftX: model.legendShiftX
+      });
+      const fastProject = point => fastProjector.project(point);
+      axisLayer.replaceChildren();
+      backgroundLayer.replaceChildren();
+      frontLayer.replaceChildren();
+      plot3d.renderAxesAndGrid({
+        svg: axisLayer,
+        project: fastProject,
+        rotatePoint: fastRotate,
+        axisRanges: model.ranges,
+        axisTicks: model.axisTicks,
+        axisLabels: model.labels,
+        fontSize: model.fontSize,
+        tickFontSize: model.tickFontSize,
+        axisStrokeWidth: model.axisStrokeWidth,
+        chartStyle,
+        showGrid: model.showGrid,
+        showFrame: model.showFrame,
+        showPanes: model.showFrame,
+        axisColor: model.axisColor,
+        frameColor: model.axisColor,
+        tickTextColor: model.textColor,
+        axisLabelColor: model.textColor,
+        paneFill: model.themeDark ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.03)',
+        paneOpacityRange: model.themeDark ? { min: 0.10, max: 0.22 } : { min: 0.01, max: 0.05 },
+        gridColor: model.gridColor,
+        gridDash: model.gridDash || undefined,
+        gridOpacity: model.gridOpacity,
+        gridStrokeWidth: model.gridStrokeWidth,
+        gridOutlineColors: { primary: model.gridColor, secondary: model.gridColor },
+        paneTarget: backgroundLayer,
+        gridTarget: backgroundLayer,
+        backFrameTarget: backgroundLayer,
+        backAxisTarget: backgroundLayer,
+        frontFrameTarget: frontLayer,
+        axisTarget: axisLayer,
+        labelTarget: axisLayer,
+        onAxisTickLabel: markSurface3dAxisTickLabel,
+        onAxisLabel: (node, axisKey) => bindSurface3dAxisLabelEditor(node, axisKey, ownerSession)
+      });
+      const colorFor = colorScaleFactory(model.zMin, model.zMax, model.colorRamp);
+      const faceGroup = geometryLayer.querySelector('g.surface-faces');
+      const facePool = ownerSession.refs.facePool;
+      if(model.shouldRenderFaces && (!faceGroup || !Array.isArray(facePool) || facePool.length < model.faces.length)){
+        return false;
+      }
+      if(faceGroup && Array.isArray(facePool)){
+        if(model.shouldRenderFaces){
+          const orderedFaces = model.faces.map(face => {
+            const rotated = face.vertices.map(fastRotate);
+            return {
+              depth: rotated.reduce((sum, value) => sum + value.z, 0) / rotated.length,
+              points: rotated.map(fastProject),
+              value: face.value
+            };
+          }).sort((a, b) => a.depth - b.depth);
+          orderedFaces.forEach((face, order) => {
+            const polygon = facePool[order];
+            if(!polygon){ return; }
+            polygon.setAttribute('points', face.points.map(point => `${point.x.toFixed(2)},${point.y.toFixed(2)}`).join(' '));
+            polygon.setAttribute('fill', colorFor(face.value));
+            polygon.style.display = '';
+            if(faceGroup.children[order] !== polygon){
+              faceGroup.appendChild(polygon);
+            }
+          });
+          for(let index = orderedFaces.length; index < facePool.length; index += 1){
+            const unused = facePool[index];
+            if(unused?.style){ unused.style.display = 'none'; }
+          }
+          ownerSession.refs.facePoolUsed = orderedFaces.length;
+          faceGroup.style.display = '';
+        }else{
+          facePool.forEach(node => {
+            if(node?.style){ node.style.display = 'none'; }
+          });
+          ownerSession.refs.facePoolUsed = 0;
+          faceGroup.style.display = 'none';
+        }
+      }
+      const pointGroup = geometryLayer.querySelector('g.surface-points');
+      const pointPool = ownerSession.refs.pointPool;
+      if(model.shouldRenderPoints && (!pointGroup || !Array.isArray(pointPool) || pointPool.length < model.points.length)){
+        return false;
+      }
+      if(pointGroup && Array.isArray(pointPool)){
+        if(model.shouldRenderPoints){
+          const orderedPoints = fastRotatedPoints.map((point, index) => ({
+            depth: point.z,
+            projected: fastProject(point),
+            value: model.points[index]?.z
+          })).sort((a, b) => a.depth - b.depth);
+          orderedPoints.forEach((entry, order) => {
+            const circle = pointPool[order];
+            if(!circle){ return; }
+            circle.setAttribute('cx', entry.projected.x);
+            circle.setAttribute('cy', entry.projected.y);
+            circle.setAttribute('fill', colorFor(entry.value));
+            circle.style.display = '';
+            if(pointGroup.children[order] !== circle){
+              pointGroup.appendChild(circle);
+            }
+          });
+          for(let index = orderedPoints.length; index < pointPool.length; index += 1){
+            const unused = pointPool[index];
+            if(unused?.style){ unused.style.display = 'none'; }
+          }
+          ownerSession.refs.pointPoolUsed = orderedPoints.length;
+          pointGroup.style.display = '';
+        }else{
+          pointPool.forEach(node => {
+            if(node?.style){ node.style.display = 'none'; }
+          });
+          ownerSession.refs.pointPoolUsed = 0;
+          pointGroup.style.display = 'none';
+        }
+      }
+      applySurfaceRotationViewport(targetSvg, ownerSession.timers.rotationViewport);
+      return true;
+    };
+    return true;
+  }
+
+  function resetSurfaceRotationFrameState(ownerSession = null){
+    const session = ensureSurfaceSessionOwnershipShape(ownerSession);
+    if(!session){
+      return false;
+    }
+    const frameId = session.timers.rotationFrameId;
+    if(frameId != null){
+      try{ Shared.componentLifecycle?.cancelComponentFrame?.(surface, frameId); }catch(_err){}
+    }
+    session.timers.rotationActive = false;
+    session.timers.rotationPending = false;
+    session.timers.rotationFrameId = null;
+    session.timers.rotationViewport = null;
+    return true;
+  }
+
+  function scheduleSurfaceRotationRedraw(rotation = null, ownerSession = null){
+    const session = ensureSurfaceSessionOwnershipShape(ownerSession || getActiveSurfaceSessionForState());
+    const ownerSvg = session?.refs?.svg || null;
+    if(!session || (typeof plot3d.isRotationOwnerActive === 'function'
+      && !plot3d.isRotationOwnerActive(session, 'surface', ownerSvg))){
+      return false;
+    }
+    commitSurfaceRotationState(rotation || state.rotation, 'surface-rotation-change', session);
+    if(session.timers.rotationPending){
+      return true;
+    }
+    session.timers.rotationPending = true;
+    const scheduleFrame = typeof global.requestAnimationFrame === 'function'
+      ? global.requestAnimationFrame.bind(global)
+      : callback => global.setTimeout(callback, 16);
+    const runFrame = () => {
+      session.timers.rotationFrameId = null;
+      session.timers.rotationPending = false;
+      if(typeof plot3d.isRotationOwnerActive === 'function'
+        && !plot3d.isRotationOwnerActive(session, 'surface', ownerSvg)){
+        if(!session.timers.rotationActive){
+          session.timers.rotationViewport = null;
+        }
+        return;
+      }
+      const renderer = session.refs?.rotationRenderer;
+      if(typeof renderer === 'function' && renderer(session.state.rotation) === true){
+        if(!session.timers.rotationActive){
+          // Release the transient owner lock without fitting again. The invisible
+          // rotation hit surface spans the frame and is never viewport authority.
+          session.timers.rotationViewport = null;
+        }
+        return;
+      }
+      const fallbackScheduled = scheduleSurfaceDrawForSession(session, {
+        viewOnly: true,
+        silentOverlay: true,
+        force: true,
+        userInitiated: true,
+        reason: 'rotation'
+      });
+      if(fallbackScheduled !== true && !session.timers.rotationActive){
+        session.timers.rotationViewport = null;
+      }
+    };
+    const rejectStaleFrame = () => {
+      session.timers.rotationFrameId = null;
+      session.timers.rotationPending = false;
+      if(!session.timers.rotationActive){
+        session.timers.rotationViewport = null;
+      }
+    };
+    const scopedFrame = Shared.componentLifecycle?.scheduleComponentFrame?.(
+      surface,
+      'surface',
+      { tabId: session.tabId, reason: 'surface-rotation-frame' },
+      runFrame,
+      rejectStaleFrame
+    );
+    if(scopedFrame != null){
+      session.timers.rotationFrameId = scopedFrame;
+    }else{
+      session.timers.rotationFrameId = scheduleFrame(runFrame);
+    }
+    return true;
+  }
+
+  function bindSurface3dRotationControls(svg, debugLabel, ownerSession = null){
     if(!svg || typeof plot3d.attachRotationControls !== 'function'){
       return false;
     }
-    const rotationState = commitSurfaceRotationState(state.rotation, 'surface-rotation-bind');
+    const rotationSession = ensureSurfaceSessionOwnershipShape(ownerSession || getActiveSurfaceSessionForState());
+    if(!rotationSession){
+      return false;
+    }
+    rotationSession.refs.svg = svg;
+    const rotationState = commitSurfaceRotationState(rotationSession?.state?.rotation || null, 'surface-rotation-bind', rotationSession);
     if(typeof plot3d.ensureRotationHitSurface === 'function'){
-      plot3d.ensureRotationHitSurface(svg, { debugLabel: debugLabel || 'surface-plot' });
+      plot3d.ensureRotationHitSurface(svg, {
+        debugLabel: debugLabel || 'surface-plot'
+      });
     }
     plot3d.attachRotationControls(svg, {
       state: rotationState,
+      managesGraphEditGesture: true,
+      ownerSession: rotationSession,
+      componentKey: 'surface',
       onStart: (_event, state) => {
-        const session = ensureSurfaceSessionOwnershipShape(getActiveSurfaceSessionForState());
-        if(session?.timers){
-          session.timers.rotationActive = true;
-          session.timers.rotationViewport = captureSurfaceRotationViewport(svg);
+        if(rotationSession?.timers){
+          rotationSession.timers.rotationActive = true;
+          rotationSession.timers.rotationViewport = captureSurfaceRotationViewport(svg);
         }
-        commitSurfaceRotationState(state, 'surface-rotation-start');
+        commitSurfaceRotationState(state, 'surface-rotation-start', rotationSession);
       },
-      onChange: (_event, state) => scheduleSurfaceRotationRedraw(state),
-      onEnd: (_event, state) => {
-        const session = ensureSurfaceSessionOwnershipShape(getActiveSurfaceSessionForState());
-        commitSurfaceRotationState(state, 'surface-rotation-end');
-        if(session?.timers){
-          session.timers.rotationActive = false;
-          if(!session.timers.rotationPending){
-            session.timers.rotationViewport = null;
-          }
+      onChange: (_event, state) => scheduleSurfaceRotationRedraw(state, rotationSession),
+      onEnd: (_event, state, gesture) => {
+        commitSurfaceRotationState(state, 'surface-rotation-end', rotationSession);
+        if(rotationSession?.timers){
+          rotationSession.timers.rotationActive = false;
+        }
+        if(gesture?.didMove && gesture?.canceled !== true){
+          markSurfaceRotationUserModified(rotationSession);
+        }
+        if(rotationSession?.timers && !rotationSession.timers.rotationPending){
+          // The renderer already reapplied the captured viewport to the SVG.
+          rotationSession.timers.rotationViewport = null;
         }
       },
       debugLabel: debugLabel || 'surface-plot',
@@ -1421,9 +1809,21 @@
     return true;
   }
 
-  function bindActiveSurface3dRotationControls(debugLabel){
-    const svg = state.svg || getSurfaceNodeById('surfaceSvg');
-    return bindSurface3dRotationControls(svg, debugLabel);
+  function rehydrateActiveSurface3dInteraction(ownerSession = null, debugLabel = 'surface-3d-rehydrate'){
+    const session = ensureSurfaceSessionOwnershipShape(ownerSession || getActiveSurfaceSessionForState());
+    const root = session?.refs?.root || session?.root || state.root || null;
+    const referencedSvg = session?.refs?.svg || null;
+    const svg = referencedSvg && root?.contains?.(referencedSvg)
+      ? referencedSvg
+      : root?.querySelector?.('#surfaceSvg');
+    if(!session || !svg){
+      return false;
+    }
+    session.refs.svg = svg;
+    syncSurfaceGeometryPoolsFromDom(debugLabel, session, svg);
+    const rendererBound = bindSurfaceRotationRenderer(session, svg);
+    const controlsBound = bindSurface3dRotationControls(svg, debugLabel, session);
+    return rendererBound || controlsBound;
   }
 
   function isSurfaceFontStyleEvent(detail){
@@ -1554,7 +1954,7 @@
             session.state.drawPending = true;
             session.updatedAt = Date.now();
           }
-          if(!isSurfaceSessionActiveOrActivating(session)){
+          if(!isSurfaceSessionActive(session)){
             return;
           }
           updateAxisOptions();
@@ -1565,7 +1965,7 @@
           });
         },
         onInteraction(){
-          if(isSurfaceSessionActiveOrActivating(getSurfaceSessionForHot(hotInstance, { reason: 'surface-dataview-interaction' }, { create: false }))){
+          if(isSurfaceSessionActive(getSurfaceSessionForHot(hotInstance, { reason: 'surface-dataview-interaction' }, { create: false }))){
             activateSurfaceDataToolbar('data-tab-interaction');
           }
         }
@@ -1586,7 +1986,7 @@
       currentOwnerSession.managers.dataViews = surfaceDataViewsManagerBelongsToSession(manager, currentOwnerSession) ? manager : currentOwnerSession.managers.dataViews || null;
       currentOwnerSession.updatedAt = Date.now();
     }
-    if(isSurfaceSessionActiveOrActivating(currentOwnerSession)){
+    if(isSurfaceSessionActive(currentOwnerSession)){
       syncSurfaceSessionManagersFromActive(currentOwnerSession);
     }
     return manager;
@@ -1598,7 +1998,7 @@
       return;
     }
     const ownerSession = getSurfaceSessionForHot(hot, { reason: 'surface-active-dataview-sync' }, { create: false, fallbackActive: false });
-    if(ownerSession && !isSurfaceSessionActiveOrActivating(ownerSession)){
+    if(ownerSession && !isSurfaceSessionActive(ownerSession)){
       debugLog('Debug: surface active DataView sync skipped for inactive HOT owner', {
         ownerTabId: ownerSession.tabId || null,
         activeTabId: getSurfaceProjectionTabId() || null,
@@ -1956,7 +2356,7 @@
   function resolveSurfaceOverlay(reason, options = {}){
     const opts = options && typeof options === 'object' ? options : {};
     const session = resolveSurfaceOverlaySession(opts);
-    if(opts.allowInactive === true || !session || isSurfaceSessionActiveOrActivating(session)){
+    if(opts.allowInactive === true || !session || isSurfaceSessionActive(session)){
       surfaceOverlayController?.resolve({
         reason: typeof reason === 'object' ? (reason.reason || reason.source) : reason,
         status: typeof reason === 'object' ? reason.status : undefined,
@@ -2056,6 +2456,118 @@
     debugLog('Debug: surface markFontEditable', payload);
   };
 
+  function markSurface3dAxisTickLabel(node, axisKey){
+    if(!node){ return; }
+    const role = axisKey === 'z' ? 'zTick' : (axisKey === 'y' ? 'yTick' : 'xTick');
+    markFontEditable(node, role, role);
+  }
+
+  function isSurfaceAxisLabelOwnerCurrent(ownerSession, node){
+    const session = ensureSurfaceSessionOwnershipShape(ownerSession);
+    if(!session){
+      return false;
+    }
+    const svg = node?.ownerSVGElement || node?.closest?.('svg') || session.refs?.svg || null;
+    if(typeof plot3d.isRotationOwnerActive === 'function'){
+      return plot3d.isRotationOwnerActive(session, 'surface', svg);
+    }
+    return isSurfaceSessionActive(session);
+  }
+
+  function resolveSurfaceAxisColumnForSession(ownerSession, axisKey, hot){
+    const columnCount = typeof hot?.countCols === 'function' ? hot.countCols() : DEFAULT_COLS;
+    const maxColumn = Math.max(0, columnCount - 1);
+    const fallback = axisKey === 'z' ? 2 : (axisKey === 'y' ? 1 : 0);
+    const raw = Number(ownerSession?.state?.axisMap?.[axisKey]);
+    const resolved = Number.isFinite(raw) ? raw : fallback;
+    return Math.min(Math.max(0, resolved), maxColumn);
+  }
+
+  function readSurfaceHeaderLabel(hot, columnIndex){
+    const data = typeof hot?.getData === 'function' ? hot.getData() : null;
+    const value = Array.isArray(data?.[0]) ? data[0][columnIndex] : null;
+    return value == null ? '' : String(value).trim();
+  }
+
+  function bindSurface3dAxisLabelEditor(node, axisKey, ownerSession){
+    if(!node){ return; }
+    const session = ensureSurfaceSessionOwnershipShape(ownerSession);
+    const role = axisKey ? `${axisKey}Title` : 'axisTitle';
+    markFontEditable(node, role, role);
+    if(!session || !axisKey){
+      return;
+    }
+    const applyAxisLabel = value => {
+      if(!isSurfaceAxisLabelOwnerCurrent(session, node)){
+        return session.state?.labels?.[axisKey] || DEFAULT_AXIS_LABELS[axisKey] || DEFAULT_AXIS_LABELS.x;
+      }
+      const trimmed = value != null ? String(value).trim() : '';
+      const resolved = trimmed || DEFAULT_AXIS_LABELS[axisKey] || DEFAULT_AXIS_LABELS.x;
+      session.state.labels[axisKey] = resolved;
+      state.labels[axisKey] = resolved;
+      const hot = session.managers?.hot || state.hot || null;
+      if(hot && typeof hot.setDataAtCell === 'function'){
+        const targetCol = resolveSurfaceAxisColumnForSession(session, axisKey, hot);
+        if(readSurfaceHeaderLabel(hot, targetCol) !== resolved){
+          hot.setDataAtCell(0, targetCol, resolved, 'surface-axis-inline');
+        }
+      }
+      scheduleSurfaceDrawForSession(session, {
+        tabId: session.tabId,
+        reason: `surface-${axisKey}-label-edit`
+      });
+      if(node.textContent !== resolved){
+        node.textContent = resolved;
+      }
+      return resolved;
+    };
+    makeEditableHelper(node, text => {
+      const previous = session.state?.labels?.[axisKey] || DEFAULT_AXIS_LABELS[axisKey] || DEFAULT_AXIS_LABELS.x;
+      const nextValue = applyAxisLabel(text);
+      if(previous === nextValue){
+        return;
+      }
+      recordSurfaceChange(`surface:${axisKey}-label`, previous, nextValue, value => {
+        applyAxisLabel(value);
+        return true;
+      });
+    }, { scopeId: 'surface', key: role });
+  }
+
+  function bindSurfaceTitleInlineInteraction(node, ownerSession = null){
+    const owner = ensureSurfaceSessionOwnershipShape(ownerSession || getActiveSurfaceSessionForState());
+    if(!node || !owner || typeof makeEditableHelper !== 'function'){ return false; }
+    makeEditableHelper(node, text => {
+      const previous = owner.state?.labels?.title || 'Surface Plot';
+      const normalized = String(text || '').trim() || 'Surface Plot';
+      if(previous === normalized){ return; }
+      const apply = value => {
+        const nextValue = String(value || '').trim() || 'Surface Plot';
+        patchSurfaceVisualState(owner, {
+          labels: { ...(owner.state?.labels || {}), title: nextValue }
+        }, { reason: 'surface-title-edit' });
+        if(node.textContent !== nextValue){ node.textContent = nextValue; }
+        scheduleSurfaceDrawForSession(owner, { tabId: owner.tabId, reason: 'surface-title-edit' });
+        return nextValue;
+      };
+      apply(normalized);
+      recordSurfaceChange('surface:title', previous, normalized, value => { apply(value); return true; });
+    }, { scopeId: 'surface', key: 'graphTitle' });
+    return true;
+  }
+
+  function rehydrateSurfaceInlineTextInteractions(svg, ownerSession = null){
+    const title = svg?.querySelector?.('[data-font-role="graphTitle"]') || null;
+    const titleReady = title ? bindSurfaceTitleInlineInteraction(title, ownerSession) : true;
+    const axisReady = ['x', 'y', 'z'].every(axis => {
+      const node = svg?.querySelector?.(`[data-font-role="${axis}Title"]`) || null;
+      if(!node){ return true; }
+      bindSurface3dAxisLabelEditor(node, axis, ownerSession);
+      return !!node.__graphitixInlineEditBinding;
+    });
+    return titleReady && axisReady;
+  }
+
   const applySavedFontStyle = node => {
     if(!node || !fontControls || typeof fontControls.applySavedStyle !== 'function'){
       return false;
@@ -2063,50 +2575,16 @@
     return fontControls.applySavedStyle(node);
   };
 
-  function markSurfaceLegendTextLabel(node, labelSpec){
+  function markSurfaceLegendTextLabel(node, index){
     if(!node){ return; }
-    const key = labelSpec?.key || null;
+    const key = index === 0
+      ? 'surfaceLegendScaleMin'
+      : (index === SURFACE_LEGEND_TICK_COUNT - 1 ? 'surfaceLegendScaleMax' : `surfaceLegendScaleTick${index}`);
     markFontEditable(node, SURFACE_LEGEND_TEXT_ROLE, key);
-    // Legend scale labels are generated numeric ticks, not user-authored text.
-    // Keep them registered with fontControls so Graph-scope font styles apply,
-    // but do not let a selection-specific legend override shadow future
-    // Graph-wide font changes. This matches the heatmap color-scale pattern.
     if(node.dataset){
-      node.dataset.fontEditable = '0';
-      node.dataset.surfaceLegendLabel = labelSpec?.id || 'scale';
+      node.dataset.surfaceLegendLabel = String(index);
     }
     applySavedFontStyle(node);
-  }
-
-  function appendSurfaceLegendTextLabel(parent, labelSpec, context){
-    const doc = parent?.ownerDocument || global.document;
-    if(!doc || !parent || !labelSpec || !context){ return null; }
-    const text = doc.createElementNS(NS, 'text');
-    const y = labelSpec.anchor === 'min'
-      ? context.barHeight + context.labelOffset
-      : -context.topLabelGap;
-    text.setAttribute('x', String(context.barWidth / 2));
-    text.setAttribute('y', String(y));
-    text.setAttribute('font-size', String(context.fontSize));
-    text.setAttribute('fill', context.textColor);
-    text.setAttribute('text-anchor', 'middle');
-    text.setAttribute('data-legend-key', 'surface-scale');
-    if(labelSpec.anchor !== 'min'){
-      text.setAttribute('dominant-baseline', 'baseline');
-    }
-    text.textContent = context.formatValue(labelSpec.anchor);
-    parent.appendChild(text);
-    markSurfaceLegendTextLabel(text, labelSpec);
-    return text;
-  }
-
-  function appendSurfaceLegendTextLabels(parent, context){
-    const labels = [];
-    SURFACE_LEGEND_LABELS.forEach(labelSpec => {
-      const node = appendSurfaceLegendTextLabel(parent, labelSpec, context);
-      if(node){ labels.push(node); }
-    });
-    return labels;
   }
 
   function debugLog(message, payload){
@@ -2247,6 +2725,7 @@
     state.controls.showGrid = getSurfaceNodeById('surfaceShowGrid', tabId) || owner?.refs?.showGrid || state.controls.showGrid;
     state.controls.showFrame = getSurfaceNodeById('surfaceShowFrame', tabId) || owner?.refs?.showFrame || state.controls.showFrame;
     state.controls.showPoints = getSurfaceNodeById('surfaceShowPoints', tabId) || owner?.refs?.showPoints || state.controls.showPoints;
+    state.controls.showLegend = getSurfaceNodeById('surfaceShowLegend', tabId) || owner?.refs?.showLegend || state.controls.showLegend;
     state.controls.loadExample = getSurfaceNodeById('surfaceLoadExample', tabId) || owner?.refs?.loadExample || state.controls.loadExample;
     state.controls.importBtn = getSurfaceNodeById('surfaceImport', tabId) || owner?.refs?.importButton || state.controls.importBtn;
     state.controls.importFile = getSurfaceNodeById('surfaceFile', tabId) || owner?.refs?.fileInput || state.controls.importFile;
@@ -2394,7 +2873,7 @@
       afterChange: (changes, source) => {
         if(source === 'loadData'){ return; }
         const ownerSession = getSurfaceSessionForHot(state.hot, { reason: 'surface-table-change' }, { create: false });
-        if(ownerSession && !isSurfaceSessionActiveOrActivating(ownerSession)){
+        if(ownerSession && !isSurfaceSessionActive(ownerSession)){
           ownerSession.state.drawPending = true;
           ownerSession.updatedAt = Date.now();
           return;
@@ -2407,7 +2886,7 @@
       },
       afterLoadData: () => {
         const ownerSession = getSurfaceSessionForHot(state.hot, { reason: 'surface-table-load' }, { create: false });
-        if(ownerSession && !isSurfaceSessionActiveOrActivating(ownerSession)){
+        if(ownerSession && !isSurfaceSessionActive(ownerSession)){
           ownerSession.state.drawPending = true;
           ownerSession.updatedAt = Date.now();
           return;
@@ -2510,12 +2989,6 @@
     if(!Array.isArray(data) || !data.length){
       return { points: [], faces: [], ranges: null, stats: { skipped: 0 } };
     }
-    // Safety: avoid parsing extremely large tables synchronously
-    if(data.length > SURFACE_MAX_PARSE_ROWS){
-      const stats = { vertexCount: 0, faceCount: 0, gridColumns: 0, gridRows: 0, gridCells: 0, gridExpected: 0, gridComplete: false, skipped: data.length, zMin: NaN, zMax: NaN, tooLarge: true };
-      debugLog('Debug: surface parse aborted - table too large', { rows: data.length, threshold: SURFACE_MAX_PARSE_ROWS });
-      return { points: [], faces: [], ranges: null, stats };
-    }
     const cols = getSelectedColumns();
     const xValues = new Set();
     const yValues = new Set();
@@ -2533,7 +3006,11 @@
       return Number.isNaN(num);
     });
     const startRow = headerLooksText ? 1 : 0;
+    const rawRowCount = Math.max(0, data.length - startRow);
+    let scannedRows = 0;
+    let pointLimitReached = false;
     for(let rowIndex = startRow; rowIndex < data.length; rowIndex += 1){
+      scannedRows += 1;
       if(checkpoint && rowIndex > startRow && (rowIndex - startRow) % 1024 === 0 && !(await checkpoint('parse-rows'))){
         return { points: [], faces: [], ranges: null, stats: { skipped, cancelled: true }, cancelled: true };
       }
@@ -2557,17 +3034,16 @@
         skipped += 1;
         continue;
       }
-      // Protect against extremely large point counts
-      if(points.length >= SURFACE_MAX_PARSE_POINTS){
-        skipped += 1;
-        continue;
-      }
       const key = `${x}|${y}`;
       if(pointMap.has(key)){
         pointMap.get(key).z = z;
         zMin = Math.min(zMin, z);
         zMax = Math.max(zMax, z);
         continue;
+      }
+      if(points.length >= SURFACE_MAX_PARSE_POINTS){
+        pointLimitReached = true;
+        break;
       }
       const point = { x, y, z };
       pointMap.set(key, point);
@@ -2615,7 +3091,7 @@
     const ranges = {
       x: { min: xArray.length ? xArray[0] : 0, max: xArray.length ? xArray[xArray.length - 1] : 0 },
       y: { min: yArray.length ? yArray[0] : 0, max: yArray.length ? yArray[yArray.length - 1] : 0 },
-      z: { min: zMin, max: zMax }
+      z: { min: points.length ? zMin : 0, max: points.length ? zMax : 0 }
     };
     const expectedCells = Math.max(0, (xArray.length - 1) * (yArray.length - 1));
     const actualCells = Math.max(0, Math.round(faces.length / 2));
@@ -2628,8 +3104,14 @@
       gridExpected: expectedCells,
       gridComplete: actualCells > 0 && actualCells === expectedCells,
       skipped,
-      zMin,
-      zMax
+      rawRowCount,
+      scannedRows,
+      unscannedRows: Math.max(0, rawRowCount - scannedRows),
+      scanTruncated: pointLimitReached && scannedRows < rawRowCount,
+      pointLimitReached,
+      resourceLimited: pointLimitReached,
+      zMin: points.length ? zMin : null,
+      zMax: points.length ? zMax : null
     };
     for(let yi = 0; yi < matrix.length; yi += 1){
       matrix[yi] = null;
@@ -2691,7 +3173,15 @@
       entries.push({ label: 'Grid', value: `${info.gridColumns} × ${info.gridRows} (${status})` });
     }
     if(info && info.skipped){
-      entries.push({ label: 'Skipped rows', value: String(info.skipped) });
+      entries.push({ label: 'Skipped invalid rows', value: String(info.skipped) });
+    }
+    if(info && info.resourceLimited){
+      entries.push({
+        label: 'Resource limit',
+        value: info.pointLimitReached
+          ? `retained first ${info.vertexCount} finite points`
+          : `scanned ${info.scannedRows} of ${info.rawRowCount} rows`
+      });
     }
     if(!entries.length){
       entries.push({ label: 'Status', value: 'Enter numeric X, Y, Z columns to generate the surface.' });
@@ -2816,18 +3306,17 @@
     const legendFontSize = Math.max(4, Number.isFinite(Number(opts.legendFontSize)) && Number(opts.legendFontSize) > 0
       ? Number(opts.legendFontSize)
       : fontSize * 0.75);
-    const barWidthScale = Math.sqrt(Math.max(1, width) / SURFACE_LEGEND_BAR_REFERENCE_WIDTH);
-    const preferredBarWidth = fontSize * barWidthScale;
-    const barWidth = Math.max(
-      SURFACE_LEGEND_BAR_MIN_WIDTH,
-      Math.min(preferredBarWidth, width * SURFACE_LEGEND_BAR_MAX_WIDTH_RATIO)
-    );
-    const maxBarHeight = Math.max(1, availableHeight * 0.7);
-    const readableFloor = Math.min(maxBarHeight, Math.max(legendFontSize * 2.6, Math.min(24, maxBarHeight)));
-    const barHeight = Math.max(1, Math.min(maxBarHeight, Math.max(availableHeight * 0.36, readableFloor)));
-    const labelOffset = Math.max(2, legendFontSize * 0.9);
-    const topLabelGap = Math.max(2, legendFontSize * 0.4);
-    const legendRightPad = Math.max(barWidth + legendFontSize * 2.2, width * 0.075);
+    const frameWidth = Number(opts.drawableFrame?.width);
+    const frameHeight = Number(opts.drawableFrame?.height);
+    const displayScaleX = Number.isFinite(frameWidth) && frameWidth > 0 ? frameWidth / width : 1;
+    const displayScaleY = Number.isFinite(frameHeight) && frameHeight > 0 ? frameHeight / height : 1;
+    const displayScale = Math.max(1e-9, Math.min(displayScaleX, displayScaleY));
+    const barWidth = SURFACE_LEGEND_WIDTH_PX / displayScale;
+    const barHeight = Math.min(availableHeight, SURFACE_LEGEND_HEIGHT_PX / displayScale);
+    const tickLength = SURFACE_LEGEND_TICK_LENGTH_PX / displayScale;
+    const tickLabelGap = SURFACE_LEGEND_TICK_LABEL_GAP_PX / displayScale;
+    const strokeWidth = 1;
+    const legendRightPad = SURFACE_LEGEND_PLOT_GAP_PX / displayScale;
     return {
       width,
       height,
@@ -2839,10 +3328,81 @@
       legendFontSize,
       barWidth,
       barHeight,
-      labelOffset,
-      topLabelGap,
+      tickLength,
+      tickLabelGap,
+      strokeWidth,
+      displayScale,
       legendRightPad
     };
+  }
+
+  function resolveSurfaceLegendTicks(min, max){
+    const domainMin = Number(min);
+    const domainMax = Number(max);
+    if(!Number.isFinite(domainMin) || !Number.isFinite(domainMax) || domainMin === domainMax){
+      return [];
+    }
+    return Array.from({ length: SURFACE_LEGEND_TICK_COUNT }, (_entry, index) => {
+      const ratio = index / (SURFACE_LEGEND_TICK_COUNT - 1);
+      const value = domainMin + ((domainMax - domainMin) * ratio);
+      return { ratio, value, label: formatNumber(value) };
+    });
+  }
+
+  function resolveSurfaceLegendInteractionMetrics(legend, svg, ownerSession = null, metrics = null){
+    if(metrics && Number.isFinite(Number(metrics.width)) && Number(metrics.width) > 0){
+      return metrics;
+    }
+    const owner = ensureSurfaceSessionOwnershipShape(ownerSession || getActiveSurfaceSessionForState());
+    const model = normalizeSurfaceRotationModel(owner?.cache?.rotationModel || null);
+    const viewBox = svg?.viewBox?.baseVal || null;
+    const width = Number(model?.width) || Number(svg?.dataset?.surfaceBaseWidth) || Number(viewBox?.width) || 640;
+    const height = Number(model?.height) || Number(svg?.dataset?.surfaceBaseHeight) || Number(viewBox?.height) || width;
+    const fontSize = Number(model?.fontSize) || Number(state.settings?.fontSize) || 12;
+    const legendFontSize = Number(legend?.querySelector?.('text')?.getAttribute?.('font-size')) || fontSize * 0.75;
+    const margin = model?.margin || resolveSurfacePlotMargins({ width, height, fontSize, showLegend: false });
+    return resolveSurfaceLegendMetrics({
+      width,
+      height,
+      margin,
+      fontSize,
+      legendFontSize,
+      drawableFrame: resolveSurfaceDrawableFrame(svg)
+    });
+  }
+
+  function bindSurfaceLegendInteractions(legend, svg, options = {}){
+    if(!legend || !svg){
+      return false;
+    }
+    const owner = ensureSurfaceSessionOwnershipShape(options.ownerSession || getActiveSurfaceSessionForState());
+    const metrics = resolveSurfaceLegendInteractionMetrics(
+      legend,
+      svg,
+      owner,
+      options.metrics || null
+    );
+    // Serialized DOM attributes cannot prove that listeners survived recovery.
+    legend.removeAttribute?.('data-pointer-guard-bound');
+    legend.removeAttribute?.('data-drag-bound');
+    if(legend.__surfaceLegendPointerGuardBound !== true && typeof plot3d.applyLegendPointerGuards === 'function'){
+      plot3d.applyLegendPointerGuards(legend, { label: 'surface-scale' });
+      legend.__surfaceLegendPointerGuardBound = true;
+    }
+    return Shared.bindLegendDragInteraction?.(legend, svg, {
+      owner,
+      originX: metrics.width - metrics.marginRight,
+      originY: metrics.marginTop,
+      scaleX: metrics.legendRightPad,
+      scaleY: metrics.availableHeight,
+      undoLabel: 'surface-legend-position',
+      onCommit: (position, boundOwner) => {
+        const dragOwner = ensureSurfaceSessionOwnershipShape(boundOwner || getActiveSurfaceSessionForState());
+        if(dragOwner){
+          patchSurfaceLabelPosition(dragOwner, 'legend', position, { reason: 'surface-legend-position' });
+        }
+      }
+    }) === true;
   }
 
   function resolveSurfacePlotMargins(options){
@@ -2889,7 +3449,7 @@
           options.textColor,
           chartStyle.TEXT_COLOR || '#1f2a3d'
         );
-    const legendStrokeColor = normalizeSurfaceThemeColor(options.axisColor, '#cbd5e1');
+    const legendStrokeColor = '#333';
     const doc = svg.ownerDocument || global.document;
     const targetLayer = options.layer && options.layer.ownerDocument === doc && options.layer.nodeType === 1 ? options.layer : svg;
     let defs = svg.querySelector('defs');
@@ -2909,17 +3469,12 @@
     gradient.setAttribute('x2', '0%');
     gradient.setAttribute('y2', '0%');
     
-    // Create gradient stops based on the color ramp
     const ramp = COLOR_RAMPS[options.colorRamp] || COLOR_RAMPS.viridis;
     const stops = Array.isArray(ramp.stops) && ramp.stops.length ? ramp.stops : COLOR_RAMPS.viridis.stops;
     const stopCount = Math.max(1, stops.length - 1);
-    
-    // Clear existing stops
     while(gradient.firstChild){ 
       gradient.removeChild(gradient.firstChild); 
     }
-    
-    // Create new stops
     stops.forEach((hex, index) => {
       const stop = doc.createElementNS(NS, 'stop');
       stop.setAttribute('offset', `${(index / stopCount) * 100}%`);
@@ -2939,18 +3494,20 @@
       legend.setAttribute('data-legend-key', 'surface-scale');
     }
     while(legend.firstChild){ legend.removeChild(legend.firstChild); }
-    // mark which gradient id this legend relies on so we can safely remove it later
-    try{ legend.setAttribute('data-gradient-id', gradientId); }catch(e){}
+    legend.setAttribute('data-gradient-id', gradientId);
+    legend.setAttribute('data-surface-legend-height-mode', 'fixed');
     const metrics = resolveSurfaceLegendMetrics(options);
     const {
-      fontSize,
       legendFontSize,
       barWidth,
       barHeight: finalLegendHeight,
-      labelOffset,
-      topLabelGap,
+      tickLength,
+      tickLabelGap,
+      strokeWidth,
       legendRightPad
     } = metrics;
+    legend.setAttribute('data-surface-legend-display-height', String(finalLegendHeight * metrics.displayScale));
+    legend.setAttribute('data-surface-legend-display-width', String(barWidth * metrics.displayScale));
 
     const defaultLegendX = metrics.width - metrics.marginRight + legendRightPad;
     const defaultLegendY = metrics.marginTop;
@@ -2992,48 +3549,47 @@
     rect.setAttribute('height', finalLegendHeight);
     rect.setAttribute('fill', `url(#${gradientId})`);
     rect.setAttribute('stroke', legendStrokeColor);
-    rect.setAttribute('stroke-width', Math.max(0.4, fontSize * 0.04));
+    rect.setAttribute('stroke-width', String(strokeWidth));
+    rect.setAttribute('vector-effect', 'non-scaling-stroke');
     rect.setAttribute('data-legend-key', 'surface-scale');
+    rect.setAttribute('data-surface-color-scale-bar', '1');
     legend.appendChild(rect);
-    appendSurfaceLegendTextLabels(legend, {
-      barWidth,
-      barHeight: finalLegendHeight,
-      labelOffset,
-      topLabelGap,
-      fontSize: legendFontSize,
-      textColor: legendTextColor,
-      formatValue: anchor => formatNumber(anchor === 'min' ? options.min : options.max)
+    const tickStartX = barWidth;
+    const tickLabelX = tickStartX + tickLength + tickLabelGap;
+    resolveSurfaceLegendTicks(options.min, options.max).forEach((tick, index) => {
+      const y = (1 - tick.ratio) * finalLegendHeight;
+      const line = doc.createElementNS(NS, 'line');
+      line.setAttribute('x1', String(tickStartX));
+      line.setAttribute('x2', String(tickStartX + tickLength));
+      line.setAttribute('y1', String(y));
+      line.setAttribute('y2', String(y));
+      line.setAttribute('stroke', legendStrokeColor);
+      line.setAttribute('stroke-width', String(strokeWidth));
+      line.setAttribute('vector-effect', 'non-scaling-stroke');
+      line.setAttribute('data-legend-key', 'surface-scale');
+      line.setAttribute('data-surface-color-scale-tick', '1');
+      legend.appendChild(line);
+
+      const label = doc.createElementNS(NS, 'text');
+      label.setAttribute('x', String(tickLabelX));
+      label.setAttribute('y', String(y));
+      label.setAttribute('font-size', String(legendFontSize));
+      label.setAttribute('fill', legendTextColor);
+      label.setAttribute('dominant-baseline', 'middle');
+      label.setAttribute('text-anchor', 'start');
+      label.setAttribute('data-legend-key', 'surface-scale');
+      label.textContent = tick.label;
+      legend.appendChild(label);
+      markSurfaceLegendTextLabel(label, index);
     });
 
-    if(typeof plot3d.applyLegendPointerGuards === 'function' && legend.dataset?.pointerGuardBound !== '1'){
-      plot3d.applyLegendPointerGuards(legend, { label: 'surface-scale' });
-      if(legend.dataset){ legend.dataset.pointerGuardBound = '1'; }
-    }
-
-    if(typeof Shared.enableLegendDrag === 'function' && legend.dataset){
-      if(legend.dataset.dragBound !== '1'){
-        legend.dataset.dragBound = '1';
-        Shared.enableLegendDrag(legend, svg, {
-          onDragEnd: pos => {
-            const relX = (pos.x - (metrics.width - metrics.marginRight)) / legendRightPad;
-            const relY = metrics.availableHeight > 0
-              ? (pos.y - metrics.marginTop) / metrics.availableHeight
-              : 0;
-            patchSurfaceLabelPosition(getSurfaceProjectionSession({ reason: 'surface-projection-mutation' }), 'legend', {
-              x: pos.x,
-              y: pos.y,
-              relX,
-              relY
-            }, { reason: 'surface-legend-position' });
-            debugLog('Debug: surface legend position saved', { absolute: pos, relative: { relX, relY } });
-          },
-          undoLabel: 'surface-legend-position'
-        });
-      }
-    }
+    bindSurfaceLegendInteractions(legend, svg, {
+      ownerSession: options.ownerSession || null,
+      metrics
+    });
     
     return {
-      width: barWidth + legendRightPad,
+      width: barWidth + tickLength + tickLabelGap,
       height: finalLegendHeight
     };
   }
@@ -3042,15 +3598,9 @@
     if(!svg){ return; }
     const legend = svg.querySelector('g.surface-legend');
     if(legend && legend.parentNode){
-      // remove associated gradient if present
-      try{
-        const gradId = legend.getAttribute && legend.getAttribute('data-gradient-id');
-        if(gradId){
-          const defs = svg.querySelector('defs');
-          const grad = defs && defs.querySelector && defs.querySelector(`#${gradId}`);
-          if(grad && grad.parentNode){ grad.parentNode.removeChild(grad); }
-        }
-      }catch(e){ /* ignore missing gradient cleanup */ }
+      const gradId = legend.getAttribute('data-gradient-id');
+      const gradient = gradId ? svg.querySelector(`defs #${gradId}`) : null;
+      gradient?.remove();
       legend.parentNode.removeChild(legend);
     }
   }
@@ -3069,6 +3619,7 @@
     if(state.controls.showGrid){ state.controls.showGrid.checked = !!state.settings.showGrid; }
     if(state.controls.showFrame){ state.controls.showFrame.checked = !!state.settings.showFrame; }
     if(state.controls.showPoints){ state.controls.showPoints.checked = !!state.settings.showPoints; }
+    if(state.controls.showLegend){ state.controls.showLegend.checked = state.settings.showLegend !== false; }
   }
 
   function initControls(){
@@ -3108,7 +3659,7 @@
         scheduleActiveSurfaceDraw({ reason: 'surface-axis-color-change' });
       });
     }
-    ['showGrid', 'showFrame', 'showPoints'].forEach(key => {
+    ['showGrid', 'showFrame', 'showPoints', 'showLegend'].forEach(key => {
       const control = state.controls[key];
       if(!control){ return; }
       bindSurfaceControlHandler(control, 'change', `setting-${key}`, () => {
@@ -3175,7 +3726,7 @@
           || getActiveSurfaceSessionForState();
         const hasFile = !!(state.controls.importFile?.files && state.controls.importFile.files[0]);
         let forcedOverlay = false;
-        if(hasFile && isSurfaceSessionActiveOrActivating(importSession)){
+        if(hasFile && isSurfaceSessionActive(importSession)){
           forcedOverlay = !!forceSurfaceOverlay('file-import', { message: 'Importing table data...' });
           markSurfaceOverlayPending('file-import');
         }
@@ -3184,7 +3735,7 @@
           minCols: 3,
           minRows: 5,
           scheduleDraw: () => {
-            if(importSession && !isSurfaceSessionActiveOrActivating(importSession)){
+            if(importSession && !isSurfaceSessionActive(importSession)){
               importSession.state.drawPending = true;
               importSession.updatedAt = Date.now();
               return;
@@ -3198,7 +3749,7 @@
             updateAxisOptions();
           },
           onCompleted: () => {
-            if(importSession && !isSurfaceSessionActiveOrActivating(importSession)){
+            if(importSession && !isSurfaceSessionActive(importSession)){
               importSession.state.drawPending = true;
               importSession.updatedAt = Date.now();
               return;
@@ -3211,11 +3762,11 @@
             surfaceOverlayController?.resolve({ reason: 'file-import-owner-inactive', tabId: meta?.tabId || null });
           }
         }).then(result => {
-          if(!result && forcedOverlay && isSurfaceSessionActiveOrActivating(importSession)){
+          if(!result && forcedOverlay && isSurfaceSessionActive(importSession)){
             resolveSurfaceOverlay('file-import-empty');
           }
         }).catch(err => {
-          if(forcedOverlay && isSurfaceSessionActiveOrActivating(importSession)){
+          if(forcedOverlay && isSurfaceSessionActive(importSession)){
             resolveSurfaceOverlay('file-import-error');
           }
           console.error('surface import failed', err);
@@ -3224,10 +3775,11 @@
     }
     if(exporter && typeof exporter.mountSvgControls === 'function'){
       exporter.mountSvgControls({
-        container: '#surfaceExportControls',
-        svgSelector: '#surfaceSvg',
+        container: getSurfaceNodeById('surfaceExportControls'),
+        getSvg: () => getSurfaceNodeById('surfaceSvg'),
         fileName: 'surface-plot',
-        contextLabel: 'surface-export'
+        contextLabel: 'surface-export',
+        componentName: 'surface'
       });
     }
     const saveBtn = getSurfaceNodeById('saveSurfaceGraph');
@@ -3236,6 +3788,22 @@
     if(saveAsBtn){ attachListener(saveAsBtn, 'click', () => surface.saveAs()); }
     const openBtn = getSurfaceNodeById('openSurfaceGraph');
     if(openBtn){ attachListener(openBtn, 'click', () => surface.open()); }
+    const graphFileInput = getSurfaceNodeById('surfaceGraphFile');
+    if(graphFileInput){
+      attachListener(graphFileInput, 'change', event => {
+        const file = event?.target?.files?.[0] || null;
+        if(!file){ return; }
+        const owner = getSurfaceCallbackOwner({
+          event,
+          target: event?.currentTarget || event?.target || null,
+          reason: 'surface-graph-file-input'
+        });
+        const ownerTabId = String(owner?.tabId || owner?.session?.tabId || '').trim() || null;
+        setSurfaceFileName(file.name, owner?.session || null);
+        setSurfaceFileHandle(null, owner?.session || null);
+        surface.loadFromFile(file, { tabId: ownerTabId });
+      });
+    }
   }
   function getSurfaceSessionForDrawOptions(options = {}, meta = {}){
     const source = options && typeof options === 'object' ? options : {};
@@ -3255,26 +3823,45 @@
 
   async function runSurfaceDrawCycle(options = {}){
     const drawSession = getSurfaceSessionForDrawOptions(options, { reason: options?.reason || 'surface-draw-cycle-session' });
+    const drawTabId = drawSession?.tabId || options?.tabId || getSurfaceProjectionTabId() || null;
+    if(drawSession?.timers){
+      drawSession.timers.drawInFlight = Math.max(0, Number(drawSession.timers.drawInFlight) || 0) + 1;
+      drawSession.updatedAt = Date.now();
+    }
     let status = 'complete';
     try{
-      await draw(options, drawSession);
+      const result = await draw(options, drawSession);
+      if(result === false){
+        status = 'cancelled';
+      }
     }catch(err){
       status = 'error';
       throw err;
     }finally{
-      if(options?.reason === 'rotation' && drawSession?.timers){
-        drawSession.timers.rotationPending = false;
-        if(!drawSession.timers.rotationActive){
-          drawSession.timers.rotationViewport = null;
+      if(drawSession?.timers){
+        drawSession.timers.drawInFlight = Math.max(0, (Number(drawSession.timers.drawInFlight) || 1) - 1);
+        if(options?.reason === 'rotation'){
+          drawSession.timers.rotationPending = false;
+          if(!drawSession.timers.rotationActive){
+            drawSession.timers.rotationViewport = null;
+          }
         }
+        drawSession.updatedAt = Date.now();
       }
       resolveSurfaceOverlay(status, { session: drawSession, allowInactive: true });
+      Shared.componentLifecycle?.emitLifecycleEvent?.({
+        componentKey: 'surface',
+        tabId: drawTabId,
+        action: 'draw-settled',
+        reason: options?.reason || 'surface-draw',
+        phase: status
+      });
     }
   }
 
   async function drawSurface(session = null, options = {}){
     const drawSession = ensureSurfaceSessionOwnershipShape(session || getSurfaceSessionForDrawOptions(options));
-    if(drawSession && !isSurfaceSessionActiveOrActivating(drawSession)){
+    if(drawSession && !isSurfaceSessionActive(drawSession)){
       drawSession.state.drawPending = true;
       drawSession.updatedAt = Date.now();
       debugLog('Debug: surface draw skipped for inactive session', {
@@ -3302,7 +3889,7 @@
         await execution?.checkpoint?.();
         return !execution?.signal?.aborted;
       }catch(err){
-        if(execution?.signal?.aborted){ return false; }
+        if(execution?.signal?.aborted || execution?.isCurrent?.() === false){ return false; }
         throw err;
       }
     };
@@ -3365,7 +3952,17 @@
       axisLayer.setAttribute('class', 'surface-layer surface-layer-axes');
       svg.appendChild(axisLayer);
     }
-    ensureSurfaceGeometryPoolsSynced('draw-start');
+    let legendLayer = svg.querySelector('g.surface-layer-legend');
+    if(!legendLayer){
+      legendLayer = doc.createElementNS(NS, 'g');
+      legendLayer.setAttribute('class', 'surface-layer surface-layer-legend');
+      svg.appendChild(legendLayer);
+    }else if(legendLayer !== svg.lastElementChild){
+      // Keep the legend above the rotating geometry and axes without coupling
+      // its lifecycle to the axis layer rebuilt by the lightweight renderer.
+      svg.appendChild(legendLayer);
+    }
+    ensureSurfaceGeometryPoolsSynced('draw-start', drawSession, svg);
     const fontInfo = typeof chartStyle.resolveScaledFontSize === 'function'
       ? chartStyle.resolveScaledFontSize({ rawSize: state.settings.fontSize, width, height, svgBox: state.svgBox, input: state.controls.fontSize })
       : { scaledPx: state.settings.fontSize, scaleInfo: null };
@@ -3374,13 +3971,14 @@
     }
     const fs = fontInfo.scaledPx || state.settings.fontSize;
     const surfaceFontStyles = exportFontStyles('surface');
-    const resolveSurfaceScopedFontSize = (role, fallbackPx) => {
+    const resolveSurfaceScopedFontSize = (role, fallbackPx, collection = null) => {
       const fallback = Number.isFinite(Number(fallbackPx)) && Number(fallbackPx) > 0 ? Number(fallbackPx) : fs;
       if(!chartStyle || typeof chartStyle.resolveScopedLabelMeasureFont !== 'function'){
         return fallback;
       }
       const profile = chartStyle.resolveScopedLabelMeasureFont({
         styles: surfaceFontStyles,
+        collection,
         role,
         fallbackPx: fallback
       });
@@ -3392,12 +3990,7 @@
       resolveSurfaceScopedFontSize('yTick', fs),
       resolveSurfaceScopedFontSize('zTick', fs)
     );
-    const surfaceLegendTickFontSize = resolveSurfaceScopedFontSize(null, fs * 0.75);
-    const markSurface3dAxisTickLabel = (node, axisKey) => {
-      if(!node){ return; }
-      const role = axisKey === 'z' ? 'zTick' : (axisKey === 'y' ? 'yTick' : 'xTick');
-      markFontEditable(node, role, role);
-    };
+    const surfaceLegendTickFontSize = resolveSurfaceScopedFontSize(null, fs * 0.75, 'scale');
     const axisStrokeWidthBase = getAxisStrokeWidthBase();
     const axisStrokeWidth = typeof chartStyle.scaleStrokeWidth === 'function'
       ? chartStyle.scaleStrokeWidth(axisStrokeWidthBase, fontInfo.scaleInfo, { context: 'surface-axis', min: 0, exact: true })
@@ -3430,15 +4023,16 @@
     const canShowLegend = Number.isFinite(parsed.stats.zMin)
       && Number.isFinite(parsed.stats.zMax)
       && parsed.stats.zMin !== parsed.stats.zMax;
+    const legendVisible = canShowLegend && state.settings.showLegend !== false;
+    // Keep the plotted surface geometry independent of legend visibility. The
+    // legend sits outside the canonical plot and only extends the SVG viewport.
     const margin = resolveSurfacePlotMargins({
       width,
       height,
       fontSize: fs,
-      showLegend: canShowLegend
+      showLegend: false
     });
-    const legendShiftX = typeof plot3d.resolveLegendShiftX === 'function'
-      ? plot3d.resolveLegendShiftX({ legendVisible: canShowLegend, margin, fontSize: fs })
-      : 0;
+    const legendShiftX = 0;
     const plotWidth = Math.max(40, width - margin.left - margin.right);
     const plotHeight = Math.max(40, height - margin.top - margin.bottom);
     const ranges = {
@@ -3483,7 +4077,7 @@
       };
     }
     const projectRotated = (rot) => projector.project(rot);
-    bindSurface3dRotationControls(svg, 'surface-plot');
+    bindSurface3dRotationControls(svg, 'surface-plot', drawSession);
     const tickTargetX = Math.max(3, typeof chartStyle.estimateTickCount === 'function'
       ? chartStyle.estimateTickCount(plotWidth, { axis: 'x', fallback: 6 })
       : 6);
@@ -3517,6 +4111,44 @@
       y: ensureMinTicks(clampTicks(scaleY.ticks, ranges.y), ranges.y),
       z: ensureMinTicks(clampTicks(scaleZ.ticks, ranges.z), ranges.z)
     };
+    const colorFor = colorScaleFactory(parsed.stats.zMin, parsed.stats.zMax, state.settings.colorRamp);
+    const effectiveMode = (state.settings.interpolation === 'grid' && parsed.faces.length)
+      ? 'grid'
+      : (parsed.faces.length ? state.settings.interpolation : 'scatter');
+    const shouldRenderFaces = parsed.faces.length && effectiveMode === 'grid';
+    const shouldRenderPoints = state.settings.showPoints || effectiveMode !== 'grid';
+    const rotationSession = drawSession;
+    const rotationModel = buildSurfaceRotationModel({
+      points: parsed.points,
+      faces: parsed.faces,
+      corners,
+      ranges,
+      width,
+      height,
+      margin,
+      legendShiftX,
+      axisTicks,
+      labels: { x: state.labels.x, y: state.labels.y, z: state.labels.z },
+      fontSize: fs,
+      tickFontSize: surface3dTickFontSize,
+      axisStrokeWidth,
+      showGrid: state.settings.showGrid,
+      showFrame: state.settings.showFrame,
+      axisColor: state.settings.axisColor,
+      textColor: surfaceTextColor,
+      themeDark: surfaceThemeDark,
+      gridColor: gridStrokeStyle.color,
+      gridDash: gridDash || null,
+      gridOpacity,
+      gridStrokeWidth: gridStrokeStyle.thickness,
+      zMin: parsed.stats.zMin,
+      zMax: parsed.stats.zMax,
+      colorRamp: state.settings.colorRamp,
+      shouldRenderFaces,
+      shouldRenderPoints
+    });
+    const ownedRotationModel = setSurfaceRotationModel(rotationSession, rotationModel);
+    bindSurfaceRotationRenderer(rotationSession, svg, ownedRotationModel);
     if(typeof plot3d.renderAxesAndGrid === 'function'){
       // Clear previous render output from axis and background layers to avoid
       // accumulation when renderers append new nodes each draw (e.g., on rotate).
@@ -3569,39 +4201,7 @@
         axisTarget: axisLayer,
         labelTarget: axisLayer,
         onAxisTickLabel: markSurface3dAxisTickLabel,
-        onAxisLabel: (el, axisKey) => {
-          if(!el){ return; }
-          const role = axisKey ? `${axisKey}Title` : 'axisTitle';
-          markFontEditable(el, role, role);
-          const applyAxisLabel = value => {
-            const trimmed = value != null ? String(value).trim() : '';
-            const resolved = trimmed || DEFAULT_AXIS_LABELS[axisKey] || DEFAULT_AXIS_LABELS.x;
-            state.labels[axisKey] = resolved;
-            if(state.hot && typeof state.hot.setDataAtCell === 'function'){
-              const columns = getSelectedColumns();
-              const targetCol = columns[axisKey];
-              if(Number.isInteger(targetCol)){
-                const current = getHeaderLabelForColumn(targetCol);
-                if(current !== resolved){
-                  state.hot.setDataAtCell(0, targetCol, resolved, 'surface-axis-inline');
-                }
-              }
-            }
-            scheduleActiveSurfaceDraw({ reason: `surface-${axisKey || 'axis'}-label-edit` });
-            if(el.textContent !== resolved){
-              el.textContent = resolved;
-            }
-            return resolved;
-          };
-          makeEditableHelper(el, text => {
-            const previous = state.labels[axisKey] || DEFAULT_AXIS_LABELS[axisKey] || DEFAULT_AXIS_LABELS.x;
-            const nextValue = applyAxisLabel(text);
-            if(previous === nextValue){
-              return;
-            }
-            recordSurfaceChange(`surface:${axisKey}-label`, previous, nextValue, val => { applyAxisLabel(val); return true; });
-          }, { scopeId: 'surface', key: role });
-        }
+        onAxisLabel: (node, axisKey) => bindSurface3dAxisLabelEditor(node, axisKey, drawSession)
       });
     }
     const axisLabelBounds = [];
@@ -3628,12 +4228,6 @@
         }
       }
     }
-    const colorFor = colorScaleFactory(parsed.stats.zMin, parsed.stats.zMax, state.settings.colorRamp);
-    const effectiveMode = (state.settings.interpolation === 'grid' && parsed.faces.length)
-      ? 'grid'
-      : (parsed.faces.length ? state.settings.interpolation : 'scatter');
-    const shouldRenderFaces = parsed.faces.length && effectiveMode === 'grid';
-    const shouldRenderPoints = state.settings.showPoints || effectiveMode !== 'grid';
     if(shouldRenderFaces){
       let faceGroup = geometryLayer.querySelector('g.surface-faces');
       if(!faceGroup){
@@ -3665,7 +4259,7 @@
         faceGroup.appendChild(polygon);
         polygon.style.display = '';
         state._facePoolUsed += 1;
-        if(faceIndex > 0 && faceIndex % 512 === 0 && !(await checkpoint('render-faces'))){
+        if(options?.reason !== 'resize' && faceIndex > 0 && faceIndex % 512 === 0 && !(await checkpoint('render-faces'))){
           return false;
         }
       }
@@ -3716,7 +4310,7 @@
         pointGroup.appendChild(circle);
         circle.style.display = '';
         state._pointPoolUsed += 1;
-        if(pointIndex > 0 && pointIndex % 512 === 0 && !(await checkpoint('render-points'))){
+        if(options?.reason !== 'resize' && pointIndex > 0 && pointIndex % 512 === 0 && !(await checkpoint('render-points'))){
           return false;
         }
       }
@@ -3738,18 +4332,6 @@
     const titleBaseX = margin.left + plotWidth / 2;
     const titlePos = state.labelPositions?.title;
     const hasTitlePos = Number.isFinite(titlePos?.x) && Number.isFinite(titlePos?.y);
-    const applySurfaceTitle = value => {
-      const trimmed = value != null ? String(value).trim() : '';
-      const resolved = trimmed || 'Surface Plot';
-      patchSurfaceVisualState(drawSession, {
-        labels: { ...state.labels, title: resolved }
-      }, { reason: 'surface-title-edit' });
-      if(title && title.textContent !== resolved){
-        title.textContent = resolved;
-      }
-      scheduleSurfaceDrawForSession(drawSession, { reason: 'surface-title-edit' });
-      return resolved;
-    };
     if(!title){
       title = doc.createElementNS(NS, 'text');
       
@@ -3775,12 +4357,7 @@
       title.setAttribute('fill', surfaceTextColor);
       title.textContent = state.labels.title;
       markFontEditable(title, 'graphTitle', 'graphTitle');
-      makeEditableHelper(title, text => {
-        const previous = state.labels.title || 'Surface Plot';
-        const nextValue = applySurfaceTitle(text);
-        if(previous === nextValue){ return; }
-        recordSurfaceChange('surface:title', previous, nextValue, val => { applySurfaceTitle(val); return true; });
-      }, { scopeId: 'surface', key: 'graphTitle' });
+      bindSurfaceTitleInlineInteraction(title, drawSession);
       if(typeof Shared.enableLabelDrag === 'function'){
         Shared.enableLabelDrag(title, svg, {
           onDragEnd: pos => {
@@ -3870,7 +4447,7 @@
         });
       }
     }
-    if(canShowLegend){
+    if(legendVisible){
       const legendPosition = state.labelPositions.legend || null;
       renderLegend(svg, {
         min: parsed.stats.zMin,
@@ -3879,12 +4456,13 @@
         width,
         height,
         margin,
+        drawableFrame,
         fontSize: fs,
         legendFontSize: surfaceLegendTickFontSize,
-        layer: axisLayer,
+        layer: legendLayer,
         textColor: surfaceTextColor,
-        axisColor: state.settings.axisColor,
-        position: legendPosition
+        position: legendPosition,
+        ownerSession: drawSession
       });
     }else{
       removeLegend(svg);
@@ -3897,7 +4475,8 @@
       ensureSurfaceGraphViewport(svg, {
         padding: Math.max(fs, 18),
         debugLabel: 'surface-3d-graph',
-        baseViewport: { width, height }
+        baseViewport: { width, height },
+        fitContent: false
       });
     }
     updateStats(parsed.stats);
@@ -3921,7 +4500,7 @@
     }
     Shared.componentLifecycle?.emitLifecycleEvent?.({ componentKey: 'surface', tabId: options?.tabId || getSurfaceProjectionTabId() || null, action: 'draw-executed', reason: nextReason, details: { source: 'surface.draw' } });
     const drawSession = getSurfaceSessionForDrawOptions(options, { reason: nextReason });
-    if(drawSession && !isSurfaceSessionActiveOrActivating(drawSession)){
+    if(drawSession && !isSurfaceSessionActive(drawSession)){
       drawSession.state.drawPending = true;
       drawSession.updatedAt = Date.now();
       return;
@@ -3930,6 +4509,8 @@
   };
   surface.cancelCurrentDraw = function cancelCurrentDraw(meta = {}){
     const tabId = meta?.tabId || getSurfaceProjectionTabId() || null;
+    const session = getSurfaceSession(tabId, { ...(meta || {}), tabId, reason: 'surface-draw-cancel-session' }, { create: false });
+    resetSurfaceRotationFrameState(session);
     try{ surface.__asyncScope?.cancelAllForTab?.(tabId, meta?.reason || 'surface-draw-cancel'); }catch(_err){}
     resolveSurfaceOverlay(meta?.reason || 'cancelled', { tabId });
     Shared.componentLifecycle?.emitLifecycleEvent?.({
@@ -4257,7 +4838,7 @@
       }
     }
     cacheDom();
-    bindActiveSurface3dRotationControls('surface-activate');
+    rehydrateActiveSurface3dInteraction(getActiveSurfaceSessionForState(), 'surface-activate');
     syncSurfaceSessionRefsFromActive();
     syncSurfaceSessionManagersFromActive();
     surface.__domSentinel = getSurfaceNodeById('surfaceHot');
@@ -4353,7 +4934,27 @@
   };
 
   surface.captureRuntimeState = function captureRuntimeState(meta = {}){
-    const session = bindSurfaceSessionForTab(meta?.tab || meta?.tabId || getSurfaceProjectionTabId() || null, { ...(meta || {}), reason: meta.reason || 'surface-runtime-capture-bind' }, { apply: false });
+    const requestedTabId = normalizeSurfaceSessionTabId(meta?.tab || meta?.tabId || null, meta || {});
+    const activeTabId = String(global.Main?.session?.workspaceState?.activeTabId || getSurfaceProjectionTabId() || '').trim() || null;
+    if(requestedTabId && activeTabId && requestedTabId !== activeTabId){
+      const storedSnapshot = resolveSurfaceOwnedRuntimeSnapshot(null, {
+        ...(meta || {}),
+        tab: meta?.tab || requestedTabId,
+        tabId: requestedTabId,
+        reason: meta.reason || 'surface-runtime-capture-inactive'
+      });
+      if(!storedSnapshot){
+        // An inactive/lazy owner is payload-led until activation. Never bind its
+        // identity to the currently mounted sibling merely to manufacture runtime.
+        return null;
+      }
+      return Shared.componentLifecycle?.rememberComponentRuntimeSnapshot?.(surface, storedSnapshot, {
+        ...(meta || {}),
+        tabId: requestedTabId,
+        reason: meta.reason || 'surface-runtime-capture-inactive'
+      }) || storedSnapshot;
+    }
+    const session = bindSurfaceSessionForTab(requestedTabId || meta?.tab || meta?.tabId || getSurfaceProjectionTabId() || null, { ...(meta || {}), reason: meta.reason || 'surface-runtime-capture-bind' }, { apply: false });
     const capturedSession = captureSurfaceSessionStateFromActive(session, meta);
     const snapshot = capturedSession
       ? Object.assign({}, capturedSession.state, {
@@ -4380,22 +4981,40 @@
     if(!resolvedSnapshot || typeof resolvedSnapshot !== 'object'){
       return false;
     }
-    const session = setSurfaceSessionStateFromRuntimeRecord(resolvedSnapshot, meta);
-    if(session){
-      projectedSurfaceSession = session;
-      applySurfaceSessionStateToActive(session, { syncUi: true });
-    }else{
-      applySurfaceTabContextSnapshot(resolvedSnapshot, { syncUi: true });
-    }
-    rememberSurfaceOwnedRuntimeRecord(meta?.tab || meta?.tabId || null, resolvedSnapshot, {
+    const requestedTabId = normalizeSurfaceSessionTabId(meta?.tab || meta?.tabId || null, meta || {});
+    const session = setSurfaceSessionStateFromRuntimeRecord(resolvedSnapshot, {
       ...(meta || {}),
+      tabId: requestedTabId || meta?.tabId || undefined
+    });
+    rememberSurfaceOwnedRuntimeRecord(meta?.tab || requestedTabId || null, resolvedSnapshot, {
+      ...(meta || {}),
+      tabId: requestedTabId || meta?.tabId || undefined,
       reason: meta.reason || 'surface-runtime-apply'
     });
     Shared.componentLifecycle?.rememberComponentRuntimeSnapshot?.(surface, resolvedSnapshot, {
       ...(meta || {}),
+      tabId: requestedTabId || meta?.tabId || undefined,
       reason: meta.reason || 'surface-runtime-apply'
     });
-    bindActiveSurface3dRotationControls('surface-runtime-apply');
+
+    const activeTabId = String(global.Main?.session?.workspaceState?.activeTabId || getSurfaceProjectionTabId() || '').trim() || null;
+    if(requestedTabId && activeTabId && requestedTabId !== activeTabId){
+      // Store inactive-owner runtime only. Normal activation binds that owner
+      // before projecting the session into DOM.
+      return true;
+    }
+    if(session){
+      projectedSurfaceSession = session;
+      surface.__surfaceSessionTabId = session.tabId;
+      surface.__boundTabId = session.tabId;
+      applySurfaceSessionStateToActive(session, { syncUi: true });
+    }else{
+      applySurfaceTabContextSnapshot(resolvedSnapshot, { syncUi: true });
+    }
+    if(session?.refs){
+      session.refs.rotationRenderer = null;
+    }
+    rehydrateActiveSurface3dInteraction(session, 'surface-runtime-apply');
     return true;
   };
 
@@ -4403,11 +5022,13 @@
     component: surface,
     componentKey: 'surface',
     cancel: (tab, meta = {}) => {
-      captureSurfaceSessionForDeactivation(tab, meta);
+      const session = captureSurfaceSessionForDeactivation(tab, meta);
+      resetSurfaceRotationFrameState(session);
       state.drawPending = false;
     }
   }) || function deactivateSurfaceTab(tab, meta = {}){
-    captureSurfaceSessionForDeactivation(tab, meta);
+    const session = captureSurfaceSessionForDeactivation(tab, meta);
+    resetSurfaceRotationFrameState(session);
     state.drawPending = false;
     surface.__runtimeGeneration = (Number(surface.__runtimeGeneration) || 0) + 1;
     debugLog('Debug: surface tab deactivated', {
@@ -4433,8 +5054,8 @@
       ? getSurfaceSession(scheduleTargetTab, { ...(meta || {}), reason: 'surface-payload-scheduler-owner' }, { create: false, fallbackActive: false })
       : getActiveSurfaceSessionForState();
     const canMuteActiveScheduler = hasExplicitScheduleTarget
-      ? !!(scheduleTargetSession && isSurfaceSessionActiveOrActivating(scheduleTargetSession))
-      : (!scheduleTargetSession || isSurfaceSessionActiveOrActivating(scheduleTargetSession));
+      ? !!(scheduleTargetSession && isSurfaceSessionActivationTarget(scheduleTargetSession))
+      : (!scheduleTargetSession || isSurfaceSessionActivationTarget(scheduleTargetSession));
     let scheduleBackup = null;
     let mutedScheduleDraw = null;
     if(skipDraw && canMuteActiveScheduler && typeof state.scheduleDraw === 'function'){
@@ -4531,7 +5152,9 @@
       commitSurfaceRotationState(state.rotation, 'surface-payload-apply');
     }
     if(config.fontStyles){
-      importFontStyles('surface', config.fontStyles);
+      importFontStyles('surface', config.fontStyles, {
+        tabId: scheduleTargetSession?.tabId || normalizeSurfaceSessionTabId(scheduleTargetTab, meta) || null
+      });
     }
     applySettingsToControls();
     updateAxisOptions();
@@ -4569,9 +5192,18 @@
     if(savedStats && typeof savedStats === 'object'){
       savedStats.statsPanelModel = statsPanelModel;
     }
+    const activeManager = ensureSurfaceDataViewsForHot(activeHot, {
+      wrapper: getSurfaceNodeById('surfaceHotWrapper'),
+      container: activeHot.__surfaceHostContainer || getSurfaceNodeById('surfaceHot')
+    });
+    syncSurfaceActiveDataViewFromHot(activeHot, 'payload');
+    const dataViewsPayload = activeManager?.serialize?.({ includeData: true }) || null;
+    const includeDataViews = !!(dataViewsPayload && Array.isArray(dataViewsPayload.views) && dataViewsPayload.views.length > 1);
+    const payloadSourceData = Shared.dataViews?.resolveRawDataForPersistence?.(dataViewsPayload, activeHot.getData())
+      || activeHot.getData();
     const payload = {
       type: 'surface',
-      data: Shared.hot.trimTrailingEmptyCols(activeHot.getData()),
+      data: Shared.hot.trimTrailingEmptyCols(payloadSourceData),
       exclusions: activeHot.exportExclusions ? activeHot.exportExclusions() : (Shared.hot && typeof Shared.hot.exportExclusions === 'function' ? Shared.hot.exportExclusions(activeHot) : undefined),
       filters: activeHot.exportFilters ? activeHot.exportFilters() : (Shared.hot && typeof Shared.hot.exportFilters === 'function' ? Shared.hot.exportFilters(activeHot) : undefined),
       stats: savedStats,
@@ -4603,7 +5235,9 @@
             z: state.rotation.quaternion.z
           } : null
         },
-        fontStyles: exportFontStyles ? exportFontStyles('surface') : undefined,
+        fontStyles: exportFontStyles('surface', {
+          tabId: projectedSurfaceSession?.tabId || getSurfaceProjectionTabId() || getActiveSurfaceSessionForState()?.tabId || null
+        }) || undefined,
         notes: {
           text: notesText,
           open: notesOpen
@@ -4611,13 +5245,6 @@
         statsPanelModel
       }
     };
-    const activeManager = ensureSurfaceDataViewsForHot(activeHot, {
-        wrapper: getSurfaceNodeById('surfaceHotWrapper'),
-        container: activeHot.__surfaceHostContainer || getSurfaceNodeById('surfaceHot')
-    });
-    syncSurfaceActiveDataViewFromHot(activeHot, 'payload');
-    const dataViewsPayload = activeManager?.serialize?.({ includeData: true }) || null;
-    const includeDataViews = !!(dataViewsPayload && Array.isArray(dataViewsPayload.views) && dataViewsPayload.views.length > 1);
     if(includeDataViews){
       payload.dataViews = dataViewsPayload;
       payload.activeDataViewId = dataViewsPayload?.activeViewId || null;
@@ -4690,6 +5317,7 @@
     }
     const result = await fileIO.saveGraphFile({
       context: 'surface',
+      owner: { component: 'surface', tabId: operationSession?.tabId || getSurfaceProjectionTabId() || null },
       fileHandle: state.fileHandle,
       getPayload,
       fileName: state.fileName,
@@ -4708,6 +5336,7 @@
     }
     const result = await fileIO.saveGraphFileAs({
       context: 'surface',
+      owner: { component: 'surface', tabId: operationSession?.tabId || getSurfaceProjectionTabId() || null },
       getPayload,
       fileName: state.fileName,
       downloadFileName: state.fileName,
@@ -4719,15 +5348,17 @@
 
   surface.open = async function open(){
     const operationSession = getActiveSurfaceSessionForState();
+    const operationTabId = String(operationSession?.tabId || getSurfaceProjectionTabId() || '').trim() || null;
     if(!fileIO || typeof fileIO.openGraphFile !== 'function'){
       console.error('surface.open missing Shared.fileIO.openGraphFile');
       return;
     }
     const result = await fileIO.openGraphFile({
       context: 'surface',
+      owner: { component: 'surface', tabId: operationTabId },
       setFileHandle: handle => { setSurfaceFileHandle(handle, operationSession); },
       setFileName: name => { setSurfaceFileName(name, operationSession); },
-      loadFromFile: blob => surface.loadFromFile(blob),
+      loadFromFile: (blob, operation) => surface.loadFromFile(blob, { operation, tabId: operationTabId }),
       triggerInput: () => {
         if(state.controls.graphFileInput){
           state.controls.graphFileInput.value = '';
@@ -4738,14 +5369,35 @@
     debugLog('Debug: surface open result', result);
   };
 
-  surface.loadFromFile = function loadFromFile(file){
-    const apply = payload => applySurfacePayload(payload, { source: 'file' });
+  surface.loadFromFile = function loadFromFile(file, options = {}){
+    const ownerTabId = String(options?.tabId || options?.operation?.tabId || '').trim() || null;
+    const operation = fileIO?.createGraphOpenOperation?.({
+      context: 'surface',
+      owner: { component: 'surface', tabId: ownerTabId },
+      operation: options?.operation
+    }) || options?.operation || null;
+    const applyPayload = payload => {
+      if(typeof fileIO?.routeGraphOpenPayload === 'function'){
+        const routed = fileIO.routeGraphOpenPayload({
+          context: 'surface',
+          component: 'surface',
+          operation,
+          owner: { component: 'surface', tabId: ownerTabId },
+          payload,
+          apply: value => applySurfacePayload(value, { source: 'file', tabId: ownerTabId }),
+          reason: 'surface-graph-file-open'
+        });
+        return routed?.value === true;
+      }
+      const fallbackOwnerIsCurrent = !ownerTabId || String(getSurfaceProjectionTabId() || '') === ownerTabId;
+      return fallbackOwnerIsCurrent && applySurfacePayload(payload, { source: 'file', tabId: ownerTabId });
+    };
     if(file instanceof Blob){
       const reader = new FileReader();
-      reader.onload = (event) => {
+      reader.onload = event => {
         try {
           const parsed = JSON.parse(event.target.result);
-          if(!apply(parsed)){
+          if(!applyPayload(parsed)){
             console.warn('surface payload rejected from file', { hasType: !!parsed?.type });
           }
         } catch(err){
@@ -4758,7 +5410,7 @@
     if(typeof file === 'string'){
       try {
         const parsed = JSON.parse(file);
-        if(!apply(parsed)){
+        if(!applyPayload(parsed)){
           console.warn('surface payload rejected from string');
         }
       } catch(err){
@@ -4767,7 +5419,7 @@
       return;
     }
     if(file && typeof file === 'object'){
-      apply(file);
+      applyPayload(file);
     }
   };
 
@@ -4778,16 +5430,7 @@
   };
 
   function detachChildren(node){
-    if(!node){ return null; }
-    const doc = node.ownerDocument || global.document;
-    const fragment = doc?.createDocumentFragment ? doc.createDocumentFragment() : null;
-    if(!fragment){ return null; }
-    let count = 0;
-    while(node.firstChild){
-      fragment.appendChild(node.firstChild);
-      count += 1;
-    }
-    return { fragment, count };
+    return Shared.componentLifecycle?.detachCacheableChildren?.(node) || null;
   }
 
   function restoreChildren(node, payload){
@@ -4885,51 +5528,51 @@
     return true;
   }
 
-  function countSurfacePoolNodesAttachedToSvg(pool, svg){
-    if(!svg || typeof svg.contains !== 'function' || !Array.isArray(pool) || !pool.length){
-      return 0;
-    }
-    let count = 0;
-    for(let i = 0; i < pool.length; i += 1){
-      const node = pool[i];
-      if(node && svg.contains(node)){
-        count += 1;
+  function syncSurfaceGeometryPoolsFromDom(reason, session = null, svgOverride = null){
+    const ownerSession = ensureSurfaceSessionOwnershipShape(session || getActiveSurfaceSessionForState());
+    const svg = svgOverride || ownerSession?.refs?.svg || state.svg;
+    const nextFacePool = [];
+    const nextPointPool = [];
+    if(svg && typeof svg.querySelector === 'function'){
+      const geometryLayer = svg.querySelector('g.surface-layer-geometry');
+      const faceGroup = geometryLayer?.querySelector?.('g.surface-faces') || null;
+      const pointGroup = geometryLayer?.querySelector?.('g.surface-points') || null;
+      if(faceGroup && typeof faceGroup.querySelectorAll === 'function'){
+        nextFacePool.push(...faceGroup.querySelectorAll('polygon'));
+      }
+      if(pointGroup && typeof pointGroup.querySelectorAll === 'function'){
+        nextPointPool.push(...pointGroup.querySelectorAll('circle'));
       }
     }
-    return count;
-  }
-
-  function syncSurfaceGeometryPoolsFromDom(reason){
-    const svg = state.svg;
-    if(!svg || typeof svg.querySelector !== 'function'){
-      state._facePool = [];
-      state._pointPool = [];
-      state._facePoolUsed = 0;
-      state._pointPoolUsed = 0;
-      return;
+    if(ownerSession?.refs){
+      ownerSession.refs.facePool = nextFacePool;
+      ownerSession.refs.pointPool = nextPointPool;
+      ownerSession.refs.facePoolUsed = nextFacePool.length;
+      ownerSession.refs.pointPoolUsed = nextPointPool.length;
+      ownerSession.refs.geometryPoolSvg = svg || null;
+      ownerSession.updatedAt = Date.now();
     }
-    const geometryLayer = svg.querySelector('g.surface-layer-geometry');
-    const faceGroup = geometryLayer?.querySelector?.('g.surface-faces') || null;
-    const pointGroup = geometryLayer?.querySelector?.('g.surface-points') || null;
-    const nextFacePool = faceGroup && typeof faceGroup.querySelectorAll === 'function'
-      ? Array.from(faceGroup.querySelectorAll('polygon'))
-      : [];
-    const nextPointPool = pointGroup && typeof pointGroup.querySelectorAll === 'function'
-      ? Array.from(pointGroup.querySelectorAll('circle'))
-      : [];
-    state._facePool = nextFacePool;
-    state._pointPool = nextPointPool;
-    state._facePoolUsed = nextFacePool.length;
-    state._pointPoolUsed = nextPointPool.length;
+    const shouldMirror = !ownerSession || (typeof plot3d.isRotationOwnerTabActive === 'function'
+      ? plot3d.isRotationOwnerTabActive(ownerSession, 'surface')
+      : isSurfaceSessionActive(ownerSession));
+    if(shouldMirror){
+      state._facePool = nextFacePool.slice();
+      state._pointPool = nextPointPool.slice();
+      state._facePoolUsed = nextFacePool.length;
+      state._pointPoolUsed = nextPointPool.length;
+    }
     debugLog('Debug: surface geometry pools synced from DOM', {
       reason: reason || null,
+      tabId: ownerSession?.tabId || null,
       faces: nextFacePool.length,
       points: nextPointPool.length
     });
+    return { facePool: nextFacePool, pointPool: nextPointPool };
   }
 
-  function ensureSurfaceGeometryPoolsSynced(reason){
-    const svg = state.svg;
+  function ensureSurfaceGeometryPoolsSynced(reason, session = null, svgOverride = null){
+    const ownerSession = ensureSurfaceSessionOwnershipShape(session || getActiveSurfaceSessionForState());
+    const svg = svgOverride || ownerSession?.refs?.svg || state.svg;
     if(!svg || typeof svg.querySelector !== 'function'){
       return;
     }
@@ -4939,16 +5582,13 @@
     }
     const faceGroup = geometryLayer.querySelector?.('g.surface-faces') || null;
     const pointGroup = geometryLayer.querySelector?.('g.surface-points') || null;
-    const faceDomCount = faceGroup && typeof faceGroup.querySelectorAll === 'function'
-      ? faceGroup.querySelectorAll('polygon').length
-      : 0;
-    const pointDomCount = pointGroup && typeof pointGroup.querySelectorAll === 'function'
-      ? pointGroup.querySelectorAll('circle').length
-      : 0;
-    const attachedFaceCount = countSurfacePoolNodesAttachedToSvg(state._facePool, svg);
-    const attachedPointCount = countSurfacePoolNodesAttachedToSvg(state._pointPool, svg);
-    if(faceDomCount !== attachedFaceCount || pointDomCount !== attachedPointCount){
-      syncSurfaceGeometryPoolsFromDom(reason || 'pool-mismatch');
+    const faceDomCount = faceGroup?.children?.length || 0;
+    const pointDomCount = pointGroup?.children?.length || 0;
+    const facePool = ownerSession?.refs?.facePool || state._facePool;
+    const pointPool = ownerSession?.refs?.pointPool || state._pointPool;
+    const poolSvg = ownerSession?.refs?.geometryPoolSvg || null;
+    if(poolSvg !== svg || faceDomCount !== facePool.length || pointDomCount !== pointPool.length){
+      syncSurfaceGeometryPoolsFromDom(reason || 'pool-mismatch', ownerSession, svg);
     }
   }
 
@@ -4965,7 +5605,7 @@
 
   surface.captureRenderCache = function captureRenderCache(meta = {}){
     const cacheSession = resolveSurfaceRenderCacheSession(meta, { create: false });
-    if(cacheSession && !isSurfaceSessionActiveOrActivating(cacheSession)){
+    if(cacheSession && !isSurfaceSessionActive(cacheSession)){
       debugLog('Debug: surface render cache capture skipped for inactive session', {
         tabId: cacheSession.tabId || null,
         reason: meta?.reason || 'capture-render-cache'
@@ -5000,12 +5640,19 @@
     }) ?? (Number(svgCache?.count || 0) > 0);
     const cacheMeta = Shared.renderCacheSchema?.createMetadata?.({ component: 'surface', tabId: cacheSession?.tabId, complete })
       || { version: 2, component: 'surface', type: 'surface', tabId: cacheSession?.tabId || null, complete };
-    return { plot: svgCache, stats: statsCache, message: messageCache, svgRootState, __graphitixRenderCache: cacheMeta };
+    return {
+      plot: svgCache,
+      stats: statsCache,
+      message: messageCache,
+      svgRootState,
+      rotationModel: cloneSimple(cacheSession?.cache?.rotationModel) || null,
+      __graphitixRenderCache: cacheMeta
+    };
   };
 
   surface.canRestoreRenderCache = function canRestoreRenderCache(cache, meta = {}){
     const cacheSession = resolveSurfaceRenderCacheSession(meta, { create: false });
-    if(cacheSession && !isSurfaceSessionActiveOrActivating(cacheSession)){
+    if(cacheSession && !isSurfaceSessionActive(cacheSession)){
       debugLog('Debug: surface render cache restore rejected for inactive session', {
         tabId: cacheSession.tabId || null,
         reason: meta?.reason || null
@@ -5023,10 +5670,20 @@
 
   surface.isIdleForSnapshot = function isIdleForSnapshot(meta = {}){
     const owner = resolveSurfaceRenderCacheSession(meta, { create: false }) || getActiveSurfaceSessionForState();
-    if(owner && !isSurfaceSessionActiveOrActivating(owner)){
-      return !owner.state?.drawPending;
+    const rotationActive = !!(owner?.tabId && plot3d.isRotationGestureActiveForTab?.(owner.tabId, 'surface'));
+    const drawInFlight = Math.max(0, Number(owner?.timers?.drawInFlight) || 0);
+    if(owner && !isSurfaceSessionActive(owner)){
+      return drawInFlight === 0
+        && !owner.state?.drawPending
+        && !owner.timers?.rotationPending
+        && !owner.timers?.rotationActive
+        && !rotationActive;
     }
-    return !state.drawPending;
+    return drawInFlight === 0
+      && !state.drawPending
+      && !owner?.timers?.rotationPending
+      && !owner?.timers?.rotationActive
+      && !rotationActive;
   };
 
   surface.awaitReadyForSnapshot = function awaitReadyForSnapshot(meta = {}){
@@ -5034,10 +5691,25 @@
       || Promise.resolve({ ok: true, skipped: true, reason: 'missing-componentLifecycle' });
   };
 
+  surface.rehydrateGraphInteractions = function rehydrateGraphInteractions(meta = {}){
+    const session = resolveSurfaceRenderCacheSession(meta, { create: false });
+    const root = meta.root || resolveSurfaceRoot(session?.tabId || meta.tab || meta.tabId || null);
+    const svg = root?.querySelector?.('#surfaceSvg') || state.svg || meta.svgs?.find?.(node => node?.id === 'surfaceSvg') || null;
+    if(!svg || !session){ return false; }
+    const textReady = rehydrateSurfaceInlineTextInteractions(svg, session);
+    if(session.refs?.svg !== svg || typeof session.refs?.rotationRenderer !== 'function'){
+      syncSurfaceGeometryPoolsFromDom('render-cache-interaction-rehydrate', session, svg);
+      if(!bindSurfaceRotationRenderer(session, svg)){ return false; }
+    }
+    if(!bindSurface3dRotationControls(svg, 'surface-cache-rehydrate', session)){ return false; }
+    bindSurfaceLegendInteractions(svg.querySelector?.('g.surface-legend'), svg, { ownerSession: session });
+    return textReady;
+  };
+
   surface.restoreRenderCache = function restoreRenderCache(cache, _meta = {}){
     if(!cache){ return false; }
     const cacheSession = resolveSurfaceRenderCacheSession(_meta, { create: false });
-    if(cacheSession && !isSurfaceSessionActiveOrActivating(cacheSession)){
+    if(cacheSession && !isSurfaceSessionActive(cacheSession)){
       debugLog('Debug: surface render cache restore skipped for inactive session', {
         tabId: cacheSession.tabId || null,
         reason: _meta?.reason || null
@@ -5056,8 +5728,17 @@
       Shared.statsTable?.rehydrateExportControls?.(state.statsEl);
     }
     if(restoredSvg){
-      syncSurfaceGeometryPoolsFromDom('render-cache-restore');
-      bindSurface3dRotationControls(state.svg, 'surface-restore');
+      if(cacheSession?.refs){
+        cacheSession.refs.svg = state.svg;
+        cacheSession.refs.rotationRenderer = null;
+      }
+      setSurfaceRotationModel(cacheSession, cache.rotationModel || null);
+      syncSurfaceGeometryPoolsFromDom('render-cache-restore', cacheSession, state.svg);
+      bindSurfaceRotationRenderer(cacheSession, state.svg);
+      bindSurface3dRotationControls(state.svg, 'surface-restore', cacheSession);
+      bindSurfaceLegendInteractions(state.svg.querySelector?.('g.surface-legend'), state.svg, {
+        ownerSession: cacheSession
+      });
     }
     const restored = restoredSvg || restoredStats || restoredMessage;
     if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
@@ -5078,8 +5759,14 @@
     resolve3dFrame: drawableFrame => resolveSurface3dFrame(drawableFrame),
     resolveLegendMetrics: options => resolveSurfaceLegendMetrics(options),
     resolvePlotMargins: options => resolveSurfacePlotMargins(options),
+    parseSurfaceTable: options => parseSurfaceTable(options || {}),
+    parseLimits: Object.freeze({ maxPoints: SURFACE_MAX_PARSE_POINTS }),
     renderLegend: (svg, options) => renderLegend(svg, options),
-    applySavedFontStyle: node => applySavedFontStyle(node)
+    applySavedFontStyle: node => applySavedFontStyle(node),
+    normalizeRotationModel: model => normalizeSurfaceRotationModel(model),
+    bindRotationRenderer: (session, svg, model) => bindSurfaceRotationRenderer(session, svg, model),
+    syncGeometryPoolsFromDom: (reason, session, svg) => syncSurfaceGeometryPoolsFromDom(reason, session, svg),
+    getSession: tabLike => getSurfaceSession(tabLike || getSurfaceProjectionTabId() || null, { reason: 'surface-test-session' }, { create: false })
   });
 
   surface.destroy = function destroy(){

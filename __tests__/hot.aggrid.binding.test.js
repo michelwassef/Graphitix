@@ -202,7 +202,58 @@ describe('Shared.hot AG Grid binding', () => {
     expect(scheduleCalls.some(call => call && call.reason === 'afterChange')).toBe(true);
   });
 
-  test('table edits update the active tab payload directly without leaving payload dirty', () => {
+  test('focused-cell changes keep keyboard navigation in sync with the adapter selection', () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'testAgHotKeyboardFocus';
+    document.body.appendChild(container);
+
+    const afterSelectionEnd = jest.fn();
+    const hot = Shared.hot.createStandardTable(
+      container,
+      { rows: 4, cols: 4 },
+      () => {},
+      {
+        debugLabel: 'test-ag-grid-keyboard-focus',
+        data: Shared.createEmptyData(4, 4),
+        hotOptions: { afterSelectionEnd }
+      }
+    );
+
+    hot.selectCell(1, 1);
+    afterSelectionEnd.mockClear();
+
+    capturedGridOptions.onCellFocused({
+      api: capturedApi,
+      rowIndex: 2,
+      column: { getColId: () => 'c2' }
+    });
+
+    expect(hot.getSelectedLast()).toEqual([2, 2, 2, 2]);
+    expect(afterSelectionEnd).toHaveBeenCalledTimes(1);
+    expect(afterSelectionEnd).toHaveBeenCalledWith(2, 2, 2, 2);
+
+    capturedGridOptions.onCellFocused({
+      api: capturedApi,
+      rowIndex: 2,
+      column: { getColId: () => 'c2' }
+    });
+
+    expect(afterSelectionEnd).toHaveBeenCalledTimes(1);
+
+    hot.selectCell(0, 0, 1, 1);
+    afterSelectionEnd.mockClear();
+    capturedGridOptions.onCellFocused({
+      api: capturedApi,
+      rowIndex: 3,
+      column: { getColId: () => 'c3' }
+    });
+
+    expect(hot.getSelectedLast()).toEqual([0, 0, 1, 1]);
+    expect(afterSelectionEnd).not.toHaveBeenCalled();
+  });
+
+  test('derived-view edits keep top-level payload.data Raw while updating the active DataView', () => {
     require('../js/main/session.js');
     const session = global.window.Main.session;
     const tab = session.createTab({
@@ -243,16 +294,20 @@ describe('Shared.hot AG Grid binding', () => {
       serialize: jest.fn(() => ({
         activeViewId: 'filtered',
         views: [
-          { id: 'base', data: [['A', 'B'], ['C', 'D']] },
-          { id: 'filtered', data: activeViewData }
+          { id: 'raw', kind: 'raw', data: [['A', 'B'], ['C', 'D']] },
+          { id: 'filtered', kind: 'derived', sourceViewId: 'raw', data: activeViewData }
         ]
       }))
     };
 
     hot.setDataAtCell(1, 1, 'D2', 'edit');
 
-    expect(hot.__dataViewsManager.updateActiveData).toHaveBeenCalled();
-    expect(tab.payload.data[1][1]).toBe('D2');
+    expect(hot.__dataViewsManager.updateActiveData).toHaveBeenCalledWith(
+      expect.any(Array),
+      { userMutation: true }
+    );
+    expect(tab.payload.data[1][1]).toBe('D');
+    expect(tab.payload.dataViews.views[0].data[1][1]).toBe('D');
     expect(tab.payload.dataViews.views[1].data[1][1]).toBe('D2');
     expect(tab.payload.dataViews?.activeViewId).toBe('filtered');
     expect(tab.payload.activeDataViewId).toBe('filtered');
@@ -1039,6 +1094,136 @@ describe('Shared.hot AG Grid binding', () => {
     expect(secondEditor.getValue()).toBe('1');
     secondEditor.destroy();
     expect(createModelSpy).not.toHaveBeenCalled();
+  });
+
+  test('long inline edits cover only neighboring cells reached by rendered text and preserve exact cell boundaries', () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'longInlineEditAgHot';
+    document.body.appendChild(container);
+    const editValue = 'near second-cell boundary';
+    const secondNeighborValue = 'touch-second-neighbor';
+
+    Shared.hot.createStandardTable(
+      container,
+      { rows: 2, cols: 3 },
+      () => {},
+      {
+        debugLabel: 'long-inline-edit',
+        data: [
+          ['A', 'B', 'C'],
+          [editValue, 'neighbor', 'neighbor']
+        ]
+      }
+    );
+
+    const columnDef = capturedGridOptions.columnDefs.find(col => col.colId === 'c0');
+    const editor = new columnDef.cellEditor();
+    editor.init({
+      value: editValue,
+      data: { __rowIndex: 1 },
+      node: { rowIndex: 1, data: { __rowIndex: 1 } },
+      column: { getColId: () => 'c0' },
+      colDef: columnDef
+    });
+
+    const viewport = document.createElement('div');
+    viewport.className = 'ag-center-cols-viewport';
+    const row = document.createElement('div');
+    row.className = 'ag-row';
+    row.setAttribute('row-index', '1');
+    const cell = document.createElement('div');
+    cell.className = 'ag-cell ag-cell-inline-editing hot-cell-text';
+    cell.setAttribute('col-id', 'c0');
+    const nextCell = document.createElement('div');
+    nextCell.className = 'ag-cell hot-cell-text';
+    nextCell.setAttribute('col-id', 'c1');
+    const secondNextCell = document.createElement('div');
+    secondNextCell.className = 'ag-cell hot-cell-text';
+    secondNextCell.setAttribute('col-id', 'c2');
+    row.appendChild(cell);
+    row.appendChild(nextCell);
+    row.appendChild(secondNextCell);
+    viewport.appendChild(row);
+    container.appendChild(viewport);
+    cell.appendChild(editor.getGui());
+
+    cell.getBoundingClientRect = () => ({
+      left: 100.25,
+      right: 190.25,
+      top: 20,
+      bottom: 40,
+      width: 90,
+      height: 20
+    });
+    nextCell.style.borderRight = '1px solid #d6d6d6';
+    secondNextCell.style.borderRight = '1px solid #d6d6d6';
+    nextCell.getBoundingClientRect = () => ({
+      left: 190.25,
+      right: 280.4,
+      top: 20,
+      bottom: 40,
+      width: 90.15,
+      height: 20
+    });
+    secondNextCell.getBoundingClientRect = () => ({
+      left: 280.4,
+      right: 370.55,
+      top: 20,
+      bottom: 40,
+      width: 90.15,
+      height: 20
+    });
+    viewport.getBoundingClientRect = () => ({
+      left: 40,
+      right: 460,
+      top: 0,
+      bottom: 200,
+      width: 420,
+      height: 200
+    });
+
+    const originalGetContext = global.window.HTMLCanvasElement.prototype.getContext;
+    global.window.HTMLCanvasElement.prototype.getContext = jest.fn(() => ({
+      font: '',
+      measureText: value => {
+        const text = String(value ?? '');
+        if(text === editValue){
+          // The rendered text stops 1.15 px before c2. An editor gutter or
+          // integer rounding must not make c2 count as touched.
+          return { width: 179 };
+        }
+        if(text === secondNeighborValue){
+          // This text crosses 0.85 px into c2, so c2 must now be fully covered.
+          return { width: 181 };
+        }
+        return { width: text.length * 6 };
+      }
+    }));
+
+    try {
+      editor.afterGuiAttached();
+      expect(cell.classList.contains('hot-cell-edit-overflow')).toBe(true);
+      const oneNeighborWidth = Number.parseFloat(
+        editor.getGui().style.getPropertyValue('--hot-cell-edit-overflow-width')
+      );
+      expect(oneNeighborWidth).toBeCloseTo(179.15, 5);
+
+      editor.getGui().value = secondNeighborValue;
+      editor.syncEditOverflowWidth('test-second-neighbor');
+      const twoNeighborWidth = Number.parseFloat(
+        editor.getGui().style.getPropertyValue('--hot-cell-edit-overflow-width')
+      );
+      expect(twoNeighborWidth).toBeCloseTo(269.3, 5);
+
+      editor.getGui().value = 'short';
+      editor.syncEditOverflowWidth('test-shrink');
+      expect(cell.classList.contains('hot-cell-edit-overflow')).toBe(false);
+      expect(editor.getGui().style.getPropertyValue('--hot-cell-edit-overflow-width')).toBe('');
+    } finally {
+      editor.destroy();
+      global.window.HTMLCanvasElement.prototype.getContext = originalGetContext;
+    }
   });
 
   test('pinned first row leaves horizontal sync to AG Grid scroll authority', async () => {

@@ -2567,6 +2567,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     const container = document.createElement('div');
     container.id = 'agProgrammaticColumnOrderHot';
     document.body.appendChild(container);
+    const moveEvents = [];
     const hot = createTable(
       container,
       { rows: 2, cols: 3 },
@@ -2576,7 +2577,10 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
         data: [
           ['A0', 'B0', 'C0'],
           ['A1', 'B1', 'C1']
-        ]
+        ],
+        hotOptions: {
+          afterColumnMove: (...args) => moveEvents.push(args)
+        }
       }
     );
     let displayed = Array.from({ length: hot.countCols() }, (_, index) => `c${index}`);
@@ -2603,6 +2607,10 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     expect(hot.getDataAtCell(0, 1)).toBe('C0');
     expect(hot.getDataAtCell(0, 2)).toBe('A0');
     expect(lifecycle).toEqual([['apply', [1, 2, 0]]]);
+    expect(moveEvents).toHaveLength(1);
+    expect(moveEvents[0][4]).toBe(true);
+    expect(moveEvents[0][5].slice(0, 3)).toEqual([1, 2, 0]);
+    expect(moveEvents[0][6]).toBe('box-graph-dataset-reorder');
   });
 
   test('column reorder commit records undo/redo steps', async () => {

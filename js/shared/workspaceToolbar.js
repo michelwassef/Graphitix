@@ -185,8 +185,26 @@
   let transformHandlersBound = false;
   let sectionTabHandlersBound = false;
   let generalFallbackHandlersBound = false;
+  let numericWheelHandlersBound = false;
+  let activeNumericWheelGesture = null;
+  const numericInputMirrorTargets = new WeakMap();
   const contextObservers = new WeakMap();
   const TOOLBAR_HOST_VARIANT_PREFIX = 'font-toolbar-host--';
+  const TOOLBAR_NUMERIC_WHEEL_INPUT_SELECTOR = 'input[type="number"], input[inputmode="decimal"], input[inputmode="numeric"]';
+  const TOOLBAR_NUMERIC_WHEEL_COMMIT_DELAY_MS = 120;
+  const TOOLBAR_NUMERIC_WHEEL_END_EVENT = 'workspaceToolbar:numericWheelEnd';
+  const TOOLBAR_NUMERIC_WHEEL_SURFACE_SELECTOR = [
+    '.workspace-toolbar',
+    '.font-toolbar-host',
+    '.workspace-toolbar__panel',
+    '.workspace-toolbar__menu-list',
+    '.workspace-toolbar__transform-custom-dropdown',
+    '.shared-color-picker',
+    '.resizer-control-tray',
+    '.resizer-options',
+    '.resizer-options-menu',
+    '[data-toolbar-numeric-wheel-surface="1"]'
+  ].join(', ');
   const GENERAL_FALLBACK_IGNORE_SELECTOR = [
     '.workspace-toolbar',
     '.font-toolbar-host',
@@ -227,6 +245,455 @@
     if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
       console.debug('Debug: workspaceToolbar ' + message, payload || {});
     }
+  }
+
+  function decimalPlaces(value){
+    const text = String(value == null ? '' : value).trim().toLowerCase();
+    if(!text){ return 0; }
+    const match = text.match(/^[-+]?(?:\d+)(?:\.(\d*))?(?:e([-+]?\d+))?$/);
+    if(!match){ return 0; }
+    const fractionDigits = (match[1] || '').length;
+    const exponent = Number(match[2] || 0);
+    return Math.max(0, fractionDigits - exponent);
+  }
+
+  function formatNumericValue(value, step, options = {}){
+    const numeric = Number(value);
+    if(!Number.isFinite(numeric)){
+      return '';
+    }
+    const requestedMaxPrecision = Number(options.maxPrecision);
+    const maxPrecision = Number.isFinite(requestedMaxPrecision)
+      ? Math.max(0, Math.min(12, Math.floor(requestedMaxPrecision)))
+      : 6;
+    const stepPrecision = step === 'any' ? decimalPlaces(value) : decimalPlaces(step);
+    const valuePrecision = decimalPlaces(value);
+    const precision = Math.min(maxPrecision, Math.max(stepPrecision, Math.min(valuePrecision, maxPrecision)));
+    return precision > 0
+      ? String(Number(numeric.toFixed(precision)))
+      : String(Math.round(numeric));
+  }
+
+  function fallbackNumericWheelStep(input){
+    const explicit = Number(input?.dataset?.wheelStep);
+    if(Number.isFinite(explicit) && explicit > 0){
+      return explicit;
+    }
+    const declaredStep = Number(input?.step);
+    if(Number.isFinite(declaredStep) && declaredStep > 0){
+      return declaredStep;
+    }
+    const currentText = String(input?.value || '').trim();
+    if(currentText){
+      const places = decimalPlaces(currentText);
+      return places > 0 ? Math.pow(10, -places) : 1;
+    }
+    const min = Number(input?.min);
+    if(Number.isFinite(min) && min !== 0){
+      const places = decimalPlaces(input.min);
+      return places > 0 ? Math.pow(10, -places) : 1;
+    }
+    return 1;
+  }
+
+  function setNumericInputFallbackValue(input, direction){
+    const current = Number(input.value);
+    const min = input.min === '' ? null : Number(input.min);
+    const max = input.max === '' ? null : Number(input.max);
+    const step = fallbackNumericWheelStep(input);
+    let next;
+    if(Number.isFinite(current)){
+      next = current + (direction * step);
+    }else if(direction > 0 && Number.isFinite(min)){
+      next = min;
+    }else if(direction < 0 && Number.isFinite(max)){
+      next = max;
+    }else{
+      next = direction * step;
+    }
+    if(Number.isFinite(min)){
+      next = Math.max(min, next);
+    }
+    if(Number.isFinite(max)){
+      next = Math.min(max, next);
+    }
+    const precision = Math.min(12, Math.max(decimalPlaces(input.value), decimalPlaces(step)));
+    input.value = precision > 0 ? String(Number(next.toFixed(precision))) : String(next);
+  }
+
+  function stepToolbarNumericInputValue(input, direction){
+    if(!input || !direction){ return false; }
+    const previousValue = input.value;
+    try{
+      if(input.step === 'any'){
+        setNumericInputFallbackValue(input, direction);
+      }else if(direction > 0){
+        input.stepUp();
+      }else{
+        input.stepDown();
+      }
+    }catch(_err){
+      setNumericInputFallbackValue(input, direction);
+    }
+    return input.value !== previousValue;
+  }
+
+  function resolveNumericWheelOwnerTabId(input){
+    const pickerRoot = input?.closest?.('.shared-color-picker') || null;
+    if(pickerRoot && typeof Shared.getColorPickerAnchor === 'function'){
+      const pickerAnchor = Shared.getColorPickerAnchor();
+      if(pickerAnchor && pickerAnchor !== input && !pickerRoot.contains?.(pickerAnchor)){
+        const pickerOwnerTabId = resolveNumericWheelOwnerTabId(pickerAnchor);
+        if(pickerOwnerTabId){
+          return pickerOwnerTabId;
+        }
+      }
+    }
+    let cursor = input || null;
+    while(cursor && cursor !== doc){
+      const dataset = cursor.dataset || null;
+      const candidate = String(
+        dataset?.workspaceTabId
+        || dataset?.tabId
+        || dataset?.fontTabId
+        || dataset?.axisTabId
+        || dataset?.gridTabId
+        || ''
+      ).trim();
+      if(candidate){
+        return candidate;
+      }
+      cursor = cursor.parentElement || cursor.parentNode || null;
+    }
+    try{
+      return String(global.Main?.session?.getActiveTab?.()?.id || '').trim() || null;
+    }catch(_err){
+      return null;
+    }
+  }
+
+  function numericWheelOwnerStillCurrent(gesture){
+    if(!gesture){ return false; }
+    if(gesture.input?.isConnected === false){
+      return false;
+    }
+    const ownerTabId = gesture.ownerTabId || null;
+    if(!ownerTabId){
+      return true;
+    }
+    try{
+      const activeTabId = String(global.Main?.session?.getActiveTab?.()?.id || '').trim() || null;
+      return !activeTabId || activeTabId === ownerTabId;
+    }catch(_err){
+      return true;
+    }
+  }
+
+  function cancelNumericWheelFrame(gesture){
+    if(!gesture || gesture.frameHandle == null){ return; }
+    try{
+      if(typeof global.cancelAnimationFrame === 'function'){
+        global.cancelAnimationFrame(gesture.frameHandle);
+      }else{
+        global.clearTimeout?.(gesture.frameHandle);
+      }
+    }catch(_err){}
+    gesture.frameHandle = null;
+  }
+
+  function cancelNumericWheelCommitTimer(gesture){
+    if(!gesture || gesture.commitTimer == null){ return; }
+    try{ global.clearTimeout?.(gesture.commitTimer); }catch(_err){}
+    gesture.commitTimer = null;
+  }
+
+  function dispatchNumericWheelEvent(input, type){
+    if(!input){ return false; }
+    const EventCtor = input.ownerDocument?.defaultView?.Event || global.Event;
+    if(typeof EventCtor !== 'function'){ return false; }
+    input.dispatchEvent(new EventCtor(type, { bubbles: true }));
+    return true;
+  }
+
+  function dispatchNumericWheelEnd(gesture, detail = {}){
+    const input = gesture?.input;
+    if(!input){ return false; }
+    const CustomEventCtor = input.ownerDocument?.defaultView?.CustomEvent || global.CustomEvent;
+    if(typeof CustomEventCtor !== 'function'){ return false; }
+    input.dispatchEvent(new CustomEventCtor(TOOLBAR_NUMERIC_WHEEL_END_EVENT, {
+      bubbles: false,
+      detail: {
+        committed: detail.committed === true,
+        changed: gesture.changed === true,
+        ownerTabId: gesture.ownerTabId || null,
+        reason: detail.reason || 'finished'
+      }
+    }));
+    return true;
+  }
+
+  function flushNumericWheelInput(gesture, options = {}){
+    if(!gesture || activeNumericWheelGesture !== gesture || !gesture.pendingInput){
+      return false;
+    }
+    cancelNumericWheelFrame(gesture);
+    gesture.pendingInput = false;
+    const ownerCurrent = numericWheelOwnerStillCurrent(gesture);
+    let dispatched = false;
+    if(ownerCurrent){
+      gesture.phase = 'live';
+      dispatched = dispatchNumericWheelEvent(gesture.input, 'input');
+      if(dispatched){
+        gesture.inputDispatched = true;
+      }
+    }
+    // Input handlers are allowed to close/rebind a toolbar. Never resurrect a
+    // gesture that was synchronously finished while its live event was running.
+    if(activeNumericWheelGesture !== gesture){
+      return dispatched;
+    }
+    gesture.phase = 'active';
+    // The idle window starts only after the live projection has completed.
+    // Starting it from the raw wheel event lets an expensive redraw consume the
+    // whole debounce interval and can launch commit/refinement work mid-burst.
+    if(options.armCommit !== false){
+      scheduleNumericWheelCommit(gesture);
+    }
+    return dispatched;
+  }
+
+  function scheduleNumericWheelInput(gesture){
+    if(!gesture || activeNumericWheelGesture !== gesture || gesture.frameHandle != null){
+      return;
+    }
+    const callback = () => {
+      gesture.frameHandle = null;
+      flushNumericWheelInput(gesture);
+    };
+    if(typeof global.requestAnimationFrame === 'function'){
+      gesture.frameHandle = global.requestAnimationFrame(callback);
+    }else{
+      gesture.frameHandle = global.setTimeout?.(callback, 0);
+    }
+  }
+
+  function finishNumericWheelGesture(options = {}){
+    const gesture = activeNumericWheelGesture;
+    if(!gesture){ return false; }
+    cancelNumericWheelCommitTimer(gesture);
+    flushNumericWheelInput(gesture, { armCommit: false });
+    if(activeNumericWheelGesture !== gesture){
+      return false;
+    }
+    const shouldCommit = options.commit !== false && gesture.changed === true;
+    const ownerCurrent = numericWheelOwnerStillCurrent(gesture);
+    let committed = false;
+    if(shouldCommit && ownerCurrent){
+      gesture.phase = 'commit';
+      committed = dispatchNumericWheelEvent(gesture.input, 'change');
+    }else if(shouldCommit && !ownerCurrent){
+      logDebug('numeric wheel commit dropped for stale owner', {
+        ownerTabId: gesture.ownerTabId || null,
+        currentTabId: resolveNumericWheelOwnerTabId(gesture.input),
+        reason: options.reason || 'stale-owner'
+      });
+    }
+    gesture.phase = 'finished';
+    cancelNumericWheelFrame(gesture);
+    dispatchNumericWheelEnd(gesture, {
+      committed,
+      reason: options.reason || (shouldCommit ? 'commit' : 'cancel')
+    });
+    if(activeNumericWheelGesture === gesture){
+      activeNumericWheelGesture = null;
+    }
+    return committed;
+  }
+
+  function scheduleNumericWheelCommit(gesture){
+    if(!gesture || activeNumericWheelGesture !== gesture){ return; }
+    cancelNumericWheelCommitTimer(gesture);
+    gesture.commitTimer = global.setTimeout?.(() => {
+      if(activeNumericWheelGesture !== gesture){ return; }
+      finishNumericWheelGesture({ reason: 'idle' });
+    }, TOOLBAR_NUMERIC_WHEEL_COMMIT_DELAY_MS);
+  }
+
+  function ensureNumericWheelGesture(input){
+    if(activeNumericWheelGesture?.input === input){
+      return activeNumericWheelGesture;
+    }
+    if(activeNumericWheelGesture){
+      finishNumericWheelGesture({ reason: 'control-switch' });
+    }
+    activeNumericWheelGesture = {
+      input,
+      ownerTabId: resolveNumericWheelOwnerTabId(input),
+      phase: 'active',
+      changed: false,
+      pendingInput: false,
+      inputDispatched: false,
+      frameHandle: null,
+      commitTimer: null
+    };
+    return activeNumericWheelGesture;
+  }
+
+  function isNumericWheelEventEligible(event, input){
+    return !!(
+      event
+      && input
+      && !input.disabled
+      && !input.readOnly
+      && !event.ctrlKey
+      && !event.metaKey
+      && !event.altKey
+      && !event.shiftKey
+      && Number(event.deltaY) !== 0
+    );
+  }
+
+  function handleNumericWheelEvent(event, input){
+    if(!isNumericWheelEventEligible(event, input)){ return false; }
+    event.preventDefault?.();
+    const gesture = ensureNumericWheelGesture(input);
+    // Any new wheel activity invalidates the previous idle deadline. A changed
+    // value arms the next deadline only after its RAF-coalesced live projection
+    // has finished, so redraw cost cannot split one physical wheel burst.
+    cancelNumericWheelCommitTimer(gesture);
+    const changed = stepToolbarNumericInputValue(input, event.deltaY < 0 ? 1 : -1);
+    if(changed){
+      gesture.changed = true;
+      gesture.pendingInput = true;
+      scheduleNumericWheelInput(gesture);
+    }else if(!gesture.pendingInput && gesture.frameHandle == null){
+      // Reaching min/max still belongs to the current gesture. No live frame is
+      // needed, but the gesture must eventually terminate after wheel idle.
+      scheduleNumericWheelCommit(gesture);
+    }
+    return true;
+  }
+
+  function bindNumericWheelProxy(surface, input){
+    if(!surface || !input || typeof surface.addEventListener !== 'function'){
+      return () => {};
+    }
+    const onWheel = event => {
+      handleNumericWheelEvent(event, input);
+    };
+    surface.addEventListener('wheel', onWheel, { passive: false });
+    return () => {
+      surface.removeEventListener('wheel', onWheel, { passive: false });
+    };
+  }
+
+  function bindNumericWheelEnd(input, callback){
+    if(!input || typeof input.addEventListener !== 'function' || typeof callback !== 'function'){
+      return () => {};
+    }
+    const handler = event => callback(event?.detail || {});
+    input.addEventListener(TOOLBAR_NUMERIC_WHEEL_END_EVENT, handler);
+    return () => input.removeEventListener(TOOLBAR_NUMERIC_WHEEL_END_EVENT, handler);
+  }
+
+  function bindNumericInputMirror(mirrorInput, canonicalInput){
+    if(
+      !mirrorInput
+      || !canonicalInput
+      || typeof mirrorInput.addEventListener !== 'function'
+      || typeof canonicalInput.dispatchEvent !== 'function'
+    ){
+      return () => {};
+    }
+    numericInputMirrorTargets.set(mirrorInput, canonicalInput);
+    const forwardValue = type => {
+      canonicalInput.value = mirrorInput.value;
+      dispatchNumericWheelEvent(canonicalInput, type);
+    };
+    const onInput = () => forwardValue('input');
+    const onChange = () => forwardValue('change');
+    const onWheelEnd = event => {
+      const CustomEventCtor = canonicalInput.ownerDocument?.defaultView?.CustomEvent || global.CustomEvent;
+      if(typeof CustomEventCtor !== 'function'){ return; }
+      canonicalInput.dispatchEvent(new CustomEventCtor(TOOLBAR_NUMERIC_WHEEL_END_EVENT, {
+        bubbles: false,
+        detail: { ...(event?.detail || {}) }
+      }));
+    };
+    mirrorInput.addEventListener('input', onInput);
+    mirrorInput.addEventListener('change', onChange);
+    mirrorInput.addEventListener(TOOLBAR_NUMERIC_WHEEL_END_EVENT, onWheelEnd);
+    return () => {
+      mirrorInput.removeEventListener('input', onInput);
+      mirrorInput.removeEventListener('change', onChange);
+      mirrorInput.removeEventListener(TOOLBAR_NUMERIC_WHEEL_END_EVENT, onWheelEnd);
+      if(numericInputMirrorTargets.get(mirrorInput) === canonicalInput){
+        numericInputMirrorTargets.delete(mirrorInput);
+      }
+    };
+  }
+
+  function getNumericWheelPhase(input){
+    const gesture = activeNumericWheelGesture;
+    if(!gesture || !input){ return null; }
+    if(gesture.input === input){
+      return gesture.phase;
+    }
+    return numericInputMirrorTargets.get(gesture.input) === input
+      ? gesture.phase
+      : null;
+  }
+
+  function numericWheelGestureBelongsToHost(gesture, host){
+    if(!gesture || !host){ return false; }
+    if(host.contains?.(gesture.input)){
+      return true;
+    }
+    if(gesture.input?.closest?.('.shared-color-picker') && typeof Shared.getColorPickerAnchor === 'function'){
+      const pickerAnchor = Shared.getColorPickerAnchor();
+      return !!(pickerAnchor && host.contains?.(pickerAnchor));
+    }
+    return false;
+  }
+
+  function ensureNumericWheelHandlers(){
+    if(numericWheelHandlersBound || !doc){ return; }
+    doc.addEventListener('wheel', event => {
+      const target = event.target;
+      if(!target || target.nodeType !== 1 || !target.matches?.(TOOLBAR_NUMERIC_WHEEL_INPUT_SELECTOR)){ return; }
+      if(!target.closest?.(TOOLBAR_NUMERIC_WHEEL_SURFACE_SELECTOR)){ return; }
+      handleNumericWheelEvent(event, target);
+    }, { passive: false });
+    // A wheel burst is one edit transaction. Commit before any pointer/keyboard
+    // interaction can rebind a shared toolbar to another target or tab.
+    doc.addEventListener('pointerdown', () => {
+      if(activeNumericWheelGesture){
+        finishNumericWheelGesture({ reason: 'pointerdown' });
+      }
+    }, true);
+    doc.addEventListener('beforeinput', event => {
+      if(activeNumericWheelGesture?.input === event.target){
+        finishNumericWheelGesture({ reason: 'beforeinput' });
+      }
+    }, true);
+    doc.addEventListener('keydown', event => {
+      if(activeNumericWheelGesture?.input === event.target){
+        finishNumericWheelGesture({ reason: 'keydown' });
+      }
+    }, true);
+    doc.addEventListener('visibilitychange', () => {
+      if(doc.hidden && activeNumericWheelGesture){
+        finishNumericWheelGesture({ reason: 'visibility-hidden' });
+      }
+    });
+    if(typeof global.addEventListener === 'function'){
+      global.addEventListener('blur', () => {
+        if(activeNumericWheelGesture){
+          finishNumericWheelGesture({ reason: 'window-blur' });
+        }
+      });
+    }
+    numericWheelHandlersBound = true;
   }
 
   function getOverflowApi(){
@@ -358,6 +825,20 @@
   function showToolbarHost(host, options){
     if(!host){ return null; }
     const config = options && typeof options === 'object' ? options : {};
+    const explicitOwnerTabId = String(config.ownerTabId || config.tabId || '').trim();
+    let ownerTabId = explicitOwnerTabId || null;
+    if(!ownerTabId){
+      try{
+        ownerTabId = String(global.Main?.session?.getActiveTab?.()?.id || '').trim() || null;
+      }catch(_err){
+        ownerTabId = null;
+      }
+    }
+    if(ownerTabId){
+      host.dataset.workspaceTabId = ownerTabId;
+    }else{
+      delete host.dataset.workspaceTabId;
+    }
     clearToolbarHostSizing(host);
     clearToolbarHostVariants(host, false);
     host.style.removeProperty('grid-auto-flow');
@@ -398,6 +879,9 @@
 
   function hideToolbarHost(host){
     if(!host){ return; }
+    if(numericWheelGestureBelongsToHost(activeNumericWheelGesture, host)){
+      finishNumericWheelGesture({ reason: 'toolbar-hide' });
+    }
     clearToolbarHostVariants(host, false);
     host.style.display = 'none';
     host.style.removeProperty('grid-auto-flow');
@@ -621,6 +1105,49 @@
     wrap.appendChild(input);
     wrap.appendChild(value);
     return { wrap, input, value };
+  }
+
+  function attachColorPickerNumericSection(overlayEl, options){
+    if(!overlayEl){ return () => {}; }
+    const config = options && typeof options === 'object' ? options : {};
+    const canonicalInput = config.canonicalInput || null;
+    const ownerDoc = overlayEl.ownerDocument || doc;
+    if(!ownerDoc || !canonicalInput){ return () => {}; }
+
+    const section = ownerDoc.createElement('section');
+    const extraSectionClass = String(config.sectionClass || '').trim();
+    section.className = `shared-color-picker__section shared-color-picker__section--scatter-style${extraSectionClass ? ` ${extraSectionClass}` : ''}`;
+
+    const title = ownerDoc.createElement('div');
+    title.className = 'shared-color-picker__section-title';
+    title.textContent = String(config.title || 'Line width');
+    section.appendChild(title);
+
+    const row = ownerDoc.createElement('div');
+    row.className = 'shared-color-picker__scatter-style-row shared-color-picker__scatter-style-row--single';
+    const field = ownerDoc.createElement('label');
+    field.className = 'shared-color-picker__scatter-style-field';
+    const input = ownerDoc.createElement('input');
+    input.className = 'shared-color-picker__scatter-style-input';
+    input.type = 'number';
+    input.min = canonicalInput.min || String(config.min ?? '0');
+    input.max = canonicalInput.max || String(config.max ?? '10');
+    input.step = canonicalInput.step || String(config.step ?? '0.25');
+    input.value = canonicalInput.value || String(config.value ?? '0');
+    input.setAttribute('aria-label', String(config.ariaLabel || config.title || 'Line width'));
+
+    const mirrorCleanup = bindNumericInputMirror(input, canonicalInput);
+    field.appendChild(input);
+    row.appendChild(field);
+    section.appendChild(row);
+    overlayEl.insertBefore(section, overlayEl.firstChild || null);
+
+    return () => {
+      mirrorCleanup();
+      if(section.parentNode){
+        section.parentNode.removeChild(section);
+      }
+    };
   }
 
   function createLinePatternField(options){
@@ -1000,10 +1527,13 @@
     if(event.defaultPrevented){
       return;
     }
+    const toolbar = resolveToolbarFromClickTarget(target);
+    if(toolbar && typeof Shared.isColorPickerOpenFor === 'function' && Shared.isColorPickerOpenFor(toolbar)){
+      return;
+    }
     if(!shouldFallbackToGeneralOnClick(target)){
       return;
     }
-    const toolbar = resolveToolbarFromClickTarget(target);
     if(!toolbar){
       return;
     }
@@ -1814,16 +2344,29 @@
       ? createSubPanel({
           title: section.caption || '',
           panelClass: 'workspace-toolbar__panel--transform',
-          rowClass: 'workspace-toolbar__buttons'
+          rowClass: 'workspace-toolbar__buttons workspace-toolbar__transform-row workspace-toolbar__transform-row--options'
         })
       : null;
     const buttonsWrap = transformPanel?.row || doc.createElement('div');
     if(!transformPanel){ buttonsWrap.className = 'workspace-toolbar__buttons'; }
+    let transformSelectionRow = null;
+    const resolveTransformRow = (buttonConfig) => {
+      if(!transformPanel || buttonConfig?.transformRow !== 'selection'){
+        return buttonsWrap;
+      }
+      if(!transformSelectionRow){
+        transformSelectionRow = doc.createElement('div');
+        transformSelectionRow.className = 'workspace-toolbar__buttons workspace-toolbar__transform-row workspace-toolbar__transform-row--selection';
+        transformPanel.panel.appendChild(transformSelectionRow);
+      }
+      return transformSelectionRow;
+    };
     (section.buttons || []).forEach(buttonConfig => {
       if(!buttonConfig){ return; }
+      const targetRow = resolveTransformRow(buttonConfig);
       if(buttonConfig.type === 'checkbox'){
         const control = createCheckboxItem(buttonConfig);
-        if(control){ buttonsWrap.appendChild(control); }
+        if(control){ targetRow.appendChild(control); }
         return;
       }
       const isMenu = Array.isArray(buttonConfig.menuItems) && buttonConfig.menuItems.length > 0;
@@ -1832,7 +2375,7 @@
         button.setAttribute('aria-haspopup', 'dialog');
         button.setAttribute('aria-expanded', 'false');
       }
-      if(button){ buttonsWrap.appendChild(button); }
+      if(button){ targetRow.appendChild(button); }
     });
     if(transformPanel){
       const customDropdown = createTransformCustomDropdown(section);
@@ -2088,6 +2631,7 @@
     ensureTransformHandlers();
     ensureSectionTabHandlers();
     ensureGeneralFallbackHandlers();
+    ensureNumericWheelHandlers();
     const toolbar = buildToolbar(config);
     if(!toolbar){ return; }
     if(placeholder){
@@ -2155,6 +2699,17 @@
   workspaceToolbar.createBorderStyleControl = createBorderStyleControl;
   workspaceToolbar.createTransparencyControl = createTransparencyControl;
   workspaceToolbar.createLinePatternField = createLinePatternField;
+  workspaceToolbar.attachColorPickerNumericSection = attachColorPickerNumericSection;
+  workspaceToolbar.handleNumericWheelEvent = handleNumericWheelEvent;
+  workspaceToolbar.bindNumericWheelProxy = bindNumericWheelProxy;
+  workspaceToolbar.bindNumericWheelEnd = bindNumericWheelEnd;
+  workspaceToolbar.bindNumericInputMirror = bindNumericInputMirror;
+  workspaceToolbar.flushNumericWheelGesture = finishNumericWheelGesture;
+  workspaceToolbar.getNumericWheelPhase = getNumericWheelPhase;
+  workspaceToolbar.getNumericWheelStep = fallbackNumericWheelStep;
+  workspaceToolbar.formatNumericValue = formatNumericValue;
+  workspaceToolbar.numericWheelCommitDelayMs = TOOLBAR_NUMERIC_WHEEL_COMMIT_DELAY_MS;
+  workspaceToolbar.numericWheelEndEventName = TOOLBAR_NUMERIC_WHEEL_END_EVENT;
   workspaceToolbar.activateSectionById = function activateSectionById(toolbarOrKey, sectionId, options){
     if(!doc){ return false; }
     const normalizedSectionId = String(sectionId || '').trim();
@@ -2324,18 +2879,21 @@
           id: `${key}TransformMultiMode`,
           label: 'Multiple',
           title: 'Enable multiple transform selection mode',
+          transformRow: 'selection',
           dataset: { transformMultiToggle: '1' }
         },
         button(`${key}TransformApplySelected`, 'Apply selected', null, {
           classes: ['workspace-toolbar__button--text-only'],
           title: 'Apply all selected transforms to create one data tab',
           hidden: true,
+          transformRow: 'selection',
           dataset: { transformApply: '1' }
         }),
         button(`${key}TransformClearSelected`, 'Clear', null, {
           classes: ['workspace-toolbar__button--text-only'],
           title: 'Clear selected transforms',
           hidden: true,
+          transformRow: 'selection',
           dataset: { transformClear: '1' }
         }),
         button(`${key}TransformCpm`, 'CPM', 'transform', {
@@ -2646,11 +3204,13 @@
     });
 
     renderAllToolbars();
+    ensureNumericWheelHandlers();
     ensureUndoSubscription();
     syncUndoButtonsAvailability();
     if(doc.readyState === 'loading'){
       doc.addEventListener('DOMContentLoaded', () => {
         renderAllToolbars();
+        ensureNumericWheelHandlers();
         ensureUndoSubscription();
         syncUndoButtonsAvailability();
       }, { once: true });

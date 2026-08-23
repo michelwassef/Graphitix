@@ -581,11 +581,30 @@
     });
   }
 
-  function applySizingToActiveSvgBox(type, payload, sizing){
+  function resolvePublicationSessionGeneration(type, tabLike){
+    const tabId = String(tabLike?.id || tabLike || '').trim();
+    if(!tabId){
+      return 0;
+    }
+    try{
+      return Number(Shared.workspaceTabs?.getSessionRecord?.(tabId, type)?.generation) || 0;
+    }catch(_err){
+      return 0;
+    }
+  }
+
+  function applySizingToOwnedSvgBox(type, payload, sizing, tabLike){
+    const tab = tabLike && typeof tabLike === 'object' ? tabLike : getActiveTab();
+    const tabId = String(tab?.id || '').trim() || null;
+    const sessionGeneration = resolvePublicationSessionGeneration(type, tab);
+    const box = resolvePrimarySvgBox(type, tab);
     const graphSizing = Shared.graphSizing || null;
     if(graphSizing && typeof graphSizing.applyPayloadSizingForType === 'function'){
       graphSizing.applyPayloadSizingForType(type, payload, {
         context: `publication-style-${type}`,
+        tabId,
+        sessionGeneration,
+        element: box || undefined,
         updateDefaults: true,
         updateAspectRatio: true,
         preserveAspectLock: true,
@@ -596,13 +615,14 @@
       });
       debugLog('Debug: publicationStyles applied payload sizing', {
         type,
+        tabId,
+        sessionGeneration,
         widthPx: appliedSizing?.display?.widthPx || null,
         heightPx: appliedSizing?.display?.heightPx || null,
         manualLikeResize: true
       });
       return;
     }
-    const box = resolvePrimarySvgBox(type, getActiveTab());
     if(!box) return;
     const w = Number(sizing?.targetWidthPx);
     const h = Number(sizing?.targetHeightPx);
@@ -671,10 +691,6 @@
         aspectRatio,
         aspectLocked: existingDisplay.aspectLocked === true,
         allowUnlimitedWidth: existingDisplay.allowUnlimitedWidth !== false
-      },
-      export: {
-        widthPx: targetWidthPx,
-        heightPx: targetHeightPx
       }
     };
     debugLog('Debug: publicationStyles computed sizing record', {
@@ -784,12 +800,16 @@
       const isIndividualValues = graphType === 'strip';
       cfg.pointGlobalStyle = ensureObject(cfg.pointGlobalStyle);
       cfg.pointGlobalStyle.borderWidth = isIndividualValues ? 0 : preset.pointBorderWidth;
-      // For strip plots, keep marker size on the default/manual route so
-      // swarm auto-sizing behaves exactly like a user-driven resize.
+      // Strip plots own marker radius through Box's responsive auto-size path.
+      // Other Box graph types receive the publication preset as an explicit manual size.
       if(!isIndividualValues){
         cfg.pointGlobalStyle.size = preset.pointSize;
-      }else if(Object.prototype.hasOwnProperty.call(cfg.pointGlobalStyle, 'size')){
-        delete cfg.pointGlobalStyle.size;
+        cfg.pointGlobalStyle.sizeMode = 'manual';
+      }else{
+        if(Object.prototype.hasOwnProperty.call(cfg.pointGlobalStyle, 'size')){
+          delete cfg.pointGlobalStyle.size;
+        }
+        cfg.pointGlobalStyle.sizeMode = 'auto';
       }
       if(cfg.pointStyles && typeof cfg.pointStyles === 'object'){
         Object.keys(cfg.pointStyles).forEach(key => {
@@ -1136,6 +1156,8 @@
       if(typeof domControls.applyWorkspacePayload === 'function'){
         domControls.applyWorkspacePayload(workspace, cloneValue(nextPayload), {
           reason: `publication-style-${type}`,
+          tabId: tab.id,
+          sessionGeneration: resolvePublicationSessionGeneration(type, tab),
           payloadSizingOptions: {
             context: `publication-style-${type}`,
             updateDefaults: true,
@@ -1159,7 +1181,7 @@
 
       // Fallback path when workspace payload helpers are unavailable.
       if(!sizingAppliedViaPayload){
-        applySizingToActiveSvgBox(type, nextPayload, preset);
+        applySizingToOwnedSvgBox(type, nextPayload, preset, tab);
       }
 
       restoreDefaultState(type, session, domControls, workspace, preservedDefaults, 'publication-style-post-immediate');

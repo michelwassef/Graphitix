@@ -1323,74 +1323,139 @@ def _compute_average_spacing(values: List[float]) -> float:
 
 
 
-def _compute_forecast_variance(phi: List[float], horizon: int, sigma_sq: float) -> List[float]:
-    """Innovation forecast variance for a stationary AR(p) process.
+def _compute_ar_impulse_response(phi: List[float], horizon: int) -> List[float]:
+    response = [0.0] * max(1, int(horizon))
+    response[0] = 1.0
+    for step in range(1, len(response)):
+        response[step] = float(sum(
+            (phi[lag - 1] if lag - 1 < len(phi) else 0.0) * response[step - lag]
+            for lag in range(1, min(step, len(phi)) + 1)
+        ))
+    return response
 
-    psi_0=1 and Var(e_{t+h}) = sigma^2 * sum_{j=0}^{h-1} psi_j^2.
-    """
-    if horizon <= 0:
+
+def _compute_integration_impulse_response(order: int, horizon: int) -> List[float]:
+    bounded_order = max(0, int(order))
+    response = [0.0] * max(1, int(horizon))
+    if bounded_order == 0:
+        response[0] = 1.0
+        return response
+    for step in range(len(response)):
+        response[step] = float(math.comb(bounded_order + step - 1, step))
+    return response
+
+
+def _compute_forecast_variance(phi: List[float], differencing_order: int, horizon: int, sigma_sq: float) -> List[float]:
+    """Innovation forecast variance after AR filtering and d-fold integration."""
+    bounded_horizon = max(0, int(horizon))
+    if bounded_horizon == 0:
         return []
-    p = len(phi)
-    psi = [1.0]
-    for k in range(1, horizon):
-        psi_k = 0.0
-        for i in range(1, min(k, p) + 1):
-            psi_k += phi[i - 1] * psi[k - i]
-        psi.append(psi_k)
-    return [float(max(0.0, sigma_sq * sum(v * v for v in psi[:h]))) for h in range(1, horizon + 1)]
+    ar_response = _compute_ar_impulse_response(phi, bounded_horizon)
+    integration_response = _compute_integration_impulse_response(differencing_order, bounded_horizon)
+    combined: List[float] = []
+    for step in range(bounded_horizon):
+        combined.append(float(sum(
+            integration_response[index] * ar_response[step - index]
+            for index in range(step + 1)
+        )))
+    variances: List[float] = []
+    accumulated = 0.0
+    for value in combined:
+        accumulated += value * value
+        variances.append(float(max(0.0, sigma_sq * accumulated)))
+    return variances
+
 
 def _ols_coefficients(design: List[List[float]], target: List[float]) -> np.ndarray:
     design_arr = np.asarray(design, dtype=float)
     target_arr = np.asarray(target, dtype=float)
-    xtx = design_arr.T @ design_arr
-    try:
-        xtx_inv = np.linalg.inv(xtx)
-    except np.linalg.LinAlgError:
-        xtx_inv = np.linalg.pinv(xtx)
-    beta = xtx_inv @ (design_arr.T @ target_arr)
+    beta, _residuals, rank, _singular = np.linalg.lstsq(design_arr, target_arr, rcond=None)
+    if int(rank) < design_arr.shape[1]:
+        raise np.linalg.LinAlgError("Rank-deficient least-squares design")
     return np.asarray(beta, dtype=float)
 
 
+def _fit_autoregressive_series(values: List[float], order: int) -> Dict[str, Any] | None:
+    p_val = max(0, int(order))
+    if len(values) <= p_val:
+        return None
+    design: List[List[float]] = []
+    target: List[float] = []
+    for time_index in range(p_val, len(values)):
+        design.append([1.0] + [values[time_index - lag] for lag in range(1, p_val + 1)])
+        target.append(values[time_index])
+    try:
+        coeffs = _ols_coefficients(design, target)
+    except np.linalg.LinAlgError:
+        return None
+    predictions: List[float | None] = [None] * len(values)
+    residuals: List[float] = []
+    for time_index in range(p_val, len(values)):
+        prediction = float(coeffs[0] + sum(
+            coeffs[lag] * values[time_index - lag]
+            for lag in range(1, p_val + 1)
+        ))
+        predictions[time_index] = prediction
+        residuals.append(float(values[time_index] - prediction))
+    return {
+        "p": p_val,
+        "coefficients": [float(value) for value in coeffs.tolist()],
+        "predictions": predictions,
+        "residuals": residuals,
+    }
+
+
+def _reconstruct_integrated_value(highest_difference: float, level_history: List[float], differencing_order: int) -> float:
+    d_val = max(0, int(differencing_order))
+    if d_val == 0:
+        return float(highest_difference)
+    if len(level_history) < d_val:
+        return float("nan")
+    value = float(highest_difference)
+    for lag in range(1, d_val + 1):
+        previous_level = float(level_history[-lag])
+        if not math.isfinite(previous_level):
+            return float("nan")
+        value += (1.0 if lag % 2 == 1 else -1.0) * math.comb(d_val, lag) * previous_level
+    return float(value)
+
+
 def _auto_select_arima_order(series: List[float], options: Dict[str, Any]) -> Dict[str, Any]:
-    if len(series) < 5:
-        return {"p": 1, "d": 0, "criterion": float("nan")}
+    if len(series) < 4:
+        return {"p": 0, "d": 0, "criterion": float("nan")}
     max_p = max(0, min(int(options.get("maxP") or 2), 5))
     max_d = max(0, min(int(options.get("maxD") or 2), 2))
     criterion = "aic" if options.get("criterion") == "aic" else "bic"
     best: Dict[str, Any] | None = None
     for d_val in range(max_d + 1):
         values = _difference_series(series, d_val)
-        if len(values) < 4:
+        if len(values) < 2:
             continue
         for p_val in range(max_p + 1):
-            if p_val == 0:
+            fit = _fit_autoregressive_series(values, p_val)
+            if not fit or not fit["residuals"]:
                 continue
-            design: List[List[float]] = []
-            target: List[float] = []
-            for t_idx in range(p_val, len(values)):
-                row = [1.0] + [values[t_idx - lag] for lag in range(1, p_val + 1)]
-                design.append(row)
-                target.append(values[t_idx])
-            coeffs = _ols_coefficients(design, target)
-            residuals = []
-            for t_idx in range(p_val, len(values)):
-                pred = float(coeffs[0] + sum(coeffs[lag] * values[t_idx - lag] for lag in range(1, p_val + 1)))
-                residuals.append(values[t_idx] - pred)
+            residuals = fit["residuals"]
             n_eff = len(residuals)
-            if n_eff <= 0:
-                continue
-            sse = float(sum(val * val for val in residuals))
-            sigma_sq = sse / max(n_eff, 1)
+            sse = float(sum(value * value for value in residuals))
+            sigma_sq = sse / n_eff
             if not math.isfinite(sigma_sq) or sigma_sq <= 0:
                 continue
-            k = len(coeffs)
+            estimated_parameter_count = len(fit["coefficients"]) + 1
             log_likelihood = -0.5 * n_eff * (math.log(2 * math.pi) + math.log(sigma_sq) + 1)
-            aic = 2 * k - 2 * log_likelihood
-            bic = math.log(n_eff) * k - 2 * log_likelihood
+            aic = 2 * estimated_parameter_count - 2 * log_likelihood
+            bic = math.log(n_eff) * estimated_parameter_count - 2 * log_likelihood
             score = aic if criterion == "aic" else bic
             if best is None or score < best["score"]:
-                best = {"p": p_val, "d": d_val, "score": score, "aic": aic, "bic": bic}
-    return best or {"p": 1, "d": 0, "criterion": float("nan")}
+                best = {
+                    "p": p_val,
+                    "d": d_val,
+                    "score": float(score),
+                    "aic": float(aic),
+                    "bic": float(bic),
+                    "criterion": criterion,
+                }
+    return best or {"p": 0, "d": 0, "criterion": float("nan")}
 
 
 def regression_arima(payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -1400,84 +1465,115 @@ def regression_arima(payload: Dict[str, Any]) -> Dict[str, Any]:
     order = np.argsort(x)
     x = x[order]
     y = y[order]
-    y_vals = [float(val) for val in y.tolist()]
-    x_vals = [float(val) for val in x.tolist()]
+    y_vals = [float(value) for value in y.tolist()]
+    x_vals = [float(value) for value in x.tolist()]
     forecast = payload.get("forecast") if isinstance(payload.get("forecast"), dict) else {}
     horizon = _clamp_positive_int(forecast.get("horizon"), min_value=1, max_value=120, fallback=max(1, round(len(y_vals) * 0.25)))
     auto_tune = bool(forecast.get("autoTune"))
     selection = _auto_select_arima_order(y_vals, forecast) if auto_tune else None
-    p_raw = int(forecast.get("p")) if isinstance(forecast.get("p"), int) else 1
-    d_raw = int(forecast.get("d")) if isinstance(forecast.get("d"), int) else 0
-    p_val = max(1, selection["p"] if selection else max(0, min(p_raw, int(forecast.get("maxP") or 5))))
-    d_val = max(0, selection["d"] if selection else max(0, min(d_raw, int(forecast.get("maxD") or 2))))
+    p_raw = forecast.get("p") if isinstance(forecast.get("p"), int) else 1
+    d_raw = forecast.get("d") if isinstance(forecast.get("d"), int) else 0
+    max_p = int(forecast.get("maxP") or 5)
+    max_d = int(forecast.get("maxD") or 2)
+    p_val = int(selection["p"]) if selection else max(0, min(int(p_raw), max_p))
+    d_val = int(selection["d"]) if selection else max(0, min(int(d_raw), max_d))
     diff_series = _difference_series(y_vals, d_val)
-    if len(diff_series) <= p_val:
-        return {"valid": False, "message": "Differenced series too short for ARIMA."}
-    design: List[List[float]] = []
-    target: List[float] = []
-    for t_idx in range(p_val, len(diff_series)):
-        design.append([1.0] + [diff_series[t_idx - lag] for lag in range(1, p_val + 1)])
-        target.append(diff_series[t_idx])
-    coeffs = _ols_coefficients(design, target)
-    intercept = float(coeffs[0])
-    phi = [float(val) for val in coeffs[1:].tolist()]
+    autoregression = _fit_autoregressive_series(diff_series, p_val)
+    if not autoregression:
+        return {"valid": False, "message": "Differenced series too short or rank-deficient for ARIMA."}
+    coefficients = autoregression["coefficients"]
+    intercept = float(coefficients[0])
+    phi = [float(value) for value in coefficients[1:]]
     fitted: List[float | None] = [None] * len(y_vals)
     residuals: List[float] = []
     actual_for_errors: List[float] = []
     predicted_for_errors: List[float] = []
-    for t_idx in range(p_val, len(diff_series)):
-        pred = intercept + sum(phi[lag - 1] * diff_series[t_idx - lag] for lag in range(1, p_val + 1))
-        actual_index = t_idx + d_val
-        base_actual = y_vals[actual_index - 1]
-        predicted_actual = base_actual + pred
+    predictions = autoregression["predictions"]
+    for time_index in range(p_val, len(diff_series)):
+        actual_index = time_index + d_val
+        predicted_difference = predictions[time_index]
+        if predicted_difference is None:
+            continue
+        predicted_actual = _reconstruct_integrated_value(float(predicted_difference), y_vals[:actual_index], d_val)
+        if not math.isfinite(predicted_actual) or not math.isfinite(y_vals[actual_index]):
+            continue
         fitted[actual_index] = predicted_actual
-        residuals.append(y_vals[actual_index] - predicted_actual)
+        residual = float(y_vals[actual_index] - predicted_actual)
+        residuals.append(residual)
         actual_for_errors.append(y_vals[actual_index])
         predicted_for_errors.append(predicted_actual)
     n_eff = len(residuals)
-    sse = float(sum(val * val for val in residuals))
-    sigma_sq = sse / max(n_eff, 1) if n_eff else 0.0
-    metrics = _compute_sse_metrics(np.asarray(y_vals, dtype=float), np.asarray([f if f is not None else y_vals[idx] for idx, f in enumerate(fitted)], dtype=float), len(coeffs))
-    metrics["sse"] = sse
-    metrics["rmse"] = float(math.sqrt(sse / n_eff)) if n_eff else float("nan")
-    metrics["mae"] = float(sum(abs(val) for val in residuals) / n_eff) if n_eff else float("nan")
-    metrics["mape"] = _compute_mape(actual_for_errors, predicted_for_errors)
-    metrics["smape"] = _compute_smape(actual_for_errors, predicted_for_errors)
-    k = len(coeffs)
-    log_likelihood = -0.5 * n_eff * (math.log(2 * math.pi) + math.log(sigma_sq) + 1) if n_eff > 0 and sigma_sq > 0 else float("nan")
-    metrics["aic"] = float(2 * k - 2 * log_likelihood) if math.isfinite(log_likelihood) else float("nan")
-    metrics["bic"] = float(math.log(n_eff or 1) * k - 2 * log_likelihood) if math.isfinite(log_likelihood) else float("nan")
-    metrics["horizon"] = int(horizon)
+    if n_eff == 0:
+        return {"valid": False, "message": "No finite fitted values for ARIMA."}
+    sse = float(sum(value * value for value in residuals))
+    sigma_sq = sse / n_eff
+    rmse = float(math.sqrt(sse / n_eff))
+    mae = float(sum(abs(value) for value in residuals) / n_eff)
+    fitted_mean = float(sum(actual_for_errors) / n_eff)
+    sst = float(sum((value - fitted_mean) ** 2 for value in actual_for_errors))
+    r2 = 1.0 if sst == 0 else float(1 - (sse / sst))
+    estimated_parameter_count = len(coefficients) + 1
+    adj_r2 = float(1 - (1 - r2) * ((n_eff - 1) / max(n_eff - estimated_parameter_count, 1))) if n_eff > estimated_parameter_count else r2
+    log_likelihood = -0.5 * n_eff * (math.log(2 * math.pi) + math.log(sigma_sq) + 1) if sigma_sq > 0 else float("nan")
+    aic = float(2 * estimated_parameter_count - 2 * log_likelihood) if math.isfinite(log_likelihood) else float("nan")
+    bic = float(math.log(n_eff) * estimated_parameter_count - 2 * log_likelihood) if math.isfinite(log_likelihood) else float("nan")
     spacing = _compute_average_spacing(x_vals)
     last_x = x_vals[-1]
-    working_actual = y_vals[-1]
-    diff_history = diff_series[-p_val:]
-    variances = _compute_forecast_variance(phi, horizon, sigma_sq)
+    level_history = list(y_vals)
+    diff_history = list(diff_series)
+    variances = _compute_forecast_variance(phi, d_val, horizon, sigma_sq)
     z_critical = float(stats.norm.ppf(0.975))
     forecast_points = []
-    for h_idx in range(1, horizon + 1):
-        diff_pred = intercept + sum((phi[lag - 1] if lag - 1 < len(phi) else 0.0) * (diff_history[-lag] if lag <= len(diff_history) else 0.0) for lag in range(1, p_val + 1))
-        diff_history.append(diff_pred)
-        working_actual = working_actual + diff_pred
-        variance = variances[h_idx - 1] if h_idx - 1 < len(variances) else sigma_sq
-        std_err = math.sqrt(max(variance, sigma_sq))
-        x_value = (last_x + spacing * h_idx) if math.isfinite(spacing) else (last_x + h_idx)
+    for horizon_index in range(1, horizon + 1):
+        predicted_difference = intercept + sum(
+            (phi[lag - 1] if lag - 1 < len(phi) else 0.0)
+            * (diff_history[-lag] if lag <= len(diff_history) else 0.0)
+            for lag in range(1, p_val + 1)
+        )
+        diff_history.append(float(predicted_difference))
+        predicted_actual = _reconstruct_integrated_value(predicted_difference, level_history, d_val)
+        if not math.isfinite(predicted_actual):
+            return {"valid": False, "message": "ARIMA integration produced a non-finite forecast."}
+        level_history.append(predicted_actual)
+        variance = variances[horizon_index - 1] if horizon_index - 1 < len(variances) else sigma_sq
+        std_err = math.sqrt(max(variance, 0.0))
+        x_value = (last_x + spacing * horizon_index) if math.isfinite(spacing) else (last_x + horizon_index)
         forecast_points.append({
             "x": float(x_value),
-            "y": float(working_actual),
-            "lower": float(working_actual - z_critical * std_err),
-            "upper": float(working_actual + z_critical * std_err),
+            "y": float(predicted_actual),
+            "lower": float(predicted_actual - z_critical * std_err),
+            "upper": float(predicted_actual + z_critical * std_err),
             "stdErr": float(std_err),
         })
-    summary_parameters: Dict[str, Any] = {"Intercept": intercept, "Horizon": horizon, "AR order (p)": p_val, "Differencing (d)": d_val}
-    for idx, value in enumerate(phi):
-        summary_parameters[f"AR{idx + 1}"] = value
+    summary_parameters: Dict[str, Any] = {
+        "Intercept": intercept,
+        "Horizon": horizon,
+        "AR order (p)": p_val,
+        "Differencing (d)": d_val,
+    }
+    for index, value in enumerate(phi):
+        summary_parameters[f"AR{index + 1}"] = value
     return {
         "valid": True,
-        "coefficients": [float(value) for value in coeffs.tolist()],
-        "metrics": metrics,
+        "coefficients": coefficients,
+        "metrics": {
+            "sse": sse,
+            "sst": sst,
+            "r2": r2,
+            "adjR2": adj_r2,
+            "rmse": rmse,
+            "mae": mae,
+            "mape": _compute_mape(actual_for_errors, predicted_for_errors),
+            "smape": _compute_smape(actual_for_errors, predicted_for_errors),
+            "aic": aic,
+            "bic": bic,
+            "horizon": int(horizon),
+        },
         "forecast": {"horizon": int(horizon), "points": forecast_points},
-        "summary": {"parameters": summary_parameters, "primaryParameter": {"label": "AR1" if phi else "Intercept", "value": phi[0] if phi else intercept}},
+        "summary": {
+            "parameters": summary_parameters,
+            "primaryParameter": {"label": "AR1" if phi else "Intercept", "value": phi[0] if phi else intercept},
+        },
     }
 
 
@@ -1539,7 +1635,6 @@ def _run_holt_winters(values: List[float], season_length: int, level_alpha: floa
 
 
 def _auto_tune_holt_winters(values: List[float], season_length: int, options: Dict[str, Any]) -> Dict[str, Any] | None:
-    criterion = "aic" if options.get("criterion") == "aic" else "bic"
     candidates = options.get("gridValues") if isinstance(options.get("gridValues"), list) and options.get("gridValues") else [0.2, 0.4, 0.6, 0.8]
     best: Dict[str, Any] | None = None
     for alpha_candidate in candidates:
@@ -1549,17 +1644,19 @@ def _auto_tune_holt_winters(values: List[float], season_length: int, options: Di
                 residuals = execution["residuals"][season_length:]
                 if not residuals:
                     continue
-                sse = float(sum(val * val for val in residuals))
-                sigma_sq = sse / max(len(residuals), 1)
-                if not math.isfinite(sigma_sq) or sigma_sq <= 0:
+                sse = float(sum(value * value for value in residuals))
+                rmse = float(math.sqrt(sse / len(residuals)))
+                if not math.isfinite(sse):
                     continue
-                k = season_length + 3
-                log_likelihood = -0.5 * len(residuals) * (math.log(2 * math.pi) + math.log(sigma_sq) + 1)
-                aic = 2 * k - 2 * log_likelihood
-                bic = math.log(len(residuals)) * k - 2 * log_likelihood
-                score = aic if criterion == "aic" else bic
-                if best is None or score < best["score"]:
-                    best = {"alpha": float(alpha_candidate), "beta": float(beta_candidate), "gamma": float(gamma_candidate), "score": score, "aic": aic, "bic": bic}
+                if best is None or sse < best["score"]:
+                    best = {
+                        "alpha": float(alpha_candidate),
+                        "beta": float(beta_candidate),
+                        "gamma": float(gamma_candidate),
+                        "score": sse,
+                        "rmse": rmse,
+                        "criterion": "one-step-sse",
+                    }
     return best
 
 
@@ -1593,9 +1690,7 @@ def regression_holt_winters(payload: Dict[str, Any]) -> Dict[str, Any]:
     y_mean = float(np.mean(y_vals))
     sst = float(sum((value - y_mean) ** 2 for value in y_vals))
     r2 = 1.0 if sst == 0 else float(1 - (sse / sst))
-    k = season_length + 3
-    adj_r2 = float(1 - (1 - r2) * ((len(residuals) - 1) / (len(residuals) - k - 1))) if len(residuals) > k else r2
-    log_likelihood = -0.5 * len(residuals) * (math.log(2 * math.pi) + math.log(sigma_sq) + 1)
+    adj_r2 = float("nan")
     spacing = _compute_average_spacing(x_vals)
     last_x = x_vals[-1]
     z_critical = float(stats.norm.ppf(0.975))
@@ -1638,8 +1733,11 @@ def regression_holt_winters(payload: Dict[str, Any]) -> Dict[str, Any]:
             "mae": float(sum(abs(val) for val in residuals) / len(residuals)),
             "mape": _compute_mape(actual_for_errors, predicted_for_errors),
             "smape": _compute_smape(actual_for_errors, predicted_for_errors),
-            "aic": float(2 * k - 2 * log_likelihood),
-            "bic": float(math.log(len(residuals)) * k - 2 * log_likelihood),
+            "aic": float("nan"),
+            "bic": float("nan"),
+            "selectionCriterion": (tuned or {}).get("criterion", "manual"),
+            "selectionScore": float((tuned or {}).get("score", float("nan"))),
+            "tuningRmse": float((tuned or {}).get("rmse", float("nan"))),
             "horizon": int(horizon),
         },
         "forecast": {"horizon": int(horizon), "seasonLength": int(season_length), "points": forecast_points},

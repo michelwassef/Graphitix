@@ -221,7 +221,58 @@ describe('graphArchive adaptive compression', () => {
     expect(Array.isArray(payloadJson.data)).toBe(true);
   });
 
-  test('removes inline data from serialized dataViews when payload mode is lite', async () => {
+  test('lite archives write raw.csv from the Raw DataView rather than the active derived projection', async () => {
+    const { graphArchive, JSZipMock } = installGraphArchiveWithZipMock();
+    const rawCell = `RAW-${'r'.repeat((1024 * 1024) + 128)}`;
+    const derivedCell = 'DERIVED-ACTIVE-PROJECTION';
+    const payload = {
+      type: 'scatter',
+      data: [[derivedCell]],
+      dataViews: {
+        version: 3,
+        activeViewId: 'view-2',
+        views: [
+          { id: 'raw', kind: 'raw', title: 'Raw', data: [[rawCell]] },
+          {
+            id: 'view-2',
+            kind: 'derived',
+            title: 'Derived',
+            sourceViewId: 'raw',
+            replayable: true,
+            transformOptions: { headerRows: 0, startCol: 0 },
+            transformSpec: { type: 'log10' },
+            data: [[derivedCell]]
+          }
+        ]
+      },
+      activeDataViewId: 'view-2',
+      config: {}
+    };
+
+    await graphArchive.buildArchiveBlob({
+      tabs: [{ title: 'XY Plots', type: 'scatter', payload, layout: null }],
+      activeIndex: 0,
+      scope: 'tab',
+      useWorker: false,
+      compressionMode: 'adaptive',
+      payloadMode: 'adaptive'
+    });
+
+    const manifest = parseManifest(JSZipMock.instance);
+    expect(manifest.tabs[0].payloadMode).toBe('lite');
+    const rawCsvEntry = findRawCsvEntry(JSZipMock.instance);
+    expect(rawCsvEntry).toBeTruthy();
+    expect(rawCsvEntry.content.startsWith('RAW-')).toBe(true);
+    expect(rawCsvEntry.content).not.toContain(derivedCell);
+
+    const payloadEntry = findEntry(JSZipMock.instance, /\/payload\.json$/);
+    const payloadJson = JSON.parse(payloadEntry.content);
+    expect(Object.prototype.hasOwnProperty.call(payloadJson, 'data')).toBe(false);
+    expect(payloadJson.dataViews.activeViewId).toBe('view-2');
+    expect(payloadJson.dataViews.views.every(view => !Object.prototype.hasOwnProperty.call(view, 'data'))).toBe(true);
+  });
+
+  test('removes Raw and replayable derived matrices from serialized dataViews when payload mode is lite', async () => {
     const { graphArchive, JSZipMock } = installGraphArchiveWithZipMock();
     const largeCell = 'x'.repeat((1024 * 1024) + 128);
     const payload = {
@@ -232,7 +283,16 @@ describe('graphArchive adaptive compression', () => {
         activeViewId: 'raw',
         views: [
           { id: 'raw', kind: 'raw', title: 'Raw', data: [[largeCell]] },
-          { id: 'view-2', kind: 'derived', title: 'Derived', sourceViewId: 'raw', transformSpec: { type: 'add', value: 1 }, data: [[largeCell]] }
+          {
+            id: 'view-2',
+            kind: 'derived',
+            title: 'Derived',
+            sourceViewId: 'raw',
+            replayable: true,
+            transformOptions: { headerRows: 0, startCol: 0 },
+            transformSpec: { type: 'add', value: 1 },
+            data: [[largeCell]]
+          }
         ]
       },
       config: {}
@@ -256,4 +316,75 @@ describe('graphArchive adaptive compression', () => {
     expect(payloadJson.dataViews.views.every(view => !Object.prototype.hasOwnProperty.call(view, 'data'))).toBe(true);
     expect(configJson.dataViews.views.every(view => !Object.prototype.hasOwnProperty.call(view, 'data'))).toBe(true);
   });
+
+  test('lite archives retain non-replayable materialized and user-edited derived matrices only in payload.json', async () => {
+    const { graphArchive, JSZipMock } = installGraphArchiveWithZipMock();
+    const largeRaw = `RAW-${'x'.repeat((1024 * 1024) + 128)}`;
+    const payload = {
+      type: 'heatmap',
+      data: [['STALE-ACTIVE']],
+      dataViews: {
+        version: 3,
+        activeViewId: 'materialized',
+        views: [
+          { id: 'raw', kind: 'raw', title: 'Raw', data: [[largeRaw]] },
+          {
+            id: 'replayable',
+            kind: 'derived',
+            title: 'log10',
+            sourceViewId: 'raw',
+            replayable: true,
+            transformOptions: { headerRows: 0, startCol: 0 },
+            transformSpec: { type: 'log10' },
+            data: [['REPLAYABLE']]
+          },
+          {
+            id: 'materialized',
+            kind: 'derived',
+            title: 'Correlation',
+            sourceViewId: 'raw',
+            replayable: false,
+            transformOptions: null,
+            transformSpec: { type: 'heatmapCorrelationMatrix' },
+            data: [['MATERIALIZED']]
+          },
+          {
+            id: 'edited',
+            kind: 'derived',
+            title: 'Edited log10',
+            sourceViewId: 'raw',
+            replayable: false,
+            transformOptions: { headerRows: 0, startCol: 0 },
+            transformSpec: { type: 'log10' },
+            data: [['USER-EDITED']]
+          }
+        ]
+      },
+      activeDataViewId: 'materialized',
+      config: {}
+    };
+
+    await graphArchive.buildArchiveBlob({
+      tabs: [{ title: 'Heatmap', type: 'heatmap', payload, layout: null }],
+      activeIndex: 0,
+      scope: 'tab',
+      useWorker: false,
+      compressionMode: 'adaptive',
+      payloadMode: 'adaptive'
+    });
+
+    const manifest = parseManifest(JSZipMock.instance);
+    expect(manifest.tabs[0].payloadMode).toBe('lite');
+    const payloadEntry = findEntry(JSZipMock.instance, /\/payload\.json$/);
+    const configEntry = findEntry(JSZipMock.instance, /\/graph-config\.json$/);
+    const payloadJson = JSON.parse(payloadEntry.content);
+    const configJson = JSON.parse(configEntry.content);
+
+    expect(Object.prototype.hasOwnProperty.call(payloadJson.dataViews.views[0], 'data')).toBe(false);
+    expect(Object.prototype.hasOwnProperty.call(payloadJson.dataViews.views[1], 'data')).toBe(false);
+    expect(payloadJson.dataViews.views[2].data).toEqual([['MATERIALIZED']]);
+    expect(payloadJson.dataViews.views[3].data).toEqual([['USER-EDITED']]);
+    expect(configJson.dataViews.views.every(view => !Object.prototype.hasOwnProperty.call(view, 'data'))).toBe(true);
+  });
+
 });

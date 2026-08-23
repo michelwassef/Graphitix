@@ -59,4 +59,56 @@ describe('table import format registry', () => {
       global.FileReader = OriginalFileReader;
     }
   });
+  test('source column selection and transpose are applied before header handling', () => {
+    const api = window.Shared.tableImport;
+    const rows = [
+      ['ignore', 'Sample', 'A', 'B'],
+      ['ignore', 'S1', '1', '2'],
+      ['ignore', 'S2', '3', '4']
+    ];
+
+    expect(api.prepareImportedRows(rows, null, {
+      sourceStartColumn: 2,
+      transposeData: true,
+      firstRowIsTitles: true,
+      trimCells: true
+    })).toEqual([
+      ['Sample', 'S1', 'S2'],
+      ['A', '1', '3'],
+      ['B', '2', '4']
+    ]);
+  });
+
+  test('fixed-header tables strip a source title row instead of importing a synthetic header', () => {
+    const api = window.Shared.tableImport;
+    const rows = [
+      ['Group', 'Time', 'Event'],
+      ['A', '5', '1'],
+      ['A', '9', '0']
+    ];
+
+    expect(api.prepareImportedRows(rows, null, {
+      firstRowIsTitles: true,
+      targetFirstRowIsHeader: false
+    })).toEqual([
+      ['A', '5', '1'],
+      ['A', '9', '0']
+    ]);
+  });
+
+  test('component layout assessment explains incompatible ROC input', () => {
+    const api = window.Shared.tableImport;
+    const assessment = api.assessComponentLayout([
+      ['Label', 'Score'],
+      ['case-a', 'high'],
+      ['case-b', 'low'],
+      ['case-c', 'medium']
+    ], 'roc', { firstRowIsTitles: true });
+
+    expect(assessment.status).toBe('warning');
+    expect(assessment.message).toContain('exactly two outcome classes');
+    expect(assessment.message).toContain('numeric score');
+    expect(assessment.message).toContain('binary class-label column');
+  });
+
 });

@@ -35,8 +35,9 @@ function compareNumber(actual, expected, label, tolerance = {}) {
     expect(typeof actual === 'number' && !Number.isFinite(actual)).toBe(true);
     return;
   }
-  expect(isFiniteNumber(actual)).toBe(true);
-  expect(isFiniteNumber(expected)).toBe(true);
+  if (!isFiniteNumber(actual) || !isFiniteNumber(expected)) {
+    throw new Error(`${label} must be finite: actual=${actual}, expected=${expected}`);
+  }
   const diff = Math.abs(actual - expected);
   const limit = Math.max(absTol, relTol * Math.max(1, Math.abs(expected)));
   if (diff > limit) {
@@ -208,7 +209,7 @@ function compareRegressionTermStats(jsMap, pyMap, terms, label) {
 }
 
 function compareCaseResult(testCase, jsResult, pyResult) {
-  const caseLabel = testCase.id || testCase.operation;
+  const caseLabel = `${testCase.id || testCase.operation} ${JSON.stringify(testCase.payload || {})}`;
   if (testCase.operation === 'adjust_pvalues') {
     compareNumberArray(jsResult.adjusted, pyResult.adjusted, `${caseLabel}.adjusted`, { abs: 1e-10, rel: 1e-8 });
     return;
@@ -332,8 +333,9 @@ function buildRandomDifferentialCases(seed = 20260309) {
     const populationSize = 60 + Math.floor(random() * 8000);
     const successPopulation = 1 + Math.floor(random() * (populationSize - 1));
     const draws = 1 + Math.floor(random() * (populationSize - 1));
+    const minObs = Math.max(0, draws - (populationSize - successPopulation));
     const maxObs = Math.min(successPopulation, draws);
-    const observedSuccesses = Math.floor(random() * (maxObs + 1));
+    const observedSuccesses = minObs + Math.floor(random() * (maxObs - minObs + 1));
     cases.push({
       id: nextId('rnd-hypergeom'),
       operation: 'hypergeometric_right_tail',

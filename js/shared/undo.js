@@ -467,6 +467,7 @@
         if(config && global.Main?.domControls?.applyWorkspacePayload){
           global.Main.domControls.applyWorkspacePayload(config, cloneValue(payloadClone), {
             reason,
+            tabId: tab.id,
             skipPayloadSizing: false,
             payloadSizingOptions: {
               context: reason,

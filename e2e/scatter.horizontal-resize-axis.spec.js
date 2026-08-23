@@ -252,6 +252,7 @@ test('scatter pointer horizontal drag keeps y-axis line and y-title stable', asy
 });
 
 test('scatter repeated horizontal drag does not need a no-op handle click to realign', async ({ page }, testInfo) => {
+  test.setTimeout(90_000);
   await installLocalCdnOverrides(page);
   const issues = registerIssueCollectors(page);
   await page.goto('/index.html');

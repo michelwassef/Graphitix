@@ -1,5 +1,5 @@
 // Shared color picker overlay with palette, recent colors, and custom picker support.
-// Exposes Shared.initColorPickerOverlay(), Shared.attachColorPickerNear(el), and Shared.openColorPicker(options)
+// Exposes the shared picker lifecycle plus owner-aware visibility for body-ported overlays.
 (function(global){
   'use strict';
 
@@ -1246,6 +1246,27 @@
       overlayState.shapeSection.setAttribute('aria-hidden', 'true');
     }
   }
+
+  Shared.getColorPickerAnchor = function getColorPickerAnchor(){
+    if(!overlay || overlay.style.display === 'none' || overlay.dataset.visible !== '1'){
+      return null;
+    }
+    return overlayState.anchor || null;
+  };
+
+  Shared.isColorPickerOpenFor = function isColorPickerOpenFor(container){
+    if(!container || !overlay || overlay.style.display === 'none' || overlay.dataset.visible !== '1'){
+      return false;
+    }
+    const anchor = overlayState.anchor;
+    if(!anchor){
+      return false;
+    }
+    if(container === anchor){
+      return true;
+    }
+    return typeof container.contains === 'function' && container.contains(anchor);
+  };
 
   Shared.openColorPicker = function openColorPicker(options){
     const opts = options || {};

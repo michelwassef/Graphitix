@@ -21,7 +21,14 @@ describe('chartStyle SVG preparation responsibilities', () => {
 
     expect(window.Shared.chartStyle.prepareSvg(svg)).toBe(true);
     expect(window.Shared.fontControls.enableForSvg).toHaveBeenCalledTimes(1);
-    expect(window.Shared.fontControls.enableForSvg).toHaveBeenCalledWith(svg, { scopeId: 'prepared-svg' });
+    expect(window.Shared.fontControls.enableForSvg).toHaveBeenCalledWith(svg, { scopeId: 'prepared-svg', tabId: null });
+  });
+
+  test('bindSvgInteractions forwards the restored owner tab', () => {
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+
+    expect(window.Shared.chartStyle.bindSvgInteractions(svg, { scopeId: 'box', tabId: 'tab-box-a' })).toBe(true);
+    expect(window.Shared.fontControls.enableForSvg).toHaveBeenCalledWith(svg, { scopeId: 'box', tabId: 'tab-box-a' });
   });
 
   test('prepareSvg applies the active component theme to a replacement SVG', () => {

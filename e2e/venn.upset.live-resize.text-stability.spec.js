@@ -71,7 +71,10 @@ test('UpSet resize has one painted viewport fit and live text scaling', async ({
   });
 
   const title = page.locator('#vennPage:not([hidden]) #stage text[data-font-role="graphTitle"]');
-  const heightBefore = await title.evaluate(node => node.getBoundingClientRect().height);
+  const beforeTitleMetrics = await title.evaluate(node => ({
+    height: node.getBoundingClientRect().height,
+    fontSize: Number.parseFloat(node.getAttribute('font-size') || getComputedStyle(node).fontSize || '0')
+  }));
   const handle = page.locator('#vennPage:not([hidden]) #vennGraphPanel .resizer-vertical').first();
   await expect(handle).toBeVisible();
   const box = await handle.boundingBox();
@@ -81,8 +84,12 @@ test('UpSet resize has one painted viewport fit and live text scaling', async ({
   await page.mouse.move(box.x + box.width / 2 + 80, box.y + box.height / 2, { steps: 10 });
   await page.waitForTimeout(50);
 
-  const heightDuring = await title.evaluate(node => node.getBoundingClientRect().height);
-  expect(Math.abs(heightDuring - heightBefore)).toBeGreaterThan(1);
+  const duringTitleMetrics = await title.evaluate(node => ({
+    height: node.getBoundingClientRect().height,
+    fontSize: Number.parseFloat(node.getAttribute('font-size') || getComputedStyle(node).fontSize || '0')
+  }));
+  expect(Math.abs(duringTitleMetrics.fontSize - beforeTitleMetrics.fontSize)).toBeGreaterThanOrEqual(1);
+  expect(Math.abs(duringTitleMetrics.height - beforeTitleMetrics.height)).toBeGreaterThan(0.5);
 
   await page.mouse.up();
   await page.waitForTimeout(75);
@@ -103,7 +110,7 @@ test('UpSet resize has one painted viewport fit and live text scaling', async ({
   expect(result.viewBoxOnlyBatches).toBe(0);
   expect(result.invalidPaintedFrames).toBe(0);
   expect(result.titleCount).toBe(1);
-  expect(Math.abs(result.titleHeight - heightDuring)).toBeLessThanOrEqual(1.5);
+  expect(Math.abs(result.titleHeight - duringTitleMetrics.height)).toBeLessThanOrEqual(1.5);
 });
 
 test('UpSet defaults to unlocked ratio and redraws live during fixed-font axis drag', async ({ page }) => {

@@ -35,14 +35,22 @@ test.describe('Heatmap graph-scope font sizing', () => {
     await clickExampleButtonIfPresent(page, 'heatmapLoadExample');
     await page.waitForTimeout(1200);
 
+    const showValues = page.locator('#heatmapPage:not([hidden]) #heatmapShowValues');
+    if(!(await showValues.isChecked())){
+      await showValues.check({ force: true });
+      await page.waitForFunction(() => (
+        document.querySelectorAll('#heatmapPage:not([hidden]) #heatmapSvg text[data-font-role="cellValue"]').length > 0
+      ));
+    }
+
     let previous = await getHeatmapDrawPerf(page);
     expect(previous).toBeTruthy();
 
-    const whiteCellValue = page.locator('#heatmapSvg text[data-font-role="cellValue"][fill="rgb(255,255,255)"]').first();
+    const whiteCellValue = page.locator('#heatmapPage:not([hidden]) #heatmapSvg text[data-font-role="cellValue"][fill="rgb(255,255,255)"]').first();
     if(await whiteCellValue.count()){
       await whiteCellValue.click();
     }else{
-      await page.locator('#heatmapSvg text[data-font-role="cellValue"]').first().click();
+      await page.locator('#heatmapPage:not([hidden]) #heatmapSvg text[data-font-role="cellValue"]').first().click();
     }
 
     await page.waitForFunction(() => {
@@ -72,7 +80,7 @@ test.describe('Heatmap graph-scope font sizing', () => {
     expect(previous).toBeTruthy();
 
     const visibility = await page.evaluate(() => {
-      const svg = document.getElementById('heatmapSvg');
+      const svg = document.querySelector('#heatmapPage:not([hidden]) #heatmapSvg');
       if(!svg){
         return { ok: false, reason: 'missing-svg' };
       }
@@ -121,5 +129,40 @@ test.describe('Heatmap graph-scope font sizing', () => {
     expect(visibility.rowWhite, JSON.stringify(visibility)).toBe(false);
     expect(visibility.colWhite, JSON.stringify(visibility)).toBe(false);
   });
-});
 
+  test('changing Scale font size produces one settled redraw', async ({ page }) => {
+    test.setTimeout(120_000);
+    await installLocalCdnOverrides(page);
+    await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
+
+    await openComponentFromWelcome(
+      page,
+      { type: 'heatmap', pageId: 'heatmapPage', exampleButtonId: 'heatmapLoadExample' },
+      { first: true }
+    );
+    await clickExampleButtonIfPresent(page, 'heatmapLoadExample');
+    await page.waitForSelector('#heatmapPage:not([hidden]) #heatmapSvg .heatmap-color-scale text[data-font-role="scaleTick"]');
+
+    const before = await getHeatmapDrawPerf(page);
+    const tick = page.locator('#heatmapPage:not([hidden]) #heatmapSvg .heatmap-color-scale text[data-font-role="scaleTick"]').first();
+    await tick.click();
+    await expect(page.locator('.font-controls-panel[data-open="1"] .font-controls-panel__field--scope select')).toHaveValue('scale');
+    await expect(page.locator('input[aria-label="Legend border width"]')).toBeHidden();
+    await expect(page.locator('select[aria-label="Legend border style"]')).toBeHidden();
+    await expect(page.locator('input[aria-label="Legend border transparency"]')).toBeHidden();
+
+    await page.evaluate(() => {
+      const size = document.querySelector('.font-controls-panel[data-open="1"] .font-controls-panel__input--size');
+      size.value = '20';
+      size.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+
+    const settled = await waitForHeatmapDrawAdvance(page, before?.timestamp || 0);
+    await expect(page.locator('#heatmapPage:not([hidden]) #heatmapSvg .heatmap-color-scale text[data-font-role="scaleTick"]').first())
+      .toHaveAttribute('font-size', '26.67px');
+    await page.waitForTimeout(1000);
+    const later = await getHeatmapDrawPerf(page);
+
+    expect(Number(later?.sequence) - Number(settled?.sequence)).toBeLessThanOrEqual(1);
+  });
+});

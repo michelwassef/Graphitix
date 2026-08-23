@@ -1,4 +1,4 @@
-const fs = require('fs');
+	const fs = require('fs');
 const path = require('path');
 const { test, expect } = require('@playwright/test');
 const {
@@ -795,7 +795,7 @@ async function runLifecycleScenario(page, testInfo, scenario, issues) {
     expect(summary.snapshotTargetCache?.hasArchiveRenderCache, `${label}: heavy target cache missing from ${scenario.mode} snapshot`).toBe(true);
   }
   if (scenario.mode === 'recovery') {
-    expect(summary.snapshotTargetCache?.hasArchiveRenderCache, `${label}: lean recovery must not embed a render cache`).toBe(false);
+    expect(summary.snapshotTargetCache?.hasArchiveRenderCache, `${label}: recovery snapshot must retain the exact completed render cache`).toBe(true);
   }
   if (scenario.mode === 'reopen' && scenario.size === 'heavy') {
     expect(summary.afterRenderWaitTargetCache.hasAnyCache, `${label}: normal reopen heavy target did not retain cache through activation`).toBe(true);
@@ -807,15 +807,19 @@ for (const component of COMPONENTS) {
     for (const topology of TOPOLOGIES) {
       for (const mode of RESTORE_MODES) {
         const title = `${component} ${size} ${topology} ${mode} render-cache lifecycle`;
-        const knownPreExistingHeavyMixedCacheGap = size === 'heavy'
-          && topology === 'mixed'
-          && (component === 'box' || component === 'scatter');
-        const defineTest = knownPreExistingHeavyMixedCacheGap ? test.fixme : test;
-        defineTest(title, async ({ page }, testInfo) => {
+
+        test(title, async ({ page }, testInfo) => {
           test.setTimeout(size === 'heavy' ? 300_000 : 180_000);
+
           const issues = registerIssueCollectors(page);
           await installLocalCdnOverrides(page);
-          await runLifecycleScenario(page, testInfo, { component, size, topology, mode }, issues);
+
+          await runLifecycleScenario(
+            page,
+            testInfo,
+            { component, size, topology, mode },
+            issues
+          );
         });
       }
     }

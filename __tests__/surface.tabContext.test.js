@@ -134,4 +134,70 @@ describe('Surface tab context isolation', () => {
     expect(restoredB.autoDrawReason).toBeNull();
     expect(restoredB.drawPending).toBe(false);
   });
+
+  test('capturing an inactive surface owner never rebinds or samples the mounted sibling projection', async () => {
+    const Main = window.Main;
+    await handleGraphSelection(Main, 'surface');
+
+    const surface = window.Components?.surface;
+    expect(surface).toBeTruthy();
+
+    const tabA = Main.tabs.getActiveTab();
+    surface.applyRuntimeState({
+      fileName: 'surface-owner-a.graph',
+      autoDrawEnabled: false,
+      autoDrawReason: { type: 'manual-a' }
+    }, { tabId: tabA.id, reason: 'test-seed-inactive-owner-a' });
+
+    Main.tabs.handleAddTabClick();
+    await flush();
+    await handleGraphSelection(Main, 'surface');
+
+    const tabB = Main.tabs.getActiveTab();
+    expect(tabB?.id).not.toBe(tabA?.id);
+    surface.applyRuntimeState({
+      fileName: 'surface-owner-b.graph',
+      autoDrawEnabled: true,
+      autoDrawReason: { type: 'manual-b' }
+    }, { tabId: tabB.id, reason: 'test-seed-mounted-owner-b' });
+
+    expect(surface.__boundTabId).toBe(tabB.id);
+    expect(surface.__getState().fileName).toBe('surface-owner-b.graph');
+
+    const inactiveSnapshot = surface.captureRuntimeState({
+      tabId: tabA.id,
+      reason: 'test-capture-inactive-owner-a'
+    });
+
+    expect(inactiveSnapshot).toBeTruthy();
+    expect(inactiveSnapshot.fileName).toBe('surface-owner-a.graph');
+    expect(inactiveSnapshot.autoDrawEnabled).toBe(false);
+    expect(inactiveSnapshot.autoDrawReason).toEqual({ type: 'manual-a' });
+
+    // Capturing A must not project A or copy B's mounted state into A.
+    expect(surface.__boundTabId).toBe(tabB.id);
+    expect(surface.__getState().fileName).toBe('surface-owner-b.graph');
+    expect(surface.__getState().autoDrawEnabled).toBe(true);
+    expect(surface.__getState().autoDrawReason).toEqual({ type: 'manual-b' });
+
+    const ownerASession = surface.__testHooks.getSession(tabA.id);
+    const ownerBSession = surface.__testHooks.getSession(tabB.id);
+    expect(ownerASession?.state?.fileName).toBe('surface-owner-a.graph');
+    expect(ownerBSession?.state?.fileName).toBe('surface-owner-b.graph');
+
+    expect(surface.applyRuntimeState({
+      fileName: 'surface-owner-a-updated.graph',
+      fileHandle: null,
+      autoDrawEnabled: true,
+      autoDrawReason: { type: 'inactive-a-update' }
+    }, { tabId: tabA.id, reason: 'test-apply-inactive-owner-a' })).toBe(true);
+
+    // Applying A while B is mounted updates only A's owner record/session.
+    expect(surface.__boundTabId).toBe(tabB.id);
+    expect(surface.__getState().fileName).toBe('surface-owner-b.graph');
+    expect(surface.__getState().autoDrawReason).toEqual({ type: 'manual-b' });
+    expect(surface.__testHooks.getSession(tabA.id)?.state?.fileName).toBe('surface-owner-a-updated.graph');
+    expect(surface.__testHooks.getSession(tabA.id)?.managers?.fileHandle).toBeNull();
+  });
+
 });

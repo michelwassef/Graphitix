@@ -83,6 +83,13 @@
       welcomePicker: document.querySelector('.welcome-picker'),
       welcomeGraphSearch: document.getElementById('welcomeGraphSearch'),
       welcomeGraphSearchResults: document.getElementById('welcomeGraphResults'),
+      welcomePopularExamplesList: document.getElementById('welcomePopularExamplesList'),
+      welcomePopularExamplesPrev: document.getElementById('welcomePopularExamplesPrev'),
+      welcomePopularExamplesNext: document.getElementById('welcomePopularExamplesNext'),
+      welcomeViewAllExamples: document.getElementById('welcomeViewAllExamples'),
+      welcomeExamplesDialog: document.getElementById('welcomeExamplesDialog'),
+      welcomeExamplesDialogClose: document.getElementById('welcomeExamplesDialogClose'),
+      welcomeAllExamplesList: document.getElementById('welcomeAllExamplesList'),
       duplicatePrompt: document.getElementById('duplicatePrompt'),
       duplicateTitle: document.getElementById('duplicatePromptTitle'),
       duplicateMessage: document.getElementById('duplicatePromptMessage'),
@@ -112,13 +119,22 @@
       welcomeDataImportMessage: document.getElementById('welcomeDataImportMessage'),
       welcomeDataImportComponentField: document.getElementById('welcomeDataImportComponentField'),
       welcomeDataImportComponent: document.getElementById('welcomeDataImportComponent'),
+      welcomeDataImportComponentButton: document.getElementById('welcomeDataImportComponentButton'),
+      welcomeDataImportComponentButtonIcon: document.getElementById('welcomeDataImportComponentButtonIcon'),
+      welcomeDataImportComponentButtonLabel: document.getElementById('welcomeDataImportComponentButtonLabel'),
+      welcomeDataImportComponentMenu: document.getElementById('welcomeDataImportComponentMenu'),
       welcomeDataImportSheetField: document.getElementById('welcomeDataImportSheetField'),
       welcomeDataImportSheet: document.getElementById('welcomeDataImportSheet'),
       welcomeDataImportDelimiterField: document.getElementById('welcomeDataImportDelimiterField'),
       welcomeDataImportDelimiter: document.getElementById('welcomeDataImportDelimiter'),
       welcomeDataImportStartRow: document.getElementById('welcomeDataImportStartRow'),
+      welcomeDataImportStartColumn: document.getElementById('welcomeDataImportStartColumn'),
       welcomeDataImportFirstRow: document.getElementById('welcomeDataImportFirstRow'),
       welcomeDataImportTrim: document.getElementById('welcomeDataImportTrim'),
+      welcomeDataImportTranspose: document.getElementById('welcomeDataImportTranspose'),
+      welcomeDataImportFormatCheck: document.getElementById('welcomeDataImportFormatCheck'),
+      welcomeDataImportFormatCheckTitle: document.getElementById('welcomeDataImportFormatCheckTitle'),
+      welcomeDataImportFormatCheckMessage: document.getElementById('welcomeDataImportFormatCheckMessage'),
       welcomeDataImportPreview: document.getElementById('welcomeDataImportPreview'),
       welcomeDataImportPreviewStatus: document.getElementById('welcomeDataImportPreviewStatus'),
       welcomeDataImportOpen: document.getElementById('welcomeDataImportOpen'),
@@ -674,12 +690,72 @@
     return true;
   };
 
+  function resolveWorkspacePayloadSizingOwner(type, options = {}) {
+    const nested = options?.payloadSizingOptions && typeof options.payloadSizingOptions === 'object'
+      ? options.payloadSizingOptions
+      : {};
+    let tabId = String(
+      nested.tabId
+      || nested.workspaceTabId
+      || nested.ownerTabId
+      || options.tabId
+      || options.workspaceTabId
+      || options.ownerTabId
+      || ''
+    ).trim();
+
+    if (!tabId) {
+      const activeTab = Main.session?.getActiveTab?.() || null;
+      if (activeTab && !activeTab.isWelcome && String(activeTab.type || '') === String(type || '')) {
+        tabId = String(activeTab.id || '').trim();
+      }
+    }
+
+    let sessionGeneration = Number(
+      nested.sessionGeneration
+      || nested.ownerSessionGeneration
+      || options.sessionGeneration
+      || options.ownerSessionGeneration
+      || 0
+    ) || 0;
+    if (tabId && sessionGeneration <= 0) {
+      try {
+        sessionGeneration = Number(Shared.workspaceTabs?.getSessionRecord?.(tabId, type)?.generation) || 0;
+      } catch (_err) {
+        sessionGeneration = 0;
+      }
+    }
+
+    return {
+      tabId: tabId || null,
+      sessionGeneration: sessionGeneration > 0 ? sessionGeneration : 0,
+      element: nested.element || options.element || null
+    };
+  }
+
+  function buildWorkspacePayloadSizingOptions(options, owner, hasAuthoritativeLayoutState, context) {
+    const nested = options?.payloadSizingOptions && typeof options.payloadSizingOptions === 'object'
+      ? options.payloadSizingOptions
+      : {};
+    return {
+      ...nested,
+      context: nested.context || context,
+      tabId: owner?.tabId || null,
+      sessionGeneration: Number(owner?.sessionGeneration) || 0,
+      element: owner?.element || nested.element || undefined,
+      authoritativeLayoutState: hasAuthoritativeLayoutState
+    };
+  }
+
   namespace.applyWorkspacePayload = function applyWorkspacePayload(config, payload, options = {}) {
     if (!config || payload === undefined) {
       console.debug('Debug: applyWorkspacePayload skipped', { hasConfig: !!config, hasPayload: payload !== undefined });
       return;
     }
     const label = config.type || 'workspace';
+    // Capture sizing ownership before loadFromPayload/loadFromFile can cross an async boundary.
+    // Every later retry must remain tied to this initiating tab/session generation.
+    const payloadSizingOwner = resolveWorkspacePayloadSizingOwner(label, options);
     const hasAuthoritativeLayoutState = options?.authoritativeLayoutState === true
       || options?.hasAuthoritativeLayoutState === true
       || !!options?.layoutStatePresent;
@@ -700,23 +776,26 @@
         if (result && typeof result.then === 'function') {
           result
             .then(() => {
-              if (shouldApplyPayloadSizing) {
-                Shared.graphSizing.applyPayloadSizingForType(label, payload, {
-                  context: `workspace-payload-${label}`,
-                  tabId: options?.tabId || options?.workspaceTabId || null,
-                  authoritativeLayoutState: hasAuthoritativeLayoutState,
-                  ...(options?.payloadSizingOptions || {})
+              if (shouldApplyPayloadSizing && (payloadSizingOwner.tabId || payloadSizingOwner.element)) {
+                Shared.graphSizing.applyPayloadSizingForType(
+                  label,
+                  payload,
+                  buildWorkspacePayloadSizingOptions(options, payloadSizingOwner, hasAuthoritativeLayoutState, `workspace-payload-${label}`)
+                );
+              } else if (shouldApplyPayloadSizing) {
+                console.debug('Debug: deferred workspace payload sizing skipped', {
+                  type: label,
+                  reason: 'missing-owner-before-async-boundary'
                 });
               }
             })
             .catch(err => console.error('applyWorkspacePayload async error', { type: label, err }));
         } else if (shouldApplyPayloadSizing) {
-          Shared.graphSizing.applyPayloadSizingForType(label, payload, {
-            context: `workspace-payload-${label}`,
-            tabId: options?.tabId || options?.workspaceTabId || null,
-            authoritativeLayoutState: hasAuthoritativeLayoutState,
-            ...(options?.payloadSizingOptions || {})
-          });
+          Shared.graphSizing.applyPayloadSizingForType(
+            label,
+            payload,
+            buildWorkspacePayloadSizingOptions(options, payloadSizingOwner, hasAuthoritativeLayoutState, `workspace-payload-${label}`)
+          );
         }
         console.debug('Debug: workspace payload applied via custom handler', { type: label });
       } catch (err) {
@@ -734,11 +813,11 @@
         }
         config.loadFromFile(blob, options || {});
         if (Shared.graphSizing?.applyPayloadSizingForType && !skipManagedPayloadSizing) {
-          Shared.graphSizing.applyPayloadSizingForType(label, payload, {
-            context: `workspace-blob-${label}`,
-            tabId: options?.tabId || options?.workspaceTabId || null,
-            authoritativeLayoutState: hasAuthoritativeLayoutState
-          });
+          Shared.graphSizing.applyPayloadSizingForType(
+            label,
+            payload,
+            buildWorkspacePayloadSizingOptions(options, payloadSizingOwner, hasAuthoritativeLayoutState, `workspace-blob-${label}`)
+          );
         }
         console.debug('Debug: workspace payload applied via blob', { type: label, length: serialized.length });
       } catch (err) {
@@ -1345,6 +1424,29 @@
       });
     };
 
+    const applyReusedWorkspaceSharedPayloadState = reason => {
+      if (!Shared.workspaceTabs?.applySharedPayloadState) {
+        return false;
+      }
+      try {
+        return Shared.workspaceTabs.applySharedPayloadState(
+          tab,
+          tab.type,
+          tab.payload && typeof tab.payload === 'object' ? tab.payload : {},
+          config,
+          { reason: reason || 'workspace-reuse-shared-payload' }
+        ) !== false;
+      } catch (err) {
+        console.debug('Debug: workspace reused shared payload state apply failed', {
+          tabId: tab.id,
+          type: tab.type,
+          reason: reason || 'workspace-reuse-shared-payload',
+          err: err?.message || String(err)
+        });
+        return false;
+      }
+    };
+
     const applyLiveDomFastPath = reason => {
       const fastReason = reason || 'live-dom-fast-path';
       if (!canUseLiveDomFastPath()) {
@@ -1366,6 +1468,7 @@
           })
         : null;
       try {
+        applyReusedWorkspaceSharedPayloadState(`${fastReason}-shared-payload`);
         if (Shared.workspaceTabs?.activateWorkspace) {
           Shared.workspaceTabs.activateWorkspace(tab, config, {
             reason: fastReason,
@@ -1628,6 +1731,9 @@
       try {
       const canReuseWorkspace = canReuseWorkspaceForActivation();
       let sessionRecord = null;
+      if (canReuseWorkspace) {
+        applyReusedWorkspaceSharedPayloadState(`${options.reason || 'workspace-view'}-shared-payload`);
+      }
       if (Shared.workspaceTabs?.activateWorkspace) {
         Shared.workspaceTabs.activateWorkspace(tab, config, {
           reason: options.reason || 'workspace-view'

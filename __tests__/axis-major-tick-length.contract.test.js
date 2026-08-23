@@ -8,7 +8,13 @@ describe('shared major tick length axis contract', () => {
   test('axis controls expose a tab-owned major tick length editor', () => {
     const source = read('js/shared/axisControls.js');
     expect(source).toContain("majorTickLengthLabel.textContent = 'Tick length'");
-    expect(source).toContain("recordAxisStateChange(\n          config,\n          'majorTickLength'");
+    expect(source).toContain('bindWheelAwareAxisNumericInput(majorTickLengthInput');
+    expect(source).toContain("stateKey: 'majorTickLength'");
+    const wheelBinderStart = source.indexOf('function bindWheelAwareAxisNumericInput(input, spec)');
+    const wheelBinderEnd = source.indexOf('function resolveToolbarHost', wheelBinderStart);
+    const wheelBinderSource = source.slice(wheelBinderStart, wheelBinderEnd);
+    expect(wheelBinderSource).toContain('recordAxisStateChange(');
+    expect(wheelBinderSource).toContain('spec.stateKey,');
     expect(source).toContain('getMajorTickLength: config.getMajorTickLength');
     expect(source).toContain('onMajorTickLengthChange: config.onMajorTickLengthChange');
   });

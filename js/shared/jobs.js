@@ -69,6 +69,105 @@
     }
   }
 
+  function buildExecutionOwnerMeta(component, tabId){
+    let sessionMeta = null;
+    try{
+      const built = Shared.workspaceTabs?.buildSessionMeta?.(component, {
+        tabId,
+        allowActiveTabFallback: false
+      }) || null;
+      const generation = Number(built?.sessionGeneration ?? built?.generation);
+      if(built && Number.isFinite(generation) && generation > 0){
+        sessionMeta = {
+          ...built,
+          tabId,
+          componentKey: String(built.componentKey || component || '').trim() || component,
+          sessionGeneration: generation
+        };
+        try{ Object.freeze(sessionMeta); }catch(_err){}
+      }
+    }catch(_err){}
+    return {
+      component,
+      tabId,
+      sessionGeneration: sessionMeta?.sessionGeneration || null,
+      sessionMeta
+    };
+  }
+
+  function isExecutionOwnerCurrent(owner){
+    const component = String(owner?.component || '').trim();
+    const tabId = String(owner?.tabId || '').trim();
+    if(!component || !tabId){
+      return false;
+    }
+
+    // First enforce exact workspace ownership. Component-local active-session
+    // bookkeeping alone is insufficient when the user switches to a different
+    // component, because that component's previous session record may remain
+    // mounted until its lifecycle deactivation completes.
+    let workspaceState = null;
+    try{
+      workspaceState = global.Main?.session?.workspaceState || null;
+    }catch(_err){}
+    if(workspaceState){
+      const tabs = Array.isArray(workspaceState.tabs) ? workspaceState.tabs : [];
+      const ownerTab = tabs.find(tab => tab && String(tab.id || '') === tabId) || null;
+      if(tabs.length && !ownerTab){
+        return false;
+      }
+      if(ownerTab?.type && String(ownerTab.type) !== component){
+        return false;
+      }
+      const activeTabId = String(workspaceState.activeTabId || global.Main?.session?.getActiveTab?.()?.id || '').trim();
+      if(tabs.length && !activeTabId){
+        return false;
+      }
+      if(activeTabId && activeTabId !== tabId){
+        return false;
+      }
+      if(activeTabId){
+        const activeTab = tabs.find(tab => tab && String(tab.id || '') === activeTabId) || null;
+        if(activeTab?.type && String(activeTab.type) !== component){
+          return false;
+        }
+      }
+    }else{
+      const active = resolveActiveTab();
+      const activeTabId = String(active?.id || '').trim();
+      if(activeTabId && activeTabId !== tabId){
+        return false;
+      }
+      if(active?.type && String(active.type) !== component){
+        return false;
+      }
+    }
+
+    // workspaceTabs is the canonical same-component activation-generation
+    // service. It rejects ABA (A -> B -> A) even when the workspace tab id is
+    // A again by the time an older async continuation resumes.
+    if(owner?.sessionMeta && typeof Shared.workspaceTabs?.isSessionMetaCurrent === 'function'){
+      try{
+        return Shared.workspaceTabs.isSessionMetaCurrent(component, owner.sessionMeta) === true;
+      }catch(_err){
+        return false;
+      }
+    }
+
+    // Legacy/test fallback for contexts created before a component session
+    // generation exists. Exact active-tab/type identity is still enforced above.
+    return true;
+  }
+
+  function createStaleExecutionError(owner){
+    const err = new Error('Task owner is no longer current');
+    err.name = 'StaleExecutionOwnerError';
+    err.code = 'STALE_EXECUTION_OWNER';
+    err.component = owner?.component || null;
+    err.tabId = owner?.tabId || null;
+    return err;
+  }
+
   function emit(){
     const snapshot = jobs.getSnapshot();
     listeners.forEach(listener => {
@@ -434,6 +533,7 @@
     if(!component || !tabId){
       return null;
     }
+    const owner = buildExecutionOwnerMeta(component, tabId);
     const job = jobs.getActiveFor({ component, tabId, kind });
     const signal = job?.signal || null;
     const drawReason = String(options.drawOptions?.reason || '').trim().toLowerCase();
@@ -448,10 +548,23 @@
           signal,
           budgetMs: options.budgetMs
         });
+    const jobIsCurrent = () => !job || jobs.getActiveFor({ component, tabId, kind })?.id === job.id;
+    const ownerIsCurrent = () => isExecutionOwnerCurrent(owner);
+    const assertCurrent = () => {
+      jobs.throwIfCancelled(signal || job || {});
+      if(!ownerIsCurrent()){
+        throw createStaleExecutionError(owner);
+      }
+      if(!jobIsCurrent()){
+        throw new Error('Task cancelled');
+      }
+      return true;
+    };
     return {
       component,
       tabId,
       kind,
+      owner,
       job,
       signal,
       liveResize,
@@ -459,24 +572,20 @@
         if(signal?.aborted){
           return false;
         }
-        if(!job){
-          return true;
-        }
-        return jobs.getActiveFor({ component, tabId, kind })?.id === job.id;
+        return ownerIsCurrent() && jobIsCurrent();
       },
       async checkpoint(){
-        jobs.throwIfCancelled(signal || job || {});
+        assertCurrent();
         const yielded = yieldController
           ? await yieldController.checkpoint(signal || job || {})
           : false;
-        if(job && jobs.getActiveFor({ component, tabId, kind })?.id !== job.id){
-          throw new Error('Task cancelled');
-        }
+        assertCurrent();
         return yielded;
       },
       throwIfCancelled(){
-        return jobs.throwIfCancelled(signal || job || {});
+        return assertCurrent();
       },
+      assertCurrent,
       workerOptions(taskName){
         const name = String(taskName || 'task').trim() || 'task';
         return {

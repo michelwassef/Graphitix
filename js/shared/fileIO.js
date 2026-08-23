@@ -4,6 +4,9 @@
   const Shared = global.Shared = global.Shared || {};
   const fileIO = Shared.fileIO = Shared.fileIO || {};
   const payloadBlobMap = new WeakMap();
+  const latestGraphOpenOperationByOwner = new Map();
+  let nextGraphOpenOperationId = 1;
+  let nextGraphSaveOperationId = 1;
 
   const DEFAULT_FILE_TYPES = [
     {
@@ -78,14 +81,356 @@
 
   fileIO.registerPayloadBlob = registerPayloadBlob;
 
-  function ensureSetter(setter, value){
-    if(typeof setter === 'function'){
+  function normalizeGraphFileOwner(owner, context, options = {}){
+    const source = owner && typeof owner === 'object' ? owner : {};
+    let tabId = String(source.tabId || source.workspaceTabId || source.tab?.id || '').trim();
+    let component = String(source.component || source.componentKey || context || '').trim();
+    let generation = Number(source.sessionGeneration ?? source.generation);
+
+    if(options.inferActive === true && !tabId){
       try{
-        setter(value);
-      }catch(err){
-        console.error('fileIO.ensureSetter error', err);
+        const active = global.Main?.session?.getActiveTab?.() || null;
+        const activeId = String(active?.id || '').trim();
+        const activeType = String(active?.type || '').trim();
+        if(activeId && (!component || !activeType || activeType === component)){
+          tabId = activeId;
+          if(!component){
+            component = activeType;
+          }
+        }
+      }catch(_err){}
+    }
+
+    if(tabId && (!Number.isFinite(generation) || generation <= 0)){
+      try{
+        const meta = Shared.workspaceTabs?.buildSessionMeta?.(component, {
+          tabId,
+          allowActiveTabFallback: false
+        }) || null;
+        generation = Number(meta?.sessionGeneration ?? meta?.generation);
+      }catch(_err){}
+    }
+
+    return {
+      component: component || null,
+      tabId: tabId || null,
+      sessionGeneration: Number.isFinite(generation) && generation > 0 ? generation : null
+    };
+  }
+
+  fileIO.createGraphOpenOperation = function createGraphOpenOperation(options = {}){
+    const existing = options?.operation;
+    if(existing && typeof existing === 'object' && existing.type === 'graph-file-open'){
+      return existing;
+    }
+    const context = String(options?.context || 'graph').trim() || 'graph';
+    const owner = normalizeGraphFileOwner(options?.owner, context);
+    const operation = {
+      id: `graph-open-${nextGraphOpenOperationId++}`,
+      type: 'graph-file-open',
+      context,
+      component: owner.component,
+      tabId: owner.tabId,
+      sessionGeneration: owner.sessionGeneration,
+      stalePolicy: owner.tabId ? 'owner-tab-latest' : 'caller-managed'
+    };
+    if(operation.component && operation.tabId){
+      latestGraphOpenOperationByOwner.set(`${operation.component}::${operation.tabId}`, operation.id);
+    }
+    try{
+      return Object.freeze(operation);
+    }catch(_err){
+      return operation;
+    }
+  };
+
+  fileIO.createGraphSaveOperation = function createGraphSaveOperation(options = {}){
+    const existing = options?.operation;
+    if(existing && typeof existing === 'object' && existing.type === 'graph-file-save'){
+      return existing;
+    }
+    const context = String(options?.context || 'graph').trim() || 'graph';
+    const owner = normalizeGraphFileOwner(options?.owner, context, { inferActive: true });
+    const operation = {
+      id: `graph-save-${nextGraphSaveOperationId++}`,
+      type: 'graph-file-save',
+      context,
+      component: owner.component,
+      tabId: owner.tabId,
+      sessionGeneration: owner.sessionGeneration
+    };
+    try{
+      return Object.freeze(operation);
+    }catch(_err){
+      return operation;
+    }
+  };
+
+  function isLatestGraphOpenOperation(operation){
+    const component = String(operation?.component || '').trim();
+    const tabId = String(operation?.tabId || '').trim();
+    if(!component || !tabId){
+      return true;
+    }
+    const latestId = latestGraphOpenOperationByOwner.get(`${component}::${tabId}`);
+    return !latestId || latestId === operation.id;
+  }
+
+  function resolveWorkspaceTabById(tabId){
+    const id = String(tabId || '').trim();
+    if(!id){
+      return null;
+    }
+    try{
+      const tabs = global.Main?.session?.workspaceState?.tabs;
+      return Array.isArray(tabs)
+        ? (tabs.find(tab => tab && String(tab.id || '') === id) || null)
+        : null;
+    }catch(_err){
+      return null;
+    }
+  }
+
+  function resolveWorkspaceActiveTabId(component = null){
+    try{
+      const active = global.Main?.session?.getActiveTab?.() || null;
+      const mainTabId = String(active?.id || global.Main?.session?.workspaceState?.activeTabId || '').trim();
+      if(mainTabId){
+        return mainTabId;
+      }
+    }catch(_err){}
+    try{
+      const componentTabId = String(Shared.workspaceTabs?.getActiveSessionInfo?.(component || '')?.tabId || '').trim();
+      return componentTabId || null;
+    }catch(_err){
+      return null;
+    }
+  }
+
+  function inspectGraphFileOwner(operation, options = {}){
+    const component = String(operation?.component || options.component || operation?.context || '').trim();
+    const tabId = String(operation?.tabId || '').trim();
+    if(operation?.type === 'graph-file-open' && options.requireLatest !== false && !isLatestGraphOpenOperation(operation)){
+      return { ok: false, status: 'stale-operation', component, tabId, tab: null, activeTabId: resolveWorkspaceActiveTabId(component) };
+    }
+    if(!tabId){
+      return { ok: true, status: 'unscoped', component, tabId: null, tab: null, activeTabId: resolveWorkspaceActiveTabId(component), isActiveOwner: true };
+    }
+
+    const workspaceTabs = global.Main?.session?.workspaceState?.tabs;
+    const hasWorkspaceRegistry = Array.isArray(workspaceTabs);
+    const tab = resolveWorkspaceTabById(tabId);
+    if(hasWorkspaceRegistry && !tab){
+      return { ok: false, status: 'stale-owner', component, tabId, tab: null, activeTabId: resolveWorkspaceActiveTabId(component) };
+    }
+    if(component && tab?.type && String(tab.type) !== component){
+      return { ok: false, status: 'owner-type-mismatch', component, tabId, tab, activeTabId: resolveWorkspaceActiveTabId(component) };
+    }
+    const activeTabId = resolveWorkspaceActiveTabId(component);
+    return {
+      ok: true,
+      status: 'current-owner',
+      component,
+      tabId,
+      tab,
+      activeTabId,
+      isActiveOwner: activeTabId === tabId
+    };
+  }
+
+  fileIO.inspectGraphOpenOperation = function inspectGraphOpenOperation(operation){
+    return inspectGraphFileOwner(operation, { requireLatest: true });
+  };
+
+  function graphOpenCompletionStatus(operation, via, extra = {}){
+    const inspection = inspectGraphFileOwner(operation, { requireLatest: true });
+    if(inspection.ok){
+      return null;
+    }
+    debug('graphOpenOperation.rejected', {
+      operationId: operation?.id || null,
+      component: inspection.component || null,
+      tabId: inspection.tabId || null,
+      status: inspection.status,
+      via
+    });
+    return {
+      status: inspection.status,
+      via,
+      operation,
+      ...extra
+    };
+  }
+
+  function applyGraphFileSetter(setter, value, operation = null){
+    if(typeof setter !== 'function'){
+      return false;
+    }
+    if(operation && (operation.type === 'graph-file-open' || operation.type === 'graph-file-save')){
+      const inspection = inspectGraphFileOwner(operation, {
+        requireLatest: operation.type === 'graph-file-open'
+      });
+      if(!inspection.ok){
+        debug('graphFileSetter.skipped', {
+          operationId: operation.id || null,
+          type: operation.type,
+          component: inspection.component || null,
+          tabId: inspection.tabId || null,
+          status: inspection.status
+        });
+        return false;
       }
     }
+    try{
+      setter(value, operation);
+      return true;
+    }catch(err){
+      console.error('fileIO.applyGraphFileSetter error', err);
+      return false;
+    }
+  }
+
+  function mergeInactiveGraphOpenLayout(tab, payload, reason){
+    const session = global.Main?.session || null;
+    const graphSizing = Shared.graphSizing || null;
+    if(!tab || !graphSizing || typeof graphSizing.mergePayloadSizingIntoLayout !== 'function'){
+      return false;
+    }
+    let nextLayout = null;
+    try{
+      nextLayout = graphSizing.mergePayloadSizingIntoLayout(tab.layoutState || null, payload, {
+        context: `${reason}:inactive-owner-layout`,
+        preferPayload: true
+      });
+    }catch(err){
+      console.error('fileIO.mergeInactiveGraphOpenLayout error', { tabId: tab.id || null, reason, err });
+      return false;
+    }
+    if(!nextLayout){
+      return false;
+    }
+    const serialize = typeof session?.serializePayloadSignature === 'function'
+      ? session.serializePayloadSignature
+      : value => {
+          try{ return JSON.stringify(value); }catch(_err){ return ''; }
+        };
+    const previousSignature = tab.layoutSignature || serialize(tab.layoutState || null);
+    const nextSignature = serialize(nextLayout);
+    const changed = previousSignature !== nextSignature;
+    tab.layoutState = nextLayout;
+    tab.layoutSignature = nextSignature;
+    tab.layoutDirty = false;
+    tab.layoutDirtyReason = '';
+    if(changed){
+      tab.layoutVersion = Number(tab.layoutVersion || 0) + 1;
+      session?.clearTabRenderCache?.(tab, { reason: `${reason}:layout-changed` });
+      session?.clearTabArchiveRenderCache?.(tab, { reason: `${reason}:layout-changed` });
+    }
+    const loaded = session?.workspaceState?.loadedWorkspaces;
+    if(loaded && typeof loaded === 'object'){
+      delete loaded[tab.id];
+    }
+    debug('graphOpenPayload.ownerLayoutStaged', {
+      tabId: tab.id || null,
+      reason,
+      changed,
+      hasGraphSizing: !!payload?.meta?.graphSizing
+    });
+    return changed;
+  }
+
+  fileIO.routeGraphOpenPayload = function routeGraphOpenPayload(options = {}){
+    const operation = fileIO.createGraphOpenOperation({
+      context: options.context || options.operation?.context || 'graph',
+      operation: options.operation,
+      owner: options.owner
+    });
+    const payload = options.payload;
+    const apply = typeof options.apply === 'function' ? options.apply : null;
+    const component = String(operation?.component || options.component || '').trim();
+    const tabId = String(operation?.tabId || '').trim();
+    const reason = String(options.reason || `${component || operation.context || 'graph'}-graph-file-open`).trim();
+
+    if(component && payload && typeof payload === 'object' && payload.type && String(payload.type) !== component){
+      debug('graphOpenPayload.payloadTypeMismatch', {
+        operationId: operation.id,
+        component,
+        tabId: tabId || null,
+        payloadType: String(payload.type)
+      });
+      return { status: 'payload-type-mismatch', operation, value: false };
+    }
+
+    const inspection = inspectGraphFileOwner(operation, { requireLatest: true, component });
+    if(!inspection.ok){
+      debug(`graphOpenPayload.${inspection.status}`, {
+        operationId: operation.id,
+        component: component || null,
+        tabId: tabId || null,
+        activeTabId: inspection.activeTabId || null
+      });
+      return { status: inspection.status, operation, value: false };
+    }
+
+    if(!tabId){
+      return {
+        status: 'applied-unscoped',
+        operation,
+        value: apply ? apply(payload, operation) : false
+      };
+    }
+
+    if(inspection.isActiveOwner){
+      return {
+        status: 'applied-active-owner',
+        operation,
+        value: apply ? apply(payload, operation) : false
+      };
+    }
+
+    const session = global.Main?.session || null;
+    const tab = inspection.tab;
+    if(typeof session?.commitTabPayload !== 'function' || !tab){
+      debug('graphOpenPayload.deferUnavailable', {
+        operationId: operation.id,
+        component: component || null,
+        tabId,
+        activeTabId: inspection.activeTabId || null
+      });
+      return { status: 'owner-inactive-unavailable', operation, value: false };
+    }
+
+    const changed = session.commitTabPayload(tab, payload, {
+      reason,
+      origin: 'user'
+    });
+    const payloadUnchanged = changed === false
+      && typeof session.serializePayloadSignature === 'function'
+      && session.serializePayloadSignature(payload) === (tab.payloadSignature || session.serializePayloadSignature(tab.payload || null));
+    const accepted = changed === true || payloadUnchanged;
+    if(accepted){
+      // During graph-file loading the incoming payload is canonical. Preserve the
+      // rest of the owner's tab layout, but make the saved graph dimensions win
+      // over stale dimensions from the graph that this file replaces.
+      mergeInactiveGraphOpenLayout(tab, payload, reason);
+    }
+    debug('graphOpenPayload.deferredToOwner', {
+      operationId: operation.id,
+      component: component || null,
+      tabId,
+      activeTabId: inspection.activeTabId || null,
+      changed: changed === true,
+      payloadUnchanged
+    });
+    return {
+      status: payloadUnchanged ? 'deferred-owner-payload-unchanged' : 'deferred-owner-payload',
+      operation,
+      value: accepted
+    };
+  };
+
+  function ensureSetter(setter, value, operation = null){
+    return applyGraphFileSetter(setter, value, operation);
   }
 
   function isBlobLike(value){
@@ -233,8 +578,60 @@
   }
 
 
-  async function resolvePayloadWithGraphSizing(context, getPayload, provided){
-    const resolved = await resolvePayload(getPayload, provided);
+  function createGraphFileOwnerError(inspection, operation){
+    const err = new Error(`Graph file owner is unavailable (${inspection?.status || 'unknown-owner-state'})`);
+    err.name = 'GraphFileOwnerError';
+    err.code = 'GRAPH_FILE_OWNER_UNAVAILABLE';
+    err.status = inspection?.status || 'stale-owner';
+    err.component = inspection?.component || operation?.component || null;
+    err.tabId = inspection?.tabId || operation?.tabId || null;
+    return err;
+  }
+
+  function isGraphFileOwnerError(err){
+    return err?.code === 'GRAPH_FILE_OWNER_UNAVAILABLE' || err?.name === 'GraphFileOwnerError';
+  }
+
+  function graphFileOwnerFailureResult(err, operation, via){
+    const status = String(err?.status || 'stale-owner');
+    debug('graphFileOwner.rejected', {
+      operationId: operation?.id || null,
+      type: operation?.type || null,
+      component: operation?.component || err?.component || null,
+      tabId: operation?.tabId || err?.tabId || null,
+      status,
+      via
+    });
+    return { status, via, operation, error: err };
+  }
+
+  async function resolveSavePayload(operation, getPayload, provided){
+    if(provided !== undefined){
+      return provided;
+    }
+    const inspection = inspectGraphFileOwner(operation, { requireLatest: false });
+    if(!inspection.ok){
+      throw createGraphFileOwnerError(inspection, operation);
+    }
+    if(operation?.tabId && !inspection.isActiveOwner){
+      if(inspection.tab && inspection.tab.payload != null){
+        debug('resolveSavePayload.inactiveOwnerCanonicalPayload', {
+          operationId: operation.id || null,
+          component: inspection.component || null,
+          tabId: inspection.tabId || null
+        });
+        return inspection.tab.payload;
+      }
+      throw createGraphFileOwnerError({ ...inspection, status: 'owner-payload-unavailable' }, operation);
+    }
+    return resolvePayload(getPayload, provided);
+  }
+
+  async function resolvePayloadWithGraphSizing(context, getPayload, provided, options = {}){
+    const operation = options.operation || null;
+    const resolved = operation?.type === 'graph-file-save'
+      ? await resolveSavePayload(operation, getPayload, provided)
+      : await resolvePayload(getPayload, provided);
     const graphSizing = Shared.graphSizing || null;
     if(!graphSizing || typeof graphSizing.enrichPayloadForType !== 'function'){
       return resolved;
@@ -243,16 +640,33 @@
       return resolved;
     }
     try{
+      const inspection = operation?.type === 'graph-file-save'
+        ? inspectGraphFileOwner(operation, { requireLatest: false })
+        : null;
+      if(inspection && !inspection.ok){
+        throw createGraphFileOwnerError(inspection, operation);
+      }
+      const inactiveLayout = inspection?.tab && !inspection.isActiveOwner
+        ? inspection.tab.layoutState || null
+        : null;
       const enriched = graphSizing.enrichPayloadForType(context, resolved, {
-        context: `file-save-${context}`
+        context: `file-save-${context}`,
+        tabId: operation?.tabId || null,
+        layoutState: inactiveLayout
       });
       debug('resolvePayloadWithGraphSizing.enriched', {
         context,
+        operationId: operation?.id || null,
+        ownerTabId: operation?.tabId || null,
+        ownerActive: inspection ? inspection.isActiveOwner : null,
         hasPayload: !!enriched,
         hasGraphSizing: !!enriched?.meta?.graphSizing
       });
       return enriched;
     }catch(err){
+      if(isGraphFileOwnerError(err)){
+        throw err;
+      }
       console.error('fileIO.resolvePayloadWithGraphSizing error', { context, err });
       return resolved;
     }
@@ -283,13 +697,64 @@
     }
   }
 
-  function scheduleGraphSizingApply(context, payload){
+  function resolveGraphOpenSvgBox(context, operation){
+    if(!operation?.tabId){
+      return null;
+    }
+    const inspection = inspectGraphFileOwner(operation, { requireLatest: true, component: context });
+    if(!inspection.ok || !inspection.isActiveOwner){
+      return null;
+    }
+    try{
+      const root = Shared.workspaceTabs?.getMountedRoot?.(inspection.tab || inspection.tabId, context) || null;
+      return root?.querySelector?.('.svgbox') || null;
+    }catch(_err){
+      return null;
+    }
+  }
+
+  function scheduleGraphSizingApply(context, payload, operation = null){
     if(!payload || !Shared.graphSizing || typeof Shared.graphSizing.applyPayloadSizingForType !== 'function'){
       return;
+    }
+    if(payload?.type && String(payload.type) !== String(context)){
+      debug('scheduleGraphSizingApply.skipped', {
+        context,
+        operationId: operation?.id || null,
+        reason: 'payload-type-mismatch',
+        payloadType: String(payload.type)
+      });
+      return;
+    }
+    const scoped = !!operation?.tabId;
+    const ownerTabId = scoped ? String(operation.tabId || '').trim() : null;
+    const element = scoped ? resolveGraphOpenSvgBox(context, operation) : null;
+    if(scoped && !element){
+      debug('scheduleGraphSizingApply.skipped', {
+        context,
+        operationId: operation?.id || null,
+        ownerTabId,
+        reason: 'owner-not-active-or-mounted'
+      });
+      return;
+    }
+    let sessionGeneration = 0;
+    if(ownerTabId){
+      try{
+        sessionGeneration = Number(Shared.workspaceTabs?.getSessionRecord?.(ownerTabId, context)?.generation) || 0;
+      }catch(_err){
+        sessionGeneration = 0;
+      }
     }
     try{
       Shared.graphSizing.applyPayloadSizingForType(context, payload, {
         context: `file-open-${context}`,
+        tabId: ownerTabId || undefined,
+        sessionGeneration,
+        element: element || undefined,
+        isCurrent: ownerTabId
+          ? () => inspectGraphFileOwner(operation, { requireLatest: true, component: context }).ok === true
+          : undefined,
         retryDelaysMs: [10, 80, 180, 320, 520]
       });
     }catch(err){
@@ -418,77 +883,102 @@
       downloadFileName,
       fileTypes,
       mimeType,
-      allowFallback = true
+      allowFallback = true,
+      owner,
+      operation: suppliedOperation
     } = options || {};
+    const operation = fileIO.createGraphSaveOperation({
+      context,
+      owner,
+      operation: suppliedOperation
+    });
     const targetName = ensureName(downloadFileName || fileName, `${context}.graph`);
     debug('saveGraphFile.start', {
       context,
       hasHandle: !!fileHandle,
-      targetName
+      targetName,
+      operationId: operation.id,
+      ownerTabId: operation.tabId || null
     });
-    const desktop = getDesktopBridge();
-    const desktopPath = fileHandle?.__desktopFilePath || '';
-    if(desktop && desktopPath && typeof desktop.writeFile === 'function'){
-      const data = await resolvePayloadWithGraphSizing(context, getPayload, payload);
-      const dataBase64 = await payloadToBase64(data);
-      await desktop.writeFile({ filePath: desktopPath, dataBase64 });
-      const handle = makeDesktopHandle(desktopPath);
-      ensureSetter(setFileHandle, handle);
-      ensureSetter(setFileName, handle?.name || targetName);
-      debug('saveGraphFile.desktopPath', { context, filePath: desktopPath });
-      return { status: 'saved', via: 'desktopPath', fileHandle: handle, fileName: handle?.name || targetName, filePath: desktopPath, payload: data };
-    }
-    if(fileHandle && typeof fileHandle.createWritable === 'function'){
-      const permitted = await fileIO.verifyPermission(fileHandle, true);
-      debug('saveGraphFile.permission', { context, permitted });
-      if(permitted){
-        const data = await resolvePayloadWithGraphSizing(context, getPayload, payload);
-        const normalized = normalizeWritablePayload(data);
-        debug('saveGraphFile.payloadReady', {
-          context,
-          payloadKind: normalized.kind,
-          payloadLength: normalized.length,
-          via: 'existingHandle'
-        });
-        await writeToHandle(fileHandle, data, context);
-        ensureSetter(setFileHandle, fileHandle);
-        if(fileHandle.name) ensureSetter(setFileName, fileHandle.name);
-        return { status: 'saved', via: 'existingHandle', fileHandle, fileName: fileHandle.name, payload: data };
+
+    try{
+      const desktop = getDesktopBridge();
+      const desktopPath = fileHandle?.__desktopFilePath || '';
+      if(desktop && desktopPath && typeof desktop.writeFile === 'function'){
+        const data = await resolvePayloadWithGraphSizing(context, getPayload, payload, { operation });
+        const dataBase64 = await payloadToBase64(data);
+        await desktop.writeFile({ filePath: desktopPath, dataBase64 });
+        const handle = makeDesktopHandle(desktopPath);
+        ensureSetter(setFileHandle, handle, operation);
+        ensureSetter(setFileName, handle?.name || targetName, operation);
+        debug('saveGraphFile.desktopPath', { context, filePath: desktopPath, operationId: operation.id });
+        return { status: 'saved', via: 'desktopPath', fileHandle: handle, fileName: handle?.name || targetName, filePath: desktopPath, payload: data, operation };
       }
-    }
-    if(allowFallback === false){
-      debug('saveGraphFile.noFallback', { context, targetName });
-      return { status: 'skipped', reason: 'no-existing-write-target', fileName: targetName };
-    }
-    if(global.showSaveFilePicker){
-      debug('saveGraphFile.deferToSaveAs', { context });
-      return fileIO.saveGraphFileAs({
+
+      if(fileHandle && typeof fileHandle.createWritable === 'function'){
+        const permitted = await fileIO.verifyPermission(fileHandle, true);
+        debug('saveGraphFile.permission', { context, permitted, operationId: operation.id });
+        if(permitted){
+          const data = await resolvePayloadWithGraphSizing(context, getPayload, payload, { operation });
+          const normalized = normalizeWritablePayload(data);
+          debug('saveGraphFile.payloadReady', {
+            context,
+            payloadKind: normalized.kind,
+            payloadLength: normalized.length,
+            via: 'existingHandle',
+            operationId: operation.id
+          });
+          await writeToHandle(fileHandle, data, context);
+          ensureSetter(setFileHandle, fileHandle, operation);
+          if(fileHandle.name) ensureSetter(setFileName, fileHandle.name, operation);
+          return { status: 'saved', via: 'existingHandle', fileHandle, fileName: fileHandle.name, payload: data, operation };
+        }
+      }
+
+      if(allowFallback === false){
+        debug('saveGraphFile.noFallback', { context, targetName, operationId: operation.id });
+        return { status: 'skipped', reason: 'no-existing-write-target', fileName: targetName, operation };
+      }
+
+      if(global.showSaveFilePicker){
+        debug('saveGraphFile.deferToSaveAs', { context, operationId: operation.id });
+        return fileIO.saveGraphFileAs({
+          context,
+          getPayload,
+          payload,
+          setFileHandle,
+          setFileName,
+          fileName: targetName,
+          downloadFileName: targetName,
+          fileTypes,
+          mimeType,
+          owner,
+          operation
+        });
+      }
+
+      const data = await resolvePayloadWithGraphSizing(context, getPayload, payload, { operation });
+      const normalized = normalizeWritablePayload(data);
+      debug('saveGraphFile.payloadReady', {
         context,
-        getPayload,
-        payload,
-        setFileHandle,
-        setFileName,
-        fileName: targetName,
-        downloadFileName: targetName,
-        fileTypes,
-        mimeType
+        payloadKind: normalized.kind,
+        payloadLength: normalized.length,
+        via: 'download',
+        operationId: operation.id
       });
+      debug('saveGraphFile.downloadFallback', { context, operationId: operation.id });
+      if(isBinaryLike(data)){
+        fileIO.downloadBlob(data, targetName, mimeType || normalized.mimeType);
+      }else{
+        fileIO.downloadJSON(data, targetName);
+      }
+      return { status: 'downloaded', via: 'download', fileName: targetName, payload: data, operation };
+    }catch(err){
+      if(isGraphFileOwnerError(err)){
+        return graphFileOwnerFailureResult(err, operation, 'save');
+      }
+      throw err;
     }
-    const data = await resolvePayloadWithGraphSizing(context, getPayload, payload);
-    const normalized = normalizeWritablePayload(data);
-    debug('saveGraphFile.payloadReady', {
-      context,
-      payloadKind: normalized.kind,
-      payloadLength: normalized.length,
-      via: 'download'
-    });
-    debug('saveGraphFile.downloadFallback', { context });
-    if(isBinaryLike(data)){
-      fileIO.downloadBlob(data, targetName, mimeType || normalized.mimeType);
-    }else{
-      fileIO.downloadJSON(data, targetName);
-    }
-    return { status: 'downloaded', via: 'download', fileName: targetName, payload: data };
   };
 
   fileIO.saveGraphFileAs = async function saveGraphFileAs(options){
@@ -501,15 +991,25 @@
       fileName,
       downloadFileName,
       fileTypes,
-      mimeType
+      mimeType,
+      owner,
+      operation: suppliedOperation
     } = options || {};
+    const operation = fileIO.createGraphSaveOperation({
+      context,
+      owner,
+      operation: suppliedOperation
+    });
     const targetName = ensureName(downloadFileName || fileName, `${context}.graph`);
     debug('saveGraphFileAs.start', {
       context,
       targetName,
-      hasPicker: !!global.showSaveFilePicker
+      hasPicker: !!global.showSaveFilePicker,
+      operationId: operation.id,
+      ownerTabId: operation.tabId || null
     });
     const desktop = getDesktopBridge();
+
     if(desktop && typeof desktop.showSaveDialog === 'function' && typeof desktop.writeFile === 'function'){
       try{
         const result = await desktop.showSaveDialog({
@@ -518,85 +1018,110 @@
           filters: [{ name: 'Graph Files', extensions: ['graph'] }]
         });
         if(result?.canceled || !result?.filePath){
-          debug('saveGraphFileAs.desktopCancelled', { context, targetName });
-          return { status: 'cancelled', via: 'desktopDialog', fileName: targetName };
+          debug('saveGraphFileAs.desktopCancelled', { context, targetName, operationId: operation.id });
+          return { status: 'cancelled', via: 'desktopDialog', fileName: targetName, operation };
         }
-        const data = await resolvePayloadWithGraphSizing(context, getPayload, payload);
+        const data = await resolvePayloadWithGraphSizing(context, getPayload, payload, { operation });
         const dataBase64 = await payloadToBase64(data);
         await desktop.writeFile({ filePath: result.filePath, dataBase64 });
         const handle = makeDesktopHandle(result.filePath);
-        ensureSetter(setFileHandle, handle);
-        ensureSetter(setFileName, handle?.name || targetName);
-        debug('saveGraphFileAs.desktopSaved', { context, filePath: result.filePath });
-        return { status: 'saved', via: 'desktopDialog', fileHandle: handle, fileName: handle?.name || targetName, filePath: result.filePath, payload: data };
+        ensureSetter(setFileHandle, handle, operation);
+        ensureSetter(setFileName, handle?.name || targetName, operation);
+        debug('saveGraphFileAs.desktopSaved', { context, filePath: result.filePath, operationId: operation.id });
+        return { status: 'saved', via: 'desktopDialog', fileHandle: handle, fileName: handle?.name || targetName, filePath: result.filePath, payload: data, operation };
       }catch(err){
+        if(isGraphFileOwnerError(err)){
+          return graphFileOwnerFailureResult(err, operation, 'desktopDialog');
+        }
         console.error('fileIO.saveGraphFileAs desktop error', { context, err });
-        return { status: 'error', via: 'desktopDialog', error: err };
+        return { status: 'error', via: 'desktopDialog', error: err, operation };
       }
     }
+
     if(global.showSaveFilePicker){
       if(!hasUserActivation()){
-        debug('saveGraphFileAs.skipPickerNoActivation', { context, targetName });
+        debug('saveGraphFileAs.skipPickerNoActivation', { context, targetName, operationId: operation.id });
       }else{
-      try{
-        const handle = await global.showSaveFilePicker({
-          types: resolveTypes(fileTypes),
-          suggestedName: targetName
-        });
-        const data = await resolvePayloadWithGraphSizing(context, getPayload, payload);
-        const normalized = normalizeWritablePayload(data);
-        debug('saveGraphFileAs.payloadReady', {
-          context,
-          payloadKind: normalized.kind,
-          payloadLength: normalized.length,
-          via: 'picker'
-        });
-        await writeToHandle(handle, data, context);
-        ensureSetter(setFileHandle, handle);
-        if(handle?.name) ensureSetter(setFileName, handle.name);
-        return { status: 'saved', via: 'picker', fileHandle: handle, fileName: handle.name, payload: data };
-      }catch(err){
-        if(err && err.name === 'AbortError'){
-          debug('saveGraphFileAs.cancelled', { context, targetName });
-          return { status: 'cancelled', via: 'picker', fileName: targetName };
-        }
-        if(isUserActivationError(err)){
-          debug('saveGraphFileAs.activationFallback', { context, targetName });
-          const data = await resolvePayloadWithGraphSizing(context, getPayload, payload);
+        try{
+          const handle = await global.showSaveFilePicker({
+            types: resolveTypes(fileTypes),
+            suggestedName: targetName
+          });
+          const data = await resolvePayloadWithGraphSizing(context, getPayload, payload, { operation });
           const normalized = normalizeWritablePayload(data);
           debug('saveGraphFileAs.payloadReady', {
             context,
             payloadKind: normalized.kind,
             payloadLength: normalized.length,
-            via: 'download-activation-fallback'
+            via: 'picker',
+            operationId: operation.id
           });
-          if(isBinaryLike(data)){
-            fileIO.downloadBlob(data, targetName, mimeType || normalized.mimeType);
-          }else{
-            fileIO.downloadJSON(data, targetName);
+          await writeToHandle(handle, data, context);
+          ensureSetter(setFileHandle, handle, operation);
+          if(handle?.name) ensureSetter(setFileName, handle.name, operation);
+          return { status: 'saved', via: 'picker', fileHandle: handle, fileName: handle.name, payload: data, operation };
+        }catch(err){
+          if(err && err.name === 'AbortError'){
+            debug('saveGraphFileAs.cancelled', { context, targetName, operationId: operation.id });
+            return { status: 'cancelled', via: 'picker', fileName: targetName, operation };
           }
-          return { status: 'downloaded', via: 'download-activation-fallback', fileName: targetName, payload: data };
+          if(isGraphFileOwnerError(err)){
+            return graphFileOwnerFailureResult(err, operation, 'picker');
+          }
+          if(isUserActivationError(err)){
+            debug('saveGraphFileAs.activationFallback', { context, targetName, operationId: operation.id });
+            try{
+              const data = await resolvePayloadWithGraphSizing(context, getPayload, payload, { operation });
+              const normalized = normalizeWritablePayload(data);
+              debug('saveGraphFileAs.payloadReady', {
+                context,
+                payloadKind: normalized.kind,
+                payloadLength: normalized.length,
+                via: 'download-activation-fallback',
+                operationId: operation.id
+              });
+              if(isBinaryLike(data)){
+                fileIO.downloadBlob(data, targetName, mimeType || normalized.mimeType);
+              }else{
+                fileIO.downloadJSON(data, targetName);
+              }
+              return { status: 'downloaded', via: 'download-activation-fallback', fileName: targetName, payload: data, operation };
+            }catch(ownerErr){
+              if(isGraphFileOwnerError(ownerErr)){
+                return graphFileOwnerFailureResult(ownerErr, operation, 'download-activation-fallback');
+              }
+              throw ownerErr;
+            }
+          }
+          console.error('fileIO.saveGraphFileAs error', { context, err });
+          return { status: 'error', via: 'picker', error: err, operation };
         }
-        console.error('fileIO.saveGraphFileAs error', { context, err });
-        return { status: 'error', via: 'picker', error: err };
-      }
       }
     }
-    const data = await resolvePayloadWithGraphSizing(context, getPayload, payload);
-    const normalized = normalizeWritablePayload(data);
-    debug('saveGraphFileAs.payloadReady', {
-      context,
-      payloadKind: normalized.kind,
-      payloadLength: normalized.length,
-      via: 'download'
-    });
-    debug('saveGraphFileAs.downloadFallback', { context });
-    if(isBinaryLike(data)){
-      fileIO.downloadBlob(data, targetName, mimeType || normalized.mimeType);
-    }else{
-      fileIO.downloadJSON(data, targetName);
+
+    try{
+      const data = await resolvePayloadWithGraphSizing(context, getPayload, payload, { operation });
+      const normalized = normalizeWritablePayload(data);
+      debug('saveGraphFileAs.payloadReady', {
+        context,
+        payloadKind: normalized.kind,
+        payloadLength: normalized.length,
+        via: 'download',
+        operationId: operation.id
+      });
+      debug('saveGraphFileAs.downloadFallback', { context, operationId: operation.id });
+      if(isBinaryLike(data)){
+        fileIO.downloadBlob(data, targetName, mimeType || normalized.mimeType);
+      }else{
+        fileIO.downloadJSON(data, targetName);
+      }
+      return { status: 'downloaded', via: 'download', fileName: targetName, payload: data, operation };
+    }catch(err){
+      if(isGraphFileOwnerError(err)){
+        return graphFileOwnerFailureResult(err, operation, 'download');
+      }
+      throw err;
     }
-    return { status: 'downloaded', via: 'download', fileName: targetName, payload: data };
   };
 
   fileIO.openGraphFilePath = async function openGraphFilePath(options){
@@ -605,39 +1130,55 @@
       filePath,
       setFileHandle,
       setFileName,
-      loadFromFile
+      loadFromFile,
+      owner,
+      operation: suppliedOperation
     } = options || {};
+    const operation = fileIO.createGraphOpenOperation({ context, owner, operation: suppliedOperation });
     const desktop = getDesktopBridge();
     if(!desktop || typeof desktop.readFile !== 'function'){
-      return { status: 'error', via: 'desktopFilePath', reason: 'desktop-read-unavailable' };
+      return { status: 'error', via: 'desktopFilePath', reason: 'desktop-read-unavailable', operation };
     }
     const normalizedPath = String(filePath || '').trim();
     if(!normalizedPath){
-      return { status: 'error', via: 'desktopFilePath', reason: 'missing-file-path' };
+      return { status: 'error', via: 'desktopFilePath', reason: 'missing-file-path', operation };
+    }
+    const preReadRejection = graphOpenCompletionStatus(operation, 'desktopFilePath', { filePath: normalizedPath });
+    if(preReadRejection){
+      return preReadRejection;
     }
     try{
       const read = await desktop.readFile(normalizedPath);
+      const postReadRejection = graphOpenCompletionStatus(operation, 'desktopFilePath', { filePath: normalizedPath });
+      if(postReadRejection){
+        return postReadRejection;
+      }
       const fileName = getBaseName(normalizedPath, 'workspace.graph');
       const blob = base64ToBlob(read?.dataBase64 || '', 'application/zip');
       blob.name = fileName;
       const handle = makeDesktopHandle(normalizedPath);
-      ensureSetter(setFileHandle, handle);
-      ensureSetter(setFileName, fileName);
+      ensureSetter(setFileHandle, handle, operation);
+      ensureSetter(setFileName, fileName, operation);
       if(typeof loadFromFile === 'function'){
-        await loadFromFile(blob);
+        await loadFromFile(blob, operation);
       }
-      debug('openGraphFilePath.loaded', { context, fileName, filePath: normalizedPath });
+      const completionRejection = graphOpenCompletionStatus(operation, 'desktopFilePath', { filePath: normalizedPath });
+      if(completionRejection){
+        return completionRejection;
+      }
+      debug('openGraphFilePath.loaded', { context, fileName, filePath: normalizedPath, operationId: operation.id });
       return {
         status: 'opened',
         via: 'desktopFilePath',
         fileHandle: handle,
         file: blob,
         fileName,
-        filePath: normalizedPath
+        filePath: normalizedPath,
+        operation
       };
     }catch(err){
       console.error('fileIO.openGraphFilePath desktop error', { context, filePath: normalizedPath, err });
-      return { status: 'error', via: 'desktopFilePath', filePath: normalizedPath, error: err };
+      return { status: 'error', via: 'desktopFilePath', filePath: normalizedPath, error: err, operation };
     }
   };
 
@@ -648,9 +1189,24 @@
       setFileName,
       loadFromFile,
       triggerInput,
-      fileTypes
+      fileTypes,
+      owner,
+      operation: suppliedOperation
     } = options || {};
-    debug('openGraphFile.start', { context, hasPicker: !!global.showOpenFilePicker });
+    const operation = fileIO.createGraphOpenOperation({ context, owner, operation: suppliedOperation });
+    debug('openGraphFile.start', {
+      context,
+      hasPicker: !!global.showOpenFilePicker,
+      operationId: operation.id,
+      ownerTabId: operation.tabId || null,
+      component: operation.component || null
+    });
+
+    const initialRejection = graphOpenCompletionStatus(operation, 'open');
+    if(initialRejection){
+      return initialRejection;
+    }
+
     const desktop = getDesktopBridge();
     if(desktop && typeof desktop.showOpenDialog === 'function' && typeof desktop.readFile === 'function'){
       try{
@@ -659,17 +1215,23 @@
           properties: ['openFile'],
           filters: resolveDesktopFilters(fileTypes)
         });
+        const afterDialogRejection = graphOpenCompletionStatus(operation, 'desktopDialog');
+        if(afterDialogRejection){
+          return afterDialogRejection;
+        }
         const filePath = result?.filePaths && result.filePaths[0];
         if(result?.canceled || !filePath){
-          debug('openGraphFile.desktopCancelled', { context });
-          return { status: 'cancelled', via: 'desktopDialog' };
+          debug('openGraphFile.desktopCancelled', { context, operationId: operation.id });
+          return { status: 'cancelled', via: 'desktopDialog', operation };
         }
         const opened = await fileIO.openGraphFilePath({
           context,
           filePath,
           setFileHandle,
           setFileName,
-          loadFromFile
+          loadFromFile,
+          owner,
+          operation
         });
         return {
           ...opened,
@@ -677,47 +1239,71 @@
         };
       }catch(err){
         console.error('fileIO.openGraphFile desktop error', { context, err });
-        return { status: 'error', via: 'desktopDialog', error: err };
+        return { status: 'error', via: 'desktopDialog', error: err, operation };
       }
     }
+
     if(global.showOpenFilePicker){
       try{
         const handles = await global.showOpenFilePicker({
           types: resolveTypes(fileTypes),
           multiple: false
         });
+        const afterPickerRejection = graphOpenCompletionStatus(operation, 'picker');
+        if(afterPickerRejection){
+          return afterPickerRejection;
+        }
         const handle = handles && handles[0];
         if(!handle){
-          debug('openGraphFile.cancelled', { context });
-          return { status: 'cancelled', via: 'picker' };
+          debug('openGraphFile.cancelled', { context, operationId: operation.id });
+          return { status: 'cancelled', via: 'picker', operation };
         }
+
         const file = await handle.getFile();
+        const afterFileRejection = graphOpenCompletionStatus(operation, 'picker');
+        if(afterFileRejection){
+          return afterFileRejection;
+        }
         const shouldProbePayload = /\.(graph|json)$/i.test(String(file?.name || ''));
         const parsedPayload = shouldProbePayload ? await parseJsonPayloadFromBlob(file, context) : null;
-        ensureSetter(setFileHandle, handle);
-        if(file?.name) ensureSetter(setFileName, file.name);
-        if(typeof loadFromFile === 'function'){
-          await loadFromFile(file);
+        const afterProbeRejection = graphOpenCompletionStatus(operation, 'picker');
+        if(afterProbeRejection){
+          return afterProbeRejection;
         }
-        scheduleGraphSizingApply(context, parsedPayload);
-        return { status: 'opened', via: 'picker', fileHandle: handle, file, payload: parsedPayload };
+
+        ensureSetter(setFileHandle, handle, operation);
+        if(file?.name) ensureSetter(setFileName, file.name, operation);
+        if(typeof loadFromFile === 'function'){
+          await loadFromFile(file, operation);
+        }
+        const completionRejection = graphOpenCompletionStatus(operation, 'picker');
+        if(completionRejection){
+          return completionRejection;
+        }
+        scheduleGraphSizingApply(context, parsedPayload, operation);
+        return { status: 'opened', via: 'picker', fileHandle: handle, file, payload: parsedPayload, operation };
       }catch(err){
+        if(err?.name === 'AbortError'){
+          debug('openGraphFile.cancelled', { context, operationId: operation.id });
+          return { status: 'cancelled', via: 'picker', operation };
+        }
         console.error('fileIO.openGraphFile error', { context, err });
-        return { status: 'error', via: 'picker', error: err };
+        return { status: 'error', via: 'picker', error: err, operation };
       }
     }
+
     if(typeof triggerInput === 'function'){
-      debug('openGraphFile.triggerInput', { context });
+      debug('openGraphFile.triggerInput', { context, operationId: operation.id });
       try{
-        triggerInput();
-        return { status: 'pending', via: 'input' };
+        triggerInput(operation);
+        return { status: 'pending', via: 'input', operation };
       }catch(err){
         console.error('fileIO.openGraphFile trigger error', { context, err });
-        return { status: 'error', via: 'input', error: err };
+        return { status: 'error', via: 'input', error: err, operation };
       }
     }
     console.warn('fileIO.openGraphFile no picker or trigger', { context });
-    return { status: 'error', via: 'none', error: new Error('No file picker or trigger available') };
+    return { status: 'error', via: 'none', error: new Error('No file picker or trigger available'), operation };
   };
 
   (function installPayloadAwareReader(){

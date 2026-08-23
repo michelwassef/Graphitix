@@ -11,6 +11,20 @@ test('Pie stacked view keeps rotated x-axis labels inside its SVG viewport', asy
   await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
   await openComponentFromWelcome(page, { type: 'pie', pageId: 'piePage' }, { first: true, loadExample: true });
 
+  await page.evaluate(() => {
+    const tabId = window.Main?.session?.workspaceState?.activeTabId || null;
+    const hot = window.Shared?.hot?.__tabTablePools?.pie?.byTab?.[tabId]?.instance || null;
+    if (!hot) throw new Error('Pie owner table is unavailable');
+    const data = [
+      ['Category', 'Long control cohort', 'Long treatment cohort'],
+      ['Responders', 42, 58],
+      ['Non-responders', 58, 42]
+    ];
+    hot.loadData(data, { source: 'e2e-stacked-label-fixture', suppressSchedule: true });
+    window.Shared?.hot?.syncOwnerTabPayloadFullData?.(data, 'e2e-stacked-label-fixture', {
+      source: 'e2e-stacked-label-fixture', hotInstance: hot, tabId, affectsAnalysis: true
+    });
+  });
   await page.locator('#pieChartType').selectOption('stacked');
   await page.evaluate(async () => {
     const svgBox = document.querySelector('#pieGraphPanel .svgbox');

@@ -242,6 +242,7 @@ async function main() {
     : path.resolve(appRoot, DEFAULT_ARTIFACTS_RELATIVE_DIR, timestampForPath());
   ensureDir(outDir);
 
+  const parameterHarnessPath = path.resolve(__dirname, 'parameter-harness.js');
   const harnessPath = path.resolve(__dirname, 'renderer-harness.js');
   const { server, url } = await createStaticServer(appRoot, opts.port);
   const browser = await chromium.launch({ headless: !opts.headed });
@@ -297,8 +298,9 @@ async function main() {
     await runPhase('00_boot', async () => {
       await page.goto(url, { waitUntil: 'domcontentloaded', timeout: opts.timeoutMs });
       await page.waitForFunction(() => !!window.Main?.tabs && !!window.Main?.session && !!window.Main?.sessionActions, null, { timeout: opts.timeoutMs });
+      await page.addScriptTag({ path: parameterHarnessPath });
       await page.addScriptTag({ path: harnessPath });
-      await page.waitForFunction(() => !!window.GraphitixRegression?.runCreateWorkspace, null, { timeout: opts.timeoutMs });
+      await page.waitForFunction(() => !!window.GraphitixRegression?.runCreateWorkspace && !!window.GraphitixParameterIsolation?.runSameTypeIsolation, null, { timeout: opts.timeoutMs });
       return true;
     });
 
@@ -338,6 +340,9 @@ async function main() {
     const homogeneousSwitchSummary = await runPhase('07_homogeneous_switching', () => page.evaluate(async () => {
       return window.GraphitixRegression.runHomogeneousSwitchingPhase({ phase: 'homogeneous-switching', tabsPerComponent: 2 });
     }));
+    const parameterIsolationSummary = await runPhase('07a_parameter_isolation', () => page.evaluate(async components => {
+      return window.GraphitixRegression.runParameterIsolationPhase({ phase: 'parameter-isolation', types: components, reopen: false });
+    }, opts.components));
     const controlPanelIsolationSummary = await runPhase('08_control_panel_isolation', () => page.evaluate(async () => {
       return window.GraphitixRegression.runControlPanelIsolationPhase({ phase: 'control-panel-isolation', types: ['pca', 'pie'] });
     }));
@@ -377,6 +382,7 @@ async function main() {
       reopenedLiveEditInvalidationSummary,
       resizeAfterSwitchSummary,
       homogeneousSwitchSummary,
+      parameterIsolationSummary,
       controlPanelIsolationSummary,
       themeIsolationSummary,
       cacheReuseSummary,
@@ -395,6 +401,7 @@ async function main() {
     if (reopenedLiveEditInvalidationSummary.failures?.length) failures.push(...reopenedLiveEditInvalidationSummary.failures.map(x => `reopened-live-edit: ${x}`));
     if (resizeAfterSwitchSummary.failures?.length) failures.push(...resizeAfterSwitchSummary.failures.map(x => `resize-after-switch: ${x}`));
     if (homogeneousSwitchSummary.failures?.length) failures.push(...homogeneousSwitchSummary.failures.map(x => `homogeneous-switching: ${x}`));
+    if (parameterIsolationSummary.failures?.length) failures.push(...parameterIsolationSummary.failures.map(x => `parameter-isolation: ${x}`));
     if (controlPanelIsolationSummary.failures?.length) failures.push(...controlPanelIsolationSummary.failures.map(x => `control-panel-isolation: ${x}`));
     if (themeIsolationSummary.failures?.length) failures.push(...themeIsolationSummary.failures.map(x => `theme-isolation: ${x}`));
     failures.push(...collectCacheReuseFailures(cacheReuseSummary.reopenedCold, 'reopened-cold-cache', { requireSavedCache: true }));

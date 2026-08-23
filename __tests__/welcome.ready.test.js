@@ -4,6 +4,8 @@ describe('welcome startup rendering', () => {
     document.body.innerHTML = `
       <section id="welcomeScreen" class="welcome-screen">
         <div id="graphSelectionGrid" class="selection-grid"></div>
+        <div id="welcomePopularExamplesList"></div>
+        <button id="welcomeViewAllExamples"></button>
       </section>
       <div id="workspaceTabsList"></div>
       <button id="workspaceAddTab"></button>
@@ -12,7 +14,25 @@ describe('welcome startup rendering', () => {
     window.Main = {};
   });
 
+  test('renders the complete welcome frame before the heavy application scripts', () => {
+    const fs = require('fs');
+    const path = require('path');
+    const source = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+    const earlyBootstrap = source.indexOf('<script defer src="js/main/bootstrap.js"></script>');
+    const heavyGrid = source.indexOf('<script defer src="libs/ag-grid-community/ag-grid-community.min.noStyle.js"></script>');
+
+    expect(earlyBootstrap).toBeGreaterThan(-1);
+    expect(earlyBootstrap).toBeLessThan(heavyGrid);
+    require('../js/main/bootstrap.js');
+
+    expect(document.querySelectorAll('#graphSelectionGrid .graph-card')).toHaveLength(11);
+    expect(document.querySelectorAll('#welcomePopularExamplesList .welcome-example-card')).toHaveLength(11);
+    expect(document.getElementById('welcomeScreen').dataset.welcomePresented).toBe('true');
+    expect(document.getElementById('welcomeScreen').dataset.welcomeReady).toBeUndefined();
+  });
+
   test('marks welcome ready only after graph cards are generated', () => {
+    require('../js/main/bootstrap.js');
     require('../js/main/tabs/render.js');
     require('../js/main/tabs/unsavedPrompt.js');
     require('../js/main/tabs/duplicatePrompt.js');
@@ -63,6 +83,7 @@ describe('welcome startup rendering', () => {
   });
 
   test('preloads selected component bundle without initializing a grid', async () => {
+    require('../js/main/bootstrap.js');
     require('../js/main/tabs/render.js');
     require('../js/main/tabs/unsavedPrompt.js');
     require('../js/main/tabs/duplicatePrompt.js');

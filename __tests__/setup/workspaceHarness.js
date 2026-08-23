@@ -64,10 +64,19 @@ function ensureWorkspaceTabs(overrides = {}) {
     return null;
   };
   const ensureMountedRoot = jest.fn((tabLikeOrId, type) => getMountedRoot(tabLikeOrId, type));
+  const resolveComponentRoot = jest.fn(options => {
+    const tabLike = options?.tabLike || null;
+    const type = options?.componentKey || tabLike?.type || null;
+    return getMountedRoot(tabLike, type)
+      || options?.currentRoot
+      || (options?.staticRootId ? document.getElementById(options.staticRootId) : null)
+      || null;
+  });
   const activateWorkspace = jest.fn(() => true);
   const defaults = {
     getMountedRoot,
     ensureMountedRoot,
+    resolveComponentRoot,
     activateWorkspace,
     setMountedRoot
   };

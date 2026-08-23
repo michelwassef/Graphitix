@@ -98,7 +98,7 @@ async function captureBoxStatsFidelity(page) {
       domAssumptionGroups,
       pValues: Array.from(new Set(pValues.map(value => String(value)))).sort(),
       resultsText: normalizeText(document.querySelector('#statsResults')?.textContent),
-      hasPairwiseText: /Pairwise comparisons|Multiple comparisons|Control vs Treatment A/i.test(document.querySelector('#statsResults')?.textContent || ''),
+      hasPairwiseText: /Pairwise comparisons|Multiple comparisons/i.test(document.querySelector('#statsResults')?.textContent || ''),
       hasResultsModel: !!stats.resultsModel,
       hasReportModel: !!stats.reportModel,
       hasTableModel: Array.isArray(stats.tableModel?.rows) && stats.tableModel.rows.length > 0
@@ -145,7 +145,7 @@ async function expectMultipleComparisonsTabLive(page, label) {
   expect(snapshot.activeTab, `${label}: active stats tab`).toBe('comparisons');
   expect(snapshot.selected, `${label}: selected tab state`).toBe('true');
   expect(snapshot.hidden, `${label}: comparisons panel hidden`).toBe(false);
-  expect(snapshot.text, `${label}: comparisons panel content`).toMatch(/Pairwise comparisons|Control vs Treatment A|Treatment A vs Treatment B/i);
+  expect(snapshot.text, `${label}: comparisons panel content`).toMatch(/Pairwise comparisons|Multiple comparisons/i);
   expect(snapshot.pValues.length, `${label}: comparisons p-value metadata`).toBeGreaterThan(0);
 }
 
@@ -265,7 +265,6 @@ test('box custom pairwise comparisons compute without stale analysis map errors'
   await page.locator('#boxComputeStats').click();
   await expect(page.locator('#boxStatsStatus')).toContainText('Statistics up to date.', { timeout: 35_000 });
   await expect(page.locator('#statsResults')).toContainText('Custom pairwise comparisons', { timeout: 20_000 });
-  await expect(page.locator('#statsResults')).toContainText('Control vs Treatment A');
 
   expect(issues.critical).toEqual([]);
 });

@@ -343,6 +343,19 @@
     return Number.isFinite(row) && row > 1 ? row - 1 : 0;
   }
 
+  function getSourceStartColumnIndex(inputEl, options = {}){
+    const raw = options.sourceStartColumn ?? readDatasetOption(inputEl, 'sourceStartColumn', 1);
+    const column = Number.parseInt(raw, 10);
+    return Number.isFinite(column) && column > 1 ? column - 1 : 0;
+  }
+
+  function shouldTransposeData(inputEl, options = {}){
+    return readBooleanOption(
+      options.transposeData,
+      readBooleanOption(inputEl?.dataset?.transposeData, false)
+    );
+  }
+
   function shouldTrimCells(inputEl, options = {}){
     return readBooleanOption(options.trimCells, readBooleanOption(inputEl?.dataset?.trimCells, false));
   }
@@ -357,10 +370,31 @@
       : row);
   }
 
+  function transposeRows(rows){
+    const safeRows = Array.isArray(rows) ? rows.filter(Array.isArray) : [];
+    const columnCount = safeRows.reduce((max, row) => Math.max(max, row.length), 0);
+    if(!safeRows.length || !columnCount){
+      return [];
+    }
+    return Array.from({ length: columnCount }, (_, columnIndex) =>
+      safeRows.map(row => row[columnIndex] == null ? '' : row[columnIndex])
+    );
+  }
+
   function prepareImportedRows(rows, inputEl, options = {}){
-    const sliced = (rows || []).slice(getSourceStartIndex(inputEl, options));
+    const sourceStartRow = getSourceStartIndex(inputEl, options);
+    const sourceStartColumn = getSourceStartColumnIndex(inputEl, options);
+    const sliced = (rows || [])
+      .slice(sourceStartRow)
+      .map(row => Array.isArray(row) ? row.slice(sourceStartColumn) : []);
     const normalized = shouldTrimCells(inputEl, options) ? trimRows(sliced) : sliced;
-    return shouldUseFirstRowAsTitles(inputEl, options) ? filterRows(normalized) : prependSyntheticTitleRow(normalized);
+    const oriented = shouldTransposeData(inputEl, options) ? transposeRows(normalized) : normalized;
+    const filtered = filterRows(oriented);
+    const firstRowIsTitles = shouldUseFirstRowAsTitles(inputEl, options);
+    if(options.targetFirstRowIsHeader === false){
+      return firstRowIsTitles ? filtered.slice(1) : filtered;
+    }
+    return firstRowIsTitles ? filtered : prependSyntheticTitleRow(filtered);
   }
 
   async function readTabularFileRows(file, inputEl, options = {}){
@@ -391,6 +425,138 @@
     const rows = prepareImportedRows(parsed.rows, null, options);
     return Object.assign({}, parsed, { rows: rows.slice(0, options.limit || 20), totalRows: rows.length });
   };
+
+  const COMPONENT_IMPORT_LAYOUTS = Object.freeze({
+    box: 'Use one column per group (column title followed by numeric values).',
+    scatter: 'Use a label column if needed, followed by at least two numeric variables (X and Y).',
+    line: 'Use the first column for X/time and one or more following columns for numeric Y series.',
+    hist: 'Use one or more numeric columns, with an optional title row.',
+    heatmap: 'Use row labels in the first column, column labels in the first row, and a numeric matrix inside.',
+    pca: 'Use samples/variables in a rectangular numeric matrix; one label column is allowed.',
+    pie: 'Use categories in the first column and numeric counts/proportions in following columns.',
+    roc: 'Use a binary class-label column first, followed by one or more numeric score columns.',
+    survival: 'Use columns in this order: Group, Time, Event (1/0), optional Entry Time, then optional covariates.',
+    surface: 'Use three numeric columns in this order: X, Y, Z.'
+  });
+
+  function isBlankImportCell(value){
+    return value == null || String(value).trim() === '';
+  }
+
+  function isFiniteImportNumber(value){
+    if(typeof value === 'number') return Number.isFinite(value);
+    if(typeof value !== 'string') return false;
+    const trimmed = value.trim();
+    return trimmed !== '' && Number.isFinite(Number(trimmed));
+  }
+
+  function columnValues(rows, columnIndex, startRow = 1){
+    const values = [];
+    for(let rowIndex = startRow; rowIndex < rows.length; rowIndex += 1){
+      const value = rows[rowIndex]?.[columnIndex];
+      if(!isBlankImportCell(value)) values.push(value);
+    }
+    return values;
+  }
+
+  function numericFraction(values){
+    if(!values.length) return 0;
+    return values.filter(isFiniteImportNumber).length / values.length;
+  }
+
+  function buildLayoutAssessment(rows, component, options = {}){
+    const type = String(component || '').toLowerCase();
+    const safeRows = filterRows(Array.isArray(rows) ? rows : []);
+    const expected = COMPONENT_IMPORT_LAYOUTS[type] || 'Use a rectangular table matching the selected graph type.';
+    if(!safeRows.length){
+      return { status: 'warning', title: 'No importable data detected', message: expected, expected };
+    }
+    const columnCount = safeRows.reduce((max, row) => Math.max(max, row.length), 0);
+    if(!columnCount){
+      return { status: 'warning', title: 'No importable columns detected', message: expected, expected };
+    }
+    const dataStartRow = options.targetFirstRowIsHeader === false ? 0 : 1;
+    const issues = [];
+    const requireColumns = count => {
+      if(columnCount < count) issues.push(`This graph type needs at least ${count} columns after the selected start position.`);
+    };
+    const requireNumericColumn = (index, label, threshold = 0.8) => {
+      const values = columnValues(safeRows, index, dataStartRow);
+      if(values.length && numericFraction(values) < threshold){
+        issues.push(`${label} should contain numeric values.`);
+      }
+    };
+
+    if(type === 'box' || type === 'hist'){
+      const numericColumns = Array.from({ length: columnCount }, (_, index) => numericFraction(columnValues(safeRows, index, dataStartRow)));
+      if(!numericColumns.some(fraction => fraction >= 0.8)){
+        issues.push('No predominantly numeric data column was detected.');
+      }
+    }else if(type === 'scatter'){
+      requireColumns(2);
+      const numericColumns = Array.from({ length: columnCount }, (_, index) => numericFraction(columnValues(safeRows, index, dataStartRow)));
+      if(numericColumns.filter(fraction => fraction >= 0.8).length < 2){
+        issues.push('At least two predominantly numeric variable columns are expected for X and Y.');
+      }
+    }else if(type === 'line'){
+      requireColumns(2);
+      requireNumericColumn(0, 'The first (X/time) column');
+      const yFractions = Array.from({ length: Math.max(0, columnCount - 1) }, (_, offset) => numericFraction(columnValues(safeRows, offset + 1, dataStartRow)));
+      if(!yFractions.some(fraction => fraction >= 0.8)) issues.push('At least one numeric Y-series column is expected after the X/time column.');
+    }else if(type === 'heatmap'){
+      requireColumns(2);
+      if(safeRows.length - dataStartRow < 2) issues.push('A heatmap normally needs at least two data rows.');
+      const interior = [];
+      for(let r = dataStartRow; r < safeRows.length; r += 1){
+        for(let c = 1; c < columnCount; c += 1){
+          const value = safeRows[r]?.[c];
+          if(!isBlankImportCell(value)) interior.push(value);
+        }
+      }
+      if(interior.length && numericFraction(interior) < 0.8) issues.push('Most cells inside the heatmap matrix should be numeric.');
+    }else if(type === 'pca'){
+      requireColumns(3);
+      const numeric = [];
+      for(let r = dataStartRow; r < safeRows.length; r += 1){
+        for(let c = 0; c < columnCount; c += 1){
+          const value = safeRows[r]?.[c];
+          if(!isBlankImportCell(value)) numeric.push(value);
+        }
+      }
+      if(numeric.length && numericFraction(numeric) < 0.6) issues.push('PCA input should be predominantly numeric after optional sample/variable labels.');
+    }else if(type === 'pie'){
+      requireColumns(2);
+      requireNumericColumn(1, 'The second (count/proportion) column', 0.7);
+    }else if(type === 'roc'){
+      requireColumns(2);
+      const labels = columnValues(safeRows, 0, dataStartRow).map(value => String(value).trim()).filter(Boolean);
+      const classes = new Set(labels);
+      if(labels.length && classes.size !== 2){
+        issues.push(`The first column should contain exactly two outcome classes; ${classes.size || 'none'} were detected.`);
+      }
+      const scoreFractions = Array.from({ length: Math.max(0, columnCount - 1) }, (_, offset) => numericFraction(columnValues(safeRows, offset + 1, dataStartRow)));
+      if(!scoreFractions.some(fraction => fraction >= 0.8)) issues.push('At least one numeric score column is expected after the class labels.');
+    }else if(type === 'survival'){
+      requireColumns(3);
+      requireNumericColumn(1, 'Time', 0.8);
+      const events = columnValues(safeRows, 2, dataStartRow).map(value => String(value).trim().toLowerCase());
+      if(events.length && events.some(value => !['0', '1', 'true', 'false'].includes(value))){
+        issues.push('Event should use 1/0 (event/censored).');
+      }
+    }else if(type === 'surface'){
+      requireColumns(3);
+      requireNumericColumn(0, 'X');
+      requireNumericColumn(1, 'Y');
+      requireNumericColumn(2, 'Z');
+    }
+
+    return issues.length
+      ? { status: 'warning', title: 'Check data layout', message: `${issues.join(' ')} Expected: ${expected}`, expected, issues }
+      : { status: 'ok', title: 'Data layout looks compatible', message: expected, expected, issues: [] };
+  }
+
+  tableImport.assessComponentLayout = buildLayoutAssessment;
+  tableImport.prepareImportedRows = prepareImportedRows;
 
   function normalizeDecimalSeparators(rows, delimiter, options = {}){
     if(!Array.isArray(rows)){
@@ -2320,8 +2486,10 @@
       delimiter: readDatasetOption(inputEl, 'importDelimiter', ''),
       sheetName: readDatasetOption(inputEl, 'sheetName', ''),
       sourceStartRow: readDatasetOption(inputEl, 'sourceStartRow', 1),
+      sourceStartColumn: readDatasetOption(inputEl, 'sourceStartColumn', 1),
       firstRowIsTitles: readBooleanOption(inputEl?.dataset?.firstRowIsTitles, true),
-      trimCells: readBooleanOption(inputEl?.dataset?.trimCells, false)
+      trimCells: readBooleanOption(inputEl?.dataset?.trimCells, false),
+      transposeData: readBooleanOption(inputEl?.dataset?.transposeData, false)
     }, options);
     const ext = getFileExtension(file);
     debugLog('openFile.fileSelected', { name: file.name, size: file.size, ext }, debugLabel);

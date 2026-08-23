@@ -5,6 +5,9 @@
 
   const DEFAULT_SNAPSHOT_TIMEOUT_MS = 1800;
   const DEFAULT_SETTLE_FRAMES = 2;
+  const GRAPH_EDIT_LISTENER_REGISTRY_KEY = typeof Symbol === 'function' && typeof Symbol.for === 'function'
+    ? Symbol.for('graphitix.componentLifecycle.graphEditIntentListener')
+    : '__graphitixComponentLifecycleGraphEditIntentListener';
 
   function isDebugEnabled(){
     try{
@@ -188,6 +191,17 @@
     });
   };
 
+  // Queue slots are optional state, not draw requests. `sanitizeDrawOptions()` deliberately
+  // manufactures a reason for a real request, so feeding null/{} through it creates phantom
+  // pending work. Components with owner-scoped deferred queues use this helper to preserve
+  // absence as null while sharing the exact same plain-data sanitation contract.
+  namespace.sanitizeOptionalComponentDrawOptions = function sanitizeOptionalComponentDrawOptions(componentKey = '', options = null, owner = {}){
+    if(!isPlainDrawObject(options) || !Object.keys(options).length){
+      return null;
+    }
+    return namespace.sanitizeComponentDrawOptions(componentKey, options, owner);
+  };
+
   function resolveLifecycleSession(session = null, options = {}){
     if(typeof options.ensureSession === 'function'){
       return options.ensureSession(session || options.fallbackSession || null);
@@ -216,6 +230,27 @@
 
   function normalizeLifecycleTabId(value){
     return String(value || '').trim();
+  }
+
+  function resolveExplicitLifecycleOwnerTabId(owner = null, componentKey = '', options = {}){
+    const key = normalizeLifecycleTabId(componentKey || options?.component?.__componentKey || '');
+    const componentField = key ? `__${key}TabId` : '';
+    const scalarOwner = (typeof owner === 'string' || typeof owner === 'number') ? owner : '';
+    const objectOwner = owner && typeof owner === 'object' ? owner : null;
+    return normalizeLifecycleTabId(
+      scalarOwner
+      || objectOwner?.tabId
+      || objectOwner?.session?.tabId
+      || (componentField ? objectOwner?.[componentField] : '')
+      || objectOwner?.__workspaceTabId
+      || objectOwner?.__graphitixTabId
+      || objectOwner?.__ownerTabId
+      || objectOwner?.__hotWorkspaceTabId
+      || options?.tabId
+      || options?.workspaceTabId
+      || options?.tab?.id
+      || ''
+    );
   }
 
   namespace.resolveOwnedObjectTabId = function resolveOwnedObjectTabId(owner = null, componentKey = '', options = {}){
@@ -311,23 +346,119 @@
   };
 
 
+  namespace.persistOwnedUserState = function persistOwnedUserState(componentKey = '', owner = null, options = {}){
+    const key = normalizeLifecycleTabId(componentKey);
+    const source = options && typeof options === 'object' ? options : {};
+    const ownerTabId = normalizeLifecycleTabId(
+      source.tabId
+      || (typeof owner === 'string' || typeof owner === 'number' ? owner : '')
+      || owner?.tabId
+      || owner?.session?.tabId
+      || namespace.resolveOwnedObjectTabId(owner, key)
+      || ''
+    );
+    if(!key || !ownerTabId){
+      debug('Debug: lifecycle owner payload persistence skipped without explicit ownership', {
+        componentKey: key || null,
+        tabId: ownerTabId || null,
+        reason: source.reason || 'owned-user-state'
+      });
+      return false;
+    }
+
+    const sessionApi = global.Main?.session || null;
+    const workspace = sessionApi?.workspaceState || null;
+    if(!sessionApi || !Array.isArray(workspace?.tabs)){
+      warn('Lifecycle owner payload persistence unavailable without a workspace tab index', {
+        componentKey: key,
+        tabId: ownerTabId,
+        reason: source.reason || 'owned-user-state'
+      });
+      return false;
+    }
+    const ownerTab = workspace.tabs.find(tab => tab && normalizeLifecycleTabId(tab.id) === ownerTabId) || null;
+    if(!ownerTab){
+      warn('Lifecycle owner payload persistence refused an unknown workspace tab', {
+        componentKey: key,
+        tabId: ownerTabId,
+        reason: source.reason || 'owned-user-state'
+      });
+      return false;
+    }
+    if(normalizeLifecycleTabId(ownerTab.type) !== key){
+      warn('Lifecycle owner payload persistence refused a component/tab type mismatch', {
+        componentKey: key,
+        tabId: ownerTabId,
+        tabType: ownerTab.type || null,
+        reason: source.reason || 'owned-user-state'
+      });
+      return false;
+    }
+
+    const activeTabId = normalizeLifecycleTabId(workspace.activeTabId || '');
+    if(!activeTabId || activeTabId !== ownerTabId){
+      debug('Debug: lifecycle owner payload persistence skipped for inactive owner', {
+        componentKey: key,
+        tabId: ownerTabId,
+        activeTabId: activeTabId || null,
+        reason: source.reason || 'owned-user-state'
+      });
+      return false;
+    }
+
+    const reason = String(source.reason || `${key}-user-state-change`).trim() || `${key}-user-state-change`;
+    const persistOptions = {
+      reason,
+      origin: 'user',
+      snapshotIntent: {
+        ...(source.snapshotIntent && typeof source.snapshotIntent === 'object' ? source.snapshotIntent : {}),
+        captureLivePayload: true,
+        allowSkipLivePayloadCapture: false
+      }
+    };
+    try{
+      if(typeof sessionApi.persistUserModifiedTabState === 'function'){
+        return sessionApi.persistUserModifiedTabState(ownerTab, persistOptions) !== false;
+      }
+      if(typeof sessionApi.markTabUserModified === 'function'){
+        sessionApi.markTabUserModified(ownerTab, reason, { origin: 'user', affectsPayload: true });
+      }
+      if(typeof sessionApi.persistActiveTabState === 'function'){
+        return sessionApi.persistActiveTabState(ownerTab, persistOptions) !== false;
+      }
+    }catch(err){
+      warn('Lifecycle owner payload persistence failed', {
+        componentKey: key,
+        tabId: ownerTabId,
+        reason,
+        message: err?.message || String(err)
+      });
+      return false;
+    }
+    warn('Lifecycle owner payload persistence unavailable', {
+      componentKey: key,
+      tabId: ownerTabId,
+      reason
+    });
+    return false;
+  };
+
+
   namespace.resolveWorkspaceActiveTabId = function resolveWorkspaceActiveTabId(componentKey = ''){
     const key = normalizeLifecycleTabId(componentKey);
     if(!key){
       return '';
     }
-    const workspaceInfo = global.Shared?.workspaceTabs?.getActiveSessionInfo?.(key) || null;
-    const workspaceInfoTabId = normalizeLifecycleTabId(workspaceInfo?.tabId || '');
-    if(workspaceInfoTabId){
-      return workspaceInfoTabId;
-    }
     const workspace = global.Main?.session?.workspaceState || null;
     const activeId = normalizeLifecycleTabId(workspace?.activeTabId || '');
     if(activeId && Array.isArray(workspace?.tabs)){
       const activeTab = workspace.tabs.find(tab => tab && normalizeLifecycleTabId(tab.id || '') === activeId) || null;
-      if(activeTab?.type === key){
-        return activeId;
-      }
+      return activeTab?.type === key ? activeId : '';
+    }
+    const workspaceInfo = global.Shared?.workspaceTabs?.getActiveSessionInfo?.(key) || null;
+    const workspaceInfoTabId = normalizeLifecycleTabId(workspaceInfo?.tabId || '');
+    if(workspaceInfoTabId){
+      return workspaceInfoTabId;
     }
     return '';
   };
@@ -367,7 +498,57 @@
   };
 
 
-  namespace.resolvePayloadCaptureContext = function resolvePayloadCaptureContext(componentKey = '', context = {}, options = {}){
+  namespace.canOwnerUseLiveProjection = function canOwnerUseLiveProjection(componentKey = '', owner = null, options = {}){
+    const key = normalizeLifecycleTabId(componentKey || options?.component?.__componentKey || '');
+    const ownerTabId = resolveExplicitLifecycleOwnerTabId(owner, key, options);
+    if(!key || !ownerTabId){
+      return false;
+    }
+
+    const session = options?.session
+      || owner?.session
+      || (owner && typeof owner === 'object' && owner?.tabId ? owner : null);
+    const sessionTabId = normalizeLifecycleTabId(session?.tabId || '');
+    const workspaceOwnerTabId = namespace.resolveWorkspaceActiveTabId(key);
+    const componentBoundTabId = normalizeLifecycleTabId(options?.component?.__boundTabId || '');
+    const projectedSessionTabId = normalizeLifecycleTabId(options?.projectedSession?.tabId || '');
+    const hasProjectionAuthority = !!(componentBoundTabId || projectedSessionTabId);
+    const projectionOwnersAgree = hasProjectionAuthority
+      && (!componentBoundTabId || componentBoundTabId === ownerTabId)
+      && (!projectedSessionTabId || projectedSessionTabId === ownerTabId);
+
+    const workspaceTabs = global.Shared?.workspaceTabs || null;
+    const hasMountedRootResolver = typeof workspaceTabs?.getMountedRoot === 'function';
+    const mountedRoot = hasMountedRootResolver
+      ? (workspaceTabs.getMountedRoot(ownerTabId, key) || null)
+      : null;
+    const hasExplicitRoot = Object.prototype.hasOwnProperty.call(options || {}, 'root');
+    const liveRoot = hasExplicitRoot ? (options.root || null) : mountedRoot;
+    const rootMatchesMountedRecord = !hasMountedRootResolver || (!!mountedRoot && mountedRoot === liveRoot);
+    const rootConnected = liveRoot?.isConnected === true;
+    const rootTabId = normalizeLifecycleTabId(namespace.resolveTabIdFromTarget(liveRoot) || '');
+
+    return !!(
+      workspaceOwnerTabId
+      && workspaceOwnerTabId === ownerTabId
+      && projectionOwnersAgree
+      && sessionTabId
+      && sessionTabId === ownerTabId
+      && rootMatchesMountedRecord
+      && rootConnected
+      && rootTabId === ownerTabId
+    );
+  };
+
+
+  namespace.isOwnerActivationTarget = function isOwnerActivationTarget(componentKey = '', owner = null, options = {}){
+    const key = normalizeLifecycleTabId(componentKey || options?.component?.__componentKey || '');
+    const ownerTabId = resolveExplicitLifecycleOwnerTabId(owner, key, options);
+    return !!(key && ownerTabId && namespace.resolveWorkspaceActiveTabId(key) === ownerTabId);
+  };
+
+
+  namespace.resolveOwnerCaptureContext = function resolveOwnerCaptureContext(componentKey = '', context = {}, options = {}){
     const key = normalizeLifecycleTabId(componentKey || options?.component?.__componentKey || '');
     const source = context && typeof context === 'object' ? context : {};
     const requestedTabId = normalizeLifecycleTabId(
@@ -387,7 +568,9 @@
       ? tabs.find(tab => tab && normalizeLifecycleTabId(tab.id || '') === workspaceActiveTabId) || null
       : null;
     const workspaceOwnerTabId = workspaceActiveTab?.type === key ? workspaceActiveTabId : '';
-    const projectionTabId = namespace.resolveProjectionTabId(options?.component || null, options?.projectedSession || null);
+    const componentBoundTabId = normalizeLifecycleTabId(options?.component?.__boundTabId || '');
+    const projectedSessionTabId = normalizeLifecycleTabId(options?.projectedSession?.tabId || '');
+    const projectionTabId = componentBoundTabId || projectedSessionTabId;
     const sessionTabId = normalizeLifecycleTabId(options?.session?.tabId || '');
     const rootTabId = normalizeLifecycleTabId(
       namespace.resolveTabIdFromTarget(options?.root || null)
@@ -402,7 +585,7 @@
           || ''
         )).filter(Boolean)
       : [];
-    const liveOwnerTabIds = [projectionTabId, sessionTabId, rootTabId, ...additionalOwnerTabIds].filter(Boolean);
+    const liveOwnerTabIds = [componentBoundTabId, projectedSessionTabId, sessionTabId, rootTabId, ...additionalOwnerTabIds].filter(Boolean);
     const liveOwnersAgree = !requestedTabId || liveOwnerTabIds.every(tabId => tabId === requestedTabId);
     const hasWorkspaceOwner = !!workspaceActiveTabId;
     const workspaceOwnerAgrees = !requestedTabId
@@ -413,11 +596,18 @@
       workspaceActiveTabId: workspaceActiveTabId || null,
       workspaceOwnerTabId: workspaceOwnerTabId || null,
       projectionTabId: projectionTabId || null,
+      componentBoundTabId: componentBoundTabId || null,
+      projectedSessionTabId: projectedSessionTabId || null,
       sessionTabId: sessionTabId || null,
       rootTabId: rootTabId || null,
       canCaptureLive: !!requestedTabId && workspaceOwnerAgrees && liveOwnersAgree
     };
   };
+
+  // Backward-compatible alias. Owner resolution is not payload-specific: runtime/UI
+  // capture paths use the same invariant that live DOM/module mirrors are readable only
+  // when every available ownership authority agrees with the requested tab.
+  namespace.resolvePayloadCaptureContext = namespace.resolveOwnerCaptureContext;
 
 
   namespace.resolveActiveSessionForComponent = function resolveActiveSessionForComponent(config = {}){
@@ -619,6 +809,25 @@
       && typeof control.setOpen === 'function');
   }
 
+  function notesControlBelongsToContext(control = null, config = {}){
+    if(!defaultNotesControlIsUsable(control)){
+      return false;
+    }
+    const container = config?.container || null;
+    const controlRoot = control.root || null;
+    if(container && controlRoot !== container && !container.contains?.(controlRoot)){
+      return false;
+    }
+    const componentKey = normalizeLifecycleTabId(config?.componentKey || '');
+    const ownerTabId = normalizeLifecycleTabId(config?.ownerTabId || '');
+    const currentOwnerTabId = normalizeLifecycleTabId(namespace.resolveOwnedObjectTabId(control, componentKey) || '');
+    if(ownerTabId && currentOwnerTabId && currentOwnerTabId !== ownerTabId){
+      return false;
+    }
+    return true;
+  }
+  namespace.notesControlBelongsToContext = notesControlBelongsToContext;
+
   function markOwnedNotesControl(control = null, componentKey = '', ownerTabId = ''){
     if(!control || typeof control !== 'object' || !ownerTabId){
       return control;
@@ -651,8 +860,13 @@
 
     const canUseControl = typeof config?.canUseControl === 'function'
       ? config.canUseControl
-      : defaultNotesControlIsUsable;
-    if(canUseControl(currentControl)){
+      : null;
+    const baseControlUsable = notesControlBelongsToContext(currentControl, {
+      container,
+      componentKey,
+      ownerTabId
+    });
+    if(baseControlUsable && (!canUseControl || canUseControl(currentControl))){
       markOwnedNotesControl(currentControl, componentKey, ownerTabId);
       if(typeof config?.applyToControl === 'function'){
         config.applyToControl(currentControl, notesState);
@@ -859,54 +1073,132 @@
     return value;
   }
 
+  function resolveSnapshotPublicationRoot(componentKey, meta = {}){
+    if(meta?.root){
+      return meta.root;
+    }
+    const tabLike = meta?.tab || meta?.tabId || null;
+    return Shared.workspaceTabs?.getMountedRoot?.(tabLike, componentKey || null)
+      || Shared.workspaceTabs?.getSessionRecord?.(tabLike, componentKey || null)?.dom?.root
+      || null;
+  }
+
+  namespace.isPublicationSettled = function isPublicationSettled(target, meta = {}){
+    const componentKey = meta.componentKey || target?.type || target?.componentKey || target?.__componentKey || null;
+    const tabId = String(meta.tabId || meta.tab?.id || '').trim() || null;
+    let idle = true;
+    let idleError = null;
+    if(target && typeof target.isIdleForSnapshot === 'function'){
+      try{
+        const value = target.isIdleForSnapshot({ ...meta, componentKey, tabId });
+        idle = !(value && typeof value.then === 'function') && value === true;
+        if(value && typeof value.then === 'function'){
+          idleError = 'async-idle-predicate';
+        }
+      }catch(err){
+        idle = false;
+        idleError = err?.message || String(err);
+      }
+    }
+    const root = resolveSnapshotPublicationRoot(componentKey, { ...meta, tabId });
+    let staged = false;
+    try{
+      staged = Shared.framePublication?.hasStaged?.({
+        root,
+        component: componentKey,
+        tabId
+      }) === true;
+    }catch(err){
+      staged = true;
+      idleError = idleError || err?.message || String(err);
+    }
+    return {
+      ok: idle && !staged,
+      componentKey,
+      tabId,
+      idle,
+      staged,
+      idleError,
+      root
+    };
+  };
+
   namespace.awaitReadyForSnapshot = async function awaitReadyForSnapshot(target, meta = {}){
     const componentKey = meta.componentKey || target?.type || target?.componentKey || target?.__componentKey || null;
     const timeoutMs = Number.isFinite(Number(meta.timeoutMs)) ? Math.max(100, Number(meta.timeoutMs)) : DEFAULT_SNAPSHOT_TIMEOUT_MS;
     const settleFrames = Number.isFinite(Number(meta.settleFrames)) ? Math.max(0, Number(meta.settleFrames)) : DEFAULT_SETTLE_FRAMES;
     const startedAt = Date.now();
+    const deadline = startedAt + timeoutMs;
+    const tabId = meta.tabId || meta.tab?.id || null;
+    const failure = (reason, details = {}) => {
+      const elapsedMs = Date.now() - startedAt;
+      warn('Debug: component snapshot readiness rejected', {
+        componentKey,
+        tabId,
+        reason,
+        elapsedMs,
+        timeoutMs,
+        ...details
+      });
+      return { ok: false, componentKey, tabId, reason, elapsedMs, ...details };
+    };
+    const waitUntilPublicationSettled = async () => {
+      let last = namespace.isPublicationSettled(target, { ...meta, componentKey, tabId });
+      while(!last.ok && Date.now() < deadline){
+        await namespace.waitForAnimationFrames(1);
+        last = namespace.isPublicationSettled(target, { ...meta, componentKey, tabId });
+      }
+      return last;
+    };
     try{
       if(target && typeof target.whenIdle === 'function'){
+        const remaining = Math.max(1, deadline - Date.now());
         const idleResult = await Promise.race([
-          maybeAwait(target.whenIdle({ ...meta, componentKey })),
-          timeoutPromise(timeoutMs)
+          maybeAwait(target.whenIdle({ ...meta, componentKey, tabId })),
+          timeoutPromise(remaining)
         ]);
         if(idleResult?.timedOut){
-          warn('Debug: component whenIdle timed out before snapshot', {
-            componentKey,
-            tabId: meta.tabId || meta.tab?.id || null,
-            timeoutMs,
-            reason: meta.reason || 'snapshot'
-          });
+          return failure('idle-timeout');
         }
-      }else if(target && typeof target.isIdleForSnapshot === 'function'){
-        const deadline = Date.now() + timeoutMs;
-        while(Date.now() < deadline){
-          let idle = false;
-          try{ idle = !!target.isIdleForSnapshot({ ...meta, componentKey }); }
-          catch(err){
-            warn('Debug: component isIdleForSnapshot error', { componentKey, err, reason: meta.reason || 'snapshot' });
-            break;
-          }
-          if(idle){ break; }
-          await namespace.waitForAnimationFrames(1);
+        if(idleResult && typeof idleResult === 'object' && idleResult.ok === false){
+          return failure(idleResult.reason || 'idle-rejected', { idleResult });
         }
       }
+
+      const settledBeforeFrames = await waitUntilPublicationSettled();
+      if(!settledBeforeFrames.ok){
+        return failure(settledBeforeFrames.staged ? 'frame-publication-pending' : 'component-not-idle', {
+          staged: settledBeforeFrames.staged,
+          idle: settledBeforeFrames.idle,
+          idleError: settledBeforeFrames.idleError || null
+        });
+      }
+
       await namespace.waitForAnimationFrames(settleFrames);
+      const settledAfterFrames = await waitUntilPublicationSettled();
+      if(!settledAfterFrames.ok){
+        return failure(settledAfterFrames.staged ? 'frame-publication-pending' : 'component-not-idle', {
+          staged: settledAfterFrames.staged,
+          idle: settledAfterFrames.idle,
+          idleError: settledAfterFrames.idleError || null
+        });
+      }
+
       debug('Debug: component ready for snapshot', {
         componentKey,
-        tabId: meta.tabId || meta.tab?.id || null,
+        tabId,
         elapsedMs: Date.now() - startedAt,
         reason: meta.reason || 'snapshot'
       });
-      return { ok: true, componentKey, elapsedMs: Date.now() - startedAt };
+      return { ok: true, componentKey, tabId, elapsedMs: Date.now() - startedAt };
     }catch(err){
       warn('Debug: component awaitReadyForSnapshot failed', {
         componentKey,
-        tabId: meta.tabId || meta.tab?.id || null,
+        tabId,
         reason: meta.reason || 'snapshot',
         err: err?.message || String(err)
       });
-      return { ok: false, componentKey, error: err?.message || String(err) };
+      return { ok: false, componentKey, tabId, reason: 'snapshot-readiness-error', error: err?.message || String(err) };
     }
   };
 
@@ -967,6 +1259,22 @@
     }
     return false;
   }
+
+  namespace.detachCacheableChildren = function detachCacheableChildren(node){
+    if(!node){ return null; }
+    const doc = node.ownerDocument || global.document;
+    const fragment = doc?.createDocumentFragment?.() || null;
+    if(!fragment){ return null; }
+    let count = 0;
+    Array.from(node.childNodes || []).forEach(child => {
+      if(child?.nodeType === 1 && child.getAttribute?.('data-graph-frame-publication') === 'staged'){
+        return;
+      }
+      fragment.appendChild(child);
+      count += 1;
+    });
+    return { fragment, count };
+  };
 
   namespace.payloadHasRenderableContent = payloadHasRenderableContent;
   namespace.getGraphicPayload = getGraphicPayload;
@@ -1495,6 +1803,84 @@
     return null;
   }
 
+  function validateRehydratedSvgInteractions(svg){
+    if(!svg || typeof svg.querySelectorAll !== 'function'){
+      return { ok: false, axis: { total: 0, bound: 0 }, inline: { total: 0, bound: 0 } };
+    }
+    const axisNodes = Array.from(svg.querySelectorAll('[data-axis-control="1"]'))
+      .filter(node => node?.dataset?.axisHitTarget !== '1');
+    const inlineNodes = Array.from(svg.querySelectorAll('[data-inline-editable="1"]'));
+    const axisBound = axisNodes.filter(node => (
+      Shared.axisControls?.isAxisElementBound?.(node) === true
+      || !!node?.__graphitixAxisControlBinding?.handler
+    )).length;
+    const inlineBound = inlineNodes.filter(node => !!node?.__graphitixInlineEditBinding?.dblclick).length;
+    return {
+      ok: axisBound === axisNodes.length && inlineBound === inlineNodes.length,
+      axis: { total: axisNodes.length, bound: axisBound },
+      inline: { total: inlineNodes.length, bound: inlineBound }
+    };
+  }
+
+  namespace.rehydrateRenderCacheInteractions = function rehydrateRenderCacheInteractions(componentKey, meta = {}){
+    const key = normalizeLifecycleComponentKey(componentKey || meta.componentKey || meta.type || meta.tab?.type || '');
+    const tabId = resolveExplicitTabIdFromMeta(meta) || meta.tab?.id || null;
+    const component = meta.component || global.Components?.[key] || null;
+    const root = meta.root
+      || Shared.workspaceTabs?.getMountedRoot?.(meta.tab || tabId || null, key)
+      || resolveWorkspaceRegistryEntry(key)?.element
+      || null;
+    if(!key || !root){
+      return false;
+    }
+    const primarySelector = `#${key}Svg`;
+    const svgCandidates = Array.from(root.querySelectorAll?.(`${primarySelector}, .svgbox svg, [data-graph-edit-surface="1"] svg`) || []);
+    const svgs = Array.from(new Set(svgCandidates));
+    let commonReady = true;
+    let boundSvgCount = 0;
+    svgs.forEach(svg => {
+      const editableTextCount = svg.querySelectorAll?.('text[data-font-editable="1"], text[data-font-key]')?.length || 0;
+      const bound = Shared.chartStyle?.bindSvgInteractions?.(svg, {
+        scopeId: key,
+        tabId
+      }) === true;
+      if(bound){
+        boundSvgCount += 1;
+      }else if(editableTextCount > 0){
+        commonReady = false;
+      }
+    });
+    let componentReady = false;
+    if(typeof component?.rehydrateGraphInteractions === 'function'){
+      componentReady = component.rehydrateGraphInteractions({
+        ...meta,
+        componentKey: key,
+        type: key,
+        tabId,
+        root,
+        svgs
+      }) !== false;
+    }
+    const interactionValidation = svgs.map(validateRehydratedSvgInteractions);
+    const semanticReady = interactionValidation.every(entry => entry.ok);
+    const ok = commonReady && componentReady && semanticReady;
+    namespace.emitLifecycleEvent({
+      componentKey: key,
+      tabId,
+      action: ok ? 'render-cache-interactions-rehydrated' : 'render-cache-interactions-rejected',
+      reason: meta.reason || 'render-cache-restore',
+      details: {
+        svgCount: svgs.length,
+        boundSvgCount,
+        commonReady,
+        componentReady,
+        semanticReady,
+        interactionValidation
+      }
+    });
+    return ok;
+  };
+
   function resolveTabForGraphEdit(componentKey, meta = {}){
     const session = resolveSessionApi();
     const requestedTabId = String(
@@ -1515,66 +1901,16 @@
     return null;
   }
 
-  function tabHasRestoredGraphCache(tab){
-    if(!tab){
-      return false;
-    }
+  function tabHasGraphCache(tab){
     return !!(
-      tab.renderCache
-      || tab.renderCacheSignature
-      || tab.archiveRenderCache
-      || tab.archiveRenderCacheSignature
+      tab
+      && (
+        tab.renderCache
+        || tab.renderCacheSignature
+        || tab.archiveRenderCache
+        || tab.archiveRenderCacheSignature
+      )
     );
-  }
-
-  function forceComponentGraphRedraw(componentKey, tab, meta = {}){
-    const key = normalizeLifecycleComponentKey(componentKey || tab?.type || meta.componentKey || meta.type || '');
-    if(!key || !tab){
-      return null;
-    }
-    const component = global.Components?.[key] || null;
-    const workspace = resolveWorkspaceRegistryEntry(key);
-    const draw = typeof component?.draw === 'function'
-      ? component.draw.bind(component)
-      : (typeof workspace?.draw === 'function' ? workspace.draw.bind(workspace) : null);
-    if(typeof draw !== 'function'){
-      namespace.emitLifecycleEvent({
-        componentKey: key,
-        tabId: tab.id || null,
-        action: 'graph-edit-redraw-skipped',
-        reason: meta.reason || 'graph-edit',
-        details: { reason: 'missing-draw-hook' }
-      });
-      return null;
-    }
-    const drawMeta = {
-      tabId: tab.id || null,
-      type: key,
-      componentKey: key,
-      force: true,
-      forceDraw: true,
-      userInitiated: true,
-      reason: meta.redrawReason || meta.reason || 'graph-edit-live-redraw'
-    };
-    try{
-      const result = draw(drawMeta);
-      namespace.emitLifecycleEvent({
-        componentKey: key,
-        tabId: tab.id || null,
-        action: 'graph-edit-redraw-requested',
-        reason: drawMeta.reason,
-        details: { hadPromise: !!(result && typeof result.then === 'function') }
-      });
-      return result && typeof result.then === 'function' ? result : null;
-    }catch(err){
-      warn('Debug: graph edit redraw failed', {
-        componentKey: key,
-        tabId: tab.id || null,
-        reason: drawMeta.reason,
-        err: err?.message || String(err)
-      });
-      return null;
-    }
   }
 
   namespace.beginGraphEdit = function beginGraphEdit(componentKey, meta = {}){
@@ -1585,7 +1921,7 @@
     const session = resolveSessionApi();
     const tab = resolveTabForGraphEdit(key, meta);
     const tabId = tab?.id || meta.tabId || null;
-    const hadRestoredGraph = tabHasRestoredGraphCache(tab);
+    const hadGraphCache = tabHasGraphCache(tab);
     try{
       if(tab && typeof session?.clearTabRenderCache === 'function'){
         session.clearTabRenderCache(tab, { reason: meta.reason || 'graph-edit' });
@@ -1617,19 +1953,14 @@
         });
       }
     }catch(_err){}
-    const shouldRedraw = meta.forceRedraw === true || (hadRestoredGraph && meta.forceRedraw !== false);
-    const redrawPromise = shouldRedraw ? forceComponentGraphRedraw(key, tab, {
-      ...meta,
-      reason: meta.reason || 'graph-edit-live-redraw'
-    }) : null;
     namespace.emitLifecycleEvent({
       componentKey: key,
       tabId,
       action: 'graph-edit-begin',
       reason: meta.reason || 'graph-edit',
       details: {
-        hadRestoredGraph,
-        redrawRequested: shouldRedraw,
+        hadGraphCache,
+        redrawRequested: false,
         source: meta.source || null
       }
     });
@@ -1638,9 +1969,9 @@
       componentKey: key,
       tabId,
       tab,
-      hadRestoredGraph,
-      redrawRequested: shouldRedraw,
-      redrawPromise
+      hadGraphCache,
+      redrawRequested: false,
+      redrawPromise: null
     };
   };
 
@@ -1662,6 +1993,25 @@
       || ''
     ).trim();
     return { owner, componentKey, tabId };
+  }
+
+  function isManagedGraphDragTarget(target){
+    if(!target || typeof target.closest !== 'function'){
+      return false;
+    }
+    if(Shared.isManagedLegendDragTarget?.(target) === true){
+      return true;
+    }
+    // Serialized SVG markers are descriptive only. A drag may bypass restored-
+    // graph rehydration only when a live Plot3D controller currently owns it.
+    return Shared.plot3d?.isManagedRotationGestureTarget?.(target) === true;
+  }
+
+  function consumeManagedGraphClick(target){
+    if(Shared.isManagedLegendDragTarget?.(target) === true){
+      return true;
+    }
+    return Shared.plot3d?.consumeManagedRotationClick?.(target) === true;
   }
 
   function isGraphSurfaceEventTarget(target){
@@ -1759,78 +2109,19 @@
     };
   }
 
-  async function replayGraphEditClick(event, result){
-    if(!event || !result?.redrawRequested){
-      return;
-    }
-    const doc = event.target?.ownerDocument || global.document;
-    if(!doc || typeof doc.elementFromPoint !== 'function'){
-      return;
-    }
-    const x = Number(event.clientX);
-    const y = Number(event.clientY);
-    if(!Number.isFinite(x) || !Number.isFinite(y)){
-      return;
+  function releaseRegisteredGraphEditIntentListener(doc, ownerToken = null){
+    const registration = doc?.[GRAPH_EDIT_LISTENER_REGISTRY_KEY] || null;
+    if(!registration || (ownerToken && registration.ownerToken !== ownerToken)){
+      return false;
     }
     try{
-      if(result.redrawPromise && typeof result.redrawPromise.then === 'function'){
-        await Promise.race([
-          result.redrawPromise,
-          timeoutPromise(1800)
-        ]);
+      registration.cleanup?.();
+    }finally{
+      if(doc?.[GRAPH_EDIT_LISTENER_REGISTRY_KEY] === registration){
+        delete doc[GRAPH_EDIT_LISTENER_REGISTRY_KEY];
       }
-      const component = global.Components?.[result.componentKey] || null;
-      if(component && typeof component.awaitReadyForSnapshot === 'function'){
-        await Promise.race([
-          component.awaitReadyForSnapshot({
-            tabId: result.tabId,
-            reason: 'graph-edit-click-replay-ready',
-            timeoutMs: 1800,
-            settleFrames: 2
-          }),
-          timeoutPromise(1900)
-        ]);
-      }else{
-        await namespace.waitForAnimationFrames(2);
-      }
-      const freshTarget = doc.elementFromPoint(x, y);
-      if(!freshTarget || !isGraphSurfaceEventTarget(freshTarget)){
-        return;
-      }
-      const replay = new global.MouseEvent('click', {
-        bubbles: true,
-        cancelable: true,
-        view: global,
-        clientX: x,
-        clientY: y,
-        screenX: Number(event.screenX) || 0,
-        screenY: Number(event.screenY) || 0,
-        button: Number(event.button) || 0,
-        buttons: 0,
-        ctrlKey: !!event.ctrlKey,
-        shiftKey: !!event.shiftKey,
-        altKey: !!event.altKey,
-        metaKey: !!event.metaKey
-      });
-      replay.__graphitixGraphEditReplay = true;
-      freshTarget.dispatchEvent(replay);
-      namespace.emitLifecycleEvent({
-        componentKey: result.componentKey,
-        tabId: result.tabId,
-        action: 'graph-edit-click-replayed',
-        reason: 'graph-edit-click-replay',
-        details: {
-          targetTag: String(freshTarget.tagName || '').toLowerCase(),
-          targetId: freshTarget.id || null
-        }
-      });
-    }catch(err){
-      warn('Debug: graph edit click replay failed', {
-        componentKey: result.componentKey,
-        tabId: result.tabId,
-        err: err?.message || String(err)
-      });
     }
+    return true;
   }
 
   namespace.installGraphEditIntentListener = function installGraphEditIntentListener(){
@@ -1838,23 +2129,56 @@
     if(!doc || typeof doc.addEventListener !== 'function' || namespace.__graphEditIntentListenerInstalled){
       return false;
     }
+    // The document owns this singleton listener set. Fresh module evaluation
+    // (tests, hot reload, or a repeated bootstrap) must replace the previous
+    // closure instead of leaving multiple capture listeners active.
+    releaseRegisteredGraphEditIntentListener(doc);
+    const ownerToken = {};
+    const registrations = [];
+    let cleaned = false;
+    const cleanup = () => {
+      if(cleaned){
+        return false;
+      }
+      cleaned = true;
+      for(const registration of registrations){
+        doc.removeEventListener(registration.type, registration.handler, registration.options);
+      }
+      registrations.length = 0;
+      if(doc[GRAPH_EDIT_LISTENER_REGISTRY_KEY]?.ownerToken === ownerToken){
+        delete doc[GRAPH_EDIT_LISTENER_REGISTRY_KEY];
+      }
+      if(namespace.__graphEditIntentListenerOwnerToken === ownerToken){
+        namespace.__graphEditIntentListenerCleanup = null;
+        namespace.__graphEditIntentListenerOwnerToken = null;
+        namespace.__graphEditIntentListenerInstalled = false;
+      }
+      return true;
+    };
+    doc[GRAPH_EDIT_LISTENER_REGISTRY_KEY] = { ownerToken, cleanup };
     namespace.__graphEditIntentListenerInstalled = true;
+    namespace.__graphEditIntentListenerOwnerToken = ownerToken;
+    namespace.__graphEditIntentListenerCleanup = cleanup;
+    const addGraphEditListener = (type, handler, options) => {
+      doc.addEventListener(type, handler, options);
+      registrations.push({ type, handler, options });
+    };
     const isTrustedGraphEditEvent = event => !!(event && (event.isTrusted === true || event.__graphitixUserTrusted === true));
     let pendingGraphDragIntent = null;
     const clearPendingGraphDragIntent = () => {
       pendingGraphDragIntent = null;
     };
     const startGraphDragIntent = event => {
-      if(event.__graphitixGraphEditReplay === true || !isTrustedGraphEditEvent(event)){
+      if(!isTrustedGraphEditEvent(event)){
         return;
       }
       const target = event.target;
-      if(!isGraphSurfaceEventTarget(target)){
+      if(isManagedGraphDragTarget(target) || !isGraphSurfaceEventTarget(target)){
         clearPendingGraphDragIntent();
         return;
       }
       const context = resolveGraphEditEventContext(target);
-      if(!context?.componentKey || !tabHasRestoredGraphCache(context.tab)){
+      if(!context?.componentKey || !tabHasGraphCache(context.tab)){
         clearPendingGraphDragIntent();
         return;
       }
@@ -1892,54 +2216,38 @@
       }
       const intent = pendingGraphDragIntent;
       clearPendingGraphDragIntent();
-      const result = namespace.beginGraphEdit(intent.componentKey, {
+      namespace.beginGraphEdit(intent.componentKey, {
         tabId: intent.tabId || null,
         target: intent.target || null,
         source: intent.source || 'graph-drag',
-        reason: 'graph-edit-drag',
-        redrawReason: 'graph-edit-drag-live-redraw'
+        reason: 'graph-edit-drag'
       });
-      if(result?.redrawRequested){
-        try{
-          event.preventDefault();
-          event.stopImmediatePropagation();
-        }catch(_err){}
-      }
     };
-    doc.addEventListener('pointerdown', startGraphDragIntent, true);
-    doc.addEventListener('mousedown', startGraphDragIntent, true);
-    doc.addEventListener('pointermove', maybeCommitGraphDragIntent, true);
-    doc.addEventListener('mousemove', maybeCommitGraphDragIntent, true);
-    doc.addEventListener('pointerup', clearPendingGraphDragIntent, true);
-    doc.addEventListener('mouseup', clearPendingGraphDragIntent, true);
-    doc.addEventListener('pointercancel', clearPendingGraphDragIntent, true);
-    doc.addEventListener('click', event => {
-      if(event.__graphitixGraphEditReplay === true || !isTrustedGraphEditEvent(event)){
+    addGraphEditListener('pointerdown', startGraphDragIntent, true);
+    addGraphEditListener('mousedown', startGraphDragIntent, true);
+    addGraphEditListener('pointermove', maybeCommitGraphDragIntent, true);
+    addGraphEditListener('mousemove', maybeCommitGraphDragIntent, true);
+    addGraphEditListener('pointerup', clearPendingGraphDragIntent, true);
+    addGraphEditListener('mouseup', clearPendingGraphDragIntent, true);
+    addGraphEditListener('pointercancel', clearPendingGraphDragIntent, true);
+    addGraphEditListener('click', event => {
+      if(!isTrustedGraphEditEvent(event)){
         return;
       }
       const target = event.target;
-      if(!isGraphSurfaceEventTarget(target)){
+      if(consumeManagedGraphClick(target) || !isGraphSurfaceEventTarget(target)){
         return;
       }
       const context = resolveGraphEditEventContext(target);
       if(!context?.componentKey){
         return;
       }
-      const result = namespace.beginGraphEdit(context.componentKey, {
+      namespace.beginGraphEdit(context.componentKey, {
         tabId: context.tabId || null,
         target,
         source: target?.id || target?.tagName || 'graph',
-        reason: 'graph-edit-click',
-        redrawReason: 'graph-edit-click-live-redraw'
+        reason: 'graph-edit-click'
       });
-      if(!result?.redrawRequested){
-        return;
-      }
-      try{
-        event.preventDefault();
-        event.stopImmediatePropagation();
-      }catch(_err){}
-      void replayGraphEditClick(event, result);
     }, true);
     const toolbarHandler = reason => event => {
       if(!isTrustedGraphEditEvent(event)){
@@ -1958,15 +2266,14 @@
       namespace.beginGraphEdit(componentKey, {
         target,
         source: target?.id || target?.tagName || 'toolbar',
-        reason,
-        redrawReason: `${reason}-live-redraw`
+        reason
       });
     };
-    doc.addEventListener('input', toolbarHandler('graph-toolbar-input'), true);
-    doc.addEventListener('change', toolbarHandler('graph-toolbar-change'), true);
-    doc.addEventListener('mousedown', toolbarHandler('graph-toolbar-mousedown'), true);
-    doc.addEventListener('click', event => {
-      if(event.__graphitixGraphEditReplay === true || !isTrustedGraphEditEvent(event)){
+    addGraphEditListener('input', toolbarHandler('graph-toolbar-input'), true);
+    addGraphEditListener('change', toolbarHandler('graph-toolbar-change'), true);
+    addGraphEditListener('mousedown', toolbarHandler('graph-toolbar-mousedown'), true);
+    addGraphEditListener('click', event => {
+      if(!isTrustedGraphEditEvent(event)){
         return;
       }
       const target = event.target;
@@ -1986,11 +2293,25 @@
       namespace.beginGraphEdit(componentKey, {
         target,
         source: interactive?.id || interactive?.tagName || 'toolbar-click',
-        reason: 'graph-toolbar-click',
-        redrawReason: 'graph-toolbar-click-live-redraw'
+        reason: 'graph-toolbar-click'
       });
     }, true);
     debug('Debug: graph edit intent listener installed');
+    return true;
+  };
+
+  namespace.uninstallGraphEditIntentListener = function uninstallGraphEditIntentListener(){
+    const doc = global.document;
+    const ownerToken = namespace.__graphEditIntentListenerOwnerToken || null;
+    const removed = ownerToken
+      ? releaseRegisteredGraphEditIntentListener(doc, ownerToken)
+      : false;
+    if(!removed && typeof namespace.__graphEditIntentListenerCleanup === 'function'){
+      namespace.__graphEditIntentListenerCleanup();
+    }
+    namespace.__graphEditIntentListenerCleanup = null;
+    namespace.__graphEditIntentListenerOwnerToken = null;
+    namespace.__graphEditIntentListenerInstalled = false;
     return true;
   };
 
@@ -2490,66 +2811,78 @@
       state.removed.push(path || '<root>');
       return undefined;
     }
+    // `seen` is a recursion stack, not a global visited set. Repeated references
+    // are valid durable data and must be cloned at every location; only a value
+    // encountered again on the current path is a true cycle.
     if(state.seen.has(value)){
       state.removed.push(path || '<root>');
       return undefined;
     }
     state.seen.add(value);
-    if(value instanceof Date){
-      return value.toISOString();
-    }
-    if(Array.isArray(value)){
-      const next = [];
-      value.forEach((item, index) => {
-        const sanitized = sanitizeRuntimeValue(item, state, `${path || '<root>'}[${index}]`);
-        if(sanitized !== undefined){
-          next.push(sanitized);
+    try{
+      if(value instanceof Date){
+        return value.toISOString();
+      }
+      if(Array.isArray(value)){
+        // Array indexes are semantic (stats-table cell metadata is the clearest
+        // example). Never compact an array when a transient/uncloneable value is
+        // removed; JSON-compatible null preserves the original position.
+        const next = new Array(value.length);
+        for(let index = 0; index < value.length; index += 1){
+          if(!Object.prototype.hasOwnProperty.call(value, index)){
+            next[index] = null;
+            continue;
+          }
+          const sanitized = sanitizeRuntimeValue(value[index], state, `${path || '<root>'}[${index}]`);
+          next[index] = sanitized === undefined ? null : sanitized;
         }
-      });
-      return next;
-    }
-    if(value instanceof Map){
+        return next;
+      }
+      if(value instanceof Map){
+        const next = {};
+        value.forEach((entryValue, entryKey) => {
+          const key = String(entryKey);
+          if(isTransientRuntimeKey(key)){
+            state.removed.push(path ? `${path}.${key}` : key);
+            return;
+          }
+          const sanitized = sanitizeRuntimeValue(entryValue, state, path ? `${path}.${key}` : key);
+          if(sanitized !== undefined){
+            next[key] = sanitized;
+          }
+        });
+        return next;
+      }
+      if(value instanceof Set){
+        const next = [];
+        Array.from(value).forEach((item, index) => {
+          const sanitized = sanitizeRuntimeValue(item, state, `${path || '<root>'}[${index}]`);
+          if(sanitized !== undefined){
+            next.push(sanitized);
+          }
+        });
+        return next;
+      }
+      if(!isPlainRuntimeObject(value)){
+        state.removed.push(path || '<root>');
+        return undefined;
+      }
       const next = {};
-      value.forEach((entryValue, entryKey) => {
-        const key = String(entryKey);
+      Object.keys(value).forEach(key => {
+        const childPath = path ? `${path}.${key}` : key;
         if(isTransientRuntimeKey(key)){
-          state.removed.push(path ? `${path}.${key}` : key);
+          state.removed.push(childPath);
           return;
         }
-        const sanitized = sanitizeRuntimeValue(entryValue, state, path ? `${path}.${key}` : key);
+        const sanitized = sanitizeRuntimeValue(value[key], state, childPath);
         if(sanitized !== undefined){
           next[key] = sanitized;
         }
       });
       return next;
+    }finally{
+      state.seen.delete(value);
     }
-    if(value instanceof Set){
-      const next = [];
-      Array.from(value).forEach((item, index) => {
-        const sanitized = sanitizeRuntimeValue(item, state, `${path || '<root>'}[${index}]`);
-        if(sanitized !== undefined){
-          next.push(sanitized);
-        }
-      });
-      return next;
-    }
-    if(!isPlainRuntimeObject(value)){
-      state.removed.push(path || '<root>');
-      return undefined;
-    }
-    const next = {};
-    Object.keys(value).forEach(key => {
-      const childPath = path ? `${path}.${key}` : key;
-      if(isTransientRuntimeKey(key)){
-        state.removed.push(childPath);
-        return;
-      }
-      const sanitized = sanitizeRuntimeValue(value[key], state, childPath);
-      if(sanitized !== undefined){
-        next[key] = sanitized;
-      }
-    });
-    return next;
   }
 
   namespace.sanitizeRuntimeSnapshot = function sanitizeRuntimeSnapshot(snapshot, meta = {}){
@@ -2579,17 +2912,21 @@
         return '[Circular]';
       }
       seen.add(input);
-      if(Array.isArray(input)){
-        return input.map(item => normalize(item));
-      }
-      const out = {};
-      Object.keys(input).sort().forEach(key => {
-        const item = input[key];
-        if(typeof item !== 'function'){
-          out[key] = normalize(item);
+      try{
+        if(Array.isArray(input)){
+          return input.map(item => normalize(item));
         }
-      });
-      return out;
+        const out = {};
+        Object.keys(input).sort().forEach(key => {
+          const item = input[key];
+          if(typeof item !== 'function'){
+            out[key] = normalize(item);
+          }
+        });
+        return out;
+      }finally{
+        seen.delete(input);
+      }
     };
     try{ return JSON.stringify(normalize(value)); }
     catch(_err){ try{ return JSON.stringify(value); }catch(_err2){ return ''; } }
@@ -3240,6 +3577,22 @@
             }) !== false);
         if(!retryAllowed){
           pendingByTab.delete(tabId);
+          try{
+            options.onStaleDiscard?.({
+              component,
+              componentKey: key,
+              tabId,
+              meta: staleMeta || meta,
+              args: pending.args || [],
+              context: pending.context
+            });
+          }catch(err){
+            console.error('componentLifecycle tab-scoped stale discard handler error', {
+              componentKey: key,
+              tabId,
+              err
+            });
+          }
           return;
         }
         debug('Debug: component lifecycle tab-scoped frame requeued after stale generation', {
@@ -3832,31 +4185,44 @@
       return undefined;
     }
     seen.add(value);
-    if(value instanceof Date){ return value.toISOString(); }
-    if(value instanceof Set){
-      const values = [];
-      value.forEach(item => {
-        const cloned = snapshotInternalValue(item, options, depth + 1, seen);
-        if(cloned !== undefined){ values.push(cloned); }
-      });
-      return { __graphitixInternalType: 'Set', values };
-    }
-    if(value instanceof Map || value instanceof WeakMap || value instanceof WeakSet){
-      return undefined;
-    }
-    if(Array.isArray(value)){
-      return value.map(item => snapshotInternalValue(item, options, depth + 1, seen)).filter(item => item !== undefined);
-    }
-    const exclude = options.excludeKeys || INTERNAL_STATE_DEFAULT_EXCLUDE;
-    const output = {};
-    Object.keys(value).forEach(keyName => {
-      if(shouldExcludeInternalStateKey(keyName, exclude)){
-        return;
+    try{
+      if(value instanceof Date){ return value.toISOString(); }
+      if(value instanceof Set){
+        const values = [];
+        value.forEach(item => {
+          const cloned = snapshotInternalValue(item, options, depth + 1, seen);
+          if(cloned !== undefined){ values.push(cloned); }
+        });
+        return { __graphitixInternalType: 'Set', values };
       }
-      const cloned = snapshotInternalValue(value[keyName], options, depth + 1, seen);
-      if(cloned !== undefined){ output[keyName] = cloned; }
-    });
-    return output;
+      if(value instanceof Map || value instanceof WeakMap || value instanceof WeakSet){
+        return undefined;
+      }
+      if(Array.isArray(value)){
+        const output = new Array(value.length);
+        for(let index = 0; index < value.length; index += 1){
+          if(!Object.prototype.hasOwnProperty.call(value, index)){
+            output[index] = null;
+            continue;
+          }
+          const cloned = snapshotInternalValue(value[index], options, depth + 1, seen);
+          output[index] = cloned === undefined ? null : cloned;
+        }
+        return output;
+      }
+      const exclude = options.excludeKeys || INTERNAL_STATE_DEFAULT_EXCLUDE;
+      const output = {};
+      Object.keys(value).forEach(keyName => {
+        if(shouldExcludeInternalStateKey(keyName, exclude)){
+          return;
+        }
+        const cloned = snapshotInternalValue(value[keyName], options, depth + 1, seen);
+        if(cloned !== undefined){ output[keyName] = cloned; }
+      });
+      return output;
+    }finally{
+      seen.delete(value);
+    }
   }
 
   function applyInternalValue(target, snapshot, options = {}, depth = 0){
@@ -4191,22 +4557,33 @@
         ...meta
       };
       const stateModel = descriptor.stateModel || workspace.__stateModel || null;
+      const finalize = value => {
+        if(hookName === 'restoreRenderCache' && value){
+          const interactionsReady = namespace.rehydrateRenderCacheInteractions(
+            lifecycleMeta.componentKey,
+            {
+              ...lifecycleMeta,
+              component: descriptor?.component || global.Components?.[lifecycleMeta.componentKey] || null,
+              reason: lifecycleMeta.reason || 'render-cache-restore'
+            }
+          );
+          if(!interactionsReady){
+            return false;
+          }
+        }
+        if(mode !== 'apply'){
+          rememberStateBucket(stateModel, bucket, value, lifecycleMeta);
+        }
+        return value;
+      };
       if(mode === 'apply'){
         rememberStateBucket(stateModel, bucket, args[0], lifecycleMeta);
       }
       const result = original.apply(this, args);
       if(result && typeof result.then === 'function'){
-        return result.then(value => {
-          if(mode !== 'apply'){
-            rememberStateBucket(stateModel, bucket, value, lifecycleMeta);
-          }
-          return value;
-        });
+        return result.then(finalize);
       }
-      if(mode !== 'apply'){
-        rememberStateBucket(stateModel, bucket, result, lifecycleMeta);
-      }
-      return result;
+      return finalize(result);
     };
     workspace[flag] = true;
   }

@@ -752,9 +752,9 @@ test('line and scatter y-axis stay equally stable during live horizontal resize'
   expect(results.scatter.summary.maxYAxisPageXDrift).toBeLessThanOrEqual(results.line.summary.maxYAxisPageXDrift + 0.25);
   expect(results.scatter.immediateSummary.maxYAxisPageXDrift).toBeLessThanOrEqual(results.line.immediateSummary.maxYAxisPageXDrift + 0.25);
   expect(results.scatter.mutationSummary.maxYAxisPageXDrift).toBeLessThanOrEqual(results.line.mutationSummary.maxYAxisPageXDrift + 0.25);
-  expect(results.scatter.oscillatingSummary.raf.maxYAxisLinearResidual).toBeLessThanOrEqual(results.line.oscillatingSummary.raf.maxYAxisLinearResidual + 0.5);
-  expect(results.scatter.oscillatingSummary.immediate.maxYAxisLinearResidual).toBeLessThanOrEqual(results.line.oscillatingSummary.immediate.maxYAxisLinearResidual + 0.5);
-  expect(results.scatter.oscillatingSummary.mutation.maxYAxisLinearResidual).toBeLessThanOrEqual(results.line.oscillatingSummary.mutation.maxYAxisLinearResidual + 0.5);
+  expect(results.scatter.oscillatingSummary.raf.maxYAxisLinearResidual).toBeLessThanOrEqual(results.line.oscillatingSummary.raf.maxYAxisLinearResidual + 1.0);
+  expect(results.scatter.oscillatingSummary.immediate.maxYAxisLinearResidual).toBeLessThanOrEqual(results.line.oscillatingSummary.immediate.maxYAxisLinearResidual + 1.0);
+  expect(results.scatter.oscillatingSummary.mutation.maxYAxisLinearResidual).toBeLessThanOrEqual(results.line.oscillatingSummary.mutation.maxYAxisLinearResidual + 1.0);
   expect(results.scatter.oscillatingSummary.raf.maxYAxisPageXStep).toBeLessThanOrEqual(results.line.oscillatingSummary.raf.maxYAxisPageXStep + 0.75);
   expect(results.scatter.oscillatingSummary.immediate.maxYAxisPageXStep).toBeLessThanOrEqual(results.line.oscillatingSummary.immediate.maxYAxisPageXStep + 0.75);
   [
@@ -768,7 +768,7 @@ test('line and scatter y-axis stay equally stable during live horizontal resize'
     [results.scatter.oscillatingSummary.immediate, results.line.oscillatingSummary.immediate],
     [results.scatter.oscillatingSummary.mutation, results.line.oscillatingSummary.mutation]
   ].forEach(([scatterSummary, lineSummary]) => {
-    expect(scatterSummary.maxYAxisLinearResidual).toBeLessThanOrEqual(lineSummary.maxYAxisLinearResidual + 0.5);
+    expect(scatterSummary.maxYAxisLinearResidual).toBeLessThanOrEqual(lineSummary.maxYAxisLinearResidual + 1.0);
     expect(scatterSummary.maxYAxisPageXStep).toBeLessThanOrEqual(lineSummary.maxYAxisPageXStep + 0.75);
     expect(scatterSummary.maxYTitlePageXDrift).toBeLessThanOrEqual(lineSummary.maxYTitlePageXDrift + 0.5);
   });

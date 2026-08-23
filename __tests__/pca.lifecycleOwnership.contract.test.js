@@ -52,15 +52,13 @@ describe('PCA lifecycle ownership contract', () => {
     expect(setup).not.toMatch(/\b(?:const|let|var)\s+pcaAlphaVal\b/);
   });
 
-  test('label styles are durable session-owned state rather than setup closure state', () => {
+  test('scoped point styles are durable session-owned state rather than setup closure state', () => {
     const source = pcaSource();
-    expect(source).toContain('labelColors: {}');
-    expect(source).toContain('labelShapes: {}');
-    expect(source).toContain('labelPointStyles: {}');
-    expect(source).toContain('labelStyleMode: null');
+    expect(source).toContain('pointStyleScopes: normalizePcaPointStyleScopes({}, { controls })');
+    expect(source).not.toContain('labelStyleMode: null');
     expect(source).not.toMatch(/^\s*(?:const|let|var)\s+pcaLabel(?:Colors|Shapes|PointStyles)\b/m);
-    expect(source).toContain('labelColors: cloneSimple(pcaState.labelColors) || {}');
-    expect(source).toContain('pcaState.labelColors = cloneSimple(state.labelColors) || {}');
+    expect(source).toContain('pointStyleScopes: cloneSimple(ensurePcaPointStyleScopes())');
+    expect(source).toContain('pcaState.pointStyleScopes = normalizePcaPointStyleScopes(state.pointStyleScopes || {}');
   });
 
   test('file handle and file name are scoped to the owning PCA session', () => {
@@ -83,10 +81,22 @@ describe('PCA lifecycle ownership contract', () => {
     expect(source).toContain('rotationActive: !!src.rotationActive');
     expect(source).toContain('rotationQueued: !!src.rotationQueued');
     expect(source).toContain('rotationViewport: cloneSimple(src.rotationViewport) || null');
+    expect(source).toContain('inFlight: Math.max(0, Number(src.inFlight ?? (src.inProgress ? 1 : 0)) || 0)');
+    expect(source).toContain('runtime.inFlight = Math.max(0, Number(runtime.inFlight) || 0) + 1;');
+    expect(source).toContain('runtime.inFlight = Math.max(0, (Number(runtime.inFlight) || 1) - 1);');
+    expect(source).toContain('return Math.max(0, Number(runtime.inFlight) || 0) === 0');
     expect(source).toContain('runtime.rotationViewport = capturePcaRotationViewport(svg);');
     expect(source).toContain("reason: 'pca-rotation-frame'");
-    expect(source).toContain('drawSession.refs.rotationRenderer = rotation =>');
-    expect(source).toContain("requestPcaViewRefresh('rotation-end'");
+    expect(source).toContain('const clearPendingRotationFrame = () =>');
+    expect(source).toContain('}, clearPendingRotationFrame);');
+    expect(source).toContain('const PCA_3D_ROTATION_MODEL_VERSION = 1;');
+    expect(source).toContain('function bindPca3dRotationRenderer(session = null, svg = null, modelOverride = null)');
+    expect(source).toContain('drawSession.cache.pca3dRotationModel = cloneSimple(pca3dRotationModel) || pca3dRotationModel;');
+    expect(source).toContain('rotationModel: rotationModel ? (cloneSimple(rotationModel) || rotationModel) : null');
+    expect(source).toContain('const rebound3dRenderer = isRestored3d');
+    expect(source).toContain('? bindPca3dRotationRenderer(session, svg, restoredRotationModel)');
+    expect(source).toContain('const rebound3dRotation = rebound3dRenderer');
+    expect(source).not.toContain("requestPcaViewRefresh('rotation-end'");
     expect(source).toContain('if (!applyPcaRotationViewport(svg3, rotationViewport))');
     expect(source).toContain('onAxisTickLabel: markPca3dAxisTickLabel');
     expect(source).toContain("markFontEditable(node, 'axis3d', labelText)");

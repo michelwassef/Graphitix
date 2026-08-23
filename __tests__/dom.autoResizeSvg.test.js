@@ -127,6 +127,39 @@ describe('Shared.autoResizeSvg aspect-lock viewport', () => {
     expect(svg.getAttribute('preserveAspectRatio')).toBe('xMidYMid meet');
   });
 
+  test('keeps non-legend right content in the aspect baseline when a legend is also present', () => {
+    const { svg } = createSvg({ locked: false });
+    // Mirrors Survival with Number at risk enabled: 120 px is reserved for
+    // risk-table labels, 180 px is reserved for the legend, and 84 px is
+    // reserved below the canonical chart for the risk table rows.
+    setSvgBase(svg, 940, 484);
+    svg.dataset.legendBaseWidth = '640';
+    svg.dataset.legendBaseHeight = '400';
+    svg.dataset.legendReserveWidth = '180';
+    svg.dataset.graphContentReserveRight = '300';
+    svg.dataset.graphContentReserveBottom = '84';
+    svg.getBBox = () => ({
+      x: 0,
+      y: 0,
+      width: 760,
+      height: 484
+    });
+
+    window.Shared.autoResizeSvg(svg, {
+      padding: 0,
+      remeasure: false,
+      baseViewport: { width: 940, height: 484 }
+    });
+
+    const [minX, minY, width, height] = readViewBox(svg);
+    expect(minX).toBeCloseTo(0, 5);
+    expect(minY).toBeCloseTo(0, 5);
+    expect(width).toBeCloseTo(940, 5);
+    expect(height).toBeCloseTo(484, 5);
+    expect(width / height).toBeCloseTo(940 / 484, 5);
+    expect(svg.getAttribute('preserveAspectRatio')).toBe('xMidYMid meet');
+  });
+
   test('does not collapse an empty legend-side reserve after the legend is moved inward', () => {
     const { svg } = createSvg({ locked: false });
     setSvgBase(svg, 640, 400);
@@ -241,4 +274,47 @@ describe('Shared.autoResizeSvg aspect-lock viewport', () => {
     expect(readViewBox(svg)).toEqual([0, 0, 500, 300]);
     expect(svg.getAttribute('preserveAspectRatio')).toBe('none');
   });
+  test('keeps an authoritative renderer canvas unchanged instead of bbox-fitting vertical overflow into horizontal whitespace', () => {
+    const { svg } = createSvg({ locked: false });
+    let bboxReads = 0;
+    svg.getBBox = () => {
+      bboxReads += 1;
+      return { x: -6.45, y: -6.59, width: 595.15, height: 419.45 };
+    };
+
+    window.Shared.autoResizeSvg(svg, {
+      padding: 18,
+      remeasure: false,
+      baseViewport: { width: 595.15, height: 419.45 },
+      fitContent: false
+    });
+
+    const [minX, minY, width, height] = readViewBox(svg);
+    expect(bboxReads).toBe(0);
+    expect(minX).toBeCloseTo(0, 8);
+    expect(minY).toBeCloseTo(0, 8);
+    expect(width).toBeCloseTo(595.15, 8);
+    expect(height).toBeCloseTo(419.45, 8);
+    expect(svg.getAttribute('preserveAspectRatio')).toBe('xMidYMid meet');
+  });
+
+  test('supports independent horizontal and vertical content-fit padding', () => {
+    const { svg } = createSvg({ locked: false });
+    svg.getBBox = () => ({ x: -10, y: -5, width: 100, height: 80 });
+
+    window.Shared.autoResizeSvg(svg, {
+      padding: 0,
+      paddingX: 16,
+      paddingY: 24,
+      remeasure: false,
+      preserveBaseAspect: false
+    });
+
+    const [minX, minY, width, height] = readViewBox(svg);
+    expect(minX).toBeCloseTo(-26, 8);
+    expect(minY).toBeCloseTo(-29, 8);
+    expect(width).toBeCloseTo(132, 8);
+    expect(height).toBeCloseTo(128, 8);
+  });
+
 });

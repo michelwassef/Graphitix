@@ -211,6 +211,23 @@
     return normalizeScopeOptionsInternal(options, context, scopeCfg);
   };
 
+  function resolveOwnerTabId(config, anchor){
+    const cfg = config && typeof config === 'object' ? config : {};
+    const explicit = String(cfg.ownerTabId || cfg.tabId || cfg.workspaceTabId || '').trim();
+    if(explicit){ return explicit; }
+    let cursor = anchor || cfg.target || null;
+    while(cursor && cursor !== global.document){
+      const candidate = String(cursor.dataset?.workspaceTabId || cursor.dataset?.tabId || '').trim();
+      if(candidate){ return candidate; }
+      cursor = cursor.parentElement || cursor.parentNode || null;
+    }
+    try{
+      return String(global.Main?.session?.getActiveTab?.()?.id || '').trim() || null;
+    }catch(_err){
+      return null;
+    }
+  }
+
   function ensureToolbarHost(anchor, scopeId, doc){
     if(!anchor){ return null; }
     let host = anchor.nextElementSibling && anchor.nextElementSibling.classList && anchor.nextElementSibling.classList.contains('font-toolbar-host')
@@ -315,6 +332,12 @@
       ? className
       : `${className} additional-line-controls-panel__row`;
     const toolbarApi = Shared.getWorkspaceToolbarApi();
+    const formatStyleNumericDisplay = (value, step) => {
+      const numeric = Number(value);
+      if(!Number.isFinite(numeric)){ return '0'; }
+      return toolbarApi.formatNumericValue?.(numeric, step || 'any', { maxPrecision: 2 })
+        || String(Math.round(numeric * 100) / 100);
+    };
     const sharedPanel = toolbarApi.createSubPanel({
       panelClass: 'workspace-toolbar__panel--symbol',
       role: 'toolbar',
@@ -427,6 +450,14 @@
         target: ctx.target || cfg.target || null
       };
     };
+    const contextsMatch = (a, b) => !!(
+      a
+      && b
+      && a.target === b.target
+      && String(a.scope || '') === String(b.scope || '')
+      && String(a.scopeValue || '') === String(b.scopeValue || '')
+      && String(a.scopeDataset || '') === String(b.scopeDataset || '')
+    );
     const buildContextFromSnapshot = snapshot => {
       const fallback = getContext();
       if(!snapshot || typeof snapshot !== 'object'){
@@ -576,7 +607,13 @@
       const opts = options || {};
       const equals = typeof opts.equals === 'function' ? opts.equals : ((a, b) => a === b);
       const contextSnapshot = snapshotContext(opts.contextSnapshot || opts.context);
-      const scopedPrevious = Array.isArray(opts.scopedPrevious) ? opts.scopedPrevious : null;
+      const aggregatePrevious = Shared.styleUndo?.isAggregateStateSnapshot?.(opts.scopedPrevious)
+        ? opts.scopedPrevious
+        : null;
+      const aggregateNext = aggregatePrevious
+        ? captureAggregateUndoState(aggregatePrevious.field || fieldType, contextSnapshot)
+        : null;
+      const scopedPrevious = !aggregatePrevious && Array.isArray(opts.scopedPrevious) ? opts.scopedPrevious : null;
       Shared.styleUndo.recordStateChange({
         manager: undoManager,
         label: buildUndoLabel(fieldType, contextSnapshot),
@@ -585,6 +622,11 @@
         to: nextValue,
         equals,
         scopedFrom: scopedPrevious,
+        aggregateFrom: aggregatePrevious,
+        aggregateTo: aggregateNext,
+        applyAggregate: aggregatePrevious && aggregateNext
+          ? (state, applyContext, phase) => aggregateUndoCfg.apply(aggregatePrevious.field || fieldType, state, applyContext, phase)
+          : null,
         context: contextSnapshot,
         restoreContext: restoreScopeFromSnapshot,
         beforeApply(){ applyingFromUndo = true; },
@@ -604,6 +646,19 @@
     const borderCfg = cfg.border || {};
     const sizeCfg = cfg.size || {};
     const transparencyCfg = cfg.transparency || {};
+    const aggregateUndoCfg = cfg.aggregateUndo && typeof cfg.aggregateUndo === 'object'
+      ? cfg.aggregateUndo
+      : null;
+    const captureAggregateUndoState = (fieldType, context) => {
+      if(!aggregateUndoCfg || typeof aggregateUndoCfg.capture !== 'function' || typeof aggregateUndoCfg.apply !== 'function'){
+        return null;
+      }
+      return Shared.styleUndo?.captureAggregateState?.({
+        field: fieldType,
+        context,
+        capture: (field, captureContext) => aggregateUndoCfg.capture(field, captureContext)
+      }) || null;
+    };
     const sizeEnabled = sizeCfg.enabled !== false;
     const shapePickerEnabled = fillCfg.showShapePicker !== false;
     const transparencyEnabled = transparencyCfg.enabled !== false;
@@ -616,6 +671,10 @@
       if(!Shared.styleUndo?.isAggregateScopeContext?.(context)){
         return null;
       }
+      const aggregateSnapshot = captureAggregateUndoState(key, context);
+      if(aggregateSnapshot){
+        return aggregateSnapshot;
+      }
       if(Array.isArray(aggregateScopedBaselines[key])){
         return aggregateScopedBaselines[key];
       }
@@ -623,6 +682,10 @@
     };
     const refreshAggregateScopedBaselines = (context = getContext()) => {
       if(!Shared.styleUndo?.isAggregateScopeContext?.(context)){
+        return;
+      }
+      if(aggregateUndoCfg){
+        Object.keys(aggregateScopedBaselines).forEach(key => { delete aggregateScopedBaselines[key]; });
         return;
       }
       aggregateScopedBaselines.fillColor = typeof fillCfg.getColor === 'function'
@@ -709,12 +772,67 @@
       syncBorderChipUi();
     };
 
+    const createNumericStyleInteraction = ({ fieldType, aggregateKey, readValue, applyValue }) => {
+      let pending = null;
+      const ensurePending = () => {
+        const context = getContext();
+        const contextSnapshot = snapshotContext(context);
+        if(!pending || !contextsMatch(pending.contextSnapshot, contextSnapshot)){
+          pending = {
+            contextSnapshot,
+            previousValue: readValue(context),
+            scopedPrevious: readAggregateBaseline(aggregateKey, context, readValue),
+            liveApplied: false
+          };
+        }
+        return { context, interaction: pending };
+      };
+      return {
+        input(rawValue){
+          const { context, interaction } = ensurePending();
+          applyValue(rawValue, context);
+          interaction.liveApplied = true;
+        },
+        change(rawValue){
+          const { context, interaction } = ensurePending();
+          if(!interaction.liveApplied){
+            applyValue(rawValue, context);
+          }
+          const nextValue = readValue(context);
+          pending = null;
+          recordSymbolStateChange(fieldType, interaction.previousValue, nextValue, (value, applyContext) => {
+            applyValue(value, applyContext || context);
+          }, {
+            equals: numericEquals,
+            contextSnapshot: interaction.contextSnapshot,
+            scopedPrevious: interaction.scopedPrevious
+          });
+        },
+        cancel(){
+          pending = null;
+        }
+      };
+    };
+
+    const sizeNumericInteraction = createNumericStyleInteraction({
+      fieldType: 'size',
+      aggregateKey: 'size',
+      readValue: context => clampNumeric(typeof sizeCfg.get === 'function' ? sizeCfg.get(context) : currentSize, 0, currentSize),
+      applyValue: (value, context) => applySize(value, { record: false, context })
+    });
+    const borderWidthNumericInteraction = createNumericStyleInteraction({
+      fieldType: 'border-width',
+      aggregateKey: 'borderWidth',
+      readValue: context => clampNumeric(typeof borderCfg.getWidth === 'function' ? borderCfg.getWidth(context) : currentBorderWidth, 0, currentBorderWidth),
+      applyValue: (value, context) => applyBorderWidth(value, { record: false, context })
+    });
+
     const clearStyleSection = overlayEl => {
       if(!overlayEl){ return; }
       overlayEl.querySelectorAll('.shared-color-picker__section--scatter-style').forEach(node => node.remove());
     };
 
-    const createStyleSection = (titleText, value, onInput) => {
+    const createStyleSection = (titleText, value, interaction, stepValue) => {
       const section = doc.createElement('section');
       section.className = 'shared-color-picker__section shared-color-picker__section--scatter-style';
       const title = doc.createElement('div');
@@ -729,10 +847,16 @@
       input.className = 'shared-color-picker__scatter-style-input';
       input.type = 'number';
       input.min = '0';
-      input.step = '0.5';
-      input.value = String(Math.round(value * 10) / 10);
+      input.step = String(stepValue || '0.5');
+      input.value = formatStyleNumericDisplay(value, input.step);
       input.setAttribute('aria-label', titleText);
-      input.addEventListener('input', () => onInput(input.value));
+      input.addEventListener('input', () => interaction.input(input.value));
+      input.addEventListener('change', () => interaction.change(input.value));
+      toolbarApi?.bindNumericWheelEnd?.(input, detail => {
+        if(detail.committed !== true){
+          interaction.cancel();
+        }
+      });
       field.appendChild(input);
       row.appendChild(field);
       section.appendChild(row);
@@ -745,7 +869,7 @@
       }
       if(!overlayEl){ return () => {}; }
       clearStyleSection(overlayEl);
-      const section = createStyleSection('Size', currentSize, applySize);
+      const section = createStyleSection('Size', currentSize, sizeNumericInteraction, sizeWheelInput?.step || '0.5');
       const shapeSection = overlayEl.querySelector('.shared-color-picker__section--shapes');
       if(shapeSection && shapeSection.parentNode){
         shapeSection.insertAdjacentElement('afterend', section);
@@ -758,13 +882,47 @@
     const attachBorderSection = overlayEl => {
       if(!overlayEl){ return () => {}; }
       clearStyleSection(overlayEl);
-      const section = createStyleSection('Border thickness', currentBorderWidth, applyBorderWidth);
+      const section = createStyleSection('Border thickness', currentBorderWidth, borderWidthNumericInteraction, borderWheelInput?.step || '0.5');
       overlayEl.insertBefore(section, overlayEl.firstChild || null);
       return () => section.parentNode && section.parentNode.removeChild(section);
     };
 
     let syncFillChipUi = () => {};
     let syncBorderChipUi = () => {};
+    let sizeWheelInput = null;
+    let borderWheelInput = null;
+    const createNumericWheelProxyInput = (value, step, ariaLabel) => {
+      const input = doc.createElement('input');
+      input.type = 'number';
+      input.hidden = true;
+      input.min = '0';
+      input.step = String(step);
+      input.value = String(value);
+      input.setAttribute('aria-label', ariaLabel);
+      input.setAttribute('data-undo-ignore', '1');
+      wrap.appendChild(input);
+      return input;
+    };
+    if(sizeEnabled){
+      const sizeStep = Number(sizeCfg.step);
+      sizeWheelInput = createNumericWheelProxyInput(currentSize, Number.isFinite(sizeStep) && sizeStep > 0 ? sizeStep : 0.5, 'Marker size');
+      sizeWheelInput.addEventListener('input', () => sizeNumericInteraction.input(sizeWheelInput.value));
+      sizeWheelInput.addEventListener('change', () => sizeNumericInteraction.change(sizeWheelInput.value));
+      toolbarApi?.bindNumericWheelEnd?.(sizeWheelInput, detail => {
+        if(detail.committed !== true){
+          sizeNumericInteraction.cancel();
+        }
+      });
+    }
+    const borderStep = Number(borderCfg.widthStep ?? borderCfg.step);
+    borderWheelInput = createNumericWheelProxyInput(currentBorderWidth, Number.isFinite(borderStep) && borderStep > 0 ? borderStep : 0.5, 'Border thickness');
+    borderWheelInput.addEventListener('input', () => borderWidthNumericInteraction.input(borderWheelInput.value));
+    borderWheelInput.addEventListener('change', () => borderWidthNumericInteraction.change(borderWheelInput.value));
+    toolbarApi?.bindNumericWheelEnd?.(borderWheelInput, detail => {
+      if(detail.committed !== true){
+        borderWidthNumericInteraction.cancel();
+      }
+    });
     const buildContextKey = context => {
       const snapshot = snapshotContext(context);
       return [
@@ -785,7 +943,7 @@
       const previous = hasPreviousOverride
         ? opts.previousValue
         : (typeof fillCfg.getColor === 'function' ? fillCfg.getColor(context) : null);
-      const scopedPrevious = Array.isArray(opts.scopedPrevious)
+      const scopedPrevious = opts.scopedPrevious != null
         ? opts.scopedPrevious
         : (hasPreviousOverride ? null : readAggregateBaseline('fillColor', context, ctx => fillCfg.getColor(ctx)));
       fillCfg.onColorChange(value, context);
@@ -836,7 +994,7 @@
       const previous = hasPreviousOverride
         ? opts.previousValue
         : (typeof borderCfg.getColor === 'function' ? borderCfg.getColor(context) : currentBorderColor);
-      const scopedPrevious = Array.isArray(opts.scopedPrevious)
+      const scopedPrevious = opts.scopedPrevious != null
         ? opts.scopedPrevious
         : (hasPreviousOverride ? null : readAggregateBaseline('borderColor', context, ctx => borderCfg.getColor(ctx)));
       currentBorderColor = value;
@@ -969,19 +1127,20 @@
           delete fillShapeSwatch.swatch.dataset.sizeText;
           return;
         }
-        const text = Number.isFinite(currentSize) ? (Math.round(currentSize * 10) / 10).toString() : '0';
+        if(sizeWheelInput){
+          sizeWheelInput.value = String(currentSize);
+        }
+        const text = Number.isFinite(currentSize)
+          ? formatStyleNumericDisplay(currentSize, sizeWheelInput?.step || 0.5)
+          : '0';
         fillShapeSwatch.swatch.dataset.sizeText = `${text}px`;
       };
       syncFillChipUi();
       fillShapeSwatch.swatch.title = sizeEnabled
         ? 'Click to edit fill/shape. Wheel or Alt+drag to adjust marker size.'
         : 'Click to edit fill.';
-      if(sizeEnabled){
-        fillShapeSwatch.swatch.addEventListener('wheel', evt => {
-          evt.preventDefault();
-          const step = evt.deltaY < 0 ? 0.5 : -0.5;
-          applySize(currentSize + step);
-        }, { passive: false });
+      if(sizeEnabled && sizeWheelInput && typeof toolbarApi.bindNumericWheelProxy === 'function'){
+        toolbarApi.bindNumericWheelProxy(fillShapeSwatch.swatch, sizeWheelInput);
       }
       let fillDragState = null;
       let suppressClick = false;
@@ -989,11 +1148,19 @@
         if(!fillDragState){ return; }
         const deltaX = evt.clientX - fillDragState.startX;
         const steps = Math.round(deltaX / 8);
-        applySize(fillDragState.startValue + (steps * 0.5));
+        if(steps === fillDragState.lastSteps){ return; }
+        fillDragState.lastSteps = steps;
+        fillDragState.moved = true;
+        const dragStep = Number(sizeWheelInput?.step) || 0.5;
+        sizeNumericInteraction.input(fillDragState.startValue + (steps * dragStep));
       };
       const onUp = () => {
         if(!fillDragState){ return; }
+        const shouldCommit = fillDragState.moved === true;
         fillDragState = null;
+        if(shouldCommit){
+          sizeNumericInteraction.change(currentSize);
+        }
         global.removeEventListener('mousemove', onMove);
         global.removeEventListener('mouseup', onUp);
       };
@@ -1002,7 +1169,7 @@
           if(!evt.altKey || evt.button !== 0){ return; }
           evt.preventDefault();
           suppressClick = true;
-          fillDragState = { startX: evt.clientX, startValue: currentSize };
+          fillDragState = { startX: evt.clientX, startValue: currentSize, lastSteps: 0, moved: false };
           global.addEventListener('mousemove', onMove);
           global.addEventListener('mouseup', onUp);
         });
@@ -1030,7 +1197,12 @@
     const borderValue = borderControlParts.value;
 
     syncBorderChipUi = () => {
-      const widthText = Number.isFinite(currentBorderWidth) ? (Math.round(currentBorderWidth * 10) / 10).toString() : '0';
+      if(borderWheelInput){
+        borderWheelInput.value = String(currentBorderWidth);
+      }
+      const widthText = Number.isFinite(currentBorderWidth)
+        ? formatStyleNumericDisplay(currentBorderWidth, borderWheelInput?.step || 0.5)
+        : '0';
       borderValue.textContent = `${widthText}px`;
       borderPreview.style.background = currentBorderColor || '#000000';
     };
@@ -1073,28 +1245,34 @@
       pendingBorderColorChange = null;
     });
 
-    borderChip.addEventListener('wheel', evt => {
-      evt.preventDefault();
-      const step = evt.deltaY < 0 ? 0.5 : -0.5;
-      applyBorderWidth(currentBorderWidth + step);
-    }, { passive: false });
+    if(borderWheelInput && typeof toolbarApi.bindNumericWheelProxy === 'function'){
+      toolbarApi.bindNumericWheelProxy(borderChip, borderWheelInput);
+    }
     let borderDragState = null;
     const onBorderMove = evt => {
       if(!borderDragState){ return; }
       const deltaX = evt.clientX - borderDragState.startX;
       const steps = Math.round(deltaX / 8);
-      applyBorderWidth(borderDragState.startValue + (steps * 0.5));
+      if(steps === borderDragState.lastSteps){ return; }
+      borderDragState.lastSteps = steps;
+      borderDragState.moved = true;
+      const dragStep = Number(borderWheelInput?.step) || 0.5;
+      borderWidthNumericInteraction.input(borderDragState.startValue + (steps * dragStep));
     };
     const onBorderUp = () => {
       if(!borderDragState){ return; }
+      const shouldCommit = borderDragState.moved === true;
       borderDragState = null;
+      if(shouldCommit){
+        borderWidthNumericInteraction.change(currentBorderWidth);
+      }
       global.removeEventListener('mousemove', onBorderMove);
       global.removeEventListener('mouseup', onBorderUp);
     };
     borderChip.addEventListener('mousedown', evt => {
       if(!evt.altKey || evt.button !== 0){ return; }
       evt.preventDefault();
-      borderDragState = { startX: evt.clientX, startValue: currentBorderWidth };
+      borderDragState = { startX: evt.clientX, startValue: currentBorderWidth, lastSteps: 0, moved: false };
       global.addEventListener('mousemove', onBorderMove);
       global.addEventListener('mouseup', onBorderUp);
     });
@@ -1252,6 +1430,7 @@
     }
     if(toolbarApi && typeof toolbarApi.showHost === 'function'){
       toolbarApi.showHost(host, {
+        ownerTabId: resolveOwnerTabId(cfg, anchor),
         hostClasses: [typeof cfg.hostClass === 'string' ? cfg.hostClass.trim() : ''].filter(Boolean)
       });
       const requestedDisplay = (typeof cfg.hostDisplay === 'string' && cfg.hostDisplay.trim())
@@ -1280,6 +1459,7 @@
         const target = evt?.target;
         if(!target){ return; }
         if(host.contains(target)){ return; }
+        if(typeof Shared.isColorPickerOpenFor === 'function' && Shared.isColorPickerOpenFor(host)){ return; }
         if(target.closest && target.closest('.shared-color-picker')){ return; }
         hideHost(host);
         if(typeof Shared.hideAllFormatControls === 'function'){

@@ -45,6 +45,7 @@ describe('Venn shared runtime isolation', () => {
     require('../js/shared/dataViews.js');
     require('../js/shared/workspaceTabs.js');
     require('../js/shared/tabContext.js');
+    require('../js/shared/componentLifecycle.js');
     require('../js/shared/undo.js');
     require('../js/shared/resizer.js');
     require('../js/shared/dom.js');
@@ -212,5 +213,41 @@ describe('Venn shared runtime isolation', () => {
       nested: { ok: true },
       tabId: tabA.id
     });
+  });
+
+  test('title, set, and region label positions restore independently per Venn tab', async () => {
+    const Main = window.Main;
+    await handleGraphSelection(Main, 'venn');
+    const venn = window.Components?.venn;
+    const tabA = Main.tabs.getActiveTab();
+    const positionsA = {
+      title: { x: 320, y: 42, relX: 0.5, relY: 0.08 },
+      'set-A': { x: 170, y: 115, relX: 0.27, relY: 0.22 },
+      'region-AB': { x: 310, y: 265, relX: 0.48, relY: 0.51 }
+    };
+    const payloadA = Main.session.clonePayload(venn.getPayload());
+    payloadA.style = { ...(payloadA.style || {}), labelPositions: positionsA };
+    await venn.loadFromPayload(payloadA, { tabId: tabA.id, reason: 'test-label-positions-a' });
+
+    Main.tabs.handleAddTabClick();
+    await flush();
+    await handleGraphSelection(Main, 'venn');
+    const tabB = Main.tabs.getActiveTab();
+    const positionsB = {
+      title: { x: 290, y: 38, relX: 0.45, relY: 0.07 },
+      'set-B': { x: 455, y: 390, relX: 0.71, relY: 0.75 }
+    };
+    const payloadB = Main.session.clonePayload(venn.getPayload());
+    payloadB.style = { ...(payloadB.style || {}), labelPositions: positionsB };
+    await venn.loadFromPayload(payloadB, { tabId: tabB.id, reason: 'test-label-positions-b' });
+
+    await activateTabById(Main, tabA.id, 'test-label-positions-return-a');
+    expect(venn.__getState().labelPositions).toEqual(positionsA);
+    expect(venn.__testHooks.getSession(tabA.id).state.labelPositions).toEqual(positionsA);
+
+    await activateTabById(Main, tabB.id, 'test-label-positions-return-b');
+    expect(venn.__getState().labelPositions).toEqual(positionsB);
+    expect(venn.__testHooks.getSession(tabB.id).state.labelPositions).toEqual(positionsB);
+    expect(venn.__testHooks.getSession(tabA.id).state.labelPositions).toEqual(positionsA);
   });
 });

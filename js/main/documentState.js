@@ -25,6 +25,7 @@
   let webDbPromise = null;
   let recoveryWriteSequence = 0;
   let documentStateChangeHandler = null;
+  let rotationGestureHandler = null;
   let recoveryTimerRevision = 0;
   let recoveryPendingSince = 0;
   let recoveryInFlightRevision = 0;
@@ -45,17 +46,50 @@
     return revision > 0 && lastRecoverySavedRevision >= revision;
   }
 
+  function hasDirtyRecoveryRevision() {
+    return !state?.restoringRecovery
+      && !!state?.workspaceState?.sessionUserDirty
+      && !isRecoverySnapshotCurrent();
+  }
+
   function hasRecoverySnapshotDue() {
-    if (state?.restoringRecovery) {
+    if (!hasDirtyRecoveryRevision()) {
       return false;
     }
     const revision = getSessionRevision();
     const inFlight = revision > 0
       ? recoveryInFlightRevision === revision
       : recoveryInFlightRevision < 0;
-    return !!state?.workspaceState?.sessionUserDirty
-      && !isRecoverySnapshotCurrent()
-      && !inFlight;
+    return !inFlight;
+  }
+
+  function hasActiveRotationGesture() {
+    try {
+      return window.Shared?.plot3d?.hasActiveRotationGesture?.() === true;
+    } catch (err) {
+      debug('recovery.rotationProbeFailed', { message: err?.message || String(err) });
+      return false;
+    }
+  }
+
+  function deferRecoveryForActiveRotation(reason = 'active-rotation-gesture') {
+    // Preserve the pending checkpoint even when a recovery build is currently
+    // unwinding. An interaction may end before the in-flight guard is released;
+    // retaining this marker lets the finally path resume immediately instead of
+    // losing the checkpoint until the periodic interval.
+    if (!hasDirtyRecoveryRevision()) {
+      return false;
+    }
+    if (!recoveryPendingSince) {
+      recoveryPendingSince = Date.now();
+    }
+    clearRecoveryTimer();
+    debug('recovery.deferredForRotation', {
+      reason,
+      revision: getSessionRevision(),
+      pendingSince: recoveryPendingSince
+    });
+    return true;
   }
 
   function debug(message, payload) {
@@ -296,6 +330,10 @@
       return { status: 'skipped', reason: 'clean' };
     }
     const revision = getSessionRevision();
+    if (hasActiveRotationGesture()) {
+      deferRecoveryForActiveRotation(reason);
+      return { status: 'deferred', reason: 'active-rotation-gesture', revision };
+    }
     if (revision > 0 && lastRecoverySavedRevision >= revision) {
       debug('recovery.write.skippedCurrent', { reason, revision });
       return { status: 'skipped', reason: 'current', revision };
@@ -307,6 +345,8 @@
     }
     const sequence = ++recoveryWriteSequence;
     recoveryInFlightRevision = inFlightToken;
+    let interactionDeferred = false;
+    let snapshotReadinessDeferred = false;
     const recoveryJob = window.Shared?.jobs?.start?.({
       kind: 'recovery',
       component: 'document',
@@ -369,6 +409,27 @@
       debug('recovery.write.web', { bytes: record.blob.size, reason });
       return { status: 'saved', via: 'web', bytes: record.blob.size };
     } catch (err) {
+      if (err?.code === 'GRAPHITIX_RECOVERY_INTERACTION_ACTIVE') {
+        interactionDeferred = true;
+        deferRecoveryForActiveRotation(`${reason}:${err.stage || 'checkpoint'}`);
+        debug('recovery.write.deferredDuringCheckpoint', {
+          reason,
+          stage: err.stage || null,
+          revision
+        });
+        return { status: 'deferred', reason: 'active-rotation-gesture', revision };
+      }
+      if (err?.code === 'GRAPHITIX_SNAPSHOT_NOT_READY') {
+        snapshotReadinessDeferred = true;
+        debug('recovery.write.deferredForSnapshotReadiness', {
+          reason,
+          snapshotReason: err.reason || null,
+          tabId: err.tabId || null,
+          component: err.component || null,
+          revision
+        });
+        return { status: 'deferred', reason: 'snapshot-not-ready', revision };
+      }
       window.Shared?.jobs?.fail?.(recoveryJob?.id, err);
       console.error('documentState recovery snapshot error', err);
       return { status: 'error', error: err };
@@ -378,6 +439,11 @@
       }
       if (recoveryInFlightRevision === inFlightToken) {
         recoveryInFlightRevision = 0;
+      }
+      if (interactionDeferred && !hasActiveRotationGesture() && hasRecoverySnapshotDue()) {
+        scheduleRecoverySnapshot(`${reason}-interaction-settled`);
+      } else if (snapshotReadinessDeferred && hasRecoverySnapshotDue()) {
+        scheduleRecoverySnapshot(`${reason}-snapshot-ready-retry`);
       }
     }
   }
@@ -400,6 +466,10 @@
       });
       return;
     }
+    if (hasActiveRotationGesture()) {
+      deferRecoveryForActiveRotation(reason);
+      return;
+    }
     const now = Date.now();
     if (!recoveryPendingSince) {
       recoveryPendingSince = now;
@@ -412,11 +482,16 @@
     recoveryTimer = window.setTimeout(() => {
       const timerRevision = recoveryTimerRevision;
       clearRecoveryTimer();
-      recoveryPendingSince = 0;
       if (timerRevision > 0 && lastRecoverySavedRevision >= timerRevision) {
+        recoveryPendingSince = 0;
         debug('recovery.timer.skippedCurrent', { reason, scheduledRevision: timerRevision, lastRecoverySavedRevision });
         return;
       }
+      if (hasActiveRotationGesture()) {
+        deferRecoveryForActiveRotation(reason);
+        return;
+      }
+      recoveryPendingSince = 0;
       void writeRecoverySnapshot(reason);
     }, delay);
     debug('recovery.schedule', { reason, revision: recoveryTimerRevision, delay });
@@ -613,11 +688,27 @@
       }
     };
     window.addEventListener('graphitix:document-state-change', documentStateChangeHandler);
+    rotationGestureHandler = event => {
+      const detail = event?.detail || {};
+      if (detail.phase !== 'end' || Number(detail.activeCount) > 0 || !hasRecoverySnapshotDue()) {
+        return;
+      }
+      scheduleRecoverySnapshot(`${detail.componentKey || 'plot3d'}-rotation-settled`);
+    };
+    window.addEventListener('graphitix:plot3d-rotation-gesture', rotationGestureHandler);
     recoveryInterval = window.setInterval(() => {
       if (!hasRecoverySnapshotDue()) {
         return;
       }
-      if (recoveryTimer || recoveryPendingSince) {
+      if (recoveryTimer) {
+        return;
+      }
+      if (hasActiveRotationGesture()) {
+        deferRecoveryForActiveRotation('recovery-interval');
+        return;
+      }
+      if (recoveryPendingSince) {
+        scheduleRecoverySnapshot('recovery-interval-resume');
         return;
       }
       void writeRecoverySnapshot('recovery-interval');
@@ -646,10 +737,12 @@
     if (recoveryInterval) window.clearInterval(recoveryInterval);
     if (autosaveInterval) window.clearInterval(autosaveInterval);
     if (documentStateChangeHandler) window.removeEventListener('graphitix:document-state-change', documentStateChangeHandler);
+    if (rotationGestureHandler) window.removeEventListener('graphitix:plot3d-rotation-gesture', rotationGestureHandler);
     recoveryPendingSince = 0;
     recoveryInterval = null;
     autosaveInterval = null;
     documentStateChangeHandler = null;
+    rotationGestureHandler = null;
     state = null;
   };
 })();

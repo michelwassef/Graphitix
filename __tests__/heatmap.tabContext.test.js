@@ -63,6 +63,7 @@ describe('Heatmap tab context isolation', () => {
     require('../js/shared/regression.js');
     require('../js/shared/stats.js');
     require('../js/shared/stats-table.js');
+    require('../js/shared/exampleDatasets.js');
     require('../js/shared/colorPicker.js');
     require('../js/shared/editHighlight.js');
     require('../js/shared/axisControls.js');
@@ -116,7 +117,7 @@ describe('Heatmap tab context isolation', () => {
       clusterControlsTouched: true,
       clusterDefaultsAutoApplied: true,
       labelPositions: { title: { x: 10, y: 20 } },
-      dendrogramSettings: { thickness: 5, color: '#112233' }
+      dendrogramSettings: { mode: 'fixed', thicknessPt: 5, color: '#112233' }
     }, { tabId: tabA.id, reason: 'test-seed-heatmap-a' });
 
     Main.tabs.handleAddTabClick();
@@ -132,7 +133,7 @@ describe('Heatmap tab context isolation', () => {
       clusterControlsTouched: false,
       clusterDefaultsAutoApplied: false,
       labelPositions: { title: { x: 30, y: 40 } },
-      dendrogramSettings: { thickness: 2, color: '#445566' }
+      dendrogramSettings: { mode: 'auto', thicknessPt: 2, color: '#445566' }
     }, { tabId: tabB.id, reason: 'test-seed-heatmap-b' });
 
     await activateTabById(Main, tabA.id, 'test-heatmap-return-a');
@@ -141,7 +142,7 @@ describe('Heatmap tab context isolation', () => {
     expect(restoredA.clusterControlsTouched).toBe(true);
     expect(restoredA.clusterDefaultsAutoApplied).toBe(true);
     expect(restoredA.labelPositions).toEqual({ title: { x: 10, y: 20 } });
-    expect(restoredA.dendrogramSettings).toEqual({ thickness: 5, color: '#112233' });
+    expect(restoredA.dendrogramSettings).toEqual({ mode: 'fixed', thicknessPt: 5, color: '#112233' });
 
     await activateTabById(Main, tabB.id, 'test-heatmap-return-b');
     const restoredB = heatmap.__getState();
@@ -149,7 +150,79 @@ describe('Heatmap tab context isolation', () => {
     expect(restoredB.clusterControlsTouched).toBe(false);
     expect(restoredB.clusterDefaultsAutoApplied).toBe(false);
     expect(restoredB.labelPositions).toEqual({ title: { x: 30, y: 40 } });
-    expect(restoredB.dendrogramSettings).toEqual({ thickness: 2, color: '#445566' });
+    expect(restoredB.dendrogramSettings).toEqual({ mode: 'auto', thicknessPt: 2, color: '#445566' });
+  });
+
+  test('heatmap activation replays an owner pending draw queue even without hidden-draw state', async () => {
+    const Main = window.Main;
+    await handleGraphSelection(Main, 'heatmap');
+
+    const heatmap = window.Components?.heatmap;
+    expect(heatmap).toBeTruthy();
+    expect(heatmap.__testHooks.mergeDrawOptionState(
+      { tabId: 'owner-a', viewOnly: false, reason: 'full-redraw' },
+      { tabId: 'owner-a', viewOnly: true, reason: 'resize' }
+    )).toMatchObject({ tabId: 'owner-a', viewOnly: false, reason: 'resize' });
+    // Queue absence is semantically different from a real draw request. The shared draw
+    // sanitizer supplies a default reason for real requests, so optional queue slots must
+    // never sanitize null/{} into phantom work.
+    expect(heatmap.__testHooks.mergeDrawOptionState(null, null)).toBeNull();
+    expect(heatmap.__testHooks.mergeDrawOptionState({}, null)).toBeNull();
+    expect(heatmap.__testHooks.createDrawRuntime()).toEqual(expect.objectContaining({
+      scheduled: false,
+      inProgress: false,
+      requestOptions: null,
+      deferredOptions: null
+    }));
+
+    const initialTab = Main.tabs.getActiveTab();
+    const initialRuntime = heatmap.__testHooks.getDrawRuntime(initialTab.id);
+    expect(initialRuntime?.deferredOptions).toBeNull();
+    expect(initialRuntime?.requestOptions).toBeNull();
+    expect(heatmap.isIdleForSnapshot?.({ tabId: initialTab.id })).toBe(true);
+
+    const loadExample = document.getElementById('heatmapLoadExample');
+    expect(loadExample).toBeTruthy();
+    loadExample.click();
+    expect(await waitFor(
+      () => heatmap.isIdleForSnapshot?.({ tabId: Main.tabs.getActiveTab()?.id }) === true,
+      40
+    )).toBe(true);
+
+    const tabA = Main.tabs.getActiveTab();
+    expect(tabA?.type).toBe('heatmap');
+
+    Main.tabs.handleAddTabClick();
+    await flush();
+    await handleGraphSelection(Main, 'heatmap');
+
+    const tabB = Main.tabs.getActiveTab();
+    expect(tabB?.type).toBe('heatmap');
+    expect(tabB?.id).not.toBe(tabA?.id);
+
+    const sessionA = heatmap.__testHooks.getSession(tabA.id);
+    expect(sessionA).toBeTruthy();
+    expect(heatmap.__testHooks.scheduleDrawForSession(tabA.id, {
+      viewOnly: true,
+      reason: 'test-inactive-owner-pending'
+    })).toBe(false);
+    expect(heatmap.__testHooks.getDrawRuntime(tabA.id)?.deferredOptions).toMatchObject({
+      tabId: tabA.id,
+      viewOnly: true,
+      reason: 'test-inactive-owner-pending'
+    });
+    expect(heatmap.__testHooks.getDrawRuntime(tabA.id)?.scheduled).toBe(false);
+    expect(heatmap.__testHooks.getDrawRuntime(tabA.id)?.requestOptions).toBeNull();
+
+    await activateTabById(Main, tabA.id, 'test-heatmap-replay-pending-owner');
+
+    const settled = await waitFor(() => {
+      const runtime = heatmap.__testHooks.getDrawRuntime(tabA.id);
+      return heatmap.isIdleForSnapshot?.({ tabId: tabA.id }) === true
+        && !Object.keys(runtime?.deferredOptions || {}).length;
+    }, 80);
+    expect(settled).toBe(true);
+    expect(heatmap.__testHooks.getDrawRuntime(tabA.id)?.requestOptions).toBeNull();
   });
 
   test('disposing a Heatmap tab releases its owner session', async () => {

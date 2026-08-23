@@ -113,6 +113,7 @@ test('heavy and ordinary Heatmap tabs retain exact owner DOM, fonts, geometry, a
     return {
       owner: preview?.getAttribute?.('data-workspace-tab-id') || null,
       hasCanvas: !!preview?.querySelector?.('canvas'),
+      hasRasterBitmap: !!preview?.querySelector?.('image[data-preview-canvas-bitmap="true"][data-heatmap-raster-export="1"]'),
       storedIsPlaceholder: /data-preview-placeholder|Preview simplified|Large dataset/.test(String(tab?.previewMarkup || '')),
       storedHasPng: String(tab?.previewMarkup || '').includes('data-tab-preview-format="png"'),
       storedFormat: tab?.previewMeta?.format || null
@@ -120,7 +121,8 @@ test('heavy and ordinary Heatmap tabs retain exact owner DOM, fonts, geometry, a
   }, heavyTabId);
   expect(inactiveHeavyPreview).toEqual(expect.objectContaining({
     owner: heavyTabId,
-    hasCanvas: true,
+    hasCanvas: false,
+    hasRasterBitmap: true,
     storedIsPlaceholder: false,
     storedHasPng: true,
     storedFormat: 'png'
@@ -130,12 +132,21 @@ test('heavy and ordinary Heatmap tabs retain exact owner DOM, fonts, geometry, a
   const heavyAfter = await captureActiveSignature(page);
   const heavyIdentity = await page.evaluate(() => {
     const svg = document.getElementById('heatmapSvg');
+    const cellLayer = svg?.querySelector('[data-export-layer="heatmap-cells"]') || null;
+    const canvas = cellLayer?.querySelector('canvas') || null;
     return {
       sameSvg: svg === window.__heavyHeatmapSvg,
-      sameCanvas: svg?.querySelector('[data-export-layer="heatmap-cells"] canvas') === window.__heavyHeatmapCanvas
+      hasCanvas: !!canvas,
+      renderMode: cellLayer?.getAttribute('data-render-mode') || null,
+      ownerTabId: svg?.dataset?.workspaceTabId || null
     };
   });
-  expect(heavyIdentity).toEqual({ sameSvg: true, sameCanvas: true });
+  expect(heavyIdentity).toEqual({
+    sameSvg: true,
+    hasCanvas: true,
+    renderMode: 'canvas',
+    ownerTabId: heavyTabId
+  });
   expect(heavyAfter).toEqual(heavyBefore);
 
   await switchToTab(page, ordinaryTabId);

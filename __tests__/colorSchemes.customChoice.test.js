@@ -152,6 +152,32 @@ describe('color scheme custom-color choice', () => {
     expect(tab.payload.config.pointStyles[2].fill).toBe('#d55e00');
   });
 
+  test('Box palette replacement keeps transparency-only overlays palette-derived in both color modes', () => {
+    tab = {
+      id: 'box-sparse-summary-style',
+      type: 'box',
+      payload: {
+        type: 'box',
+        data: [['A', 'B', 'C'], [1, 2, 3]],
+        config: {
+          colorScheme: 'grayscale',
+          colorMode: 'unified',
+          colors: ['#7a7a7a', '#7a7a7a', '#7a7a7a'],
+          borderColors: ['#000000', '#000000', '#000000'],
+          summaryStyles: {
+            2: { opacity: 0.44 }
+          }
+        }
+      }
+    };
+
+    expect(window.Shared.colorSchemes.applyToActiveTab('box', 'colorblind', { colorMode: 'replace' })).toBe(true);
+
+    expect(tab.payload.config.fill).toBe('#0072b2');
+    expect(tab.payload.config.colors[2]).toBe('#009e73');
+    expect(tab.payload.config.summaryStyles[2]).toEqual({ opacity: 0.44 });
+  });
+
   test('testfile.graph keeps every shared green point assignment together', async () => {
     const archive = await JSZip.loadAsync(
       fs.readFileSync(path.join(__dirname, 'testfile.graph'))

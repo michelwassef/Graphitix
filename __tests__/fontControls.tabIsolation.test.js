@@ -95,6 +95,55 @@ describe('fontControls tab-scoped style isolation', () => {
     expect(textTab2.getAttribute('font-size')).toBe('11px');
   });
 
+  test('a size-only role style preserves renderer-owned text colors', () => {
+    const fontControls = window.Shared?.fontControls;
+    const first = createSvgText('First group');
+    const second = createSvgText('Second group');
+    first.setAttribute('fill', '#0044cc');
+    second.setAttribute('fill', '#cc2200');
+
+    setActiveTab('tab-box-1');
+    fontControls.markText(first, { scopeId: 'survival', key: 'riskTable' });
+    fontControls.markText(second, { scopeId: 'survival', key: 'riskTable' });
+    fontControls.importScopeStyles('survival', {
+      riskTable: { fontSize: '18px' }
+    }, { prune: true });
+
+    expect(first.getAttribute('font-size')).toBe('18px');
+    expect(second.getAttribute('font-size')).toBe('18px');
+    expect(first.getAttribute('fill')).toBe('#0044cc');
+    expect(second.getAttribute('fill')).toBe('#cc2200');
+  });
+
+  test('font edits preserve renderer-owned multiline tspan layout', () => {
+    const fontControls = window.Shared?.fontControls;
+    const text = createSvgText('');
+    text.dataset.fontPreserveStructure = 'children';
+    ['First statistic', 'Second statistic'].forEach((value, index) => {
+      const line = document.createElementNS(NS, 'tspan');
+      line.dataset.fontStructurePart = 'line';
+      line.dataset.fontStructureText = value;
+      line.setAttribute('x', '100');
+      line.setAttribute('dy', index === 0 ? '0' : '1.2em');
+      line.textContent = value;
+      text.appendChild(line);
+    });
+
+    setActiveTab('tab-box-1');
+    fontControls.markText(text, { scopeId: 'line', role: 'statsSummary', key: 'statsSummary' });
+    fontControls.importScopeStyles('line', {
+      statsSummary: { fontSize: '18px', fontWeight: '700', fill: '#cc0000' }
+    }, { prune: true });
+
+    const lines = Array.from(text.children);
+    expect(lines).toHaveLength(2);
+    expect(lines.map(line => line.textContent)).toEqual(['First statistic', 'Second statistic']);
+    expect(lines.map(line => line.getAttribute('dy'))).toEqual(['0', '1.2em']);
+    expect(text.getAttribute('font-size')).toBe('18px');
+    expect(text.getAttribute('font-weight')).toBe('700');
+    expect(text.getAttribute('fill')).toBe('#cc0000');
+  });
+
   test('selection font-family edit does not shield that text from later graph font-size edits', () => {
     const fontControls = window.Shared?.fontControls;
     const title = createSvgText('Title');
@@ -197,5 +246,44 @@ describe('fontControls tab-scoped style isolation', () => {
     expect(axis.getAttribute('font-size')).toBe('12px');
     expect(title.getAttribute('font-family')).toBe('Georgia');
     expect(axis.getAttribute('font-family')).toBe('Arial');
+  });
+
+  test('point-label font size supports individual and all-label scopes without affecting other graph text', () => {
+    const fontControls = window.Shared?.fontControls;
+    const firstLabel = createSvgText('Sample A');
+    const secondLabel = createSvgText('Sample B');
+    const title = createSvgText('Graph title');
+    [firstLabel, secondLabel, title].forEach(node => node.setAttribute('font-size', '12px'));
+
+    setActiveTab('tab-box-1');
+    fontControls.markText(firstLabel, {
+      scopeId: 'box',
+      role: 'pointLabel',
+      key: 'pointLabel:a',
+      collection: 'labels'
+    });
+    fontControls.markText(secondLabel, {
+      scopeId: 'box',
+      role: 'pointLabel',
+      key: 'pointLabel:b',
+      collection: 'labels'
+    });
+    fontControls.markText(title, { scopeId: 'box', role: 'graphTitle', key: 'graphTitle' });
+
+    fontControls.openForElement(firstLabel, { scopeId: 'box', key: 'pointLabel:a' });
+    setToolbarFontSize('14');
+    expect(firstLabel.getAttribute('font-size')).toBe('18.67px');
+    expect(secondLabel.getAttribute('font-size')).toBe('12px');
+    expect(title.getAttribute('font-size')).toBe('12px');
+
+    setToolbarScope('labels');
+    setToolbarFontSize('16');
+    expect(firstLabel.getAttribute('font-size')).toBe('21.33px');
+    expect(secondLabel.getAttribute('font-size')).toBe('21.33px');
+    expect(title.getAttribute('font-size')).toBe('12px');
+
+    const exported = fontControls.exportScopeStyles('box', { tabId: 'tab-box-1' });
+    expect(exported?.__labels__?.fontSize).toBe('21.33px');
+    expect(exported?.['pointLabel:a']?.fontSize).toBeUndefined();
   });
 });

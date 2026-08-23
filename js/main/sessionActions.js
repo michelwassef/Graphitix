@@ -3,6 +3,7 @@
 
   const Main = window.Main = window.Main || {};
   const namespace = Main.sessionActions = Main.sessionActions || {};
+  const RECOVERY_INTERACTION_ACTIVE_CODE = 'GRAPHITIX_RECOVERY_INTERACTION_ACTIVE';
 
   if(typeof window.Shared?.renderCacheSchema?.validate !== 'function' && typeof require === 'function'){
     try {
@@ -20,6 +21,20 @@
     if (typeof console !== 'undefined' && typeof console.debug === 'function') {
       console.debug('Debug: sessionActions.' + message, payload || {});
     }
+  }
+
+  function assertRecoveryInteractionAvailable(context, policy, stage) {
+    if (policy?.snapshotKind !== 'recovery') {
+      return;
+    }
+    const Shared = context?.Shared || window.Shared;
+    if (Shared?.plot3d?.hasActiveRotationGesture?.() !== true) {
+      return;
+    }
+    const error = new Error('Recovery checkpoint deferred while a 3D rotation gesture is active.');
+    error.code = RECOVERY_INTERACTION_ACTIVE_CODE;
+    error.stage = stage || 'checkpoint';
+    throw error;
   }
 
   function ensureGraphArchiveApi(Shared) {
@@ -605,6 +620,9 @@
     const activeProjectionTab = session.getActiveTab?.() || null;
     const activeTab = findTabById(workspaceState, activeProjectionTab?.id) || activeProjectionTab;
     const canonicalActiveState = !!(activeTab?.payload && activeTab.payloadDirty !== true);
+    assertRecoveryInteractionAvailable(context, {
+      snapshotKind: options.snapshotKind
+    }, 'before-active-owner-capture');
     if (!(options.skipActiveProjectionCapture === true && canonicalActiveState)) {
       persistActiveTabIfNeeded(context, {
         reason: options.reason || 'archive-save',
@@ -756,6 +774,16 @@
 
   namespace.awaitWorkspaceReadyForSnapshot = awaitWorkspaceReadyForSnapshot;
 
+  function createSnapshotReadinessError(tab, result, reason) {
+    const error = new Error(`Snapshot deferred because ${tab?.type || 'component'} has not published a settled graph frame.`);
+    error.code = 'GRAPHITIX_SNAPSHOT_NOT_READY';
+    error.tabId = tab?.id || null;
+    error.component = tab?.type || null;
+    error.reason = result?.reason || reason || 'snapshot-not-ready';
+    error.readiness = result || null;
+    return error;
+  }
+
   async function createDocumentCheckpoint(context, options = {}) {
     const { session, workspaceState } = context || {};
     if (!session || !workspaceState) {
@@ -783,11 +811,19 @@
 
     const activeTab = typeof session.getActiveTab === 'function' ? session.getActiveTab() : null;
     if (activeTab && !activeTab.isWelcome && activeTab.type) {
-      await awaitWorkspaceReadyForSnapshot(context, activeTab, {
+      const readiness = await awaitWorkspaceReadyForSnapshot(context, activeTab, {
         reason: options.readyReason || `${options.reason || 'document-checkpoint'}-active-ready`,
         timeoutMs: options.readyTimeoutMs
       });
+      if (readiness?.ok === false) {
+        throw createSnapshotReadinessError(
+          activeTab,
+          readiness,
+          options.readyReason || `${options.reason || 'document-checkpoint'}-active-ready`
+        );
+      }
     }
+    assertRecoveryInteractionAvailable(context, policy, 'after-readiness');
 
     const graphTabs = getGraphTabsFromWorkspaceState(workspaceState);
     const preserveRenderCacheTabIds = policy.preserveRenderCacheTabScope === 'all'
@@ -1039,14 +1075,28 @@
     const rememberFile = options.rememberFile !== false;
     const requestedSnapshotKind = options.snapshotKind
       || (options.reason === 'autosave' ? 'autosave' : 'archive-save');
-    const checkpoint = await createDocumentCheckpoint(context, {
-      ...options,
-      scope,
-      reason: options.reason || 'archive-save',
-      snapshotKind: requestedSnapshotKind,
-      policyMode: options.reason === 'autosave' ? 'autosave' : 'manual-save',
-      readyReason: 'pre-save-active-ready'
-    });
+    let checkpoint = null;
+    try {
+      checkpoint = await createDocumentCheckpoint(context, {
+        ...options,
+        scope,
+        reason: options.reason || 'archive-save',
+        snapshotKind: requestedSnapshotKind,
+        policyMode: options.reason === 'autosave' ? 'autosave' : 'manual-save',
+        readyReason: 'pre-save-active-ready'
+      });
+    } catch (err) {
+      if (options.reason === 'autosave' && err?.code === 'GRAPHITIX_SNAPSHOT_NOT_READY') {
+        debug(context, 'saveWorkspaceArchiveWithScope.deferred', {
+          scope,
+          reason: 'snapshot-not-ready',
+          tabId: err.tabId || null,
+          component: err.component || null
+        });
+        return { status: 'skipped', reason: 'snapshot-not-ready' };
+      }
+      throw err;
+    }
     if (!checkpoint) {
       debug(context, 'saveWorkspaceArchiveWithScope.skip', { scope, reason: 'no-tabs' });
       return { status: 'cancelled', reason: 'no-tabs' };

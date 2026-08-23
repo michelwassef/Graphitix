@@ -69,9 +69,15 @@
   const SETPOLYFILLMODE_ALTERNATE = 1;
   const SETPOLYFILLMODE_WINDING = 2;
 
-  // Default scale factor for PNG exports (2x for higher resolution)
-  const DEFAULT_PNG_SCALE = 2;
+  const CSS_EXPORT_DPI = 96;
+  const DEFAULT_PNG_DPI = 300;
+  const DEFAULT_PNG_SCALE = DEFAULT_PNG_DPI / CSS_EXPORT_DPI;
+  const DEFAULT_RASTER_SCALE = 2;
+  // Raster-only clipboard consumers discard PNG density metadata, so the
+  // fallback uses one pixel per CSS pixel to preserve physical paste size.
+  const CLIPBOARD_PNG_FALLBACK_SCALE = 1;
   const DEFAULT_EXPORT_VIEWBOX_PADDING = 4;
+  const EMF_VECTOR_COORDINATE_SCALE = 12;
   const EXPORT_VIEWBOX_EPSILON = 0.01;
 
   function isDebugEnabled() {
@@ -126,6 +132,12 @@
     if (!raw) return fallback;
     const num = Number.parseFloat(raw);
     if (!Number.isFinite(num)) return fallback;
+    if (/pt$/i.test(raw)) return num * (CSS_EXPORT_DPI / 72);
+    if (/pc$/i.test(raw)) return num * (CSS_EXPORT_DPI / 6);
+    if (/in$/i.test(raw)) return num * CSS_EXPORT_DPI;
+    if (/cm$/i.test(raw)) return num * (CSS_EXPORT_DPI / 2.54);
+    if (/mm$/i.test(raw)) return num * (CSS_EXPORT_DPI / 25.4);
+    if (/q$/i.test(raw)) return num * (CSS_EXPORT_DPI / 101.6);
     if (/em$/i.test(raw)) {
       const base = Number.isFinite(fontSize) ? fontSize : 12;
       return num * base;
@@ -146,11 +158,13 @@
     return num;
   }
 
-  function parseDashArray(value) {
+  function parseDashArray(value, fontSize) {
     if (!value) return null;
     if (typeof value !== 'string') return null;
     if (value === 'none') return null;
-    const parts = value.split(/[\s,]+/g).map(part => parseSvgNumber(part, null)).filter(num => num !== null && Number.isFinite(num));
+    const parts = value.split(/[\s,]+/g)
+      .map(part => parseSvgLength(part, fontSize, null))
+      .filter(num => num !== null && Number.isFinite(num));
     return parts.length ? parts : null;
   }
 
@@ -358,21 +372,147 @@
     return String(rounded);
   }
 
-  /**
-   * Extracts a style key from a circle element for grouping purposes.
-   * Elements with the same key can share attributes via a parent group.
-   * @param {SVGCircleElement} circle - The circle element
-   * @returns {string} - A key string representing the element's style and radius
-   */
-  function getCircleGroupKey(circle) {
-    if (!circle || typeof circle.getAttribute !== 'function') return '';
-    const r = circle.getAttribute('r') || '3';
-    const fill = circle.getAttribute('fill') || '';
-    const stroke = circle.getAttribute('stroke') || '';
-    const strokeWidth = circle.getAttribute('stroke-width') || '';
-    const fillOpacity = circle.getAttribute('fill-opacity') || '';
-    const strokeOpacity = circle.getAttribute('stroke-opacity') || '';
-    return `${r}|${fill}|${stroke}|${strokeWidth}|${fillOpacity}|${strokeOpacity}`;
+  const OPTIMIZED_CIRCLE_GEOMETRY_ATTRIBUTES = new Set(['cx', 'cy', 'r', 'transform']);
+  const OPTIMIZED_CIRCLE_IGNORED_ATTRIBUTES = new Set([
+    'id',
+    'role',
+    'tabindex',
+    'focusable',
+    'aria-label',
+    'aria-labelledby',
+    'aria-describedby'
+  ]);
+
+  function isIgnoredCircleAttribute(name) {
+    const normalized = String(name || '').toLowerCase();
+    return OPTIMIZED_CIRCLE_IGNORED_ATTRIBUTES.has(normalized)
+      || normalized.startsWith('data-')
+      || normalized.startsWith('aria-')
+      || normalized.startsWith('on');
+  }
+
+  function collectCirclePresentationAttributes(circle) {
+    if (!circle?.attributes) {
+      return [];
+    }
+    return Array.from(circle.attributes)
+      .filter(attribute => {
+        const name = String(attribute?.name || '').toLowerCase();
+        return name
+          && !OPTIMIZED_CIRCLE_GEOMETRY_ATTRIBUTES.has(name)
+          && !isIgnoredCircleAttribute(name);
+      })
+      .map(attribute => ({
+        name: attribute.name,
+        namespaceURI: attribute.namespaceURI || null,
+        value: attribute.value
+      }))
+      .sort((left, right) => left.name.localeCompare(right.name));
+  }
+
+  function getCircleGroupDescriptor(circle) {
+    if (!circle || typeof circle.getAttribute !== 'function') {
+      return null;
+    }
+    const radius = Number.parseFloat(circle.getAttribute('r') || '3');
+    const attributes = collectCirclePresentationAttributes(circle);
+    const key = `${roundCoord(radius, 6)}|${attributes
+      .map(attribute => `${attribute.namespaceURI || ''}:${attribute.name}=${attribute.value}`)
+      .join('|')}`;
+    return { radius, attributes, key };
+  }
+
+  function copyCirclePresentationAttributes(attributes, target) {
+    attributes.forEach(attribute => {
+      if (attribute.namespaceURI) {
+        target.setAttributeNS(attribute.namespaceURI, attribute.name, attribute.value);
+      } else {
+        target.setAttribute(attribute.name, attribute.value);
+      }
+    });
+  }
+
+  function readInlineStyleProperty(node, propertyName) {
+    const direct = node?.style?.getPropertyValue?.(propertyName);
+    if (direct) {
+      return String(direct).trim();
+    }
+    const style = String(node?.getAttribute?.('style') || '');
+    const escaped = String(propertyName).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const match = style.match(new RegExp(`(?:^|;)\\s*${escaped}\\s*:\\s*([^;]+)`, 'i'));
+    return match ? String(match[1]).trim() : '';
+  }
+
+  function hasNonOpaqueMarkerAlpha(circle) {
+    const alphaAttributes = ['opacity', 'fill-opacity', 'stroke-opacity'];
+    for (const name of alphaAttributes) {
+      const raw = readInlineStyleProperty(circle, name) || circle.getAttribute(name);
+      if (raw !== null && raw !== '') {
+        const value = Number.parseFloat(raw);
+        if (!Number.isFinite(value) || value < 1) {
+          return true;
+        }
+      }
+    }
+    const paintValues = ['fill', 'stroke']
+      .map(name => readInlineStyleProperty(circle, name) || circle.getAttribute(name))
+      .filter(Boolean)
+      .map(value => String(value).trim());
+    return paintValues.some(value => {
+      const rgba = value.match(/^rgba\([^,]+,[^,]+,[^,]+,\s*([0-9.]+)\s*\)$/i);
+      if (rgba) {
+        const alpha = Number.parseFloat(rgba[1]);
+        return !Number.isFinite(alpha) || alpha < 1;
+      }
+      return /^#[0-9a-f]{8}$/i.test(value) && value.slice(7, 9).toLowerCase() !== 'ff';
+    });
+  }
+
+  function hasVisibleMarkerStroke(circle) {
+    const stroke = String(
+      readInlineStyleProperty(circle, 'stroke') || circle.getAttribute('stroke') || ''
+    ).trim().toLowerCase();
+    if (!stroke || stroke === 'none' || stroke === 'transparent') {
+      return false;
+    }
+    const rawStrokeWidth = readInlineStyleProperty(circle, 'stroke-width')
+      || circle.getAttribute('stroke-width')
+      || '1';
+    const strokeWidth = Number.parseFloat(rawStrokeWidth);
+    return !Number.isFinite(strokeWidth) || strokeWidth > 0;
+  }
+
+  function hasComplexMarkerFill(circle) {
+    const fill = String(
+      readInlineStyleProperty(circle, 'fill') || circle.getAttribute('fill') || ''
+    ).trim().toLowerCase();
+    if (fill.startsWith('url(') || fill.startsWith('context-')) {
+      return true;
+    }
+    const fillRule = String(
+      readInlineStyleProperty(circle, 'fill-rule') || circle.getAttribute('fill-rule') || ''
+    ).trim().toLowerCase();
+    return !!fillRule && fillRule !== 'nonzero';
+  }
+
+  function hasMarkerEffects(circle) {
+    const disabledValues = new Set(['', 'none', 'normal']);
+    return ['filter', 'mask', 'clip-path', 'mix-blend-mode'].some(name => {
+      const value = String(
+        readInlineStyleProperty(circle, name) || circle.getAttribute(name) || ''
+      ).trim().toLowerCase();
+      return !disabledValues.has(value);
+    });
+  }
+
+  function estimateSerializedNodeLength(node) {
+    try {
+      const Serializer = global.XMLSerializer;
+      if (typeof Serializer === 'function') {
+        return new Serializer().serializeToString(node).length;
+      }
+    } catch (_) {}
+    return typeof node?.outerHTML === 'string' ? node.outerHTML.length : 0;
   }
 
   /**
@@ -713,10 +853,10 @@
    * Combines circles with the same style into single path elements.
    *
    * Strategy:
-   * 1. Group circles by radius and style attributes
-   * 2. For each group, create a single <path> element with multiple circle subpaths
-   * 3. Apply shared style attributes to parent groups
-   * 4. Reduce coordinate precision
+   * 1. Optimize only direct, opaque, fill-only circles whose geometry has no transform
+   * 2. Consolidate contiguous runs with matching presentation attributes into paths
+   * 3. Keep the original layer and paint order intact
+   * 4. Skip the rewrite unless the serialized representation is actually smaller
    *
    * @param {SVGElement} svgNode - The root SVG element (will be modified)
    * @param {Object} options - Optimization options
@@ -732,121 +872,150 @@
       originalCount: 0,
       optimizedCount: 0,
       groupsCreated: 0,
-      estimatedSavingsPercent: 0
+      estimatedSavingsPercent: 0,
+      skippedReason: null,
+      orderPreserved: true
+    };
+
+    const skip = (reason, details = {}) => {
+      stats.skippedReason = reason;
+      debugLog('optimizeScatterPoints skipped', { contextLabel, reason, ...details });
+      return stats;
     };
 
     if (!svgNode || typeof svgNode.querySelector !== 'function') {
-      debugLog('optimizeScatterPoints skipped', { contextLabel, reason: 'invalid node' });
-      return stats;
+      return skip('invalid node');
     }
 
     const layer = svgNode.querySelector(selector);
     if (!layer) {
-      debugLog('optimizeScatterPoints skipped', { contextLabel, reason: 'layer not found', selector });
-      return stats;
+      return skip('layer not found', { selector });
     }
 
-    // Collect all circle elements in the layer
-    const circles = Array.from(layer.querySelectorAll('circle'));
-    stats.originalCount = circles.length;
+    const allCircles = Array.from(layer.querySelectorAll('circle'));
+    stats.originalCount = allCircles.length;
 
-    if (circles.length < SCATTER_OPTIMIZATION_THRESHOLD) {
-      debugLog('optimizeScatterPoints skipped', {
-        contextLabel,
-        reason: 'below threshold',
-        count: circles.length,
+    if (allCircles.length < SCATTER_OPTIMIZATION_THRESHOLD) {
+      return skip('below threshold', {
+        count: allCircles.length,
         threshold: SCATTER_OPTIMIZATION_THRESHOLD
       });
-      return stats;
+    }
+
+    const elementChildren = Array.from(layer.children || []);
+    const directCircles = elementChildren.filter(child => child.tagName?.toLowerCase() === 'circle');
+    if (directCircles.length !== allCircles.length || directCircles.length !== elementChildren.length) {
+      return skip('mixed or nested marker geometry', {
+        circleCount: allCircles.length,
+        directCircleCount: directCircles.length,
+        elementChildCount: elementChildren.length
+      });
+    }
+
+    const transformedMarker = directCircles.find(circle => String(circle.getAttribute('transform') || '').trim());
+    if (transformedMarker) {
+      return skip('transformed markers', {
+        renderMode: layer.getAttribute('data-render-mode') || null
+      });
+    }
+
+    if (directCircles.some(circle => circle.hasAttribute('class'))) {
+      return skip('class-styled markers');
+    }
+
+    if (directCircles.some(circle => hasNonOpaqueMarkerAlpha(circle))) {
+      return skip('non-opaque markers');
+    }
+
+    if (hasVisibleMarkerStroke(layer) || directCircles.some(circle => hasVisibleMarkerStroke(circle))) {
+      return skip('stroked markers');
+    }
+
+    if (directCircles.some(circle => hasComplexMarkerFill(circle))) {
+      return skip('complex marker fills');
+    }
+
+    if (directCircles.some(circle => hasMarkerEffects(circle))) {
+      return skip('effect-bearing markers');
     }
 
     const ownerDoc = svgNode.ownerDocument || doc;
     if (!ownerDoc) {
-      debugLog('optimizeScatterPoints skipped', { contextLabel, reason: 'no owner document' });
-      return stats;
+      return skip('no owner document');
     }
 
     const NS = 'http://www.w3.org/2000/svg';
+    const orderedGroups = [];
+    let activeGroup = null;
 
-    // Group circles by radius and style for path consolidation
-    const circleGroups = new Map();
-    for (const circle of circles) {
-      const key = getCircleGroupKey(circle);
-
-      if (!circleGroups.has(key)) {
-        circleGroups.set(key, {
-          radius: Number.parseFloat(circle.getAttribute('r') || '3'),
-          fill: circle.getAttribute('fill'),
-          stroke: circle.getAttribute('stroke'),
-          strokeWidth: circle.getAttribute('stroke-width'),
-          fillOpacity: circle.getAttribute('fill-opacity'),
-          strokeOpacity: circle.getAttribute('stroke-opacity'),
-          circles: []
-        });
-      }
-
+    for (const circle of directCircles) {
+      const descriptor = getCircleGroupDescriptor(circle);
       const cx = Number.parseFloat(circle.getAttribute('cx') || '0');
       const cy = Number.parseFloat(circle.getAttribute('cy') || '0');
-      circleGroups.get(key).circles.push({ cx, cy });
-    }
-
-    // Create a new layer to hold optimized content
-    const optimizedLayer = ownerDoc.createElementNS(NS, 'g');
-    optimizedLayer.setAttribute('data-export-layer', 'scatter-points');
-    optimizedLayer.setAttribute('data-layer', 'points');
-    optimizedLayer.setAttribute('data-optimized', 'true');
-
-    let totalPathElements = 0;
-
-    for (const [, group] of circleGroups) {
-      // Build path data by combining all circles in this group
-      const pathParts = [];
-      for (const pt of group.circles) {
-        pathParts.push(circleToPathData(pt.cx, pt.cy, group.radius));
+      if (!descriptor
+        || !Number.isFinite(descriptor.radius)
+        || descriptor.radius <= 0
+        || !Number.isFinite(cx)
+        || !Number.isFinite(cy)) {
+        return skip('invalid circle geometry');
       }
 
-      const pathData = pathParts.join('');
+      if (!activeGroup || activeGroup.key !== descriptor.key) {
+        activeGroup = {
+          key: descriptor.key,
+          radius: descriptor.radius,
+          attributes: descriptor.attributes,
+          points: []
+        };
+        orderedGroups.push(activeGroup);
+      }
+      activeGroup.points.push({ cx, cy });
+    }
 
-      // Create a single path element for all circles in this group
+    const optimizedPaths = orderedGroups.map(group => {
       const path = ownerDoc.createElementNS(NS, 'path');
-      path.setAttribute('d', pathData);
+      path.setAttribute('d', group.points
+        .map(point => circleToPathData(point.cx, point.cy, group.radius))
+        .join(''));
+      copyCirclePresentationAttributes(group.attributes, path);
+      return path;
+    });
 
-      // Apply style attributes
-      if (group.fill) path.setAttribute('fill', group.fill);
-      if (group.stroke) path.setAttribute('stroke', group.stroke);
-      if (group.strokeWidth) path.setAttribute('stroke-width', group.strokeWidth);
-      if (group.fillOpacity && group.fillOpacity !== '1') {
-        path.setAttribute('fill-opacity', group.fillOpacity);
-      }
-      if (group.strokeOpacity && group.strokeOpacity !== '1') {
-        path.setAttribute('stroke-opacity', group.strokeOpacity);
-      }
-
-      optimizedLayer.appendChild(path);
-      totalPathElements++;
-      stats.groupsCreated++;
+    const originalLength = directCircles.reduce(
+      (total, circle) => total + estimateSerializedNodeLength(circle),
+      0
+    );
+    const optimizedLength = optimizedPaths.reduce(
+      (total, path) => total + estimateSerializedNodeLength(path),
+      0
+    );
+    if (originalLength > 0 && optimizedLength >= originalLength) {
+      return skip('no size reduction', { originalLength, optimizedLength });
     }
 
-    // Replace the original layer with the optimized layer
-    layer.parentNode.replaceChild(optimizedLayer, layer);
-    stats.optimizedCount = totalPathElements;
-    stats.optimized = true;
+    while (layer.firstChild) {
+      layer.removeChild(layer.firstChild);
+    }
+    optimizedPaths.forEach(path => layer.appendChild(path));
+    layer.setAttribute('data-optimized', 'true');
 
-    // Estimate file size savings:
-    // Original: <circle cx="123.456789" cy="789.123456" r="3" fill="#377eb8"/> ~75 chars each
-    // Optimized: M97,200a3,3 0 1,0 6,0a3,3 0 1,0-6,0 ~40 chars per circle, no element overhead
-    const originalEstimate = stats.originalCount * 75;
-    const optimizedEstimate = (totalPathElements * 60) + (stats.originalCount * 40);
-    if (originalEstimate > 0) {
-      stats.estimatedSavingsPercent = Math.round((1 - optimizedEstimate / originalEstimate) * 100);
+    stats.optimizedCount = optimizedPaths.length;
+    stats.groupsCreated = optimizedPaths.length;
+    stats.optimized = true;
+    if (originalLength > 0) {
+      stats.estimatedSavingsPercent = Math.max(
+        0,
+        Math.round((1 - (optimizedLength / originalLength)) * 100)
+      );
     }
 
     debugLog('optimizeScatterPoints complete', {
       contextLabel,
       originalCount: stats.originalCount,
-      pathElements: totalPathElements,
+      pathElements: stats.optimizedCount,
       groupsCreated: stats.groupsCreated,
-      estimatedSavingsPercent: stats.estimatedSavingsPercent
+      estimatedSavingsPercent: stats.estimatedSavingsPercent,
+      orderPreserved: stats.orderPreserved
     });
 
     return stats;
@@ -1906,6 +2075,57 @@
     return svgElement;
   }
 
+  function normalizeSvgStringProjection(xml, options = {}) {
+    if (!xml || typeof xml !== 'string') {
+      return { xml: xml || '', width: NaN, height: NaN, projection: null };
+    }
+    const svgElement = parseSvgDocument(xml);
+    if (!svgElement) {
+      return { xml, width: NaN, height: NaN, projection: null };
+    }
+    const markedWidth = Number(svgElement.getAttribute('data-export-physical-width-px'));
+    const markedHeight = Number(svgElement.getAttribute('data-export-physical-height-px'));
+    if (markedWidth > 0 && markedHeight > 0) {
+      return { xml, width: markedWidth, height: markedHeight, projection: null };
+    }
+    const projectionApi = Shared.exportProjection;
+    if (typeof projectionApi?.resolve !== 'function' || typeof projectionApi?.applyToSvg !== 'function') {
+      const dims = resolveSvgDimensions(svgElement, options) || {};
+      return { xml, width: dims.width, height: dims.height, projection: null };
+    }
+    const requestedWidth = Number(options.width);
+    const requestedHeight = Number(options.height);
+    const ownerFrame = requestedWidth > 0 && requestedHeight > 0
+      ? { width: requestedWidth, height: requestedHeight, authority: 'svg-string-options' }
+      : options.ownerFrame;
+    const projection = projectionApi.resolve(svgElement, {
+      ...options,
+      ownerFrame,
+      contextLabel: options.contextLabel || 'svg-string-projection'
+    });
+    if (!projection) {
+      const dims = resolveSvgDimensions(svgElement, options) || {};
+      return { xml, width: dims.width, height: dims.height, projection: null };
+    }
+    const applied = projectionApi.applyToSvg(svgElement, projection, {
+      viewBox: projectionApi.resolveViewBox?.(svgElement) || projection.logicalViewBox
+    });
+    if (!applied) {
+      return { xml, width: projection.physical.width, height: projection.physical.height, projection };
+    }
+    const Serializer = global.XMLSerializer || (typeof XMLSerializer !== 'undefined' ? XMLSerializer : null);
+    if (!Serializer) {
+      return { xml, width: applied.physical.width, height: applied.physical.height, projection: applied };
+    }
+    const serialized = new Serializer().serializeToString(svgElement);
+    return {
+      xml: serialized,
+      width: applied.physical.width,
+      height: applied.physical.height,
+      projection: applied
+    };
+  }
+
   function collectClipPaths(svgElement) {
     const clipMap = new Map();
     let unsupported = false;
@@ -2222,9 +2442,13 @@
           }
         }
         const scale = computeScaleFromMatrix(combinedMatrix);
-        const strokeWidth = transformStrokeWidth(combinedMatrix, nextStyle.strokeWidth || 0);
-        const dashArray = nextStyle.strokeDasharray ? nextStyle.strokeDasharray.map(value => value * scale) : null;
-        const dashOffset = nextStyle.strokeDashoffset ? nextStyle.strokeDashoffset * scale : 0;
+        const nonScalingStroke = String(nextStyle.vectorEffect || '').trim().toLowerCase() === 'non-scaling-stroke';
+        const strokeScale = nonScalingStroke ? 1 : scale;
+        const strokeWidth = nonScalingStroke
+          ? (nextStyle.strokeWidth || 0)
+          : transformStrokeWidth(combinedMatrix, nextStyle.strokeWidth || 0);
+        const dashArray = nextStyle.strokeDasharray ? nextStyle.strokeDasharray.map(value => value * strokeScale) : null;
+        const dashOffset = nextStyle.strokeDashoffset ? nextStyle.strokeDashoffset * strokeScale : 0;
         shapes.push({
           type: 'path',
           subpaths: clipped,
@@ -2886,13 +3110,29 @@
     if (!scene || !Array.isArray(scene.shapes)) {
       return null;
     }
-    const dpiX = resolveDpiValue(options.dpiX || options.dpi);
-    const dpiY = resolveDpiValue(options.dpiY || options.dpi);
+    const dpiX = CSS_EXPORT_DPI;
+    const dpiY = CSS_EXPORT_DPI;
+    const coordinateScale = EMF_VECTOR_COORDINATE_SCALE;
     const background = parseBackgroundColor(options.backgroundColor || '#ffffff');
-    const writer = createEmfWriter(scene.width, scene.height, dpiX, dpiY);
+    const scaleSubpathsForEmf = subpaths => (subpaths || []).map(subpath => ({
+      ...subpath,
+      points: (subpath.points || []).map(point => ({
+        x: point.x * coordinateScale,
+        y: point.y * coordinateScale
+      }))
+    }));
+    // EMF geometry is integer-based. Use a higher logical device resolution and
+    // scale its DPI metadata by the same factor so sub-pixel SVG geometry and
+    // point-sized strokes retain precision without changing physical dimensions.
+    const writer = createEmfWriter(
+      scene.width * coordinateScale,
+      scene.height * coordinateScale,
+      dpiX * coordinateScale,
+      dpiY * coordinateScale
+    );
     writer.setBkMode(1);
     const backgroundBrush = writer.ensureBrush(encodeColorRef(background));
-    writer.drawRectangle(backgroundBrush, 0, 0, scene.width, scene.height);
+    writer.drawRectangle(backgroundBrush, 0, 0, scene.width * coordinateScale, scene.height * coordinateScale);
 
     for (const shape of scene.shapes) {
       if (shape.type === 'path') {
@@ -2901,11 +3141,11 @@
         if (fillColor) {
           const brushHandle = writer.ensureBrush(encodeColorRef(fillColor));
           const fillMode = shape.fillRule === 'evenodd' ? SETPOLYFILLMODE_ALTERNATE : SETPOLYFILLMODE_WINDING;
-          writer.emitPolyPolygon(shape.subpaths, brushHandle, fillMode);
+          writer.emitPolyPolygon(scaleSubpathsForEmf(shape.subpaths), brushHandle, fillMode);
         }
         if (strokeColor && shape.strokeWidth > 0) {
-          const penHandle = writer.ensurePen(encodeColorRef(strokeColor), shape.strokeWidth);
-          writer.emitPolyPolyline(shape.subpaths, penHandle);
+          const penHandle = writer.ensurePen(encodeColorRef(strokeColor), shape.strokeWidth * coordinateScale);
+          writer.emitPolyPolyline(scaleSubpathsForEmf(shape.subpaths), penHandle);
         }
       } else if (shape.type === 'text') {
         const fillColor = resolvePaintColor(shape.fill, shape.fillOpacity, shape.opacity, shape.color, background);
@@ -2918,18 +3158,21 @@
         const fontScale = rawFontScale > GEOMETRY_EPSILON ? rawFontScale : 1;
         const fontHandle = writer.ensureFont({
           fontFamily: shape.fontFamily,
-          fontSize: shape.fontSize * (fontScale || 1),
+          fontSize: shape.fontSize * (fontScale || 1) * coordinateScale,
           fontWeight: normalizeFontWeight(shape.fontWeight),
           fontStyle: shape.fontStyle,
           escapement: Math.round((-shape.rotation * 1800) / Math.PI)
         });
         writer.emitText({
           text: shape.text,
-          position: shape.position,
+          position: {
+            x: (shape.position?.x || 0) * coordinateScale,
+            y: (shape.position?.y || 0) * coordinateScale
+          },
           rotation: shape.rotation,
-          width: shape.width * scaleX,
-          ascent: shape.ascent * fontScale,
-          descent: shape.descent * fontScale
+          width: shape.width * scaleX * coordinateScale,
+          ascent: shape.ascent * fontScale * coordinateScale,
+          descent: shape.descent * fontScale * coordinateScale
         }, fontHandle, encodeColorRef(fillColor));
       }
     }
@@ -3180,7 +3423,8 @@
       fontStyle: 'normal',
       textAnchor: 'start',
       color: '#000000',
-      clipPath: null
+      clipPath: null,
+      vectorEffect: 'none'
     };
   }
 
@@ -3256,36 +3500,49 @@
       }
     };
 
+    const assignLength = (key, attrName) => {
+      const value = getValue(attrName);
+      if (value === null || value === undefined || value === 'inherit') {
+        return;
+      }
+      const target = ensureStyleObject();
+      const parsed = parseSvgLength(value, target.fontSize, target[key]);
+      if (parsed !== null && Number.isFinite(parsed)) {
+        target[key] = parsed;
+      }
+    };
+
     const assignDashArray = attrName => {
       const value = getValue(attrName);
       if (value === null || value === undefined || value === 'inherit') {
         return;
       }
       const target = ensureStyleObject();
-      target.strokeDasharray = parseDashArray(value);
+      target.strokeDasharray = parseDashArray(value, target.fontSize);
     };
 
     assignString('fill', 'fill');
     assignOpacity('fillOpacity', 'fill-opacity');
     assignString('stroke', 'stroke');
     assignOpacity('strokeOpacity', 'stroke-opacity');
-    assignNumber('strokeWidth', 'stroke-width');
+    assignLength('strokeWidth', 'stroke-width');
     assignString('strokeLinecap', 'stroke-linecap');
     assignString('strokeLinejoin', 'stroke-linejoin');
     assignNumber('strokeMiterlimit', 'stroke-miterlimit');
     assignDashArray('stroke-dasharray');
-    assignNumber('strokeDashoffset', 'stroke-dashoffset');
+    assignLength('strokeDashoffset', 'stroke-dashoffset');
     assignString('fillRule', 'fill-rule');
     assignOpacity('opacity', 'opacity');
     assignString('display', 'display');
     assignString('visibility', 'visibility');
     assignString('fontFamily', 'font-family');
-    assignNumber('fontSize', 'font-size');
+    assignLength('fontSize', 'font-size');
     assignString('fontWeight', 'font-weight');
     assignString('fontStyle', 'font-style');
     assignString('textAnchor', 'text-anchor');
     assignString('color', 'color');
     assignString('clipPath', 'clip-path');
+    assignString('vectorEffect', 'vector-effect');
 
     return style || createInitialSvgStyle();
   }
@@ -3865,6 +4122,9 @@
     // Use pngScale for higher resolution raster output in hybrid SVG
     const pngScaleDefault = Number.isFinite(options.pngScale) && options.pngScale > 0 ? options.pngScale : DEFAULT_PNG_SCALE;
     const hybridSvg = typeof svgEl.cloneNode === 'function' ? svgEl.cloneNode(true) : null;
+    if (hybridSvg && typeof Shared.exportProjection?.attachSource === 'function') {
+      Shared.exportProjection.attachSource(hybridSvg, svgEl);
+    }
     if (!hybridSvg) {
       warn('buildHybridSvg clone failed', { contextLabel: options.contextLabel });
       return null;
@@ -3989,7 +4249,7 @@
     }
     const contextLabel = options.contextLabel || 'hybrid-svg';
     const baseName = options.fileName || `${options.baseFileName || 'chart'}${options.fileNameSuffix || '-hybrid'}`;
-    const xml = svgToXml(hybrid.svg, `${contextLabel}-xml`);
+    const xml = svgToXml(hybrid.svg, `${contextLabel}-xml`, options);
     if (!xml) {
       return null;
     }
@@ -4020,17 +4280,21 @@
   // Keeps <defs>, <title>, <desc> at the top level, and wraps everything else.
   // Keeps the grouping lightweight so stroke widths render identically between preview and export.
   function groupNodeForPaste(svgEl, opts = {}) {
-    if (!svgEl || typeof svgEl.querySelectorAll !== 'function') return { grouped: false, moved: 0 };
+    if (!svgEl || typeof svgEl.querySelectorAll !== 'function') return { grouped: false, moved: 0, group: null };
     // Opt-out flag if you ever want to disable this quickly.
     const enabled = opts.enabled ?? (Shared?.exporter?.GROUP_FOR_PASTE ?? true);
-    if (!enabled) return { grouped: false, moved: 0 };
+    if (!enabled) return { grouped: false, moved: 0, group: null };
 
-    // If already has a single top-level <g> that holds all drawable nodes, skip.
+    // Reuse only the canonical wrapper. A pre-existing graph group may carry its
+    // own identity/transform and therefore still needs an outer paste wrapper.
     const topGroups = Array.from(svgEl.children).filter(n => n.tagName && n.tagName.toLowerCase() === 'g');
     const nonMeta = Array.from(svgEl.children).filter(n => !/^(defs|title|desc)$/i.test(n.tagName || ''));
-    if (topGroups.length === 1 && nonMeta.length === 1 && topGroups[0] === nonMeta[0]) {
+    if (topGroups.length === 1
+      && nonMeta.length === 1
+      && topGroups[0] === nonMeta[0]
+      && topGroups[0].getAttribute('id') === 'export-group') {
       logDebug('groupNodeForPaste skipped existing top-level group', { moved: 0 });
-      return { grouped: false, moved: 0 };
+      return { grouped: false, moved: 0, group: topGroups[0] };
     }
 
     const g = svgEl.ownerDocument.createElementNS('http://www.w3.org/2000/svg', 'g');
@@ -4051,11 +4315,39 @@
     svgEl.appendChild(g);
 
     logDebug('groupNodeForPaste complete', { moved, hasDefs: !!svgEl.querySelector('defs') });
-    return { grouped: true, moved };
+    return { grouped: true, moved, group: g };
+  }
+
+  function materializePhysicalProjectionForPaste(svgEl, exportGroup, appliedProjection, logicalViewBox) {
+    const physicalWidth = Number(appliedProjection?.physical?.width);
+    const physicalHeight = Number(appliedProjection?.physical?.height);
+    if (!svgEl?.setAttribute
+      || !exportGroup?.setAttribute
+      || !logicalViewBox
+      || !(physicalWidth > 0)
+      || !(physicalHeight > 0)) {
+      return null;
+    }
+
+    const matrix = computeViewBoxMatrix(svgEl, physicalWidth, physicalHeight, logicalViewBox);
+    const matrixText = `matrix(${matrix.map(value => roundCoord(value, 6)).join(' ')})`;
+    const existingTransform = String(exportGroup.getAttribute('transform') || '').trim();
+    exportGroup.setAttribute('transform', existingTransform ? `${matrixText} ${existingTransform}` : matrixText);
+    exportGroup.setAttribute('data-export-physical-projection', 'materialized');
+
+    svgEl.setAttribute('viewBox', `0 0 ${roundCoord(physicalWidth, 6)} ${roundCoord(physicalHeight, 6)}`);
+    svgEl.setAttribute('data-export-logical-view-box', [
+      logicalViewBox.minX,
+      logicalViewBox.minY,
+      logicalViewBox.width,
+      logicalViewBox.height
+    ].map(value => roundCoord(value, 6)).join(' '));
+
+    return { matrix, physicalWidth, physicalHeight };
   }
 
 
-  function svgToXml(svgEl, contextLabel) {
+  function svgToXml(svgEl, contextLabel, options = {}) {
     if (!svgEl) {
       logDebug('svgToXml skipped', { contextLabel, reason: 'no element' });
       return '';
@@ -4063,10 +4355,17 @@
     try {
       const serialize = getSerializeFn();
       const canUseOptions = serialize === Shared.serializeCleanSVG || serialize === global.serializeCleanSVG;
+      const projectionApi = Shared.exportProjection;
+      const projection = typeof projectionApi?.resolve === 'function'
+        ? projectionApi.resolve(svgEl, {
+            ...options,
+            contextLabel
+          })
+        : null;
       let xml = '';
       let prepStats = null;
 
-      const displayDimensions = (() => {
+      const displayDimensions = projection?.physical || (() => {
         if (!svgEl || typeof svgEl.getBoundingClientRect !== 'function') {
           return null;
         }
@@ -4083,16 +4382,30 @@
       const runPrepare = node => {
         try {
           hydrateCanvasBitmapsInClone(svgEl, node);
-          // Your existing normalization
           prepStats = prepareSvgForExport(node, contextLabel, { displayDimensions }) || null;
-          // Group all drawable children so paste into Inkscape keeps consistent stroke widths
           const grp = groupNodeForPaste(node, { enabled: Shared?.exporter?.GROUP_FOR_PASTE ?? true });
+          let exportViewBox = null;
           if (shouldExpandExportViewBox(node)) {
             const bboxTarget = resolveExportBBoxTarget(node);
-            const exportViewBox = measureExportViewBox(node, { padding: resolveExportViewBoxPadding(), contextLabel, bboxTarget });
+            exportViewBox = measureExportViewBox(node, { padding: resolveExportViewBoxPadding(), contextLabel, bboxTarget });
             if (exportViewBox && node?.setAttribute) {
               node.setAttribute('viewBox', `${exportViewBox.minX} ${exportViewBox.minY} ${exportViewBox.width} ${exportViewBox.height}`);
               debugLog('svgToXml export viewBox applied', { contextLabel, viewBox: exportViewBox });
+            }
+          }
+          if (projection && typeof projectionApi?.applyToSvg === 'function') {
+            const targetViewBox = exportViewBox || projectionApi.resolveViewBox?.(node) || projection.logicalViewBox;
+            const applied = projectionApi.applyToSvg(node, projection, {
+              viewBox: targetViewBox
+            });
+            if (applied) {
+              materializePhysicalProjectionForPaste(node, grp.group, applied, targetViewBox);
+              debugLog('svgToXml physical projection applied', {
+                contextLabel,
+                width: applied.physical?.width,
+                height: applied.physical?.height,
+                authority: applied.ownerFrame?.authority || null
+              });
             }
           }
           logDebug('svgToXml group-for-paste', { contextLabel, grouped: grp.grouped, moved: grp.moved });
@@ -4102,10 +4415,8 @@
       };
 
       if (canUseOptions) {
-        // If your serializer supports hooks, do the grouping on the live node it serializes
         xml = serialize(svgEl, { beforeSanitize: runPrepare });
       } else {
-        // Fallback — clone then prepare and group the clone
         const clone = typeof svgEl.cloneNode === 'function' ? svgEl.cloneNode(true) : svgEl;
         if (clone === svgEl) {
           logDebug('svgToXml using original element clone fallback', { contextLabel });
@@ -4200,10 +4511,74 @@
     return { fileName: safeName, svgBlob, clipboardMap };
   }
 
+  function buildRasterClipboardWrapperXml(dataUrl, width, height) {
+    const physicalWidth = Number(width);
+    const physicalHeight = Number(height);
+    if (!dataUrl || !(physicalWidth > 0) || !(physicalHeight > 0)) return '';
+    const widthText = roundCoord(physicalWidth, 6);
+    const heightText = roundCoord(physicalHeight, 6);
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="${widthText}" height="${heightText}" viewBox="0 0 ${widthText} ${heightText}" preserveAspectRatio="none" data-export-physical-width-px="${widthText}" data-export-physical-height-px="${heightText}" data-export-css-dpi="${CSS_EXPORT_DPI}" data-clipboard-raster-wrapper="1"><g id="export-group"><image x="0" y="0" width="${widthText}" height="${heightText}" preserveAspectRatio="none" href="${escapeHtmlAttr(dataUrl)}" /></g></svg>`;
+  }
+
+  async function buildPngClipboardPayloadFromSvgString(xml, options = {}) {
+    const projected = normalizeSvgStringProjection(xml, options);
+    const projectedXml = projected.xml || xml;
+    const width = projected.width > 0 ? projected.width : Number(options.width);
+    const height = projected.height > 0 ? projected.height : Number(options.height);
+    if (!projectedXml || !(width > 0) || !(height > 0)) return null;
+
+    const highResolutionScale = Number.isFinite(options.pngScale) && options.pngScale > 0
+      ? options.pngScale
+      : DEFAULT_PNG_SCALE;
+    const rasterOptions = {
+      ...options,
+      width,
+      height,
+      fallbackWidth: width,
+      fallbackHeight: height
+    };
+    const [highResolutionPng, fallbackPng] = await Promise.all([
+      svgStringToPngBlob(projectedXml, {
+        ...rasterOptions,
+        pngScale: highResolutionScale,
+        contextLabel: `${options.contextLabel || 'png-copy'}-high-resolution`
+      }),
+      svgStringToPngBlob(projectedXml, {
+        ...rasterOptions,
+        pngScale: CLIPBOARD_PNG_FALLBACK_SCALE,
+        contextLabel: `${options.contextLabel || 'png-copy'}-fallback`
+      })
+    ]);
+    if (!highResolutionPng || !fallbackPng) return null;
+
+    const dataUrl = await blobToDataUrl(highResolutionPng);
+    const wrapperXml = buildRasterClipboardWrapperXml(dataUrl, width, height);
+    if (!wrapperXml) return null;
+    const wrapperPayload = buildSvgExportPayload(wrapperXml, {
+      fileName: `${options.fileName || 'chart'}-clipboard.png.svg`,
+      contextLabel: `${options.contextLabel || 'png-copy'}-wrapper`,
+      includeHtmlPreview: true
+    });
+    if (!wrapperPayload) return null;
+    return {
+      ...wrapperPayload,
+      clipboardMap: {
+        [SVG_MIME_TYPE]: wrapperPayload.svgBlob,
+        'image/png': fallbackPng,
+        'text/plain': wrapperPayload.clipboardMap['text/plain'],
+        'text/html': wrapperPayload.clipboardMap['text/html']
+      },
+      highResolutionPng,
+      fallbackPng,
+      width,
+      height
+    };
+  }
+
   async function renderSvgStringToCanvas(xml, options = {}) {
     const { width, height, fallbackWidth = 800, fallbackHeight = 400, contextLabel } = options;
-    // Apply scale factor for higher resolution PNG output
-    const pngScale = Number.isFinite(options.pngScale) && options.pngScale > 0 ? options.pngScale : DEFAULT_PNG_SCALE;
+    // Apply the format-selected raster scale.
+    const pngScale = Number.isFinite(options.pngScale) && options.pngScale > 0 ? options.pngScale : DEFAULT_RASTER_SCALE;
     if (!xml) {
       logDebug('renderSvgStringToCanvas skipped', { contextLabel, reason: 'empty xml' });
       return null;
@@ -4291,6 +4666,111 @@
   function toPixelsPerMeter(dpi) {
     const resolved = resolveDpiValue(dpi);
     return Math.max(1, Math.round(resolved / 0.0254));
+  }
+
+  function resolveRenderedRasterDpi(rendered) {
+    const logicalWidth = Number(rendered?.logicalWidth);
+    const logicalHeight = Number(rendered?.logicalHeight);
+    const width = Number(rendered?.width);
+    const height = Number(rendered?.height);
+    return {
+      x: logicalWidth > 0 && width > 0 ? (width / logicalWidth) * CSS_EXPORT_DPI : CSS_EXPORT_DPI,
+      y: logicalHeight > 0 && height > 0 ? (height / logicalHeight) * CSS_EXPORT_DPI : CSS_EXPORT_DPI
+    };
+  }
+
+  function crc32(bytes) {
+    let crc = 0xFFFFFFFF;
+    for (let i = 0; i < bytes.length; i += 1) {
+      crc ^= bytes[i];
+      for (let bit = 0; bit < 8; bit += 1) {
+        const mask = -(crc & 1);
+        crc = (crc >>> 1) ^ (0xEDB88320 & mask);
+      }
+    }
+    return (crc ^ 0xFFFFFFFF) >>> 0;
+  }
+
+  function buildPngResolutionChunk(dpiX, dpiY) {
+    const dataLength = 9;
+    const chunk = new Uint8Array(4 + 4 + dataLength + 4);
+    const view = new DataView(chunk.buffer);
+    view.setUint32(0, dataLength, false);
+    chunk.set([0x70, 0x48, 0x59, 0x73], 4); // pHYs
+    view.setUint32(8, toPixelsPerMeter(dpiX), false);
+    view.setUint32(12, toPixelsPerMeter(dpiY), false);
+    chunk[16] = 1; // pixels per metre
+    view.setUint32(17, crc32(chunk.subarray(4, 17)), false);
+    return chunk;
+  }
+
+  async function readBlobArrayBuffer(blob) {
+    if (!blob) return null;
+    if (typeof blob.arrayBuffer === 'function') {
+      return blob.arrayBuffer();
+    }
+    const Reader = global.FileReader || (typeof FileReader !== 'undefined' ? FileReader : null);
+    if (!Reader) return null;
+    return new Promise((resolve, reject) => {
+      const reader = new Reader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = () => reject(reader.error || new Error('Failed to read Blob'));
+      reader.readAsArrayBuffer(blob);
+    });
+  }
+
+  async function rewritePngResolution(blob, dpiX, dpiY) {
+    if (!blob || typeof Blob !== 'function') {
+      return blob || null;
+    }
+    let bytes;
+    try {
+      const buffer = await readBlobArrayBuffer(blob);
+      if (!buffer) return blob;
+      bytes = new Uint8Array(buffer);
+    } catch (err) {
+      warn('rewritePngResolution read failed', { error: err?.message });
+      return blob;
+    }
+    const signature = [137, 80, 78, 71, 13, 10, 26, 10];
+    if (bytes.length < 33 || signature.some((value, index) => bytes[index] !== value)) {
+      return blob;
+    }
+    const replacement = buildPngResolutionChunk(dpiX, dpiY);
+    const chunks = [bytes.subarray(0, 8)];
+    let offset = 8;
+    let inserted = false;
+    while (offset + 12 <= bytes.length) {
+      const view = new DataView(bytes.buffer, bytes.byteOffset + offset, bytes.byteLength - offset);
+      const length = view.getUint32(0, false);
+      const chunkEnd = offset + 12 + length;
+      if (chunkEnd > bytes.length) {
+        return blob;
+      }
+      const type = String.fromCharCode(bytes[offset + 4], bytes[offset + 5], bytes[offset + 6], bytes[offset + 7]);
+      if (type === 'pHYs') {
+        if (!inserted) {
+          chunks.push(replacement);
+          inserted = true;
+        }
+      } else {
+        chunks.push(bytes.subarray(offset, chunkEnd));
+        if (type === 'IHDR' && !inserted) {
+          chunks.push(replacement);
+          inserted = true;
+        }
+      }
+      offset = chunkEnd;
+    }
+    if (!inserted || offset !== bytes.length) {
+      return blob;
+    }
+    try {
+      return new Blob(chunks, { type: 'image/png' });
+    } catch (err) {
+      warn('rewritePngResolution blob failed', { error: err?.message });
+      return blob;
+    }
   }
 
   function createDibFromCanvas(canvas, options = {}) {
@@ -4605,8 +5085,8 @@
     if (!scene || !Array.isArray(scene.shapes) || !scene.width || !scene.height) {
       return null;
     }
-    const dpiX = resolveDpiValue(options.dpiX || options.dpi);
-    const dpiY = resolveDpiValue(options.dpiY || options.dpi);
+    const dpiX = CSS_EXPORT_DPI;
+    const dpiY = CSS_EXPORT_DPI;
     const scaleX = 72 / dpiX;
     const scaleY = 72 / dpiY;
     const pageWidthPt = scene.width * scaleX;
@@ -5152,28 +5632,49 @@
   }
 
   async function svgStringToEmfBlob(xml, options = {}) {
-    const scene = buildVectorSceneFromSvg(xml, options);
+    const projected = normalizeSvgStringProjection(xml, options);
+    const projectedOptions = {
+      ...options,
+      width: projected.width > 0 ? projected.width : options.width,
+      height: projected.height > 0 ? projected.height : options.height
+    };
+    const projectedXml = projected.xml || xml;
+    const scene = buildVectorSceneFromSvg(projectedXml, projectedOptions);
     if (scene) {
-      const vectorBlob = vectorSceneToEmfBlob(scene, options);
+      const vectorBlob = vectorSceneToEmfBlob(scene, projectedOptions);
       if (vectorBlob) {
         debugLog('svgStringToEmfBlob vector', { width: scene.width, height: scene.height });
         return vectorBlob;
       }
       debugLog('svgStringToEmfBlob vector fallback', { reason: 'vector blob unavailable' });
     }
-    const rendered = await renderSvgStringToCanvas(xml, options);
+    const rendered = await renderSvgStringToCanvas(projectedXml, projectedOptions);
     if (!rendered) {
       return null;
     }
     try {
-      return canvasToEmfBlob(rendered.canvas, options);
+      const rasterDpi = resolveRenderedRasterDpi(rendered);
+      return canvasToEmfBlob(rendered.canvas, {
+        ...projectedOptions,
+        dpiX: rasterDpi.x,
+        dpiY: rasterDpi.y
+      });
     } finally {
       rendered.release();
     }
   }
 
   async function svgStringToPngBlob(xml, options = {}) {
-    const rendered = await renderSvgStringToCanvas(xml, options);
+    const projected = normalizeSvgStringProjection(xml, options);
+    const projectedOptions = {
+      ...options,
+      width: projected.width > 0 ? projected.width : options.width,
+      height: projected.height > 0 ? projected.height : options.height,
+      pngScale: Number.isFinite(options.pngScale) && options.pngScale > 0
+        ? options.pngScale
+        : DEFAULT_PNG_SCALE
+    };
+    const rendered = await renderSvgStringToCanvas(projected.xml || xml, projectedOptions);
     if (!rendered) {
       return null;
     }
@@ -5185,6 +5686,8 @@
           else reject(new Error('canvas toBlob produced empty blob'));
         }, 'image/png');
       });
+      const rasterDpi = resolveRenderedRasterDpi(rendered);
+      blob = await rewritePngResolution(blob, rasterDpi.x, rasterDpi.y);
     } catch (err) {
       console.error('exporter canvas toBlob error', err);
       blob = null;
@@ -5204,22 +5707,31 @@
   }
 
   async function svgStringToPdfBlob(xml, options = {}) {
-    const scene = buildVectorSceneFromSvg(xml, options);
+    const projected = normalizeSvgStringProjection(xml, options);
+    const projectedOptions = {
+      ...options,
+      width: projected.width > 0 ? projected.width : options.width,
+      height: projected.height > 0 ? projected.height : options.height
+    };
+    const projectedXml = projected.xml || xml;
+    const scene = buildVectorSceneFromSvg(projectedXml, projectedOptions);
     if (scene) {
-      const vectorBlob = vectorSceneToPdfBlob(scene, options);
+      const vectorBlob = vectorSceneToPdfBlob(scene, projectedOptions);
       if (vectorBlob) {
         debugLog('svgStringToPdfBlob vector', { width: scene.width, height: scene.height });
         return vectorBlob;
       }
       debugLog('svgStringToPdfBlob vector fallback', { reason: 'vector blob unavailable' });
     }
-    const rendered = await renderSvgStringToCanvas(xml, options);
+    const rendered = await renderSvgStringToCanvas(projectedXml, projectedOptions);
     if (!rendered) {
       return null;
     }
     try {
       return await canvasToPdfBlob(rendered.canvas, {
-        ...options,
+        ...projectedOptions,
+        dpiX: CSS_EXPORT_DPI,
+        dpiY: CSS_EXPORT_DPI,
         logicalWidth: rendered.logicalWidth,
         logicalHeight: rendered.logicalHeight
       });
@@ -5229,12 +5741,23 @@
   }
 
   async function svgStringToTiffBlob(xml, options = {}) {
-    const rendered = await renderSvgStringToCanvas(xml, options);
+    const projected = normalizeSvgStringProjection(xml, options);
+    const projectedOptions = {
+      ...options,
+      width: projected.width > 0 ? projected.width : options.width,
+      height: projected.height > 0 ? projected.height : options.height
+    };
+    const rendered = await renderSvgStringToCanvas(projected.xml || xml, projectedOptions);
     if (!rendered) {
       return null;
     }
     try {
-      return canvasToTiffBlob(rendered.canvas, options);
+      const rasterDpi = resolveRenderedRasterDpi(rendered);
+      return canvasToTiffBlob(rendered.canvas, {
+        ...projectedOptions,
+        dpiX: rasterDpi.x,
+        dpiY: rasterDpi.y
+      });
     } finally {
       rendered.release();
     }
@@ -5245,7 +5768,7 @@
       logDebug('svgElementToPngBlob skipped', { contextLabel: options.contextLabel, reason: 'no element' });
       return null;
     }
-    let xml = svgToXml(svgEl, options.contextLabel);
+    let xml = svgToXml(svgEl, options.contextLabel, options);
     if (!xml) return null;
     const requestedWidth = Number(options.width);
     const requestedHeight = Number(options.height);
@@ -5284,7 +5807,7 @@
       logDebug('svgElementToEmfBlob skipped', { contextLabel: options.contextLabel, reason: 'no element' });
       return null;
     }
-    const xml = svgToXml(svgEl, options.contextLabel);
+    const xml = svgToXml(svgEl, options.contextLabel, options);
     if (!xml) return null;
     const dims = resolveRasterDimensions(svgEl, xml, {
       contextLabel: options.contextLabel,
@@ -5313,7 +5836,7 @@
       logDebug('svgElementToPdfBlob skipped', { contextLabel: options.contextLabel, reason: 'no element' });
       return null;
     }
-    const xml = svgToXml(svgEl, options.contextLabel);
+    const xml = svgToXml(svgEl, options.contextLabel, options);
     if (!xml) return null;
     const dims = resolveRasterDimensions(svgEl, xml, {
       contextLabel: options.contextLabel,
@@ -5343,7 +5866,7 @@
       logDebug('svgElementToTiffBlob skipped', { contextLabel: options.contextLabel, reason: 'no element' });
       return null;
     }
-    const xml = svgToXml(svgEl, options.contextLabel);
+    const xml = svgToXml(svgEl, options.contextLabel, options);
     if (!xml) return null;
     const dims = resolveRasterDimensions(svgEl, xml, {
       contextLabel: options.contextLabel,
@@ -5658,6 +6181,23 @@
     };
   }
 
+  function createDeferredPngClipboardBlobMap(payloadPromise) {
+    const resolveBlob = type => Promise.resolve(payloadPromise)
+      .then(payload => payload?.clipboardMap?.[type] || null)
+      .then(blob => {
+        if (!blob) {
+          throw new Error(`Missing clipboard blob for ${type}`);
+        }
+        return blob;
+      });
+    return {
+      [SVG_MIME_TYPE]: resolveBlob(SVG_MIME_TYPE),
+      'image/png': resolveBlob('image/png'),
+      'text/plain': resolveBlob('text/plain'),
+      'text/html': resolveBlob('text/html')
+    };
+  }
+
   function createPlaceholderOption(action) {
     const option = doc.createElement('option');
     option.value = '';
@@ -5803,6 +6343,14 @@
       pngScale,
       hybridOptions
     } = config;
+    const projectionOptions = {
+      getOwnerFrame: typeof config.getOwnerFrame === 'function' ? config.getOwnerFrame : undefined,
+      ownerFrame: config.ownerFrame,
+      ownerElement: config.ownerElement,
+      ownerPlot: config.ownerPlot,
+      svgBox: config.svgBox,
+      componentName: config.componentName
+    };
     const resolveBackground = () => {
       if (config.backgroundColor) {
         return config.backgroundColor;
@@ -5847,6 +6395,7 @@
       if (format === 'png') {
         const backgroundColor = resolveBackground();
         const pngOptions = {
+          ...projectionOptions,
           contextLabel: `${contextLabel}-png`,
           fallbackWidth,
           fallbackHeight,
@@ -5863,18 +6412,21 @@
           if (!blob) return;
           downloadBlob(blob, `${fileName}.png`, `${contextLabel}-png`);
         } else {
-          const blobPromise = Promise.resolve().then(async () => {
+          const payloadPromise = Promise.resolve().then(async () => {
             const svgEl = resolveRequiredSvg(resolveSvg);
             if (!svgEl) {
               throw new Error('SVG element is unavailable.');
             }
-            const blob = await svgElementToPngBlob(svgEl, pngOptions);
-            if (!blob) {
-              throw new Error('PNG export produced no blob.');
+            const xml = svgToXml(svgEl, `${contextLabel}-png`, projectionOptions);
+            if (!xml) {
+              throw new Error('PNG export produced no SVG source.');
             }
-            return blob;
+            return buildPngClipboardPayloadFromSvgString(xml, {
+              ...pngOptions,
+              fileName
+            });
           });
-          const copied = await copyBlobMap({ 'image/png': blobPromise }, `${contextLabel}-png`);
+          const copied = await copyBlobMap(createDeferredPngClipboardBlobMap(payloadPromise), `${contextLabel}-png`);
           if (!copied) {
             warn('svgActions png copy unavailable', { contextLabel: `${contextLabel}-png` });
           }
@@ -5883,7 +6435,7 @@
         const buildPayload = () => {
           const svgEl = resolveRequiredSvg(resolveSvg);
           if (!svgEl) return null;
-          const xml = svgToXml(svgEl, `${contextLabel}-svg`);
+          const xml = svgToXml(svgEl, `${contextLabel}-svg`, projectionOptions);
           if (!xml) return null;
           const payload = buildSvgExportPayload(xml, {
             fileName: `${fileName}.svg`,
@@ -5919,6 +6471,7 @@
           const svgEl = resolveRequiredSvg(resolveHybridSvg);
           if (!svgEl) return null;
           return buildHybridSvgExportPayload(svgEl, {
+            ...projectionOptions,
             ...hybridConfig,
             baseFileName: hybridConfig.baseFileName || fileName,
             contextLabel: `${contextLabel}-hybrid`
@@ -5944,6 +6497,7 @@
         if (!svgEl) return;
         const backgroundColor = resolveBackground();
         const blob = await svgElementToEmfBlob(svgEl, {
+          ...projectionOptions,
           contextLabel: `${contextLabel}-emf`,
           fallbackWidth,
           fallbackHeight,
@@ -5971,6 +6525,7 @@
         if (!svgEl) return;
         const backgroundColor = resolveBackground();
         const blob = await svgElementToPdfBlob(svgEl, {
+          ...projectionOptions,
           contextLabel: `${contextLabel}-pdf`,
           fallbackWidth,
           fallbackHeight,
@@ -5998,6 +6553,7 @@
         if (!svgEl) return;
         const backgroundColor = resolveBackground();
         const blob = await svgElementToTiffBlob(svgEl, {
+          ...projectionOptions,
           contextLabel: `${contextLabel}-tiff`,
           fallbackWidth,
           fallbackHeight,
@@ -6240,7 +6796,7 @@
   }
 
   function createSvgStringActions(config) {
-    const { getSvgString, getDimensions, fileName = 'chart', contextLabel = 'svg-string', dpi, dpiX, dpiY, pngScale } = config;
+    const { getSvgString, getDimensions, getSourceSvg, fileName = 'chart', contextLabel = 'svg-string', dpi, dpiX, dpiY, pngScale } = config;
     const resolveBackground = () => {
       if (config.backgroundColor) {
         return config.backgroundColor;
@@ -6254,7 +6810,7 @@
       }
       return null;
     };
-    const resolveSvgString = async () => {
+    const resolveRawSvgString = async () => {
       if (typeof getSvgString !== 'function') {
         warn('svgStringActions missing getSvgString', { contextLabel });
         return '';
@@ -6276,33 +6832,97 @@
         return {};
       }
     };
+    const resolveOwnerFrame = async () => {
+      if (typeof config.getOwnerFrame !== 'function') {
+        return config.ownerFrame || null;
+      }
+      try {
+        return await Promise.resolve(config.getOwnerFrame());
+      } catch (err) {
+        console.error('exporter svgString getOwnerFrame error', err);
+        return null;
+      }
+    };
+    const resolveSourceSvg = async () => {
+      if (typeof getSourceSvg !== 'function') {
+        return null;
+      }
+      try {
+        return await Promise.resolve(getSourceSvg());
+      } catch (err) {
+        console.error('exporter svgString getSourceSvg error', err);
+        return null;
+      }
+    };
+    const resolveProjectedSvg = async () => {
+      const raw = await resolveRawSvgString();
+      if (!raw) return null;
+      const [dims, ownerFrame, sourceSvg] = await Promise.all([
+        resolveDims(),
+        resolveOwnerFrame(),
+        resolveSourceSvg()
+      ]);
+      const sourceFrame = !ownerFrame && sourceSvg && typeof Shared.exportProjection?.resolveOwnerFrame === 'function'
+        ? Shared.exportProjection.resolveOwnerFrame(sourceSvg, {
+            componentName: config.componentName || null,
+            contextLabel
+          })
+        : null;
+      const explicitOwner = ownerFrame || sourceFrame || (Number(dims.width) > 0 && Number(dims.height) > 0
+        ? { width: Number(dims.width), height: Number(dims.height), authority: 'svg-string-dimensions' }
+        : null);
+      const projected = normalizeSvgStringProjection(raw, {
+        contextLabel,
+        ownerFrame: explicitOwner,
+        sourceSvg: sourceSvg || undefined,
+        componentName: config.componentName || null
+      });
+      return {
+        xml: projected.xml || raw,
+        width: projected.width > 0 ? projected.width : Number(dims.width),
+        height: projected.height > 0 ? projected.height : Number(dims.height),
+        ownerFrame: explicitOwner
+      };
+    };
+    const buildFormatOptions = (projected, suffix) => ({
+      width: projected.width,
+      height: projected.height,
+      fallbackWidth: projected.width,
+      fallbackHeight: projected.height,
+      ownerFrame: projected.ownerFrame,
+      contextLabel: `${contextLabel}-${suffix}`,
+      dpi,
+      dpiX,
+      dpiY,
+      pngScale,
+      backgroundColor: resolveBackground() || '#ffffff'
+    });
+
     async function handle(mode, format) {
-      if (format === 'png') {
-        const xml = await resolveSvgString();
-        if (!xml) return;
-        const dims = await resolveDims();
-        const blob = await svgStringToPngBlob(xml, {
-          width: dims.width,
-          height: dims.height,
-          contextLabel: `${contextLabel}-png`,
-          dpi,
-          dpiX,
-          dpiY,
-          pngScale
+      if (format === 'png' && mode === 'copy') {
+        const payloadPromise = resolveProjectedSvg().then(projected => {
+          if (!projected?.xml) return null;
+          return buildPngClipboardPayloadFromSvgString(projected.xml, {
+            ...buildFormatOptions(projected, 'png'),
+            fileName
+          });
         });
-        if (!blob) return;
-        if (mode === 'download') {
-          downloadBlob(blob, `${fileName}.png`, `${contextLabel}-png`);
-        } else {
-          const copied = await copyBlobMap({ 'image/png': blob }, `${contextLabel}-png`);
-          if (!copied) {
-            warn('svgStringActions png copy unavailable', { contextLabel: `${contextLabel}-png` });
-          }
+        const copied = await copyBlobMap(createDeferredPngClipboardBlobMap(payloadPromise), `${contextLabel}-png`);
+        if (!copied) {
+          warn('svgStringActions png copy unavailable', { contextLabel: `${contextLabel}-png` });
         }
+        return;
+      }
+
+      const projected = await resolveProjectedSvg();
+      if (!projected?.xml) return;
+      if (format === 'png') {
+        const pngOptions = buildFormatOptions(projected, 'png');
+        const blob = await svgStringToPngBlob(projected.xml, pngOptions);
+        if (!blob) return;
+        downloadBlob(blob, `${fileName}.png`, `${contextLabel}-png`);
       } else if (format === 'svg') {
-        const xml = await resolveSvgString();
-        if (!xml) return;
-        const payload = buildSvgExportPayload(xml, {
+        const payload = buildSvgExportPayload(projected.xml, {
           fileName: `${fileName}.svg`,
           contextLabel: `${contextLabel}-svg`,
           includeHtmlPreview: true
@@ -6323,21 +6943,7 @@
           }
         }
       } else if (format === 'emf') {
-        const xml = await resolveSvgString();
-        if (!xml) return;
-        const dims = await resolveDims();
-        const backgroundColor = resolveBackground() || '#ffffff';
-        const blob = await svgStringToEmfBlob(xml, {
-          width: dims.width,
-          height: dims.height,
-          fallbackWidth: dims.width,
-          fallbackHeight: dims.height,
-          contextLabel: `${contextLabel}-emf`,
-          dpi,
-          dpiX,
-          dpiY,
-          backgroundColor
-        });
+        const blob = await svgStringToEmfBlob(projected.xml, buildFormatOptions(projected, 'emf'));
         if (!blob) return;
         if (mode === 'download') {
           downloadBlob(blob, `${fileName}.emf`, `${contextLabel}-emf`);
@@ -6353,22 +6959,7 @@
           }
         }
       } else if (format === 'pdf') {
-        const xml = await resolveSvgString();
-        if (!xml) return;
-        const dims = await resolveDims();
-        const backgroundColor = resolveBackground() || '#ffffff';
-        const blob = await svgStringToPdfBlob(xml, {
-          width: dims.width,
-          height: dims.height,
-          fallbackWidth: dims.width,
-          fallbackHeight: dims.height,
-          contextLabel: `${contextLabel}-pdf`,
-          dpi,
-          dpiX,
-          dpiY,
-          backgroundColor,
-          pngScale
-        });
+        const blob = await svgStringToPdfBlob(projected.xml, buildFormatOptions(projected, 'pdf'));
         if (!blob) return;
         if (mode === 'download') {
           downloadBlob(blob, `${fileName}.pdf`, `${contextLabel}-pdf`);
@@ -6383,22 +6974,7 @@
           }
         }
       } else if (format === 'tiff') {
-        const xml = await resolveSvgString();
-        if (!xml) return;
-        const dims = await resolveDims();
-        const backgroundColor = resolveBackground() || '#ffffff';
-        const blob = await svgStringToTiffBlob(xml, {
-          width: dims.width,
-          height: dims.height,
-          fallbackWidth: dims.width,
-          fallbackHeight: dims.height,
-          contextLabel: `${contextLabel}-tiff`,
-          dpi,
-          dpiX,
-          dpiY,
-          backgroundColor,
-          pngScale
-        });
+        const blob = await svgStringToTiffBlob(projected.xml, buildFormatOptions(projected, 'tiff'));
         if (!blob) return;
         if (mode === 'download') {
           downloadBlob(blob, `${fileName}.tiff`, `${contextLabel}-tiff`);
@@ -6453,7 +7029,13 @@
       pngScale: config.pngScale,
       hybridOptions: config.hybridOptions,
       backgroundColor: config.backgroundColor,
-      getBackgroundColor: config.getBackgroundColor
+      getBackgroundColor: config.getBackgroundColor,
+      getOwnerFrame: config.getOwnerFrame,
+      ownerFrame: config.ownerFrame,
+      ownerElement: config.ownerElement,
+      ownerPlot: config.ownerPlot,
+      svgBox: config.svgBox,
+      componentName: config.componentName
     });
     mountControls({ container: config.container, actions, contextLabel: config.contextLabel || config.fileName || 'svg-export' });
   };
@@ -6476,12 +7058,18 @@
     const actions = createSvgStringActions({
       getSvgString: config.getSvgString,
       getDimensions: config.getDimensions,
+      getSourceSvg: config.getSourceSvg,
       fileName: config.fileName,
       contextLabel: config.contextLabel || config.fileName || 'svg-string',
       dpi: config.dpi,
       dpiX: config.dpiX,
       dpiY: config.dpiY,
-      pngScale: config.pngScale
+      pngScale: config.pngScale,
+      backgroundColor: config.backgroundColor,
+      getBackgroundColor: config.getBackgroundColor,
+      getOwnerFrame: config.getOwnerFrame,
+      ownerFrame: config.ownerFrame,
+      componentName: config.componentName
     });
     if (Array.isArray(config.extraActions) && config.extraActions.length) {
       config.extraActions.forEach(extra => {
@@ -6501,6 +7089,8 @@
 
   // Expose the default PNG scale constant for external configuration
   exporter.DEFAULT_PNG_SCALE = DEFAULT_PNG_SCALE;
+  exporter.DEFAULT_PNG_DPI = DEFAULT_PNG_DPI;
+  exporter.CLIPBOARD_PNG_FALLBACK_SCALE = CLIPBOARD_PNG_FALLBACK_SCALE;
 
   // Expose scatter optimization constants and function for testing/configuration
   exporter.SCATTER_OPTIMIZATION_THRESHOLD = SCATTER_OPTIMIZATION_THRESHOLD;
@@ -6520,6 +7110,7 @@
   exporter.canvasToEmfBlob = canvasToEmfBlob;
   exporter.canvasToPdfBlob = canvasToPdfBlob;
   exporter.canvasToTiffBlob = canvasToTiffBlob;
+  exporter.rewritePngResolution = rewritePngResolution;
   exporter.downloadBlob = downloadBlob;
   exporter.copyBlobMap = copyBlobMap;
   exporter.buildHybridSvg = buildHybridSvg;

@@ -82,10 +82,10 @@ describe('scatter listener binding contract', () => {
   test('module-level DOM bindings include the alpha value label used by payload apply and setup', () => {
     const source = scatterSource();
     expect(source).toMatch(/\blet\s+scatterAlphaVal\s*=\s*null\s*;/);
-    const setupMatch = source.match(/function setup\(initOptions[^)]*\)\{([\s\S]*?)scatter\.ready = true;/);
-    expect(setupMatch).toBeTruthy();
-    expect(setupMatch[1]).not.toMatch(/\b(?:const|let|var)\s+scatterAlphaVal\b/);
-    expect(setupMatch[1]).toContain("scatterAlphaVal=$('#scatterAlphaVal')");
+    const binderMatch = source.match(/function bindScatterDomRefs\(root, tabLike = null, meta = \{\}\)\{([\s\S]*?)return createScatterRefsSnapshot\(storage\);/);
+    expect(binderMatch).toBeTruthy();
+    expect(binderMatch[1]).not.toMatch(/\b(?:const|let|var)\s+scatterAlphaVal\b/);
+    expect(binderMatch[1]).toContain("scatterAlphaVal = byId('scatterAlphaVal')");
   });
 
   test('the extracted scheduler resolves its module-level frame debouncer instead of calling the removed setup-local binding', () => {

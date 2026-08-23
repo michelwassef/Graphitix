@@ -18,6 +18,7 @@ async function readHeatmapLayout(page) {
       matrix: bounds('#heatmapSvg [data-heatmap-cell-hit-layer="1"]')
         || bounds('#heatmapSvg [data-export-layer="heatmap-cells"]'),
       rowDendrogram: bounds('#heatmapSvg .heatmap-dendrogram[data-dendrogram-orientation="vertical"]'),
+      rowLabels: bounds('#heatmapSvg [data-layer="row-labels"]'),
       columnDendrogram: bounds('#heatmapSvg .heatmap-dendrogram[data-dendrogram-orientation="horizontal"]'),
       scale: bounds('#heatmapSvg [data-heatmap-color-scale-bar="1"]')
     };
@@ -42,6 +43,16 @@ test('large Data-values heatmap stays responsive and completes exact clustering'
       && !!document.querySelector('#heatmapSvg .heatmap-color-scale')
   ));
   const smallLayout = await readHeatmapLayout(page);
+  const initialCommitMeta = await page.evaluate(() => (
+    window.Components?.heatmap?.__testHooks?.getRenderCommitMeta?.() || null
+  ));
+  expect(initialCommitMeta).toMatchObject({
+    modelType: 'values'
+  });
+  expect(initialCommitMeta?.rowCount).toBeGreaterThan(0);
+  expect(initialCommitMeta?.rowCount).toBeLessThan(7358);
+  expect(initialCommitMeta?.dataSignature).toBeTruthy();
+  expect(initialCommitMeta?.settingsSignature).toBeTruthy();
   await page.locator('#heatmapFile').evaluate(input => {
     input.dataset.importOptionsConfirmed = 'true';
   });
@@ -62,6 +73,10 @@ test('large Data-values heatmap stays responsive and completes exact clustering'
       && window.__heatmapRenderCheckpointReached === true
       && workerRecords.some(record => record.itemCount === 7358 && record.status === 'done');
   }, null, { timeout: 60_000 });
+  const pendingCommitMeta = await page.evaluate(() => (
+    window.Components?.heatmap?.__testHooks?.getRenderCommitMeta?.() || null
+  ));
+  expect(pendingCommitMeta).toEqual(initialCommitMeta);
   await page.evaluate(() => {
     const probe = { last: performance.now(), maxGapMs: 0, ticks: 0 };
     window.__heatmapResponsivenessProbe = probe;
@@ -77,6 +92,10 @@ test('large Data-values heatmap stays responsive and completes exact clustering'
   await page.waitForFunction(() => (
     document.querySelector('#heatmapGraphPanel .venn-loading-overlay')?.dataset?.jobStatus === 'cancelled'
   ));
+  const cancelledCommitMeta = await page.evaluate(() => (
+    window.Components?.heatmap?.__testHooks?.getRenderCommitMeta?.() || null
+  ));
+  expect(cancelledCommitMeta).toEqual(initialCommitMeta);
   await page.evaluate(() => {
     if(window.__heatmapOriginalNextFrame){
       window.Shared.jobs.nextFrame = window.__heatmapOriginalNextFrame;
@@ -84,19 +103,41 @@ test('large Data-values heatmap stays responsive and completes exact clustering'
     delete window.__heatmapOriginalNextFrame;
   });
   await page.locator('#heatmapGraphPanel [data-overlay-action="retry"]').click();
-  const retryOverlay = page.locator('#heatmapGraphPanel .venn-loading-overlay');
-  await expect(retryOverlay).toHaveAttribute('data-job-status', 'running');
-  await expect(retryOverlay).toBeVisible();
-  await expect(retryOverlay).toContainText('Rendering heatmap...');
+  // Retry may settle within a few frames because the exact-clustering worker result
+  // is already cached. Do not require the transient loading overlay to remain
+  // observable; the stable contract is the committed owner model after Retry.
   await page.waitForFunction(() => {
     const svg = document.getElementById('heatmapSvg');
     const overlay = document.querySelector('#heatmapGraphPanel .venn-loading-overlay:not([hidden])');
-    const workerRecords = window.Components?.heatmap?.__testHooks?.getWorkerRecords?.() || [];
+    const heatmap = window.Components?.heatmap;
+    const workerRecords = heatmap?.__testHooks?.getWorkerRecords?.() || [];
+    const commitMeta = heatmap?.__testHooks?.getRenderCommitMeta?.() || null;
     return svg?.dataset?.heatmapModelType === 'values'
       && !overlay
-      && window.Components?.heatmap?.__getState?.()?.lastStats?.rowCount === 7358
+      && commitMeta?.modelType === 'values'
+      && commitMeta?.rowCount === 7358
+      && commitMeta?.columnCount === 3
+      && heatmap?.__getState?.()?.lastStats?.rowCount === 7358
       && workerRecords.some(record => record.itemCount === 7358 && record.status === 'done');
   }, null, { timeout: 180_000 });
+
+  const committedLargeMeta = await page.evaluate(() => (
+    window.Components?.heatmap?.__testHooks?.getRenderCommitMeta?.() || null
+  ));
+  expect(committedLargeMeta).toMatchObject({
+    modelType: 'values',
+    rowCount: 7358,
+    columnCount: 3
+  });
+  expect(committedLargeMeta?.dataSignature).toBeTruthy();
+  expect(committedLargeMeta?.dataSignature).not.toBe(initialCommitMeta.dataSignature);
+  // The WDBC example has 40 conditions, so its data-aware default hides cell
+  // values. The imported matrix has only two conditions, so the same default
+  // intentionally enables them. That legitimate owner setting change must
+  // advance the committed settings signature together with the large model.
+  expect(committedLargeMeta?.settingsSignature).toBeTruthy();
+  expect(committedLargeMeta?.settingsSignature).not.toBe(initialCommitMeta.settingsSignature);
+  await expect(page.locator('#heatmapShowValues')).toBeChecked();
 
   const metrics = await page.evaluate(async () => {
     window.clearInterval(window.__heatmapResponsivenessTimer);
@@ -165,6 +206,7 @@ test('large Data-values heatmap stays responsive and completes exact clustering'
       activeTabId,
       rowLabelVisualHeight: document.querySelector('#heatmapSvg [data-layer="row-labels"] > text')?.getBoundingClientRect?.().height || 0,
       rowLabelTransform: document.querySelector('#heatmapSvg [data-layer="row-labels"] > text')?.getAttribute?.('transform') || '',
+      columnLabelTransform: document.querySelector('#heatmapSvg [data-layer="column-labels"] > text')?.getAttribute?.('transform') || '',
       rowLabelScaleY: (() => {
         const transform = document.querySelector('#heatmapSvg [data-layer="row-labels"] > text')?.getAttribute?.('transform') || '';
         const match = transform.match(/^matrix\([^,]+,[^,]+,[^,]+,([^,]+),/i);
@@ -249,21 +291,26 @@ test('large Data-values heatmap stays responsive and completes exact clustering'
   expect(metrics.exportRowLabels).toBe(metrics.sourceRowLabels);
   expect(metrics.exportColumnLabels).toBe(metrics.columns);
   expect(metrics.exportRowLabelTransform).toContain('matrix(');
-  expect(metrics.exportColumnLabelTransform).toContain('matrix(');
   expect(metrics.exportColumnLabelTransform).toContain('rotate(-90');
+  // Export preserves live aspect correction; sparse column labels must not gain a synthetic matrix.
+  expect(metrics.exportColumnLabelTransform.includes('matrix(')).toBe(
+    metrics.columnLabelTransform.includes('matrix(')
+  );
   expect(metrics.exportCanvasNodes).toBe(0);
   expect(metrics.exportRasterImages).toBe(0);
   expect(metrics.exportVectorCellCount).toBe(metrics.rows * metrics.columns);
   expect(metrics.exportVectorBuckets).toBeGreaterThan(0);
   expect(smallLayout.rowDendrogram).toBeTruthy();
+  expect(smallLayout.rowLabels).toBeTruthy();
   expect(smallLayout.columnDendrogram).toBeTruthy();
   expect(smallLayout.scale).toBeTruthy();
   expect(largeLayout.matrix.width).toBeGreaterThan(40);
   expect(largeLayout.matrix.height).toBeGreaterThan(60);
   expect(largeLayout.rowDendrogram.width).toBeGreaterThan(20);
   expect(largeLayout.columnDendrogram.height).toBeGreaterThan(20);
-  expect(largeLayout.rowDendrogram.left).toBeGreaterThanOrEqual(largeLayout.matrix.right - 2);
-  expect(largeLayout.scale.left).toBeGreaterThan(largeLayout.rowDendrogram.right);
+  expect(largeLayout.rowDendrogram.right).toBeLessThanOrEqual(largeLayout.matrix.left + 2);
+  expect(largeLayout.rowLabels.left).toBeGreaterThanOrEqual(largeLayout.matrix.right - 1);
+  expect(largeLayout.scale.left).toBeGreaterThan(largeLayout.rowLabels.right);
   expect(largeLayout.columnDendrogram.top).toBeGreaterThanOrEqual(largeLayout.matrix.bottom - 2);
   expect(largeLayout.columnDendrogram.left).toBeGreaterThanOrEqual(largeLayout.matrix.left);
   expect(largeLayout.columnDendrogram.right).toBeLessThanOrEqual(largeLayout.matrix.right);

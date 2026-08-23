@@ -461,13 +461,13 @@
     none: {
       label: 'None (unadjusted)',
       shortLabel: 'None',
-      footnote: count => `P-values are unadjusted${count > 0 ? ` (${count} comparison${count === 1 ? '' : 's'})` : ''}.`,
+      footnote: count => `p-values are unadjusted${count > 0 ? ` (${count} comparison${count === 1 ? '' : 's'})` : ''}.`,
       adjust: fallbackAdjustNone
     },
     bonferroni: {
       label: 'Bonferroni',
       shortLabel: 'Bonferroni',
-      footnote: count => `Bonferroni-adjusted P values across ${count} test${count === 1 ? '' : 's'}.`,
+      footnote: count => `Bonferroni-adjusted p-values across ${count} test${count === 1 ? '' : 's'}.`,
       adjust: fallbackAdjustBonferroni
     },
     holm: {
@@ -550,6 +550,28 @@
     return adjustFn(arr);
   }
 
+  const FALLBACK_SCIENTIFIC_SUPERSCRIPTS = Object.freeze({
+    '-': '⁻', '+': '⁺', '0': '⁰', '1': '¹', '2': '²', '3': '³', '4': '⁴', '5': '⁵', '6': '⁶', '7': '⁷', '8': '⁸', '9': '⁹'
+  });
+
+  function formatFallbackScientificNumber(value, fractionalDigits = 5){
+    const numeric = Number(value);
+    if(!Number.isFinite(numeric) || numeric === 0){
+      return Number.isFinite(numeric) ? '0' : String(value);
+    }
+    let exponent = Math.floor(Math.log10(Math.abs(numeric)));
+    let mantissa = numeric / Math.pow(10, exponent);
+    const digits = Math.max(0, Math.min(15, Number.isInteger(fractionalDigits) ? fractionalDigits : 5));
+    mantissa = Number(mantissa.toFixed(digits));
+    if(Math.abs(mantissa) >= 10){
+      mantissa /= 10;
+      exponent += 1;
+    }
+    const mantissaText = mantissa.toFixed(digits).replace(/\.?0+$/, '').replace(/^-/, '−');
+    const exponentText = String(exponent).split('').map(char => FALLBACK_SCIENTIFIC_SUPERSCRIPTS[char] || char).join('');
+    return `${mantissaText} × 10${exponentText}`;
+  }
+
   function formatP(value, options){
     const formatter = Shared.formatters?.formatPValue || Shared.formatPValue;
     if(typeof formatter === 'function'){
@@ -561,9 +583,28 @@
     }
     const scientific = options?.forceScientific === true || options?.scientific === true;
     if(scientific){
-      return numeric.toExponential(5);
+      const scientificFormatter = Shared.formatters?.formatScientificNumber;
+      if(numeric === 0){
+        const thresholdDisplay = typeof scientificFormatter === 'function'
+          ? scientificFormatter(0.0001, { fractionalDigits: 5 })
+          : formatFallbackScientificNumber(0.0001, 5);
+        return `<${thresholdDisplay}`;
+      }
+      return typeof scientificFormatter === 'function'
+        ? scientificFormatter(numeric, { fractionalDigits: 5 })
+        : formatFallbackScientificNumber(numeric, 5);
     }
     return numeric >= 0 && numeric <= 0.0001 ? '<0.0001' : numeric.toFixed(4).replace(/0+$/, '').replace(/\.$/, '');
+  }
+
+  function formatPExpression(value, label = 'p'){
+    const display = String(formatP(value));
+    const match = /^(<=|>=|≤|≥|<|>)\s*(.*)$/.exec(display);
+    if(match){
+      const operator = match[1] === '<=' ? '≤' : (match[1] === '>=' ? '≥' : match[1]);
+      return `${label} ${operator} ${match[2]}`;
+    }
+    return `${label} = ${display}`;
   }
 
   function resolvePValue(value){
@@ -740,7 +781,7 @@
       value: 'standard',
       label: 'Pairwise + correction',
       shortLabel: 'Standard',
-      tooltip: 'Run pairwise tests and adjust P values using the selected multiple-testing correction.',
+      tooltip: 'Run pairwise tests and adjust p-values using the selected multiple-testing correction.',
       applies: context => context?.mode !== 'custom',
       summary: () => 'Pairwise tests with the chosen correction.'
     },
@@ -748,7 +789,7 @@
       value: 'tukey',
       label: 'Tukey HSD',
       shortLabel: 'Tukey',
-      tooltip: 'Parametric Tukey Honestly Significant Difference using the studentized range distribution (unpaired, >=3 groups).',
+      tooltip: 'Parametric Tukey Honestly Significant Difference using the studentized range distribution (unpaired, ≥3 groups).',
       applies: context => context && context.mode !== 'custom' && context.test === 'parametric' && isEqualVarianceParametricVariant(context.variant) && !context.paired && context.groupCount >= 3,
       summary: context => `Tukey HSD on ${context?.groupCount || 0} groups (family-wise adjusted).`
     },
@@ -756,7 +797,7 @@
       value: 'gamesHowell',
       label: 'Games-Howell',
       shortLabel: 'Games-Howell',
-      tooltip: 'Games-Howell post-hoc test using Welch-standardized differences (unpaired, >=3 groups, unequal variances).',
+      tooltip: 'Games-Howell post-hoc test using Welch-standardized differences (unpaired, ≥3 groups, unequal variances).',
       applies: context => context && context.mode !== 'custom' && context.test === 'parametric' && !context.paired && context.groupCount >= 3 && (isWelchStyleParametricVariant(context.variant) || context.varianceConcern === true),
       summary: context => `Games-Howell comparisons across ${context?.groupCount || 0} groups with Welch-standardized SE.`
     },
@@ -764,7 +805,7 @@
       value: 'tamhaneT2',
       label: 'Tamhane T2 (Welch + Sidak)',
       shortLabel: 'Tamhane T2',
-      tooltip: 'Tamhane T2 unequal-variance post-hoc based on Welch t tests with Sidak family-wise adjustment (unpaired, >=3 groups).',
+      tooltip: 'Tamhane T2 unequal-variance post-hoc based on Welch t tests with Sidak family-wise adjustment (unpaired, ≥3 groups).',
       applies: context => context && context.mode !== 'custom' && context.test === 'parametric' && !context.paired && context.groupCount >= 3 && (isWelchStyleParametricVariant(context.variant) || context.varianceConcern === true),
       summary: context => `Tamhane T2 Welch pairwise comparisons with Sidak family-wise adjustment across ${context?.groupCount || 0} groups.`
     },
@@ -772,7 +813,7 @@
       value: 'dunn',
       label: "Dunn's test",
       shortLabel: 'Dunn',
-      tooltip: "Non-parametric Dunn's post-hoc test using rank sums (unpaired, >=3 groups).",
+      tooltip: "Non-parametric Dunn's post-hoc test using rank sums (unpaired, ≥3 groups).",
       applies: context => context && context.mode !== 'custom' && context.test === 'nonparametric' && !context.paired && context.groupCount >= 3,
       summary: context => `Dunn's rank-based post-hoc across ${context?.groupCount || 0} groups.`
     },
@@ -1242,7 +1283,7 @@
     }
     const k = summaries.length;
     if(k < 2){
-      return { method: 'brown-forsythe', statistic: NaN, pValue: NaN, passed: null, df1: 0, df2: 0, sparkline: [], reason: 'Need >=2 groups' };
+      return { method: 'brown-forsythe', statistic: NaN, pValue: NaN, passed: null, df1: 0, df2: 0, sparkline: [], reason: 'Need ≥2 groups' };
     }
     if(totalN <= k){
       return { method: 'brown-forsythe', statistic: NaN, pValue: NaN, passed: null, df1: k - 1, df2: Math.max(totalN - k, 0), sparkline: [], reason: 'Insufficient observations' };
@@ -1446,7 +1487,17 @@
     const range = x[n-1] - x[0];
     if(!(range > SMALL)){
       logDebug('Debug: box shapiro-wilk zero range',{ n, range });
-      return { method:'shapiro-wilk', sampleSize:n, statistic:1, pValue:1, passed:true, ifault:6, reason:'Zero range' };
+      return {
+        method:'shapiro-wilk',
+        sampleSize:n,
+        statistic:NaN,
+        pValue:NaN,
+        passed:null,
+        available:false,
+        degenerate:true,
+        ifault:6,
+        reason:'All observations are identical; normality cannot be assessed.'
+      };
     }
 
     // Coefficients for the test.
@@ -1504,7 +1555,7 @@
     w1 = Math.max(SMALL, Math.min(1, w1));
     const W = Math.max(0, Math.min(1, 1 - w1));
 
-    // P-value.
+    // p-value.
     let pValue;
     let ifault = 0;
 
@@ -1702,12 +1753,17 @@
       if(method==='dagostino'&&(!Number.isFinite(normality?.pValue)||cleaned.length<8)&&cleaned.length<=5000){method='shapiro-wilk';normality=computeShapiroWilk(cleaned);}
       normality={...normality,method,alpha,passed:Number.isFinite(normality?.pValue)?normality.pValue>=alpha:normality?.passed??null};
       diagnostics.groups.push({label,size:cleaned.length,normality,qqPoints:cleaned.length?computeQQPoints(cleaned,{maxSampleSize:qqSampleLimit}):[]});
-      if(normality.passed===false){normalityFailures+=1;diagnostics.warnings.push(`${label} failed ${method} normality (p = ${formatP(normality.pValue)}).`);}
+      if(normality.passed===false){
+        normalityFailures+=1;
+        diagnostics.warnings.push(`${label} failed ${method} normality (${formatPExpression(normality.pValue)}).`);
+      }else if(normality.passed == null){
+        diagnostics.warnings.push(`${label}: ${normality.reason || `${method} normality could not be assessed.`}`);
+      }
       if(distributionDiagnostic==='normal-vs-lognormal'){const comparison=computeDistributionComparison(cleaned);if(comparison)diagnostics.distributionComparisons.push({label,...comparison});}
     });
     const variance=varianceMethod==='bartlett'?computeBartlettVarianceDiagnostics(groups,labels,{alpha}):computeVarianceDiagnostics(groups,labels,{alpha,summaries:summaryList});
     diagnostics.variance=variance;diagnostics.varianceConcern=variance?.passed===false;diagnostics.normalityFailures=normalityFailures;
-    if(diagnostics.varianceConcern) diagnostics.warnings.push(`Variance equality failed ${varianceMethod} testing (p = ${formatP(variance.pValue)}).`);
+    if(diagnostics.varianceConcern) diagnostics.warnings.push(`Variance equality failed ${varianceMethod} testing (${formatPExpression(variance.pValue)}).`);
     diagnostics.recommendWelch=diagnostics.varianceConcern&&normalityFailures===0;diagnostics.recommendNonParametric=normalityFailures>0;
     if(options.trendTest===true) diagnostics.trend=computeLinearTrendTest(groups,{alternative:options.alternative});
     return diagnostics;
@@ -4446,12 +4502,12 @@
         { key: 'ss', label: 'SS', align: 'right' },
         { key: 'ms', label: 'MS', align: 'right' },
         { key: 'f', label: 'F', align: 'right' },
-        { key: 'p', label: 'P value', align: 'right' }
+        { key: 'p', label: 'p-value', align: 'right' }
       ],
       rows: [
         { source: 'Group', df: String(dfA), ss: formatStatNumber(ssa), ms: formatStatNumber(msa), f: formatStatNumber(fA), p: formatP(pA) },
         { source: 'Condition', df: String(dfB), ss: formatStatNumber(ssb), ms: formatStatNumber(msb), f: formatStatNumber(fB), p: formatP(pB) },
-        { source: 'Group x Condition', df: String(dfAB), ss: formatStatNumber(ssab), ms: formatStatNumber(msab), f: formatStatNumber(fAB), p: formatP(pAB) },
+        { source: 'Group × Condition', df: String(dfAB), ss: formatStatNumber(ssab), ms: formatStatNumber(msab), f: formatStatNumber(fAB), p: formatP(pAB) },
         { source: 'Error', df: String(dfError), ss: formatStatNumber(sse), ms: formatStatNumber(mse), f: '-', p: '-' }
       ],
       options: { fileName: 'box-two-way-anova', contextLabel: 'box-grouped-anova2' },
@@ -4542,16 +4598,16 @@
         { key: 'ss', label: 'SS', align: 'right' },
         { key: 'ms', label: 'MS', align: 'right' },
         { key: 'f', label: 'F', align: 'right' },
-        { key: 'p', label: 'P value', align: 'right' }
+        { key: 'p', label: 'p-value', align: 'right' }
       ],
       rows: [
         { source: 'Group', df: String(dfA), ss: formatStatNumber(ssa), ms: formatStatNumber(msa), f: formatStatNumber(fA), p: formatP(pA) },
         { source: 'Condition', df: String(dfB), ss: formatStatNumber(ssb), ms: formatStatNumber(msb), f: formatStatNumber(fB), p: formatP(pB) },
-        { source: 'Group x Condition', df: String(dfAB), ss: formatStatNumber(ssab), ms: formatStatNumber(msab), f: formatStatNumber(fAB), p: formatP(pAB) },
+        { source: 'Group × Condition', df: String(dfAB), ss: formatStatNumber(ssab), ms: formatStatNumber(msab), f: formatStatNumber(fAB), p: formatP(pAB) },
         { source: 'Row (random)', df: String(dfS), ss: formatStatNumber(sss), ms: formatStatNumber(dfS ? sss / dfS : NaN), f: '-', p: '-' },
-        { source: 'Group x Row', df: String(dfAS), ss: formatStatNumber(ssas), ms: formatStatNumber(msas), f: '-', p: '-' },
-        { source: 'Condition x Row', df: String(dfBS), ss: formatStatNumber(ssbs), ms: formatStatNumber(msbs), f: '-', p: '-' },
-        { source: 'Group x Condition x Row', df: String(dfABS), ss: formatStatNumber(ssabs), ms: formatStatNumber(msabs), f: '-', p: '-' }
+        { source: 'Group × Row', df: String(dfAS), ss: formatStatNumber(ssas), ms: formatStatNumber(msas), f: '-', p: '-' },
+        { source: 'Condition × Row', df: String(dfBS), ss: formatStatNumber(ssbs), ms: formatStatNumber(msbs), f: '-', p: '-' },
+        { source: 'Group × Condition × Row', df: String(dfABS), ss: formatStatNumber(ssabs), ms: formatStatNumber(msabs), f: '-', p: '-' }
       ],
       options: { fileName: 'box-two-way-mixed', contextLabel: 'box-grouped-mixed2' },
       footnotes: ['Mixed model treats rows as a random effect; F-tests for fixed effects use row interactions as denominators.']
@@ -4645,16 +4701,16 @@
         { key: 'ss', label: 'SS', align: 'right' },
         { key: 'ms', label: 'MS', align: 'right' },
         { key: 'f', label: 'F', align: 'right' },
-        { key: 'p', label: 'P value', align: 'right' }
+        { key: 'p', label: 'p-value', align: 'right' }
       ],
       rows: [
         { source: 'Group', df: String(dfA), ss: formatStatNumber(ssa), ms: formatStatNumber(msa), f: formatStatNumber(fA), p: formatP(pA) },
         { source: 'Condition', df: String(dfB), ss: formatStatNumber(ssb), ms: formatStatNumber(msb), f: formatStatNumber(fB), p: formatP(pB) },
         { source: 'Row', df: String(dfC), ss: formatStatNumber(ssc), ms: formatStatNumber(msc), f: formatStatNumber(fC), p: formatP(pC) },
-        { source: 'Group x Condition', df: String(dfAB), ss: formatStatNumber(ssab), ms: formatStatNumber(msab), f: formatStatNumber(fAB), p: formatP(pAB) },
-        { source: 'Group x Row', df: String(dfAC), ss: formatStatNumber(ssac), ms: formatStatNumber(msac), f: formatStatNumber(fAC), p: formatP(pAC) },
-        { source: 'Condition x Row', df: String(dfBC), ss: formatStatNumber(ssbc), ms: formatStatNumber(msbc), f: formatStatNumber(fBC), p: formatP(pBC) },
-        { source: 'Group x Condition x Row', df: String(dfABC), ss: formatStatNumber(ssabc), ms: formatStatNumber(msabc), f: '-', p: '-' },
+        { source: 'Group × Condition', df: String(dfAB), ss: formatStatNumber(ssab), ms: formatStatNumber(msab), f: formatStatNumber(fAB), p: formatP(pAB) },
+        { source: 'Group × Row', df: String(dfAC), ss: formatStatNumber(ssac), ms: formatStatNumber(msac), f: formatStatNumber(fAC), p: formatP(pAC) },
+        { source: 'Condition × Row', df: String(dfBC), ss: formatStatNumber(ssbc), ms: formatStatNumber(msbc), f: formatStatNumber(fBC), p: formatP(pBC) },
+        { source: 'Group × Condition × Row', df: String(dfABC), ss: formatStatNumber(ssabc), ms: formatStatNumber(msabc), f: '-', p: '-' },
         { source: 'Residual', df: '-', ss: formatStatNumber(residual), ms: '-', f: '-', p: '-' }
       ],
       options: { fileName: 'box-three-way-anova', contextLabel: 'box-grouped-anova3' },
@@ -4713,8 +4769,8 @@
         { key: 'comparison', label: 'Comparison', align: 'left' },
         { key: 't', label: 't', align: 'right' },
         { key: 'df', label: 'df', align: 'right' },
-        { key: 'p', label: 'P value', align: 'right' },
-        { key: 'padjust', label: `P (adj, ${correctionMeta.shortLabel})`, align: 'right' }
+        { key: 'p', label: 'p-value', align: 'right' },
+        { key: 'padjust', label: `p (adj, ${correctionMeta.shortLabel})`, align: 'right' }
       ],
       rows: tests.map(test => ({
         condition: test.condition,
@@ -5166,11 +5222,11 @@
             { key: 'group', label: 'Group', align: 'left', index: 0 },
             { key: 'n', label: 'n', align: 'right', index: 1 },
             { key: 'mean', label: 'Mean', align: 'right', index: 2 },
-            { key: 'delta', label: 'Mean - H0', align: 'right', index: 3 },
+            { key: 'delta', label: 'Mean − H₀', align: 'right', index: 3 },
             { key: 'statistic', label: 't', align: 'right', index: 4 },
             { key: 'df', label: 'df', align: 'right', index: 5 },
-            { key: 'p', label: 'P value', align: 'right', index: 6 },
-            { key: 'padj', label: `P (adj, ${correctionMeta.shortLabel})`, align: 'right', index: 7 },
+            { key: 'p', label: 'p-value', align: 'right', index: 6 },
+            { key: 'padj', label: `p (adj, ${correctionMeta.shortLabel})`, align: 'right', index: 7 },
             { key: 'note', label: 'Note', align: 'left', index: 8 }
           ],
           rows: tests.map(test => ({
@@ -5185,7 +5241,7 @@
             note: test.valid ? '' : (test.message || 'Skipped')
           })),
           footnotes: [
-            `Null hypothesis value (H0): ${formatStatNumber(nullValue)}.`,
+            `Null hypothesis value (H₀): ${formatStatNumber(nullValue)}.`,
             ...(correctionMeta.footnote ? [correctionMeta.footnote] : []),
             ...skippedNotes
           ],
@@ -5199,11 +5255,11 @@
             { key: 'group', label: 'Group', align: 'left', index: 0 },
             { key: 'n', label: 'n', align: 'right', index: 1 },
             { key: 'nEff', label: 'n (non-zero)', align: 'right', index: 2 },
-            { key: 'median', label: 'Median - H0', align: 'right', index: 3 },
+            { key: 'median', label: 'Median − H₀', align: 'right', index: 3 },
             { key: 'statistic', label: 'W', align: 'right', index: 4 },
             { key: 'z', label: 'z', align: 'right', index: 5 },
-            { key: 'p', label: 'P value', align: 'right', index: 6 },
-            { key: 'padj', label: `P (adj, ${correctionMeta.shortLabel})`, align: 'right', index: 7 },
+            { key: 'p', label: 'p-value', align: 'right', index: 6 },
+            { key: 'padj', label: `p (adj, ${correctionMeta.shortLabel})`, align: 'right', index: 7 },
             { key: 'note', label: 'Note', align: 'left', index: 8 }
           ],
           rows: tests.map(test => ({
@@ -5218,7 +5274,7 @@
             note: test.valid ? '' : (test.message || 'Skipped')
           })),
           footnotes: [
-            `Null hypothesis value (H0): ${formatStatNumber(nullValue)}.`,
+            `Null hypothesis value (H₀): ${formatStatNumber(nullValue)}.`,
             ...(correctionMeta.footnote ? [correctionMeta.footnote] : []),
             ...skippedNotes
           ],
@@ -5302,7 +5358,7 @@
           { key: 'comparison', label: 'Comparison', align: 'left', index: 0 },
           { key: 'statistic', label: 'Statistic', align: 'left', index: 1 },
           { key: 'df', label: 'df', align: 'right', index: 2 },
-          { key: 'padj', label: `P (adj, ${correctionMeta.shortLabel})`, align: 'right', index: 3 },
+          { key: 'padj', label: `p (adj, ${correctionMeta.shortLabel})`, align: 'right', index: 3 },
           { key: 'effectParametric', label: `Effect (${paramEffectMeta.shortLabel || paramEffectMeta.label})`, align: 'right', index: 4, tooltip: paramEffectMeta.tooltip },
           { key: 'effectNonParametric', label: `Effect (${nonParamEffectMeta.shortLabel || nonParamEffectMeta.label})`, align: 'right', index: 5, tooltip: nonParamEffectMeta.tooltip }
         ],
@@ -5342,11 +5398,11 @@
       if(res.df !== undefined){
         summaryRows.push({ metric: 'df', value: Number.isFinite(res.df) ? res.df.toFixed(4) : '-' });
       }
-      summaryRows.push({ metric: 'P value', value: formatP(res.p) });
+      summaryRows.push({ metric: 'p-value', value: formatP(res.p) });
       const correctionMeta = resolveCorrectionMeta(payload.statsCorrection, 1);
       const adjusted = applyPValueCorrection([res.p], payload.statsCorrection);
       const adjValue = Array.isArray(adjusted) && adjusted.length ? adjusted[0] : res.p;
-      summaryRows.push({ metric: `P (${correctionMeta.shortLabel})`, value: formatP(adjValue) });
+      summaryRows.push({ metric: `p (${correctionMeta.shortLabel})`, value: formatP(adjValue) });
       summaryRows.push({ metric: `Effect (${paramEffectMeta.shortLabel || paramEffectMeta.label})`, value: formattedParamEffect });
       summaryRows.push({ metric: `Effect (${nonParamEffectMeta.shortLabel || nonParamEffectMeta.label})`, value: formattedNonParamEffect });
       const footnotes = [
@@ -6015,19 +6071,19 @@
         }else if(overall?.df != null){
           overallRows.push({ metric: 'df', value: String(overall.df) });
         }
-        overallRows.push({ metric: 'P value', value: formatP(overall.p) });
+        overallRows.push({ metric: 'p-value', value: formatP(overall.p) });
         if(overall.method === 'rmAnova'){
           if(Number.isFinite(overall.ggEpsilon)){
-            overallRows.push({ metric: 'GG epsilon', value: overall.ggEpsilon.toFixed(4) });
+            overallRows.push({ metric: 'GG ε', value: overall.ggEpsilon.toFixed(4) });
           }
           if(Number.isFinite(overall.ggP)){
-            overallRows.push({ metric: 'P value (GG)', value: formatP(overall.ggP) });
+            overallRows.push({ metric: 'p-value (GG)', value: formatP(overall.ggP) });
           }
           if(Number.isFinite(overall.hfEpsilon)){
-            overallRows.push({ metric: 'HF epsilon', value: overall.hfEpsilon.toFixed(4) });
+            overallRows.push({ metric: 'HF ε', value: overall.hfEpsilon.toFixed(4) });
           }
           if(Number.isFinite(overall.hfP)){
-            overallRows.push({ metric: 'P value (HF)', value: formatP(overall.hfP) });
+            overallRows.push({ metric: 'p-value (HF)', value: formatP(overall.hfP) });
           }
         }
         model.tables.push({
@@ -6060,15 +6116,15 @@
       }
       effectFootnotes.forEach(note => footnotes.push(note));
       const postHocPLabels = {
-        tukey: 'P (Tukey HSD)',
-        gamesHowell: 'P (Games-Howell)',
-        tamhaneT2: 'P (Tamhane T2)',
-        nemenyi: 'P (Nemenyi)',
-        dunnett: 'P (Dunnett)',
-        dunnettT3: 'P (Dunnett T3)'
+        tukey: 'p (Tukey HSD)',
+        gamesHowell: 'p (Games-Howell)',
+        tamhaneT2: 'p (Tamhane T2)',
+        nemenyi: 'p (Nemenyi)',
+        dunnett: 'p (Dunnett)',
+        dunnettT3: 'p (Dunnett T3)'
       };
       const pLabel = postHocPLabels[postHocMode]
-        || `P (adj, ${correctionMeta.shortLabel})`;
+        || `p (adj, ${correctionMeta.shortLabel})`;
       const isSinglePrimaryComparison = !overall && pairs.length === 1;
       model.tables.push({
         caption: isSinglePrimaryComparison
@@ -6194,8 +6250,8 @@
         {key:'dfText',label:'df',align:'right'},
         {key:'differenceText',label:'Difference',align:'right'},
         {key:'ciText',label:'95% CI',align:'right'},
-        {key:'pText',label:'P value',align:'right'},
-        {key:'adjPText',label:`P (adj, ${correctionMeta.shortLabel})`,align:'right'}
+        {key:'pText',label:'p-value',align:'right'},
+        {key:'adjPText',label:`p (adj, ${correctionMeta.shortLabel})`,align:'right'}
       ],
       rows:rows.map(row=>({
         ...row,

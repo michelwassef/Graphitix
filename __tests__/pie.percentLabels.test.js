@@ -109,6 +109,42 @@ describe('Pie percentage labels', () => {
     }
   });
 
+  test('plot-stat summaries use the analysis-specific effect-size label', () => {
+    const hooks = window.Components?.pie?.__testHooks;
+    expect(hooks).toBeTruthy();
+    const dataModel = {
+      columns: [
+        { index: 1, label: 'Observed' },
+        { index: 2, label: 'Expected' }
+      ],
+      rows: [
+        { category: 'A', values: { 1: 30, 2: 20 } },
+        { category: 'B', values: { 1: 20, 2: 20 } },
+        { category: 'C', values: { 1: 10, 2: 20 } }
+      ]
+    };
+
+    const gof = hooks.buildPlotStatsLines(dataModel, {
+      scope: 'gof',
+      test: 'chi-square',
+      valueColumn: 1,
+      expectedColumn: 2
+    });
+    expect(gof).toHaveLength(1);
+    expect(gof[0]).toContain("Cohen's w =");
+    expect(gof[0]).not.toContain("Cramer's V =");
+
+    const contingency = hooks.buildPlotStatsLines(dataModel, {
+      scope: 'all',
+      test: 'chi-square',
+      selectedCols: new Set([1, 2]),
+      sparseThreshold: 5,
+      yatesCorrection: false
+    });
+    expect(contingency).toHaveLength(1);
+    expect(contingency[0]).toContain("Cramer's V =");
+  });
+
   test('shared radial percentage auto-fit shrinks to the narrowest slice', () => {
     const hooks = window.Components?.pie?.__testHooks;
     expect(hooks).toBeTruthy();

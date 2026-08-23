@@ -7,14 +7,14 @@ const {
 
 async function waitForHeatmapCells(page) {
   await page.waitForFunction(() => {
-    const cells = document.querySelectorAll('#heatmapSvg [data-export-layer="heatmap-cells"] rect');
+    const cells = document.querySelectorAll('#heatmapPage:not([hidden]) #heatmapSvg [data-export-layer="heatmap-cells"] rect');
     return cells.length >= 9;
   }, null, { timeout: 60_000 });
 }
 
 async function activeHeatmapStatus(page) {
   return page.evaluate(() => {
-    const cells = document.querySelectorAll('#heatmapSvg [data-export-layer="heatmap-cells"] rect').length;
+    const cells = document.querySelectorAll('#heatmapPage:not([hidden]) #heatmapSvg [data-export-layer="heatmap-cells"] rect').length;
     const overlay = !!document.querySelector('#heatmapGraphPanel .venn-loading-overlay');
     const activeTabId = window.Main?.session?.workspaceState?.activeTabId || null;
     return { activeTabId, cells, overlay };
@@ -23,7 +23,7 @@ async function activeHeatmapStatus(page) {
 
 async function captureHeatmapVisualSignature(page) {
   return page.evaluate(() => {
-    const svg = document.getElementById('heatmapSvg');
+    const svg = document.querySelector('#heatmapPage:not([hidden]) #heatmapSvg');
     const rowLabel = svg?.querySelector('text[data-font-role="rowLabel"]') || null;
     const columnLabel = svg?.querySelector('text[data-font-role="columnLabel"]') || null;
     const cellRect = svg?.querySelector('[data-export-layer="heatmap-cells"] rect') || null;
@@ -70,6 +70,15 @@ function expectNear(actual, expected, tolerance, label) {
   expect(Number.isFinite(actual), `${label}: actual is not finite (${actual})`).toBe(true);
   expect(Number.isFinite(expected), `${label}: expected is not finite (${expected})`).toBe(true);
   expect(Math.abs(actual - expected), `${label}: ${actual} vs ${expected}`).toBeLessThanOrEqual(tolerance);
+}
+
+function expectOptionalNear(actual, expected, tolerance, label) {
+  const actualFinite = Number.isFinite(actual);
+  const expectedFinite = Number.isFinite(expected);
+  expect(actualFinite, `${label}: presence changed`).toBe(expectedFinite);
+  if(actualFinite){
+    expectNear(actual, expected, tolerance, label);
+  }
 }
 
 test('Heatmap example load works in two heatmap tabs', async ({ page }) => {
@@ -121,12 +130,15 @@ test('Heatmap example load works in two heatmap tabs', async ({ page }) => {
   const restoredFirstSignature = await captureHeatmapVisualSignature(page);
   expectNear(restoredFirstSignature.rowFontPx, firstSignature.rowFontPx, 0.7, 'row font size');
   expectNear(restoredFirstSignature.columnFontPx, firstSignature.columnFontPx, 0.7, 'column font size');
-  expectNear(restoredFirstSignature.cellFontPx, firstSignature.cellFontPx, 0.7, 'cell value font size');
+  expectOptionalNear(restoredFirstSignature.cellFontPx, firstSignature.cellFontPx, 0.7, 'cell value font size');
   expectNear(restoredFirstSignature.rowRect.height, firstSignature.rowRect.height, 2, 'row label height');
   expectNear(restoredFirstSignature.columnRect.width, firstSignature.columnRect.width, 2, 'column label width');
   expectNear(restoredFirstSignature.cellRect.height, firstSignature.cellRect.height, 2, 'cell height');
-  expectNear(restoredFirstSignature.cellValueRect.height, firstSignature.cellValueRect.height, 2, 'cell value height');
-  expectNear(
+  expect(restoredFirstSignature.cellValueRect === null, 'cell-value presence changed').toBe(firstSignature.cellValueRect === null);
+  if(restoredFirstSignature.cellValueRect){
+    expectNear(restoredFirstSignature.cellValueRect.height, firstSignature.cellValueRect.height, 2, 'cell value height');
+  }
+  expectOptionalNear(
     restoredFirstSignature.cellValueToCellHeightRatio,
     firstSignature.cellValueToCellHeightRatio,
     0.08,

@@ -103,6 +103,26 @@ describe('Scatter internal architecture contract', () => {
     }
   });
 
+  test('extracted 2D axis renderer receives its owner session explicitly', () => {
+    const draw = functionSource(scatter, 'drawScatter');
+    const axes = functionSource(scatter, 'renderScatter2dAxes');
+    expect(draw).toBeTruthy();
+    expect(axes).toBeTruthy();
+    expect(draw).toMatch(/renderScatter2dAxes\(\{[\s\S]*?ownerSession:\s*drawSession[\s\S]*?\}\);/);
+    expect(axes).toContain('ownerSession');
+    expect(axes).toContain('buildScatterAxisControlConfig(axis, ownerSession');
+    expect(axes).not.toContain('buildScatterAxisControlConfig(axis, drawSession');
+  });
+
+  test('normal empty axis data is not reported as a user exclusion warning', () => {
+    const draw = functionSource(scatter, 'drawScatter');
+    expect(draw).toBeTruthy();
+    expect(draw).toContain('hasExplicitAnalysisExclusions');
+    expect(draw).toContain("debug('Debug: scatter draw skipped - axis data unavailable'");
+    expect(draw).toContain("console.warn('Scatter draw cancelled - axis data unavailable after exclusions'");
+    expect(draw).not.toContain("console.warn('Scatter draw cancelled - axis column excluded'");
+  });
+
   test('large renderer details do not return to drawScatter', () => {
     const draw = functionSource(scatter, 'drawScatter');
     expect(draw).not.toContain('indexedCanvasPointBuckets.set(');
@@ -170,4 +190,92 @@ describe('Scatter internal architecture contract', () => {
       expect(scatter).not.toContain(marker);
     }
   });
+
+  test('inactive same-component capture never reconstructs owner state from the live projection', () => {
+    const activeCheck = functionSource(scatter, 'isScatterSessionActiveForModuleState');
+    const remember = functionSource(scatter, 'rememberScatterOwnedRuntimeRecord');
+    const statsCapture = functionSource(scatter, 'captureScatterSessionStatsState');
+    const runtimeCapture = functionSource(scatter, 'captureRuntimeState');
+    expect(activeCheck).toContain("canOwnerUseLiveProjection?.('scatter'");
+    expect(activeCheck).toContain('projectedSession: projectedScatterSession');
+    expect(activeCheck).toContain('root: scatterRoot || null');
+    expect(activeCheck).not.toContain('resolvePayloadCaptureContext');
+    expect(remember).toContain('const activeOwner =');
+    expect(remember).toContain('if(activeOwner){');
+    expect(remember).not.toContain('getScatterLiveNodeById(');
+    expect(remember).toContain('record.stats = normalizeScatterOwnedStatsState(ownedState?.stats || record.stats);');
+    expect(statsCapture).toContain('return normalizeScatterOwnedStatsState(shaped.state.stats || null);');
+    expect(statsCapture).not.toContain('shaped.state.stats =');
+    expect(statsCapture).not.toContain('captureScatterStatsPanelModel(existingStats.panelModel || null, shaped)');
+    expect(scatter).not.toContain('syncScatterStatsSessionFromModule');
+    expect(runtimeCapture).toContain('const canCaptureLive = !!targetSession && isScatterSessionActiveForModuleState(targetSession);');
+    expect(runtimeCapture).toContain(':inactive-owned-runtime');
+  });
+
+  test('same-component passive activation rebinds the complete owner-scoped Scatter DOM projection', () => {
+    const binder = functionSource(scatter, 'bindScatterDomRefs');
+    const passive = functionSource(scatter, 'bindScatterPassiveDomForTab');
+    const callback = functionSource(scatter, 'runScatterOwnedCallback');
+    const setup = functionSource(scatter, 'setup');
+    expect(binder).toBeTruthy();
+    expect(passive).toBeTruthy();
+    expect(callback).toBeTruthy();
+    expect(setup).toBeTruthy();
+    for(const marker of [
+      "scatterRegressionMode = byId('scatterRegressionMode')",
+      "scatterStatsResults = byId('scatterStatsResults')",
+      "scatterStatsButton = byId('scatterComputeStats')",
+      "scatterShowLine = byId('scatterShowLine')",
+      "scatterShowPlotStats = byId('scatterShowPlotStats')",
+      "scatterShowCI = byId('scatterShowCI')",
+      "scatterShowPI = byId('scatterShowPI')"
+    ]){
+      expect(binder).toContain(marker);
+    }
+    expect(binder).not.toContain('.addEventListener(');
+    expect(binder).not.toContain('ensureScatterGlobalFitControls()');
+    expect(passive).toContain('bindScatterDomRefs(nextRoot, nextTabId');
+    expect(callback).toContain('bindScatterDomRefs(ownerRoot, ownerTabId');
+    expect(setup).toContain('bindScatterDomRefs(scatterRoot, setupTabId');
+  });
+
+  test('successful statistics computation commits the durable model before runtime capture and persistence', () => {
+    const commit = functionSource(scatter, 'commitScatterComputedStats');
+    const compute = functionSource(scatter, 'handleScatterStatsComputeClick');
+    const cache = functionSource(scatter, 'cacheScatterStats');
+    expect(commit).toBeTruthy();
+    expect(compute).toBeTruthy();
+    expect(cache).toBeTruthy();
+    expect(commit).toContain('setScatterSessionStatsState(ownerSession');
+    expect(commit).toContain("reason: 'missing-precomputed-stats'");
+    expect(compute).toContain('.then(computed =>');
+    expect(compute).toContain('if(computed !== true)');
+    expect(compute).toContain('commitScatterComputedStats(statsSession, context');
+    expect(compute).toContain('clearScatterStatsComputationRuntime(statsSession, context, sessionMeta, { force: true });');
+    expect(compute.indexOf('commitScatterComputedStats(statsSession, context')).toBeLessThan(
+      compute.indexOf('rememberScatterOwnedRuntimeRecord(')
+    );
+    expect(cache).not.toContain('scatterState.statsContext = context');
+  });
+
+  test('payload capture and restore keep owner statistics authoritative', () => {
+    const payload = functionSource(scatter, 'getActiveScatterGraphPayload');
+    const pending = functionSource(scatter, 'createScatterStatsRestorePending');
+    expect(payload).toContain('const ownedStatsState = payloadSession');
+    expect(payload).toContain(': (payloadStatsState || sessionStatsState);');
+    expect(payload).not.toContain('scatterOwnedStatsStateHasResults(sessionStatsState)');
+    expect(pending).toContain('autoCompute: !stats.precomputedStats');
+  });
+
+  test('session normalization preserves the canonical state object identity', () => {
+    const applyState = functionSource(scatter, 'applyScatterSessionStateInPlace');
+    const ensureSession = functionSource(scatter, 'ensureScatterSessionOwnershipShape');
+    const syncFromRuntime = functionSource(scatter, 'setScatterSessionStateFromRuntimeRecord');
+    expect(applyState).toContain('Object.assign(session.state, normalizedState)');
+    expect(ensureSession).toContain('applyScatterSessionStateInPlace(session, normalizedState)');
+    expect(syncFromRuntime).toContain('applyScatterSessionStateInPlace(session, normalizedState)');
+    expect(ensureSession).not.toContain('session.state = normalizeScatterSessionState(session.state');
+    expect(syncFromRuntime).not.toContain('session.state = normalizeScatterSessionState(record, tabId)');
+  });
+
 });

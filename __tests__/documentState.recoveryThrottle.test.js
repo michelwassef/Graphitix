@@ -96,6 +96,154 @@ describe('documentState recovery snapshot throttling', () => {
     expect(sessionActions.buildWorkspaceArchiveBlob).toHaveBeenCalledTimes(1);
   });
 
+  test('direct recovery capture is deferred while a managed 3D rotation gesture is active', async () => {
+    let rotationActive = true;
+    window.Shared.plot3d = {
+      hasActiveRotationGesture: jest.fn(() => rotationActive)
+    };
+    const { sessionActions } = installDocumentState();
+
+    await expect(window.Main.documentState.writeRecoverySnapshot('recovery-interval')).resolves.toEqual({
+      status: 'deferred',
+      reason: 'active-rotation-gesture',
+      revision: 1
+    });
+    expect(sessionActions.buildWorkspaceArchiveBlob).not.toHaveBeenCalled();
+
+    rotationActive = false;
+    window.dispatchEvent(new CustomEvent('graphitix:plot3d-rotation-gesture', {
+      detail: { phase: 'end', activeCount: 0, componentKey: 'surface', tabId: 'tab-1' }
+    }));
+    jest.advanceTimersByTime(2499);
+    await flushTimers();
+    expect(sessionActions.buildWorkspaceArchiveBlob).not.toHaveBeenCalled();
+    jest.advanceTimersByTime(1);
+    await flushTimers();
+    expect(sessionActions.buildWorkspaceArchiveBlob).toHaveBeenCalledTimes(1);
+  });
+
+  test('active rotation remains an absolute recovery barrier beyond the normal maximum debounce', async () => {
+    let rotationActive = true;
+    window.Shared.plot3d = {
+      hasActiveRotationGesture: jest.fn(() => rotationActive)
+    };
+    const { sessionActions } = installDocumentState();
+
+    window.dispatchEvent(new CustomEvent('graphitix:document-state-change', {
+      detail: { type: 'dirty', revision: 1 }
+    }));
+    jest.advanceTimersByTime(15000);
+    await flushTimers();
+    expect(sessionActions.buildWorkspaceArchiveBlob).not.toHaveBeenCalled();
+
+    rotationActive = false;
+    window.dispatchEvent(new CustomEvent('graphitix:plot3d-rotation-gesture', {
+      detail: { phase: 'end', activeCount: 0, componentKey: 'line', tabId: 'tab-1' }
+    }));
+    jest.advanceTimersByTime(0);
+    await flushTimers();
+    expect(sessionActions.buildWorkspaceArchiveBlob).toHaveBeenCalledTimes(1);
+  });
+
+  test('a rotation that starts during checkpoint readiness converts the race into a deferred recovery', async () => {
+    const activeError = Object.assign(new Error('rotation active'), {
+      code: 'GRAPHITIX_RECOVERY_INTERACTION_ACTIVE',
+      stage: 'after-readiness'
+    });
+    const { sessionActions } = installDocumentState({
+      sessionActions: {
+        buildWorkspaceArchiveBlob: jest.fn().mockRejectedValue(activeError)
+      }
+    });
+
+    await expect(window.Main.documentState.writeRecoverySnapshot('recovery-interval')).resolves.toEqual({
+      status: 'deferred',
+      reason: 'active-rotation-gesture',
+      revision: 1
+    });
+    expect(sessionActions.buildWorkspaceArchiveBlob).toHaveBeenCalledTimes(1);
+    expect(window.desktop.writeRecoverySnapshot).not.toHaveBeenCalled();
+  });
+
+  test('snapshot-not-ready recovery defers without logging an error and retries on the trailing schedule', async () => {
+    const readinessError = Object.assign(new Error('replacement frame still staged'), {
+      code: 'GRAPHITIX_SNAPSHOT_NOT_READY',
+      reason: 'frame-publication-pending',
+      tabId: 'tab-1',
+      component: 'scatter'
+    });
+    const snapshotBlob = {
+      size: 3,
+      arrayBuffer: jest.fn().mockResolvedValue(Uint8Array.from([1, 2, 3]).buffer)
+    };
+    const buildWorkspaceArchiveBlob = jest.fn()
+      .mockRejectedValueOnce(readinessError)
+      .mockResolvedValueOnce(snapshotBlob);
+    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {});
+    installDocumentState({
+      sessionActions: { buildWorkspaceArchiveBlob }
+    });
+
+    await expect(window.Main.documentState.writeRecoverySnapshot('recovery-publication-race')).resolves.toEqual({
+      status: 'deferred',
+      reason: 'snapshot-not-ready',
+      revision: 1
+    });
+    expect(buildWorkspaceArchiveBlob).toHaveBeenCalledTimes(1);
+    expect(window.desktop.writeRecoverySnapshot).not.toHaveBeenCalled();
+    expect(consoleError).not.toHaveBeenCalled();
+
+    jest.advanceTimersByTime(2499);
+    await flushTimers();
+    expect(buildWorkspaceArchiveBlob).toHaveBeenCalledTimes(1);
+    jest.advanceTimersByTime(1);
+    await flushTimers();
+    expect(buildWorkspaceArchiveBlob).toHaveBeenCalledTimes(2);
+    consoleError.mockRestore();
+  });
+
+  test('a checkpoint race resumes even when the interaction ends before the in-flight guard unwinds', async () => {
+    // The checkpoint starts while no gesture is active. sessionActions then detects
+    // a gesture at its internal race gate and reports the interaction-active error;
+    // by the time documentState unwinds that error, the gesture has already ended.
+    let rotationActive = false;
+    window.Shared.plot3d = {
+      hasActiveRotationGesture: jest.fn(() => rotationActive)
+    };
+    const activeError = Object.assign(new Error('rotation active'), {
+      code: 'GRAPHITIX_RECOVERY_INTERACTION_ACTIVE',
+      stage: 'before-active-owner-capture'
+    });
+    const snapshotBlob = {
+      size: 3,
+      arrayBuffer: jest.fn().mockResolvedValue(Uint8Array.from([1, 2, 3]).buffer)
+    };
+    const buildWorkspaceArchiveBlob = jest.fn()
+      .mockImplementationOnce(async () => {
+        rotationActive = true;
+        rotationActive = false;
+        throw activeError;
+      })
+      .mockResolvedValueOnce(snapshotBlob);
+    installDocumentState({
+      sessionActions: { buildWorkspaceArchiveBlob }
+    });
+
+    await expect(window.Main.documentState.writeRecoverySnapshot('recovery-race')).resolves.toEqual({
+      status: 'deferred',
+      reason: 'active-rotation-gesture',
+      revision: 1
+    });
+    expect(buildWorkspaceArchiveBlob).toHaveBeenCalledTimes(1);
+
+    jest.advanceTimersByTime(2499);
+    await flushTimers();
+    expect(buildWorkspaceArchiveBlob).toHaveBeenCalledTimes(1);
+    jest.advanceTimersByTime(1);
+    await flushTimers();
+    expect(buildWorkspaceArchiveBlob).toHaveBeenCalledTimes(2);
+  });
+
   test('subsequent edits restart the trailing recovery delay', async () => {
     const { workspaceState, sessionActions } = installDocumentState();
 

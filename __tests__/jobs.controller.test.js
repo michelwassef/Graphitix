@@ -56,6 +56,181 @@ describe('Shared.jobs and loading overlay integration', () => {
     await expect(execution.checkpoint()).rejects.toThrow('Task cancelled');
   });
 
+  test('execution context becomes stale after a same-component tab switch even when no job exists', async () => {
+    const previousMain = window.Main;
+    const previousWorkspaceTabs = window.Shared.workspaceTabs;
+    const tabs = [
+      { id: 'tab-a', type: 'box', title: 'Box A' },
+      { id: 'tab-b', type: 'box', title: 'Box B' }
+    ];
+    const workspaceState = { tabs, activeTabId: 'tab-a' };
+    try {
+      window.Main = {
+        ...(previousMain || {}),
+        session: {
+          ...(previousMain?.session || {}),
+          workspaceState,
+          getActiveTab: () => tabs.find(tab => tab.id === workspaceState.activeTabId) || null
+        }
+      };
+      window.Shared.workspaceTabs = {
+        ...(previousWorkspaceTabs || {}),
+        buildSessionMeta: () => ({ tabId: 'tab-a', sessionGeneration: 4, componentKey: 'box' }),
+        isSessionMetaCurrent: (_component, meta) => workspaceState.activeTabId === meta.tabId && meta.sessionGeneration === 4
+      };
+
+      const execution = window.Shared.jobs.createExecutionContext({
+        component: 'box',
+        tabId: 'tab-a',
+        kind: 'graph',
+        budgetMs: 1
+      });
+
+      expect(execution.job).toBeNull();
+      expect(execution.isCurrent()).toBe(true);
+      workspaceState.activeTabId = 'tab-b';
+      expect(execution.isCurrent()).toBe(false);
+      await expect(execution.checkpoint()).rejects.toMatchObject({
+        name: 'StaleExecutionOwnerError',
+        code: 'STALE_EXECUTION_OWNER',
+        component: 'box',
+        tabId: 'tab-a'
+      });
+    } finally {
+      window.Main = previousMain;
+      window.Shared.workspaceTabs = previousWorkspaceTabs;
+    }
+  });
+
+  test('execution context revalidates ownership after an actual cooperative yield', async () => {
+    const previousMain = window.Main;
+    const previousWorkspaceTabs = window.Shared.workspaceTabs;
+    const tabs = [
+      { id: 'tab-a', type: 'line', title: 'Line A' },
+      { id: 'tab-b', type: 'line', title: 'Line B' }
+    ];
+    const workspaceState = { tabs, activeTabId: 'tab-a' };
+    let releaseYield = null;
+    const yieldSpy = jest.spyOn(window.Shared.jobs, 'createYieldController').mockReturnValue({
+      checkpoint: jest.fn(() => new Promise(resolve => { releaseYield = resolve; }))
+    });
+    try {
+      window.Main = {
+        ...(previousMain || {}),
+        session: {
+          ...(previousMain?.session || {}),
+          workspaceState,
+          getActiveTab: () => tabs.find(tab => tab.id === workspaceState.activeTabId) || null
+        }
+      };
+      window.Shared.workspaceTabs = {
+        ...(previousWorkspaceTabs || {}),
+        buildSessionMeta: () => ({ tabId: 'tab-a', sessionGeneration: 3, componentKey: 'line' }),
+        isSessionMetaCurrent: (_component, meta) => workspaceState.activeTabId === meta.tabId && meta.sessionGeneration === 3
+      };
+
+      const execution = window.Shared.jobs.createExecutionContext({
+        component: 'line',
+        tabId: 'tab-a',
+        kind: 'graph',
+        budgetMs: 1
+      });
+      const pending = execution.checkpoint();
+      await Promise.resolve();
+      expect(releaseYield).toEqual(expect.any(Function));
+
+      workspaceState.activeTabId = 'tab-b';
+      releaseYield(true);
+
+      await expect(pending).rejects.toMatchObject({
+        name: 'StaleExecutionOwnerError',
+        code: 'STALE_EXECUTION_OWNER',
+        component: 'line',
+        tabId: 'tab-a'
+      });
+    } finally {
+      yieldSpy.mockRestore();
+      window.Main = previousMain;
+      window.Shared.workspaceTabs = previousWorkspaceTabs;
+    }
+  });
+
+  test('execution context generation rejects ABA tab reactivation', () => {
+    const previousMain = window.Main;
+    const previousWorkspaceTabs = window.Shared.workspaceTabs;
+    const tabs = [
+      { id: 'tab-a', type: 'line', title: 'Line A' },
+      { id: 'tab-b', type: 'line', title: 'Line B' }
+    ];
+    const workspaceState = { tabs, activeTabId: 'tab-a' };
+    let activeGeneration = 7;
+    try {
+      window.Main = {
+        ...(previousMain || {}),
+        session: {
+          ...(previousMain?.session || {}),
+          workspaceState,
+          getActiveTab: () => tabs.find(tab => tab.id === workspaceState.activeTabId) || null
+        }
+      };
+      window.Shared.workspaceTabs = {
+        ...(previousWorkspaceTabs || {}),
+        buildSessionMeta: () => ({ tabId: 'tab-a', sessionGeneration: activeGeneration, componentKey: 'line' }),
+        isSessionMetaCurrent: (_component, meta) => workspaceState.activeTabId === meta.tabId && activeGeneration === meta.sessionGeneration
+      };
+
+      const execution = window.Shared.jobs.createExecutionContext({
+        component: 'line',
+        tabId: 'tab-a',
+        kind: 'graph'
+      });
+      expect(execution.owner.sessionGeneration).toBe(7);
+      expect(execution.isCurrent()).toBe(true);
+
+      workspaceState.activeTabId = 'tab-b';
+      activeGeneration = 8;
+      workspaceState.activeTabId = 'tab-a';
+
+      expect(execution.isCurrent()).toBe(false);
+    } finally {
+      window.Main = previousMain;
+      window.Shared.workspaceTabs = previousWorkspaceTabs;
+    }
+  });
+
+  test('an active job cannot make an inactive execution owner current', () => {
+    const previousMain = window.Main;
+    const previousWorkspaceTabs = window.Shared.workspaceTabs;
+    const tabs = [
+      { id: 'tab-a', type: 'pie', title: 'Pie A' },
+      { id: 'tab-b', type: 'pie', title: 'Pie B' }
+    ];
+    const workspaceState = { tabs, activeTabId: 'tab-a' };
+    try {
+      window.Main = {
+        ...(previousMain || {}),
+        session: {
+          ...(previousMain?.session || {}),
+          workspaceState,
+          getActiveTab: () => tabs.find(tab => tab.id === workspaceState.activeTabId) || null
+        }
+      };
+      window.Shared.workspaceTabs = {
+        ...(previousWorkspaceTabs || {}),
+        buildSessionMeta: () => ({ tabId: 'tab-a', sessionGeneration: 2, componentKey: 'pie' }),
+        isSessionMetaCurrent: (_component, meta) => workspaceState.activeTabId === meta.tabId && meta.sessionGeneration === 2
+      };
+      const job = window.Shared.jobs.start({ kind: 'graph', component: 'pie', tabId: 'tab-a' });
+      const execution = window.Shared.jobs.createExecutionContext({ component: 'pie', tabId: 'tab-a', kind: 'graph' });
+      expect(execution.job.id).toBe(job.id);
+      workspaceState.activeTabId = 'tab-b';
+      expect(execution.isCurrent()).toBe(false);
+    } finally {
+      window.Main = previousMain;
+      window.Shared.workspaceTabs = previousWorkspaceTabs;
+    }
+  });
+
   test('live resize checkpoints preserve cancellation without yielding a painted frame', async () => {
     const nextFrame = jest.spyOn(window.Shared.jobs, 'nextFrame').mockResolvedValue();
     const liveResize = window.Shared.jobs.createExecutionContext({

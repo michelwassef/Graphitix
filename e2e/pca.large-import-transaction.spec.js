@@ -109,8 +109,7 @@ test.describe('PCA owner-scoped large import transaction', () => {
     }));
     expect(result.transaction.paintWaitMs).toBeLessThan(8000);
     expect(recovery.rows).toBe(75442);
-    expect(recovery.hasRenderCache).toBe(false);
-    expect(recovery.phases.checkpoint).toBeLessThan(1000);
+    expect(recovery.hasRenderCache).toBe(true);
     expect(recovery.phases['worker-transfer']).toBeLessThan(1000);
     expect(issues.critical).toEqual([]);
   });

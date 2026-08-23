@@ -230,11 +230,8 @@ describe('UI stats persistence and restore', () => {
     jest.resetModules();
     console.debug = jest.fn();
     console.log = jest.fn();
-    global.requestAnimationFrame = (cb) => {
-      try{ cb(Date.now()); }catch(_err){}
-      return 1;
-    };
-    global.cancelAnimationFrame = () => {};
+    global.requestAnimationFrame = cb => setTimeout(() => cb(Date.now()), 0);
+    global.cancelAnimationFrame = handle => clearTimeout(handle);
 
     if(typeof window !== 'undefined'){
       delete window.Main;
@@ -263,6 +260,7 @@ describe('UI stats persistence and restore', () => {
     require('../js/shared/stats.js');
     require('../js/shared/boxStatsModel.js');
     require('../js/shared/stats-table.js');
+    require('../js/shared/exampleDatasets.js');
     require('../js/shared/colorPicker.js');
     require('../js/shared/editHighlight.js');
     require('../js/shared/axisControls.js');

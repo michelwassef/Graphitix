@@ -3,6 +3,13 @@
 
   const Shared = global.Shared = global.Shared || {};
   const dataViews = Shared.dataViews = Shared.dataViews || {};
+  if(!Shared.dataViewPersistence && typeof require === 'function'){
+    try{
+      require('./dataViewPersistence.js');
+    }catch(_err){
+      // Browser builds load dataViewPersistence.js before dataViews.js.
+    }
+  }
   const VERSION = 3;
   const DEFAULT_MAX_VIEWS = 12;
   const tableProjectionDepth = new WeakMap();
@@ -141,6 +148,15 @@
     const source = input && typeof input === 'object' ? input : {};
     const kind = source.kind === 'raw' ? 'raw' : (fallbackKind === 'raw' ? 'raw' : 'derived');
     const id = kind === 'raw' ? 'raw' : String(source.id || '').trim();
+    const transformOptions = source.transformOptions
+      && typeof source.transformOptions === 'object'
+      && !Array.isArray(source.transformOptions)
+      ? cloneSimple(source.transformOptions)
+      : null;
+    const replayable = kind !== 'raw'
+      && source.replayable === true
+      && !!transformOptions
+      && Shared.dataViewPersistence?.isTransformSpecReplayable?.(source.transformSpec) === true;
     return {
       id: id || null,
       kind,
@@ -148,6 +164,8 @@
       data: Array.isArray(source.data) ? source.data : [],
       sourceViewId: source.sourceViewId == null ? null : String(source.sourceViewId),
       transformSpec: source.transformSpec || null,
+      transformOptions,
+      replayable,
       summary: source.summary || null,
       shareExclusions: typeof source.shareExclusions === 'boolean' ? source.shareExclusions : null,
       exclusions: source.exclusions ? cloneSimple(source.exclusions) : null,
@@ -439,6 +457,8 @@
         data: view.data,
         sourceViewId: view.sourceViewId || null,
         transformSpec: view.transformSpec || null,
+        transformOptions: view.transformOptions ? cloneSimple(view.transformOptions) : null,
+        replayable: view.kind === 'derived' ? view.replayable === true : false,
         summary: view.summary || null,
         shareExclusions: viewSharesExclusions(view),
         exclusions: view.exclusions ? cloneSimple(view.exclusions) : null,
@@ -855,16 +875,59 @@
       return next;
     }
 
-    function updateActiveData(data, options){
-      const active = getView(activeViewId);
-      if(!active){
+    function invalidateReplayableDescendants(sourceViewId){
+      const rootId = String(sourceViewId || 'raw').trim() || 'raw';
+      const queue = [rootId];
+      const visited = new Set();
+      let invalidated = 0;
+      while(queue.length){
+        const parentId = queue.shift();
+        if(visited.has(parentId)){
+          continue;
+        }
+        visited.add(parentId);
+        for(let index = 0; index < views.length; index += 1){
+          const candidate = views[index];
+          if(!candidate || candidate.kind !== 'derived'){
+            continue;
+          }
+          const candidateSourceId = String(candidate.sourceViewId || 'raw').trim() || 'raw';
+          if(candidateSourceId !== parentId){
+            continue;
+          }
+          if(candidate.replayable === true){
+            candidate.replayable = false;
+            invalidated += 1;
+          }
+          if(candidate.id){
+            queue.push(String(candidate.id));
+          }
+        }
+      }
+      return invalidated;
+    }
+
+    function updateViewData(viewId, data, options){
+      const view = getView(viewId);
+      if(!view){
         return false;
       }
-      active.data = Array.isArray(data) ? data : [];
+      view.data = Array.isArray(data) ? data : [];
+      const userMutation = options?.userMutation === true;
+      if(view.kind === 'derived' && userMutation){
+        view.replayable = false;
+      }
+      if(userMutation || options?.invalidateDescendants === true){
+        invalidateReplayableDescendants(view.id || (view.kind === 'raw' ? 'raw' : viewId));
+      }
       if(options && Object.prototype.hasOwnProperty.call(options, 'summary')){
-        active.summary = options.summary || null;
+        view.summary = options.summary || null;
       }
       return true;
+    }
+
+    function updateActiveData(data, options){
+      return updateViewData(activeViewId, data, options);
     }
 
     function updateSharedExclusions(exclusions){
@@ -920,13 +983,23 @@
         ? source.shareExclusions
         : !!sourceView && viewSharesExclusions(sourceView) && matrixShapesMatch(data, sourceView.data);
       pruneToMaxViews();
+      const transformSpec = source.transformSpec || null;
+      const transformOptions = source.transformOptions
+        && typeof source.transformOptions === 'object'
+        && !Array.isArray(source.transformOptions)
+        ? cloneSimple(source.transformOptions)
+        : null;
       const record = {
         id: buildViewId(),
         kind: 'derived',
         title: normalizeTitle(source.title, nextDerivedTitle(views)),
         data,
         sourceViewId,
-        transformSpec: source.transformSpec || null,
+        transformSpec,
+        transformOptions,
+        replayable: source.replayable === true
+          && !!transformOptions
+          && Shared.dataViewPersistence?.isTransformSpecReplayable?.(transformSpec) === true,
         summary: source.summary || null,
         shareExclusions,
         exclusions: shareExclusions
@@ -989,6 +1062,8 @@
         data: transformResult.data,
         sourceViewId: sourceView.id,
         transformSpec: transformResult.spec,
+        transformOptions: cloneSimple(options?.transformOptions || {}),
+        replayable: true,
         summary: transformResult.summary || null,
         shareExclusions: options?.shareExclusions,
         exclusions: options?.exclusions || null,
@@ -1056,6 +1131,8 @@
           type: 'pipeline',
           specs: normalizedSpecs
         },
+        transformOptions: cloneSimple(options?.transformOptions || {}),
+        replayable: true,
         summary,
         shareExclusions: options?.shareExclusions,
         exclusions: options?.exclusions || null,
@@ -1083,6 +1160,8 @@
             title: view.title,
             sourceViewId: view.sourceViewId || null,
             transformSpec: view.transformSpec || null,
+            transformOptions: view.transformOptions ? cloneSimple(view.transformOptions) : null,
+            replayable: view.kind === 'derived' ? view.replayable === true : false,
             summary: view.summary || null,
             shareExclusions: viewSharesExclusions(view),
             exclusions: view.exclusions ? cloneSimple(view.exclusions) : null,
@@ -1203,6 +1282,7 @@
     manager.getView = getView;
     manager.getViews = getViews;
     manager.getViewCount = () => views.length;
+    manager.updateViewData = updateViewData;
     manager.updateActiveData = updateActiveData;
     manager.updateActiveExclusions = updateActiveExclusions;
     manager.updateSharedExclusions = updateSharedExclusions;
@@ -1247,5 +1327,9 @@
   dataViews.createManager = createManager;
   dataViews.applyViewToTable = applyViewToTable;
   dataViews.isTableProjectionActive = isTableProjectionActive;
+  dataViews.resolveRawDataForPersistence = function resolveRawDataForPersistence(serializedDataViews, fallbackData){
+    const resolver = Shared.dataViewPersistence?.resolveRawDataForPersistence;
+    return typeof resolver === 'function' ? resolver(serializedDataViews, fallbackData) : fallbackData;
+  };
   dataViews.VERSION = VERSION;
 })(window);

@@ -47,18 +47,19 @@ describe('box stats-context handoff and reserve persistence regressions', () => 
     expect(source).toMatch(/source:\s*'box-stats-success'/);
   });
 
-  test('vertical reserve frame commits happen for any reserve composition change', () => {
+  test('viewport reserve capture does not resize or commit the physical frame', () => {
     const source = boxSource();
-    const viewportMatch = source.match(/function applyBoxViewportExtensionPair\(kind, nextExtensions, options = \{\}\)\{[\s\S]*?const resizeResult = horizontal/);
+    const viewportMatch = source.match(/function applyBoxViewportExtensionPair\(kind, nextExtensions, options = \{\}\)\{[\s\S]*?function applyBoxViewportExtensions/);
     expect(viewportMatch).toBeTruthy();
-    expect(viewportMatch[0]).toMatch(/const shouldCommitFrameLayout = options\.commitFrameLayout === true\s*\|\| \(!horizontal && options\.resizeContainer === true && compositionChanged\)/);
-    expect(viewportMatch[0]).not.toMatch(/significanceIncreased && pendingSignificanceRestore/);
+    expect(viewportMatch[0]).not.toMatch(/applyResizableBoxSize|commitBoxGraphFrame/);
   });
 
-  test('already-correct reserve frames still commit layout metadata', () => {
+  test('auxiliary frame reserves preserve canonical graph geometry', () => {
     const source = boxSource();
-    const reserveMatch = source.match(/function applyBoxAutoReserveFrameDelta\(axis, nextExtension, previousExtension, options = \{\}\)\{[\s\S]*?if\(typeof Shared\.applyResizableBoxSize/);
+    const reserveMatch = source.match(/function reconcileBoxAuxiliaryFrameReserves\(nextReserves = \{\}, options = \{\}\)\{[\s\S]*?function settleBoxAuxiliaryFrameGeometry/);
     expect(reserveMatch).toBeTruthy();
-    expect(reserveMatch[0]).toMatch(/if\(options\.commitFrameLayout === true\)\{[\s\S]*?commitBoxGraphFrame/);
+    expect(reserveMatch[0]).toMatch(/authorityMode:\s*'transient'/);
+    expect(reserveMatch[0]).toMatch(/updateAspectRatio:\s*false/);
+    expect(reserveMatch[0]).not.toMatch(/commitBoxGraphFrame/);
   });
 });

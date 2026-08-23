@@ -620,10 +620,14 @@ describe('Generated component statistics matrix', () => {
     expectClose(exact.p, exactP, 'line spearman exact p', { abs: 1e-12, rel: 1e-9 });
 
     const arimaX = Array.from({ length: 18 }, (_, idx) => idx + 1);
-    const arimaY = [10, 12, 11, 13, 15, 14, 16, 18, 17, 19, 21, 20, 22, 24, 23, 25, 27, 26];
+    const arimaY = [10.00, 12.11, 10.94, 13.08, 15.03, 13.89, 16.06, 18.02, 16.91, 19.12, 20.95, 20.07, 21.96, 24.09, 22.88, 25.04, 27.13, 25.92];
     const seasonalX = Array.from({ length: 20 }, (_, idx) => idx + 1);
     const seasonalY = [18, 24, 29, 22, 21, 27, 32, 25, 24, 30, 35, 28, 27, 33, 38, 31, 30, 36, 41, 34];
     const arimaPoints = toPoints(arimaX, arimaY);
+    const integratedPoints = Array.from({ length: 24 }, (_, index) => ({
+      x: index,
+      y: (index * index) + (0.05 * Math.sin(index * 1.7))
+    }));
     const seasonalPoints = toPoints(seasonalX, seasonalY);
 
     const specs = [
@@ -639,6 +643,13 @@ describe('Generated component statistics matrix', () => {
         mode: 'arima',
         points: arimaPoints,
         forecast: { horizon: 5, autoTune: true, criterion: 'bic', maxP: 2, maxD: 1 },
+        summaryKeys: ['Horizon', 'AR order (p)', 'Differencing (d)']
+      },
+      {
+        id: 'line-arima-integrated-d2',
+        mode: 'arima',
+        points: integratedPoints,
+        forecast: { horizon: 4, p: 0, d: 2, autoTune: false, maxP: 2, maxD: 2 },
         summaryKeys: ['Horizon', 'AR order (p)', 'Differencing (d)']
       },
       {
@@ -672,10 +683,22 @@ describe('Generated component statistics matrix', () => {
       const actual = lineHooks.computeLineStats(spec.points, 'pearson', { regressionMode: spec.mode, forecast: spec.forecast });
       const ref = oracle.get(spec.id)?.result;
       expect(actual?.regression?.mode).toBe(spec.mode);
+      const metricKeys = spec.mode === 'holtWinters'
+        ? ['sse', 'rmse', 'mae', 'mape', 'smape', 'horizon']
+        : ['sse', 'rmse', 'mae', 'mape', 'smape', 'aic', 'bic', 'horizon'];
       compareRegressionMetrics(actual.regression?.metrics, ref?.metrics, `${spec.id}.metrics`, {
-        keys: ['sse', 'rmse', 'mae', 'mape', 'smape', 'aic', 'bic', 'horizon'],
+        keys: metricKeys,
         tolerance: { abs: 1e-6, rel: 1e-5 }
       });
+      if (spec.mode === 'holtWinters') {
+        expect(actual.regression?.metrics?.aic).toBeNaN();
+        expect(actual.regression?.metrics?.bic).toBeNaN();
+        expect(actual.regression?.metrics?.selectionCriterion).toBe(ref?.metrics?.selectionCriterion);
+        if (spec.forecast.autoTune) {
+          expectClose(actual.regression?.metrics?.selectionScore, ref?.metrics?.selectionScore, `${spec.id}.selectionScore`, { abs: 1e-6, rel: 1e-5 });
+          expectClose(actual.regression?.metrics?.tuningRmse, ref?.metrics?.tuningRmse, `${spec.id}.tuningRmse`, { abs: 1e-6, rel: 1e-5 });
+        }
+      }
       compareSummaryParameters(actual.regression, ref?.summary, spec.summaryKeys, spec.id, { abs: 1e-6, rel: 1e-5 });
       expect(actual.regression?.forecast?.points?.length).toBe(ref?.forecast?.points?.length);
       ref.forecast.points.forEach((point, index) => {

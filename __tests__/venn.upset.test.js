@@ -193,6 +193,11 @@ describe('Venn UpSet integration', () => {
     hooks.state.ui.syncInputsFromTable?.({ scheduleDraw: false, scheduleSpecies: false });
     venn.refreshDiagram();
     expect((hooks.state.analysis.lastUpSetSets || []).map(set => set.key)).toEqual(['A', 'D']);
+    const payload = venn.getPayload();
+    expect(Array.isArray(payload?.data?.table)).toBe(true);
+    expect(payload.data.table[0][3]).toBe('SetD');
+    expect(payload.data.table[1][3]).toBe('GeneShared');
+    expect(payload.data.table[3][3]).toBe('GeneD');
 
     const regionSelect = document.getElementById('regionSelect');
     const regionList = document.getElementById('regionList');
@@ -435,34 +440,27 @@ describe('Venn UpSet integration', () => {
     const axisY = Number(xAxis.getAttribute('y1'));
     const expectedGridColor = (gridColorInput.value || '').toLowerCase();
 
-    const gridLines = Array.from(stage.querySelectorAll('line')).filter(line => {
-      if ((line.getAttribute('stroke') || '').toLowerCase() !== expectedGridColor) {
-        return false;
-      }
-      const y1 = Number(line.getAttribute('y1'));
-      const y2 = Number(line.getAttribute('y2'));
-      return Number.isFinite(y1) && Number.isFinite(y2) && Math.abs(y1 - y2) < 1e-6;
-    });
-    expect(gridLines.length).toBeGreaterThan(0);
-    const groupedByY = new Map();
-    gridLines.forEach(line => {
-      const x1 = Number(line.getAttribute('x1'));
-      const y = Number(line.getAttribute('y1'));
+    const gridPaths = Array.from(stage.querySelectorAll('path[data-venn-upset-horizontal-grid="1"]'))
+      .filter(path => (path.getAttribute('stroke') || '').toLowerCase() === expectedGridColor);
+    expect(gridPaths.length).toBeGreaterThan(0);
+    const gridSegments = [];
+    gridPaths.forEach(path => {
+      const segments = Array.from(String(path.getAttribute('d') || '').matchAll(
+        /M\s+(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)\s+L\s+(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)/g
+      )).map(match => ({
+        x1: Number(match[1]),
+        y1: Number(match[2]),
+        x2: Number(match[3]),
+        y2: Number(match[4])
+      }));
+      expect(segments.length).toBe(Number(path.getAttribute('data-venn-upset-horizontal-grid-segment-count')));
+      expect(segments.length).toBeGreaterThan(0);
+      const y = segments[0].y1;
       expect(Math.abs(y - axisY)).toBeGreaterThan(0.51);
-      expect(x1).toBeGreaterThanOrEqual(axisX - 0.51);
-      const key = y.toFixed(3);
-      if (!groupedByY.has(key)) {
-        groupedByY.set(key, []);
-      }
-      groupedByY.get(key).push(line);
-    });
-    expect(groupedByY.size).toBeGreaterThan(0);
-    groupedByY.forEach(linesAtY => {
-      const hasAxisAnchoredSegment = linesAtY.some(line => {
-        const x1 = Number(line.getAttribute('x1'));
-        return Number.isFinite(x1) && Math.abs(x1 - axisX) < 0.51;
-      });
-      expect(hasAxisAnchoredSegment).toBe(true);
+      expect(segments.every(segment => Math.abs(segment.y1 - y) < 1e-6 && Math.abs(segment.y2 - y) < 1e-6)).toBe(true);
+      expect(segments[0].x1).toBeGreaterThanOrEqual(axisX - 0.51);
+      expect(Math.abs(segments[0].x1 - axisX)).toBeLessThan(0.51);
+      gridSegments.push(...segments);
     });
 
     const bars = Array.from(stage.querySelectorAll('rect[data-upset-trace-kind="intersectionBars"]')).filter(bar => {
@@ -471,10 +469,10 @@ describe('Venn UpSet integration', () => {
       return Number.isFinite(width) && width > 0 && Number.isFinite(height) && height > 0;
     });
     expect(bars.length).toBeGreaterThan(0);
-    gridLines.forEach(line => {
-      const y = Number(line.getAttribute('y1'));
-      const x1 = Number(line.getAttribute('x1'));
-      const x2 = Number(line.getAttribute('x2'));
+    gridSegments.forEach(segment => {
+      const y = segment.y1;
+      const x1 = segment.x1;
+      const x2 = segment.x2;
       const segStart = Math.min(x1, x2);
       const segEnd = Math.max(x1, x2);
       bars.forEach(bar => {

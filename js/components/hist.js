@@ -79,6 +79,7 @@
   }
   const Shared = global.Shared = global.Shared || {};
   const Components = global.Components = global.Components || {};
+  const svgGeometry = Shared.svgGeometry = Shared.svgGeometry || {};
 
   function histDebug(message, ...rest){
     if(typeof Shared.isDebugEnabled === 'function' && !Shared.isDebugEnabled()){
@@ -90,6 +91,14 @@
       }else{
         console.debug(message);
       }
+    }
+  }
+
+  if(typeof svgGeometry.buildCompoundLinePath !== 'function' && typeof require === 'function'){
+    try{
+      require('../shared/svgGeometry.js');
+    }catch(err){
+      histDebug('Debug: hist component svgGeometry helper require failed', { message: err?.message || String(err) });
     }
   }
 
@@ -141,19 +150,23 @@
   }
 
   function applyExistingHistOwnedRuntimeRecord(tabLike = null, meta = {}){
+    const target = tabLike || meta?.tabId || null;
     const snapshot = getHistRuntimeOwner()?.bind(null, {
       ...(meta || {}),
-      tab: tabLike || meta?.tab || null,
+      tab: target || meta?.tab || null,
       componentKey: 'hist',
       reason: meta?.reason || 'hist-owned-runtime-activate-apply'
     });
     if(!snapshot || typeof hist.applyRuntimeState !== 'function'){
       return false;
     }
-    bindHistSessionForTab(tabLike || meta?.tabId || null, {
+    const session = bindHistSessionForTab(target, {
       ...(meta || {}),
       reason: meta?.reason || 'hist-owned-runtime-activate-bind'
     }, { apply: false });
+    if(!session){
+      return false;
+    }
     return hist.applyRuntimeState(snapshot, {
       ...(meta || {}),
       reason: meta?.reason || 'hist-owned-runtime-activate-apply'
@@ -176,12 +189,12 @@
   let histAutoDrawNoticeEl = null;
   let histAutoDrawManager = null;
   let scheduleDrawHistRaw = () => {};
-  const exportFontStyles = scopeId => (fontControls && typeof fontControls.exportScopeStyles === 'function')
-    ? fontControls.exportScopeStyles(scopeId)
+  const exportFontStyles = (scopeId, options) => (fontControls && typeof fontControls.exportScopeStyles === 'function')
+    ? fontControls.exportScopeStyles(scopeId, options)
     : null;
-  const importFontStyles = (scopeId, styles) => {
+  const importFontStyles = (scopeId, styles, options) => {
     if(fontControls && typeof fontControls.importScopeStyles === 'function'){
-      fontControls.importScopeStyles(scopeId, styles, { prune: true });
+      fontControls.importScopeStyles(scopeId, styles, { prune: true, ...(options || {}) });
     }
   };
   const axisControls = Shared.axisControls = Shared.axisControls || {};
@@ -344,6 +357,7 @@
       bins: '10',
       showGrid: false,
       showFrame: false,
+      showStatsSummary: false,
       logY: false,
       xMin: '',
       xMax: '',
@@ -359,6 +373,7 @@
       bins: src.bins != null ? String(src.bins) : defaults.bins,
       showGrid: !!src.showGrid,
       showFrame: !!src.showFrame,
+      showStatsSummary: !!src.showStatsSummary,
       logY: !!src.logY,
       xMin: src.xMin != null ? String(src.xMin) : defaults.xMin,
       xMax: src.xMax != null ? String(src.xMax) : defaults.xMax,
@@ -379,6 +394,7 @@
     const bins = getHistNodeById('histBins');
     const showGrid = getHistNodeById('histShowGrid');
     const showFrame = getHistNodeById('histShowFrame');
+    const showStatsSummary = getHistNodeById('histShowStatsSummary');
     const logY = getHistNodeById('histLogY');
     const xMin = getHistNodeById('histXMin');
     const xMax = getHistNodeById('histXMax');
@@ -389,6 +405,7 @@
       bins: bins ? bins.value : current.bins,
       showGrid: showGrid ? !!showGrid.checked : current.showGrid,
       showFrame: showFrame ? !!showFrame.checked : current.showFrame,
+      showStatsSummary: showStatsSummary ? !!showStatsSummary.checked : current.showStatsSummary,
       logY: logY ? !!logY.checked : current.logY,
       xMin: xMin ? xMin.value : current.xMin,
       xMax: xMax ? xMax.value : current.xMax,
@@ -406,7 +423,7 @@
   }
 
   function sanitizeHistComparisonMode(value){
-    return value === 'off' ? 'off' : 'ks';
+    return value === 'off' || value === 'none' ? 'off' : 'ks';
   }
 
   function mergeDistributionSelections(current, options){
@@ -495,6 +512,14 @@
 
   const HIST_PLOT_MODE_HISTOGRAM = 'histogram';
   const HIST_PLOT_MODE_DENSITY = 'density';
+  const HIST_SERIES_DISPLAY_OVERLAY = 'overlay';
+  const HIST_SERIES_DISPLAY_PANELS = 'panels';
+  const HIST_PANEL_ARRANGEMENT = Object.freeze({
+    auto: 'auto',
+    horizontal: 'horizontal',
+    vertical: 'vertical',
+    grid: 'grid'
+  });
   const HIST_FREQUENCY_CREATE_MODE = Object.freeze({
     frequency: 'frequency',
     cumulative: 'cumulative'
@@ -519,6 +544,41 @@
     return String(value || '').toLowerCase() === HIST_PLOT_MODE_DENSITY
       ? HIST_PLOT_MODE_DENSITY
       : HIST_PLOT_MODE_HISTOGRAM;
+  }
+
+  function sanitizeHistSeriesDisplay(value){
+    return String(value || '').trim().toLowerCase() === HIST_SERIES_DISPLAY_PANELS
+      ? HIST_SERIES_DISPLAY_PANELS
+      : HIST_SERIES_DISPLAY_OVERLAY;
+  }
+
+  function sanitizeHistPanelArrangement(value){
+    const normalized = String(value || '').trim().toLowerCase();
+    return Object.prototype.hasOwnProperty.call(HIST_PANEL_ARRANGEMENT, normalized)
+      ? HIST_PANEL_ARRANGEMENT[normalized]
+      : HIST_PANEL_ARRANGEMENT.auto;
+  }
+
+  function createDefaultHistSeriesLayout(){
+    return {
+      display: HIST_SERIES_DISPLAY_OVERLAY,
+      arrangement: HIST_PANEL_ARRANGEMENT.auto,
+      sharedY: true
+    };
+  }
+
+  function sanitizeHistSeriesLayout(source = {}){
+    const defaults = createDefaultHistSeriesLayout();
+    const candidate = source && typeof source === 'object' ? source : {};
+    return {
+      display: sanitizeHistSeriesDisplay(candidate.display ?? candidate.mode),
+      arrangement: sanitizeHistPanelArrangement(candidate.arrangement ?? candidate.direction),
+      sharedY: candidate.sharedY !== undefined ? !!candidate.sharedY : defaults.sharedY
+    };
+  }
+
+  function isHistPanelDisplayActive(seriesLayout = state.seriesLayout){
+    return sanitizeHistSeriesLayout(seriesLayout).display === HIST_SERIES_DISPLAY_PANELS;
   }
 
   function sanitizeHistFrequencyCreateMode(value){
@@ -620,9 +680,10 @@
   const HIST_DEFAULT_FILL = '#0000ff';
   const HIST_DEFAULT_BORDER = '#000000';
   const HIST_DEFAULT_BORDER_WIDTH = 1;
-  const HIST_DEFAULT_SERIES_FILL_OPACITY = 0.34;
+  const HIST_DEFAULT_MULTI_SERIES_TRACE_OPACITY = 0.65;
   const HIST_DEFAULT_DENSITY_FILL_OPACITY = 0.18;
   const HIST_DEFAULT_DENSITY_STROKE_WIDTH = 1.5;
+  const HIST_DEFAULT_DENSITY_SAMPLE_COUNT = 240;
 
   function normalizeHistTraceOpacity(value, fallback = null){
     if(value == null || value === ''){
@@ -652,6 +713,7 @@
     fileHandle: null,
     fileName: 'histogram.graph',
     plotMode: HIST_PLOT_MODE_HISTOGRAM,
+    seriesLayout: createDefaultHistSeriesLayout(),
     titleText: getHistDefaultTitle(HIST_PLOT_MODE_HISTOGRAM),
     titleAuto: true,
     xLabelText: 'Value',
@@ -692,7 +754,8 @@
       title: null,
       xLabel: null,
       yLabel: null,
-      legend: null
+      legend: null,
+      stats: null
     },
     root: null
   };
@@ -742,7 +805,7 @@
       x: src.x != null ? String(src.x) : 'Value',
       y: src.y != null ? String(src.y) : getHistDefaultYLabel(HIST_PLOT_MODE_HISTOGRAM),
       yAuto: Object.prototype.hasOwnProperty.call(src, 'yAuto') ? !!src.yAuto : true,
-      positions: cloneSimple(src.positions) || { title: null, xLabel: null, yLabel: null, legend: null }
+      positions: normalizeHistLabelPositions(src.positions)
     };
   }
 
@@ -807,6 +870,7 @@
       : src;
     return {
       plotMode: normalizeHistPlotMode(src.plotMode),
+      seriesLayout: sanitizeHistSeriesLayout(src.seriesLayout || src.histogramLayout || src.panelLayout || {}),
       labels: createDefaultHistLabelsState(labelsSource),
       showLegend: Object.prototype.hasOwnProperty.call(src, 'showLegend') ? src.showLegend !== false : true,
       colors: createDefaultHistColorState(colorSource),
@@ -827,7 +891,7 @@
       autoDraw: createDefaultHistAutoDrawState(autoDrawSource),
       fileName: typeof src.fileName === 'string' && src.fileName.trim() ? src.fileName : 'histogram.graph',
       minSvgWidth: Number.isFinite(Number(src.minSvgWidth)) ? Number(src.minSvgWidth) : 0,
-      labelPositions: cloneSimple(src.labelPositions || labelsSource.positions) || { title: null, xLabel: null, yLabel: null, legend: null }
+      labelPositions: normalizeHistLabelPositions(src.labelPositions || labelsSource.positions)
     };
   }
 
@@ -859,7 +923,7 @@
 
   function syncHistLayoutRuntimeMirror(runtime, session = null){
     const normalized = createDefaultHistLayoutRuntime(runtime || {});
-    const shouldMirror = !session || session === getActiveHistSessionForState() || isHistSessionActiveForModuleState(session);
+    const shouldMirror = !session || isHistSessionActiveForModuleState(session);
     if(shouldMirror){
       state.resizeMarginLock = normalizeHistResizeMarginLock(normalized.resizeMarginLock);
     }
@@ -890,7 +954,8 @@
   }
 
   function normalizeHistLabelPositions(value){
-    return cloneSimple(value) || { title: null, xLabel: null, yLabel: null, legend: null };
+    const source = value && typeof value === 'object' ? (cloneSimple(value) || {}) : {};
+    return { title: null, xLabel: null, yLabel: null, legend: null, stats: null, ...source };
   }
 
   function getHistLabelsState(session = null){
@@ -930,7 +995,7 @@
         patched: Object.keys(patch || {})
       });
     }
-    if(!owner || isHistSessionActiveOrActivating(owner)){
+    if(!owner || isHistSessionActiveForModuleState(owner)){
       state.titleText = nextLabels.title;
       state.titleAuto = !!nextLabels.titleAuto;
       state.xLabelText = nextLabels.x;
@@ -945,6 +1010,72 @@
     const current = normalizeHistLabelPositions(getHistLabelsState(session)?.positions || state.labelPositions);
     const nextPositions = normalizeHistLabelPositions({ ...current, [key]: value || null });
     return patchHistLabelsState(session, { positions: nextPositions }, meta);
+  }
+
+  function bindHistInlineTextInteraction(node, ownerSession = null, kind = ''){
+    const owner = ensureHistSessionOwnershipShape(ownerSession || getActiveHistSessionForState());
+    if(!node || !owner || typeof Shared.makeEditable !== 'function'){ return false; }
+    const normalizedKind = kind === 'title' || kind === 'x' || kind === 'y' ? kind : '';
+    if(!normalizedKind){ return false; }
+    node.dataset.histInlineRole = normalizedKind;
+    Shared.makeEditable(node, text => {
+      const labels = getHistLabelsState(owner);
+      const previous = String(labels?.[normalizedKind] ?? '');
+      const nextValue = String(text ?? '');
+      if(previous === nextValue){ return; }
+      const plotMode = normalizeHistPlotMode(owner.state?.plotMode || state.plotMode);
+      const frequencySettings = sanitizeHistFrequencySettings(owner.state?.frequencySettings || state.frequencySettings || {});
+      const apply = value => {
+        const normalized = String(value ?? '');
+        const patch = normalizedKind === 'title'
+          ? { title: normalized, titleAuto: normalized === getHistDefaultTitle(plotMode) }
+          : normalizedKind === 'y'
+            ? { y: normalized, yAuto: normalized === getHistDefaultYLabel(plotMode, frequencySettings) }
+            : { x: normalized };
+        patchHistLabelsState(owner, patch, { reason: `hist-${normalizedKind}-label-edit` });
+        if(node.textContent !== normalized){ node.textContent = normalized; }
+        if(normalizedKind === 'x'){
+          const sourceColumn = Number(node.dataset.histSourceColumnIndex);
+          const hot = owner.managers?.hot || null;
+          if(Number.isInteger(sourceColumn) && sourceColumn >= 0 && hot?.setDataAtCell){
+            try{ hot.setDataAtCell([0, sourceColumn, normalized], 'hist-x-axis-edit'); }
+            catch(err){ console.error('hist x label header sync failed', err); }
+          }
+        }
+        scheduleHistOwnerDraw(owner, { reason: `hist-${normalizedKind}-label-edit` });
+      };
+      apply(nextValue);
+      const undoKey = normalizedKind === 'title' ? 'title' : `${normalizedKind}-label`;
+      recordHistChange(`hist:${undoKey}`, previous, nextValue, apply);
+    });
+    return true;
+  }
+
+  function rehydrateHistInlineTextInteractions(svg, ownerSession = null){
+    const bindings = [
+      ['graphTitle', 'title'],
+      ['xTitle', 'x'],
+      ['yTitle', 'y']
+    ];
+    return bindings.every(([role, kind]) => {
+      const node = svg?.querySelector?.(`[data-font-role="${role}"]`) || null;
+      return node ? bindHistInlineTextInteraction(node, ownerSession, kind) : true;
+    });
+  }
+
+  function bindHistLegendInteractions(legend, svg, ownerSession = null, metrics = {}){
+    const owner = ensureHistSessionOwnershipShape(ownerSession || getActiveHistSessionForState());
+    return Shared.bindLegendDragInteraction?.(legend, svg, {
+      owner,
+      originX: metrics.plotRight,
+      originY: metrics.marginTop,
+      scaleX: metrics.legendGapPx,
+      scaleY: metrics.plotHeight,
+      undoLabel: 'hist-legend-position',
+      onCommit: (position, dragOwner) => {
+        patchHistLabelPosition(dragOwner, 'legend', position, { reason: 'hist-legend-position' });
+      }
+    }) === true;
   }
 
   function createDefaultHistRefs(root = null){
@@ -963,6 +1094,7 @@
       autoDrawNotice: null,
       plotMode: null,
       showLegend: null,
+      showStatsSummary: null,
       legendControl: null,
       showGrid: null,
       showFrame: null,
@@ -995,8 +1127,7 @@
       refs: createDefaultHistRefs(root || null),
       cache: {
         emptyPayloadTemplate: cloneSimple(emptyPayloadTemplate) || null,
-        layoutRuntime: createDefaultHistLayoutRuntime({ resizeMarginLock: state.resizeMarginLock }),
-        pendingPayload: null
+        layoutRuntime: createDefaultHistLayoutRuntime({ resizeMarginLock: state.resizeMarginLock })
       },
       listeners: new Map(),
       timers: {
@@ -1031,7 +1162,6 @@
     session.cache = session.cache && typeof session.cache === 'object' ? session.cache : {};
     if(!Object.prototype.hasOwnProperty.call(session.cache, 'emptyPayloadTemplate')){ session.cache.emptyPayloadTemplate = null; }
     session.cache.layoutRuntime = createDefaultHistLayoutRuntime(session.cache.layoutRuntime || { resizeMarginLock: state.resizeMarginLock });
-    if(!Object.prototype.hasOwnProperty.call(session.cache, 'pendingPayload')){ session.cache.pendingPayload = null; }
     session.listeners = session.listeners instanceof Map ? session.listeners : new Map();
     session.timers = session.timers && typeof session.timers === 'object' ? session.timers : {};
     if(!Object.prototype.hasOwnProperty.call(session.timers, 'scheduleDraw')){ session.timers.scheduleDraw = null; }
@@ -1082,14 +1212,19 @@
   }
 
   function isHistSessionActiveForModuleState(session){
-    if(!session){ return false; }
-    const tabId = String(session.tabId || '').trim();
-    if(!tabId){ return false; }
-    const workspaceActiveTabId = getHistWorkspaceActiveTabId();
-    if(workspaceActiveTabId){
-      return workspaceActiveTabId === tabId;
+    if(!session || typeof session !== 'object' || !String(session.tabId || '').trim()){
+      return false;
     }
-    return !hist.__boundTabId || String(hist.__boundTabId || '') === tabId;
+    return Shared.componentLifecycle?.canOwnerUseLiveProjection?.('hist', session, {
+      component: hist,
+      projectedSession: projectedHistSession,
+      session,
+      root: state.root || null
+    }) === true;
+  }
+
+  function isHistSessionActivationTarget(session = null){
+    return Shared.componentLifecycle?.isOwnerActivationTarget?.('hist', session, { component: hist }) === true;
   }
 
   function getHistActiveTabId(){
@@ -1117,19 +1252,9 @@
   );
 
   function isHistCallbackOwnerActive(owner){
-    const ownerTabId = String(owner?.tabId || '').trim();
-    const activeTabId = getHistActiveTabId();
-    return !!(!ownerTabId || (activeTabId && ownerTabId === activeTabId));
-  }
-
-  function isHistSessionActiveOrActivating(session = null){
-    const shaped = ensureHistSessionOwnershipShape(session);
-    if(!shaped?.tabId){ return false; }
-    const workspaceActiveTabId = Shared.workspaceTabs?.getActiveSessionInfo?.('hist')?.tabId
-      || global.Main?.session?.workspaceState?.activeTabId
-      || null;
-    return isHistCallbackOwnerActive({ tabId: shaped.tabId, session: shaped })
-      || (workspaceActiveTabId && String(shaped.tabId) === String(workspaceActiveTabId));
+    const ownerTabId = String(owner?.tabId || owner?.session?.tabId || '').trim();
+    if(!ownerTabId){ return false; }
+    return !!owner?.session && isHistSessionActiveForModuleState(owner.session);
   }
 
   function runHistOwnedCallback(owner, callback, meta = {}){
@@ -1165,6 +1290,26 @@
       reason: meta?.reason || 'hist-control-owner-commit',
       captureStats: meta?.captureStats === true
     });
+  }
+
+  function persistHistOwnerState(owner = null, session = null, reason = 'hist-user-state-change'){
+    const ownerSession = ensureHistSessionOwnershipShape(session || owner?.session || null);
+    const tabId = String(owner?.tabId || ownerSession?.tabId || '').trim();
+    if(!ownerSession || !tabId){
+      return false;
+    }
+    return Shared.componentLifecycle?.persistOwnedUserState?.(
+      'hist',
+      { tabId, session: ownerSession },
+      { reason }
+    ) === true;
+  }
+
+  function commitHistSeriesLayoutToOwner(owner = null, meta = {}){
+    const reason = meta?.reason || 'hist-series-layout-change';
+    const session = commitHistActiveStateToOwner(owner, { ...(meta || {}), reason });
+    persistHistOwnerState(owner, session, reason);
+    return session;
   }
 
   function commitHistOwnerHotRuntime(owner, meta = {}){
@@ -1274,7 +1419,11 @@
       session.timers.pendingDrawOptions = scheduleOptions;
       session.updatedAt = Date.now();
     }
-    const scheduler = session?.timers?.scheduleDraw || state.scheduleDraw;
+    // The visible projection owns the live scheduler. The per-session timer is a
+    // mirror only and may transiently lag while a payload is applied with drawing
+    // muted (notably during reopen/recovery). Never let that mirror override the
+    // current projection scheduler for an active owner.
+    const scheduler = state.scheduleDraw;
     if(typeof scheduler !== 'function'){
       return false;
     }
@@ -1387,7 +1536,7 @@
   function syncHistSessionRefsFromActive(session = null){
     const shaped = ensureHistSessionOwnershipShape(session || projectedHistSession || getActiveHistSessionForState());
     if(!shaped){ return null; }
-    if(shaped.tabId && !isHistSessionActiveOrActivating(shaped)){
+    if(shaped.tabId && !isHistSessionActiveForModuleState(shaped)){
       return shaped;
     }
     const root = state.root || shaped.root || null;
@@ -1406,7 +1555,11 @@
       renderButton: histRenderButtonEl || queryHistRoot('#histRenderButton'),
       autoDrawNotice: histAutoDrawNoticeEl || queryHistRoot('#histAutoDrawNotice'),
       plotMode: queryHistRoot('#histPlotMode'),
+      seriesDisplay: queryHistRoot('#histSeriesDisplay'),
+      panelArrangement: queryHistRoot('#histPanelArrangement'),
+      sharedYScale: queryHistRoot('#histSharedYScale'),
       showLegend: queryHistRoot('#histShowLegend'),
+      showStatsSummary: queryHistRoot('#histShowStatsSummary'),
       legendControl: queryHistRoot('#histShowLegend')?.closest?.('label') || null,
       showGrid: queryHistRoot('#histShowGrid'),
       showFrame: queryHistRoot('#histShowFrame'),
@@ -1429,7 +1582,7 @@
   function syncHistSessionManagersFromActive(session = null){
     const shaped = ensureHistSessionOwnershipShape(session || projectedHistSession || getActiveHistSessionForState());
     if(!shaped){ return null; }
-    const sessionIsActive = !shaped.tabId || isHistSessionActiveOrActivating(shaped);
+    const sessionIsActive = !shaped.tabId || isHistSessionActiveForModuleState(shaped);
     const stateHotTabId = getHistHotOwnerTabId(state.hot);
     const hotBelongsToSession = !!state.hot && (!shaped.tabId || (stateHotTabId && stateHotTabId === shaped.tabId));
     if(hotBelongsToSession){
@@ -1472,7 +1625,7 @@
       session.managers.fileHandle = handle || null;
       session.updatedAt = Date.now();
     }
-    if(!session || isHistSessionActiveOrActivating(session)){
+    if(!session || isHistSessionActiveForModuleState(session)){
       state.fileHandle = handle || null;
     }
     return handle || null;
@@ -1489,7 +1642,7 @@
       session.state.fileName = nextName;
       session.updatedAt = Date.now();
     }
-    if(!session || isHistSessionActiveOrActivating(session)){
+    if(!session || isHistSessionActiveForModuleState(session)){
       state.fileName = nextName;
     }
     return nextName;
@@ -1511,7 +1664,7 @@
   function captureHistSessionStateFromActive(session = null, meta = {}){
     const shaped = ensureHistSessionOwnershipShape(session || getActiveHistSessionForState());
     if(!shaped){ return null; }
-    if(shaped.tabId && !isHistSessionActiveOrActivating(shaped)){
+    if(shaped.tabId && !isHistSessionActiveForModuleState(shaped)){
       shaped.updatedAt = Date.now();
       return shaped;
     }
@@ -1540,6 +1693,7 @@
     });
     shaped.state = createDefaultHistDurableState({
       plotMode: state.plotMode,
+      seriesLayout: state.seriesLayout,
       labels,
       showLegend: state.showLegend,
       colors,
@@ -1580,12 +1734,13 @@
     const colors = createDefaultHistColorState(durable.colors || {});
     const autoDraw = createDefaultHistAutoDrawState(durable.autoDraw || {});
     state.plotMode = normalizeHistPlotMode(durable.plotMode);
+    state.seriesLayout = sanitizeHistSeriesLayout(durable.seriesLayout || {});
     state.titleText = labels.title;
     state.titleAuto = !!labels.titleAuto;
     state.xLabelText = labels.x;
     state.yLabelText = labels.y;
     state.yLabelAuto = !!labels.yAuto;
-    state.labelPositions = cloneSimple(labels.positions || durable.labelPositions) || { title: null, xLabel: null, yLabel: null, legend: null };
+    state.labelPositions = normalizeHistLabelPositions(labels.positions || durable.labelPositions);
     state.showLegend = durable.showLegend !== false;
     state.seriesColors = cloneSimple(colors.series) || {};
     state.densityLineColors = cloneSimple(colors.densityLines) || {};
@@ -1676,9 +1831,26 @@
     }
     const tabId = normalizeHistSessionTabId(meta?.tab || meta?.tabId || record.tabId || null, meta);
     if(!tabId){ return null; }
-    const session = getHistSession(tabId, { ...(meta || {}), tabId, reason: meta?.reason || 'hist-session-state-from-runtime' }, { create: true });
+    const existingSession = getHistSession(tabId, {
+      ...(meta || {}),
+      tabId,
+      reason: meta?.reason || 'hist-session-state-from-runtime-existing'
+    }, { create: false });
+    const session = existingSession || getHistSession(tabId, {
+      ...(meta || {}),
+      tabId,
+      reason: meta?.reason || 'hist-session-state-from-runtime'
+    }, { create: true });
     if(!session){ return null; }
-    session.state = createDefaultHistDurableState(record.state && typeof record.state === 'object' ? record.state : record);
+    const nextState = createDefaultHistDurableState(record.state && typeof record.state === 'object' ? record.state : record);
+    if(existingSession?.state){
+      // Runtime records are projections and can lag behind the owner session. The
+      // panel contract is payload-backed durable state, so a runtime replay must
+      // never replace a newer in-session layout. A runtime record may seed the field
+      // only when no owner session exists yet.
+      nextState.seriesLayout = sanitizeHistSeriesLayout(existingSession.state.seriesLayout || {});
+    }
+    session.state = nextState;
     session.results = createDefaultHistResultsState({
       statsPanelModel: record.statsPanelModel || record.statsPanel || record.stats || record.state?.statsPanelModel
     });
@@ -1742,6 +1914,28 @@
     return queryHistRoot(`#${id}`, tabLike) || null;
   }
 
+  function releaseHistLegendViewportReservation(plotEl){
+    if(typeof chartStyle.stageLegendViewport !== 'function'){
+      return;
+    }
+    const plot = plotEl || getHistNodeById('histPlot');
+    const svgBox = state.svgBox
+      || state.layout?.elements?.svgBox
+      || plot?.closest?.('.svgbox')
+      || queryHistRoot('#histGraphPanel .svgbox')
+      || null;
+    chartStyle.stageLegendViewport({
+      svg: plot?.querySelector?.('#histSvg') || null,
+      plot,
+      svgBox,
+      baseWidth: Math.max(1, Number(plot?.clientWidth) || Number(svgBox?.clientWidth) || 1),
+      baseHeight: Math.max(1, Number(plot?.clientHeight) || Number(svgBox?.clientHeight) || 1),
+      legendWidth: 0,
+      minimumWidth: 0,
+      applySvgViewport: false
+    }).commit();
+  }
+
   function resolveHistDrawableFrame(plotEl){
     const plot = plotEl || getHistNodeById('histPlot');
     const svgBox = state.svgBox
@@ -1784,6 +1978,7 @@
     );
     return {
       plotMode: defaultPlotMode,
+      seriesLayout: createDefaultHistSeriesLayout(),
       title: getHistDefaultTitle(defaultPlotMode),
       xLabel: 'Value',
       yLabel: getHistDefaultYLabel(defaultPlotMode, frequency),
@@ -1801,6 +1996,7 @@
       showGrid: false,
       gridStyle: null,
       showFrame: false,
+      showStatsSummary: false,
       logY: false,
       fontSize: '12',
       axis: createDefaultAxisSettings(),
@@ -1821,7 +2017,8 @@
         title: null,
         xLabel: null,
         yLabel: null,
-        legend: null
+        legend: null,
+        stats: null
       }
     };
   }
@@ -2158,6 +2355,54 @@
     return next;
   }
 
+  function syncHistSeriesLayoutControls(){
+    if(typeof document === 'undefined'){
+      return;
+    }
+    const settings = sanitizeHistSeriesLayout(state.seriesLayout || {});
+    state.seriesLayout = settings;
+    const displaySelect = getHistNodeById('histSeriesDisplay');
+    const panelLayoutRow = getHistNodeById('histPanelLayoutRow');
+    const arrangementControl = getHistNodeById('histPanelArrangementCtl');
+    const arrangementSelect = getHistNodeById('histPanelArrangement');
+    const sharedYControl = getHistNodeById('histSharedYScaleCtl');
+    const sharedYInput = getHistNodeById('histSharedYScale');
+    const legendInput = getHistNodeById('histShowLegend');
+    const panelsActive = settings.display === HIST_SERIES_DISPLAY_PANELS;
+    if(displaySelect){
+      displaySelect.value = settings.display;
+      displaySelect.disabled = false;
+      displaySelect.title = '';
+    }
+    if(panelLayoutRow){
+      panelLayoutRow.hidden = !panelsActive;
+      panelLayoutRow.setAttribute('aria-hidden', panelsActive ? 'false' : 'true');
+    }
+    if(arrangementControl){
+      arrangementControl.hidden = panelLayoutRow ? false : !panelsActive;
+      arrangementControl.setAttribute('aria-hidden', panelsActive ? 'false' : 'true');
+    }
+    if(arrangementSelect){
+      arrangementSelect.value = settings.arrangement;
+      arrangementSelect.disabled = !panelsActive;
+    }
+    if(sharedYControl){
+      sharedYControl.hidden = panelLayoutRow ? false : !panelsActive;
+      sharedYControl.setAttribute('aria-hidden', panelsActive ? 'false' : 'true');
+    }
+    if(sharedYInput){
+      sharedYInput.checked = settings.sharedY !== false;
+      sharedYInput.disabled = !panelsActive;
+    }
+    if(legendInput){
+      legendInput.disabled = panelsActive;
+      const title = panelsActive ? 'Each panel is identified by its series title; a legend is not needed.' : '';
+      legendInput.title = title;
+      const label = legendInput.closest('label');
+      if(label){ label.title = title; }
+    }
+  }
+
   function syncHistPlotModeControls(){
     if(typeof document === 'undefined'){
       return;
@@ -2230,6 +2475,7 @@
         label.title = title;
       }
     }
+    syncHistSeriesLayoutControls();
   }
 
   function syncHistFrequencyControls(){
@@ -2363,6 +2609,7 @@
     if(legendInput){
       legendInput.checked = state.showLegend !== false;
     }
+    syncHistSeriesLayoutControls();
     const controls = normalizeHistRuntimeControls(state.runtimeControls || {});
     state.runtimeControls = controls;
     const hasControl = key => Object.prototype.hasOwnProperty.call(controls, key);
@@ -2380,6 +2627,7 @@
     };
     setChecked('histShowGrid', 'showGrid');
     setChecked('histShowFrame', 'showFrame');
+    setChecked('histShowStatsSummary', 'showStatsSummary');
     setChecked('histLogY', 'logY');
     setValue('histBins', 'bins');
     setValue('histXMin', 'xMin');
@@ -2402,7 +2650,7 @@
 
   function ensureHistLegendControlPlacement(session = null){
     const owner = ensureHistSessionOwnershipShape(session || getActiveHistSessionForState());
-    if(owner?.tabId && !isHistSessionActiveOrActivating(owner)){
+    if(owner?.tabId && !isHistSessionActiveForModuleState(owner)){
       return null;
     }
     const svgBox = state.svgBox || state.layout?.elements?.svgBox || queryHistRoot('#histGraphPanel .svgbox');
@@ -2870,7 +3118,9 @@
     });
     if(targetView){
       targetView.title = title;
-      targetView.data = data;
+      manager.updateViewData(targetView.id, data, {
+        invalidateDescendants: true
+      });
       targetView.sourceViewId = String(context.sourceViewId || 'raw');
       targetView.transformSpec = transformSpec;
       targetView.summary = summary;
@@ -3403,6 +3653,41 @@
     if(!projectHistAxisStyle({ stroke: settings.color })){
       scheduleHistViewRefresh('hist-axis-color-change');
     }
+  }
+
+  function buildHistAxisControlConfig(axis, ownerSession = null, axisMeta = {}){
+    const owner = ensureHistSessionOwnershipShape(ownerSession || getActiveHistSessionForState());
+    const ownerControls = normalizeHistRuntimeControls(owner?.state?.runtimeControls || state.runtimeControls || {});
+    const logY = Object.prototype.hasOwnProperty.call(axisMeta || {}, 'logY') ? !!axisMeta.logY : !!ownerControls.logY;
+    return {
+      axis,
+      scopeId: 'hist',
+      tabId: owner?.tabId || null,
+      getTickInterval: () => getAxisTickInterval(axis),
+      getEffectiveTickInterval: () => axisMeta?.effectiveTickInterval ?? null,
+      getMajorTickLength: () => getAxisMajorTickLength(axis),
+      onMajorTickLengthChange: value => updateAxisMajorTickLength(axis, value),
+      isMajorTickLengthSupported: () => true,
+      majorTickLengthPlaceholder: 'Auto',
+      getThickness: () => getAxisStrokeWidthBase(),
+      getColor: () => getAxisColor(),
+      isTickIntervalEnabled: () => axis === 'y' ? !logY : true,
+      getTickIntervalDisabledMessage: () => axis === 'y'
+        ? 'Tick interval is disabled while the Y axis uses a logarithmic scale.'
+        : 'Tick interval available for numeric axes.',
+      tickPlaceholder: 'Auto',
+      onTickIntervalChange: value => updateAxisTickInterval(axis, value),
+      getMinorTicksEnabled: () => getAxisMinorTicksEnabled(axis),
+      onMinorTicksChange: value => updateAxisMinorTicks(axis, value),
+      isMinorTicksSupported: () => true,
+      getMinorTickSubdivisions: () => getAxisMinorTickSubdivisions(axis),
+      onMinorTickSubdivisionsChange: value => updateAxisMinorTickSubdivisions(axis, value),
+      onThicknessChange: value => updateAxisStrokeWidth(value),
+      onColorChange: value => updateAxisColor(value),
+      getNotationMode: () => getAxisNotation(axis),
+      onNotationChange: value => updateAxisNotation(axis, value),
+      isNotationSupported: () => true
+    };
   }
 
   function registerHistGridControlTarget(target, options){
@@ -3974,7 +4259,11 @@
               : (resolveBars()[0] || target);
             const role = String(representative?.getAttribute?.('data-series-role') || '').trim();
             const attributeName = role === 'density-line' ? 'stroke-opacity' : 'fill-opacity';
-            const renderedOpacity = normalizeHistTraceOpacity(representative?.getAttribute?.(attributeName), 1);
+            const elementOpacity = normalizeHistTraceOpacity(representative?.getAttribute?.(attributeName), 1);
+            const traceGroupOpacity = densityTraceMode
+              ? 1
+              : normalizeHistTraceOpacity(representative?.closest?.('[data-series-role="hist-trace"]')?.getAttribute?.('opacity'), 1);
+            const renderedOpacity = elementOpacity * traceGroupOpacity;
             return Math.round((1 - renderedOpacity) * 100);
           },
           onChange(value, context){
@@ -4443,7 +4732,11 @@
       ? values.filter(Number.isFinite).slice().sort((a, b) => a - b)
       : [];
     const requestedCount = Number(options.sampleCount);
-    const sampleCount = Math.min(320, Math.max(48, Math.round(Number.isFinite(requestedCount) && requestedCount > 0 ? requestedCount : 160)));
+    const sampleCount = Math.min(480, Math.max(64, Math.round(
+      Number.isFinite(requestedCount) && requestedCount > 0
+        ? requestedCount
+        : HIST_DEFAULT_DENSITY_SAMPLE_COUNT
+    )));
     if(!sorted.length){
       return { positions: [], densities: [], bandwidth: 1, domainMin: NaN, domainMax: NaN, peak: 0, minPositive: NaN };
     }
@@ -4462,27 +4755,74 @@
       domainMin -= 0.5;
       domainMax += 0.5;
     }
-    const positions = [];
+
+    // A uniform grid can entirely miss a narrow KDE peak when several series
+    // share a much wider comparison domain. Build one deterministic hybrid grid:
+    // enough uniform points to preserve the full domain, plus bandwidth-local
+    // points around quantile anchors. This keeps the curve and its Y extent
+    // stable across panel arrangements and graph resizing without increasing the
+    // KDE bandwidth or changing the statistical estimate.
+    const uniformCount = Math.max(32, Math.min(sampleCount, Math.round(sampleCount * 0.45)));
+    const localBudget = Math.max(0, sampleCount - uniformCount);
+    const anchorCount = Math.min(
+      sorted.length,
+      Math.max(1, Math.min(24, Math.floor(localBudget / 3) || 1))
+    );
+    let offsetsPerAnchor = anchorCount > 0 ? Math.floor(localBudget / anchorCount) : 0;
+    offsetsPerAnchor = Math.max(3, Math.min(13, offsetsPerAnchor));
+    if(offsetsPerAnchor % 2 === 0){
+      offsetsPerAnchor -= 1;
+    }
+
+    const positionCandidates = [];
+    const uniformStep = (domainMax - domainMin) / Math.max(uniformCount - 1, 1);
+    for(let index = 0; index < uniformCount; index += 1){
+      positionCandidates.push(domainMin + (uniformStep * index));
+    }
+    for(let anchorIndex = 0; anchorIndex < anchorCount; anchorIndex += 1){
+      const sampleIndex = anchorCount === 1
+        ? Math.floor((sorted.length - 1) / 2)
+        : Math.round((anchorIndex * (sorted.length - 1)) / (anchorCount - 1));
+      const anchor = sorted[sampleIndex];
+      for(let offsetIndex = 0; offsetIndex < offsetsPerAnchor; offsetIndex += 1){
+        const sigmaOffset = offsetsPerAnchor === 1
+          ? 0
+          : -3 + ((6 * offsetIndex) / (offsetsPerAnchor - 1));
+        const position = anchor + (sigmaOffset * bandwidth);
+        if(position >= domainMin && position <= domainMax){
+          positionCandidates.push(position);
+        }
+      }
+    }
+    positionCandidates.push(domainMin, domainMax);
+    positionCandidates.sort((a, b) => a - b);
+    const domainSpan = Math.max(Math.abs(domainMax - domainMin), 1);
+    const epsilon = domainSpan * 1e-12;
+    const positions = positionCandidates.filter((position, index, source) => (
+      index === 0 || Math.abs(position - source[index - 1]) > epsilon
+    ));
+
     const densities = [];
-    const step = (domainMax - domainMin) / Math.max(sampleCount - 1, 1);
     const denom = sorted.length * bandwidth * Math.sqrt(2 * Math.PI);
-    for(let index = 0; index < sampleCount; index++){
-      const x = domainMin + step * index;
+    for(let index = 0; index < positions.length; index += 1){
+      const x = positions[index];
       let sum = 0;
-      for(let sampleIndex = 0; sampleIndex < sorted.length; sampleIndex++){
+      for(let sampleIndex = 0; sampleIndex < sorted.length; sampleIndex += 1){
         const u = (x - sorted[sampleIndex]) / bandwidth;
         sum += Math.exp(-0.5 * u * u);
       }
-      const density = denom ? sum / denom : 0;
-      positions.push(x);
-      densities.push(density);
+      densities.push(denom ? sum / denom : 0);
     }
     const peak = densities.length ? densities.reduce((max, density) => (density > max ? density : max), 0) : 0;
     const minPositive = densities.reduce((min, density) => (density > 0 && density < min ? density : min), Infinity);
     if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
       histDebug('Debug: hist density series computed', {
         bandwidth,
-        sampleCount,
+        requestedSampleCount: sampleCount,
+        renderedSampleCount: positions.length,
+        uniformCount,
+        anchorCount,
+        offsetsPerAnchor,
         domainMin,
         domainMax,
         peak,
@@ -4645,7 +4985,7 @@
   }
 
   function initControls(){
-    const histPlotMode=getHistNodeById('histPlotMode'), histShowLegend=getHistNodeById('histShowLegend'), histBins=getHistNodeById('histBins'), histShowGrid=getHistNodeById('histShowGrid'), histShowFrame=getHistNodeById('histShowFrame'), histLogY=getHistNodeById('histLogY'), histXMin=getHistNodeById('histXMin'), histXMax=getHistNodeById('histXMax'), histYMax=getHistNodeById('histYMax'), histFontSize=getHistNodeById('histFontSize'), histFontSizeVal=getHistNodeById('histFontSizeVal');
+    const histPlotMode=getHistNodeById('histPlotMode'), histSeriesDisplay=getHistNodeById('histSeriesDisplay'), histPanelArrangement=getHistNodeById('histPanelArrangement'), histSharedYScale=getHistNodeById('histSharedYScale'), histShowLegend=getHistNodeById('histShowLegend'), histShowStatsSummary=getHistNodeById('histShowStatsSummary'), histBins=getHistNodeById('histBins'), histShowGrid=getHistNodeById('histShowGrid'), histShowFrame=getHistNodeById('histShowFrame'), histLogY=getHistNodeById('histLogY'), histXMin=getHistNodeById('histXMin'), histXMax=getHistNodeById('histXMax'), histYMax=getHistNodeById('histYMax'), histFontSize=getHistNodeById('histFontSize'), histFontSizeVal=getHistNodeById('histFontSizeVal');
     const histStatsDiagnosticsMode=getHistNodeById('histStatsDiagnosticsMode'), histStatsComparisonMode=getHistNodeById('histStatsComparisonMode');
     const histFrequencyCreateMode=getHistNodeById('histFrequencyCreateMode');
     const histFrequencyTabulateMode=getHistNodeById('histFrequencyTabulateMode');
@@ -4663,11 +5003,13 @@
     state.distributionOptions = getDistributionOptions();
     state.distributionSettings.selections = mergeDistributionSelections(state.distributionSettings?.selections || {}, state.distributionOptions);
     state.frequencySettings = sanitizeHistFrequencySettings(state.frequencySettings);
+    state.seriesLayout = sanitizeHistSeriesLayout(state.seriesLayout || {});
     state.runtimeControls = normalizeHistRuntimeControls({
       ...(state.runtimeControls || {}),
       bins: histBins ? histBins.value : undefined,
       showGrid: histShowGrid ? !!histShowGrid.checked : undefined,
       showFrame: histShowFrame ? !!histShowFrame.checked : undefined,
+      showStatsSummary: histShowStatsSummary ? !!histShowStatsSummary.checked : undefined,
       logY: histLogY ? !!histLogY.checked : undefined,
       xMin: histXMin ? histXMin.value : undefined,
       xMax: histXMax ? histXMax.value : undefined,
@@ -4690,12 +5032,61 @@
         });
       });
     }
+    if(histSeriesDisplay){
+      histSeriesDisplay.value = state.seriesLayout.display;
+      histSeriesDisplay.addEventListener('change', event => {
+        runHistEventOwnerCallback(event, 'hist-series-display-change', owner => {
+          state.seriesLayout = sanitizeHistSeriesLayout({
+            ...state.seriesLayout,
+            display: histSeriesDisplay.value
+          });
+          syncHistSeriesLayoutControls();
+          commitHistSeriesLayoutToOwner(owner, { reason: 'hist-series-display-change' });
+          scheduleHistOwnerDraw(owner, Shared.componentLifecycle.createStructuralDrawOptions('hist-series-display-change', {
+            tabId: owner.tabId || undefined
+          }));
+        });
+      });
+    }
+    if(histPanelArrangement){
+      histPanelArrangement.value = state.seriesLayout.arrangement;
+      histPanelArrangement.addEventListener('change', event => {
+        runHistEventOwnerCallback(event, 'hist-panel-arrangement-change', owner => {
+          state.seriesLayout = sanitizeHistSeriesLayout({
+            ...state.seriesLayout,
+            arrangement: histPanelArrangement.value
+          });
+          syncHistSeriesLayoutControls();
+          commitHistSeriesLayoutToOwner(owner, { reason: 'hist-panel-arrangement-change' });
+          scheduleHistOwnerDraw(owner, Shared.componentLifecycle.createStructuralDrawOptions('hist-panel-arrangement-change', {
+            tabId: owner.tabId || undefined
+          }));
+        });
+      });
+    }
+    if(histSharedYScale){
+      histSharedYScale.checked = state.seriesLayout.sharedY !== false;
+      histSharedYScale.addEventListener('change', event => {
+        runHistEventOwnerCallback(event, 'hist-shared-y-scale-change', owner => {
+          state.seriesLayout = sanitizeHistSeriesLayout({
+            ...state.seriesLayout,
+            sharedY: !!histSharedYScale.checked
+          });
+          commitHistSeriesLayoutToOwner(owner, { reason: 'hist-shared-y-scale-change' });
+          scheduleHistOwnerDraw(owner, Shared.componentLifecycle.createStructuralDrawOptions('hist-shared-y-scale-change', {
+            tabId: owner.tabId || undefined
+          }));
+        });
+      });
+    }
+    syncHistSeriesLayoutControls();
     if(histShowLegend){
       histShowLegend.checked = state.showLegend !== false;
       histShowLegend.addEventListener('change', event => {
         runHistEventOwnerCallback(event, 'hist-legend-toggle', owner => {
           state.showLegend = !!histShowLegend.checked;
-          commitHistActiveStateToOwner(owner, { reason: 'hist-legend-toggle' });
+          const ownerSession = commitHistActiveStateToOwner(owner, { reason: 'hist-legend-toggle' });
+          persistHistOwnerState(owner, ownerSession, 'hist-legend-toggle');
           scheduleHistOwnerDraw(owner, { reason: 'hist-legend-toggle', tabId: owner.tabId || undefined });
         });
       });
@@ -4706,7 +5097,8 @@
         runHistEventOwnerCallback(event, 'hist-stats-diagnostics-change', owner => {
           state.statsSettings.diagnosticsMode = sanitizeHistDiagnosticsMode(histStatsDiagnosticsMode.value);
           syncHistStatsControls();
-          commitHistActiveStateToOwner(owner, { reason: 'hist-stats-diagnostics-change' });
+          const ownerSession = commitHistActiveStateToOwner(owner, { reason: 'hist-stats-diagnostics-change' });
+          persistHistOwnerState(owner, ownerSession, 'hist-stats-diagnostics-change');
           scheduleHistOwnerDraw(owner, { reason: 'hist-stats-diagnostics-change', tabId: owner.tabId || undefined });
         });
       });
@@ -4717,7 +5109,8 @@
         runHistEventOwnerCallback(event, 'hist-stats-comparison-change', owner => {
           state.statsSettings.comparisonMode = sanitizeHistComparisonMode(histStatsComparisonMode.value);
           syncHistStatsControls();
-          commitHistActiveStateToOwner(owner, { reason: 'hist-stats-comparison-change' });
+          const ownerSession = commitHistActiveStateToOwner(owner, { reason: 'hist-stats-comparison-change' });
+          persistHistOwnerState(owner, ownerSession, 'hist-stats-comparison-change');
           scheduleHistOwnerDraw(owner, { reason: 'hist-stats-comparison-change', tabId: owner.tabId || undefined });
         });
       });
@@ -4831,6 +5224,7 @@
     };
     bindRuntimeControl(histBins, 'input', 'bins', () => histBins.value, 'hist-bins-change');
     bindRuntimeControl(histShowGrid, 'input', 'showGrid', () => !!histShowGrid.checked, 'hist-grid-toggle');
+    bindRuntimeControl(histShowStatsSummary, 'change', 'showStatsSummary', () => !!histShowStatsSummary.checked, 'hist-stats-summary-toggle');
     bindRuntimeControl(histLogY, 'input', 'logY', () => !!histLogY.checked, 'hist-log-y-toggle');
     bindRuntimeControl(histXMin, 'input', 'xMin', () => histXMin.value, 'hist-x-min-change');
     bindRuntimeControl(histXMax, 'input', 'xMax', () => histXMax.value, 'hist-x-max-change');
@@ -4981,10 +5375,11 @@
 
     if (Shared.exporter && typeof Shared.exporter.mountSvgControls === 'function') {
       Shared.exporter.mountSvgControls({
-        container: '#histExportControls',
-        svgSelector: '#histSvg',
+        container: getHistNodeById('histExportControls'),
+        getSvg: () => getHistNodeById('histSvg'),
         fileName: 'histogram',
-        contextLabel: 'hist-export'
+        contextLabel: 'hist-export',
+        componentName: 'hist'
       });
       histDebug('Debug: hist export controls mounted', { hasExporter: true }); // Debug: hist export mount
     } else {
@@ -5008,6 +5403,8 @@
       syncHistActiveDataViewFromHot(activeHot, 'payload');
       const dataViewsPayload = activeManager?.serialize?.({ includeData: true }) || null;
       const includeDataViews = !!(dataViewsPayload && Array.isArray(dataViewsPayload.views) && dataViewsPayload.views.length > 1);
+      const payloadSourceData = Shared.dataViews?.resolveRawDataForPersistence?.(dataViewsPayload, activeHot.getData())
+        || activeHot.getData();
       const axisSettings = ensureAxisSettings();
       const axisLimits = readHistAxisLimitsFromInputs();
       const plotMode = normalizeHistPlotMode(state.plotMode);
@@ -5019,6 +5416,7 @@
       }
       const c={
         plotMode,
+        seriesLayout: sanitizeHistSeriesLayout(state.seriesLayout || {}),
         title:state.titleText,
         xLabel:state.xLabelText,
         yLabel:state.yLabelText,
@@ -5036,9 +5434,10 @@
         showGrid: !!normalizeHistRuntimeControls(state.runtimeControls || {}).showGrid,
         gridStyle:getGridStyle(axisSettings.strokeWidth),
         showFrame: !!normalizeHistRuntimeControls(state.runtimeControls || {}).showFrame,
+        showStatsSummary: !!normalizeHistRuntimeControls(state.runtimeControls || {}).showStatsSummary,
         logY: !!normalizeHistRuntimeControls(state.runtimeControls || {}).logY,
         fontSize: normalizeHistRuntimeControls(state.runtimeControls || {}).fontSize,
-        fontStyles: (exportFontStyles('hist') || undefined),
+        fontStyles: (exportFontStyles('hist', { tabId: activeSession?.tabId || getHistProjectionTabId() || null }) || undefined),
         axis:{
           strokeWidth: axisSettings.strokeWidth,
           color: axisSettings.color,
@@ -5077,7 +5476,7 @@
       };
     const payload = {
         type:'hist',
-        data: Shared.hot.trimTrailingEmptyCols(activeHot.getData()),
+        data: Shared.hot.trimTrailingEmptyCols(payloadSourceData),
         exclusions: activeHot?.exportExclusions?.() || Shared.hot.exportExclusions(activeHot),
         filters: activeHot?.exportFilters?.() || Shared.hot.exportFilters(activeHot),
         dataViews: includeDataViews ? dataViewsPayload : undefined,
@@ -5111,8 +5510,8 @@
         ? getHistSession(scheduleTargetTab, { ...(meta || {}), reason: 'hist-payload-scheduler-owner' }, { create: false, fallbackActive: false })
         : getActiveHistSessionForState();
       const canMuteActiveScheduler = hasExplicitScheduleTarget
-        ? !!(scheduleTargetSession && isHistSessionActiveOrActivating(scheduleTargetSession))
-        : (!scheduleTargetSession || isHistSessionActiveOrActivating(scheduleTargetSession));
+        ? !!(scheduleTargetSession && isHistSessionActivationTarget(scheduleTargetSession))
+        : (!scheduleTargetSession || isHistSessionActivationTarget(scheduleTargetSession));
       let scheduleBackup = null;
       let mutedScheduleDraw = null;
       if(skipDraw && canMuteActiveScheduler && typeof state.scheduleDraw === 'function'){
@@ -5169,7 +5568,7 @@
         });
       }
       const config = payload.config || {};
-      importFontStyles('hist', config.fontStyles || null);
+      importFontStyles('hist', config.fontStyles || null, { tabId: scheduleTargetSession?.tabId || getHistProjectionTabId() || null });
       const loadedPlotMode = normalizeHistPlotMode(config.plotMode);
       const payloadFrequencySettings = config.frequency
         ? config.frequency
@@ -5177,6 +5576,7 @@
           ? { binningMode: HIST_BINNING_MODE.count }
           : createDefaultHistFrequencySettings());
       state.frequencySettings = sanitizeHistFrequencySettings(payloadFrequencySettings);
+      state.seriesLayout = sanitizeHistSeriesLayout(config.seriesLayout || config.histogramLayout || config.panelLayout || {});
       applyHistPlotMode(loadedPlotMode, { schedule: false, syncDefaults: false });
       state.titleText = config.title || getHistDefaultTitle(loadedPlotMode);
       state.titleAuto = state.titleText === getHistDefaultTitle(loadedPlotMode);
@@ -5195,6 +5595,7 @@
       const histShowLegendInput = getHistNodeById('histShowLegend');
       state.showLegend = config.showLegend !== false;
       if(histShowLegendInput){ histShowLegendInput.checked = state.showLegend; }
+      syncHistSeriesLayoutControls();
       state.seriesColors = config.seriesColors && typeof config.seriesColors === 'object' ? { ...config.seriesColors } : {};
       state.densityLineColors = config.densityLineColors && typeof config.densityLineColors === 'object' ? { ...config.densityLineColors } : {};
       state.traceOpacity = normalizeHistTraceOpacity(config.traceOpacity);
@@ -5204,6 +5605,8 @@
       setGridStyle(config.gridStyle, config.axis?.strokeWidth);
       const histShowFrameInput = getHistNodeById('histShowFrame');
       if(histShowFrameInput){ histShowFrameInput.checked = !!config.showFrame; }
+      const histShowStatsSummaryInput = getHistNodeById('histShowStatsSummary');
+      if(histShowStatsSummaryInput){ histShowStatsSummaryInput.checked = !!config.showStatsSummary; }
       const histLogYInput = getHistNodeById('histLogY');
       if(histLogYInput){ histLogYInput.checked = !!config.logY; }
       applyHistAxisLimitsToInputs({
@@ -5268,27 +5671,26 @@
         state.notes.control.setValue(state.notes.text);
         state.notes.control.setOpen(state.notes.open);
       }
-      // Restore label positions if saved
-      if(config.labelPositions){
-        state.labelPositions = {
-          title: config.labelPositions.title || null,
-          xLabel: config.labelPositions.xLabel || null,
-          yLabel: config.labelPositions.yLabel || null,
-          legend: config.labelPositions.legend || null
-        };
-      }
+      // A payload is authoritative for label placement. Missing legacy positions
+      // reset to defaults rather than inheriting the previously projected tab.
+      state.labelPositions = normalizeHistLabelPositions(config.labelPositions);
       syncHistRuntimeControlsFromDom();
+      if(!skipDraw){
+        scheduleActiveHistDraw({ reason: `hist-payload-${source}` });
+      }
+      // Restore the live scheduler before capturing the owner session. During
+      // skipDraw restores, captureHistSessionStateFromActive() mirrors
+      // state.scheduleDraw into the session. Capturing while the temporary mute is
+      // installed poisons that mirror and makes the first post-restore resize a
+      // no-op; Pie and Survival already restore before their owner capture.
+      if(scheduleBackup && state.scheduleDraw === mutedScheduleDraw){
+        state.scheduleDraw = scheduleBackup;
+      }
       captureHistSessionStateFromActive(getHistProjectionSession({ reason: 'hist-projection-mutation' }), {
         reason: `hist-payload-${source}`,
         syncControls: false,
         captureStatsPanel: false
       });
-      if(!skipDraw){
-        scheduleActiveHistDraw({ reason: `hist-payload-${source}` });
-      }
-      if(scheduleBackup && state.scheduleDraw === mutedScheduleDraw){
-        state.scheduleDraw = scheduleBackup;
-      }
       const rowCount = Array.isArray(dataToLoad) ? dataToLoad.length : 0;
       histDebug('Debug: hist payload applied', { source, rows: rowCount });
       return true;
@@ -5336,6 +5738,7 @@
       }
       const snapshot = {
         plotMode: sessionState.plotMode,
+        seriesLayout: sanitizeHistSeriesLayout(sessionState.seriesLayout || {}),
         labels: cloneSimple(sessionState.labels) || createDefaultHistLabelsState(),
         showLegend: sessionState.showLegend !== false,
         colors: cloneSimple(sessionState.colors) || createDefaultHistColorState(),
@@ -5387,7 +5790,7 @@
         });
         return false;
       }
-      const isActiveOwner = isHistSessionActiveOrActivating(appliedSession);
+      const isActiveOwner = isHistSessionActiveForModuleState(appliedSession);
       if(isActiveOwner){
         applyHistSessionStateToActive(appliedSession, { syncUi: true });
       }
@@ -5469,6 +5872,7 @@
       }
       const result = await fileIO.saveGraphFile({
         context: 'hist',
+        owner: { component: 'hist', tabId: owner.tabId || null },
         fileHandle: state.fileHandle,
         getPayload,
         fileName: state.fileName,
@@ -5491,6 +5895,7 @@
       }
       const result = await fileIO.saveGraphFileAs({
         context: 'hist',
+        owner: { component: 'hist', tabId: owner.tabId || null },
         getPayload,
         fileName: state.fileName,
         downloadFileName: state.fileName,
@@ -5512,13 +5917,18 @@
       }
       const result = await fileIO.openGraphFile({
         context: 'hist',
+        owner: { component: 'hist', tabId: owner.tabId || null },
         setFileHandle: handle => {
           setHistFileHandleForOwner(handle, owner);
         },
         setFileName: name => {
           setHistFileNameForOwner(name, owner);
         },
-        loadFromFile: file => hist.loadFromFile(file, { tabId: owner.tabId || undefined, owner }),
+        loadFromFile: (file, operation) => hist.loadFromFile(file, {
+          tabId: owner.tabId || undefined,
+          owner,
+          operation
+        }),
         triggerInput: () => {
           const input = getHistNodeById('histGraphFile');
           if(input){
@@ -5530,23 +5940,34 @@
       histDebug('Debug: hist.open result', result);
     };
     hist.loadFromFile = function(file, options = {}){
-      const owner = options.owner || getHistCallbackOwner({ tabId: options.tabId || null, reason: 'hist-load-file' });
+      const owner = options.owner || getHistCallbackOwner({ tabId: options.tabId || options?.operation?.tabId || null, reason: 'hist-load-file' });
+      const ownerTabId = String(owner?.tabId || options?.tabId || options?.operation?.tabId || '').trim() || null;
+      const operation = fileIO?.createGraphOpenOperation?.({
+        context: 'hist',
+        owner: { component: 'hist', tabId: ownerTabId },
+        operation: options?.operation
+      }) || options?.operation || null;
       const apply = payload => {
-        if(!isHistCallbackOwnerActive(owner)){
-          if(owner.session?.cache){
-            owner.session.cache.pendingPayload = {
-              payload: cloneSimple(payload) || payload,
-              meta: { source: 'file', flagOverlay: true, overlayReason: 'graph-file' }
-            };
-            owner.session.updatedAt = Date.now();
-          }
-          histDebug('Debug: hist file payload stored for inactive owner', {
-            ownerTabId: owner.tabId || null,
-            activeTabId: getHistActiveTabId() || null
-          });
-          return true;
+        if(typeof fileIO?.routeGraphOpenPayload !== 'function'){
+          return isHistCallbackOwnerActive(owner)
+            ? applyHistPayload(payload, { source: 'file', flagOverlay: true, overlayReason: 'graph-file', tabId: ownerTabId || undefined })
+            : false;
         }
-        return applyHistPayload(payload, { source: 'file', flagOverlay: true, overlayReason: 'graph-file', tabId: owner.tabId || undefined });
+        const routed = fileIO.routeGraphOpenPayload({
+          context: 'hist',
+          component: 'hist',
+          operation,
+          owner: { component: 'hist', tabId: ownerTabId },
+          payload,
+          reason: 'hist-graph-file-open',
+          apply: (nextPayload, routedOwner) => applyHistPayload(nextPayload, {
+            source: 'file',
+            flagOverlay: true,
+            overlayReason: 'graph-file',
+            tabId: routedOwner?.tabId || ownerTabId || undefined
+          })
+        });
+        return routed?.value === true;
       };
       if(file instanceof Blob){
         const reader=new FileReader();
@@ -5587,10 +6008,14 @@
     getHistNodeById('openHistGraph')?.addEventListener('click', hist.open);
     getHistNodeById('saveHistGraph')?.addEventListener('click', hist.save);
     getHistNodeById('saveAsHist').addEventListener('click', hist.saveAs);
-    getHistNodeById('histGraphFile')?.addEventListener('change',e=>{
-      const owner = getHistCallbackOwner({ reason: 'hist-graph-file-input' });
-      const f=e.target.files[0];
-      if(f && isHistCallbackOwnerActive(owner)){
+    getHistNodeById('histGraphFile')?.addEventListener('change', e => {
+      const owner = getHistCallbackOwner({
+        event: e,
+        target: e?.currentTarget || e?.target || null,
+        reason: 'hist-graph-file-input'
+      });
+      const f = e.target.files?.[0] || null;
+      if(f){
         setHistFileNameForOwner(f.name, owner);
         setHistFileHandleForOwner(null, owner);
         hist.loadFromFile(f, { tabId: owner.tabId || undefined, owner });
@@ -5679,7 +6104,7 @@
     if(typeof formatter === 'function'){
       return formatter(num, { scientific, forceScientific: scientific });
     }
-    if(scientific) return num.toExponential(5);
+    if(scientific){ return Shared.formatters?.formatScientificNumber?.(num, { fractionalDigits: 5 }) || String(num); }
     return num >= 0 && num <= 0.0001 ? '<0.0001' : num.toFixed(4).replace(/0+$/, '').replace(/\.$/, '');
   }
 
@@ -5888,6 +6313,49 @@
       hasTies,
       warning: hasTies ? 'The continuous two-sample KS asymptotic calibration is approximate because tied values are present.' : null
     };
+  }
+
+  function formatHistPExpression(value){
+    const reporting = Shared.statsReporting;
+    if(reporting && typeof reporting.formatPValueExpression === 'function'){
+      return reporting.formatPValueExpression(value, {
+        label: 'p',
+        target: getHistNodeById?.('histStatsResults') || global.document?.getElementById?.('histStatsResults') || null,
+        tabId: getHistProjectionTabId?.() || null
+      });
+    }
+    const display = String(formatPValue(value));
+    const match = /^(<=|>=|≤|≥|<|>)\s*(.*)$/.exec(display);
+    return match ? `p ${match[1]} ${match[2]}` : `p = ${display}`;
+  }
+
+  function buildHistPlotSummaryLines(seriesEntries, options = {}){
+    const series = Array.isArray(seriesEntries)
+      ? seriesEntries.filter(entry => Array.isArray(entry?.values) && entry.values.some(value => Number.isFinite(Number(value))))
+      : [];
+    if(series.length === 1){
+      const values = series[0].values.map(Number).filter(Number.isFinite);
+      if(!values.length){ return []; }
+      const n = values.length;
+      const mean = values.reduce((sum, value) => sum + value, 0) / n;
+      const variance = n > 1
+        ? values.reduce((sum, value) => sum + Math.pow(value - mean, 2), 0) / (n - 1)
+        : NaN;
+      const sd = Number.isFinite(variance) && variance >= 0 ? Math.sqrt(variance) : NaN;
+      const bits = [`n = ${n}`, `Mean = ${formatNumber(mean, 3)}`];
+      if(Number.isFinite(sd)){ bits.push(`SD = ${formatNumber(sd, 3)}`); }
+      return [bits.join(' · ')];
+    }
+    const comparisonMode = Object.prototype.hasOwnProperty.call(options || {}, 'comparisonMode')
+      ? sanitizeHistComparisonMode(options.comparisonMode)
+      : sanitizeHistComparisonMode(state.statsSettings?.comparisonMode);
+    if(series.length === 2 && comparisonMode === 'ks'){
+      const result = computeHistKolmogorovSmirnovTwoSample(series[0].values, series[1].values);
+      if(result.available){
+        return [`Two-sample KS: D = ${formatNumber(result.D, 3)}; ${formatHistPExpression(result.p)}`];
+      }
+    }
+    return [];
   }
 
   function renderHistStatsModel(target, model, append){
@@ -6114,7 +6582,7 @@
             { key: 'seriesA', label: 'Series A' },
             { key: 'seriesB', label: 'Series B' },
             { key: 'd', label: 'KS D', align: 'right' },
-            { key: 'p', label: 'P value', align: 'right' },
+            { key: 'p', label: 'p-value', align: 'right' },
             { key: 'method', label: 'Method' }
           ],
           rows: [{
@@ -6160,7 +6628,7 @@
       const resultFragments = summaries.map(entry => `${entry.label}: mean = ${formatNumber(entry.summary.mean, 2)}, median = ${formatNumber(entry.summary.median, 2)}, SD = ${formatNumber(entry.summary.sd, 2)}, skewness = ${formatNumber(entry.summary.skewness, 3)}.`);
       const resultParts = resultFragments.map((text, index) => index === 0 ? text : ` ${text}`);
       if(comparisonMode === 'ks' && summaries.length === 2 && ksResult?.available){
-        resultFragments.push(`KS D = ${formatNumber(ksResult.D, 4)}, p = ${formatPValue(ksResult.p)}.`);
+        resultFragments.push(`KS D = ${formatNumber(ksResult.D, 4)}, ${formatHistPExpression(ksResult.p)}.`);
         resultParts.push(' ', `KS D = ${formatNumber(ksResult.D, 4)}, p = `, { type:'pValue', value:ksResult.p, fallback:String(formatPValue(ksResult.p)) }, '.');
       }
       Shared.statsReporting.appendReportPanel(target, {
@@ -6599,9 +7067,1264 @@
     };
   }
 
+
+  function resolveHistPanelGrid(seriesCount, arrangement, width, height){
+    const count = Math.max(1, Math.floor(Number(seriesCount) || 1));
+    const mode = sanitizeHistPanelArrangement(arrangement);
+    if(mode === HIST_PANEL_ARRANGEMENT.horizontal){
+      return { rows: 1, cols: count, arrangement: mode };
+    }
+    if(mode === HIST_PANEL_ARRANGEMENT.vertical){
+      return { rows: count, cols: 1, arrangement: mode };
+    }
+    if(mode === HIST_PANEL_ARRANGEMENT.auto && count === 2){
+      const useHorizontal = Number(width) >= Number(height) * 1.15;
+      return useHorizontal
+        ? { rows: 1, cols: 2, arrangement: mode }
+        : { rows: 2, cols: 1, arrangement: mode };
+    }
+    if(count === 1){
+      return { rows: 1, cols: 1, arrangement: mode };
+    }
+    if(mode === HIST_PANEL_ARRANGEMENT.grid){
+      const cols = Math.ceil(Math.sqrt(count));
+      return { rows: Math.ceil(count / cols), cols, arrangement: mode };
+    }
+    const safeWidth = Math.max(1, Number(width) || 1);
+    const safeHeight = Math.max(1, Number(height) || 1);
+    const targetCellAspect = 1.35;
+    let best = null;
+    for(let cols = 1; cols <= count; cols += 1){
+      const rows = Math.ceil(count / cols);
+      const cellAspect = (safeWidth / cols) / Math.max(safeHeight / rows, 1e-9);
+      const emptyCells = (rows * cols) - count;
+      const score = Math.abs(Math.log(Math.max(cellAspect, 1e-9) / targetCellAspect)) + (emptyCells * 0.08);
+      if(!best || score < best.score){
+        best = { rows, cols, score };
+      }
+    }
+    return {
+      rows: best?.rows || Math.ceil(Math.sqrt(count)),
+      cols: best?.cols || Math.ceil(count / Math.ceil(Math.sqrt(count))),
+      arrangement: mode
+    };
+  }
+
+  function resolveHistPanelTrackLayout(options = {}){
+    const rows = Math.max(1, Math.floor(Number(options.rows) || 1));
+    const cols = Math.max(1, Math.floor(Number(options.cols) || 1));
+    const contentWidth = Math.max(1, Number(options.contentWidth) || 1);
+    const contentHeight = Math.max(1, Number(options.contentHeight) || 1);
+    const gapX = Math.max(0, Number(options.gapX) || 0);
+    const gapY = Math.max(0, Number(options.gapY) || 0);
+    const originX = Number(options.originX) || 0;
+    const originY = Number(options.originY) || 0;
+    const fullLeftInset = Math.max(0, Number(options.fullLeftInset) || 0);
+    const compactLeftInset = Math.max(0, Number(options.compactLeftInset) || 0);
+    const rightInset = Math.max(0, Number(options.rightInset) || 0);
+    const topInset = Math.max(0, Number(options.topInset) || 0);
+    const fullBottomInset = Math.max(0, Number(options.fullBottomInset) || 0);
+    const compactBottomInset = Math.max(0, Number(options.compactBottomInset) || 0);
+    const sharedY = options.sharedY !== false;
+    const minPlotWidth = Math.max(1, Number(options.minPlotWidth) || 10);
+    const minPlotHeight = Math.max(1, Number(options.minPlotHeight) || 10);
+
+    const rawColumns = Array.from({ length: cols }, (_, col) => ({
+      leftInset: sharedY && col > 0 ? compactLeftInset : fullLeftInset,
+      rightInset
+    }));
+    const availableColumnWidth = Math.max(1, contentWidth - (gapX * (cols - 1)));
+    const rawHorizontalInsets = rawColumns.reduce((sum, column) => sum + column.leftInset + column.rightInset, 0);
+    const horizontalInsetScale = rawHorizontalInsets > 0
+      ? Math.max(0, Math.min(1, (availableColumnWidth - (cols * minPlotWidth)) / rawHorizontalInsets))
+      : 1;
+    const columns = rawColumns.map(column => ({
+      leftInset: column.leftInset * horizontalInsetScale,
+      rightInset: column.rightInset * horizontalInsetScale
+    }));
+    const scaledHorizontalInsets = columns.reduce((sum, column) => sum + column.leftInset + column.rightInset, 0);
+    const plotWidth = Math.max(1, (availableColumnWidth - scaledHorizontalInsets) / cols);
+    let nextX = originX;
+    columns.forEach(column => {
+      column.x = nextX;
+      column.plotX = nextX + column.leftInset;
+      column.plotWidth = plotWidth;
+      column.width = column.leftInset + plotWidth + column.rightInset;
+      nextX += column.width + gapX;
+    });
+
+    const rawRows = Array.from({ length: rows }, (_, row) => ({
+      topInset,
+      bottomInset: row === rows - 1 ? fullBottomInset : compactBottomInset
+    }));
+    const availableRowHeight = Math.max(1, contentHeight - (gapY * (rows - 1)));
+    const rawVerticalInsets = rawRows.reduce((sum, row) => sum + row.topInset + row.bottomInset, 0);
+    const verticalInsetScale = rawVerticalInsets > 0
+      ? Math.max(0, Math.min(1, (availableRowHeight - (rows * minPlotHeight)) / rawVerticalInsets))
+      : 1;
+    const rowTracks = rawRows.map(row => ({
+      topInset: row.topInset * verticalInsetScale,
+      bottomInset: row.bottomInset * verticalInsetScale
+    }));
+    const scaledVerticalInsets = rowTracks.reduce((sum, row) => sum + row.topInset + row.bottomInset, 0);
+    const plotHeight = Math.max(1, (availableRowHeight - scaledVerticalInsets) / rows);
+    let nextY = originY;
+    rowTracks.forEach(row => {
+      row.y = nextY;
+      row.plotY = nextY + row.topInset;
+      row.plotHeight = plotHeight;
+      row.height = row.topInset + plotHeight + row.bottomInset;
+      nextY += row.height + gapY;
+    });
+
+    return {
+      plotWidth,
+      plotHeight,
+      columns,
+      rows: rowTracks,
+      horizontalInsetScale,
+      verticalInsetScale
+    };
+  }
+
+  function resolveHistPanelLabelPosition(saved, defaults, spanX, spanY){
+    if(saved && Number.isFinite(saved.relX) && Number.isFinite(saved.relY)){
+      return {
+        x: defaults.originX + (saved.relX * Math.max(spanX, 1)),
+        y: defaults.originY + (saved.relY * Math.max(spanY, 1))
+      };
+    }
+    if(saved && Number.isFinite(saved.x) && Number.isFinite(saved.y)){
+      return { x: saved.x, y: saved.y };
+    }
+    return { x: defaults.x, y: defaults.y };
+  }
+
+  function resolveHistPanelTitleLayout(label, maxWidth, baseFontSize){
+    const text = String(label == null ? '' : label).trim();
+    const safeWidth = Math.max(10, Number(maxWidth) || 10);
+    const safeFontSize = Math.max(7, Number(baseFontSize) || 10);
+    const measure = (value, fontSize = safeFontSize) => chartStyle.measureText(
+      String(value || ''),
+      chartStyle.makeFont(fontSize)
+    );
+    if(!text || measure(text) <= safeWidth){
+      return { lines: [text], fontSize: safeFontSize };
+    }
+    const tokens = text.split(/\s+/).filter(Boolean);
+    let lines = [text];
+    if(tokens.length > 1){
+      let best = null;
+      for(let splitIndex = 1; splitIndex < tokens.length; splitIndex += 1){
+        const candidate = [
+          tokens.slice(0, splitIndex).join(' '),
+          tokens.slice(splitIndex).join(' ')
+        ];
+        const widths = candidate.map(line => measure(line));
+        const widest = Math.max(...widths);
+        const balancePenalty = Math.abs(widths[0] - widths[1]) / Math.max(safeWidth, 1);
+        const score = widest + (balancePenalty * safeWidth * 0.15);
+        if(!best || score < best.score){
+          best = { lines: candidate, widest, score };
+        }
+      }
+      if(best){
+        lines = best.lines;
+      }
+    }
+    const widest = Math.max(...lines.map(line => measure(line)), 1);
+    const fontSize = Math.max(7, Math.min(safeFontSize, safeFontSize * (safeWidth / widest)));
+    return { lines, fontSize };
+  }
+
+  function drawHistPanelTitle(add, parent, model, options = {}){
+    const baseFontSize = Math.max(8, Number(options.fontSize) || 10);
+    const requestedTitleReserve = Math.max(24, Number(options.titleReserve) || (baseFontSize * 2.4));
+    const renderedTitleReserve = Number(model.plot?.y) - Number(model.cell?.y);
+    const titleReserve = Number.isFinite(renderedTitleReserve) && renderedTitleReserve > 0
+      ? renderedTitleReserve
+      : requestedTitleReserve;
+    const titleSpan = Math.max(10, Number(model.plot?.width) || model.cell.width - Math.max(8, baseFontSize));
+    const layout = resolveHistPanelTitleLayout(
+      model.fitSet.label,
+      titleSpan,
+      baseFontSize
+    );
+    const centerX = Number.isFinite(model.plot?.x) && Number.isFinite(model.plot?.width)
+      ? model.plot.x + (model.plot.width / 2)
+      : model.cell.x + (model.cell.width / 2);
+    const lineHeight = Math.max(layout.fontSize * 1.12, 8);
+    const totalHeight = lineHeight * layout.lines.length;
+    const firstY = model.cell.y + Math.max(lineHeight * 0.75, (titleReserve - totalHeight) / 2 + lineHeight * 0.8);
+    const text = add('text', {
+      x: centerX,
+      y: firstY,
+      'font-size': layout.fontSize,
+      'text-anchor': 'middle',
+      fill: chartStyle.TEXT_COLOR,
+      'data-hist-panel-title': '1',
+      'data-hist-panel-series-key': model.fitSet.key,
+      'data-full-label': model.fitSet.label,
+      'aria-label': model.fitSet.label
+    }, parent);
+    layout.lines.forEach((line, index) => {
+      const tspan = add('tspan', {
+        x: centerX,
+        dy: index === 0 ? 0 : lineHeight
+      }, text);
+      tspan.textContent = line;
+    });
+    const nativeTitle = add('title', {}, parent);
+    nativeTitle.textContent = model.fitSet.label;
+    markFontEditable(text, 'seriesLabel', `series-${model.index}`);
+    return text;
+  }
+
+  function buildHistAxisScale(options = {}){
+    const axisTickTools = chartStyle.axisTicks || null;
+    if(axisTickTools && typeof axisTickTools.buildScale === 'function'){
+      return axisTickTools.buildScale(options);
+    }
+    const dataMin = Number(options.dataMin);
+    const dataMax = Number(options.dataMax);
+    const min = Number.isFinite(options.manualMin)
+      ? Number(options.manualMin)
+      : (Number.isFinite(dataMin) ? dataMin : 0);
+    const max = Number.isFinite(options.manualMax)
+      ? Number(options.manualMax)
+      : (Number.isFinite(dataMax) ? dataMax : min + 1);
+    return { min, max, ticks: [min, max], step: Math.max((max - min) || 1, 1) };
+  }
+
+  function applyHistManualScaleInterval(scale, interval){
+    if(!scale || !(Number(interval) > 0)){
+      return scale;
+    }
+    const manual = buildManualTicks(scale.min, scale.max, Number(interval));
+    if(!manual){
+      return scale;
+    }
+    return {
+      ...scale,
+      min: manual.min,
+      max: manual.max,
+      ticks: manual.ticks,
+      step: Number(interval)
+    };
+  }
+
+  function selectHistPanelTicks(ticks, maxCount){
+    const source = Array.isArray(ticks)
+      ? ticks.filter(value => Number.isFinite(Number(value))).map(Number)
+      : [];
+    const limit = Math.max(2, Math.floor(Number(maxCount) || 2));
+    if(source.length <= limit){
+      return source;
+    }
+    // Axis ticks are generated at a constant step. Thin them with one integer
+    // stride so the visible graduation remains regular; interpolated indexes can
+    // create conspicuous missing intermediate values such as 0, 10, 30, 40, 50.
+    const stride = Math.max(1, Math.ceil((source.length - 1) / Math.max(limit - 1, 1)));
+    const selected = [];
+    for(let index = 0; index < source.length; index += stride){
+      selected.push(source[index]);
+    }
+    if(selected.length < 2 && source.length > 1){
+      selected.push(source[source.length - 1]);
+    }
+    return selected;
+  }
+
+  function resolveHistPanelTickFontSize(fontSpec, fallback = 12){
+    const source = String(fontSpec || '');
+    const pxMatch = source.match(/(?:^|\s)([0-9]+(?:\.[0-9]+)?)px(?:\s|$)/i);
+    const parsed = pxMatch ? Number(pxMatch[1]) : Number(fallback);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 12;
+  }
+
+  function estimateHistPanelTickCapacity(spanPx, labels, fontSpec, options = {}){
+    const span = Math.max(1, Number(spanPx) || 1);
+    const min = Math.max(2, Math.floor(Number(options.min) || 2));
+    const max = Math.max(min, Math.floor(Number(options.max) || 8));
+    const axis = String(options.axis || 'x').toLowerCase() === 'y' ? 'y' : 'x';
+    const gap = Math.max(2, Number(options.gap) || (axis === 'y' ? 3 : 8));
+    let required;
+    if(axis === 'y'){
+      // Vertical tick collision is governed by text height, not label width.
+      // Using the width of values such as "50" underestimates Y-axis capacity
+      // and causes otherwise regular major ticks to be removed.
+      const fontSize = Number.isFinite(Number(options.fontSize)) && Number(options.fontSize) > 0
+        ? Number(options.fontSize)
+        : resolveHistPanelTickFontSize(fontSpec, 12);
+      const lineHeight = Number.isFinite(Number(options.lineHeight)) && Number(options.lineHeight) > 0
+        ? Number(options.lineHeight)
+        : fontSize * 1.12;
+      required = Math.max(10, lineHeight + gap);
+    }else{
+      const widest = (Array.isArray(labels) ? labels : []).reduce((width, label) => Math.max(
+        width,
+        chartStyle.measureText(String(label ?? ''), fontSpec)
+      ), 0);
+      required = Math.max(18, widest + gap);
+    }
+    return Math.max(min, Math.min(max, Math.floor(span / required)));
+  }
+
+  function resolveHistPanelYExtent(fitSet, seriesModel, context = {}){
+    const plotMode = normalizeHistPlotMode(context.plotMode);
+    const densityMode = plotMode === HIST_PLOT_MODE_DENSITY;
+    const values = densityMode
+      ? (Array.isArray(seriesModel?.densities) ? seriesModel.densities : [])
+      : (Array.isArray(seriesModel?.values) ? seriesModel.values : []);
+    let yMax = values.reduce((max, value) => Number.isFinite(Number(value)) ? Math.max(max, Number(value)) : max, 0);
+    let minPositive = values.reduce((min, value) => {
+      const numeric = Number(value);
+      return numeric > 0 && numeric < min ? numeric : min;
+    }, Infinity);
+    if((context.includePdf || context.includeCdf) && Array.isArray(fitSet?.fits) && fitSet.fits.length){
+      const sampleCount = Math.max(1, Number(seriesModel?.inRangeCount) || fitSet.values?.length || 1);
+      const metrics = computeOverlayMetrics(fitSet.fits, {
+        xMin: context.xMin,
+        xMax: context.xMax,
+        binWidth: context.binWidth,
+        sampleCount,
+        includePdf: context.includePdf,
+        includeCdf: context.includeCdf,
+        plotPixels: context.plotPixels,
+        scaleMode: plotMode
+      });
+      const rawOverlayMax = Math.max(metrics.pdfMax || 0, metrics.cdfMax || 0);
+      const overlayMax = densityMode
+        ? rawOverlayMax
+        : convertHistCountToDisplay(rawOverlayMax, sampleCount, context.frequencySettings);
+      if(Number.isFinite(overlayMax)){
+        yMax = Math.max(yMax, overlayMax);
+      }
+    }
+    const logY = !!context.logY;
+    let yMin = logY
+      ? (Number.isFinite(minPositive) ? Math.max(minPositive, densityMode ? 1e-9 : 1e-3) : (densityMode ? 1e-6 : 0.1))
+      : 0;
+    if(!(yMax > yMin)){
+      yMax = logY ? yMin * 10 : yMin + 1;
+    }
+    const manualYMax = Number(context.manualYMax);
+    if(Number.isFinite(manualYMax) && manualYMax > yMin){
+      yMax = manualYMax;
+    }
+    return { yMin, yMax, minPositive: Number.isFinite(minPositive) ? minPositive : null };
+  }
+
+  async function drawHistPanelLayout(context = {}){
+    const {
+      plotEl,
+      drawSession,
+      seriesEntries,
+      fitSets,
+      controls,
+      frequencySettings,
+      plotMode,
+      xMin,
+      xMax,
+      manualAxisLimits,
+      drawableFrame,
+      fontInfo,
+      styleScaleInfo,
+      borderWidthPx,
+      includePdf,
+      includeCdf,
+      checkpoint,
+      execution
+    } = context;
+    const layoutSettings = sanitizeHistSeriesLayout(state.seriesLayout || {});
+    const resolvedPlotMode = normalizeHistPlotMode(plotMode);
+    const densityMode = resolvedPlotMode === HIST_PLOT_MODE_DENSITY;
+    const seriesCount = seriesEntries.length;
+    const W = Math.max(50, Math.floor(drawableFrame.width || 50));
+    const H = Math.max(40, Math.floor(drawableFrame.height || 40));
+    const fs = fontInfo.scaledPx;
+    const requestedBins = Math.max(1, Math.floor(Number(controls.bins) || 10));
+    const logY = !!controls.logY;
+    const manualIntervalX = getAxisTickInterval('x');
+    const manualIntervalY = logY ? null : getAxisTickInterval('y');
+    const axisMetrics = chartStyle.createAxisMetrics(fontInfo.px, styleScaleInfo);
+    const axisStrokeWidthBase = getAxisStrokeWidthBase();
+    const axisStrokeWidth = chartStyle.scaleStrokeWidth(axisStrokeWidthBase, styleScaleInfo, { context: 'hist-axis', min: 0, exact: true });
+    const axisStroke = getAxisColor();
+    const tickLen = axisMetrics.tickLength;
+    const xMajorTickLength = getAxisMajorTickLength('x') ?? tickLen;
+    const yMajorTickLength = getAxisMajorTickLength('y') ?? tickLen;
+    const tickGap = axisMetrics.tickLabelGap;
+    const gridStyleBase = getGridStyle(axisStrokeWidthBase);
+    const gridStrokeStyle = Object.assign({}, gridStyleBase, {
+      thickness: chartStyle.scaleStrokeWidth(gridStyleBase.thickness, styleScaleInfo, { context: 'hist-grid', min: 0 })
+    });
+    const gridStrokeAttrs = (gridControls && typeof gridControls.getStrokeAttributes === 'function')
+      ? gridControls.getStrokeAttributes(gridStrokeStyle, { fallbackColor: DEFAULT_GRID_COLOR, fallbackThickness: axisStrokeWidth })
+      : { stroke: DEFAULT_GRID_COLOR, 'stroke-width': axisStrokeWidth };
+    const formatTickX = value => chartStyle.formatAxisValue(value, { notation: getAxisNotation('x'), maxDecimals: 2 });
+    const formatTickY = value => chartStyle.formatAxisValue(value, { notation: getAxisNotation('y'), maxDecimals: 2 });
+    const horizontalEdgePadding = chartStyle.resolveGraphHorizontalEdgePadding();
+    const outer = {
+      top: Math.max(34, fs * 2.8),
+      right: horizontalEdgePadding,
+      bottom: Math.max(42, fs * 3.3),
+      left: Math.max(42, fs * 3.5)
+    };
+    const contentWidth = Math.max(30, W - outer.left - outer.right);
+    const contentHeight = Math.max(30, H - outer.top - outer.bottom);
+    const grid = resolveHistPanelGrid(seriesCount, layoutSettings.arrangement, contentWidth, contentHeight);
+    const gapX = grid.cols > 1 ? Math.max(12, fs * 1.4) : 0;
+    const gapY = grid.rows > 1 ? Math.max(16, fs * 1.8) : 0;
+    const cellWidth = Math.max(20, (contentWidth - (gapX * (grid.cols - 1))) / grid.cols);
+    const cellHeight = Math.max(20, (contentHeight - (gapY * (grid.rows - 1))) / grid.rows);
+    let xScale = buildHistAxisScale({
+      dataMin: xMin,
+      dataMax: xMax,
+      manualMin: Number.isFinite(manualAxisLimits.xMin) ? xMin : null,
+      manualMax: Number.isFinite(manualAxisLimits.xMax) ? xMax : null,
+      // Panel arrangement is presentation geometry only. Keep the comparison
+      // domain independent of per-cell width, then thin labels for each panel.
+      targetTickCount: chartStyle.estimateTickCount(Math.max(80, contentWidth), { axis: 'x', fallback: 6 })
+    });
+    xScale = applyHistManualScaleInterval(xScale, manualIntervalX);
+    let frequencyModel = null;
+    let frequencyByKey = new Map();
+    const densityByKey = new Map();
+    let binWidth = 0;
+    if(densityMode){
+      fitSets.forEach(fitSet => {
+        densityByKey.set(fitSet.key, computeHistDensitySeries(fitSet.values, {
+          sampleCount: HIST_DEFAULT_DENSITY_SAMPLE_COUNT,
+          minVal: xScale.min,
+          maxVal: xScale.max
+        }));
+      });
+    }else{
+      frequencyModel = buildHistFrequencyModel(fitSets, {
+        min: xScale.min,
+        max: xScale.max,
+        countInputValue: requestedBins,
+        settings: frequencySettings
+      });
+      if(!frequencyModel){
+        frequencyModel = buildHistFrequencyModel(fitSets, {
+          min: xScale.min,
+          max: xScale.max,
+          countInputValue: requestedBins,
+          settings: {
+            ...frequencySettings,
+            binningMode: HIST_BINNING_MODE.count,
+            createMode: HIST_FREQUENCY_CREATE_MODE.frequency,
+            tabulateMode: HIST_FREQUENCY_TABULATE_MODE.count
+          }
+        });
+      }
+      if(!frequencyModel){
+        return { ok: false, frequencyModel: null };
+      }
+      frequencyByKey = new Map(frequencyModel.series.map(entry => [entry.key, entry]));
+      binWidth = Number(frequencyModel.binWidth) || ((xScale.max - xScale.min) / Math.max(requestedBins, 1)) || 1;
+    }
+    const extentContext = {
+      plotMode: resolvedPlotMode,
+      includePdf,
+      includeCdf,
+      xMin: xScale.min,
+      xMax: xScale.max,
+      binWidth,
+      plotPixels: Math.max(32, cellWidth),
+      frequencySettings,
+      logY,
+      manualYMax: manualAxisLimits.yMax
+    };
+    const panelModels = fitSets.map((fitSet, index) => {
+      const row = Math.floor(index / grid.cols);
+      const col = index % grid.cols;
+      const frequencySeries = frequencyByKey.get(fitSet.key) || null;
+      const densitySeries = densityByKey.get(fitSet.key) || null;
+      const seriesModel = densityMode ? densitySeries : frequencySeries;
+      return {
+        index,
+        row,
+        col,
+        fitSet,
+        frequencySeries,
+        densitySeries,
+        extent: resolveHistPanelYExtent(fitSet, seriesModel, extentContext)
+      };
+    });
+    if(layoutSettings.sharedY){
+      const sharedMin = logY
+        ? panelModels.reduce((min, model) => Math.min(min, model.extent.yMin), Infinity)
+        : 0;
+      const sharedMax = panelModels.reduce((max, model) => Math.max(max, model.extent.yMax), 0);
+      panelModels.forEach(model => {
+        model.extent = {
+          ...model.extent,
+          yMin: Number.isFinite(sharedMin) ? sharedMin : 0.1,
+          yMax: sharedMax > (Number.isFinite(sharedMin) ? sharedMin : 0) ? sharedMax : (logY ? 1 : 1)
+        };
+      });
+    }
+    panelModels.forEach(model => {
+      const yMinT = logY ? Math.log10(model.extent.yMin) : model.extent.yMin;
+      const yMaxT = logY ? Math.log10(model.extent.yMax) : model.extent.yMax;
+      let yScale = buildHistAxisScale({
+        dataMin: yMinT,
+        dataMax: yMaxT,
+        manualMin: yMinT,
+        manualMax: yMaxT,
+        targetTickCount: chartStyle.estimateTickCount(Math.max(20, cellHeight - 48), { axis: 'y', fallback: 4 })
+      });
+      if(logY && chartStyle.axisTicks?.applyLogTicks){
+        chartStyle.axisTicks.applyLogTicks(yScale, {
+          manualMin: null,
+          manualMax: null,
+          fallbackMin: yMinT,
+          fallbackMax: yMaxT
+        });
+      }else{
+        yScale = applyHistManualScaleInterval(yScale, manualIntervalY);
+      }
+      model.yScale = yScale;
+      model.yTickLabels = yScale.ticks.map(value => formatTickY(logY ? Math.pow(10, value) : value));
+    });
+    const sharedScale = layoutSettings.sharedY ? panelModels[0]?.yScale : null;
+    if(sharedScale){
+      panelModels.forEach(model => {
+        model.yScale = sharedScale;
+        model.yTickLabels = sharedScale.ticks.map(value => formatTickY(logY ? Math.pow(10, value) : value));
+      });
+    }
+    const xTickMeasureFont = chartStyle.resolveScopedLabelMeasureFont
+      ? chartStyle.resolveScopedLabelMeasureFont({ styles: exportFontStyles('hist', { tabId: drawSession?.tabId || null }), role: 'xTick', fallbackPx: fs }).fontSpec
+      : chartStyle.makeFont(fs);
+    const yTickMeasureFont = chartStyle.resolveScopedLabelMeasureFont
+      ? chartStyle.resolveScopedLabelMeasureFont({ styles: exportFontStyles('hist', { tabId: drawSession?.tabId || null }), role: 'yTick', fallbackPx: fs }).fontSpec
+      : chartStyle.makeFont(fs);
+    const allXTickLabels = xScale.ticks.map(formatTickX);
+    const xTickCapacity = estimateHistPanelTickCapacity(
+      Math.max(20, cellWidth - 48),
+      allXTickLabels,
+      xTickMeasureFont,
+      { axis: 'x', min: 2, max: 8, gap: fs * 0.8 }
+    );
+    const xRenderTicks = manualIntervalX
+      ? xScale.ticks.slice()
+      : selectHistPanelTicks(xScale.ticks, xTickCapacity);
+    const xTickLabels = xRenderTicks.map(formatTickX);
+    const titleReserve = Math.max(24, fs * 2.45);
+    panelModels.forEach(model => {
+      const allLabels = model.yScale.ticks.map(value => formatTickY(logY ? Math.pow(10, value) : value));
+      const capacity = estimateHistPanelTickCapacity(
+        Math.max(20, cellHeight - titleReserve - 18),
+        allLabels,
+        yTickMeasureFont,
+        { axis: 'y', fontSize: fs, min: 2, max: 7, gap: fs * 0.2 }
+      );
+      model.renderYTicks = manualIntervalY
+        ? model.yScale.ticks.slice()
+        : selectHistPanelTicks(model.yScale.ticks, capacity);
+      model.yTickLabels = model.renderYTicks.map(value => formatTickY(logY ? Math.pow(10, value) : value));
+    });
+    const maxYLabelWidth = panelModels.reduce((max, model) => Math.max(
+      max,
+      ...model.yTickLabels.map(label => chartStyle.measureText(label, yTickMeasureFont))
+    ), 0);
+    const fullLeftInset = maxYLabelWidth + yMajorTickLength + tickGap + 8;
+    const compactLeftInset = Math.max(5, axisStrokeWidth * 2);
+    const rightInset = Math.max(6, axisStrokeWidth * 2);
+    const provisionalColumnInsets = Array.from({ length: grid.cols }, (_, col) => (
+      layoutSettings.sharedY && col > 0 ? compactLeftInset : fullLeftInset
+    ));
+    const provisionalPlotWidth = Math.max(10, (
+      contentWidth
+      - (gapX * (grid.cols - 1))
+      - provisionalColumnInsets.reduce((sum, leftInset) => sum + leftInset + rightInset, 0)
+    ) / grid.cols);
+    const bottomLayout = chartStyle.computeBottomLayout({
+      labels: xTickLabels,
+      fontSize: fs,
+      labelMeasureFont: xTickMeasureFont,
+      plotWidth: provisionalPlotWidth,
+      baseBottom: Math.max(8, xMajorTickLength + tickGap + fs * 1.15),
+      axisMetrics
+    });
+    const fullBottomInset = Math.max(bottomLayout.bottom, xMajorTickLength + tickGap + fs * 1.2);
+    const compactBottomInset = Math.max(5, xMajorTickLength + 2);
+    const panelTracks = resolveHistPanelTrackLayout({
+      rows: grid.rows,
+      cols: grid.cols,
+      contentWidth,
+      contentHeight,
+      gapX,
+      gapY,
+      originX: outer.left,
+      originY: outer.top,
+      fullLeftInset,
+      compactLeftInset,
+      rightInset,
+      topInset: titleReserve,
+      fullBottomInset,
+      compactBottomInset,
+      sharedY: layoutSettings.sharedY,
+      minPlotWidth: 10,
+      minPlotHeight: 10
+    });
+    const rotatePanelXLabels = xRenderTicks.length > 2 && !!bottomLayout.shouldRotate;
+    panelModels.forEach(model => {
+      const column = panelTracks.columns[model.col];
+      const row = panelTracks.rows[model.row];
+      model.cell = {
+        x: column.x,
+        y: row.y,
+        width: column.width,
+        height: row.height
+      };
+      model.plot = {
+        x: column.plotX,
+        y: row.plotY,
+        width: panelTracks.plotWidth,
+        height: panelTracks.plotHeight
+      };
+      model.showXLabels = model.row === grid.rows - 1;
+      model.showYLabels = !layoutSettings.sharedY || model.col === 0;
+      model.rotateXLabels = rotatePanelXLabels;
+    });
+    const svg = document.createElementNS(NS, 'svg');
+    svg.setAttribute('width', String(W));
+    svg.setAttribute('height', String(H));
+    svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+    svg.setAttribute('font-family', chartStyle.FONT_FAMILY);
+    svg.setAttribute('data-hist-series-display', HIST_SERIES_DISPLAY_PANELS);
+    svg.setAttribute('data-hist-plot-mode', resolvedPlotMode);
+    svg.setAttribute('data-hist-panel-rows', String(grid.rows));
+    svg.setAttribute('data-hist-panel-cols', String(grid.cols));
+    svg.setAttribute('data-hist-common-bin-count', densityMode ? '0' : String(frequencyModel?.binCount || 0));
+    svg.setAttribute('data-hist-density-sample-count', densityMode
+      ? String(panelModels.reduce((max, model) => Math.max(max, model.densitySeries?.positions?.length || 0), 0))
+      : '0');
+    svg.setAttribute('data-hist-shared-y-scale', layoutSettings.sharedY ? 'true' : 'false');
+    chartStyle.prepareSvg(svg, { scopeId: 'hist' });
+    let framePublication = null;
+    try{
+      framePublication = Shared.framePublication.stage({
+        container: plotEl,
+        frame: svg,
+        publishedId: 'histSvg',
+        component: 'hist',
+        tabId: drawSession?.tabId || getHistProjectionTabId() || null,
+        canCommit: () => execution?.isCurrent?.() !== false
+          && (!drawSession || isHistSessionActiveForModuleState(drawSession))
+      });
+    const add = (tag, attrs = {}, parent = svg) => {
+      const element = document.createElementNS(NS, tag);
+      Object.entries(attrs).forEach(([key, value]) => {
+        if(value !== null && value !== undefined){ element.setAttribute(key, String(value)); }
+      });
+      parent.appendChild(element);
+      return element;
+    };
+    const defs = add('defs');
+    const axisControlConfig = axis => buildHistAxisControlConfig(axis, drawSession, {
+      effectiveTickInterval: axis === 'x' ? xScale.step : panelModels[0]?.yScale?.step,
+      logY
+    });
+    const minorTickStyle = chartStyle.resolveMinorTickStyle({ tickLength: tickLen, strokeWidth: axisStrokeWidth });
+    const minorSubdivisionsX = getAxisMinorTickSubdivisions('x');
+    const minorTicksX = getAxisMinorTicksEnabled('x')
+      ? chartStyle.computeMinorTickPositions({
+          majorTicks: xRenderTicks,
+          min: xScale.min,
+          max: xScale.max,
+          scale: 'linear',
+          subdivisions: minorSubdivisionsX
+        })
+      : [];
+    const borderColor = state.barBorder || HIST_DEFAULT_BORDER;
+    const showGrid = !!controls.showGrid;
+    const showFrame = !!controls.showFrame;
+    for(const model of panelModels){
+      if(!(await checkpoint())){
+        return { ok: false, frequencyModel };
+      }
+      const panelGroup = add('g', {
+        'data-hist-panel-index': model.index,
+        'data-hist-panel-series-key': model.fitSet.key,
+        'data-hist-panel-series': model.fitSet.label,
+        'data-hist-panel-x-min': xScale.min,
+        'data-hist-panel-x-max': xScale.max,
+        'data-hist-panel-y-min': model.extent.yMin,
+        'data-hist-panel-y-max': model.extent.yMax,
+        'data-hist-panel-plot-x': model.plot.x,
+        'data-hist-panel-plot-y': model.plot.y,
+        'data-hist-panel-plot-width': model.plot.width,
+        'data-hist-panel-plot-height': model.plot.height
+      });
+      const plot = model.plot;
+      const x2px = value => plot.x + (plot.width * (value - xScale.min) / Math.max(xScale.max - xScale.min, 1e-12));
+      const y2px = value => plot.y + (plot.height * (1 - ((value - model.yScale.min) / Math.max(model.yScale.max - model.yScale.min, 1e-12))));
+      const clipId = `hist-panel-clip-${model.index}`;
+      const clipPath = add('clipPath', { id: clipId }, defs);
+      add('rect', { x: plot.x, y: plot.y, width: plot.width, height: plot.height }, clipPath);
+      const dataLayer = add('g', { 'clip-path': `url(#${clipId})`, 'data-layer': 'hist-panel-data' }, panelGroup);
+      if(showGrid){
+        const panelGridSegments = model.renderYTicks.map(value => ({
+          x1: plot.x,
+          y1: y2px(value),
+          x2: plot.x + plot.width,
+          y2: y2px(value)
+        }));
+        const panelGridPathData = svgGeometry.buildCompoundLinePath(panelGridSegments);
+        if(panelGridPathData){
+          add('path', {
+            d: panelGridPathData,
+            fill: 'none',
+            ...gridStrokeAttrs,
+            'data-grid-control': '1',
+            'data-hist-panel-grid': '1',
+            'data-hist-panel-grid-segment-count': panelGridSegments.length
+          }, panelGroup);
+        }
+      }
+      const xAxis = add('line', {
+        x1: plot.x,
+        y1: plot.y + plot.height,
+        x2: plot.x + plot.width,
+        y2: plot.y + plot.height,
+        stroke: axisStroke,
+        'stroke-width': axisStrokeWidth,
+        'stroke-linecap': 'square',
+        'data-hist-axis-style-target': '1'
+      }, panelGroup);
+      const yAxis = add('line', {
+        x1: plot.x,
+        y1: plot.y,
+        x2: plot.x,
+        y2: plot.y + plot.height,
+        stroke: axisStroke,
+        'stroke-width': axisStrokeWidth,
+        'stroke-linecap': 'square',
+        'data-hist-axis-style-target': '1'
+      }, panelGroup);
+      axisControls?.registerAxisElement?.(xAxis, axisControlConfig('x'));
+      axisControls?.registerAxisElement?.(yAxis, axisControlConfig('y'));
+      if(showFrame){
+        chartStyle.drawPlotFrame({
+          svg,
+          margin: { left: plot.x, top: plot.y },
+          plotW: plot.width,
+          plotH: plot.height,
+          stroke: axisStroke,
+          strokeWidth: axisStrokeWidth,
+          sides: ['top', 'right'],
+          group: panelGroup
+        });
+      }
+      minorTicksX.forEach(value => {
+        const x = x2px(value);
+        add('line', {
+          x1: x,
+          y1: plot.y + plot.height,
+          x2: x,
+          y2: plot.y + plot.height + minorTickStyle.length,
+          stroke: axisStroke,
+          'stroke-width': minorTickStyle.strokeWidth,
+          'stroke-linecap': 'round',
+          opacity: minorTickStyle.opacity,
+          'data-hist-axis-minor-target': '1'
+        }, panelGroup);
+      });
+      const xTickNodes = [];
+      xRenderTicks.forEach(value => {
+        const x = x2px(value);
+        add('line', {
+          x1: x,
+          y1: plot.y + plot.height,
+          x2: x,
+          y2: plot.y + plot.height + xMajorTickLength,
+          stroke: axisStroke,
+          'stroke-width': axisStrokeWidth,
+          'data-hist-axis-style-target': '1',
+          'data-hist-major-tick-axis': 'x',
+          'data-hist-major-tick-value': value
+        }, panelGroup);
+        if(model.showXLabels){
+          const extra = Shared.computeAxisLabelYOffset ? Shared.computeAxisLabelYOffset(fs, xMajorTickLength, tickGap) : 0;
+          const text = add('text', {
+            x,
+            y: plot.y + plot.height + xMajorTickLength + tickGap + extra,
+            'font-size': fs,
+            'text-anchor': 'middle',
+            fill: chartStyle.TEXT_COLOR
+          }, panelGroup);
+          text.textContent = formatTickX(value);
+          Shared.applyTextBaseline?.(text, 'hanging', fs);
+          markFontEditable(text, 'xTick');
+          xTickNodes.push(text);
+        }
+      });
+      chartStyle.applyLabelOrientation(xTickNodes, { angle: -45, anchor: 'end', dy: '0.35em', force: model.rotateXLabels });
+      const minorTicksY = getAxisMinorTicksEnabled('y')
+        ? chartStyle.computeMinorTickPositions({
+            majorTicks: model.renderYTicks,
+            min: model.yScale.min,
+            max: model.yScale.max,
+            scale: logY ? 'log' : 'linear',
+            domainMin: logY ? model.extent.yMin : null,
+            domainMax: logY ? model.extent.yMax : null,
+            logBase: 10,
+            subdivisions: getAxisMinorTickSubdivisions('y')
+          })
+        : [];
+      minorTicksY.forEach(value => {
+        const y = y2px(value);
+        add('line', {
+          x1: plot.x - minorTickStyle.length,
+          y1: y,
+          x2: plot.x,
+          y2: y,
+          stroke: axisStroke,
+          'stroke-width': minorTickStyle.strokeWidth,
+          'stroke-linecap': 'round',
+          opacity: minorTickStyle.opacity,
+          'data-hist-axis-minor-target': '1'
+        }, panelGroup);
+      });
+      model.renderYTicks.forEach(value => {
+        const y = y2px(value);
+        add('line', {
+          x1: plot.x - yMajorTickLength,
+          y1: y,
+          x2: plot.x,
+          y2: y,
+          stroke: axisStroke,
+          'stroke-width': axisStrokeWidth,
+          'data-hist-axis-style-target': '1',
+          'data-hist-major-tick-axis': 'y',
+          'data-hist-major-tick-value': value
+        }, panelGroup);
+        if(model.showYLabels){
+          const text = add('text', {
+            x: plot.x - yMajorTickLength - tickGap,
+            y,
+            'font-size': fs,
+            'text-anchor': 'end',
+            'dominant-baseline': 'middle',
+            fill: chartStyle.TEXT_COLOR
+          }, panelGroup);
+          text.textContent = formatTickY(logY ? Math.pow(10, value) : value);
+          markFontEditable(text, 'yTick');
+        }
+      });
+      drawHistPanelTitle(add, panelGroup, model, {
+        fontSize: Math.max(8, fs * 0.92),
+        titleReserve
+      });
+      const fill = getHistSeriesColor(model.fitSet.key, model.index);
+      if(densityMode){
+        const positions = Array.isArray(model.densitySeries?.positions) ? model.densitySeries.positions : [];
+        const densities = Array.isArray(model.densitySeries?.densities) ? model.densitySeries.densities : [];
+        const baselineValue = logY ? Math.max(model.extent.yMin, 1e-9) : 0;
+        const baselineDomain = logY ? Math.log10(baselineValue) : baselineValue;
+        const points = [];
+        for(let pointIndex = 0; pointIndex < positions.length; pointIndex += 1){
+          const x = Number(positions[pointIndex]);
+          const density = Number(densities[pointIndex]);
+          if(!Number.isFinite(x) || !Number.isFinite(density) || density < 0){
+            continue;
+          }
+          const yDomain = logY ? Math.log10(Math.max(density, baselineValue)) : density;
+          points.push([x2px(x), y2px(yDomain)]);
+        }
+        if(points.length >= 2){
+          const densityFillOpacity = getHistTraceOpacity(model.fitSet.key, 0.24);
+          const densityStrokeOpacity = getHistTraceOpacity(model.fitSet.key, 1);
+          const baselineY = y2px(baselineDomain);
+          const areaPath = [`M ${points[0][0]} ${baselineY}`]
+            .concat(points.map(point => `L ${point[0]} ${point[1]}`))
+            .concat([`L ${points[points.length - 1][0]} ${baselineY}`, 'Z'])
+            .join(' ');
+          const area = add('path', {
+            d: areaPath,
+            fill,
+            'fill-opacity': densityFillOpacity,
+            stroke: 'none',
+            'class': 'hist-bar hist-density-shape',
+            'data-hist-bar': '1',
+            'data-series-key': model.fitSet.key,
+            'data-series': model.fitSet.label,
+            'data-series-role': 'density-area'
+          }, dataLayer);
+          const lineColor = getHistDensityLineColor(model.fitSet.key, model.index, fill);
+          const line = add('path', {
+            d: points.map((point, pointIndex) => `${pointIndex === 0 ? 'M' : 'L'} ${point[0]} ${point[1]}`).join(' '),
+            fill: 'none',
+            stroke: lineColor,
+            'stroke-width': Math.max(
+              borderWidthPx,
+              chartStyle.scaleStrokeWidth(HIST_DEFAULT_DENSITY_STROKE_WIDTH, styleScaleInfo, { context: 'hist-density-line', min: 1 })
+            ),
+            'stroke-opacity': densityStrokeOpacity,
+            'stroke-linejoin': 'round',
+            'stroke-linecap': 'round',
+            'class': 'hist-bar hist-density-line',
+            'data-hist-bar': '1',
+            'data-series-key': model.fitSet.key,
+            'data-series': model.fitSet.label,
+            'data-series-role': 'density-line'
+          }, dataLayer);
+          [area, line].forEach(node => {
+            node.style.cursor = 'pointer';
+            node.addEventListener('click', event => {
+              event.stopPropagation();
+              showHistBarFormatControls(event.currentTarget);
+            });
+          });
+        }
+      }else{
+        const configuredTraceOpacity = getHistConfiguredTraceOpacity(model.fitSet.key);
+        const traceOpacity = configuredTraceOpacity
+          ?? (seriesEntries.length > 1 ? HIST_DEFAULT_MULTI_SERIES_TRACE_OPACITY : 1);
+        const fillOpacity = configuredTraceOpacity == null && seriesEntries.length === 1 ? 0.72 : 1;
+        const counts = Array.isArray(model.frequencySeries?.values) ? model.frequencySeries.values : [];
+        const barGeometries = counts.map((count, binIndex) => {
+          const numericCount = Number(count);
+          const left = x2px(frequencyModel.edges[binIndex]);
+          const right = x2px(frequencyModel.edges[binIndex + 1]);
+          const baselineY = plot.y + plot.height;
+          if(!(numericCount > 0) || !(right > left)){
+            return { visible: false, left, right, topY: baselineY, baselineY };
+          }
+          const domainValue = logY ? Math.log10(Math.max(numericCount, model.extent.yMin)) : numericCount;
+          const strokeInset = borderWidthPx > 0 ? borderWidthPx / 2 : 0;
+          return {
+            visible: true,
+            left,
+            right,
+            topY: Math.min(baselineY, y2px(domainValue) + strokeInset),
+            baselineY
+          };
+        });
+        const fillPath = buildHistBarFillPath(barGeometries);
+        if(fillPath){
+          const traceGroup = add('g', {
+            opacity: traceOpacity,
+            'class': 'hist-trace',
+            'data-series-key': model.fitSet.key,
+            'data-series': model.fitSet.label,
+            'data-series-role': 'hist-trace'
+          }, dataLayer);
+          const fillShape = add('path', {
+            d: fillPath,
+            fill,
+            'fill-opacity': fillOpacity,
+            stroke: 'none',
+            'class': 'hist-bar hist-trace-fill',
+            'data-hist-bar': '1',
+            'data-series-key': model.fitSet.key,
+            'data-series': model.fitSet.label,
+            'data-series-role': 'hist-fill'
+          }, traceGroup);
+          fillShape.style.cursor = 'pointer';
+          fillShape.addEventListener('click', event => {
+            event.stopPropagation();
+            showHistBarFormatControls(event.currentTarget);
+          });
+          if(borderWidthPx > 0){
+            const borderPath = buildHistBarBorderPath(barGeometries);
+            if(borderPath){
+              const borderShape = add('path', {
+                d: borderPath,
+                fill: 'none',
+                stroke: borderColor,
+                'stroke-width': borderWidthPx,
+                'stroke-linecap': 'butt',
+                'stroke-linejoin': 'miter',
+                'stroke-miterlimit': 2,
+                'shape-rendering': 'geometricPrecision',
+                'class': 'hist-trace-border',
+                'data-series-key': model.fitSet.key,
+                'data-series': model.fitSet.label,
+                'data-series-role': 'hist-border'
+              }, traceGroup);
+              borderShape.style.cursor = 'pointer';
+              borderShape.addEventListener('click', event => {
+                event.stopPropagation();
+                showHistBarFormatControls(event.currentTarget);
+              });
+            }
+          }
+        }
+      }
+      if((includePdf || includeCdf) && model.fitSet.fits.length){
+        const inRangeCount = Math.max(1, Number(model.frequencySeries?.inRangeCount) || model.fitSet.values.length || 1);
+        const sampleSteps = Math.min(240, Math.max(32, Math.round(plot.width)));
+        const lowerBound = logY
+          ? Math.max(model.extent.yMin, densityMode ? 1e-9 : 1e-6)
+          : model.extent.yMin;
+        const toDomainY = value => logY ? Math.log10(Math.max(value, lowerBound)) : Math.max(value, lowerBound);
+        model.fitSet.fits.forEach((fit, fitIndex) => {
+          if(!fit || fit.valid === false){ return; }
+          const strokeColor = seriesEntries.length > 1
+            ? fill
+            : (fit.color || DEFAULT_DISTRIBUTION_COLORS[fitIndex % DEFAULT_DISTRIBUTION_COLORS.length]);
+          const strokeWidth = Number.isFinite(Number(fit.strokeWidth))
+            ? Number(fit.strokeWidth)
+            : Math.max(axisStrokeWidth * 0.9, axisStrokeWidth / 2, 1);
+          const strokePattern = sanitizeHistOverlayPattern(fit.pattern || 'solid');
+          const strokeOpacity = Number.isFinite(Number(fit.alpha)) ? fit.alpha : 0.9;
+          if(includePdf && typeof fit.pdf === 'function'){
+            const parts = [];
+            for(let step = 0; step < sampleSteps; step += 1){
+              const fraction = sampleSteps === 1 ? 0 : step / (sampleSteps - 1);
+              const x = xScale.min + ((xScale.max - xScale.min) * fraction);
+              const density = fit.pdf(x);
+              if(!Number.isFinite(density) || density < 0){ continue; }
+              const expected = densityMode
+                ? density
+                : convertHistCountToDisplay(density * inRangeCount * binWidth, inRangeCount, frequencySettings);
+              parts.push(`${parts.length ? 'L' : 'M'} ${x2px(x)} ${y2px(toDomainY(expected))}`);
+            }
+            if(parts.length > 1){
+              const path = add('path', {
+                d: parts.join(' '),
+                fill: 'none',
+                stroke: strokeColor,
+                'stroke-width': strokeWidth,
+                'stroke-opacity': strokeOpacity,
+                'stroke-dasharray': histOverlayPatternToDasharray(strokePattern) || null,
+                'stroke-linejoin': 'round',
+                'stroke-linecap': 'round',
+                'data-dist': fit.key || fit.label,
+                'data-overlay-type': 'pdf',
+                'data-series-key': model.fitSet.key,
+                'data-series': model.fitSet.label,
+                'data-series-role': 'density-line',
+                'pointer-events': 'stroke',
+                'class': 'hist-overlay hist-overlay--pdf'
+              }, dataLayer);
+              path.style.cursor = 'pointer';
+              path.addEventListener('click', event => {
+                event.stopPropagation();
+                showHistOverlayFormatControls(event.currentTarget);
+              });
+            }
+          }
+          if(includeCdf && typeof fit.cdf === 'function'){
+            const parts = [];
+            for(let step = 0; step < sampleSteps; step += 1){
+              const fraction = sampleSteps === 1 ? 0 : step / (sampleSteps - 1);
+              const x = xScale.min + ((xScale.max - xScale.min) * fraction);
+              const cumulative = fit.cdf(x);
+              if(!Number.isFinite(cumulative)){ continue; }
+              const raw = Math.max(0, Math.min(1, cumulative)) * inRangeCount;
+              const expected = convertHistCountToDisplay(raw, inRangeCount, frequencySettings);
+              parts.push(`${parts.length ? 'L' : 'M'} ${x2px(x)} ${y2px(toDomainY(expected))}`);
+            }
+            if(parts.length > 1){
+              const path = add('path', {
+                d: parts.join(' '),
+                fill: 'none',
+                stroke: strokeColor,
+                'stroke-width': strokeWidth,
+                'stroke-opacity': strokeOpacity,
+                'stroke-dasharray': histOverlayPatternToDasharray(strokePattern) || null,
+                'stroke-linejoin': 'round',
+                'stroke-linecap': 'round',
+                'data-dist': fit.key || fit.label,
+                'data-overlay-type': 'cdf',
+                'data-series-key': model.fitSet.key,
+                'data-series': model.fitSet.label,
+                'data-series-role': 'density-line',
+                'pointer-events': 'stroke',
+                'class': 'hist-overlay hist-overlay--cdf'
+              }, dataLayer);
+              path.style.cursor = 'pointer';
+              path.addEventListener('click', event => {
+                event.stopPropagation();
+                showHistOverlayFormatControls(event.currentTarget);
+              });
+            }
+          }
+        });
+      }
+    }
+    const globalPlotLeft = outer.left;
+    const globalPlotTop = outer.top;
+    const globalPlotWidth = contentWidth;
+    const globalPlotHeight = contentHeight;
+    const xLabelDefault = {
+      x: globalPlotLeft + (globalPlotWidth / 2),
+      y: H - Math.max(5, fs * 0.35),
+      originX: globalPlotLeft,
+      originY: outer.top + contentHeight
+    };
+    const xLabelPos = resolveHistPanelLabelPosition(state.labelPositions?.xLabel, xLabelDefault, globalPlotWidth, outer.bottom);
+    const xLabel = add('text', {
+      x: xLabelPos.x,
+      y: xLabelPos.y,
+      'font-size': fs,
+      'text-anchor': 'middle',
+      fill: chartStyle.TEXT_COLOR
+    });
+    xLabel.textContent = state.xLabelText;
+    markFontEditable(xLabel, 'xTitle', 'xTitle');
+    bindHistInlineTextInteraction(xLabel, drawSession, 'x');
+    Shared.enableLabelDrag?.(xLabel, svg, {
+      onDragEnd: position => patchHistLabelPosition(drawSession, 'xLabel', {
+        x: position.x,
+        y: position.y,
+        relX: (position.x - globalPlotLeft) / Math.max(globalPlotWidth, 1),
+        relY: (position.y - (outer.top + contentHeight)) / Math.max(outer.bottom, 1)
+      }, { reason: 'hist-x-label-position' })
+    });
+    const yLabelDefault = {
+      x: horizontalEdgePadding + (fs * 0.5),
+      y: globalPlotTop + (globalPlotHeight / 2),
+      originX: 0,
+      originY: globalPlotTop
+    };
+    const yLabelPos = resolveHistPanelLabelPosition(state.labelPositions?.yLabel, yLabelDefault, outer.left, globalPlotHeight);
+    const yLabel = add('text', {
+      x: yLabelPos.x,
+      y: yLabelPos.y,
+      'font-size': fs,
+      'text-anchor': 'middle',
+      transform: `rotate(-90 ${yLabelPos.x} ${yLabelPos.y})`,
+      fill: chartStyle.TEXT_COLOR
+    });
+    yLabel.textContent = state.yLabelText;
+    markFontEditable(yLabel, 'yTitle', 'yTitle');
+    bindHistInlineTextInteraction(yLabel, drawSession, 'y');
+    Shared.enableLabelDrag?.(yLabel, svg, {
+      onDragEnd: position => patchHistLabelPosition(drawSession, 'yLabel', {
+        x: position.x,
+        y: position.y,
+        relX: position.x / Math.max(outer.left, 1),
+        relY: (position.y - globalPlotTop) / Math.max(globalPlotHeight, 1)
+      }, { reason: 'hist-y-label-position' })
+    });
+    const titleDefault = {
+      x: globalPlotLeft + (globalPlotWidth / 2),
+      y: Math.max(fs * 1.15, 14),
+      originX: globalPlotLeft,
+      originY: 0
+    };
+    const titlePos = resolveHistPanelLabelPosition(state.labelPositions?.title, titleDefault, globalPlotWidth, outer.top);
+    const title = add('text', {
+      x: titlePos.x,
+      y: titlePos.y,
+      'font-size': fs,
+      'text-anchor': 'middle',
+      fill: chartStyle.TEXT_COLOR
+    });
+    title.textContent = state.titleText;
+    markFontEditable(title, 'graphTitle', 'graphTitle');
+    bindHistInlineTextInteraction(title, drawSession, 'title');
+    Shared.enableLabelDrag?.(title, svg, {
+      onDragEnd: position => patchHistLabelPosition(drawSession, 'title', {
+        x: position.x,
+        y: position.y,
+        relX: (position.x - globalPlotLeft) / Math.max(globalPlotWidth, 1),
+        relY: position.y / Math.max(outer.top, 1)
+      }, { reason: 'hist-title-position' })
+    });
+    const traceStrokeScale = chartStyle.scaleStrokeWidth(1, styleScaleInfo, { context: 'hist-trace-live-style', min: 0 });
+    const densityStrokeMinimum = chartStyle.scaleStrokeWidth(HIST_DEFAULT_DENSITY_STROKE_WIDTH, styleScaleInfo, { context: 'hist-density-line-live-style', min: 1 });
+    const traceBorderRoles = new Set(['hist-border', 'density-line']);
+    seriesEntries.forEach(entry => {
+      Array.from(svg.querySelectorAll('[data-series-key][data-series-role]'))
+        .filter(node => String(node.getAttribute('data-series-key') || '') === entry.key
+          && traceBorderRoles.has(String(node.getAttribute('data-series-role') || '')))
+        .forEach(node => {
+          Shared.visualProjection?.bind?.(node, {
+            component: 'hist',
+            channel: 'trace-border',
+            tabId: drawSession?.tabId || getHistProjectionTabId() || getHistActiveTabId() || null,
+            key: entry.key,
+            strokeWidthFactor: traceStrokeScale,
+            strokeWidthMinimum: String(node.getAttribute('data-series-role') || '') === 'density-line' ? densityStrokeMinimum : 0,
+            properties: ['stroke', 'strokeWidth']
+          });
+        });
+    });
+    Shared.visualProjection?.bind?.(svg.querySelectorAll('[data-hist-axis-style-target="1"], [data-frame-edge]'), {
+      component: 'hist',
+      channel: 'axis',
+      tabId: drawSession?.tabId || getHistProjectionTabId() || getHistActiveTabId() || null,
+      strokeWidthBase: axisStrokeWidthBase,
+      renderedStrokeWidth: axisStrokeWidth
+    });
+    Shared.visualProjection?.bind?.(svg.querySelectorAll('[data-hist-axis-minor-target="1"]'), {
+      component: 'hist',
+      channel: 'axis',
+      tabId: drawSession?.tabId || getHistProjectionTabId() || getHistActiveTabId() || null,
+      strokeWidthBase: axisStrokeWidthBase,
+      renderedStrokeWidth: minorTickStyle.strokeWidth
+    });
+    registerHistGridControlTarget(svg, { fallbackThickness: axisStrokeWidthBase });
+    chartStyle.renderFontSizeLabel({ element: getHistNodeById('histFontSizeVal', drawSession?.tabId), fontInfo, input: getHistNodeById('histFontSize', drawSession?.tabId) });
+    ensureGraphViewport(svg, {
+      padding: Math.max(fs, 14),
+      debugLabel: 'hist-panel-graph',
+      baseViewport: { width: W, height: H },
+      preserveAspectRatio: 'xMidYMid meet',
+      fitContent: false
+    });
+    if(!(await checkpoint()) || !framePublication.commit()){
+      return { ok: false, frequencyModel };
+    }
+    return { ok: true, frequencyModel, grid };
+    }finally{
+      framePublication?.cleanup?.();
+    }
+  }
+
+  function publishHistAnalysisResults(fitSets, frequencyModel, frequencySettings, alpha, viewContext, densityMode){
+    updateHistStats(fitSets.map((entry, seriesIndex) => ({
+      key: entry.key,
+      colIndex: entry.colIndex,
+      label: entry.label,
+      values: entry.values,
+      distributionSummaries: entry.fits.map(fit => {
+        let gof = null;
+        if(fit && fit.valid !== false && typeof Shared.stats?.goodnessOfFit === 'function'){
+          try{
+            gof = Shared.stats.goodnessOfFit(entry.values, {
+              distribution: fit.key,
+              fit,
+              params: fit.params,
+              pdf: fit.pdf,
+              cdf: fit.cdf,
+              alpha
+            });
+          }catch(err){
+            console.error('hist goodnessOfFit error', { key: fit?.key, message: err?.message, series: entry.label });
+          }
+        }
+        return { fit, gof, color: fitSets.length > 1 ? getHistSeriesColor(entry.key, seriesIndex) : fit?.color };
+      })
+    })));
+    if(!densityMode){
+      const synced = syncHistFrequencyTableDataView(frequencyModel, frequencySettings, {
+        context: viewContext,
+        activate: false,
+        reason: 'hist-frequency-view-sync'
+      });
+      if(!synced){
+        syncHistFrequencyTableDataView(null, frequencySettings, {
+          context: viewContext,
+          reason: 'hist-frequency-view-clear'
+        });
+      }
+    }
+  }
+
   async function draw(options = {}, session = null){
     const drawSession = ensureHistSessionOwnershipShape(session || getHistSessionForDrawOptions(options));
-    if(drawSession && !isHistSessionActiveOrActivating(drawSession)){
+    if(drawSession && !isHistSessionActiveForModuleState(drawSession)){
       markHistOwnerDrawPending(drawSession, {
         ...(options || {}),
         reason: options?.reason || 'hist-draw-inactive'
@@ -6628,7 +8351,7 @@
         await execution?.checkpoint?.();
         return !execution?.signal?.aborted;
       }catch(err){
-        if(execution?.signal?.aborted){ return false; }
+        if(execution?.signal?.aborted || execution?.isCurrent?.() === false){ return false; }
         throw err;
       }
     };
@@ -6670,7 +8393,6 @@
         }
       });
     }
-    const statsHelpers = Shared.stats || {};
     const alpha = Number(state.distributionSettings.alpha) > 0 ? Number(state.distributionSettings.alpha) : 0.05;
     const rawXMin = Math.min(...values);
     const rawXMax = Math.max(...values);
@@ -6700,6 +8422,14 @@
         });
       }
       manualYMax = null;
+    }
+    const panelDisplayActive = isHistPanelDisplayActive(state.seriesLayout);
+    const legendVisible = !panelDisplayActive && state.showLegend !== false && seriesEntries.length > 1;
+    if(!legendVisible){
+      // Legend viewport reservations are committed onto the shared graph box.
+      // Release that ownership before measuring panel/no-legend geometry so a
+      // previous overlay render cannot leave an artificial right-side envelope.
+      releaseHistLegendViewportReservation(plotEl);
     }
     const drawableFrame = resolveHistDrawableFrame(plotEl);
     const baseWidth = Math.max(50, Math.floor(drawableFrame.width || 50));
@@ -6735,7 +8465,6 @@
     const styleScaleInfo=fontInfo.scaleInfo;
     const borderWidthRaw=Number(state.barBorderWidth)||0;
     const borderWidthPx=chartStyle.scaleStrokeWidth(borderWidthRaw, styleScaleInfo, { context: 'hist-border', min: 0 });
-    const legendVisible = state.showLegend !== false && seriesEntries.length > 1;
     const legendEntries = legendVisible
       ? seriesEntries.map((entry, index) => ({
           label: entry.label,
@@ -6799,7 +8528,7 @@
       let paddedXMax = xMax;
       fitSets.forEach(entry => {
         const densityInfo = computeHistDensitySeries(entry.values, {
-          sampleCount: Math.min(240, Math.max(64, Math.round(W)))
+          sampleCount: HIST_DEFAULT_DENSITY_SAMPLE_COUNT
         });
         if(!hasManualXMin && Number.isFinite(densityInfo.domainMin) && densityInfo.domainMin < paddedXMin){
           paddedXMin = densityInfo.domainMin;
@@ -6817,6 +8546,42 @@
       if(drawDebugEnabled){
         histDebug('Debug: hist automatic X bounds padded from density domains', { xMin, xMax });
       }
+    }
+    if(panelDisplayActive){
+      const panelResult = await drawHistPanelLayout({
+        plotEl,
+        drawSession,
+        seriesEntries,
+        fitSets,
+        controls,
+        frequencySettings,
+        plotMode,
+        xMin,
+        xMax,
+        manualAxisLimits,
+        drawableFrame,
+        fontInfo,
+        styleScaleInfo,
+        borderWidthPx,
+        includePdf,
+        includeCdf,
+        checkpoint,
+        execution
+      });
+      if(!panelResult?.ok){
+        return false;
+      }
+      publishHistAnalysisResults(fitSets, panelResult.frequencyModel, frequencySettings, alpha, viewContext, densityMode);
+      state.layout?.syncPanels?.({ skipSchedule: true });
+      syncHistAutoDrawNoticeWidth('draw');
+      histDebug('Debug: drawHistogram complete', {
+        mode: plotMode,
+        seriesCount: seriesEntries.length,
+        seriesDisplay: HIST_SERIES_DISPLAY_PANELS,
+        panelRows: panelResult.grid?.rows || 1,
+        panelCols: panelResult.grid?.cols || 1
+      });
+      return true;
     }
     const axisTickTools = chartStyle.axisTicks || null;
     const buildAxisScale = opts => {
@@ -6843,7 +8608,14 @@
       histDebug('Debug: hist manual interval suppressed',{ axis: 'y', reason: 'log-scale', stored: storedManualIntervalY });
     }
     plotEl.style.position='relative';
-    const svg=document.createElementNS(NS,'svg'); svg.setAttribute('width',String(W)); svg.setAttribute('height',String(H)); svg.setAttribute('viewBox',`0 0 ${W} ${H}`); svg.setAttribute('font-family',chartStyle.FONT_FAMILY); chartStyle.prepareSvg(svg, { scopeId: 'hist' });
+    const svg = document.createElementNS(NS, 'svg');
+    svg.setAttribute('width', String(W));
+    svg.setAttribute('height', String(H));
+    svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+    svg.setAttribute('font-family', chartStyle.FONT_FAMILY);
+    svg.setAttribute('data-hist-plot-mode', plotMode);
+    svg.setAttribute('data-hist-series-display', HIST_SERIES_DISPLAY_OVERLAY);
+    chartStyle.prepareSvg(svg, { scopeId: 'hist' });
     framePublication = Shared.framePublication.stage({
       container: plotEl,
       frame: svg,
@@ -6851,7 +8623,7 @@
       component: 'hist',
       tabId: drawSession?.tabId || getHistProjectionTabId() || null,
       canCommit: () => execution?.isCurrent?.() !== false
-        && (!drawSession || isHistSessionActiveOrActivating(drawSession))
+        && (!drawSession || isHistSessionActiveForModuleState(drawSession))
     });
     const histNotationX = getAxisNotation('x');
     const histNotationY = getAxisNotation('y');
@@ -6890,7 +8662,7 @@
     let xTickTarget=chartStyle.estimateTickCount(baseWidth,{axis:'x',fallback:6});
     let yTickTarget=chartStyle.estimateTickCount(H,{axis:'y',fallback:6});
     histDebug('Debug: hist initial tick targets',{xTickTarget,yTickTarget,width:W,height:H});
-    const histFontStyles = exportFontStyles('hist');
+    const histFontStyles = exportFontStyles('hist', { tabId: drawSession?.tabId || null });
     const xTickMeasureFont = (chartStyle && typeof chartStyle.resolveScopedLabelMeasureFont === 'function')
       ? chartStyle.resolveScopedLabelMeasureFont({ styles: histFontStyles, role: 'xTick', fallbackPx: fs }).fontSpec
       : chartStyle.makeFont(fs);
@@ -6959,7 +8731,7 @@
         let minPositiveDensity = Infinity;
         fitSets.forEach(entry => {
           const densityInfo = computeHistDensitySeries(entry.values, {
-            sampleCount: Math.min(240, Math.max(64, Math.round(plotW))),
+            sampleCount: HIST_DEFAULT_DENSITY_SAMPLE_COUNT,
             minVal: xScale.min,
             maxVal: xScale.max
           });
@@ -7104,7 +8876,7 @@
       const yLabelWidths=yTickLabels.map(lbl=>chartStyle.measureText(lbl,tickFont));
       maxYLabelWidth=Math.max(...yLabelWidths,0);
       margin=stabilizeHistMarginForAxisResize(
-        chartStyle.computeBaseMargins({fontSize:fs,legendWidth,maxYLabelWidth,hasYTitle,axisMetrics})
+        chartStyle.computeBaseMargins({fontSize:fs,legendWidth,maxYLabelWidth,hasYTitle,axisMetrics,xTickLabels,xTickMeasureFont})
       );
       plotW=Math.max(20,W-margin.left-margin.right);
       plotH=Math.max(20,H-margin.top-margin.bottom);
@@ -7131,11 +8903,19 @@
     const y2px=v=>margin.top+plotH*(1-(v-yScale.min)/(yScale.max-yScale.min));
     function add(tag,attrs,parent){const el=document.createElementNS(NS,tag); for(const[k,v] of Object.entries(attrs)){ if(v !== null && v !== undefined){ el.setAttribute(k,String(v)); } } (parent || svg).appendChild(el); return el;}
       if(showGrid){
-        yScale.ticks.forEach(t=>{
+        const gridSegments = yScale.ticks.map(t=>{
           const y=y2px(t);
-          const gridLine = add('line',Object.assign({x1:margin.left,y1:y,x2:margin.left+plotW,y2:y},gridStrokeAttrs));
-          gridLine.setAttribute('data-grid-control','1');
+          return { x1:margin.left, y1:y, x2:margin.left+plotW, y2:y };
         });
+        const gridPathData = svgGeometry.buildCompoundLinePath(gridSegments);
+        if(gridPathData){
+          add('path', Object.assign({
+            d:gridPathData,
+            fill:'none',
+            'data-grid-control':'1',
+            'data-hist-grid-segment-count':gridSegments.length
+          }, gridStrokeAttrs));
+        }
         histDebug('Debug: hist grid stroke scaled',{horizontal:yScale.ticks.length,gridStrokeStyle});
       }
     const xTickPositions=xScale.ticks.map(t=>x2px(t));
@@ -7171,33 +8951,9 @@
           subdivisions: minorSubdivisionsY
         })
       : [];
-      const axisControlConfig = axis => ({
-        axis,
-        scopeId: 'hist',
-        getTickInterval: () => getAxisTickInterval(axis),
-        getEffectiveTickInterval: () => axis === 'x' ? xScale.step : yScale.step,
-        getMajorTickLength: () => getAxisMajorTickLength(axis),
-        onMajorTickLengthChange: value => updateAxisMajorTickLength(axis, value),
-        isMajorTickLengthSupported: () => true,
-        majorTickLengthPlaceholder: 'Auto',
-        getThickness: () => getAxisStrokeWidthBase(),
-        getColor: () => getAxisColor(),
-        isTickIntervalEnabled: () => axis === 'y' ? !logY : true,
-        getTickIntervalDisabledMessage: () => axis === 'y'
-          ? 'Tick interval is disabled while the Y axis uses a logarithmic scale.'
-          : 'Tick interval available for numeric axes.',
-        tickPlaceholder: 'Auto',
-        onTickIntervalChange: value => updateAxisTickInterval(axis, value),
-        getMinorTicksEnabled: () => getAxisMinorTicksEnabled(axis),
-        onMinorTicksChange: value => updateAxisMinorTicks(axis, value),
-        isMinorTicksSupported: () => true,
-        getMinorTickSubdivisions: () => getAxisMinorTickSubdivisions(axis),
-        onMinorTickSubdivisionsChange: value => updateAxisMinorTickSubdivisions(axis, value),
-        onThicknessChange: value => updateAxisStrokeWidth(value),
-        onColorChange: value => updateAxisColor(value),
-        getNotationMode: () => getAxisNotation(axis),
-        onNotationChange: value => updateAxisNotation(axis, value),
-        isNotationSupported: () => true
+      const axisControlConfig = axis => buildHistAxisControlConfig(axis, drawSession, {
+        effectiveTickInterval: axis === 'x' ? xScale.step : yScale.step,
+        logY
       });
       const xAxisLine = add('line',{x1:axisXStart,y1:margin.top+plotH,x2:axisXEnd,y2:margin.top+plotH,stroke:axisStroke,'stroke-linecap':'square','stroke-width':axisStrokeWidth});
       if(axisControls && typeof axisControls.registerAxisElement === 'function'){
@@ -7339,9 +9095,9 @@
       histogramSeries.forEach((entry, seriesIndex) => {
         const fill = getHistSeriesColor(entry.key, seriesIndex);
         const configuredTraceOpacity = getHistConfiguredTraceOpacity(entry.key);
-        const defaultFillOpacity = seriesEntries.length > 1 ? HIST_DEFAULT_SERIES_FILL_OPACITY : 0.72;
-        const traceOpacity = configuredTraceOpacity ?? 1;
-        const fillOpacity = configuredTraceOpacity == null ? defaultFillOpacity : 1;
+        const traceOpacity = configuredTraceOpacity
+          ?? (seriesEntries.length > 1 ? HIST_DEFAULT_MULTI_SERIES_TRACE_OPACITY : 1);
+        const fillOpacity = configuredTraceOpacity == null && seriesEntries.length === 1 ? 0.72 : 1;
         const barGeometries = entry.counts.map((count, binIndex) => {
           const numericCount = Number(count);
           const xStart = x2px(sharedEdges[binIndex]);
@@ -7533,25 +9289,10 @@
     const xText=add('text',{x: xLabelPos.x, y: xLabelPos.y,'text-anchor':'middle','font-size':fs,fill:chartStyle.TEXT_COLOR});
     xText.textContent=renderedXLabel;
     markFontEditable(xText,'xTitle','xTitle');
-    const applyHistXLabel=value=>{
-      const nextValue = value != null ? String(value) : '';
-      patchHistLabelsState(drawSession, { x: nextValue }, { reason: 'hist-x-label-edit' });
-      scheduleActiveHistDraw({ reason: 'hist-x-label-edit' });
-    };
-    if(typeof Shared.makeEditable === 'function'){
-      Shared.makeEditable(xText,txt=>{
-        const previous=state.xLabelText!=null?String(state.xLabelText):'';
-        const nextValue=txt!=null?String(txt):'';
-        if(previous===nextValue){
-          return;
-        }
-        applyHistXLabel(nextValue);
-        if(seriesEntries.length === 1 && state.hot?.setDataAtCell){
-          try{ state.hot.setDataAtCell([0, seriesEntries[0].colIndex, nextValue], 'hist-x-axis-edit'); }catch(err){ console.error('hist x label header sync failed', err); }
-        }
-        recordHistChange('hist:x-label',previous,nextValue,applyHistXLabel);
-      });
+    if(seriesEntries.length === 1){
+      xText.dataset.histSourceColumnIndex = String(seriesEntries[0].colIndex);
     }
+    bindHistInlineTextInteraction(xText, drawSession, 'x');
     if(typeof Shared.enableLabelDrag === 'function'){
       Shared.enableLabelDrag(xText, svg, {
         onDragEnd: pos => {
@@ -7569,25 +9310,7 @@
     const yText=add('text',{x:yLabelPos.x,y:yLabelPos.y,'dominant-baseline':'middle',transform:`rotate(-90 ${yLabelPos.x} ${yLabelPos.y})`,'text-anchor':'middle','font-size':fs,fill:chartStyle.TEXT_COLOR});
     yText.textContent=state.yLabelText;
     markFontEditable(yText,'yTitle','yTitle');
-    const applyHistYLabel=value=>{
-      const nextValue=value!=null?String(value):'';
-      patchHistLabelsState(drawSession, {
-        y: nextValue,
-        yAuto: nextValue === getHistDefaultYLabel(state.plotMode, state.frequencySettings)
-      }, { reason: 'hist-y-label-edit' });
-      scheduleActiveHistDraw({ reason: 'hist-y-label-edit' });
-    };
-    if(typeof Shared.makeEditable === 'function'){
-      Shared.makeEditable(yText,txt=>{
-        const previous=state.yLabelText!=null?String(state.yLabelText):'';
-        const nextValue=txt!=null?String(txt):'';
-        if(previous===nextValue){
-          return;
-        }
-        applyHistYLabel(nextValue);
-        recordHistChange('hist:y-label',previous,nextValue,applyHistYLabel);
-      });
-    }
+    bindHistInlineTextInteraction(yText, drawSession, 'y');
     if(typeof Shared.enableLabelDrag === 'function'){
       Shared.enableLabelDrag(yText, svg, {
         onDragEnd: pos => {
@@ -7604,25 +9327,7 @@
     const titleText=add('text',{x: titlePos.x, y: titlePos.y,'text-anchor':'middle','font-size':fs,fill:chartStyle.TEXT_COLOR});
     titleText.textContent=state.titleText;
     markFontEditable(titleText,'graphTitle','graphTitle');
-    const applyHistTitle=value=>{
-      const nextValue=value!=null?String(value):'';
-      patchHistLabelsState(drawSession, {
-        title: nextValue,
-        titleAuto: nextValue === getHistDefaultTitle(state.plotMode)
-      }, { reason: 'hist-title-edit' });
-      scheduleActiveHistDraw({ reason: 'hist-title-edit' });
-    };
-    if(typeof Shared.makeEditable === 'function'){
-      Shared.makeEditable(titleText,txt=>{
-        const previous=state.titleText!=null?String(state.titleText):'';
-        const nextValue=txt!=null?String(txt):'';
-        if(previous===nextValue){
-          return;
-        }
-        applyHistTitle(nextValue);
-        recordHistChange('hist:title',previous,nextValue,applyHistTitle);
-      });
-    }
+    bindHistInlineTextInteraction(titleText, drawSession, 'title');
     if(typeof Shared.enableLabelDrag === 'function'){
       Shared.enableLabelDrag(titleText, svg, {
         onDragEnd: pos => {
@@ -7635,13 +9340,51 @@
         }
       });
     }
+    if(controls.showStatsSummary){
+      const ownerStatsSettings = drawSession?.state?.statsSettings || state.statsSettings || {};
+      const summaryLines = buildHistPlotSummaryLines(seriesEntries, {
+        comparisonMode: ownerStatsSettings.comparisonMode
+      });
+      if(summaryLines.length){
+        const statsFontSize = chartStyle.resolveStatsAnnotationFontMetrics(fs, { styles: histFontStyles }).fontSizePx;
+        const statsFrame = { originX: margin.left, originY: margin.top, width: plotW, height: plotH };
+        const statsPosition = chartStyle.resolveStatsAnnotationPosition(
+          getHistLabelsState(drawSession)?.positions?.stats,
+          { x: margin.left + plotW - 4, y: margin.top + statsFontSize },
+          statsFrame
+        );
+        chartStyle.renderStatsAnnotation(svg, {
+          lines: summaryLines,
+          x: statsPosition.x,
+          y: statsPosition.y,
+          fontSize: statsFontSize,
+          textAnchor: 'end',
+          fill: chartStyle.TEXT_COLOR,
+          dataAttributes: { 'hist-plot-stats': '1' },
+          fontScopeId: 'hist',
+          tabId: drawSession?.tabId || null,
+          onDragEnd: pos => {
+            patchHistLabelPosition(
+              drawSession,
+              'stats',
+              chartStyle.captureStatsAnnotationPosition(pos, statsFrame),
+              { reason: 'hist-stats-position' }
+            );
+          }
+        });
+      }
+    }
     if(legendVisible && legendRenderer.entries.length){
       const plotRight = margin.left + plotW;
       const legendPos = state.labelPositions?.legend;
       const resolvedLegendPos = legendPos?.relX !== undefined && legendPos?.relY !== undefined
         ? { x: plotRight + legendPos.relX * Math.max(legendGapPx, 1), y: margin.top + legendPos.relY * plotH }
         : (legendPos?.x !== undefined && legendPos?.y !== undefined ? { x: legendPos.x, y: legendPos.y } : { x: plotRight + legendGapPx, y: margin.top });
-      const legendGroup = legendRenderer.draw(svg, resolvedLegendPos);
+      const legendGroup = legendRenderer.draw(svg, {
+        ...resolvedLegendPos,
+        canonicalX: plotRight + legendGapPx,
+        canonicalY: margin.top
+      });
       if(legendGroup){
         legendGroup.querySelectorAll('[data-legend-key]').forEach(node => {
           const key = String(node.dataset.legendKey || '').trim();
@@ -7651,15 +9394,11 @@
           }
         });
         Array.from(legendGroup.querySelectorAll('text')).forEach((node, index) => markFontEditable(node, 'legend', `legend-${index}`));
-        Shared.enableLegendDrag?.(legendGroup, svg, {
-          onDragEnd: pos => {
-            patchHistLabelPosition(drawSession, 'legend', {
-              x: pos.x,
-              y: pos.y,
-              relX: (pos.x - plotRight) / Math.max(legendGapPx, 1),
-              relY: (pos.y - margin.top) / Math.max(plotH, 1)
-            }, { reason: 'hist-legend-position' });
-          }
+        bindHistLegendInteractions(legendGroup, svg, drawSession, {
+          plotRight,
+          marginTop: margin.top,
+          legendGapPx: Math.max(legendGapPx, 1),
+          plotHeight: Math.max(plotH, 1)
         });
       }
     }
@@ -7707,7 +9446,9 @@
     ensureGraphViewport(svg, {
       padding: Math.max(fs, 14),
       debugLabel: 'hist-graph',
-      baseViewport: { width: W, height: H }
+      baseViewport: { width: W, height: H },
+      preserveAspectRatio: 'xMidYMid meet',
+      fitContent: false
     });
     if(!(await checkpoint()) || !framePublication.commit()){
       return false;
@@ -7715,43 +9456,7 @@
     legendViewport.commit();
     state.layout?.syncPanels?.({ skipSchedule: true });
     syncHistAutoDrawNoticeWidth('draw');
-    updateHistStats(fitSets.map((entry, seriesIndex) => ({
-      key: entry.key,
-      colIndex: entry.colIndex,
-      label: entry.label,
-      values: entry.values,
-      distributionSummaries: entry.fits.map(fit => {
-        let gof=null;
-        if(fit && fit.valid !== false && typeof statsHelpers.goodnessOfFit === 'function'){
-          try{
-            gof = statsHelpers.goodnessOfFit(entry.values, {
-              distribution: fit.key,
-              fit,
-              params: fit.params,
-              pdf: fit.pdf,
-              cdf: fit.cdf,
-              alpha
-            });
-          }catch(err){
-            console.error('hist goodnessOfFit error',{ key: fit?.key, message: err?.message, series: entry.label });
-          }
-        }
-        return { fit, gof, color: seriesEntries.length > 1 ? getHistSeriesColor(entry.key, seriesIndex) : fit?.color };
-      })
-    })));
-    if(!densityMode){
-      const synced = syncHistFrequencyTableDataView(frequencyModel, frequencySettings, {
-        context: viewContext,
-        activate: false,
-        reason: 'hist-frequency-view-sync'
-      });
-      if(!synced){
-        syncHistFrequencyTableDataView(null, frequencySettings, {
-          context: viewContext,
-          reason: 'hist-frequency-view-clear'
-        });
-      }
-    }
+    publishHistAnalysisResults(fitSets, frequencyModel, frequencySettings, alpha, viewContext, densityMode);
     histDebug('Debug: drawHistogram complete', { mode: plotMode, seriesCount: seriesEntries.length });
     return true;
     }finally{
@@ -7769,7 +9474,7 @@
     }
     Shared.componentLifecycle?.emitLifecycleEvent?.({ componentKey: 'hist', tabId: options?.tabId || getHistProjectionTabId() || null, action: 'draw-executed', reason: nextReason, details: { source: 'hist.draw' } });
     const drawSession = ensureHistSessionOwnershipShape(getHistSessionForDrawOptions(options, { reason: nextReason }));
-    if(drawSession && !isHistSessionActiveOrActivating(drawSession)){
+    if(drawSession && !isHistSessionActiveForModuleState(drawSession)){
       markHistOwnerDrawPending(drawSession, {
         ...(options || {}),
         reason: nextReason
@@ -7777,7 +9482,7 @@
       return;
     }
     const result = await draw({ ...(options || {}), tabId: drawSession?.tabId || options?.tabId || undefined, reason: nextReason }, drawSession);
-    captureHistSessionStateFromActive(getHistProjectionSession({ reason: 'hist-projection-mutation' }), {
+    captureHistSessionStateFromActive(drawSession, {
       reason: nextReason,
       syncControls: false,
       captureStatsPanel: true
@@ -8059,17 +9764,6 @@
     afterReady: (tabLike, meta = {}) => {
       bindHistSessionForTab(tabLike || meta?.tabId || null, { ...(meta || {}), reason: meta?.reason || 'hist-activate-bind-session' }, { apply: true, syncUi: true });
       applyExistingHistOwnedRuntimeRecord(tabLike || meta?.tabId || null, { ...(meta || {}), reason: meta?.reason || 'hist-activate-apply-owned-runtime' });
-      const activationSession = getActiveHistSessionForState();
-      const pendingPayload = activationSession?.cache?.pendingPayload || null;
-      if(pendingPayload?.payload){
-        activationSession.cache.pendingPayload = null;
-        hist.loadFromPayload(pendingPayload.payload, {
-          ...(pendingPayload.meta || {}),
-          source: pendingPayload.meta?.source || 'pending-file',
-          tabId: activationSession.tabId,
-          reason: 'hist-pending-payload-activate'
-        });
-      }
       if(typeof state.ensureHotForActiveTab === 'function'){
         const hot = state.ensureHotForActiveTab();
         if(hot){
@@ -8092,17 +9786,6 @@
       || resolveHistRoot()
       || global.document;
     bindHistSessionForTab(targetTabId || null, { root: state.root || null, reason: meta?.reason || 'activate-tab' }, { apply: true, syncUi: true });
-    const activationSession = getActiveHistSessionForState();
-    const pendingPayload = activationSession?.cache?.pendingPayload || null;
-    if(pendingPayload?.payload){
-      activationSession.cache.pendingPayload = null;
-      hist.loadFromPayload(pendingPayload.payload, {
-        ...(pendingPayload.meta || {}),
-        source: pendingPayload.meta?.source || 'pending-file',
-        tabId: activationSession.tabId,
-        reason: 'hist-pending-payload-activate'
-      });
-    }
     if(ensureHistDomBindings(tab)){ return; }
     if(!hist.ready){ hist.init({ root: state.root || undefined, tabId: targetTabId || undefined, reason: meta?.reason || 'activate-tab' }); return; }
     if(typeof state.ensureHotForActiveTab === 'function'){ state.ensureHotForActiveTab(); }
@@ -8112,16 +9795,7 @@
   };
 
   function detachChildren(node){
-    if(!node){ return null; }
-    const doc = node.ownerDocument || global.document;
-    const fragment = doc?.createDocumentFragment ? doc.createDocumentFragment() : null;
-    if(!fragment){ return null; }
-    let count = 0;
-    while(node.firstChild){
-      fragment.appendChild(node.firstChild);
-      count += 1;
-    }
-    return { fragment, count };
+    return Shared.componentLifecycle?.detachCacheableChildren?.(node) || null;
   }
 
   function restoreChildren(node, payload){
@@ -8141,7 +9815,7 @@
         reason
       }, { create: true })
       || getActiveHistSessionForState();
-    if(session && !isHistSessionActiveOrActivating(session)){
+    if(session && !isHistSessionActiveForModuleState(session)){
       if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
         histDebug('Debug: hist render cache skipped for inactive owner', {
           reason,
@@ -8189,7 +9863,7 @@
       ...(meta || {}),
       reason: meta?.reason || 'hist-idle-snapshot'
     }, { create: false }) || getActiveHistSessionForState();
-    if(owner && !isHistSessionActiveOrActivating(owner)){
+    if(owner && !isHistSessionActiveForModuleState(owner)){
       return !owner.state?.autoDraw?.drawPending && !owner.state?.drawPending;
     }
     return !state.drawPending;
@@ -8198,6 +9872,48 @@
   hist.awaitReadyForSnapshot = function awaitReadyForSnapshot(meta = {}){
     return Shared.componentLifecycle?.awaitReadyForSnapshot?.(hist, { ...meta, componentKey: 'hist' })
       || Promise.resolve({ ok: true, skipped: true, reason: 'missing-componentLifecycle' });
+  };
+
+  function bindHistBarFormatInteraction(node){
+    if(!node || node.__graphitixHistBarFormatBound === true){ return false; }
+    node.style.cursor = 'pointer';
+    node.addEventListener('click', event => {
+      try{ event.stopPropagation(); }catch(_err){}
+      showHistBarFormatControls(event.currentTarget);
+    });
+    node.__graphitixHistBarFormatBound = true;
+    return true;
+  }
+
+  function bindHistOverlayFormatInteraction(node){
+    if(!node || node.__graphitixHistOverlayFormatBound === true){ return false; }
+    node.style.cursor = 'pointer';
+    node.style.pointerEvents = node.style.pointerEvents || 'stroke';
+    node.addEventListener('click', event => {
+      try{ event.stopPropagation(); }catch(_err){}
+      showHistOverlayFormatControls(event.currentTarget);
+    });
+    node.__graphitixHistOverlayFormatBound = true;
+    return true;
+  }
+
+  hist.rehydrateGraphInteractions = function rehydrateGraphInteractions(meta = {}){
+    const owner = getHistRenderCacheOwner(meta, 'hist-render-cache-interaction-rehydrate');
+    const root = meta.root || resolveHistRoot(owner?.tabId || meta.tab || meta.tabId || null);
+    const svg = root?.querySelector?.('#histSvg') || meta.svgs?.find?.(node => node?.id === 'histSvg') || null;
+    if(!owner || !svg){ return false; }
+    const axesReady = axisControls?.rehydrateAxisElements?.(svg, (axis, _element, metadata) =>
+      buildHistAxisControlConfig(axis, owner, metadata)
+    ) !== false;
+    const textReady = rehydrateHistInlineTextInteractions(svg, owner);
+    svg.querySelectorAll?.('[data-hist-bar="1"], [data-series-role="hist-border"]').forEach(bindHistBarFormatInteraction);
+    svg.querySelectorAll?.('[data-overlay-type], .hist-overlay').forEach(bindHistOverlayFormatInteraction);
+    bindHistLegendInteractions(
+      svg.querySelector?.('[data-legend-viewport-content="true"]') || null,
+      svg,
+      owner
+    );
+    return axesReady && textReady;
   };
 
   hist.restoreRenderCache = function restoreRenderCache(cache, meta = {}){
@@ -8211,6 +9927,12 @@
     const restoredStats = restoreChildren(stats, cache.stats);
     if(restoredPlot){
       chartStyle.rehydrateLegendViewports?.(plot);
+      const svg = plot?.querySelector?.('#histSvg') || null;
+      bindHistLegendInteractions(
+        svg?.querySelector?.('[data-legend-viewport-content="true"]') || null,
+        svg,
+        owner
+      );
     }
     if(restoredStats){
       // The replayed stats DOM carries dead Download/Copy controls (listeners cannot
@@ -8236,7 +9958,18 @@
     computeAutoBinWidth: (seriesEntries, options = {}) => computeHistAutoBinWidth(seriesEntries, options || {}),
     buildFrequencyModel: (seriesEntries, options = {}) => buildHistFrequencyModel(seriesEntries, options || {}),
     getDefaultFrequencySettings: () => createDefaultHistFrequencySettings(),
-    resolveDrawableFrame: plot => resolveHistDrawableFrame(plot)
+    sanitizeSeriesLayout: source => sanitizeHistSeriesLayout(source || {}),
+    resolvePanelGrid: (seriesCount, arrangement, width, height) => resolveHistPanelGrid(seriesCount, arrangement, width, height),
+    resolvePanelTrackLayout: options => resolveHistPanelTrackLayout(options),
+    resolvePanelTitleLayout: (label, maxWidth, fontSize) => resolveHistPanelTitleLayout(label, maxWidth, fontSize),
+    selectPanelTicks: (ticks, maxCount) => selectHistPanelTicks(ticks, maxCount),
+    estimatePanelTickCapacity: (spanPx, labels, fontSpec, options = {}) => estimateHistPanelTickCapacity(spanPx, labels, fontSpec, options || {}),
+    computeDensitySeries: (values, options = {}) => computeHistDensitySeries(values, options || {}),
+    resolvePanelYExtent: (fitSet, seriesModel, context = {}) => resolveHistPanelYExtent(fitSet, seriesModel, context || {}),
+    isPanelDisplayActive: seriesLayout => isHistPanelDisplayActive(seriesLayout),
+    buildPlotSummaryLines: (seriesEntries, options = {}) => buildHistPlotSummaryLines(seriesEntries, options),
+    resolveDrawableFrame: plot => resolveHistDrawableFrame(plot),
+    scheduleOwnerDraw: (owner, options = {}) => scheduleHistOwnerDraw(owner, options || {})
   });
 
   Shared.componentLifecycle?.installInternalStateBridge?.(hist, {

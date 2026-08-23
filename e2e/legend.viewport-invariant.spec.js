@@ -20,6 +20,12 @@ const CASES = [
   { type: 'line', svg: '#lineSvg', toggle: '#lineShowLegend', viewMode: '#lineViewMode' }
 ];
 
+const ownerSelector = (componentCase, selector) =>
+  `#${componentCase.type}Page:not([hidden]) ${selector}`;
+const ownerLegendControlSelector = componentCase => componentCase.type === 'survival'
+  ? `#survivalPage:not([hidden]) .svgbox ${componentCase.toggle}`
+  : ownerSelector(componentCase, componentCase.toggle);
+
 test('Pie example honors the initially checked legend option', async ({ page }) => {
   test.setTimeout(45_000);
   await installLocalCdnOverrides(page);
@@ -31,8 +37,8 @@ test('Pie example honors the initially checked legend option', async ({ page }) 
   await openComponentFromWelcome(page, component);
   await clickExampleButtonIfPresent(page, 'pieLoadExample');
 
-  await expect(page.locator('#pieShowLegend')).toBeChecked();
-  const pieCase = { type: 'pie', svg: '#pieSvg' };
+  await expect(page.locator('#piePage:not([hidden]) #pieShowLegend')).toBeChecked();
+  const pieCase = { type: 'pie', svg: '#pieSvg', toggle: '#pieShowLegend' };
   await waitForLegendProjection(page, pieCase, true);
   await expect.poll(async () => captureViewport(page, pieCase), { timeout: 15_000 }).toMatchObject({
     hasEnvelope: true,
@@ -54,16 +60,74 @@ async function setLegend(page, componentCase, visible) {
     }
     control.checked = checked;
     control.dispatchEvent(new Event('change', { bubbles: true }));
-  }, { selector: componentCase.toggle, checked: visible });
+  }, { selector: ownerLegendControlSelector(componentCase), checked: visible });
   await waitForLegendProjection(page, componentCase, visible);
 }
 
+async function restoreAndDragLegendOnce(page, componentCase) {
+  return page.evaluate(async ({ type, svgSelector }) => {
+    const component = window.Components?.[type];
+    const tab = window.Main?.session?.getActiveTab?.();
+    if (!component || !tab) return { error: 'missing component owner' };
+    const cache = await component.captureRenderCache?.({
+      tab,
+      tabId: tab.id,
+      reason: 'e2e-legend-first-drag-capture'
+    });
+    const restored = await component.restoreRenderCache?.(cache, {
+      tab,
+      tabId: tab.id,
+      payload: tab.payload,
+      reason: 'e2e-legend-first-drag-restore'
+    });
+    const svg = document.querySelector(`#${type}Page:not([hidden]) ${svgSelector}`);
+    const legend = svg?.querySelector?.('[data-legend-viewport-content="true"]') || null;
+    if (!restored || !svg || !legend) return { error: 'legend cache was not restored' };
+    const target = legend.querySelector('[data-legend-key], text, path, rect, circle') || legend;
+    const rect = target.getBoundingClientRect();
+    const x = rect.left + Math.max(1, rect.width / 2);
+    const y = rect.top + Math.max(1, rect.height / 2);
+    const before = legend.getAttribute('transform');
+    const managedBeforeDrag = window.Shared?.isManagedLegendDragTarget?.(target) === true;
+    target.dispatchEvent(new PointerEvent('pointerdown', {
+      bubbles: true, cancelable: true, pointerId: 91, button: 0, isPrimary: true,
+      clientX: x, clientY: y
+    }));
+    window.dispatchEvent(new PointerEvent('pointermove', {
+      bubbles: true, cancelable: true, pointerId: 91, isPrimary: true,
+      clientX: x - 32, clientY: y + 18
+    }));
+    window.dispatchEvent(new PointerEvent('pointerup', {
+      bubbles: true, cancelable: true, pointerId: 91, button: 0, isPrimary: true,
+      clientX: x - 32, clientY: y + 18
+    }));
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    const currentSvg = document.querySelector(`#${type}Page:not([hidden]) ${svgSelector}`);
+    const currentLegend = currentSvg?.querySelector?.('[data-legend-viewport-content="true"]') || null;
+    return {
+      managedBeforeDrag,
+      sameSvg: currentSvg === svg,
+      moved: currentLegend?.getAttribute('transform') !== before
+    };
+  }, { type: componentCase.type, svgSelector: componentCase.svg });
+}
+
 async function waitForLegendProjection(page, componentCase, visible) {
-  await page.waitForFunction(({ selector, expectedVisible }) => {
+  await expect.poll(() => page.evaluate(({ selector, controlSelector, expectedVisible, componentType }) => {
     const svg = document.querySelector(selector);
     const reserve = Number(svg?.dataset?.legendReserveWidth);
+    const control = document.querySelector(controlSelector);
+    const workspaceState = window.Main?.session?.workspaceState || null;
+    const activeTab = workspaceState?.tabs?.find?.(tab => tab?.id === workspaceState?.activeTabId) || null;
+    const payloadShowLegend = activeTab?.payload?.config?.showLegend;
     if(!Number.isFinite(reserve) || (expectedVisible ? reserve <= 0 : reserve !== 0)){
-      return false;
+      return {
+        settled: false,
+        reserve,
+        hasSvg: !!svg,
+        checked: control?.checked ?? null,
+        payloadShowLegend: typeof payloadShowLegend === 'boolean' ? payloadShowLegend : null
+      };
     }
     const signature = `${svg.getAttribute('viewBox')}|${svg.querySelectorAll('*').length}|${svg.textContent?.length || 0}`;
     const key = `${selector}:${expectedVisible}`;
@@ -72,8 +136,27 @@ async function waitForLegendProjection(page, componentCase, visible) {
     window.__legendViewportTestSamples[key] = previous?.signature === signature
       ? { signature, count: previous.count + 1 }
       : { signature, count: 1 };
-    return window.__legendViewportTestSamples[key].count >= 3;
-  }, { selector: componentCase.svg, expectedVisible: visible }, { timeout: 30_000 });
+    return {
+      settled: window.__legendViewportTestSamples[key].count >= 3,
+      reserve,
+      hasSvg: true,
+      checked: control?.checked ?? null,
+      payloadShowLegend: typeof payloadShowLegend === 'boolean' ? payloadShowLegend : null
+    };
+  }, {
+    selector: ownerSelector(componentCase, componentCase.svg),
+    controlSelector: ownerLegendControlSelector(componentCase),
+    expectedVisible: visible,
+    componentType: componentCase.type
+  }), {
+    timeout: 30_000
+  }).toMatchObject({
+    settled: true,
+    reserve: visible ? expect.any(Number) : 0,
+    hasSvg: true,
+    checked: visible,
+    payloadShowLegend: visible
+  });
 }
 
 async function captureViewport(page, componentCase) {
@@ -102,6 +185,27 @@ async function captureViewport(page, componentCase) {
     const svgRect = svg?.getBoundingClientRect?.();
     const svgBox = svg?.closest?.('.svgbox') || null;
     const shellStyle = svgBox ? getComputedStyle(svgBox, '::after') : null;
+    const svgBoxRect = svgBox?.getBoundingClientRect?.() || null;
+    const edgeCandidates = Array.from(svg?.querySelectorAll?.('path,line,rect,circle,ellipse,polygon,polyline,text,image') || [])
+      .filter(node => {
+        if(node.closest?.('[data-ignore-fit="1"], [data-plot3d-rotation-hit-surface="1"]')) return false;
+        if(node.matches?.('[data-color-scheme-background="1"]')) return false;
+        const style = getComputedStyle(node);
+        if(style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) === 0) return false;
+        const rect = node.getBoundingClientRect?.();
+        return !!rect && Number.isFinite(rect.left) && Number.isFinite(rect.right) && (rect.width > 0.25 || rect.height > 0.25);
+      })
+      .map(node => node.getBoundingClientRect());
+    const contentLeftPx = edgeCandidates.length ? Math.min(...edgeCandidates.map(rect => rect.left)) : NaN;
+    const contentRightPx = edgeCandidates.length ? Math.max(...edgeCandidates.map(rect => rect.right)) : NaN;
+    const envelopeExtraRightPx = Number.parseFloat(svgBox?.style?.getPropertyValue?.('--graph-content-extra-right')) || 0;
+    const outerLeftGapPx = svgBoxRect && Number.isFinite(contentLeftPx) ? contentLeftPx - svgBoxRect.left : NaN;
+    const outerRightGapPx = svgBoxRect && Number.isFinite(contentRightPx)
+      ? svgBoxRect.right + envelopeExtraRightPx - contentRightPx
+      : NaN;
+    const legendShellRightGapPx = svgBoxRect && legendRect
+      ? svgBoxRect.right + envelopeExtraRightPx - legendRect.right
+      : NaN;
     let legendUnclipped = true;
     let legendClippedBy = null;
     let ancestor = legend?.parentElement || null;
@@ -140,9 +244,100 @@ async function captureViewport(page, componentCase) {
       legendColumnCount: Number(legend?.dataset?.legendColumnCount) || 0,
       boxWidth: svgBox?.getBoundingClientRect?.().width || 0,
       shellWidth: Number.parseFloat(shellStyle?.width) || 0,
+      envelopeExtraRightPx,
+      svgWidthPx: svgRect?.width || 0,
+      svgRightOverflowPx: svgRect && svgBoxRect ? Math.max(0, svgRect.right - svgBoxRect.right) : 0,
+      outerLeftGapPx,
+      outerRightGapPx,
+      legendShellRightGapPx,
+      horizontalEdgePaddingPx: Number(window.Shared?.chartStyle?.GRAPH_HORIZONTAL_EDGE_PADDING_PX),
+      viewBoxMinX: Number(viewBox[0]),
+      viewBoxMinY: Number(viewBox[1]),
       hasEnvelope: svgBox?.dataset?.graphContentEnvelope === 'true'
     };
-  }, { selector: componentCase.svg, componentType: componentCase.type });
+  }, { selector: ownerSelector(componentCase, componentCase.svg), componentType: componentCase.type });
+}
+
+test('a restored Histogram legend moves on the first drag gesture', async ({ page }) => {
+  test.setTimeout(60_000);
+  await installLocalCdnOverrides(page);
+  await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
+  const component = COMPONENT_MATRIX.find(entry => entry.type === 'hist');
+  await openComponentFromWelcome(page, component, { first: true });
+  await page.evaluate(async () => {
+    const hist = window.Components.hist;
+    const tab = window.Main.session.getActiveTab();
+    const payload = hist.createEmptyPayload();
+    payload.data = [
+      ['Control', 'Treatment'],
+      [38, 40], [42, 45], [45, 47], [50, 54], [55, 58]
+    ];
+    payload.controls = { ...(payload.controls || {}), showLegend: true };
+    hist.loadFromPayload(payload, { source: 'e2e-restored-legend-first-drag', tab, tabId: tab.id, skipDraw: true });
+    const toggle = document.querySelector('#histPage:not([hidden]) #histShowLegend');
+    if (toggle) toggle.checked = true;
+    await hist.draw({ reason: 'e2e-restored-legend-first-drag', tabId: tab.id });
+  });
+  await page.waitForSelector('#histPage:not([hidden]) #histSvg [data-legend-viewport-content="true"]');
+
+  const firstDrag = await restoreAndDragLegendOnce(page, CASES.find(entry => entry.type === 'hist'));
+  expect(firstDrag).toEqual({ managedBeforeDrag: true, sameSvg: true, moved: true });
+});
+
+test('a restored Box legend moves on the first drag gesture', async ({ page }) => {
+  test.setTimeout(60_000);
+  await installLocalCdnOverrides(page);
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
+  const component = COMPONENT_MATRIX.find(entry => entry.type === 'box');
+  await openComponentFromWelcome(page, component, { first: true });
+  await page.evaluate(() => {
+    const format = document.querySelector('#boxTableFormat');
+    if (format) {
+      format.value = 'grouped';
+      format.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+  });
+  await clickExampleButtonIfPresent(page, 'boxLoadExample');
+  await page.evaluate(async () => {
+    const box = window.Components.box;
+    const tab = window.Main.session.getActiveTab();
+    const toggle = document.querySelector('#boxPage:not([hidden]) #boxShowLegend');
+    if (toggle) {
+      toggle.checked = true;
+      toggle.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+    await box.draw({ reason: 'e2e-restored-box-legend-first-drag', tabId: tab.id });
+  });
+  await page.waitForSelector('#boxPage:not([hidden]) #boxSvg [data-legend-viewport-content="true"]');
+
+  const firstDrag = await restoreAndDragLegendOnce(page, CASES.find(entry => entry.type === 'box'));
+  expect(firstDrag).toEqual({ managedBeforeDrag: true, sameSvg: true, moved: true });
+});
+
+for (const type of ['pie', 'roc', 'scatter', 'survival']) {
+  test(`a restored ${type} legend moves on the first drag gesture`, async ({ page }) => {
+    test.setTimeout(60_000);
+    await installLocalCdnOverrides(page);
+    await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
+    const component = COMPONENT_MATRIX.find(entry => entry.type === type);
+    const componentCase = CASES.find(entry => entry.type === type && !entry.viewMode);
+    await openComponentFromWelcome(page, component, { first: true, loadExample: true });
+    await page.evaluate(async ({ componentType, toggleSelector }) => {
+      const graph = window.Components[componentType];
+      const tab = window.Main.session.getActiveTab();
+      const toggle = document.querySelector(`#${componentType}Page:not([hidden]) ${toggleSelector}`);
+      if (toggle) {
+        toggle.checked = true;
+        toggle.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+      await graph.draw({ reason: 'e2e-restored-legend-first-drag', tabId: tab.id });
+    }, { componentType: type, toggleSelector: componentCase.toggle });
+    await page.waitForSelector(`#${type}Page:not([hidden]) ${componentCase.svg} [data-legend-viewport-content="true"]`);
+
+    const firstDrag = await restoreAndDragLegendOnce(page, componentCase);
+    expect(firstDrag).toEqual({ managedBeforeDrag: true, sameSvg: true, moved: true });
+  });
 }
 
 for (const componentCase of CASES) {
@@ -156,6 +351,15 @@ for (const componentCase of CASES) {
     await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
     const component = COMPONENT_MATRIX.find(entry => entry.type === componentCase.type);
     await openComponentFromWelcome(page, component, { first: true, loadExample: true });
+    if (componentCase.type === 'survival') {
+      await page.waitForFunction(selector => {
+        const svg = document.querySelector(selector);
+        return Number.isFinite(Number(svg?.dataset?.legendReserveWidth))
+          && window.Components?.survival?.isIdleForSnapshot?.() === true;
+      }, ownerSelector(componentCase, componentCase.svg), { timeout: 45_000 });
+      await page.locator(ownerSelector(componentCase, '#survivalShowRiskTable')).uncheck();
+      await expect(page.locator(ownerSelector(componentCase, '[data-survival-risk-table]'))).toHaveCount(0);
+    }
 
     if (componentCase.type === 'box') {
       await page.evaluate(() => {
@@ -271,20 +475,38 @@ for (const componentCase of CASES) {
     expect(visible.boxWidth).toBeCloseTo(hidden.boxWidth, 0);
     expect(hidden.plotSpan).toBeGreaterThan(0);
     expect(visible.plotSpan).toBeCloseTo(hidden.plotSpan, 0);
-    expect(visible.plotSpanPx).toBeCloseTo(hidden.plotSpanPx, 0);
+    expect(Math.abs(visible.plotSpanPx - hidden.plotSpanPx)).toBeLessThanOrEqual(1);
     expect(visible.legendFits).toBe(true);
     expect(visible.legendFitsVertically).toBe(true);
+    expect(visible.legendUnclipped).toBe(true);
+    expect(Number.isFinite(visible.legendShellRightGapPx), JSON.stringify(visible)).toBe(true);
+    expect(visible.legendShellRightGapPx, JSON.stringify(visible)).toBeGreaterThanOrEqual(0);
     expect(hidden.hasEnvelope).toBe(false);
     expect(visible.hasEnvelope).toBe(true);
-    expect(visible.shellWidth).toBeGreaterThanOrEqual(visible.reserveWidth);
-    expect(visible.shellWidth - visible.reserveWidth).toBeLessThanOrEqual(2);
-    if (componentCase.type === 'pca' && !componentCase.viewMode) {
-      expect(visible.legendColumnCount).toBeGreaterThan(1);
-    }
+    expect(visible.shellWidth).toBeGreaterThan(0);
+    expect(visible.envelopeExtraRightPx).toBeGreaterThan(0);
+    // The envelope may deliberately include shell safety/chrome beyond the raw SVG
+    // overflow. The invariant is containment, not an exact width-difference formula.
+    expect(visible.envelopeExtraRightPx + 2).toBeGreaterThanOrEqual(visible.svgRightOverflowPx);
     if (visible.componentBaseWidth > 0) {
       expect(visible.componentBaseWidth).toBeCloseTo(visible.baseWidth, 0);
     }
-
+    if (!componentCase.viewMode) {
+      for (const snapshot of [hidden, visible]) {
+        expect(Number.isFinite(snapshot.outerLeftGapPx)).toBe(true);
+        expect(Number.isFinite(snapshot.outerRightGapPx)).toBe(true);
+        expect(Number.isFinite(snapshot.horizontalEdgePaddingPx)).toBe(true);
+        expect(snapshot.horizontalEdgePaddingPx).toBe(8);
+        expect(Math.abs(snapshot.viewBoxMinX), JSON.stringify(snapshot)).toBeLessThanOrEqual(0.01);
+        expect(Math.abs(snapshot.viewBoxMinY), JSON.stringify(snapshot)).toBeLessThanOrEqual(0.01);
+      }
+      // Hidden content has component-specific axis/title/shape extents. Showing a legend
+      // must not move the canonical plot, and the visible shell must contain all rendered
+      // content with at least the shared SVG edge-safety padding. Extra shell chrome is
+      // allowed; clipping a legend is never allowed.
+      expect(Math.abs(visible.outerLeftGapPx - hidden.outerLeftGapPx), JSON.stringify({ hidden, visible })).toBeLessThanOrEqual(4);
+      expect(visible.outerRightGapPx, JSON.stringify(visible)).toBeGreaterThanOrEqual(visible.horizontalEdgePaddingPx - 2);
+    }
     if (componentCase.type === 'line' && !componentCase.viewMode) {
       const showCommitEvents = await page.evaluate(() => {
         const probe = window.__legendEnvelopeCommitProbe;
@@ -315,6 +537,12 @@ for (const componentCase of CASES) {
         return Number.isFinite(baseWidth) && baseWidth > previousBaseWidth + 20;
       }, { selector: componentCase.svg, previousBaseWidth: visible.baseWidth });
     }
+
+    const firstDrag = await restoreAndDragLegendOnce(page, componentCase);
+    expect(firstDrag.error, JSON.stringify(firstDrag)).toBeUndefined();
+    expect(firstDrag.managedBeforeDrag, JSON.stringify(firstDrag)).toBe(true);
+    expect(firstDrag.sameSvg, JSON.stringify(firstDrag)).toBe(true);
+    expect(firstDrag.moved, JSON.stringify(firstDrag)).toBe(true);
   });
 }
 

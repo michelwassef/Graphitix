@@ -19,7 +19,8 @@ const PAYLOAD_BASELINES = {
   pie: ['type', 'data', 'exclusions', 'config']
 };
 
-const REQUIRED_METHODS = ['ensure', 'draw', 'getPayload', 'loadFromPayload', 'createEmptyPayload'];
+const REQUIRED_METHODS = ['ensure', 'draw', 'getPayload', 'loadFromPayload', 'createEmptyPayload', 'rehydrateGraphInteractions'];
+const COMPONENT_SOURCE_HOOKS = ['rehydrateGraphInteractions'];
 const KNOWN_HOOKS = new Set([
   'ensure',
   'draw',
@@ -33,6 +34,7 @@ const KNOWN_HOOKS = new Set([
   'applyRuntimeState',
   'captureRenderCache',
   'restoreRenderCache',
+  'rehydrateGraphInteractions',
   'canRestoreRenderCache',
   'hasRenderedGraph',
   'getLayoutState',
@@ -117,6 +119,25 @@ function parseComponentsRegistry(lines) {
       if (currentDepth <= 0) {
         const bundle = bundleMap.get(current.key);
         current.bundle = bundle || null;
+        if(bundle?.requirePath){
+          const componentPath = path.resolve(path.dirname(COMPONENTS_JS), bundle.requirePath);
+          const componentLines = fs.existsSync(componentPath)
+            ? fs.readFileSync(componentPath, 'utf8').split(/\r?\n/)
+            : null;
+          COMPONENT_SOURCE_HOOKS.forEach(hookName => {
+            const hookLine = componentLines
+              ? componentLines.findIndex(line => line.includes(`${current.key}.${hookName} =`))
+              : -1;
+            const hookIsPresent = !componentLines || hookLine >= 0;
+            if(hookIsPresent && !current.hooks.some(hook => hook.key === hookName)){
+              current.hooks.push({
+                key: hookName,
+                line: hookLine + 1,
+                expression: `${current.key}.${hookName}`
+              });
+            }
+          });
+        }
         entries.push(current);
         current = null;
       }
@@ -150,7 +171,7 @@ function toMarkdown(entries) {
   lines.push('## Shared Contract');
   lines.push('');
   lines.push('- `Main` expects each workspace entry to provide `ensure`, `draw`, `getPayload`, `loadFromPayload`, and `createEmptyPayload`.');
-  lines.push('- Optional hooks (`activateTab`, `captureRuntimeState`, `applyRuntimeState`, `captureRenderCache`, `restoreRenderCache`, `canRestoreRenderCache`, `hasRenderedGraph`, layout helpers) are consumed when present.');
+  lines.push('- Every component implements `rehydrateGraphInteractions` so restored graph DOM is interactive before it is published. Other optional hooks (`activateTab`, `captureRuntimeState`, `applyRuntimeState`, `captureRenderCache`, `restoreRenderCache`, `canRestoreRenderCache`, `hasRenderedGraph`, layout helpers) are consumed when present.');
   lines.push('- Payload objects must stay JSON-serializable so session/archive persistence remains stable.');
   lines.push('');
   lines.push('## Registry Coverage');
@@ -185,12 +206,31 @@ function toMarkdown(entries) {
 }
 
 function main() {
+  const checkOnly = process.argv.includes('--check');
   const lines = fs.readFileSync(COMPONENTS_JS, 'utf8').split(/\r?\n/);
   const entries = parseComponentsRegistry(lines);
   const markdown = toMarkdown(entries);
+  const relativeOutputPath = toPosix(path.relative(ROOT, OUTPUT_PATH));
+  const normalizeLineEndings = value => typeof value === 'string'
+    ? value.replace(/\r\n?/g, '\n')
+    : value;
+
+  if (checkOnly) {
+    const current = fs.existsSync(OUTPUT_PATH)
+      ? fs.readFileSync(OUTPUT_PATH, 'utf8')
+      : null;
+    if (normalizeLineEndings(current) !== normalizeLineEndings(markdown)) {
+      console.error(`${relativeOutputPath} is stale. Run npm run docs:component-contracts.`);
+      process.exitCode = 1;
+      return;
+    }
+    console.log(`Verified ${relativeOutputPath} (${entries.length} components)`);
+    return;
+  }
+
   fs.mkdirSync(path.dirname(OUTPUT_PATH), { recursive: true });
   fs.writeFileSync(OUTPUT_PATH, markdown, 'utf8');
-  console.log(`Generated ${path.relative(ROOT, OUTPUT_PATH)} (${entries.length} components)`);
+  console.log(`Generated ${relativeOutputPath} (${entries.length} components)`);
 }
 
 main();

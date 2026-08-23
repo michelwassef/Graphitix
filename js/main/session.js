@@ -412,21 +412,6 @@
     return wasDirty;
   }
 
-  function markTabRenderCommitted(tabLike, meta = {}) {
-    const tab = resolveTab(tabLike);
-    if (!tab || tab.isWelcome) {
-      return false;
-    }
-    const floor = Math.max(
-      Number(tab.payloadVersion || 0),
-      Number(tab.layoutVersion || 0)
-    );
-    tab.renderCommitVersion = Math.max(Number(tab.renderCommitVersion || 0), floor);
-    tab.lastRenderCommitReason = normalizeReason(meta.reason) || 'render-commit';
-    tab.lastRenderCommitAt = Date.now();
-    return true;
-  }
-
   function markAllTabsClean(reason) {
     if (!Array.isArray(workspaceState.tabs)) {
       return;
@@ -1533,11 +1518,104 @@
     return true;
   }
 
+  function isRenderCacheCaptureSettled(tab, config, reason) {
+    if (!tab || !config) {
+      return { ok: false, reason: 'missing-tab-or-config' };
+    }
+    const meta = {
+      tab,
+      tabId: tab.id,
+      type: tab.type,
+      componentKey: tab.type,
+      reason: `${reason || 'render-cache-capture'}:publication-settled`
+    };
+    const lifecycleResult = Shared.componentLifecycle?.isPublicationSettled?.(config, meta) || null;
+    if (lifecycleResult) {
+      return lifecycleResult;
+    }
+    let idle = true;
+    try {
+      if (typeof config.isIdleForSnapshot === 'function') {
+        idle = config.isIdleForSnapshot(meta) === true;
+      }
+    } catch (err) {
+      return { ok: false, idle: false, staged: false, reason: 'idle-check-error', error: err?.message || String(err) };
+    }
+    const root = Shared.workspaceTabs?.getMountedRoot?.(tab, tab.type) || null;
+    let staged = false;
+    try {
+      staged = Shared.framePublication?.hasStaged?.({ root, component: tab.type, tabId: tab.id }) === true;
+    } catch (err) {
+      return { ok: false, idle, staged: true, reason: 'publication-check-error', error: err?.message || String(err) };
+    }
+    return { ok: idle && !staged, idle, staged, reason: idle && !staged ? null : (staged ? 'frame-publication-pending' : 'component-not-idle') };
+  }
+
   function captureAndStoreRenderCache(tab, config, options = {}) {
     if (!tab || !config || typeof config.captureRenderCache !== 'function') {
       return null;
     }
     const reason = options.reason || 'persist-active';
+    const publicationState = isRenderCacheCaptureSettled(tab, config, reason);
+    if (publicationState.ok !== true) {
+      emitRenderCacheEvent({
+        tabId: tab.id,
+        component: tab.type,
+        phase: 'capture',
+        outcome: 'rejected',
+        reason: publicationState.staged ? 'frame-publication-pending' : 'component-not-idle',
+        source: 'runtime',
+        payloadSignature: tab.payloadSignature || null,
+        layoutSignature: tab.layoutSignature || null,
+        details: {
+          idle: publicationState.idle !== false,
+          staged: publicationState.staged === true,
+          error: publicationState.error || publicationState.idleError || null
+        }
+      });
+      return null;
+    }
+    let renderCacheCurrent = true;
+    try {
+      if (typeof config.isRenderCacheCurrent === 'function') {
+        renderCacheCurrent = config.isRenderCacheCurrent({
+          tab,
+          tabId: tab.id,
+          type: tab.type,
+          componentKey: tab.type,
+          payloadSignature: tab.payloadSignature || null,
+          layoutSignature: tab.layoutSignature || null,
+          reason: `${reason}:cache-currentness`
+        }) !== false;
+      }
+    } catch (err) {
+      renderCacheCurrent = false;
+      console.error('render cache currentness check error', {
+        tabId: tab.id,
+        type: tab.type,
+        reason,
+        err
+      });
+    }
+    if (!renderCacheCurrent) {
+      // Snapshot readiness and render-cache freshness are separate contracts. A component
+      // may be perfectly safe to save while intentionally waiting for a manual redraw.
+      // In that case persist the canonical payload/layout, but never certify the older DOM
+      // frame under the newer payload signature.
+      clearTabRenderCache(tab, { reason: `${reason}:render-state-stale` });
+      clearTabArchiveRenderCache(tab, { reason: `${reason}:render-state-stale` });
+      emitRenderCacheEvent({
+        tabId: tab.id,
+        component: tab.type,
+        phase: 'capture',
+        outcome: 'miss',
+        reason: 'render-state-stale',
+        source: 'runtime',
+        payloadSignature: tab.payloadSignature || null,
+        layoutSignature: tab.layoutSignature || null
+      });
+      return null;
+    }
     if (typeof config.hasRenderedGraph === 'function' && config.hasRenderedGraph({
       tab,
       tabId: tab.id,
@@ -1979,12 +2057,23 @@
     const changed = previousSignature !== nextSignature;
     if (changed) {
       tab.payloadVersion = Number(tab.payloadVersion || 0) + 1;
-      // A render cache is valid only for the exact payload that produced it.
-      // Never relabel an existing cache after payload drift: doing so converts stale
-      // graph DOM into apparently valid archive provenance. The next completed draw
-      // or owner deactivation captures a replacement cache.
-      clearTabRenderCache(tab, { reason: meta.reason || 'payload-changed' });
-      clearTabArchiveRenderCache(tab, { reason: meta.reason || 'payload-changed' });
+      if (meta.renderEquivalent === true) {
+        if (tab.renderCache) {
+          tab.renderCache.payloadSignature = nextSignature;
+          tab.renderCacheSignature = nextSignature;
+        }
+        if (tab.archiveRenderCache) {
+          tab.archiveRenderCache.payloadSignature = nextSignature;
+          tab.archiveRenderCacheSignature = nextSignature;
+        }
+        if (tab.previewMarkup && tab.previewSignature === previousSignature) {
+          tab.previewSignature = nextSignature;
+        }
+      } else {
+        // A render cache is valid only for the exact payload that produced it.
+        clearTabRenderCache(tab, { reason: meta.reason || 'payload-changed' });
+        clearTabArchiveRenderCache(tab, { reason: meta.reason || 'payload-changed' });
+      }
     }
     try{
       const statsTest = payload && payload.config && payload.config.stats ? payload.config.stats.test : null;
@@ -2014,6 +2103,7 @@
     const changed = assignTabPayload(tab, nextPayload, {
       reason: meta.reason || 'update-tab-payload',
       allowClear: meta.allowClear === true,
+      renderEquivalent: meta.renderEquivalent === true,
     });
     if (!changed) {
       return false;
@@ -2388,6 +2478,25 @@
         }
       } catch (err) {
         console.debug('Debug: pca empty-check error', { tabId, err });
+      }
+    }
+    if (tab.type === 'line') {
+      try {
+        const matrix = tab.payload.data;
+        if (Array.isArray(matrix)) {
+          const tableFormat = String(tab.payload?.config?.tableFormat || '').toLowerCase();
+          const viewMode = String(tab.payload?.config?.viewMode || '').toLowerCase();
+          const structuralRows = tableFormat === 'grouped' || tableFormat === '3d' || viewMode === '3d' ? 2 : 1;
+          for (let rowIndex = structuralRows; rowIndex < matrix.length; rowIndex += 1) {
+            const row = matrix[rowIndex];
+            if (Array.isArray(row) && row.some(hasMeaningfulCellValue)) {
+              return true;
+            }
+          }
+          return false;
+        }
+      } catch (err) {
+        console.debug('Debug: line empty-check error', { tabId, err });
       }
     }
     // General header-detection heuristic for table-like payloads across
@@ -3716,7 +3825,6 @@
   namespace.isLayoutOnlyTabDirty = isLayoutOnlyTabDirty;
   namespace.disposeWorkspaceTabResources = disposeWorkspaceTabResources;
   namespace.disposeWorkspaceTabs = disposeWorkspaceTabs;
-  namespace.markTabRenderCommitted = markTabRenderCommitted;
   namespace.assignTabPayload = assignTabPayload;
   namespace.commitTabPayload = commitTabPayload;
   namespace.updateTabPayload = updateTabPayload;

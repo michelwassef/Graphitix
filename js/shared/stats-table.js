@@ -5,6 +5,199 @@
   const doc = global.document;
 
   const DEFAULT_FONT_FAMILY = 'Arial, Helvetica, sans-serif';
+  const STATS_ABBREVIATION_DEFINITIONS = Object.freeze([
+    { key: 'AD', expansion: 'Anderson–Darling', aliases: ['AD'] },
+    { key: 'A²', expansion: 'Anderson–Darling statistic', aliases: ['A²'], symbol: true },
+    { key: 'ΔAICc', expansion: 'difference in corrected Akaike information criterion', aliases: ['ΔAICc'], symbol: true },
+    { key: 'AICc', expansion: 'corrected Akaike information criterion', aliases: ['AICc'] },
+    { key: 'AIC', expansion: 'Akaike information criterion', aliases: ['AIC'] },
+    { key: 'ANOVA', expansion: 'analysis of variance', aliases: ['ANOVA'] },
+    { key: 'AUC', expansion: 'area under the curve', aliases: ['AUC'] },
+    { key: 'BH', expansion: 'Benjamini–Hochberg', aliases: ['BH'] },
+    { key: 'BIC', expansion: 'Bayesian information criterion', aliases: ['BIC'] },
+    { key: 'CI', expansion: 'confidence interval', aliases: ['CI'] },
+    { key: 'CV', expansion: 'coefficient of variation', aliases: ['CV'] },
+    { key: 'df', expansion: 'degrees of freedom', aliases: ['df'] },
+    { key: 'DFFITS', expansion: 'difference in fits', aliases: ['DFFITS'] },
+    { key: 'FDR', expansion: 'false discovery rate', aliases: ['FDR'] },
+    { key: 'GLS', expansion: 'generalized least squares', aliases: ['GLS'] },
+    { key: 'HR', expansion: 'hazard ratio', aliases: ['HR'] },
+    { key: 'IC50', expansion: 'half-maximal inhibitory concentration', aliases: ['IC50'] },
+    { key: 'IQR', expansion: 'interquartile range', aliases: ['IQR'] },
+    { key: 'JB', expansion: 'Jarque–Bera', aliases: ['JB'] },
+    { key: 'KL', expansion: 'Kullback–Leibler', aliases: ['KL'] },
+    { key: 'KS', expansion: 'Kolmogorov–Smirnov', aliases: ['KS'] },
+    { key: 'LOWESS', expansion: 'locally weighted scatterplot smoothing', aliases: ['LOWESS'] },
+    { key: 'log₂FC', expansion: 'log2 fold change', aliases: ['log₂FC', 'log2FC'], symbol: true },
+    { key: 'LR+', expansion: 'positive likelihood ratio', aliases: ['LR+'] },
+    { key: 'LR−', expansion: 'negative likelihood ratio', aliases: ['LR−', 'LR-'] },
+    { key: 'MAE', expansion: 'mean absolute error', aliases: ['MAE'] },
+    { key: 'MAD', expansion: 'median absolute deviation', aliases: ['MAD'] },
+    { key: 'MAPE', expansion: 'mean absolute percentage error', aliases: ['MAPE'] },
+    { key: 'MDS', expansion: 'multidimensional scaling', aliases: ['MDS'] },
+    { key: 'MS', expansion: 'mean square', aliases: ['MS'] },
+    { key: 'NPV', expansion: 'negative predictive value', aliases: ['NPV'] },
+    { key: 'OLS', expansion: 'ordinary least squares', aliases: ['OLS'] },
+    { key: 'OR', expansion: 'odds ratio', aliases: ['OR'] },
+    { key: 'PC', expansion: 'principal component', aliases: ['PC'], allowNumericSuffix: true },
+    { key: 'PCA', expansion: 'principal component analysis', aliases: ['PCA'] },
+    { key: 'PI', expansion: 'prediction interval', aliases: ['PI'] },
+    { key: 'PPV', expansion: 'positive predictive value', aliases: ['PPV'] },
+    { key: 'PR', expansion: 'precision–recall', aliases: ['PR'] },
+    { key: 'Q1', expansion: 'first quartile', aliases: ['Q1'], symbol: true },
+    { key: 'Q3', expansion: 'third quartile', aliases: ['Q3'], symbol: true },
+    { key: 'QQ', expansion: 'quantile–quantile', aliases: ['QQ', 'Q-Q'] },
+    { key: 'RESET', expansion: 'Ramsey Regression Equation Specification Error Test', aliases: ['RESET'] },
+    { key: 'RMSE', expansion: 'root mean square error', aliases: ['RMSE'] },
+    { key: 'ROC', expansion: 'receiver operating characteristic', aliases: ['ROC'] },
+    { key: 'SD', expansion: 'standard deviation', aliases: ['SD'] },
+    { key: 'SE', expansion: 'standard error', aliases: ['SE'] },
+    { key: 'SEM', expansion: 'standard error of the mean', aliases: ['SEM'] },
+    { key: 'sMAPE', expansion: 'symmetric mean absolute percentage error', aliases: ['sMAPE'] },
+    { key: 'SS', expansion: 'sum of squares', aliases: ['SS'] },
+    { key: 'SSE', expansion: 'sum of squared errors', aliases: ['SSE'] },
+    { key: 't-SNE', expansion: 't-distributed stochastic neighbor embedding', aliases: ['t-SNE'] },
+    { key: 'UMAP', expansion: 'uniform manifold approximation and projection', aliases: ['UMAP'] },
+    { key: 'VIF', expansion: 'variance inflation factor', aliases: ['VIF'] },
+    { key: 'WLS', expansion: 'weighted least squares', aliases: ['WLS'] },
+    { key: '3PL', expansion: 'three-parameter logistic', aliases: ['3PL'] },
+    { key: '4PL', expansion: 'four-parameter logistic', aliases: ['4PL'] },
+    { key: '5PL', expansion: 'five-parameter logistic', aliases: ['5PL'] },
+    { key: 'F1', expansion: 'harmonic mean of precision and recall', aliases: ['F1'] },
+    { key: 'R²', expansion: 'coefficient of determination', aliases: ['R²'], symbol: true },
+    { key: 'ηp²', expansion: 'partial eta-squared', aliases: ['ηp²'], symbol: true },
+    { key: 'χ²', expansion: 'chi-square statistic', aliases: ['χ²', 'Chi²', 'X²'], symbol: true }
+  ]);
+
+  const isAsciiWordChar = value => /^[A-Za-z0-9]$/.test(String(value || ''));
+
+  const findAliasOccurrences = (text, alias, definition) => {
+    const matches = [];
+    if(!text || !alias){
+      return matches;
+    }
+    let cursor = 0;
+    while(cursor <= text.length - alias.length){
+      const index = text.indexOf(alias, cursor);
+      if(index < 0){
+        break;
+      }
+      const before = index > 0 ? text[index - 1] : '';
+      const afterIndex = index + alias.length;
+      const after = afterIndex < text.length ? text[afterIndex] : '';
+      const startsWord = isAsciiWordChar(alias[0]);
+      const endsWord = isAsciiWordChar(alias[alias.length - 1]);
+      const leftBoundary = !startsWord || !before || !isAsciiWordChar(before);
+      const allowsNumericSuffix = definition?.allowNumericSuffix === true && /^[0-9]$/.test(after);
+      const rightBoundary = !endsWord || !after || !isAsciiWordChar(after) || allowsNumericSuffix;
+      if(leftBoundary && rightBoundary){
+        matches.push({ start: index, end: afterIndex, token: text.slice(index, afterIndex) });
+      }
+      cursor = index + Math.max(alias.length, 1);
+    }
+    return matches;
+  };
+
+  const findAbbreviationMatches = rawText => {
+    const text = String(rawText ?? '');
+    if(!text){
+      return [];
+    }
+    const matches = [];
+    STATS_ABBREVIATION_DEFINITIONS.forEach(definition => {
+      (definition.aliases || [definition.key]).forEach(alias => {
+        findAliasOccurrences(text, alias, definition).forEach(match => {
+          matches.push({ ...match, definition });
+        });
+      });
+    });
+    matches.sort((left, right) => left.start - right.start || (right.end - right.start) - (left.end - left.start));
+    const accepted = [];
+    let lastEnd = -1;
+    matches.forEach(match => {
+      if(match.start < lastEnd){
+        return;
+      }
+      accepted.push(match);
+      lastEnd = match.end;
+    });
+    return accepted;
+  };
+
+  const collectAbbreviationDefinitions = values => {
+    const definitions = [];
+    const seen = new Set();
+    (Array.isArray(values) ? values : [values]).forEach(value => {
+      findAbbreviationMatches(value).forEach(match => {
+        const key = match.definition.key;
+        if(seen.has(key)){
+          return;
+        }
+        seen.add(key);
+        definitions.push(match.definition);
+      });
+    });
+    return definitions;
+  };
+
+  const formatAbbreviationGlossary = definitions => {
+    const source = Array.isArray(definitions) ? definitions : [];
+    if(!source.length){
+      return '';
+    }
+    const hasSymbols = source.some(definition => definition.symbol === true);
+    const prefix = hasSymbols ? 'Abbreviations and symbols' : 'Abbreviations';
+    return `${prefix}: ${source.map(definition => `${definition.key}, ${definition.expansion}`).join('; ')}.`;
+  };
+
+  const STATS_SEMANTIC_LABEL_HEADERS = new Set([
+    'metric',
+    'method',
+    'parameter',
+    'statistic',
+    'term',
+    'test'
+  ]);
+
+  const isSemanticLabelHeader = value => STATS_SEMANTIC_LABEL_HEADERS.has(String(value || '').trim().toLowerCase());
+
+  const collectModelAbbreviations = model => {
+    if(!model || typeof model !== 'object'){
+      return [];
+    }
+    const columns = Array.isArray(model.columns) ? model.columns : [];
+    const values = [];
+    if(model.caption){
+      values.push(model.caption);
+    }
+    columns.forEach(column => values.push(column?.label || ''));
+    (Array.isArray(model.footnotes) ? model.footnotes : []).forEach(note => values.push(note));
+    const semanticColumnIndexes = columns
+      .map((column, index) => isSemanticLabelHeader(column?.label) ? index : -1)
+      .filter(index => index >= 0);
+    if(semanticColumnIndexes.length){
+      (Array.isArray(model.rows) ? model.rows : []).forEach(row => {
+        if(!Array.isArray(row)){
+          return;
+        }
+        semanticColumnIndexes.forEach(index => values.push(row[index]));
+      });
+    }
+    return collectAbbreviationDefinitions(values);
+  };
+
+  const getExportFootnotes = model => {
+    const footnotes = Array.isArray(model?.footnotes) ? model.footnotes.slice() : [];
+    if(footnotes.some(note => /^\s*Abbreviations(?: and symbols)?\s*:/i.test(String(note || '')))){
+      return footnotes;
+    }
+    const glossary = formatAbbreviationGlossary(collectModelAbbreviations(model));
+    if(glossary){
+      footnotes.push(glossary);
+    }
+    return footnotes;
+  };
+
   const DEFAULT_OPTIONS = {
     fileName: 'statistics-table',
     contextLabel: 'statistics-table',
@@ -418,6 +611,30 @@
     return approx;
   };
 
+  const wrapTextToWidth = (text, maxWidth, fontSize, fontFamily) => {
+    const source = String(text ?? '').trim();
+    if(!source){
+      return [''];
+    }
+    const widthLimit = Number.isFinite(maxWidth) && maxWidth > 0 ? maxWidth : Infinity;
+    const words = source.split(/\s+/);
+    const lines = [];
+    let current = '';
+    words.forEach(word => {
+      const candidate = current ? `${current} ${word}` : word;
+      if(current && measureText(candidate, fontSize, fontFamily) > widthLimit){
+        lines.push(current);
+        current = word;
+        return;
+      }
+      current = candidate;
+    });
+    if(current){
+      lines.push(current);
+    }
+    return lines.length ? lines : [source];
+  };
+
   const normalizeRows = (rows, columns, options = {}) => {
     const normalizedRows = [];
     const cellMetaRows = [];
@@ -484,7 +701,8 @@
   };
 
   const computeLayout = model => {
-    const { columns, rows, options, caption, footnotes } = model;
+    const { columns, rows, options, caption } = model;
+    const footnotes = getExportFootnotes(model);
     const {
       headerFontSize,
       bodyFontSize,
@@ -518,21 +736,27 @@
     if (caption) {
       captionOffset = captionFontSize + captionGap;
     }
+    const footnoteWrapWidth = Math.max(tableWidth, 420);
+    const footnoteLines = footnotes.flatMap(note => wrapTextToWidth(note, footnoteWrapWidth, footnoteFontSize, fontFamily));
     let footnoteBlockHeight = 0;
-    if (footnotes.length) {
-      footnoteBlockHeight = footnoteGap + footnotes.length * (footnoteFontSize + 4);
+    if (footnoteLines.length) {
+      footnoteBlockHeight = footnoteGap + footnoteLines.length * (footnoteFontSize + 4);
     }
+    const captionWidth = caption ? measureText(caption, captionFontSize, fontFamily) : 0;
+    const footnoteTextWidth = footnoteLines.reduce((maxWidth, line) => Math.max(maxWidth, measureText(line, footnoteFontSize, fontFamily)), 0);
+    const contentWidth = Math.max(tableWidth, captionWidth, footnoteTextWidth);
     const bodyTop = outerPadding + captionOffset + headerHeight;
     const tableBottom = outerPadding + captionOffset + tableHeight;
-    const footnoteStart = footnotes.length ? tableBottom + footnoteGap : tableBottom;
+    const footnoteStart = footnoteLines.length ? tableBottom + footnoteGap : tableBottom;
     const height = tableBottom + footnoteBlockHeight + outerPadding;
     const layout = {
       colWidths,
       tableWidth,
-      width: tableWidth + outerPadding * 2,
+      width: contentWidth + outerPadding * 2,
       height,
       captionOffset,
       footnoteBlockHeight,
+      footnoteLines,
       captionFontSize,
       footnoteFontSize,
       tableTop: outerPadding + captionOffset,
@@ -557,7 +781,11 @@
   };
 
   statsTable.buildSvgString = function buildSvgString(model) {
-    const { columns, rows, caption, footnotes, options } = model;
+    const { columns, rows, caption, options } = model;
+    const exportDescription = [caption, ...getExportFootnotes(model)]
+      .map(value => String(value || '').trim())
+      .filter(Boolean)
+      .join('. ');
     const layout = computeLayout(model);
     const {
       colWidths,
@@ -569,7 +797,8 @@
       tableTop,
       bodyTop,
       captionY,
-      footnoteStart
+      footnoteStart,
+      footnoteLines
     } = layout;
     const {
       fontFamily,
@@ -589,6 +818,9 @@
     const rowAreaHeight = rows.length * rowHeight;
     const svg = [];
     svg.push(`<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">`);
+    if(exportDescription){
+      svg.push(`<desc>${escapeXml(exportDescription)}</desc>`);
+    }
     svg.push(`<rect width="${width}" height="${height}" fill="${backgroundFill}" rx="0" ry="0"/>`);
     if (caption) {
       svg.push(`<text x="${outerPadding}" y="${captionY}" font-family="${escapeXml(fontFamily)}" font-size="${captionFontSize}" font-weight="600" fill="${textColor}">${escapeXml(caption)}</text>`);
@@ -640,10 +872,10 @@
     // Outer border drawn last so it appears on top of table content
     svg.push(`<rect x="${outerPadding}" y="${tableTop}" width="${tableWidth}" height="${headerHeight + rowAreaHeight}" fill="none" stroke="${gridStroke}" stroke-width="${gridStrokeWidth}"/>`);
 
-    if (footnotes.length) {
+    if (footnoteLines.length) {
       let y = footnoteStart + footnoteFontSize;
-      footnotes.forEach((note, index) => {
-        svg.push(`<text x="${outerPadding}" y="${y}" font-family="${escapeXml(fontFamily)}" font-size="${footnoteFontSize}" fill="${textColor}" opacity="0.85">${escapeXml(note)}</text>`);
+      footnoteLines.forEach(line => {
+        svg.push(`<text x="${outerPadding}" y="${y}" font-family="${escapeXml(fontFamily)}" font-size="${footnoteFontSize}" fill="${textColor}" opacity="0.85">${escapeXml(line)}</text>`);
         y += footnoteFontSize + 4;
       });
     }
@@ -669,6 +901,216 @@
     && Array.isArray(model.rows)
     && model.rows.every(row => Array.isArray(row))
   );
+
+  const renderAbbreviationsInElement = element => {
+    if(!element || element.nodeType !== 1 || !element.ownerDocument){
+      return 0;
+    }
+    const text = String(element.textContent || '');
+    const matches = findAbbreviationMatches(text);
+    if(!matches.length){
+      return 0;
+    }
+    const documentRef = element.ownerDocument;
+    element.textContent = '';
+    let cursor = 0;
+    matches.forEach(match => {
+      if(match.start > cursor){
+        element.appendChild(documentRef.createTextNode(text.slice(cursor, match.start)));
+      }
+      const abbr = documentRef.createElement('abbr');
+      abbr.className = 'stats-table-abbr';
+      abbr.title = match.definition.expansion;
+      abbr.textContent = text.slice(match.start, match.end);
+      element.appendChild(abbr);
+      cursor = match.end;
+    });
+    if(cursor < text.length){
+      element.appendChild(documentRef.createTextNode(text.slice(cursor)));
+    }
+    return matches.length;
+  };
+
+  const getSemanticLabelCells = table => {
+    if(!table || typeof table.querySelectorAll !== 'function'){
+      return [];
+    }
+    const headerCells = Array.from(table.querySelectorAll('thead tr:first-child th'));
+    if(!headerCells.length){
+      return [];
+    }
+    const semanticColumnIndexes = headerCells
+      .map((header, index) => isSemanticLabelHeader(header.textContent) ? index : -1)
+      .filter(index => index >= 0);
+    if(!semanticColumnIndexes.length){
+      return [];
+    }
+    const cells = [];
+    table.querySelectorAll('tbody tr').forEach(row => {
+      const rowCells = Array.from(row.children || []).filter(cell => cell.tagName === 'TD' || cell.tagName === 'TH');
+      semanticColumnIndexes.forEach(index => {
+        if(rowCells[index]){
+          cells.push(rowCells[index]);
+        }
+      });
+    });
+    return cells;
+  };
+
+  const collectTableAbbreviations = table => {
+    if(!table || typeof table.querySelectorAll !== 'function'){
+      return [];
+    }
+    const values = [];
+    const caption = table.querySelector('caption');
+    if(caption){
+      values.push(caption.textContent || '');
+    }
+    table.querySelectorAll('th').forEach(cell => values.push(cell.textContent || ''));
+    getSemanticLabelCells(table).forEach(cell => values.push(cell.textContent || ''));
+    const card = table.closest?.('.stats-table-card') || null;
+    if(card){
+      const cardCaption = card.querySelector(':scope > .stats-table-caption');
+      if(cardCaption){
+        values.push(cardCaption.textContent || '');
+      }
+      card.querySelectorAll('.stats-table-footnote:not([data-stats-auto-abbreviations="1"])')
+        .forEach(note => values.push(note.textContent || ''));
+    }
+    return collectAbbreviationDefinitions(values);
+  };
+
+  const findExistingAbbreviationFootnote = table => {
+    const card = table?.closest?.('.stats-table-card') || null;
+    if(card){
+      return card.querySelector('.stats-table-abbreviations[data-stats-auto-abbreviations="1"]');
+    }
+    const sibling = table?.nextElementSibling;
+    if(sibling?.classList?.contains('stats-table-footnotes')){
+      return sibling.querySelector('.stats-table-abbreviations[data-stats-auto-abbreviations="1"]');
+    }
+    return sibling?.matches?.('.stats-table-abbreviations[data-stats-auto-abbreviations="1"]') ? sibling : null;
+  };
+
+  const removeAutoAbbreviationFootnote = existing => {
+    if(!existing){
+      return;
+    }
+    const parent = existing.parentElement;
+    existing.remove();
+    if(parent?.dataset?.statsAutoAbbreviationsContainer === '1' && !parent.children.length){
+      parent.remove();
+    }
+  };
+
+  const ensureTableAbbreviationFootnote = table => {
+    if(!table || !table.ownerDocument){
+      return null;
+    }
+    const definitions = collectTableAbbreviations(table);
+    const existing = findExistingAbbreviationFootnote(table);
+    if(!definitions.length){
+      removeAutoAbbreviationFootnote(existing);
+      return null;
+    }
+    const glossary = formatAbbreviationGlossary(definitions);
+    const card = table.closest?.('.stats-table-card') || null;
+    const glossaryScope = card || table.parentElement || null;
+    const userGlossaryExists = glossaryScope
+      ? Array.from(glossaryScope.querySelectorAll('.stats-table-footnote:not([data-stats-auto-abbreviations="1"])'))
+        .some(node => /^\s*Abbreviations(?: and symbols)?\s*:/i.test(String(node.textContent || '')))
+      : false;
+    if(userGlossaryExists){
+      removeAutoAbbreviationFootnote(existing);
+      return null;
+    }
+    if(existing){
+      existing.textContent = glossary;
+      return existing;
+    }
+    const documentRef = table.ownerDocument;
+    const item = documentRef.createElement('div');
+    item.className = 'stats-table-footnote stats-table-abbreviations';
+    item.dataset.statsAutoAbbreviations = '1';
+    item.textContent = glossary;
+    if(card){
+      let footnoteList = card.querySelector(':scope > .stats-table-footnotes');
+      if(!footnoteList){
+        footnoteList = documentRef.createElement('div');
+        footnoteList.className = 'stats-table-footnotes stats-table-footnotes--auto';
+        footnoteList.dataset.statsAutoAbbreviationsContainer = '1';
+        const actions = card.querySelector(':scope > .stats-table-actions');
+        card.insertBefore(footnoteList, actions || null);
+      }
+      footnoteList.appendChild(item);
+      return item;
+    }
+    const next = table.nextElementSibling;
+    if(next?.classList?.contains('stats-table-footnotes')){
+      next.appendChild(item);
+      return item;
+    }
+    const footnoteList = documentRef.createElement('div');
+    footnoteList.className = 'stats-table-footnotes stats-table-footnotes--auto';
+    footnoteList.dataset.statsAutoAbbreviationsContainer = '1';
+    footnoteList.appendChild(item);
+    table.insertAdjacentElement('afterend', footnoteList);
+    return item;
+  };
+
+  const decorateReportAbbreviations = root => {
+    if(!root || typeof root.querySelectorAll !== 'function'){
+      return 0;
+    }
+    const elements = root.classList?.contains('stats-report-panel')
+      ? Array.from(root.querySelectorAll(':scope > pre'))
+      : Array.from(root.querySelectorAll('.stats-report-panel > pre'));
+    let count = 0;
+    elements.forEach(element => {
+      if(element.querySelector?.('.stats-table-abbr')){
+        const text = element.textContent || '';
+        element.textContent = text;
+      }
+      count += renderAbbreviationsInElement(element);
+    });
+    return count;
+  };
+
+  statsTable.collectAbbreviations = function collectAbbreviations(values) {
+    return collectAbbreviationDefinitions(values).map(definition => ({
+      key: definition.key,
+      expansion: definition.expansion,
+      symbol: definition.symbol === true
+    }));
+  };
+
+  statsTable.formatAbbreviationGlossary = function formatGlossary(definitions) {
+    return formatAbbreviationGlossary(definitions);
+  };
+
+  statsTable.enhanceAbbreviations = function enhanceAbbreviations(root) {
+    if(!root || typeof root.querySelectorAll !== 'function'){
+      return { tables: 0, terms: 0, reportTerms: 0 };
+    }
+    const tables = root.tagName === 'TABLE' ? [root] : Array.from(root.querySelectorAll('table'));
+    let termCount = 0;
+    tables.forEach(table => {
+      const labelCells = [
+        ...Array.from(table.querySelectorAll('th')),
+        ...getSemanticLabelCells(table)
+      ];
+      Array.from(new Set(labelCells)).forEach(cell => {
+        if(cell.querySelector?.('.stats-table-abbr')){
+          const text = cell.textContent || '';
+          cell.textContent = text;
+        }
+        termCount += renderAbbreviationsInElement(cell);
+      });
+      ensureTableAbbreviationFootnote(table);
+    });
+    const reportTerms = decorateReportAbbreviations(root);
+    return { tables: tables.length, terms: termCount, reportTerms };
+  };
 
   statsTable.render = function render(config) {
     const target = resolveTarget(config?.target);
@@ -791,6 +1233,7 @@
     }
 
     target.appendChild(wrapper);
+    statsTable.enhanceAbbreviations(wrapper);
     logDebug('render complete', { rowCount: model.rows.length, columnCount: model.columns.length });
     return { wrapper, table, model };
   };
@@ -812,7 +1255,7 @@
       const align = cls.includes('stats-table__cell--center')
         ? 'center'
         : (cls.includes('stats-table__cell--right') ? 'right' : 'left');
-      return { label: (th.textContent || '').trim(), align };
+      return { label: (th.textContent || '').trim(), align, tooltip: th.getAttribute('title') || '' };
     });
     if (!rawColumns.length) {
       return null;
@@ -835,7 +1278,7 @@
     });
     const caption = card.getAttribute('data-stats-caption')
       || (card.querySelector('.stats-table-caption')?.textContent || '').trim();
-    const footnotes = Array.from(card.querySelectorAll('.stats-table-footnote'))
+    const footnotes = Array.from(card.querySelectorAll('.stats-table-footnote:not([data-stats-auto-abbreviations="1"])'))
       .map(node => (node.textContent || '').trim())
       .filter(Boolean);
     const columns = normalizeColumns(rawColumns);
