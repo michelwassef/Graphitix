@@ -1016,24 +1016,30 @@
   }
 
   async function restoreDocumentArchive(context, source, meta = {}) {
-    const Shared = context?.Shared || window.Shared;
-    const graphArchive = ensureGraphArchiveApi(Shared);
-    if (!graphArchive || typeof graphArchive.parseFile !== 'function') {
-      throw new Error('Shared.graphArchive.parseFile is unavailable.');
-    }
     const transactionMeta = {
       ...meta,
       fileName: meta.fileName || source?.name || 'workspace.graph'
     };
     const documentOperation = beginDocumentOpenTransaction(context, transactionMeta);
     try {
-      const parsed = await graphArchive.parseFile(source, {
-        fileName: transactionMeta.fileName
-      });
+      // Crash recovery may pass a pre-parsed session that already folds the recovery
+      // journal's newest canonical payloads over the archive; skip re-parsing then.
+      let parsed = meta.parsedSession || null;
+      if (!parsed) {
+        const Shared = context?.Shared || window.Shared;
+        const graphArchive = ensureGraphArchiveApi(Shared);
+        if (!graphArchive || typeof graphArchive.parseFile !== 'function') {
+          throw new Error('Shared.graphArchive.parseFile is unavailable.');
+        }
+        parsed = await graphArchive.parseFile(source, {
+          fileName: transactionMeta.fileName
+        });
+      }
       debug(context, 'restoreDocumentArchive.parsed', {
         source: parsed?.source || 'unknown',
         tabCount: parsed?.session?.tabs?.length || 0,
-        reason: meta.reason || 'graph-load'
+        reason: meta.reason || 'graph-load',
+        via: meta.parsedSession ? 'journal-overlay' : 'archive-parse'
       });
       const result = await applyParsedSession(context, parsed, {
         ...meta,

@@ -35,6 +35,9 @@ contextBridge.exposeInMainWorld('desktop', {
   writeRecoverySnapshot: (payload) => ipcRenderer.invoke('desktop:writeRecoverySnapshot', payload),
   readRecoverySnapshot: () => ipcRenderer.invoke('desktop:readRecoverySnapshot'),
   clearRecoverySnapshot: () => ipcRenderer.invoke('desktop:clearRecoverySnapshot'),
+  writeRecoveryJournal: (record) => ipcRenderer.invoke('desktop:writeRecoveryJournal', record),
+  readRecoveryJournal: () => ipcRenderer.invoke('desktop:readRecoveryJournal'),
+  clearRecoveryJournal: () => ipcRenderer.invoke('desktop:clearRecoveryJournal'),
   writeClipboard: (payload) => ipcRenderer.invoke('desktop:writeClipboard', payload),
   revealItem: (filePath) => ipcRenderer.invoke('desktop:revealItem', filePath),
   getPath: (name) => ipcRenderer.invoke('desktop:getPath', name)

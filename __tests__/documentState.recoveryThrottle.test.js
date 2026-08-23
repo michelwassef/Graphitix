@@ -7,7 +7,9 @@ describe('documentState recovery snapshot throttling', () => {
     window.desktop = {
       isDesktop: true,
       writeRecoverySnapshot: jest.fn().mockResolvedValue(true),
-      clearRecoverySnapshot: jest.fn().mockResolvedValue(true)
+      clearRecoverySnapshot: jest.fn().mockResolvedValue(true),
+      readRecoveryJournal: jest.fn().mockResolvedValue({ exists: false, record: null }),
+      clearRecoveryJournal: jest.fn().mockResolvedValue(true)
     };
     Object.defineProperty(window, 'localStorage', {
       value: {
@@ -458,6 +460,9 @@ describe('documentState recovery snapshot throttling', () => {
     window.confirm = jest.fn(() => true);
 
     const restorePromise = window.Main.documentState.maybeRestoreRecovery();
+    // The restore path now reads the recovery journal before applying the archive,
+    // so settle the extra microtask hops before asserting the archive call.
+    await flushTimers();
     await flushTimers();
     expect(applyArchiveBlob).toHaveBeenCalledTimes(1);
 

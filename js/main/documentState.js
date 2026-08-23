@@ -17,6 +17,14 @@
   const RECOVERY_MAX_DEFER_MS = 10000;
   const RECOVERY_INTERVAL_MS = 10000;
   const AUTOSAVE_INTERVAL_MS = 30000;
+  // The rich recovery snapshot is debounced (2.5s, capped at 10s) so checkpoint capture
+  // and worker serialization never run on the mutation path. A hard process loss inside
+  // that window would otherwise recover the previous revision. The recovery journal
+  // closes the gap: it persists the canonical per-tab payload/layout/uiState of the live
+  // workspace with a short trailing coalesce and is folded into the next rich snapshot.
+  // It deliberately excludes previews and render caches, which stay on the rich path.
+  const RECOVERY_JOURNAL_KEY = 'active-recovery-journal';
+  const RECOVERY_JOURNAL_DELAY_MS = 400;
 
   let state = null;
   let recoveryTimer = null;
@@ -24,8 +32,11 @@
   let autosaveInterval = null;
   let webDbPromise = null;
   let recoveryWriteSequence = 0;
+  let journalTimer = null;
+  let journalPending = false;
   let documentStateChangeHandler = null;
   let rotationGestureHandler = null;
+  let journalFlushHandler = null;
   let recoveryTimerRevision = 0;
   let recoveryPendingSince = 0;
   let recoveryInFlightRevision = 0;
@@ -174,6 +185,36 @@
     });
   }
 
+  async function putWebJournal(record) {
+    const db = await openWebDb();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(WEB_DB_STORE, 'readwrite');
+      tx.objectStore(WEB_DB_STORE).put(record, RECOVERY_JOURNAL_KEY);
+      tx.oncomplete = () => resolve(true);
+      tx.onerror = () => reject(tx.error || new Error('IndexedDB journal write failed.'));
+    });
+  }
+
+  async function getWebJournal() {
+    const db = await openWebDb();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(WEB_DB_STORE, 'readonly');
+      const request = tx.objectStore(WEB_DB_STORE).get(RECOVERY_JOURNAL_KEY);
+      request.onsuccess = () => resolve(request.result || null);
+      request.onerror = () => reject(request.error || new Error('IndexedDB journal read failed.'));
+    });
+  }
+
+  async function clearWebJournal() {
+    const db = await openWebDb();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(WEB_DB_STORE, 'readwrite');
+      tx.objectStore(WEB_DB_STORE).delete(RECOVERY_JOURNAL_KEY);
+      tx.oncomplete = () => resolve(true);
+      tx.onerror = () => reject(tx.error || new Error('IndexedDB journal clear failed.'));
+    });
+  }
+
   function base64ToBlob(dataBase64) {
     const binary = window.atob(String(dataBase64 || ''));
     const bytes = new Uint8Array(binary.length);
@@ -317,7 +358,12 @@
         tabCount: graphTabs.length,
         fileName: workspaceState.sessionFileName || '',
         filePath: workspaceState.sessionFilePath || '',
-        fileScope: workspaceState.sessionFileScope || null
+        fileScope: workspaceState.sessionFileScope || null,
+        // The session revision this snapshot reflects. Restore compares it against the
+        // recovery journal so a crash inside the debounce window can fold the newest
+        // canonical payloads over an older rich snapshot instead of recovering the
+        // previous revision.
+        revision: getSessionRevision()
       }
     };
   }
@@ -390,6 +436,7 @@
           via: 'desktop'
         };
         debug('recovery.write.desktop', { bytes: record.blob.size, reason });
+        void trimRecoveryJournalToRevision(revision);
         return { status: 'saved', via: 'desktop', bytes: record.blob.size };
       }
       const storageStartedAt = now();
@@ -407,6 +454,7 @@
         via: 'web'
       };
       debug('recovery.write.web', { bytes: record.blob.size, reason });
+      void trimRecoveryJournalToRevision(revision);
       return { status: 'saved', via: 'web', bytes: record.blob.size };
     } catch (err) {
       if (err?.code === 'GRAPHITIX_RECOVERY_INTERACTION_ACTIVE') {
@@ -508,6 +556,9 @@
     } catch (err) {
       debug('recovery.clearFailed', { reason, message: err?.message || String(err) });
     }
+    // The snapshot is the recovery tier; clearing it supersedes any journal entries
+    // that only existed to close the debounce gap.
+    await clearRecoveryJournal(reason);
   }
 
   async function readRecoverySnapshot() {
@@ -533,10 +584,311 @@
     }
   }
 
+  function buildJournalRecord(reason) {
+    const tabs = Array.isArray(state?.workspaceState?.tabs) ? state.workspaceState.tabs : [];
+    const entries = [];
+    tabs.forEach(tab => {
+      if (!tab || tab.isWelcome || !tab.type) {
+        return;
+      }
+      if (!tab.payload) {
+        return;
+      }
+      entries.push({
+        tabId: tab.id,
+        title: tab.title || '',
+        type: tab.type,
+        payload: tab.payload,
+        layout: tab.layout || null,
+        uiState: tab.uiState || null
+      });
+    });
+    if (!entries.length) {
+      return null;
+    }
+    const workspaceState = state.workspaceState || {};
+    return {
+      app: 'Graphitix',
+      kind: 'recovery-journal',
+      version: 1,
+      revision: getSessionRevision(),
+      at: Date.now(),
+      updatedAt: Date.now(),
+      activeTabId: workspaceState.activeTabId || null,
+      fileName: workspaceState.sessionFileName || '',
+      filePath: workspaceState.sessionFilePath || '',
+      fileScope: workspaceState.sessionFileScope || null,
+      reason: reason || 'journal',
+      tabs: entries
+    };
+  }
+
+  async function writeRecoveryJournal(reason = 'journal') {
+    if (!state || state.restoringRecovery) {
+      return { status: 'skipped', reason: 'restore-in-progress' };
+    }
+    if (!state.workspaceState?.sessionUserDirty) {
+      return { status: 'skipped', reason: 'clean' };
+    }
+    const record = buildJournalRecord(reason);
+    if (!record) {
+      return { status: 'skipped', reason: 'no-payloads' };
+    }
+    try {
+      if (isDesktop() && typeof window.desktop.writeRecoveryJournal === 'function') {
+        await window.desktop.writeRecoveryJournal(record);
+      } else {
+        await putWebJournal(record);
+      }
+      debug('recovery.journal.write', {
+        reason,
+        revision: record.revision,
+        tabCount: record.tabs.length
+      });
+      return { status: 'saved', revision: record.revision, tabCount: record.tabs.length };
+    } catch (err) {
+      debug('recovery.journal.writeFailed', { reason, message: err?.message || String(err) });
+      return { status: 'error', error: err };
+    }
+  }
+
+  async function readRecoveryJournal() {
+    try {
+      if (isDesktop() && typeof window.desktop.readRecoveryJournal === 'function') {
+        const result = await window.desktop.readRecoveryJournal();
+        if (!result?.exists || !result?.record) {
+          return null;
+        }
+        return result.record;
+      }
+      const record = await getWebJournal();
+      if (!record || !Array.isArray(record.tabs)) {
+        return null;
+      }
+      return record;
+    } catch (err) {
+      debug('recovery.journal.readFailed', { message: err?.message || String(err) });
+      return null;
+    }
+  }
+
+  async function clearRecoveryJournal(reason = 'clear') {
+    try {
+      if (isDesktop() && typeof window.desktop.clearRecoveryJournal === 'function') {
+        await window.desktop.clearRecoveryJournal(reason);
+      } else {
+        await clearWebJournal();
+      }
+      debug('recovery.journal.clear', { reason });
+    } catch (err) {
+      debug('recovery.journal.clearFailed', { reason, message: err?.message || String(err) });
+    }
+  }
+
+  // The rich snapshot becomes the checkpoint for `revision`. Any journal entry at or
+  // below it is redundant and can be dropped; a newer journal entry (a mutation that
+  // raced the rich write) must survive so restore can still fold it in.
+  async function trimRecoveryJournalToRevision(revision) {
+    try {
+      const journal = await readRecoveryJournal();
+      if (journal && Number(journal.revision || 0) <= Number(revision || 0)) {
+        await clearRecoveryJournal(`rich-snapshot-${revision}`);
+      }
+    } catch (err) {
+      debug('recovery.journal.trimFailed', { revision, message: err?.message || String(err) });
+    }
+  }
+
+  function getPersistentTabId(tabLike) {
+    return String(tabLike?.archiveRuntimeTabId || tabLike?.runtimeTabId || tabLike?.id || '').trim();
+  }
+
+  function mergeJournalIntoParsedSession(parsed, journal) {
+    if (!parsed?.session || !Array.isArray(parsed.session.tabs) || !Array.isArray(journal?.tabs)) {
+      return null;
+    }
+    const entries = journal.tabs.filter(entry => entry && entry.tabId && entry.payload);
+    if (!entries.length) {
+      return null;
+    }
+    const entryById = new Map(entries.map(entry => [String(entry.tabId), entry]));
+    const tabs = parsed.session.tabs.map(tab => {
+      const entry = entryById.get(getPersistentTabId(tab));
+      if (!entry) {
+        return tab;
+      }
+      return {
+        ...tab,
+        payload: entry.payload,
+        layout: entry.layout || null,
+        uiState: entry.uiState || null,
+        // Render caches and previews were captured for the snapshot payload; they are
+        // stale for the newer journal payload and must not be replayed over it.
+        archiveRenderCache: null,
+        archiveRenderCacheSignature: null,
+        archiveRenderCacheLayoutSignature: null,
+        previewMarkup: null,
+        previewSignature: null,
+        previewMeta: null
+      };
+    });
+    const presentIds = new Set(tabs.map(tab => getPersistentTabId(tab)));
+    entries.forEach(entry => {
+      const entryId = String(entry.tabId);
+      if (presentIds.has(entryId)) {
+        return;
+      }
+      tabs.push({
+        title: entry.title || 'Workspace',
+        type: entry.type || entry.payload?.type || null,
+        archiveRuntimeTabId: entryId,
+        payload: entry.payload,
+        layout: entry.layout || null,
+        uiState: entry.uiState || null,
+        archiveRenderCache: null,
+        archiveRenderCacheSignature: null,
+        archiveRenderCacheLayoutSignature: null,
+        previewMarkup: null,
+        previewSignature: null,
+        previewMeta: null
+      });
+      presentIds.add(entryId);
+    });
+    let activeIndex = parsed.session.activeIndex;
+    const journalActiveId = journal.activeTabId ? String(journal.activeTabId) : null;
+    if (journalActiveId) {
+      const idx = tabs.findIndex(tab => getPersistentTabId(tab) === journalActiveId);
+      if (idx >= 0) {
+        activeIndex = idx;
+      }
+    }
+    if (!Number.isFinite(activeIndex) || activeIndex < 0 || activeIndex >= tabs.length) {
+      activeIndex = 0;
+    }
+    return {
+      ...parsed,
+      session: {
+        ...parsed.session,
+        tabs,
+        activeIndex
+      }
+    };
+  }
+
+  function buildJournalOnlyParsedSession(journal) {
+    const entries = Array.isArray(journal?.tabs) ? journal.tabs.filter(entry => entry && entry.tabId && entry.payload) : [];
+    if (!entries.length) {
+      return null;
+    }
+    const tabs = entries.map(entry => ({
+      title: entry.title || 'Workspace',
+      type: entry.type || entry.payload?.type || null,
+      archiveRuntimeTabId: String(entry.tabId),
+      payload: entry.payload,
+      layout: entry.layout || null,
+      uiState: entry.uiState || null
+    }));
+    let activeIndex = 0;
+    const activeId = journal.activeTabId ? String(journal.activeTabId) : null;
+    if (activeId) {
+      const idx = tabs.findIndex(tab => getPersistentTabId(tab) === activeId);
+      if (idx >= 0) {
+        activeIndex = idx;
+      }
+    }
+    return {
+      source: 'recovery-journal',
+      session: {
+        tabs,
+        activeIndex,
+        scope: journal.fileScope || 'workspace'
+      }
+    };
+  }
+
+  function journalHasRecoverableData(journal) {
+    const entries = Array.isArray(journal?.tabs) ? journal.tabs : [];
+    if (!entries.length) {
+      return false;
+    }
+    if (typeof state?.session?.tabHasTableData !== 'function') {
+      return true;
+    }
+    return entries.some(entry => state.session.tabHasTableData({
+      id: 'recovery-journal-preview',
+      type: entry?.type || entry?.payload?.type || null,
+      payload: entry?.payload || null,
+      isWelcome: false
+    }));
+  }
+
+  function finalizeRecoveryRestore(fileName, filePath, fileScope, recoveredAt) {
+    state.workspaceState.sessionFileHandle = null;
+    state.workspaceState.sessionFilePath = filePath || '';
+    state.workspaceState.sessionFileName = fileName || 'recovered.graph';
+    state.workspaceState.sessionFileScope = fileScope || 'workspace';
+    state.session.markSessionDirty('recovery-restored', {
+      fileName: state.workspaceState.sessionFileName,
+      recoveredAt: recoveredAt || null,
+      origin: 'user'
+    });
+    // The recovered archive already is the exact checkpoint for this newly dirty
+    // revision. Rebuilding it immediately would re-read the just-projected DOM,
+    // mutate canonical state, and invalidate the cache that was successfully
+    // restored. The next genuine user revision schedules the next checkpoint.
+    clearRecoveryTimer();
+    recoveryPendingSince = 0;
+    recoveryTimerRevision = 0;
+    lastRecoverySavedRevision = getSessionRevision();
+  }
+
+  async function applyRecoveryParsedSession(parsed, meta = {}) {
+    const result = await state.sessionActions.applyArchiveBlob(state.getSessionActionsContext(), meta.blob || null, {
+      reason: 'recovery-restore',
+      fileName: meta.fileName || '',
+      ...(parsed ? { parsedSession: parsed } : {})
+    });
+    finalizeRecoveryRestore(meta.fileName, meta.filePath, meta.fileScope, meta.recoveredAt);
+    await clearRecoveryJournal('recovery-restored');
+    return result;
+  }
+
   async function maybeRestoreRecovery() {
     const record = await readRecoverySnapshot();
     if (!record?.blob || !record?.meta?.dirty) {
-      return false;
+      // No rich snapshot. The recovery journal may still hold the newest canonical
+      // workspace state when the process died inside the first debounce window;
+      // restoring the journal alone is strictly better than silently losing the edits.
+      const journal = await readRecoveryJournal();
+      if (!journal || !journalHasRecoverableData(journal)) {
+        return false;
+      }
+      const parsed = buildJournalOnlyParsedSession(journal);
+      if (!parsed) {
+        return false;
+      }
+      const fileName = journal.fileName || 'recovered.graph';
+      const savedAt = journal.at ? new Date(journal.at).toLocaleString() : 'a previous session';
+      const shouldRestore = typeof window.confirm === 'function'
+        ? window.confirm(`Graphitix found recovered changes for ${fileName} from ${savedAt}. Restore them now?`)
+        : true;
+      if (!shouldRestore) {
+        await clearRecoveryJournal('user-discarded-recovery');
+        return false;
+      }
+      state.restoringRecovery = true;
+      try {
+        await applyRecoveryParsedSession(parsed, {
+          fileName,
+          filePath: journal.filePath || '',
+          fileScope: journal.fileScope || 'workspace',
+          recoveredAt: journal.at || null
+        });
+      } finally {
+        state.restoringRecovery = false;
+      }
+      syncTitle({ reason: 'recovery-restored' });
+      return true;
     }
     if (!(await recoveryRecordHasRecoverableData(record))) {
       await clearRecoverySnapshot('no-recoverable-data');
@@ -554,32 +906,46 @@
     record.blob.name = fileName;
     state.restoringRecovery = true;
     try {
-      await state.sessionActions.applyArchiveBlob(state.getSessionActionsContext(), record.blob, {
-        reason: 'recovery-restore',
-        fileName: record.meta.fileName || ''
+      let parsedSession = null;
+      const journal = await readRecoveryJournal();
+      if (journal && Number(journal.revision || 0) > Number(record.meta.revision || 0)) {
+        parsedSession = await buildJournalMergedParsedSession(record, journal);
+        if (parsedSession) {
+          debug('recovery.restore.journalOverlay', {
+            snapshotRevision: Number(record.meta.revision || 0),
+            journalRevision: Number(journal.revision || 0),
+            tabCount: parsedSession.session.tabs.length
+          });
+        }
+      }
+      await applyRecoveryParsedSession(parsedSession, {
+        blob: record.blob,
+        fileName: record.meta.fileName || '',
+        filePath: record.meta.filePath || '',
+        fileScope: record.meta.fileScope || 'workspace',
+        recoveredAt: record.meta.savedAt || null
       });
-      state.workspaceState.sessionFileHandle = null;
-      state.workspaceState.sessionFilePath = record.meta.filePath || '';
-      state.workspaceState.sessionFileName = record.meta.fileName || fileName;
-      state.workspaceState.sessionFileScope = record.meta.fileScope || 'workspace';
-      state.session.markSessionDirty('recovery-restored', {
-        fileName: state.workspaceState.sessionFileName,
-        recoveredAt: record.meta.savedAt || null,
-        origin: 'user'
-      });
-      // The recovered archive already is the exact checkpoint for this newly dirty
-      // revision. Rebuilding it immediately would re-read the just-projected DOM,
-      // mutate canonical state, and invalidate the cache that was successfully
-      // restored. The next genuine user revision schedules the next checkpoint.
-      clearRecoveryTimer();
-      recoveryPendingSince = 0;
-      recoveryTimerRevision = 0;
-      lastRecoverySavedRevision = getSessionRevision();
     } finally {
       state.restoringRecovery = false;
     }
     syncTitle({ reason: 'recovery-restored' });
     return true;
+  }
+
+  async function buildJournalMergedParsedSession(record, journal) {
+    const graphArchive = window.Shared?.graphArchive || null;
+    if (!graphArchive || typeof graphArchive.parseFile !== 'function') {
+      return null;
+    }
+    try {
+      const parsed = await graphArchive.parseFile(record.blob, {
+        fileName: record?.meta?.fileName || record.blob?.name || 'recovered.graph'
+      });
+      return mergeJournalIntoParsedSession(parsed, journal);
+    } catch (err) {
+      debug('recovery.journal.mergeFailed', { message: err?.message || String(err) });
+      return null;
+    }
   }
 
   async function runAutosave(reason = 'autosave') {
@@ -696,6 +1062,20 @@
       scheduleRecoverySnapshot(`${detail.componentKey || 'plot3d'}-rotation-settled`);
     };
     window.addEventListener('graphitix:plot3d-rotation-gesture', rotationGestureHandler);
+    journalFlushHandler = () => {
+      if (!journalPending) {
+        return;
+      }
+      if (journalTimer) {
+        window.clearTimeout(journalTimer);
+      }
+      journalTimer = null;
+      journalPending = false;
+      // Best-effort: the IndexedDB/IPC write may or may not complete before the page
+      // tears down, but flushing on unload narrows the loss window further.
+      void writeRecoveryJournal('pagehide');
+    };
+    window.addEventListener('pagehide', journalFlushHandler);
     recoveryInterval = window.setInterval(() => {
       if (!hasRecoverySnapshotDue()) {
         return;
@@ -724,6 +1104,38 @@
     return namespace;
   };
 
+  // Called by the owning session on the mutation path once a tab's canonical payload
+  // (or its user-modified layout) is committed. The write itself is cheap and coalesced;
+  // previews and render caches never travel through this path.
+  namespace.notifyTabPayloadJournaled = function notifyTabPayloadJournaled(tabId, meta = {}) {
+    if (!state || state.restoringRecovery) {
+      return;
+    }
+    if (!state.workspaceState?.sessionUserDirty) {
+      return;
+    }
+    if (!tabId) {
+      return;
+    }
+    journalPending = true;
+    if (journalTimer) {
+      window.clearTimeout(journalTimer);
+    }
+    journalTimer = window.setTimeout(() => {
+      journalTimer = null;
+      journalPending = false;
+      void writeRecoveryJournal(meta.reason || 'journal-coalesce');
+    }, RECOVERY_JOURNAL_DELAY_MS);
+    debug('recovery.journal.scheduled', {
+      tabId,
+      revision: getSessionRevision(),
+      delay: RECOVERY_JOURNAL_DELAY_MS
+    });
+  };
+
+  namespace.writeRecoveryJournal = writeRecoveryJournal;
+  namespace.readRecoveryJournal = readRecoveryJournal;
+  namespace.clearRecoveryJournal = clearRecoveryJournal;
   namespace.setAutosaveEnabled = setAutosaveEnabled;
   namespace.writeRecoverySnapshot = writeRecoverySnapshot;
   namespace.getRecoveryPerformance = () => lastRecoveryPerformance ? { ...lastRecoveryPerformance } : null;
@@ -736,9 +1148,14 @@
     if (savedMessageTimer) window.clearTimeout(savedMessageTimer);
     if (recoveryInterval) window.clearInterval(recoveryInterval);
     if (autosaveInterval) window.clearInterval(autosaveInterval);
+    if (journalTimer) window.clearTimeout(journalTimer);
     if (documentStateChangeHandler) window.removeEventListener('graphitix:document-state-change', documentStateChangeHandler);
     if (rotationGestureHandler) window.removeEventListener('graphitix:plot3d-rotation-gesture', rotationGestureHandler);
+    if (journalFlushHandler) window.removeEventListener('pagehide', journalFlushHandler);
     recoveryPendingSince = 0;
+    journalTimer = null;
+    journalPending = false;
+    journalFlushHandler = null;
     recoveryInterval = null;
     autosaveInterval = null;
     documentStateChangeHandler = null;

@@ -592,6 +592,37 @@ app.whenReady().then(() => {
     return { ok: true };
   });
 
+  ipcMain.handle('desktop:writeRecoveryJournal', async (_event, record = {}) => {
+    const journalPath = path.join(resolveRecoveryPaths().dir, 'active-recovery-journal.json');
+    await writeFileAtomic(journalPath, Buffer.from(JSON.stringify(record || {}), 'utf8'));
+    return { ok: true, path: journalPath };
+  });
+
+  ipcMain.handle('desktop:readRecoveryJournal', async () => {
+    const journalPath = path.join(resolveRecoveryPaths().dir, 'active-recovery-journal.json');
+    try {
+      const raw = await fs.readFile(journalPath, 'utf8');
+      let record = null;
+      try {
+        record = JSON.parse(raw);
+      } catch (_err) {
+        record = null;
+      }
+      return { exists: !!record, record };
+    } catch (err) {
+      if (err && err.code === 'ENOENT') {
+        return { exists: false, record: null };
+      }
+      throw err;
+    }
+  });
+
+  ipcMain.handle('desktop:clearRecoveryJournal', async () => {
+    const journalPath = path.join(resolveRecoveryPaths().dir, 'active-recovery-journal.json');
+    await fs.rm(journalPath, { force: true });
+    return { ok: true };
+  });
+
   ipcMain.handle('desktop:writeClipboard', async (_event, payload = {}) => {
     let text = typeof payload.text === 'string' ? payload.text : '';
     let html = typeof payload.html === 'string' ? payload.html : '';

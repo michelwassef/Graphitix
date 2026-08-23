@@ -337,6 +337,20 @@
     return count;
   }
 
+  function notifyRecoveryJournal(tab, reason) {
+    try {
+      const documentState = window.Main?.documentState;
+      if (documentState && typeof documentState.notifyTabPayloadJournaled === 'function') {
+        documentState.notifyTabPayloadJournaled(tab?.id || null, { reason: reason || 'user-state-change' });
+      }
+    } catch (err) {
+      console.debug('Debug: recovery journal notification skipped', {
+        tabId: tab?.id || null,
+        message: err?.message || String(err)
+      });
+    }
+  }
+
   function markTabUserModified(tabLike, reason, meta = {}) {
     const tab = resolveTab(tabLike);
     if (!tab || tab.isWelcome) {
@@ -368,6 +382,11 @@
         affectsPayload
       });
     }
+    // Root-cause fix for the crash-recovery gap: the rich recovery snapshot is written
+    // on a 2.5s-10s debounce, so a hard process loss after a mutation can recover the
+    // previous revision. Notify the recovery journal so the newest canonical payload
+    // and layout are persisted with a short trailing coalesce instead.
+    notifyRecoveryJournal(tab, tab.lastUserModifiedReason);
     console.debug('Debug: tab user modification marked', {
       tabId: tab.id,
       type: tab.type || null,
@@ -2086,6 +2105,9 @@
       });
     }catch(e){
       console.debug('Debug: assignTabPayload applied (no stats)', { tabId: tab.id, reason: meta.reason || 'unspecified', changed, hasPayload: !!payload });
+    }
+    if (changed && !tab.isWelcome && tab.type) {
+      notifyRecoveryJournal(tab, meta.reason || 'payload-commit');
     }
     return changed;
   }
