@@ -2480,9 +2480,9 @@
     let colHeadersSetting = hotOptions.colHeaders;
     let rowHeadersSetting = hotOptions.rowHeaders;
     let nestedHeadersSetting = hotOptions.nestedHeaders;
-    let columnDragGroupsSetting = Object.prototype.hasOwnProperty.call(overrides || {}, 'columnDragGroups')
-      ? overrides.columnDragGroups
-      : hotOptions.columnDragGroups;
+    let columnGroupsSetting = Object.prototype.hasOwnProperty.call(overrides || {}, 'columnGroups')
+      ? overrides.columnGroups
+      : hotOptions.columnGroups;
     const headerWidthManager = { invalidateColumns: noop, reset: noop }; // placeholder for compat
     const detectedEnterpriseModules = global.agGrid?.ModuleRegistry?.registeredModules || [];
     if (detectedEnterpriseModules.some(mod => /Enterprise/i.test(mod?.moduleName || ''))) {
@@ -3311,6 +3311,10 @@
       const nextRows = [];
       const totalRows = Array.isArray(dataHandle.current) ? dataHandle.current.length : 0;
       for(let physicalRow = 0; physicalRow < totalRows; physicalRow += 1){
+        if(isPinnedPhysicalRow(physicalRow)){
+          nextRows.push(physicalRow);
+          continue;
+        }
         let include = true;
         compiledColumnFilters.forEach(compiled=>{
           if(include && !compiled.evaluator(physicalRow)){
@@ -3390,6 +3394,9 @@
     };
 
     const notifyColumnFiltersChanged = (reason, options = {})=>{
+      if(instance?.__destroyed){
+        return;
+      }
       pruneActiveColumnFilters();
       rebuildCompiledColumnFilters();
       dispatchFilterStateChanged(reason);
@@ -3570,13 +3577,16 @@
         }
         try{
           if(typeof api.addCellRange === 'function'){
-            api.addCellRange({
-              rowStartIndex: normalized.from.row,
-              rowEndIndex: normalized.to.row,
-              columnStart: `c${normalized.from.col}`,
-              columnEnd: `c${normalized.to.col}`
-            });
-            synced = true;
+            const pinnedOffset = usePinnedRows ? pinRowCount : 0;
+            if(normalized.from.row >= pinnedOffset){
+              api.addCellRange({
+                rowStartIndex: normalized.from.row - pinnedOffset,
+                rowEndIndex: normalized.to.row - pinnedOffset,
+                columnStart: `c${normalized.from.col}`,
+                columnEnd: `c${normalized.to.col}`
+              });
+              synced = true;
+            }
           }
         }catch(err){
           // best-effort only
@@ -3584,7 +3594,7 @@
       }
       try{
         if(typeof api.setFocusedCell === 'function'){
-          api.setFocusedCell(normalized.from.row, anchorColId);
+          focusVisualCell(api, normalized.from.row, anchorColId);
           synced = true;
         }
       }catch(err){
@@ -4225,7 +4235,15 @@
       const totalRows = Math.max(0, Number(gridApi.getDisplayedRowCount()) || 0);
       needed.forEach((value)=>{
         const visualRow = Number(value);
-        if(!Number.isInteger(visualRow) || visualRow < 0 || visualRow >= totalRows){
+        if(!Number.isInteger(visualRow) || visualRow < 0){
+          return;
+        }
+        if(usePinnedRows && visualRow < pinRowCount){
+          rowMap.set(visualRow, visualRow);
+          return;
+        }
+        const bodyRow = usePinnedRows ? visualRow - pinRowCount : visualRow;
+        if(bodyRow < 0 || bodyRow >= totalRows){
           return;
         }
         rowMap.set(visualRow, visualRow);
@@ -4388,7 +4406,7 @@
           continue;
         }
         const rowAttr = cellEl.getAttribute?.('row-index') ?? cellEl.closest?.('.ag-row')?.getAttribute?.('row-index');
-        const displayRow = parseVisualRowIndex(rowAttr);
+        const displayRow = parseVisualRowIndex(rowAttr, cellEl);
         if(!Number.isInteger(displayRow) || displayRow < 0){
           continue;
         }
@@ -4860,7 +4878,7 @@
       return handle;
     };
 
-    const parseVisualRowIndex = (value)=>{
+    const parseVisualRowIndex = (value, rowElement)=>{
       if(Number.isInteger(value) && value >= 0){
         return value;
       }
@@ -4873,7 +4891,11 @@
       }
       if(/^\d+$/.test(trimmed)){
         const direct = Number(trimmed);
-        return Number.isInteger(direct) && direct >= 0 ? direct : null;
+        if(!Number.isInteger(direct) || direct < 0){
+          return null;
+        }
+        const pinned = !!rowElement?.closest?.('.ag-pinned-top, .ag-floating-top, .ag-pinned-top-viewport, .ag-floating-top-viewport');
+        return usePinnedRows && !pinned ? direct + pinRowCount : direct;
       }
       const prefixedMatch = trimmed.match(/^[A-Za-z][A-Za-z0-9_-]*-(\d+)$/);
       if(prefixedMatch){
@@ -4886,7 +4908,8 @@
       if(suffixedMatch){
         const parsed = Number(suffixedMatch[1]);
         if(Number.isInteger(parsed) && parsed >= 0){
-          return parsed;
+          const pinned = !!rowElement?.closest?.('.ag-pinned-top, .ag-floating-top, .ag-pinned-top-viewport, .ag-floating-top-viewport');
+          return usePinnedRows && !pinned ? parsed + pinRowCount : parsed;
         }
       }
       return null;
@@ -4895,15 +4918,33 @@
     const resolveVisualRowIndex = (params)=>{
       const direct = params?.node?.rowIndex ?? params?.rowIndex;
       if(Number.isInteger(direct) && direct >= 0){
-        return direct;
+        return usePinnedRows && !params?.node?.rowPinned ? direct + pinRowCount : direct;
       }
-      if(params?.node?.rowPinned){
-        const physical = params?.data?.__rowIndex;
-        if(Number.isInteger(physical) && physical >= 0){
-          return physical;
-        }
+      const physical = params?.data?.__rowIndex ?? params?.node?.data?.__rowIndex;
+      if(params?.node?.rowPinned && Number.isInteger(physical) && physical >= 0){
+        return physical;
       }
       return null;
+    };
+
+    const focusVisualCell = (api, visualRow, colId, ensureVisible = false)=>{
+      if(!api || typeof api.setFocusedCell !== 'function'){
+        return false;
+      }
+      const row = Number(visualRow);
+      if(!Number.isInteger(row) || row < 0){
+        return false;
+      }
+      if(usePinnedRows && row < pinRowCount){
+        api.setFocusedCell(row, colId, 'top');
+        return true;
+      }
+      const bodyRow = usePinnedRows ? row - pinRowCount : row;
+      api.setFocusedCell(bodyRow, colId);
+      if(ensureVisible && typeof api.ensureIndexVisible === 'function'){
+        api.ensureIndexVisible(bodyRow);
+      }
+      return true;
     };
 
     const resolveCellCoordsFromNode = (node)=>{
@@ -4923,7 +4964,7 @@
       if(rowAttr == null || colAttr == null){
         return null;
       }
-      const row = parseVisualRowIndex(rowAttr);
+      const row = parseVisualRowIndex(rowAttr, cell);
       const col = colIdToIndex(colAttr);
       if(!Number.isInteger(row) || row < 0){
         return null;
@@ -4972,12 +5013,6 @@
           return false;
         }
       };
-      const isPinnedGhostCell = (candidate)=>{
-        if(!candidate || typeof candidate.closest !== 'function'){
-          return false;
-        }
-        return !!candidate.closest('.ag-row.hot-pinned-ghost-row');
-      };
       const isPinnedTopCell = (candidate)=>{
         if(!candidate || typeof candidate.closest !== 'function'){
           return false;
@@ -4989,7 +5024,7 @@
           return false;
         }
         const rowAttr = candidate.getAttribute?.('row-index') ?? candidate.closest?.('.ag-row')?.getAttribute?.('row-index');
-        const parsed = parseVisualRowIndex(rowAttr);
+        const parsed = parseVisualRowIndex(rowAttr, candidate);
         if(Number.isInteger(parsed)){
           return parsed === row;
         }
@@ -5007,15 +5042,10 @@
             continue;
           }
           const renderable = isRenderableCell(candidate);
-          const ghost = isPinnedGhostCell(candidate);
           const pinnedTop = isPinnedTopCell(candidate);
           const selected = !!candidate.classList?.contains?.('hot-selected-cell');
           let score = renderable ? 100 : 0;
-          if(ghost){
-            score -= 80;
-          }else{
-            score += 20;
-          }
+          score += 20;
           if(preferPinnedTopCell){
             score += pinnedTop ? 40 : -10;
           }else if(pinnedTop){
@@ -5091,8 +5121,8 @@
       const selectors = [
         `.ag-cell[row-index="t-${row}"][col-id="${colId}"]`,
         `.ag-row[row-index="t-${row}"] .ag-cell[col-id="${colId}"]`,
-        `.ag-cell[row-index="${row}"][col-id="${colId}"]`,
-        `.ag-row[row-index="${row}"] .ag-cell[col-id="${colId}"]`
+        `.ag-cell[row-index="${usePinnedRows ? row - pinRowCount : row}"][col-id="${colId}"]`,
+        `.ag-row[row-index="${usePinnedRows ? row - pinRowCount : row}"] .ag-cell[col-id="${colId}"]`
       ];
       for(let i = 0; i < selectors.length; i++){
         const nodeList = container.querySelectorAll(selectors[i]);
@@ -5106,7 +5136,7 @@
       for(let i = 0; i < candidates.length; i++){
         const candidate = candidates[i];
         const rowAttr = candidate.getAttribute('row-index') ?? candidate.closest('.ag-row')?.getAttribute?.('row-index');
-        const parsed = parseVisualRowIndex(rowAttr);
+        const parsed = parseVisualRowIndex(rowAttr, candidate);
         if(parsed === row){
           matched.push(candidate);
         }
@@ -5247,9 +5277,6 @@
         if(!cell || typeof cell.getBoundingClientRect !== 'function'){
           continue;
         }
-        if(cell.closest?.('.hot-pinned-ghost-row')){
-          continue;
-        }
         const colId = cell.getAttribute?.('col-id');
         if(typeof colId !== 'string' || !colId.startsWith('c')){
           continue;
@@ -5259,7 +5286,7 @@
           continue;
         }
         const rowAttr = cell.getAttribute('row-index') ?? cell.closest?.('.ag-row')?.getAttribute?.('row-index');
-        const row = parseVisualRowIndex(rowAttr);
+        const row = parseVisualRowIndex(rowAttr, cell);
         if(!Number.isInteger(row) || row < normalized.from.row || row > normalized.to.row){
           continue;
         }
@@ -5294,6 +5321,40 @@
         return null;
       }
       return { left, top, right, bottom };
+    };
+
+    const resolveVisibleBodyColumnBounds = (range, visibilityContext)=>{
+      const normalized = normalizeRange(range);
+      if(!normalized){
+        return null;
+      }
+      let left = Number.POSITIVE_INFINITY;
+      let right = Number.NEGATIVE_INFINITY;
+      forEachRenderedCellInRange(normalized, (cell, _row, col)=>{
+        if(cell.closest?.('.ag-pinned-top, .ag-floating-top, .ag-pinned-top-viewport, .ag-floating-top-viewport')){
+          return;
+        }
+        if(col !== normalized.from.col && col !== normalized.to.col){
+          return;
+        }
+        const rect = cell.getBoundingClientRect?.();
+        if(!rect || rect.width <= 0 || rect.height <= 0){
+          return;
+        }
+        const visibleRect = resolveVisibleCellRect(cell, rect, visibilityContext);
+        if(!visibleRect){
+          return;
+        }
+        if(col === normalized.from.col){
+          left = Math.min(left, visibleRect.left);
+        }
+        if(col === normalized.to.col){
+          right = Math.max(right, visibleRect.right);
+        }
+      });
+      return Number.isFinite(left) && Number.isFinite(right) && right > left
+        ? { left, right }
+        : null;
     };
 
     const resolveRangeOutlineEdgeVisibility = (selection, visibilityContext, options = {})=>{
@@ -5431,6 +5492,13 @@
       const isFullTableSelection = isFullColumnSelection
         && normalized.from.col === 0
         && normalized.to.col === Math.max(0, colCount - 1);
+      if(isFullColumnSelection){
+        const bodyColumnBounds = resolveVisibleBodyColumnBounds(normalized, visibilityContext);
+        if(bodyColumnBounds){
+          bounds.left = bodyColumnBounds.left;
+          bounds.right = bodyColumnBounds.right;
+        }
+      }
       let left = bounds.left - hostRect.left - 1;
       let top = bounds.top - hostRect.top - 1;
       let right = bounds.right - hostRect.left + 1;
@@ -6473,6 +6541,7 @@
     let headerDragColId = null;
     let headerDragStartPointer = null;
     let suppressNextHeaderLabelClickSelection = false;
+    let headerSelectionHandledOnMouseDownColId = null;
     let isColumnHandleDragging = false;
     let columnHandleDragColIds = null;
     let columnHandleLastTargetIndex = null;
@@ -7514,7 +7583,7 @@
             for(let visualRow = 0; visualRow < displayedCount; visualRow += 1){
               const physicalRow = Number(api.getDisplayedRowAtIndex(visualRow)?.data?.__rowIndex);
               if(selectedPhysicalRows.has(physicalRow)){
-                explicitRows.push(visualRow);
+                explicitRows.push(visualRow + (usePinnedRows ? pinRowCount : 0));
               }
             }
           }catch(err){
@@ -7820,6 +7889,14 @@
         return [];
       }
       return rowData.slice(0, Math.min(pinRowCount, rowData.length));
+    };
+    const getBodyRowData = (rows = rowData)=>{
+      if(!Array.isArray(rows) || !rows.length){
+        return [];
+      }
+      return usePinnedRows
+        ? rows.slice(Math.min(pinRowCount, rows.length))
+        : rows;
     };
 
     const applyPinnedTopRowData = (api)=>{
@@ -8159,24 +8236,16 @@
           const node = params?.node;
           const isPinnedTop = !!(node && node.rowPinned === 'top');
 
-          const rawRowIndex = node?.rowIndex ?? params?.data?.__rowIndex ?? 0;
+          const physicalRow = params?.data?.__rowIndex ?? node?.data?.__rowIndex ?? 0;
 
           // Start numbering at the first NON pinned row (the first row below pinned rows)
           const offset = (usePinnedRows && Number.isInteger(pinRowCount) && pinRowCount > 0) ? pinRowCount : 0;
-          const logicalRowIndex = rawRowIndex - offset;
+          const logicalRowIndex = physicalRow - offset;
 
           // Do not show a number on pinned rows (these are "header like" rows)
           if(isPinnedTop){
             if(typeof Shared !== 'undefined' && Shared && typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-              hotDebug('Debug: Shared.hot rowHeader pinned row number suppressed', { debugLabel, rawRowIndex, offset });
-            }
-            return '';
-          }
-
-          // Guard: if a ghost row ever becomes visible, do not label it
-          if(offset > 0 && logicalRowIndex < 0){
-            if(typeof Shared !== 'undefined' && Shared && typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-              hotDebug('Debug: Shared.hot rowHeader ghost row number suppressed', { debugLabel, rawRowIndex, logicalRowIndex, offset });
+              hotDebug('Debug: Shared.hot rowHeader pinned row number suppressed', { debugLabel, physicalRow, offset });
             }
             return '';
           }
@@ -8190,7 +8259,7 @@
               console.error('Shared.hot rowHeader rowHeadersSetting error', {
                 debugLabel,
                 message: err?.message || String(err),
-                rawRowIndex,
+                physicalRow,
                 logicalRowIndex,
                 offset
               });
@@ -8295,6 +8364,7 @@
       ? overrides.rowSelection
       : null;
     const columnWidthOverrides = new Map();
+    let uniformColumnGroupResizeGesture = null;
 
     const valueComparator = (a, b, _nodeA, _nodeB, isDescending)=>{
       const isEmpty = (v)=>v === null || v === undefined || v === '';
@@ -9252,7 +9322,7 @@
       this._startedWithTyping = false;
     };
 
-    const normalizeColumnDragGroupEntry = (entry)=>{
+    const normalizeColumnGroupEntry = (entry)=>{
       if(!entry || typeof entry !== 'object'){
         return null;
       }
@@ -9288,12 +9358,15 @@
         startCol: start,
         endCol,
         span: safeSpan,
-        columns: Array.from({ length: safeSpan }, (_, offset)=>start + offset)
+        columns: Array.from({ length: safeSpan }, (_, offset)=>start + offset),
+        colIds: Array.from({ length: safeSpan }, (_, offset)=>`c${start + offset}`),
+        selectionMode: entry.selectionMode === 'column' ? 'column' : 'progressive',
+        resizeMode: entry.resizeMode === 'column' ? 'column' : 'uniform'
       };
     };
 
-    const resolveColumnDragGroups = ()=>{
-      let source = columnDragGroupsSetting;
+    const resolveColumnGroups = ()=>{
+      let source = columnGroupsSetting;
       if(typeof source === 'function'){
         try{
           source = source({
@@ -9302,14 +9375,14 @@
             data: dataHandle.current
           });
         }catch(err){
-          console.error('Shared.hot columnDragGroups resolver error', err);
+          console.error('Shared.hot columnGroups resolver error', err);
           return [];
         }
       }
       const entries = Array.isArray(source) ? source : (source ? [source] : []);
       const normalized = [];
       for(let i = 0; i < entries.length; i += 1){
-        const group = normalizeColumnDragGroupEntry(entries[i]);
+        const group = normalizeColumnGroupEntry(entries[i]);
         if(group){
           normalized.push(group);
         }
@@ -9318,19 +9391,18 @@
       return normalized;
     };
 
-    const resolveColumnDragGroupForColumn = (colIndex)=>{
+    const resolveColumnGroupForColumn = (colIndex)=>{
       const col = Number(colIndex);
       if(!Number.isInteger(col) || col < 0){
         return null;
       }
-      const groups = resolveColumnDragGroups();
+      const groups = resolveColumnGroups();
       for(let i = 0; i < groups.length; i += 1){
         const group = groups[i];
         if(col >= group.startCol && col <= group.endCol){
           return Object.assign({}, group, {
             anchorCol: group.startCol,
-            isAnchor: col === group.startCol,
-            colIds: group.columns.map(groupCol => `c${groupCol}`)
+            isAnchor: col === group.startCol
           });
         }
       }
@@ -9427,22 +9499,27 @@
           const colIndex = typeof colId === 'string' && colId.startsWith('c')
             ? Number(colId.slice(1))
             : null;
-          const dragGroup = Number.isInteger(colIndex)
-            ? resolveColumnDragGroupForColumn(colIndex)
+          const columnGroup = Number.isInteger(colIndex)
+            ? resolveColumnGroupForColumn(colIndex)
             : null;
+          const groupedColumn = !!(columnGroup && columnGroup.span > 1);
+          const groupAnchor = groupedColumn && columnGroup.isAnchor;
 
           const handle = doc.createElement('span');
           handle.className = 'hot-col-drag-handle';
-          if(dragGroup && !dragGroup.isAnchor){
+          if(groupedColumn && !groupAnchor){
             handle.classList.add('hot-col-drag-handle--hidden');
             handle.setAttribute('aria-hidden', 'true');
-            root.classList.add('hot-ag-header--drag-hidden');
           }else{
-            const dragLabel = dragGroup && dragGroup.span > 1
+            const dragLabel = groupAnchor
               ? 'Drag to reorder column group'
               : 'Drag to reorder columns';
             handle.setAttribute('title', dragLabel);
             handle.setAttribute('aria-label', dragLabel);
+            if(groupAnchor){
+              handle.classList.add('hot-col-drag-handle--group-anchor');
+              root.classList.add('hot-ag-header--group-anchor');
+            }
           }
           handle.tabIndex = -1;
 
@@ -9615,6 +9692,13 @@
           colDef.width = Number.isFinite(widthOverride) && widthOverride > 0
             ? widthOverride
             : fixedDataColWidth;
+          const columnGroup = resolveColumnGroupForColumn(colIndex);
+          if(columnGroup
+            && columnGroup.span > 1
+            && columnGroup.resizeMode === 'uniform'
+            && colIndex !== columnGroup.endCol){
+            colDef.resizable = false;
+          }
           if(pinFirstDataColumn && colId === 'c0'){
             colDef.pinned = 'left';
             colDef.lockPinned = true;
@@ -9897,10 +9981,14 @@
       if(!Number.isInteger(row) || row < 0){
         return null;
       }
+      if(usePinnedRows && row < pinRowCount){
+        return row < dataHandle.current.length ? row : null;
+      }
       const api = instance?.gridApi;
       if(api && typeof api.getDisplayedRowAtIndex === 'function'){
         try{
-          const node = api.getDisplayedRowAtIndex(row);
+          const bodyRow = usePinnedRows ? row - pinRowCount : row;
+          const node = api.getDisplayedRowAtIndex(bodyRow);
           const physical = node?.data?.__rowIndex;
           if(Number.isInteger(physical) && physical >= 0){
             return physical;
@@ -9921,6 +10009,9 @@
       if(!Number.isInteger(row) || row < 0){
         return null;
       }
+      if(usePinnedRows && row < pinRowCount){
+        return row < dataHandle.current.length ? row : null;
+      }
       const api = instance?.gridApi;
       if(api && typeof api.getDisplayedRowCount === 'function' && typeof api.getDisplayedRowAtIndex === 'function'){
         try{
@@ -9928,7 +10019,7 @@
           for(let visualRow = 0; visualRow < displayedCount; visualRow += 1){
             const node = api.getDisplayedRowAtIndex(visualRow);
             if(Number(node?.data?.__rowIndex) === row){
-              return visualRow;
+              return visualRow + (usePinnedRows ? pinRowCount : 0);
             }
           }
           return null;
@@ -10067,7 +10158,9 @@
       if(api && typeof api.getDisplayedRowCount === 'function'){
         try{
           const count = api.getDisplayedRowCount();
-          return Number.isInteger(count) && count >= 0 ? count : dataHandle.current.length;
+          return Number.isInteger(count) && count >= 0
+            ? count + (usePinnedRows ? Math.min(pinRowCount, dataHandle.current.length) : 0)
+            : dataHandle.current.length;
         }catch(err){
           // ignore
         }
@@ -10103,8 +10196,10 @@
           const ranges = api.getCellRanges();
           if(Array.isArray(ranges) && ranges.length){
             const range = ranges[ranges.length - 1];
-            const startRow = range.startRow?.rowIndex ?? range.startRow?.rowPinned ?? 0;
-            const endRow = range.endRow?.rowIndex ?? range.endRow?.rowPinned ?? startRow;
+            const startRawRow = range.startRow?.rowIndex ?? 0;
+            const endRawRow = range.endRow?.rowIndex ?? startRawRow;
+            const startRow = usePinnedRows && !range.startRow?.rowPinned ? startRawRow + pinRowCount : startRawRow;
+            const endRow = usePinnedRows && !range.endRow?.rowPinned ? endRawRow + pinRowCount : endRawRow;
             const startColId = range.startColumn?.getColId?.() ?? range.columns?.[0]?.getColId?.();
             const endColId = range.endColumn?.getColId?.() ?? startColId;
             const startCol = colIdToIndex(startColId);
@@ -10128,7 +10223,9 @@
         if(!focused || !Number.isInteger(focused.rowIndex)){
           return false;
         }
-        const row = focused.rowIndex;
+        const row = usePinnedRows && !focused.rowPinned
+          ? focused.rowIndex + pinRowCount
+          : focused.rowIndex;
         const col = colIdToIndex(focused.column?.getColId?.());
         return commitApiSelectionRange(
           api,
@@ -10146,7 +10243,7 @@
         return false;
       }
       const api = params?.api || instance?.gridApi || null;
-      const row = params?.rowIndex;
+      const row = resolveVisualRowIndex(params);
       const colId = params?.column?.getColId?.() ?? params?.colId ?? null;
       if(!api || !Number.isInteger(row) || row < 0 || typeof colId !== 'string' || !colId.startsWith('c')){
         return false;
@@ -10675,6 +10772,76 @@
       }
     };
 
+    const beginUniformColumnGroupResize = (colIndex, api, clientX)=>{
+      const group = resolveColumnGroupForColumn(colIndex);
+      if(!group
+        || group.span <= 1
+        || group.resizeMode !== 'uniform'
+        || colIndex !== group.endCol){
+        uniformColumnGroupResizeGesture = null;
+        return null;
+      }
+      const widths = captureColumnWidths(api);
+      const entries = group.colIds
+        .map(colId => ({ colId, width: Number(widths?.get(colId)) }))
+        .filter(entry => Number.isFinite(entry.width) && entry.width > 0);
+      if(entries.length !== group.colIds.length){
+        uniformColumnGroupResizeGesture = null;
+        return null;
+      }
+      const resizedColId = `c${colIndex}`;
+      uniformColumnGroupResizeGesture = {
+        startCol: group.startCol,
+        endCol: group.endCol,
+        colIds: group.colIds.slice(),
+        resizedColId,
+        api,
+        startClientX: Number(clientX) || 0,
+        initialWidths: entries,
+        changed: false
+      };
+      return uniformColumnGroupResizeGesture;
+    };
+
+    const updateUniformColumnGroupResize = event=>{
+      const gesture = uniformColumnGroupResizeGesture;
+      if(!gesture){
+        return false;
+      }
+      const clientX = Number(event?.clientX);
+      if(!Number.isFinite(clientX)){
+        return false;
+      }
+      const columnStateApi = resolveColumnStateApi(gesture.api);
+      if(!columnStateApi || typeof columnStateApi.applyColumnState !== 'function'){
+        return false;
+      }
+      const widthDelta = (clientX - gesture.startClientX) / gesture.colIds.length;
+      const state = gesture.initialWidths.map(entry => ({
+        colId: entry.colId,
+        width: Math.max(20, Math.round(entry.width + widthDelta))
+      }));
+      columnStateApi.applyColumnState({ state, applyOrder: false });
+      state.forEach(entry => columnWidthOverrides.set(entry.colId, entry.width));
+      gesture.changed = true;
+      return true;
+    };
+
+    const finishUniformColumnGroupResize = ()=>{
+      const gesture = uniformColumnGroupResizeGesture;
+      uniformColumnGroupResizeGesture = null;
+      if(!gesture?.changed){
+        return false;
+      }
+      persistColumnWidthOverrides(gesture.api, 'group-column-resized');
+      syncOwnerTabTableUiState(instance, 'table-column-width-changed');
+      scheduleFillHandleUpdate('group-column-resize-finished');
+      if(formulaReferenceOverlayState.ranges.length){
+        scheduleFormulaReferenceOverlayRender('group-column-resize-finished');
+      }
+      return true;
+    };
+
     const exportColumnWidths = api => {
       const widths = captureColumnWidths(api);
       if(!widths){
@@ -10713,14 +10880,15 @@
       if(!api || !Array.isArray(rows)){
         return;
       }
+      const bodyRows = getBodyRowData(rows);
       try{
         if(typeof api.setGridOption === 'function'){
-          api.setGridOption('rowData', rows);
+          api.setGridOption('rowData', bodyRows);
           applyPinnedTopRowData(api);
           return;
         }
         if(typeof api.setRowData === 'function'){
-          api.setRowData(rows);
+          api.setRowData(bodyRows);
         }
         applyPinnedTopRowData(api);
       }catch(err){
@@ -11078,6 +11246,9 @@
     };
 
     const renderAg = (api)=>{
+      if(instance?.__destroyed){
+        return;
+      }
       if(batchDepth > 0){
         pendingRender = true;
         return;
@@ -11412,8 +11583,8 @@
           instance.__agNestedHeaders = opts.nestedHeaders;
           needsRebuild = true;
         }
-        if(Object.prototype.hasOwnProperty.call(opts, 'columnDragGroups')){
-          columnDragGroupsSetting = opts.columnDragGroups;
+        if(Object.prototype.hasOwnProperty.call(opts, 'columnGroups')){
+          columnGroupsSetting = opts.columnGroups;
           needsRebuild = true;
         }
 
@@ -11433,7 +11604,7 @@
           refreshColumnFiltersForDataMutation('update-settings');
         }
         if(pinConfigChanged){
-          applyPinnedTopRowData(instance.gridApi);
+          applyRowData(instance.gridApi, rowData);
           refreshPinnedRowLayout(instance.gridApi, 'pinFirstRow-update');
         }
         if(needsSchedule){
@@ -12054,8 +12225,11 @@
           }
           autoGrowthState.autoGrowTimerId = null;
         }
-        if(instance.gridApi && typeof instance.gridApi.destroy === 'function'){
-          instance.gridApi.destroy();
+        const gridApi = instance.gridApi || null;
+        instance.gridApi = null;
+        instance.columnApi = null;
+        if(gridApi && typeof gridApi.destroy === 'function'){
+          gridApi.destroy();
         }
       }
       ,
@@ -12955,6 +13129,36 @@
       return rangeCols;
     };
 
+    const isExactColumnGroupSelected = (group)=>{
+      const groupColumns = Array.isArray(group?.columns) ? group.columns : [];
+      if(groupColumns.length <= 1){
+        return false;
+      }
+      const selected = selectedHeaderColumns.size
+        ? Array.from(selectedHeaderColumns)
+        : getFullColumnSelectionColumns();
+      if(selected.length !== groupColumns.length){
+        return false;
+      }
+      const selectedSet = new Set(selected);
+      return groupColumns.every(col => selectedSet.has(col));
+    };
+
+    const resolveHeaderClickColumns = (colIdx, options = {})=>{
+      const col = Number(colIdx);
+      if(!Number.isInteger(col) || col < 0 || col >= colCount){
+        return [];
+      }
+      const group = resolveColumnGroupForColumn(col);
+      if(!group || group.span <= 1 || group.selectionMode !== 'progressive'){
+        return [col];
+      }
+      if(options.extend || options.additive){
+        return group.columns.slice();
+      }
+      return isExactColumnGroupSelected(group) ? [col] : group.columns.slice();
+    };
+
     const resolveHeaderColumnSelectionInfo = (colIdx)=>{
       const selected = resolveSelectedColumnGroup(colIdx) || [];
       const sorted = selected
@@ -13314,7 +13518,7 @@
         return targetBefore;
       }
       const movingSet = new Set(Array.isArray(movingColIds) ? movingColIds : []);
-      const groups = resolveColumnDragGroups();
+      const groups = resolveColumnGroups();
       if(!groups.length){
         return targetBefore;
       }
@@ -13345,7 +13549,7 @@
 
       if(typeof hoverColId === 'string' && hoverColId.startsWith('c') && !movingSet.has(hoverColId)){
         const hoverCol = Number(hoverColId.slice(1));
-        const hoverGroup = resolveColumnDragGroupForColumn(hoverCol);
+        const hoverGroup = resolveColumnGroupForColumn(hoverCol);
         const displayedGroup = resolveDisplayedGroup(hoverGroup);
         const hoverEntry = positionsById.get(hoverColId);
         if(displayedGroup && hoverEntry){
@@ -13859,7 +14063,7 @@
       };
     };
     const gridOptions = {
-      rowData,
+      rowData: getBodyRowData(),
       pinnedTopRowData: usePinnedRows ? getPinnedTopRowData() : null,
       rowHeight: DEFAULT_GRID_ROW_HEIGHT,
 
@@ -13875,20 +14079,6 @@
         comparator: valueComparator
       },
       singleClickEdit,
-      getRowHeight(params){
-        if(!usePinnedRows){
-          return undefined;
-        }
-        const node = params?.node;
-        if(node?.rowPinned){
-          return undefined;
-        }
-        const physicalRow = node?.data?.__rowIndex ?? node?.rowIndex ?? null;
-        if(isPinnedTopRow(physicalRow)){
-          return 1;
-        }
-        return undefined;
-      },
       rowSelection: rowSelectionConfig || undefined,
       selectionColumnDef: rowSelectionConfig ? overrides?.selectionColumnDef : undefined,
         suppressRowHoverHighlight: true,
@@ -14025,6 +14215,12 @@
         maybeGrowRows('gridReady');
         maybeGrowCols('gridReady');
         updateVisibleRowHeaderWidth('gridReady');
+      },
+      onGridPreDestroyed(){
+        instance.__destroyed = true;
+        instance.gridApi = null;
+        instance.columnApi = null;
+        runCleanup();
       },
       onFirstDataRendered(){
         ensureViewportScrollHandler();
@@ -14216,10 +14412,7 @@
           renderAg(api);
           try{
             if(api && typeof api.setFocusedCell === 'function'){
-              api.setFocusedCell(nextRow, colId);
-              if(typeof api.ensureIndexVisible === 'function'){
-                api.ensureIndexVisible(nextRow);
-              }
+              focusVisualCell(api, nextRow, colId, true);
             }
           }catch(err){
             // best-effort focus move
@@ -14365,12 +14558,6 @@
         if(isHeaderRow(physicalRow) && firstRowClassName){
           classes.push(firstRowClassName);
         }
-        if(usePinnedRows && isPinnedTopRow(physicalRow) && !params?.node?.rowPinned){
-          classes.push('hot-pinned-ghost-row');
-        }
-        if(usePinnedRows && pinRowCount > 0 && Number.isInteger(physicalRow) && physicalRow === pinRowCount){
-          classes.push('hot-pinned-first-body-row');
-        }
         return classes.length ? classes.join(' ') : null;
       },
       onCellContextMenu(params){
@@ -14384,7 +14571,7 @@
         }
         const colIdRaw = params?.column?.getColId?.();
         if(colIdRaw === '__rowHeader'){
-          const visualRow = params?.node?.rowIndex ?? 0;
+          const visualRow = resolveVisualRowIndex(params) ?? 0;
           const physicalRow = params?.node?.data?.__rowIndex ?? visualRow;
           if(!Number.isInteger(physicalRow) || physicalRow < 0 || isPinnedOrHeaderRow(physicalRow)){
             return;
@@ -14505,8 +14692,8 @@
         }
         const colIdx = typeof colIdRaw === 'string' && colIdRaw.startsWith('c') ? Number(colIdRaw.slice(1)) : 0;
         const clickedRange = {
-          from: { row: params?.node?.rowIndex ?? 0, col: colIdx },
-          to: { row: params?.node?.rowIndex ?? 0, col: colIdx }
+          from: { row: resolveVisualRowIndex(params) ?? 0, col: colIdx },
+          to: { row: resolveVisualRowIndex(params) ?? 0, col: colIdx }
         };
         const activeSelection = getEffectiveSelectionRange();
         const sel = rangeContainsRange(activeSelection, clickedRange) ? activeSelection : clickedRange;
@@ -15020,7 +15207,7 @@
           const colId = directCell.getAttribute?.('col-id') || '';
           const col = typeof colId === 'string' && colId.startsWith('c') ? Number(colId.slice(1)) : null;
           const rowAttr = directCell.closest?.('.ag-row')?.getAttribute?.('row-index') || '';
-          const row = parseVisualRowIndex(rowAttr);
+          const row = parseVisualRowIndex(rowAttr, directCell);
           if(Number.isInteger(row) && row >= 0 && Number.isInteger(col) && col >= 0){
             coords = { row, col };
           }
@@ -15381,11 +15568,16 @@
         fireHook('afterSelectionEnd', fromRow, fromCol, toRow, toCol);
       };
 
-      const selectColumnByHeader = (col, extend, additive, options)=>{
-        const visualCol = Number(col);
-        if(!Number.isInteger(visualCol) || visualCol < 0){
+      const selectColumnsByHeader = (columns, extend, additive, options)=>{
+        const targetColumns = Array.from(new Set((Array.isArray(columns) ? columns : [columns])
+          .map(col => Number(col))
+          .filter(col => Number.isInteger(col) && col >= 0 && col < colCount)))
+          .sort((a, b)=>a - b);
+        if(!targetColumns.length){
           return;
         }
+        const firstTargetCol = targetColumns[0];
+        const lastTargetCol = targetColumns[targetColumns.length - 1];
         const shouldRender = options?.render !== false;
         const deferRender = !!options?.deferRender;
         const renderSelection = ()=>{
@@ -15406,27 +15598,28 @@
             ? Array.from(selectedHeaderColumns)
             : getFullColumnSelectionColumns();
           const next = new Set(seed);
-          if(next.has(visualCol)){
-            next.delete(visualCol);
+          const allTargetsSelected = targetColumns.every(col => next.has(col));
+          if(allTargetsSelected){
+            targetColumns.forEach(col => next.delete(col));
           }else{
-            next.add(visualCol);
+            targetColumns.forEach(col => next.add(col));
           }
           selectedHeaderColumns = next;
           setLastRange(next.size
-            ? { from: { row: 0, col: visualCol }, to: { row: lastRow, col: visualCol } }
+            ? { from: { row: 0, col: firstTargetCol }, to: { row: lastRow, col: lastTargetCol } }
             : null);
           renderSelection();
           if(next.size){
-            fireHook('afterSelectionEnd', 0, visualCol, lastRow, visualCol);
+            fireHook('afterSelectionEnd', 0, firstTargetCol, lastRow, lastTargetCol);
           }
           return;
         }
         clearSelectedHeaderColumns();
-        let fromCol = visualCol;
-        let toCol = visualCol;
+        let fromCol = firstTargetCol;
+        let toCol = lastTargetCol;
         if(extend && normalizedSelectionRange){
-          fromCol = Math.min(normalizedSelectionRange.from.col, visualCol);
-          toCol = Math.max(normalizedSelectionRange.to.col, visualCol);
+          fromCol = Math.min(normalizedSelectionRange.from.col, firstTargetCol);
+          toCol = Math.max(normalizedSelectionRange.to.col, lastTargetCol);
         }
         setLastRange({ from: { row: 0, col: fromCol }, to: { row: lastRow, col: toCol } });
         renderSelection();
@@ -15547,7 +15740,7 @@
                 const colId = `c${anchor.col}`;
                 try{
                   if(typeof api?.setFocusedCell === 'function'){
-                    api.setFocusedCell(anchor.row, colId);
+                    focusVisualCell(api, anchor.row, colId);
                   }
                 }catch(err){
                   // ignore focus restore failures
@@ -15589,7 +15782,7 @@
           return;
         }
         const rowAttr = cell.closest('.ag-row')?.getAttribute?.('row-index');
-        const row = parseVisualRowIndex(rowAttr);
+        const row = parseVisualRowIndex(rowAttr, cell);
         if(!Number.isInteger(row) || row < 0){
           return;
         }
@@ -15633,7 +15826,7 @@
             headerDragRafPending = false;
             headerDragStartPointer = null;
             const colIdx = Number(colId.slice(1));
-            const dragGroup = resolveColumnDragGroupForColumn(colIdx);
+            const dragGroup = resolveColumnGroupForColumn(colIdx);
             if(dragGroup && !dragGroup.isAnchor){
               return;
             }
@@ -15658,7 +15851,27 @@
           headerDragStartPointer = null;
           return;
         }
-        if(target.closest('.ag-header-cell-resize') || target.closest('.ag-header-icon') || target.closest('.ag-header-cell-menu-button')){
+        if(target.closest('.ag-header-cell-resize')){
+          const resizeHeaderCell = target.closest('.ag-header-cell');
+          const resizeColId = resizeHeaderCell?.getAttribute?.('col-id');
+          const resizeCol = typeof resizeColId === 'string' && resizeColId.startsWith('c')
+            ? Number(resizeColId.slice(1))
+            : null;
+          if(Number.isInteger(resizeCol)){
+            const gesture = beginUniformColumnGroupResize(
+              resizeCol,
+              instance?.gridApi || null,
+              event.clientX
+            );
+            if(gesture){
+              event.preventDefault?.();
+              event.stopPropagation?.();
+              event.stopImmediatePropagation?.();
+            }
+          }
+          return;
+        }
+        if(target.closest('.ag-header-icon') || target.closest('.ag-header-cell-menu-button')){
           return;
         }
         const headerCell = target.closest('.ag-header-cell');
@@ -15678,6 +15891,7 @@
         }
         const additiveSelection = !!(event.ctrlKey || event.metaKey);
         const selectionIntent = !!(event.shiftKey || additiveSelection);
+        headerSelectionHandledOnMouseDownColId = null;
         isDragSelecting = false;
         dragAnchor = null;
         pendingDragCell = null;
@@ -15702,9 +15916,14 @@
           focusGridContainer();
         }
         if(selectionIntent){
-          selectColumnByHeader(col, !!event.shiftKey, additiveSelection, {
+          const targetColumns = resolveHeaderClickColumns(col, {
+            extend: !!event.shiftKey,
+            additive: additiveSelection
+          });
+          selectColumnsByHeader(targetColumns, !!event.shiftKey, additiveSelection, {
             deferRender: false
           });
+          headerSelectionHandledOnMouseDownColId = colId;
         }
         // Keep sort active on plain header clicks; only suppress sorting when
         // the intent is multi-select/extend selection.
@@ -15874,10 +16093,21 @@
             event.stopImmediatePropagation?.();
             return;
           }
+          if(headerSelectionHandledOnMouseDownColId === colId){
+            headerSelectionHandledOnMouseDownColId = null;
+            event.preventDefault?.();
+            event.stopPropagation?.();
+            event.stopImmediatePropagation?.();
+            return;
+          }
           if(isValidCol){
             const additiveSelection = !!(event.ctrlKey || event.metaKey);
             const extendSelection = !!event.shiftKey;
-            selectColumnByHeader(col, extendSelection, additiveSelection, {
+            const targetColumns = resolveHeaderClickColumns(col, {
+              extend: extendSelection,
+              additive: additiveSelection
+            });
+            selectColumnsByHeader(targetColumns, extendSelection, additiveSelection, {
               deferRender: false
             });
           }
@@ -15925,7 +16155,7 @@
         }
         const rowNode = target.closest('.ag-row');
         const rowAttr = rowNode?.getAttribute?.('row-index');
-        const row = parseVisualRowIndex(rowAttr);
+        const row = parseVisualRowIndex(rowAttr, rowNode);
         if(Number.isInteger(row) && row >= 0){
           return row;
         }
@@ -16233,7 +16463,7 @@
           return null;
         }
         index = Math.max(0, Math.min(maxIndex, Math.round(index)));
-        return index;
+        return index + (usePinnedRows ? pinRowCount : 0);
       };
 
       const scrollGridVerticallyByRows = (direction, distance)=>{
@@ -16452,6 +16682,18 @@
       };
 
       const handleMouseMove = (event)=>{
+        if(uniformColumnGroupResizeGesture){
+          const buttons = typeof event?.buttons === 'number' ? event.buttons : null;
+          if(buttons !== null && (buttons & 1) !== 1){
+            finishUniformColumnGroupResize();
+            return;
+          }
+          updateUniformColumnGroupResize(event);
+          event.preventDefault?.();
+          event.stopPropagation?.();
+          event.stopImmediatePropagation?.();
+          return;
+        }
         if(isFillHandleDragging){
           const buttons = typeof event?.buttons === 'number' ? event.buttons : null;
           if(buttons !== null){
@@ -16707,6 +16949,10 @@
       };
 
       const handleMouseUp = ()=>{
+        if(uniformColumnGroupResizeGesture){
+          finishUniformColumnGroupResize();
+          return;
+        }
         if(formulaReferenceDragState){
           stopFormulaReferenceDrag('mouseup');
           return;
@@ -16839,10 +17085,7 @@
               const api = instance.gridApi;
               if(api && typeof api.setFocusedCell === 'function'){
                 const colId = `c${selection.to.col}`;
-                api.setFocusedCell(nextRow, colId);
-                if(typeof api.ensureIndexVisible === 'function'){
-                  api.ensureIndexVisible(nextRow);
-                }
+                focusVisualCell(api, nextRow, colId, true);
               }
             }catch(err){
               // best-effort focus move
@@ -17227,6 +17470,7 @@
       };
 
       const handleWindowBlur = ()=>{
+        finishUniformColumnGroupResize();
         if(isColumnHandleDragging){
           stopColumnHandleDrag();
         }
@@ -17323,10 +17567,11 @@
         }
         const colKey = `c${coords.col}`;
         try{
+          const pinnedEdit = usePinnedRows && coords.row < pinRowCount;
           api.startEditingCell({
-            rowIndex: coords.row,
+            rowIndex: pinnedEdit ? coords.row : (usePinnedRows ? coords.row - pinRowCount : coords.row),
             colKey,
-            rowPinned: null
+            rowPinned: pinnedEdit ? 'top' : null
           });
           if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
             hotDebug('Debug: Shared.hot touch edit tap start', {

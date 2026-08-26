@@ -61,8 +61,8 @@ describe('Shared p-value formatting contract', () => {
     window.Shared.statsReporting.enhancePanelNow(target, 'second-pass');
 
     expect(pCells(target).map(cell => cell.childNodes[0]?.textContent)).toEqual(['<0.0001', '<0.0001']);
-    expect(pCells(target).every(cell => cell.querySelector('.stats-significance-badge')?.textContent === '****')).toBe(true);
-    expect(target.textContent).not.toContain('<0****');
+    expect(pCells(target).every(cell => cell.querySelector('.stats-significance-badge') === null)).toBe(true);
+    expect(target.textContent).not.toContain('<0*');
   });
 
   test('decimal-scientific-decimal switching is lossless for zero and tiny calculated values', () => {

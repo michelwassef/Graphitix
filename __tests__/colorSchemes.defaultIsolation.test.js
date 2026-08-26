@@ -89,7 +89,7 @@ describe('color scheme default isolation', () => {
     expect(schemes.getSelectedSchemeId('line')).toBe('scientific');
   });
 
-  test('workspace payload fallback propagates explicit tab ownership metadata', () => {
+  test('missing canonical payload uses the component empty payload without a live DOM capture', () => {
     const activeTab = {
       id: 'workspace-meta-line',
       type: 'line',
@@ -122,13 +122,8 @@ describe('color scheme default isolation', () => {
     require('../js/shared/colorSchemes.js');
     const schemes = window.Shared?.colorSchemes;
     expect(schemes.applyToActiveTab('line', 'dark')).toBe(true);
-    expect(lineWorkspace.getPayload).toHaveBeenCalled();
-    const [metaArg] = lineWorkspace.getPayload.mock.calls.at(-1) || [];
-    expect(metaArg).toEqual(expect.objectContaining({
-      tabId: 'workspace-meta-line',
-      type: 'line',
-      origin: 'colorSchemes'
-    }));
-    expect(String(metaArg.reason || '')).toContain('color-scheme-source-line');
+    expect(lineWorkspace.createEmptyPayload).toHaveBeenCalledTimes(1);
+    expect(lineWorkspace.getPayload).not.toHaveBeenCalled();
+    expect(activeTab.payload?.config?.colorScheme).toBe('dark');
   });
 });

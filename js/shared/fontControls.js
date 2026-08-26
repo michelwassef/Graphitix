@@ -237,11 +237,13 @@
   const FONT_SCOPE_LABELS = 'labels';
   const FONT_SCOPE_LEGEND = 'legend';
   const FONT_SCOPE_SCALE = 'scale';
+  const FONT_SCOPE_COLLECTION = 'collection';
   const FONT_SCOPE_GRAPH = 'graph';
   const GRAPH_SCOPE_TOKEN = '__graph__';
   const LABELS_SCOPE_TOKEN = '__labels__';
   const LEGEND_SCOPE_TOKEN = '__legend__';
   const SCALE_SCOPE_TOKEN = '__scale__';
+  const COLLECTION_SCOPE_TOKEN_PREFIX = '__collection__:';
   const LEGEND_FRAME_TOKEN = '__legendFrame__';
   const LEGEND_FRAME_DEFAULTS = Object.freeze({
     legendBorderWidth: 0,
@@ -329,6 +331,7 @@
   let scopeLabelsOptionEl = null;
   let scopeLegendOptionEl = null;
   let scopeScaleOptionEl = null;
+  let scopeCollectionOptionEl = null;
   let footerEl = null;
   let currentTarget = null;
   let currentScope = null;
@@ -528,7 +531,7 @@
   }
 
   const STYLE_KEYS = ['fontFamily', 'fontWeight', 'fontStyle', 'fontSize', 'fill', 'textDecoration', 'baselineShift'];
-  const STYLE_META_KEYS = ['fontSizeResizeReference', 'hidden'].concat(LEGEND_FRAME_STYLE_KEYS);
+  const STYLE_META_KEYS = ['fontSizeResizeReference', 'fontSizeDisplayScaleReference', 'hidden'].concat(LEGEND_FRAME_STYLE_KEYS);
   const STYLE_STATE_KEYS = STYLE_KEYS.concat(STYLE_META_KEYS);
   const STYLE_ATTR_MAP = {
     fontFamily: 'font-family',
@@ -613,10 +616,11 @@
     return parsed.numeric;
   }
 
-  function formatFontSizePx(px){
+  function formatFontSizePx(px, precision = 2){
     const numeric = Number(px);
     if(!Number.isFinite(numeric) || numeric <= 0){ return null; }
-    const rounded = Math.round(numeric * 100) / 100;
+    const factor = 10 ** Math.max(0, Number(precision) || 0);
+    const rounded = Math.round(numeric * factor) / factor;
     return `${rounded}px`;
   }
 
@@ -722,17 +726,29 @@
       return fontSize || null;
     }
     const context = resolveFontResizeContext(node, options);
-    if(!context.enabled){
-      return formatFontSizePx(basePx) || fontSize;
-    }
     const referenceScale = Number(reference);
     const safeReference = Number.isFinite(referenceScale) && referenceScale > 0 ? referenceScale : context.scale;
-    const scaledPx = basePx * (context.scale / safeReference);
-    return formatFontSizePx(scaledPx) || fontSize;
+    let scaledPx = context.enabled ? basePx * (context.scale / safeReference) : basePx;
+    const displayScaleReference = Number(options.displayScaleReference);
+    const currentDisplayScale = Number(node?.dataset?.fontSizeDisplayScale);
+    if(Number.isFinite(displayScaleReference) && displayScaleReference > 0
+      && Number.isFinite(currentDisplayScale) && currentDisplayScale > 0){
+      scaledPx *= displayScaleReference / currentDisplayScale;
+    }
+    return formatFontSizePx(scaledPx, Number.isFinite(displayScaleReference) ? 5 : 2) || fontSize;
   }
 
   function currentFontResizeReference(node){
     return resolveFontResizeContext(node).scale;
+  }
+
+  function resolveActiveFontSizeDisplayScale(node){
+    if((activeScopeMode !== FONT_SCOPE_SELECTION && activeScopeMode !== FONT_SCOPE_COLLECTION) || !node){
+      return 1;
+    }
+    const raw = node.dataset?.fontSizeDisplayScale;
+    const scale = Number(raw);
+    return Number.isFinite(scale) && scale > 0 ? scale : 1;
   }
 
   function sanitizeInlineStyleEntry(entry){
@@ -1371,6 +1387,10 @@
     if(Number.isFinite(reference) && reference > 0 && clone.fontSize){
       clone.fontSizeResizeReference = reference;
     }
+    const displayScaleReference = Number(style.fontSizeDisplayScaleReference);
+    if(Number.isFinite(displayScaleReference) && displayScaleReference > 0 && clone.fontSize){
+      clone.fontSizeDisplayScaleReference = displayScaleReference;
+    }
     if(style.hidden === true){
       clone.hidden = true;
       hasValue = true;
@@ -1428,6 +1448,9 @@
       if(snapshot.fontSize && !Number.isFinite(Number(snapshot.fontSizeResizeReference))){
         delete merged.fontSizeResizeReference;
       }
+      if(snapshot.fontSize && !Number.isFinite(Number(snapshot.fontSizeDisplayScaleReference))){
+        delete merged.fontSizeDisplayScaleReference;
+      }
       STYLE_META_KEYS.forEach(key => {
         const value = snapshot[key];
         if(value !== undefined && value !== null && value !== ''){
@@ -1462,6 +1485,7 @@
         delete merged[key];
         if(key === 'fontSize'){
           delete merged.fontSizeResizeReference;
+          delete merged.fontSizeDisplayScaleReference;
         }
         return;
       }
@@ -1469,6 +1493,7 @@
     });
     if(!merged.fontSize){
       delete merged.fontSizeResizeReference;
+      delete merged.fontSizeDisplayScaleReference;
     }
     return cloneStyleSnapshot(merged);
   }
@@ -1481,6 +1506,7 @@
       delete clone[key];
       if(key === 'fontSize'){
         delete clone.fontSizeResizeReference;
+        delete clone.fontSizeDisplayScaleReference;
       }
     });
     if(Array.isArray(clone.inlineSegments)){
@@ -1806,7 +1832,9 @@
           ? FONT_SCOPE_LABELS
           : (mode === FONT_SCOPE_LEGEND
               ? FONT_SCOPE_LEGEND
-              : (mode === FONT_SCOPE_SCALE ? FONT_SCOPE_SCALE : FONT_SCOPE_SELECTION)));
+              : (mode === FONT_SCOPE_SCALE
+                  ? FONT_SCOPE_SCALE
+                  : (mode === FONT_SCOPE_COLLECTION ? FONT_SCOPE_COLLECTION : FONT_SCOPE_SELECTION))));
     activeScopeMode = normalized;
     const key = scopePreferenceKey(scopeId || currentScope);
     const tabToken = resolveStoreTabToken(options || { target: currentTarget || activeHost || panelEl || null });
@@ -1826,9 +1854,19 @@
   }
 
   function syncScopeModeForCurrentTarget(){
-    const supportsLabelsScope = currentTarget?.dataset?.fontCollection === 'labels';
-    const supportsLegendScope = currentTarget?.dataset?.fontCollection === 'legend';
-    const supportsScaleScope = currentTarget?.dataset?.fontCollection === 'scale';
+    const targetCollection = normalizeFontCollection(
+      currentTarget?.dataset?.fontCollection,
+      currentTarget?.dataset?.fontRole
+    );
+    const supportsLabelsScope = targetCollection === 'labels';
+    const supportsLegendScope = targetCollection === 'legend';
+    const supportsScaleScope = targetCollection === 'scale';
+    const customCollection = targetCollection
+      && !supportsLabelsScope
+      && !supportsLegendScope
+      && !supportsScaleScope
+      ? targetCollection
+      : null;
     if(scopeLabelsOptionEl){
       scopeLabelsOptionEl.disabled = !supportsLabelsScope;
       scopeLabelsOptionEl.hidden = !supportsLabelsScope;
@@ -1841,12 +1879,20 @@
       scopeScaleOptionEl.disabled = !supportsScaleScope;
       scopeScaleOptionEl.hidden = !supportsScaleScope;
     }
+    if(scopeCollectionOptionEl){
+      scopeCollectionOptionEl.disabled = !customCollection;
+      scopeCollectionOptionEl.hidden = !customCollection;
+      scopeCollectionOptionEl.textContent = customCollection
+        ? (currentTarget?.dataset?.fontCollectionLabel || humanizeToken(customCollection) || 'Collection')
+        : 'Collection';
+    }
     const storedMode = getScopeMode(currentScope, { target: currentTarget || activeHost || panelEl || null });
     const mode = supportsLegendScope || supportsScaleScope
       ? (supportsLegendScope ? FONT_SCOPE_LEGEND : FONT_SCOPE_SCALE)
       : ((storedMode === FONT_SCOPE_LABELS && !supportsLabelsScope)
           || (storedMode === FONT_SCOPE_LEGEND && !supportsLegendScope)
           || (storedMode === FONT_SCOPE_SCALE && !supportsScaleScope)
+          || (storedMode === FONT_SCOPE_COLLECTION && !customCollection)
         ? FONT_SCOPE_SELECTION
         : storedMode);
     activeScopeMode = mode;
@@ -1874,6 +1920,10 @@
 
   function isScaleScopeMode(){
     return activeScopeMode === FONT_SCOPE_SCALE;
+  }
+
+  function isCollectionScopeMode(){
+    return activeScopeMode === FONT_SCOPE_COLLECTION;
   }
 
   function resolveStoreContext(target, options){
@@ -1922,6 +1972,20 @@
         storeKey: buildStoreKey(scopeId, SCALE_SCOPE_TOKEN, { target, tabId })
       };
     }
+    if(mode === FONT_SCOPE_COLLECTION){
+      const collection = normalizeFontCollection(dataset.fontCollection, dataset.fontRole);
+      const collectionToken = fontCollectionStoreToken(collection);
+      if(collectionToken && ![LABELS_SCOPE_TOKEN, LEGEND_SCOPE_TOKEN, SCALE_SCOPE_TOKEN].includes(collectionToken)){
+        return {
+          scopeId,
+          key: collectionToken,
+          collection,
+          tabId,
+          mode,
+          storeKey: buildStoreKey(scopeId, collectionToken, { target, tabId })
+        };
+      }
+    }
     return {
       scopeId,
       key,
@@ -1933,7 +1997,7 @@
 
   function handleInlineSelectionPatch(patch, meta){
     if(!currentTarget){ return { handled: false }; }
-    if(isGraphScopeMode() || isLabelsScopeMode() || isLegendScopeMode() || isScaleScopeMode()){
+    if(isGraphScopeMode() || isLabelsScopeMode() || isLegendScopeMode() || isScaleScopeMode() || isCollectionScopeMode()){
       logDebug('inline selection patch skipped (bulk scope active)', {
         meta,
         patchKeys: Object.keys(patch || {})
@@ -2933,7 +2997,11 @@
           ? 'Labels scope'
           : (isLegendScopeMode()
               ? 'Legend scope'
-              : (isScaleScopeMode() ? 'Scale scope' : 'Selection scope')));
+              : (isScaleScopeMode()
+                  ? 'Scale scope'
+                  : (isCollectionScopeMode()
+                      ? `${currentTarget?.dataset?.fontCollectionLabel || humanizeToken(currentTarget?.dataset?.fontCollection) || 'Collection'} scope`
+                      : 'Selection scope'))));
     parts.push(scopeModeLabel);
     if(currentTarget){
       const role = humanizeToken(currentTarget.dataset?.fontRole || currentTarget.dataset?.fontKey);
@@ -2961,7 +3029,9 @@
               ? 'Changes apply to all legend text in this graph.'
               : (isScaleScopeMode()
                   ? 'Changes apply to all numeric scale text in this graph.'
-                  : 'Changes apply only to the selected text.')));
+                  : (isCollectionScopeMode()
+                      ? `Changes apply to all ${String(currentTarget?.dataset?.fontCollectionLabel || humanizeToken(currentTarget?.dataset?.fontCollection) || 'collection').toLowerCase()} in this graph.`
+                      : 'Changes apply only to the selected text.'))));
   }
 
   function updatePreviewText(){
@@ -3578,7 +3648,8 @@
       resolvedStyle.fontSize = resolveStoredFontSizeForNode(
         resolvedStyle.fontSize,
         resolvedStyle.fontSizeResizeReference,
-        node
+        node,
+        { displayScaleReference: resolvedStyle.fontSizeDisplayScaleReference }
       );
     }
     const isSvgNode = isSvgTextTarget(node);
@@ -3617,6 +3688,11 @@
       node.style.visibility = resolvedStyle.hidden === true ? 'hidden' : '';
     }
     if(node.dataset){
+      if(Number.isFinite(Number(style.fontSizeDisplayScaleReference)) && Number(style.fontSizeDisplayScaleReference) > 0){
+        node.dataset.fontSizeDisplayScaleReference = String(Number(style.fontSizeDisplayScaleReference));
+      }else{
+        delete node.dataset.fontSizeDisplayScaleReference;
+      }
       if(resolvedStyle.hidden === true){
         node.dataset.fontHidden = 'true';
       }else{
@@ -3720,8 +3796,16 @@
     return resolveTokenFromStoreKey(storeKey) === SCALE_SCOPE_TOKEN;
   }
 
+  function isCollectionStoreKey(storeKey){
+    return String(resolveTokenFromStoreKey(storeKey) || '').startsWith(COLLECTION_SCOPE_TOKEN_PREFIX);
+  }
+
   function isBulkStoreKey(storeKey){
-    return isGraphStoreKey(storeKey) || isLabelsStoreKey(storeKey) || isLegendStoreKey(storeKey) || isScaleStoreKey(storeKey);
+    return isGraphStoreKey(storeKey)
+      || isLabelsStoreKey(storeKey)
+      || isLegendStoreKey(storeKey)
+      || isScaleStoreKey(storeKey)
+      || isCollectionStoreKey(storeKey);
   }
 
   function normalizeFontCollection(collection, role){
@@ -3729,6 +3813,7 @@
     if(requested === 'labels' || requested === 'legend' || requested === 'scale'){
       return requested;
     }
+    if(requested){ return sanitizeStoreToken(requested); }
     if(role === 'legend'){ return 'legend'; }
     if(role === 'scaleTick' || role === 'scaleTitle'){ return 'scale'; }
     return null;
@@ -3738,7 +3823,28 @@
     if(collection === 'labels'){ return LABELS_SCOPE_TOKEN; }
     if(collection === 'legend'){ return LEGEND_SCOPE_TOKEN; }
     if(collection === 'scale'){ return SCALE_SCOPE_TOKEN; }
-    return null;
+    return collection ? `${COLLECTION_SCOPE_TOKEN_PREFIX}${sanitizeStoreToken(collection)}` : null;
+  }
+
+  function fontCollectionFromStoreKey(storeKey){
+    const token = resolveTokenFromStoreKey(storeKey);
+    if(token === LABELS_SCOPE_TOKEN){ return 'labels'; }
+    if(token === LEGEND_SCOPE_TOKEN){ return 'legend'; }
+    if(token === SCALE_SCOPE_TOKEN){ return 'scale'; }
+    return String(token || '').startsWith(COLLECTION_SCOPE_TOKEN_PREFIX)
+      ? String(token).slice(COLLECTION_SCOPE_TOKEN_PREFIX.length)
+      : null;
+  }
+
+  function resolveNodeFontOwnership(node){
+    const dataset = node?.dataset || {};
+    const owner = typeof node?.closest === 'function'
+      ? node.closest('[data-font-scope], [data-font-tab-id]')
+      : null;
+    return {
+      scope: dataset.fontScope || owner?.dataset?.fontScope || null,
+      tabId: dataset.fontTabId || owner?.dataset?.fontTabId || null
+    };
   }
 
   function isStoreKeyInScope(storeKey, scope, tabToken){
@@ -3755,10 +3861,11 @@
     const changedStoreKey = options.storeKey || null;
     const hasChangedStyle = Object.prototype.hasOwnProperty.call(options, 'style');
     const changedStyle = options.style || null;
-    const scope = dataset.fontScope || resolveScopeFromStoreKey(changedStoreKey) || null;
+    const ownership = resolveNodeFontOwnership(node);
+    const scope = ownership.scope || resolveScopeFromStoreKey(changedStoreKey) || null;
     const key = dataset.fontKey || resolveTokenFromStoreKey(changedStoreKey) || null;
     const collection = normalizeFontCollection(dataset.fontCollection, dataset.fontRole);
-    const tabId = dataset.fontTabId || resolveTabTokenFromStoreKey(changedStoreKey) || null;
+    const tabId = ownership.tabId || resolveTabTokenFromStoreKey(changedStoreKey) || null;
     const graphStoreKey = buildStoreKey(scope, GRAPH_SCOPE_TOKEN, { node, tabId });
     const nodeStoreKey = key && key !== GRAPH_SCOPE_TOKEN
       ? buildStoreKey(scope, key, { node, tabId })
@@ -3937,6 +4044,7 @@
     const key = options?.key ?? dataset.fontKey ?? null;
     const tabId = options?.tabId ?? dataset.fontTabId ?? null;
     const storeKey = options?.storeKey || buildStoreKey(scope, key, { node, tabId });
+    const bulkCollection = fontCollectionFromStoreKey(storeKey);
     const explicitEditable = dataset.fontEditable === '1';
     if(!explicitEditable && !scope && !key){
       logDebug('storeStyleForNode skipped (no scope/key for implicit node)', {
@@ -3952,23 +4060,11 @@
           { scopeId: scope, tabId, storeKey },
           options?.patchKeys || STYLE_KEYS
         );
-      }else if(key === LABELS_SCOPE_TOKEN || isLabelsStoreKey(storeKey)){
+      }else if(bulkCollection){
         pruneSelectionStylesForCollectionPatch(
           { scopeId: scope, tabId, storeKey },
           options?.patchKeys || STYLE_KEYS,
-          'labels'
-        );
-      }else if(key === LEGEND_SCOPE_TOKEN || isLegendStoreKey(storeKey)){
-        pruneSelectionStylesForCollectionPatch(
-          { scopeId: scope, tabId, storeKey },
-          options?.patchKeys || STYLE_KEYS,
-          'legend'
-        );
-      }else if(key === SCALE_SCOPE_TOKEN || isScaleStoreKey(storeKey)){
-        pruneSelectionStylesForCollectionPatch(
-          { scopeId: scope, tabId, storeKey },
-          options?.patchKeys || STYLE_KEYS,
-          'scale'
+          bulkCollection
         );
       }
       deleteStoredStyle(storeKey, { tabId, reason: 'store-style-for-node-clear' });
@@ -3985,23 +4081,11 @@
           { scopeId: scope, tabId, storeKey },
           options?.patchKeys || STYLE_KEYS
         );
-      }else if(key === LABELS_SCOPE_TOKEN || isLabelsStoreKey(storeKey)){
+      }else if(bulkCollection){
         pruneSelectionStylesForCollectionPatch(
           { scopeId: scope, tabId, storeKey },
           options?.patchKeys || STYLE_KEYS,
-          'labels'
-        );
-      }else if(key === LEGEND_SCOPE_TOKEN || isLegendStoreKey(storeKey)){
-        pruneSelectionStylesForCollectionPatch(
-          { scopeId: scope, tabId, storeKey },
-          options?.patchKeys || STYLE_KEYS,
-          'legend'
-        );
-      }else if(key === SCALE_SCOPE_TOKEN || isScaleStoreKey(storeKey)){
-        pruneSelectionStylesForCollectionPatch(
-          { scopeId: scope, tabId, storeKey },
-          options?.patchKeys || STYLE_KEYS,
-          'scale'
+          bulkCollection
         );
       }
       setStoredStyle(storeKey, normalized, { tabId, reason: 'store-style-for-node-save' });
@@ -4273,13 +4357,10 @@
       if(m){
         const num = parseFloat(m[1]);
         const unit = (m[2] || '').toLowerCase();
-        if(unit === 'pt'){
-          displayVal = Number.isFinite(num) ? normalizeFontSizeValue(num, { source: 'target-sync' }) : '';
-        } else {
-          // treat px (or unspecified unit) as px and convert to pt for display
-          const ptVal = pxToPt(num);
-          displayVal = Number.isFinite(ptVal) ? normalizeFontSizeValue(ptVal, { source: 'target-sync' }) : '';
-        }
+        const rawPx = unit === 'pt' ? ptToPx(num) : num;
+        const displayPx = rawPx * resolveActiveFontSizeDisplayScale(styleNode);
+        const ptVal = pxToPt(displayPx);
+        displayVal = Number.isFinite(ptVal) ? normalizeFontSizeValue(ptVal, { source: 'target-sync' }) : '';
       }
       sizeInput.value = displayVal;
       highlightSizeMenuSelection(sizeInput.value || '');
@@ -4381,6 +4462,10 @@
     scopeScaleOptionEl.value = FONT_SCOPE_SCALE;
     scopeScaleOptionEl.textContent = 'Scale';
     scopeSelectEl.appendChild(scopeScaleOptionEl);
+    scopeCollectionOptionEl = doc.createElement('option');
+    scopeCollectionOptionEl.value = FONT_SCOPE_COLLECTION;
+    scopeCollectionOptionEl.textContent = 'Collection';
+    scopeSelectEl.appendChild(scopeCollectionOptionEl);
     scopeSelectEl.appendChild(scopeGraphOpt);
     scopeWrapper.appendChild(scopeSelectEl);
     scopeWrapper.appendChild(scopeList);
@@ -4390,8 +4475,7 @@
     scopeSelectEl.value = getScopeMode(currentScope);
     scopeSelectEl.addEventListener('change', () => {
       setScopeMode(currentScope, scopeSelectEl.value, { target: currentTarget || activeHost || panelEl || null });
-      refreshScopeFooter();
-      updatePanelContext();
+      syncPanelStateFromTarget();
       // Scope switching must be non-destructive. Do not persist the current node style
       // into the newly selected scope just by changing the dropdown.
     });
@@ -5340,10 +5424,11 @@
       highlightSizeMenuSelection(normalized);
       const raw = normalized.trim();
       let val = null;
+      const displayScale = resolveActiveFontSizeDisplayScale(currentTarget);
       if(raw){
         const numeric = parseFloat(raw);
         if(Number.isFinite(numeric)){
-          const pxVal = ptToPx(numeric);
+          const pxVal = ptToPx(numeric) / displayScale;
           const roundedPx = Number.isFinite(pxVal) ? Math.round(pxVal * 100) / 100 : pxVal;
           val = `${roundedPx}px`;
         }
@@ -5364,9 +5449,17 @@
         nextStyle,
         {
           fontSize: val || null,
-          fontSizeResizeReference: val ? resizeReference : null
+          fontSizeResizeReference: val ? resizeReference : null,
+          fontSizeDisplayScaleReference: val && displayScale !== 1 ? displayScale : null
         }
       );
+      if(currentTarget.dataset){
+        if(val && displayScale !== 1){
+          currentTarget.dataset.fontSizeDisplayScaleReference = String(displayScale);
+        }else{
+          delete currentTarget.dataset.fontSizeDisplayScaleReference;
+        }
+      }
       const patchKeys = ['fontSize'];
       storeStyleForNode(currentTarget, storePayload, { ...storeContext, patchKeys });
       const nextScopeStyles = captureScopeStylesForUndo(storeContext);
@@ -5915,6 +6008,7 @@
       if(role){ node.dataset.fontRole = role; }
       if(key){ node.dataset.fontKey = key; }
       if(collection){ node.dataset.fontCollection = collection; }
+      if(collection && options?.collectionLabel){ node.dataset.fontCollectionLabel = String(options.collectionLabel); }
       if(deferRegistration){ deferredTextNodes.add(node); }
     }
     const storeKey = buildStoreKey(scopeId, key, { node, tabId: tabToken });
@@ -5957,9 +6051,10 @@
 
   function applySavedStyle(node){
     if(!node){ return; }
-    const scopeId = node.dataset?.fontScope || null;
+    const ownership = resolveNodeFontOwnership(node);
+    const scopeId = ownership.scope;
     const key = node.dataset?.fontKey || null;
-    const tabToken = resolveStoreTabToken({ node, tabId: node.dataset?.fontTabId || null });
+    const tabToken = resolveStoreTabToken({ node, tabId: ownership.tabId });
     const storeKey = buildStoreKey(scopeId, key, { node, tabId: tabToken });
     applyEffectiveStyleForNode(node, { storeKey, clearWhenEmpty: false });
   }
@@ -6006,6 +6101,7 @@
   fontControls.isTextRegistrationDeferred = node => !!node && deferredTextNodes.has(node);
   fontControls.openForElement = openPanelForTarget;
   fontControls.applySavedStyle = applySavedStyle;
+  fontControls.getCollectionStyleToken = fontCollectionStoreToken;
   fontControls.captureInlineState = captureInlineStateForNode;
   fontControls.exportScopeStyles = exportScopeStyles;
   fontControls.importScopeStyles = importScopeStyles;

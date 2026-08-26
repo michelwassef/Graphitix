@@ -3229,6 +3229,7 @@
     const isSvg = target.namespaceURI === SVG_NS || String(target.tagName || '').toLowerCase() === 'svg';
     if(isSvg){
       const notice = doc.createElementNS(SVG_NS, 'text');
+      notice.setAttribute('data-plot-notice', '1');
       notice.setAttribute('x', String(Number.isFinite(options.svgX) ? options.svgX : 12));
       notice.setAttribute('y', String(Number.isFinite(options.svgY) ? options.svgY : 12));
       notice.setAttribute('text-anchor', 'start');
@@ -3241,6 +3242,7 @@
       return notice;
     }
     const notice = doc.createElement('i');
+    notice.setAttribute('data-plot-notice', '1');
     notice.textContent = safeMessage;
     target.appendChild(notice);
     return notice;

@@ -249,14 +249,20 @@ for (const component of COMPONENT_MATRIX) {
         expect(Math.abs(firstAgain.topDelta - first.topDelta)).toBeLessThan(8);
       }
     }
-    const parameterIsolation = await page.evaluate(async ({ type, tabAId, tabBId }) => {
+    const parameterIsolation = await page.evaluate(async ({ type, tabAId, tabBId, parameterPaths }) => {
       return window.GraphitixParameterIsolation.runSameTypeIsolation({
         type,
         tabAId,
         tabBId,
+        parameterPaths,
         reopen: true
       });
-    }, { type: component.type, tabAId: firstNew, tabBId: secondNew });
+    }, {
+      type: component.type,
+      tabAId: firstNew,
+      tabBId: secondNew,
+      parameterPaths: String(process.env.PARAMETER_PATHS || '').split(',').map(value => value.trim()).filter(Boolean)
+    });
     await testInfo.attach(`${component.type}-same-type-parameter-isolation.json`, {
       body: Buffer.from(JSON.stringify(parameterIsolation, null, 2), 'utf8'),
       contentType: 'application/json'

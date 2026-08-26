@@ -217,13 +217,20 @@ test('scatter restores graph controls, point labels, raw formulas, and excluded 
   const restored = await page.evaluate(() => {
     const hot = window.Components.scatter.__ensureHotForActiveTab();
     const api = hot.gridApi;
-    const node = api?.getDisplayedRowAtIndex?.(1) || null;
+    const formulaVisualRow = 1;
+    const formulaPhysicalRow = hot.toPhysicalRow?.(formulaVisualRow) ?? formulaVisualRow;
+    let formulaNode = null;
+    api?.forEachNode?.(node => {
+      if(formulaNode == null && Number(node?.data?.__rowIndex) === formulaPhysicalRow){
+        formulaNode = node;
+      }
+    });
     return {
       dotSize: document.getElementById('scatterDotSize')?.value || null,
       showGrid: !!document.getElementById('scatterShowGrid')?.checked,
       showFrame: !!document.getElementById('scatterShowFrame')?.checked,
-      rawFormula: hot.getDataAtCell(1, 2),
-      displayedFormula: node && typeof api?.getValue === 'function' ? api.getValue('c2', node) : null,
+      rawFormula: hot.getDataAtCell(formulaVisualRow, 2),
+      displayedFormula: formulaNode && typeof api?.getValue === 'function' ? api.getValue('c2', formulaNode) : null,
       exclusions: hot.exportExclusions?.() || null,
       selectedCount: api?.getSelectedNodes?.()?.length || 0
     };

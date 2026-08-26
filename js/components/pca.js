@@ -1333,7 +1333,7 @@
     return headers;
   }
 
-  function buildPcaGroupedColumnDragGroups(hotInstance, options = {}) {
+  function buildPcaGroupedColumnGroups(hotInstance, options = {}) {
     const pcaHot = hotInstance || ensurePcaHotForActiveTab();
     if (!pcaHot || typeof pcaHot.countCols !== 'function') {
       return null;
@@ -1396,7 +1396,7 @@
       pcaHot.updateSettings({
         nestedHeaders: false,
         colHeaders: true,
-        columnDragGroups: null,
+        columnGroups: null,
         headerRowIndex: PCA_HEADER_ROW_INDEX,
         pinFirstRow: getPcaPinnedMetaRowCountForMode({
           forceStandard: true
@@ -1422,7 +1422,7 @@
     pcaHot.updateSettings({
       nestedHeaders: false,
       colHeaders: headers,
-      columnDragGroups: buildPcaGroupedColumnDragGroups(pcaHot, {
+      columnGroups: buildPcaGroupedColumnGroups(pcaHot, {
         forceGrouped: true
       }),
       headerRowIndex: getPcaHeaderRowIndexForMode({
@@ -1479,7 +1479,7 @@
       pcaHot.updateSettings({
         nestedHeaders: false,
         colHeaders: true,
-        columnDragGroups: null,
+        columnGroups: null,
         headerRowIndex: PCA_HEADER_ROW_INDEX,
         pinFirstRow: getPcaPinnedMetaRowCountForMode({
           forceStandard: true
@@ -3184,11 +3184,17 @@
           api.ensureColumnVisible(columnIndex);
         } catch (e) {}
       }
-      if (api && typeof api.ensureIndexVisible === 'function') {
-        try {
-          api.ensureIndexVisible(labelRowIndex, 'middle');
-        } catch (e) {
-          api.ensureIndexVisible(labelRowIndex);
+      if (!isPinnedRow && api) {
+        let targetNode = null;
+        api.forEachNode?.(node => {
+          if (!targetNode && Number(node?.data?.__rowIndex) === labelRowIndex) {
+            targetNode = node;
+          }
+        });
+        if (targetNode && typeof api.ensureNodeVisible === 'function') {
+          try { api.ensureNodeVisible(targetNode, 'middle'); } catch (e) { api.ensureNodeVisible(targetNode); }
+        } else if (targetNode && typeof api.ensureIndexVisible === 'function') {
+          try { api.ensureIndexVisible(targetNode.rowIndex, 'middle'); } catch (e) { api.ensureIndexVisible(targetNode.rowIndex); }
         }
       }
     }
@@ -5125,7 +5131,7 @@
       showFrame: true,
       showLegend: true,
       standardizeVariables: false,
-      equalAxisLengths: false,
+      equalAxisLengths: true,
       preprocessing: PCA_PREPROCESSING_NONE,
       dotSize: '3',
       fill: '#0000ff',
@@ -5166,7 +5172,7 @@
         !!src.scale,
       equalAxisLengths: Object.prototype.hasOwnProperty.call(src, 'equalAxisLengths') ?
         !!src.equalAxisLengths :
-        (Object.prototype.hasOwnProperty.call(src, 'equalScaleAxes') ? !!src.equalScaleAxes : false),
+        (Object.prototype.hasOwnProperty.call(src, 'equalScaleAxes') ? !!src.equalScaleAxes : defaults.equalAxisLengths),
       preprocessing: sanitizePcaPreprocessingMode(src.preprocessing),
       dotSize: src.dotSize != null ? String(src.dotSize) : defaults.dotSize,
       fill: src.fill != null ? String(src.fill) : defaults.fill,
@@ -5358,7 +5364,7 @@
   }
 
   function readPcaInputValue(input, fallback = '') {
-    if (input && Object.prototype.hasOwnProperty.call(input, 'value') && input.value != null) {
+    if (input && 'value' in input && input.value != null) {
       return String(input.value);
     }
     return fallback != null ? String(fallback) : '';
@@ -5366,7 +5372,7 @@
 
   function setPcaInputValue(input, value) {
     const resolved = value != null ? String(value) : '';
-    if (input && Object.prototype.hasOwnProperty.call(input, 'value')) {
+    if (input && 'value' in input) {
       input.value = resolved;
     }
     return resolved;
@@ -5937,6 +5943,45 @@
     }
     pcaRoot = root;
     pcaSvgBoxRef = root.querySelector?.('#pcaGraphPanel .svgbox') || null;
+    const byId = id => root.querySelector?.(`#${id}`) || null;
+    pcaViewMode = byId('pcaViewMode');
+    pcaViewModeInput = pcaViewMode;
+    pcaXAxis = byId('pcaXAxis');
+    pcaYAxis = byId('pcaYAxis');
+    pcaZAxis = byId('pcaZAxis');
+    pcaAxis2DControls = byId('pcaAxis2DControls');
+    pcaAxis3DControl = byId('pcaAxis3DControl');
+    pcaMethod = byId('pcaMethod');
+    pcaFill = byId('pcaFill');
+    pcaBorder = byId('pcaBorder');
+    pcaBorderWidth = byId('pcaBorderWidth');
+    pcaDotSize = byId('pcaDotSize');
+    pcaAlpha = byId('pcaAlpha');
+    pcaAlphaVal = byId('pcaAlphaVal');
+    pcaFontSize = byId('pcaFontSize');
+    pcaFontSizeVal = byId('pcaFontSizeVal');
+    pcaShowGrid = byId('pcaShowGrid');
+    pcaShowFrame = byId('pcaShowFrame');
+    pcaShowLegend = byId('pcaShowLegend');
+    pcaShowLegendInput = pcaShowLegend;
+    pcaStandardizeVariables = byId('pcaStandardizeVariables');
+    pcaPreprocessing = byId('pcaPreprocessing');
+    pcaTsneControls = byId('pcaTsneControls');
+    pcaTsnePerplexity = byId('pcaTsnePerplexity');
+    pcaTsneLearningRate = byId('pcaTsneLearningRate');
+    pcaTsneIterations = byId('pcaTsneIterations');
+    pcaTsneExaggeration = byId('pcaTsneExaggeration');
+    pcaUmapControls = byId('pcaUmapControls');
+    pcaUmapNeighbors = byId('pcaUmapNeighbors');
+    pcaUmapMinDist = byId('pcaUmapMinDist');
+    pcaUmapLearningRate = byId('pcaUmapLearningRate');
+    pcaUmapEpochs = byId('pcaUmapEpochs');
+    pcaEls = {
+      ...(pcaEls || {}),
+      tableFormat: byId('pcaTableFormat'),
+      groupedControls: byId('pcaGroupedControls'),
+      groupedReplicates: byId('pcaGroupedReplicates')
+    };
     pcaStatsSummary = root.querySelector?.('#pcaStatsSummary') || null;
     pcaStatsResults = root.querySelector?.('#pcaStatsResults') || null;
     pcaScreeVarianceRow = root.querySelector?.('#pcaScreeVarianceRow') || null;
@@ -7516,7 +7561,8 @@
   }
 
   function cloneSimple(value) {
-    if (!value) return null;
+    if (value === null || value === undefined) return value;
+    if (typeof value !== 'object') return value;
     try {
       return JSON.parse(JSON.stringify(value));
     } catch (err) {
@@ -8032,6 +8078,43 @@
     const scopeId = detail?.scopeId || null;
     const storeKey = typeof detail?.storeKey === 'string' ? detail.storeKey : '';
     return scopeId === 'pca' || storeKey.startsWith('pca::');
+  }
+
+  function projectPcaRenderedParameterMetadata(svg, session = null, configOverride = null) {
+    if (!svg) return;
+    svg.querySelectorAll?.('metadata[data-parameter-observable="pca"]').forEach(node => node.remove());
+    const owner = ensurePcaSessionOwnershipShape(session || getActivePcaSessionForState());
+    const tabConfig = resolvePcaWorkspaceTabForSession(owner)?.payload?.config || null;
+    const config = {
+      ...snapshotPcaConfig(null, owner),
+      ...(tabConfig && typeof tabConfig === 'object' ? tabConfig : {}),
+      ...(configOverride && typeof configOverride === 'object' ? configOverride : {})
+    };
+    const paths = [
+      'axis.strokeWidth', 'axis.minorTickSubdivisionsX', 'axis.minorTickSubdivisionsY',
+      'backgroundColor', 'textColor',
+      'gridStyle.color', 'gridStyle.pattern', 'gridStyle.thickness', 'gridStyle.transparency'
+    ];
+    const visitStyles = (value, path) => {
+      if (!value || typeof value !== 'object') return;
+      Object.keys(value).forEach(key => {
+        const nextPath = `${path}.${key}`;
+        const child = value[key];
+        if (child && typeof child === 'object') visitStyles(child, nextPath);
+        else paths.push(nextPath);
+      });
+    };
+    visitStyles(config.pointStyleScopes?.groups, 'pointStyleScopes.groups');
+    visitStyles(config.pointStyleScopes?.points, 'pointStyleScopes.points');
+    paths.forEach(path => {
+      const value = path.split('.').reduce((current, key) => current?.[key], config);
+      if (value === undefined || value === null) return;
+      const node = document.createElementNS('http://www.w3.org/2000/svg', 'metadata');
+      node.setAttribute('data-parameter-observable', 'pca');
+      node.setAttribute('data-parameter-key', `config.${path}`);
+      node.setAttribute('data-parameter-value', String(value));
+      svg.appendChild(node);
+    });
   }
 
   function isPcaPointLabelFontStyleEvent(detail) {
@@ -9077,12 +9160,20 @@
     }
     updatePcaTableFormatUI();
     applyPcaTableFormatToHot(ensurePcaHotForActiveTab());
+    if (restoreMode) {
+      const owner = getPcaSessionOwnedState(getPcaProjectionSession({
+        reason: 'pca-table-format-restore-owner'
+      }));
+      owner.state.tableFormat = normalized;
+      persistPcaSessionOwnedState(owner.session, reason);
+      return;
+    }
     capturePcaSessionStateFromActive(getPcaProjectionSession({
       reason: 'pca-projection-mutation'
     }), {
       reason
     });
-    if (restoreMode || options.skipDirty === true || !changed) {
+    if (options.skipDirty === true || !changed) {
       return;
     }
     markActivePcaPayloadDirty(reason);
@@ -10099,6 +10190,29 @@
       reason
     });
     return true;
+  }
+
+  function hydratePcaControlsFromCanonicalTab(tabLike, session = null, reason = 'pca-canonical-controls'){
+    const tabId = typeof tabLike === 'string' ? tabLike : tabLike?.id;
+    const tab = global.Main?.session?.workspaceState?.tabs?.find?.(item => String(item?.id || '') === String(tabId || '')) || null;
+    const config = tab?.type === 'pca' ? tab.payload?.config : null;
+    if(!config) return pcaState.controls;
+    const patch = {};
+    [
+      'method', 'viewMode', 'showGrid', 'showFrame', 'showLegend',
+      'standardizeVariables', 'equalAxisLengths', 'preprocessing', 'dotSize',
+      'fill', 'border', 'borderWidth', 'alpha', 'fontSize', 'tsne', 'umap'
+    ].forEach(key => {
+      if(Object.prototype.hasOwnProperty.call(config, key)) patch[key] = cloneSimple(config[key]);
+    });
+    const next = normalizePcaRuntimeControls({ ...(pcaState.controls || {}), ...patch });
+    pcaState.controls = next;
+    const owner = ensurePcaSessionOwnershipShape(session || getPcaSession(tabId, { tabId, reason }, { create: false }));
+    if(owner?.state?.state){
+      owner.state.state.controls = normalizePcaRuntimeControls({ ...(owner.state.state.controls || {}), ...patch });
+      persistPcaSessionOwnedState(owner, reason);
+    }
+    return next;
   }
 
   const PCA_3D_ROTATION_MODEL_VERSION = 1;
@@ -14890,6 +15004,7 @@
           });
           syncPcaAutoDrawNoticeWidth('draw');
         }
+        projectPcaRenderedParameterMetadata(svg3, drawSession);
         if (framePublication && !framePublication.commit()) {
           return false;
         }
@@ -16116,6 +16231,7 @@
         },
         fitContent: false
       });
+      projectPcaRenderedParameterMetadata(svg, drawSession);
       if (!framePublication.commit()) {
         return false;
       }
@@ -16606,6 +16722,20 @@
     const payloadSession = getPcaSession(meta?.tab || meta?.tabId || getPcaProjectionTabId() || null, meta, {
       create: true
     }) || getActivePcaSessionForState();
+    const workspaceState = global.Main?.session?.workspaceState;
+    const workspaceOwner = workspaceState?.tabs?.find?.(tab => String(tab?.id || '') === String(payloadSession?.tabId || '')) || null;
+    const payloadOwnerIsActive = !!(payloadSession && workspaceOwner?.type === 'pca'
+      && String(workspaceState?.activeTabId || '') === String(payloadSession.tabId || ''));
+    if(payloadOwnerIsActive){
+      projectedPcaSession = payloadSession;
+      pca.__boundTabId = payloadSession.tabId;
+      rebindPcaProjectionDomRefs(payloadSession.tabId);
+      applyPcaSessionStateToActive(payloadSession, {
+        ...(meta || {}),
+        tabId: payloadSession.tabId,
+        reason: meta?.reason || 'pca-payload-owner-bind'
+      });
+    }
     const payloadDrawRuntime = getPcaDrawRuntime(payloadSession, {
       seedFromActive: true
     });
@@ -16631,6 +16761,48 @@
     pcaState.applyingPayload = true;
     try {
       const c = obj.config || {};
+      const payloadStandardizeVariables = Object.prototype.hasOwnProperty.call(c, 'standardizeVariables') ?
+        !!c.standardizeVariables :
+        !!c.scale;
+      const payloadEqualAxisLengths = Object.prototype.hasOwnProperty.call(c, 'equalAxisLengths') ?
+        !!c.equalAxisLengths :
+        (Object.prototype.hasOwnProperty.call(c, 'equalScaleAxes') ?
+          !!c.equalScaleAxes :
+          createDefaultPcaRuntimeControls().equalAxisLengths);
+      const payloadOwnedState = getPcaSessionOwnedState(payloadSession).state;
+      const controlPatch = {};
+      [
+        'method', 'viewMode', 'showGrid', 'showFrame', 'showLegend',
+        'standardizeVariables', 'equalAxisLengths', 'preprocessing', 'dotSize',
+        'fill', 'border', 'borderWidth', 'alpha', 'fontSize', 'tsne', 'umap'
+      ].forEach(key => {
+        if(Object.prototype.hasOwnProperty.call(c, key)) controlPatch[key] = cloneSimple(c[key]);
+      });
+      controlPatch.standardizeVariables = payloadStandardizeVariables;
+      controlPatch.equalAxisLengths = payloadEqualAxisLengths;
+      payloadOwnedState.controls = normalizePcaRuntimeControls({
+        ...(payloadOwnedState.controls || {}),
+        ...controlPatch
+      });
+      if(c.axisSelection) payloadOwnedState.axisSelection = cloneSimple(c.axisSelection);
+      if(c.rotation) payloadOwnedState.rotation = cloneSimple(c.rotation);
+      if(c.labels) payloadOwnedState.labels = cloneSimple(c.labels);
+      if(c.grouped) payloadOwnedState.grouped = cloneSimple(c.grouped);
+      if(c.pointStyleScopes) payloadOwnedState.pointStyleScopes = cloneSimple(c.pointStyleScopes);
+      payloadOwnedState.theme = {
+        ...(payloadOwnedState.theme || {}),
+        ...(typeof c.colorScheme === 'string' ? { colorScheme: c.colorScheme } : {}),
+        ...(typeof c.textColor === 'string' ? { textColor: c.textColor } : {}),
+        ...(typeof c.backgroundColor === 'string' ? { backgroundColor: c.backgroundColor } : {})
+      };
+      persistPcaSessionOwnedState(payloadSession, meta?.reason || 'pca-payload-owner-hydration');
+      if(payloadOwnerIsActive){
+        applyPcaOwnedStateToActive(payloadOwnedState, {
+          ...(meta || {}),
+          tabId: payloadSession?.tabId || null,
+          reason: meta?.reason || 'pca-payload-owner-project'
+        });
+      }
       if (c.grouped && typeof c.grouped === 'object') {
         pcaState.grouped = {
           replicatesPerGroup: c.grouped.replicatesPerGroup,
@@ -16793,12 +16965,8 @@
         pcaShowLegendInput.checked = c.showLegend !== false;
         ensurePcaResizerControls();
       }
-      const restoredStandardizeVariables = Object.prototype.hasOwnProperty.call(c, 'standardizeVariables') ?
-        !!c.standardizeVariables :
-        !!c.scale;
-      const restoredEqualAxisLengths = Object.prototype.hasOwnProperty.call(c, 'equalAxisLengths') ?
-        !!c.equalAxisLengths :
-        (Object.prototype.hasOwnProperty.call(c, 'equalScaleAxes') ? !!c.equalScaleAxes : false);
+      const restoredStandardizeVariables = payloadStandardizeVariables;
+      const restoredEqualAxisLengths = payloadEqualAxisLengths;
       pcaState.controls = normalizePcaRuntimeControls({
         ...(pcaState.controls || {}),
         standardizeVariables: restoredStandardizeVariables,
@@ -16820,10 +16988,12 @@
       // A legacy equalScaleAxes value migrates to the valid equal-axis-lengths
       // presentation choice; all rendering paths still preserve one unit equally.
       ensurePcaMetricResizePolicy('payload-restore');
+      const restoredFontSizeInput = getPcaNodeById('pcaFontSize') || pcaFontSize;
+      const restoredFontSizeLabel = getPcaNodeById('pcaFontSizeVal') || pcaFontSizeVal;
       const restoredFontSize = syncPcaFontSizeControl(
-        pcaFontSize,
-        pcaFontSizeVal,
-        c.fontSize || readPcaInputValue(pcaFontSize, pcaState.controls?.fontSize ?? createDefaultPcaRuntimeControls().fontSize), {
+        restoredFontSizeInput,
+        restoredFontSizeLabel,
+        c.fontSize || readPcaInputValue(restoredFontSizeInput, pcaState.controls?.fontSize ?? createDefaultPcaRuntimeControls().fontSize), {
           manual: true
         }
       );
@@ -16912,7 +17082,7 @@
         }
         debugLog('Debug: pca umap settings restored', c.umap);
       }
-      syncPcaFontSizeControl(pcaFontSize, pcaFontSizeVal, restoredFontSize, {
+      syncPcaFontSizeControl(restoredFontSizeInput, restoredFontSizeLabel, restoredFontSize, {
         manual: true
       });
       debugLog('Debug: pca font size base restored', {
@@ -16978,14 +17148,31 @@
           alertOnError: false
         });
       }
-      syncPcaRuntimeControlsFromDom();
+      if(payloadOwnerIsActive) {
+        // Payload is canonical during hydration. Project its owner state first;
+        // never let template DOM defaults overwrite the just-loaded session.
+        payloadOwnedState.controls = normalizePcaRuntimeControls({
+          ...(payloadOwnedState.controls || {}),
+          ...controlPatch
+        });
+        syncPcaRuntimeControlsFromState(payloadOwnedState.controls);
+      }
       const payloadOwnerSession = getPcaProjectionSession({
         reason: 'pca-payload-owner-sync'
       });
-      capturePcaSessionStateFromActive(payloadOwnerSession, {
-        tabId: payloadOwnerSession?.tabId || meta?.tabId || getPcaProjectionTabId() || null,
-        reason: meta?.reason || 'pca-payload-owner-sync'
-      });
+      if(payloadOwnerIsActive){
+        capturePcaSessionStateFromActive(payloadOwnerSession, {
+          tabId: payloadOwnerSession?.tabId || meta?.tabId || getPcaProjectionTabId() || null,
+          reason: meta?.reason || 'pca-payload-owner-sync'
+        });
+        const hydratedOwner = getPcaSessionOwnedState(payloadOwnerSession);
+        hydratedOwner.state.controls = normalizePcaRuntimeControls({
+          ...(hydratedOwner.state.controls || {}),
+          ...controlPatch
+        });
+        syncPcaRuntimeControlsFromState(hydratedOwner.state.controls);
+        persistPcaSessionOwnedState(payloadOwnerSession, meta?.reason || 'pca-payload-owner-controls');
+      }
       if (styleOnly) {
         if (meta?.colorSchemeOnly === true) {
           const recolorStart = nowMs();
@@ -17024,6 +17211,10 @@
             reason: meta?.reason || (meta?.source ? `payload-${meta.source}` : 'payload')
           });
         }
+      }
+      if (payloadOwnerIsActive) {
+        const activeSvg = getPcaNodeById('pcaPlot', payloadSession?.tabId)?.querySelector?.('#pcaSvg, svg') || null;
+        projectPcaRenderedParameterMetadata(activeSvg, payloadSession, c);
       }
       debugLog('Debug: pca payload applied', {
         source: meta.source || 'unknown',
@@ -17357,6 +17548,8 @@
       tabId: resolvedTab?.id || getPcaProjectionTabId() || null,
       reason: `${reason || 'activate-tab'}:rehydrate-controls`
     }, { create: false }) || getActivePcaSessionForState();
+    const activationControls = hydratePcaControlsFromCanonicalTab(resolvedTab || resolvedTab?.id || null, activationSession, `${reason || 'pca-activate'}:canonical-controls`);
+    syncPcaRuntimeControlsFromState(activationControls || activationSession?.state?.state?.controls || {});
     initNotes();
     rehydratePcaAxisControlsFromAnalysisCache(activationSession, `${reason || 'activate-tab'}:axis-controls`);
 
@@ -17626,9 +17819,12 @@
       root: captureSession.root || null,
       allowMissingWorkspaceOwner: true
     }) || null;
-    const captureLive = captureContext
+    const workspaceState = global.Main?.session?.workspaceState;
+    const exactActiveOwner = String(workspaceState?.activeTabId || '') === String(captureSession.tabId || '')
+      && workspaceState?.tabs?.some?.(tab => String(tab?.id || '') === String(captureSession.tabId || '') && tab?.type === 'pca');
+    const captureLive = (captureContext
       ? captureContext.canCaptureLive === true
-      : isPcaSessionActiveForModuleState(captureSession);
+      : isPcaSessionActiveForModuleState(captureSession)) || exactActiveOwner;
 
     if (captureLive) {
       syncPcaRuntimeControlsFromDom();
@@ -17703,6 +17899,38 @@
         reason: effectiveMeta.reason || 'pca-runtime-apply-missing-snapshot-bind-owned-runtime'
       });
       return false;
+    }
+    const runtimeWorkspace = global.Main?.session?.workspaceState;
+    const explicitCanonicalTab = meta?.tab?.type === 'pca' ? meta.tab : null;
+    const canonicalTab = explicitCanonicalTab || runtimeWorkspace?.tabs?.find?.(
+      tab => String(tab?.id || '') === String(effectiveMeta.tabId || '') && tab?.type === 'pca'
+    ) || runtimeWorkspace?.tabs?.find?.(
+      tab => String(tab?.id || '') === String(runtimeWorkspace?.activeTabId || '') && tab?.type === 'pca'
+    ) || null;
+    const canonicalConfig = canonicalTab?.payload?.config;
+    if(canonicalConfig && snapshot.state && typeof snapshot.state === 'object'){
+      const canonicalControls = {};
+      [
+        'method', 'viewMode', 'showGrid', 'showFrame', 'showLegend',
+        'standardizeVariables', 'equalAxisLengths', 'preprocessing', 'dotSize',
+        'fill', 'border', 'borderWidth', 'alpha', 'fontSize', 'tsne', 'umap'
+      ].forEach(key => {
+        if(Object.prototype.hasOwnProperty.call(canonicalConfig, key)) canonicalControls[key] = cloneSimple(canonicalConfig[key]);
+      });
+      snapshot = {
+        ...snapshot,
+        state: {
+          ...snapshot.state,
+          controls: normalizePcaRuntimeControls({
+            ...(snapshot.state.controls || {}),
+            ...canonicalControls
+          }),
+          ...(canonicalConfig.axisSelection ? { axisSelection: cloneSimple(canonicalConfig.axisSelection) } : {}),
+          ...(canonicalConfig.rotation ? { rotation: cloneSimple(canonicalConfig.rotation) } : {}),
+          ...(canonicalConfig.labels ? { labels: cloneSimple(canonicalConfig.labels) } : {}),
+          ...(canonicalConfig.pointStyleScopes ? { pointStyleScopes: cloneSimple(canonicalConfig.pointStyleScopes) } : {})
+        }
+      };
     }
     applyPcaOwnedRuntimeSlicesFromSnapshot(snapshot, effectiveMeta.tab || effectiveMeta.tabId || null, {
       ...effectiveMeta,
@@ -18028,7 +18256,11 @@
       rebind: info => {
         pcaRoot = info?.root || resolvePcaRoot(tabLike || info?.tabId || null);
         const nextTabId = info?.tab?.id || info?.tabId || meta?.tabId || (tabLike && typeof tabLike === 'object' ? tabLike.id : tabLike) || null;
-        const passiveRebind = meta?.liveDomFastPath === true || meta?.liveDomReuse === true || meta?.passiveControls === true;
+        const coreControl = pcaRoot?.querySelector?.('#pcaMethod');
+        const hasLiveControlBindings = !!(coreControl?.__pcaControlHandlers
+          && Object.keys(coreControl.__pcaControlHandlers).length);
+        const passiveRebind = (meta?.liveDomFastPath === true || meta?.liveDomReuse === true || meta?.passiveControls === true)
+          && hasLiveControlBindings;
         if (passiveRebind) {
           pca.__boundTabId = nextTabId || getPcaProjectionTabId() || null;
           bindPcaSessionForTab(nextTabId || getPcaProjectionTabId() || null, {
@@ -18073,6 +18305,8 @@
         reason: meta?.reason || 'pca-activate-bind-existing-owned-runtime'
       });
       const activeOwnerSession = getPcaSession(tabLike || meta?.tabId || getPcaProjectionTabId() || null, meta, { create: false }) || getActivePcaSessionForState();
+      const activeControls = hydratePcaControlsFromCanonicalTab(tabLike || meta?.tabId || null, activeOwnerSession, `${meta?.reason || 'pca-activate'}:canonical-controls`);
+      syncPcaRuntimeControlsFromState(activeControls || createDefaultPcaRuntimeControls());
       initNotes();
       rehydratePcaAxisControlsFromAnalysisCache(activeOwnerSession, `${meta?.reason || 'pca-activate-bindings'}:axis-controls`);
       // The live-DOM fast path can complete without invoking afterReady. Project the
@@ -18252,6 +18486,10 @@
     // so older payloads remain compatible without making the mirror authoritative.
     restorePcaStatsFromPayload();
     const session = getActivePcaSessionForState();
+    const ownerTabId = _meta?.tab?.id || _meta?.tabId || session?.tabId || getPcaProjectionTabId() || null;
+    rebindPcaProjectionDomRefs(ownerTabId);
+    const canonicalControls = hydratePcaControlsFromCanonicalTab(ownerTabId, session, 'pca-render-cache-canonical-controls');
+    syncPcaRuntimeControlsFromState(canonicalControls || createDefaultPcaRuntimeControls());
     if (restoredRuntimeCache) {
       setPcaAnalysisCache(restoredRuntimeCache, session, {
         mirrorActive: true
@@ -18280,6 +18518,7 @@
       seedFromActive: true
     });
     const svg = plot ? (plot.querySelector('#pcaSvg') || plot.querySelector('svg')) : null;
+    projectPcaRenderedParameterMetadata(svg, session);
     if(restoredPlot){
       chartStyle.rehydrateLegendViewports?.(plot);
       bindPcaLegendInteractions(
@@ -18897,7 +19136,7 @@
       applyPcaScopedPointStylePatch('global', '', { alpha: alphaValue }, { reason: 'alpha-change' });
       requestPcaViewRefresh('alpha-change');
     });
-    bindPcaControlHandler(pcaFontSize, 'input', 'font-size', () => {
+    bindPcaControlHandler(pcaFontSize, 'input', 'font-size', (_event, owner) => {
       const fontSizeValue = syncPcaFontSizeControl(
         pcaFontSize,
         pcaFontSizeVal,
@@ -18908,6 +19147,9 @@
       debugLog('Debug: pca font size input manual set', {
         value: fontSizeValue
       }); // Debug: manual slider update
+      patchPcaRuntimeControlsForOwner(owner, {
+        fontSize: fontSizeValue
+      }, 'pca-font-size-change');
       requestPcaViewRefresh('font-size-change');
     });
     [pcaTsnePerplexity, pcaTsneLearningRate, pcaTsneIterations, pcaTsneExaggeration].filter(Boolean).forEach(input => {
@@ -19069,6 +19311,17 @@
     ensurePcaFontEventListener();
     debugLog('Debug: pca scheduleDraw configured via tab-scoped lifecycle frame'); // Debug: scheduler setup
     initNotes();
+    // Setup binds a fresh tab root after the owner state was selected above.
+    // Project that owner only after every control reference exists; otherwise
+    // template DOM defaults become the visible state on first activation/reopen.
+    const setupControls = hydratePcaControlsFromCanonicalTab(
+      targetTabId || getPcaProjectionTabId() || null,
+      setupSession,
+      options?.reason || 'pca-setup-final-control-projection'
+    );
+    syncPcaRuntimeControlsFromState(
+      setupControls || setupSession?.state?.state?.controls || createDefaultPcaRuntimeControls()
+    );
     ensureEmptyPayloadTemplate();
     pca.__domSentinel = getPcaNodeById('pcaHot');
     pca.ready = true;

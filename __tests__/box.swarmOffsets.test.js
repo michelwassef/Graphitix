@@ -143,6 +143,12 @@ describe('Box swarm offset constraints', () => {
     expect(grownBoth).toBeGreaterThan(unit);
   });
 
+  test('automatic overlay points are only 1.5 times smaller than individual values', () => {
+    expect(typeof hooks.getBoxDefaultPointRadii).toBe('function');
+    const radii = hooks.getBoxDefaultPointRadii();
+    expect(radii.individual / radii.overlay).toBeCloseTo(1.5, 8);
+  });
+
   test('hard max half-width keeps strict swarm capped without collapsing points', () => {
     expect(hooks).toBeDefined();
     expect(typeof hooks.computeSwarmOffsets).toBe('function');

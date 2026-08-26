@@ -104,6 +104,7 @@
   <script defer src="js/shared/regression.js"></script>
   <script defer src="js/shared/resampling.js"></script>
   <script defer src="js/shared/stats.js"></script>
+  <script defer src="js/shared/statsInference.js"></script>
   <script defer src="js/shared/boxStatsModel.js"></script>
   <script defer src="js/shared/stats-table.js"></script>
   <script defer src="js/shared/colorPicker.js"></script>
@@ -453,6 +454,9 @@
               Total Genes
               <input id="totalGenes" type="number" min="1" class="idx-inline-010" />
             </label>
+          </div>
+          <div id="vennStatsInferenceControls" class="stats-inference-controls stats-inference-controls--compact" aria-label="Overlap inference settings"></div>
+          <div class="row idx-inline-008">
             <button class="btn" id="calcSignificance">Calculate</button>
           </div>
           <div id="significanceResults" class="idx-inline-011"></div>
@@ -708,7 +712,7 @@
                 <label id="boxSignificanceLabelCtl" class="idx-inline-024">
                   Label
                   <select id="boxSignificanceLabelMode">
-                    <option value="stars" selected>Stars (*, ns)</option>
+                    <option value="decision" selected>Decision (* / NS; D / ND for FDR)</option>
                     <option value="p">P-value</option>
                   </select>
                 </label>
@@ -745,13 +749,14 @@
             <div id="statsControls"></div>
             <div id="statsPostHocHelp" class="stats-help-text idx-inline-034"></div>
             <div id="statsCorrectionNote" class="stats-correction-note idx-inline-035"></div>
-            <div id="statsResults" class="idx-inline-003"></div>
-            <div id="statsTable" class="idx-inline-003"></div>
-            <div id="boxStatsReportHost" class="idx-inline-003"></div>
+            <div id="boxStatsInferenceControls" class="stats-inference-controls" aria-label="Statistical inference settings"></div>
             <div id="boxStatsActionRow" class="idx-inline-036">
               <button type="button" class="btn" id="boxComputeStats">Calculate statistics</button>
               <span id="boxStatsStatus" class="idx-inline-037" aria-live="polite"></span>
             </div>
+            <div id="statsResults" class="idx-inline-003"></div>
+            <div id="statsTable" class="idx-inline-003"></div>
+            <div id="boxStatsReportHost" class="idx-inline-003"></div>
           </fieldset>
         </div>
       </div>
@@ -1012,6 +1017,7 @@
                 </select>
               </label>
             </div>
+            <div id="scatterStatsInferenceControls" class="stats-inference-controls" aria-label="Statistical inference settings"></div>
             <div id="scatterStatsActionRow" class="config-panel__line idx-inline-040">
               <button type="button" class="btn" id="scatterComputeStats" disabled>Calculate statistics</button>
               <span id="scatterStatsStatus" class="idx-inline-037" aria-live="polite"></span>
@@ -1493,6 +1499,7 @@
                 </select>
               </label>
             </div>
+            <div id="lineStatsInferenceControls" class="stats-inference-controls" aria-label="Statistical inference settings"></div>
             <div class="control idx-inline-040" id="lineStatsActionRow">
               <button type="button" class="btn" id="lineComputeStats" disabled>Calculate statistics</button>
               <span id="lineStatsStatus" class="idx-inline-037" aria-live="polite"></span>
@@ -1600,12 +1607,12 @@
                 <div class="heatmap-control-row heatmap-correlation-only">
                   <label class="heatmap-inline-group heatmap-control-inline">
                     <input type="checkbox" id="heatmapShowSignificance" />
-                    <span class="heatmap-nowrap">Show significance</span>
+                    <span class="heatmap-nowrap">Show inference</span>
                   </label>
                   <label class="heatmap-control-block heatmap-control-grow">
                     <select id="heatmapSignificanceDisplay">
-                      <option value="star" selected>Marker</option>
-                      <option value="pvalue">P / adjusted value</option>
+                      <option value="star" selected>Decision marker</option>
+                      <option value="pvalue">p / adjusted p</option>
                     </select>
                   </label>
                   <label class="heatmap-control-block heatmap-control-grow">
@@ -1618,6 +1625,7 @@
                     </select>
                   </label>
                 </div>
+                <div id="heatmapStatsInferenceControls" class="stats-inference-controls stats-inference-controls--compact" aria-label="Correlation inference settings"></div>
               </div>
             </fieldset>
             <fieldset class="heatmap-view-panel heatmap-clustering-panel">
@@ -1850,6 +1858,7 @@
             <legend>Statistics</legend>
             <div id="rocStatsAdvisor"></div>
           <div id="rocStatsControls" class="row idx-inline-047"></div>
+          <div id="rocStatsInferenceControls" class="stats-inference-controls" aria-label="Statistical inference settings"></div>
           <div id="rocStatsResults" class="idx-inline-003"></div>
         </fieldset>
       </div>
@@ -1926,6 +1935,7 @@
                 <label class="idx-inline-023"><input type="checkbox" id="survivalShowHazardRatios" checked /> Show hazard ratios</label>
                 <label class="idx-inline-023"><input type="checkbox" id="survivalFitCox" checked /> Fit Cox model</label>
               </div>
+              <div id="survivalStatsInferenceControls" class="stats-inference-controls" aria-label="Statistical inference settings"></div>
               <div class="control idx-inline-049" id="survivalCovariateControls">
                 <div id="survivalCovariateHint" class="idx-inline-037">Add extra columns to pick covariates for the Cox model.</div>
               </div>
@@ -2128,6 +2138,7 @@
                 </select>
               </label>
             </div>
+            <div id="histStatsInferenceControls" class="stats-inference-controls" aria-label="Statistical inference settings"></div>
             <div id="histStatsResults"></div>
           </fieldset>
         </div>
@@ -2206,6 +2217,7 @@
             <legend>Statistics</legend>
             <div id="pieStatsControls"></div>
             <div id="pieStatsCorrectionNote" class="stats-correction-note idx-inline-035"></div>
+            <div id="pieStatsInferenceControls" class="stats-inference-controls" aria-label="Statistical inference settings"></div>
             <div id="pieStatsActionRow" class="idx-inline-036">
               <button type="button" class="btn" id="pieComputeStats">Calculate statistics</button>
               <span id="pieStatsStatus" class="idx-inline-037" aria-live="polite"></span>

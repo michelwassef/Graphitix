@@ -103,6 +103,21 @@ describe('ROC explicit classification setup', () => {
     expect(hooks().createDurableState({ positiveClass: 0, negativeClass: 1, scoreDirection: 'lower' }))
       .toEqual(expect.objectContaining({ positiveClass: 0, negativeClass: 1, scoreDirection: 'lower' }));
   });
+
+  test('analysis signatures ignore unused grid padding', () => {
+    const base = {
+      data: [['Label', 'Score'], [0, 0.1], [1, 0.9]],
+      graphType: 'roc',
+      positiveClass: 1,
+      negativeClass: 0,
+      scoreDirection: 'higher'
+    };
+    const padded = {
+      ...base,
+      data: [['Label', 'Score', null, null], [0, 0.1, null, null], [1, 0.9, null, null], [null, null, null, null]]
+    };
+    expect(hooks().buildAnalysisSignature(padded)).toBe(hooks().buildAnalysisSignature(base));
+  });
   test('keeps manual auto-draw pending state separate from draw-publication runtime', () => {
     const durable = hooks().createDurableState({ drawPending: true });
     expect(durable).not.toHaveProperty('drawPending');

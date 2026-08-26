@@ -24,14 +24,13 @@ describe('tableImport Prism import mappings', () => {
     delete window.pako;
   });
 
-  async function importPrismFixture(fixtureName) {
-    const fixturePath = path.join(__dirname, '..', 'prism files', fixtureName);
-    const fileBuffer = fs.readFileSync(fixturePath);
+  async function importPrismBuffer(fileBuffer, fixtureName, dataset = {}) {
     const prismFile = new window.File([fileBuffer], fixtureName, {
       type: 'application/octet-stream'
     });
     const input = document.createElement('input');
     input.type = 'file';
+    Object.assign(input.dataset, dataset);
     Object.defineProperty(input, 'files', {
       value: [prismFile],
       configurable: true
@@ -43,6 +42,36 @@ describe('tableImport Prism import mappings', () => {
         importedRows: rows
       })
     });
+  }
+
+  async function importPrismFixture(fixtureName, dataset = {}) {
+    const fixturePath = path.join(__dirname, '..', 'prism files', fixtureName);
+    return importPrismBuffer(fs.readFileSync(fixturePath), fixtureName, dataset);
+  }
+
+  async function buildGroupedBarOverlayFixture() {
+    const fixturePath = path.join(__dirname, '..', 'prism files', 'individual-chart.prism');
+    const zip = await global.JSZip.loadAsync(fs.readFileSync(fixturePath));
+    const documentModel = JSON.parse(await zip.file('document.json').async('string'));
+    const dataSheetId = documentModel.sheets.data[0];
+    const graphSheetId = documentModel.sheets.graphs[0];
+    const sheetPath = `data/sheets/${dataSheetId}/sheet.json`;
+    const graphPath = `graphs/${graphSheetId}/data.bin`;
+    const sheet = JSON.parse(await zip.file(sheetPath).async('string'));
+    sheet.table.format = 'grouped';
+    zip.file(sheetPath, JSON.stringify(sheet));
+
+    const graph = Buffer.from(await zip.file(graphPath).async('uint8array'));
+    const marker = Buffer.from([0xFF, 0xFF, 0xFF, 0xFF, 0x2C, 0x01, 0x00, 0x00]);
+    const markerOffset = graph.indexOf(marker);
+    const shifted = Buffer.concat([
+      graph.subarray(0, markerOffset + marker.length),
+      Buffer.from([0]),
+      graph.subarray(markerOffset + marker.length)
+    ]);
+    shifted.writeUInt16LE(13, markerOffset + 37 + 28);
+    zip.file(graphPath, shifted);
+    return zip.generateAsync({ type: 'nodebuffer' });
   }
 
   function expectPrismImportWarning() {
@@ -127,6 +156,21 @@ describe('tableImport Prism import mappings', () => {
     });
   });
 
+  test('keeps grouped Prism bar charts with individual-value overlays', async () => {
+    const result = await importPrismBuffer(
+      await buildGroupedBarOverlayFixture(),
+      'grouped-bar-overlay.prism'
+    );
+
+    expect(result.prismMeta).toMatchObject({
+      kind: 'column',
+      dataFormat: 'y_single',
+      tableClass: 'DataTable',
+      graphType: 'bar',
+      pointMode: 'overlay'
+    });
+  });
+
   test('captures explicit Prism violin subtype for column data', async () => {
     const result = await importPrismFixture('violin-chart.prism');
 
@@ -202,6 +246,93 @@ describe('tableImport Prism import mappings', () => {
       ['2', '90', '2', '5'],
       ['3', '80', '3', '5']
     ]);
+  });
+
+  test('discovers every demo Prism data sheet and can select mixed table types', async () => {
+    const first = await importPrismFixture('demo_dataset.prism');
+    const lineTable = first.prismTables.find(table => table.title === 'XY: Entering replicate data');
+    const summaryTable = first.prismTables.find(table => table.title === 'XY: Entering mean with error values');
+    const survivalTable = first.prismTables.find(table => table.title === 'Survival: Two groups');
+    const line = await importPrismFixture('demo_dataset.prism', { prismTableId: lineTable.id });
+    const summary = await importPrismFixture('demo_dataset.prism', { prismTableId: summaryTable.id });
+    const survival = await importPrismFixture('demo_dataset.prism', { prismTableId: survivalTable.id });
+
+    expect(first).toMatchObject({
+      prismTableTitle: 'Grouped: Entering replicate data',
+      prismTableCount: 14
+    });
+    expect(first.prismTables.map(table => [table.title, table.prismMeta?.kind])).toEqual([
+      ['XY: Entering replicate data', 'line'],
+      ['XY: Entering mean with error values', 'scatter'],
+      ['Grouped: Entering replicate data', 'column'],
+      ['Data 6', 'line'],
+      ['Survival: Two groups', 'survival'],
+      ['Data - missing columns', 'scatter'],
+      ['Y SEN', 'scatter'],
+      ['Y CVN', 'scatter'],
+      ['Y SD', 'scatter'],
+      ['Y SE', 'scatter'],
+      ['Y CV', 'scatter'],
+      ['Y error', 'scatter'],
+      ['Y high low', 'scatter'],
+      ['Data 6', 'line']
+    ]);
+    expect(first.importedRows.slice(0, 2)).toEqual([
+      ['CTRL Rep 1', 'CTRL Rep 2', 'CTRL Rep 3', 'TREAT Rep 1', 'TREAT Rep 2', 'TREAT Rep 3'],
+      ['0.7054', '0.7299', '0.8065', '1.3211', '1.1908', '1.2463']
+    ]);
+    expect(line).toMatchObject({ prismTableTitle: 'XY: Entering replicate data', prismMeta: { kind: 'line' } });
+    expect(summary.importedRows.slice(0, 3)).toEqual([
+      ['Labels', 'Hours', 'Control'],
+      ['Control', '0', '45.9'],
+      ['Treated', '0', '39.9']
+    ]);
+    expect(survival).toMatchObject({ prismTableTitle: 'Survival: Two groups', prismMeta: { kind: 'survival' } });
+  });
+
+  test('hands a multi-table Prism import to the workspace batch orchestrator once', async () => {
+    const handler = jest.fn();
+    window.Shared.tableImport.setPrismBatchHandler(handler);
+
+    const first = await importPrismFixture('demo_dataset.prism');
+    await importPrismFixture('demo_dataset.prism', { prismTableId: first.prismTables[0].id });
+
+    expect(handler).toHaveBeenCalledTimes(1);
+    expect(handler.mock.calls[0][1]).toBe(first);
+  });
+
+  test('discovers every demo PZFX table and preserves Prism type parity', async () => {
+    const first = await importPrismFixture('demo_dataset.pzfx');
+    const summary = await importPrismFixture('demo_dataset.pzfx', { prismTableId: 'Table5' });
+    const survival = await importPrismFixture('demo_dataset.pzfx', { prismTableId: 'Table14' });
+
+    expect(first.prismTables.map(table => [table.title, table.prismMeta?.kind])).toEqual([
+      ['XY: Entering replicate data', 'line'],
+      ['XY: Entering mean with error values', 'scatter'],
+      ['Grouped: Entering replicate data', 'column'],
+      ['Data 6', 'line'],
+      ['Survival: Two groups', 'survival'],
+      ['Data - missing columns', 'line'],
+      ['Y SEN', 'scatter'],
+      ['Y CVN', 'scatter'],
+      ['Y SD', 'scatter'],
+      ['Y SE', 'scatter'],
+      ['Y CV', 'scatter'],
+      ['Y error', 'scatter'],
+      ['Y high low', 'scatter'],
+      ['Data 6', 'line']
+    ]);
+    expect(first).toMatchObject({ prismTableId: 'Table7', prismTableCount: 14, prismMeta: { kind: 'column' } });
+    expect(first.importedRows.slice(0, 2)).toEqual([
+      ['CTRL_1', 'CTRL_2', 'CTRL_3', 'TREAT_1', 'TREAT_2', 'TREAT_3'],
+      ['0.7054', '0.7299', '0.8065', '1.3211', '1.1908', '1.2463']
+    ]);
+    expect(summary.importedRows.slice(0, 3)).toEqual([
+      ['Labels', 'Hours', 'Y'],
+      ['Control', '0', '45.9'],
+      ['Treated', '0', '39.9']
+    ]);
+    expect(survival).toMatchObject({ prismTableId: 'Table14', prismTableTitle: 'Survival: Two groups', prismMeta: { kind: 'survival' } });
   });
 
   test('does not show Prism limitation warning for regular text imports', async () => {

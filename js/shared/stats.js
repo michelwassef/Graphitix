@@ -2161,9 +2161,7 @@
     }
   };
 
-  const DEFAULT_SIGNIFICANCE_THRESHOLD = 0.05;
   const STATS_REPORTING_CONTROL_KEY = 'statsReporting';
-  const panelSignificanceThresholdState = new WeakMap();
   const STATS_PANEL_SELECTORS = [
     '#statsResults',
     '#scatterStatsResults',
@@ -2224,31 +2222,6 @@
     }
   }
 
-  function sanitizeSignificanceThreshold(value, fallback){
-    const fallbackValue = Number.isFinite(fallback) && fallback > 0 && fallback <= 1
-      ? fallback
-      : DEFAULT_SIGNIFICANCE_THRESHOLD;
-    const numeric = Number(value);
-    if(!Number.isFinite(numeric) || numeric <= 0){
-      return fallbackValue;
-    }
-    if(numeric > 1){
-      return 1;
-    }
-    return numeric;
-  }
-
-  function formatThresholdLabel(value){
-    const numeric = Number(value);
-    if(!Number.isFinite(numeric)){
-      return String(DEFAULT_SIGNIFICANCE_THRESHOLD);
-    }
-    if(numeric >= 0.01){
-      return numeric.toFixed(3).replace(/0+$/,'').replace(/\.$/, '');
-    }
-    return formatScientificReportNumber(numeric, { significantDigits: 3 });
-  }
-
   function resolveStatsTabReference(tabLike){
     if(tabLike && typeof tabLike === 'object' && tabLike.id != null){
       return {
@@ -2289,30 +2262,6 @@
     }
   }
 
-  function readStoredSignificanceThresholdForTab(tabLike){
-    const sharedState = getTabStatsReportingControlState(tabLike, {
-      create: false,
-      reason: 'stats-reporting-threshold-read'
-    });
-    if(sharedState && Object.prototype.hasOwnProperty.call(sharedState, 'significanceThreshold')){
-      return sanitizeSignificanceThreshold(sharedState.significanceThreshold, DEFAULT_SIGNIFICANCE_THRESHOLD);
-    }
-    return DEFAULT_SIGNIFICANCE_THRESHOLD;
-  }
-
-  function setTabSignificanceThreshold(tabLike, value, options = {}){
-    const previous = readStoredSignificanceThresholdForTab(tabLike);
-    const next = sanitizeSignificanceThreshold(value, previous);
-    const sharedState = getTabStatsReportingControlState(tabLike, {
-      create: true,
-      reason: options.reason || 'stats-reporting-threshold-write'
-    });
-    if(sharedState){
-      sharedState.significanceThreshold = next;
-    }
-    return next;
-  }
-
   function setPanelPValueScientific(target, value, options = {}){
     const next = sanitizePValueScientific(value, DEFAULT_PVALUE_FORMAT_SCIENTIFIC);
     const tabId = ensurePanelPValueTabId(target, options);
@@ -2322,35 +2271,6 @@
       });
     }
     return projectPanelPValueScientific(target, next, { ...options, tabId });
-  }
-
-  function getPanelSignificanceThreshold(target, options = {}){
-    const tabId = resolveTargetStatsTabId(target, options);
-    if(tabId){
-      return readStoredSignificanceThresholdForTab(tabId);
-    }
-    if(target && target.nodeType === 1 && panelSignificanceThresholdState.has(target)){
-      return sanitizeSignificanceThreshold(
-        panelSignificanceThresholdState.get(target),
-        DEFAULT_SIGNIFICANCE_THRESHOLD
-      );
-    }
-    return DEFAULT_SIGNIFICANCE_THRESHOLD;
-  }
-
-  function setPanelSignificanceThreshold(target, value, options = {}){
-    const tabId = ensurePanelPValueTabId(target, options);
-    const previous = getPanelSignificanceThreshold(target, options);
-    const next = sanitizeSignificanceThreshold(value, previous);
-    if(tabId){
-      return setTabSignificanceThreshold(tabId, next, {
-        reason: options.reason || 'stats-reporting-panel-threshold-write'
-      });
-    }
-    if(target && target.nodeType === 1){
-      panelSignificanceThresholdState.set(target, next);
-    }
-    return next;
   }
 
   function persistStatsReportingStateForTab(tabId, options = {}){
@@ -2392,9 +2312,6 @@
             create: false,
             reason: 'stats-reporting-state-persist-read'
           });
-          if(sharedState && Object.prototype.hasOwnProperty.call(sharedState, 'significanceThreshold')){
-            nextStatsReporting.significanceThreshold = readStoredSignificanceThresholdForTab(key);
-          }
           if(hasStoredPValueScientificForTab(key)){
             nextStatsReporting.pValueScientific = readStoredPValueScientificForTab(key);
           }
@@ -2550,6 +2467,7 @@
     button.type = 'button';
     button.className = 'stats-pvalue-format-toggle';
     button.textContent = getPValueFormatButtonLabel(scientific);
+    button.setAttribute('data-parameter-p-value-scientific', scientific ? 'true' : 'false');
     button.setAttribute('data-undo-ignore', '1');
     button.addEventListener('click', event => {
       event.preventDefault();
@@ -2625,7 +2543,7 @@
       '.stats-report-panel pre, .stats-report-panel__summary-item, .stats-table-footnote, .stats-table-lead, .stats-assumption-section .assumption-detail'
     );
     elements.forEach(element => {
-      if(!element || element.closest('.stats-significance-controls')){
+      if(!element || element.closest('.stats-reporting-controls')){
         return;
       }
       const reportPanel = element.closest?.('.stats-report-panel') || null;
@@ -2772,115 +2690,81 @@
     return /\b(?:p|p[-\s]?value|p[-\s]?val|adj(?:usted)?\s*p|padj|p\*)\b/.test(source);
   }
 
-  function resolveSignificanceToken(pInfo, threshold){
-    if(!pInfo || !Number.isFinite(pInfo.value)){
+  function readElementInferenceSpec(element){
+    if(!element || element.nodeType !== 1){
       return null;
     }
-    const alpha = sanitizeSignificanceThreshold(threshold, DEFAULT_SIGNIFICANCE_THRESHOLD);
-    const operator = typeof pInfo.operator === 'string' ? pInfo.operator : '=';
-    const value = pInfo.value;
-    const isSignificant = (operator === '>' || operator === '>=') ? false : (value <= alpha);
-    if(!isSignificant){
-      return 'NS';
+    const criterion = element.dataset?.statsInferenceCriterion;
+    const level = Number(element.dataset?.statsInferenceLevel);
+    if((criterion !== 'alpha' && criterion !== 'fdr') || !Number.isFinite(level) || level <= 0 || level >= 1){
+      return null;
     }
-    if(value <= alpha / 1000){
-      return '****';
-    }
-    if(value <= alpha / 100){
-      return '***';
-    }
-    if(value <= alpha / 10){
-      return '**';
-    }
-    return '*';
+    return {
+      schemaVersion: 1,
+      criterion,
+      level,
+      method: element.dataset.statsInferenceMethod || 'none',
+      errorControl: element.dataset.statsInferenceErrorControl || (criterion === 'fdr' ? 'fdr' : 'unadjusted'),
+      valueKind: element.dataset.statsInferenceValueKind || 'raw-p',
+      decisionLabel: element.dataset.statsInferenceDecisionLabel || (criterion === 'fdr' ? 'Discovery' : 'Significant'),
+      negativeDecisionLabel: element.dataset.statsInferenceNegativeDecisionLabel || (criterion === 'fdr' ? 'No discovery' : 'Not significant')
+    };
   }
 
-  function renderSignificanceBadge(cell, pInfo, threshold){
+  function clearSignificanceBadge(cell){
     if(!cell || typeof cell.querySelectorAll !== 'function'){
-      return false;
+      return;
     }
     cell.querySelectorAll('.stats-significance-badge').forEach(node => {
-      try{
-        node.remove();
-      }catch(err){}
+      try{ node.remove(); }catch(_err){}
     });
-    const token = resolveSignificanceToken(pInfo, threshold);
-    if(!token || !cell.ownerDocument || typeof cell.ownerDocument.createElement !== 'function'){
+  }
+
+  function renderInferenceBadge(cell, pInfo, decisionSpec){
+    clearSignificanceBadge(cell);
+    if(!cell || !decisionSpec || !pInfo || !Number.isFinite(pInfo.value)){
+      return false;
+    }
+    if(pInfo.operator === '>' || pInfo.operator === '>='){
+      return false;
+    }
+    const classifier = Shared.statsInference?.classifyPValue;
+    if(typeof classifier !== 'function'){
+      return false;
+    }
+    const decision = classifier(pInfo.value, decisionSpec);
+    if(!decision.valid || !cell.ownerDocument?.createElement){
       return false;
     }
     const badge = cell.ownerDocument.createElement('span');
-    badge.className = `stats-significance-badge ${token === 'NS' ? 'stats-significance-badge--ns' : 'stats-significance-badge--sig'}`;
-    badge.textContent = token;
-    const thresholdLabel = formatThresholdLabel(threshold);
-    badge.title = `Significance summary at p ≤ ${thresholdLabel}`;
+    const isPositive = decision.meetsCriterion === true;
+    badge.className = `stats-significance-badge ${isPositive ? 'stats-significance-badge--sig' : 'stats-significance-badge--ns'}`;
+    badge.textContent = decision.token;
+    const criterionText = decisionSpec.criterion === 'fdr' ? 'target FDR' : 'α';
+    const methodMeta = Shared.stats?.getCorrectionMeta?.(decisionSpec.method) || null;
+    const methodPrefix = decisionSpec.method && decisionSpec.method !== 'none'
+      ? `${methodMeta?.shortLabel || decisionSpec.method}-adjusted p; `
+      : '';
+    badge.title = `${decision.label} (${methodPrefix}${criterionText} = ${Shared.statsInference?.formatLevel?.(decisionSpec.level) || decisionSpec.level})`;
     cell.appendChild(badge);
     return true;
   }
 
-  function annotateTablePValues(table, threshold){
+  function annotateTablePValues(table){
     if(!table || typeof table.querySelectorAll !== 'function'){
       return 0;
     }
-    let headerCells = Array.from(table.querySelectorAll('thead tr th'));
-    if(!headerCells.length){
-      const firstRow = table.querySelector('tr');
-      if(firstRow && firstRow.querySelector('th')){
-        headerCells = Array.from(firstRow.querySelectorAll('th'));
-      }
-    }
-    const pColumnIndexes = [];
-    headerCells.forEach((cell, index) => {
-      if(isPLabel(cell?.textContent || '')){
-        pColumnIndexes.push(index);
-      }
-    });
     let badgeCount = 0;
-    let bodyRows = Array.from(table.querySelectorAll('tbody tr'));
-    if(!bodyRows.length){
-      const allRows = Array.from(table.querySelectorAll('tr'));
-      if(allRows.length){
-        const firstRowCells = Array.from(allRows[0].cells || []);
-        const firstRowIsHeader = firstRowCells.some(cell => String(cell.tagName || '').toLowerCase() === 'th');
-        bodyRows = firstRowIsHeader ? allRows.slice(1) : allRows;
-      }
-    }
-    bodyRows.forEach(row => {
-      const cells = Array.from(row.cells || []);
-      if(!cells.length){
+    table.querySelectorAll('td').forEach(cell => {
+      clearSignificanceBadge(cell);
+      const decisionSpec = readElementInferenceSpec(cell);
+      if(!decisionSpec){
         return;
       }
-      const taggedCells = new Set();
-      pColumnIndexes.forEach(index => {
-        const candidate = cells[index];
-        if(!candidate){
-          return;
-        }
-        const parsed = parseElementPValue(candidate, { allowBare: true });
-        if(renderSignificanceBadge(candidate, parsed, threshold)){
-          badgeCount += 1;
-          taggedCells.add(candidate);
-        }
-      });
-      if(cells.length >= 2 && isPLabel(cells[0]?.textContent || '')){
-        const candidate = cells[cells.length - 1];
-        if(candidate && !taggedCells.has(candidate)){
-          const parsed = parseElementPValue(candidate, { allowBare: true });
-          if(renderSignificanceBadge(candidate, parsed, threshold)){
-            badgeCount += 1;
-            taggedCells.add(candidate);
-          }
-        }
+      const parsed = parseElementPValue(cell, { allowBare: true });
+      if(renderInferenceBadge(cell, parsed, decisionSpec)){
+        badgeCount += 1;
       }
-      cells.forEach(cell => {
-        if(taggedCells.has(cell)){
-          return;
-        }
-        const parsed = parseElementPValue(cell, { allowBare: false });
-        if(renderSignificanceBadge(cell, parsed, threshold)){
-          badgeCount += 1;
-          taggedCells.add(cell);
-        }
-      });
     });
     return badgeCount;
   }
@@ -3029,6 +2913,18 @@
   const STATS_MODEL_ALLOWED_CLASS_PREFIXES = [
     'stats-', 'variance-', 'pca-', 'box-', 'scatter-', 'line-', 'roc-', 'hist-', 'pie-', 'survival-', 'heatmap-', 'surface-'
   ];
+  const STATS_MODEL_DATASET_KEYS = Object.freeze([
+    'statsPvalueRaw',
+    'statsPvalueOperator',
+    'statsPvalueSourceText',
+    'statsInferenceCriterion',
+    'statsInferenceLevel',
+    'statsInferenceMethod',
+    'statsInferenceErrorControl',
+    'statsInferenceValueKind',
+    'statsInferenceDecisionLabel',
+    'statsInferenceNegativeDecisionLabel'
+  ]);
 
   function sanitizeStatsClassName(value){
     if(typeof value !== 'string' || !value.trim()){
@@ -3076,7 +2972,7 @@
       model.className = className;
     }
     const statsAttrs = {};
-    ['statsPvalueRaw', 'statsPvalueOperator', 'statsPvalueSourceText'].forEach(key => {
+    STATS_MODEL_DATASET_KEYS.forEach(key => {
       if(node.dataset && Object.prototype.hasOwnProperty.call(node.dataset, key)){
         statsAttrs[key] = String(node.dataset[key]);
       }
@@ -3115,7 +3011,7 @@
         captureNodes.push(node);
         return;
       }
-      if(node.classList?.contains('stats-significance-controls')){
+      if(node.classList?.contains('stats-reporting-controls')){
         return;
       }
       if(node.classList?.contains('stats-results-main') || node.classList?.contains('stats-results-descriptive')){
@@ -3210,7 +3106,7 @@
       node.className = className;
     }
     if(model.statsAttrs && typeof model.statsAttrs === 'object' && node.dataset){
-      ['statsPvalueRaw', 'statsPvalueOperator', 'statsPvalueSourceText'].forEach(key => {
+      STATS_MODEL_DATASET_KEYS.forEach(key => {
         if(Object.prototype.hasOwnProperty.call(model.statsAttrs, key)){
           node.dataset[key] = String(model.statsAttrs[key]);
         }
@@ -3441,22 +3337,16 @@
     return !!target.querySelector('.stats-table-card, table, .stats-report-panel, .stats-assumption-container');
   }
 
-  function suppressThresholdControlsForPanel(target){
+  function suppressReportingControlsForPanel(target){
     if(!target){
       return false;
     }
     const targetId = typeof target.id === 'string' ? target.id : '';
-    if(targetId === 'surfaceStatsSummary' || targetId === 'pcaStatsResults'){
-      return true;
-    }
-    if(
-      targetId === 'survivalStatsLogRank'
+    return targetId === 'surfaceStatsSummary'
+      || targetId === 'pcaStatsResults'
+      || targetId === 'survivalStatsLogRank'
       || targetId === 'survivalStatsHazardRatios'
-      || targetId === 'survivalStatsCox'
-    ){
-      return true;
-    }
-    return false;
+      || targetId === 'survivalStatsCox';
   }
 
   function ensurePanelScaffold(target, state){
@@ -3465,57 +3355,31 @@
     }
     const documentRef = target.ownerDocument;
     ensurePanelPValueTabId(target);
-    const suppressThresholdControls = suppressThresholdControlsForPanel(target);
-    let controls = findDirectChildByClass(target, 'stats-significance-controls');
-    if(suppressThresholdControls){
+    const suppressReportingControls = suppressReportingControlsForPanel(target);
+    let controls = findDirectChildByClass(target, 'stats-reporting-controls');
+    if(suppressReportingControls){
       if(controls && controls.parentNode){
         controls.parentNode.removeChild(controls);
       }
       controls = null;
     }else if(!controls){
       controls = documentRef.createElement('div');
-      controls.className = 'stats-significance-controls';
-      controls.innerHTML = '<label class="stats-significance-controls__label">Significance threshold (p \u2264) <input type="number" class="stats-significance-controls__input" min="0.000001" max="1" step="0.0001" data-undo-ignore="1" /></label><span class="stats-significance-controls__hint">Applies when p-values are present.</span><span class="stats-significance-controls__extra"></span>';
+      controls.className = 'stats-reporting-controls';
+      controls.setAttribute('data-stats-reporting-controls', '1');
       target.insertBefore(controls, target.firstChild || null);
-      statsReportingDebug('createSignificanceControls', { id: target.id || null });
-    }
-    const thresholdInput = controls ? controls.querySelector('.stats-significance-controls__input') : null;
-    if(thresholdInput){
-      thresholdInput.value = String(getPanelSignificanceThreshold(target));
-      if(state.thresholdInputEl !== thresholdInput){
-        const commitThresholdInput = () => {
-          reporting.setSignificanceThreshold(thresholdInput.value, {
-            target,
-            source: target.id || null,
-            persist: true
-          });
-        };
-        thresholdInput.addEventListener('change', commitThresholdInput);
-        thresholdInput.addEventListener('blur', () => {
-          thresholdInput.value = String(reporting.getSignificanceThreshold({ target }));
-        });
-        state.thresholdInputEl = thresholdInput;
-      }
+      statsReportingDebug('createReportingControls', { id: target.id || null });
     }
     if(controls){
-      let extraControls = controls.querySelector('.stats-significance-controls__extra');
-      if(!extraControls){
-        extraControls = documentRef.createElement('span');
-        extraControls.className = 'stats-significance-controls__extra';
-        controls.appendChild(extraControls);
-      }
-      if(extraControls){
-        extraControls.textContent = '';
-        const extraFactory = typeof target.__statsExtraControlFactory === 'function'
-          ? target.__statsExtraControlFactory
-          : ((context) => createDefaultPValueFormatControl(context.document, context.target));
-        const extraNode = extraFactory ? extraFactory({ document: documentRef, target, controls }) : null;
-        if(extraNode){
-          extraControls.appendChild(extraNode);
-          extraControls.hidden = false;
-        }else{
-          extraControls.hidden = true;
-        }
+      controls.textContent = '';
+      const extraFactory = typeof target.__statsExtraControlFactory === 'function'
+        ? target.__statsExtraControlFactory
+        : ((context) => createDefaultPValueFormatControl(context.document, context.target));
+      const extraNode = extraFactory ? extraFactory({ document: documentRef, target, controls }) : null;
+      if(extraNode){
+        controls.appendChild(extraNode);
+        controls.hidden = false;
+      }else{
+        controls.hidden = true;
       }
     }
     let main = findDirectChildByClass(target, 'stats-results-main');
@@ -3550,8 +3414,6 @@
     }
     return {
       controls,
-      thresholdInput,
-      hint: controls ? controls.querySelector('.stats-significance-controls__hint') : null,
       main,
       advancedPanel,
       advancedBody,
@@ -3648,21 +3510,15 @@
         global.Shared.statsTable.refreshPValueFormatting(target);
       }
       rewriteInlinePValueElements(target);
-      const threshold = reporting.getSignificanceThreshold({ target });
       let badgeCount = 0;
       const tables = target.querySelectorAll('table');
       tables.forEach(table => {
         rewriteTablePValueCells(table, target);
-        badgeCount += annotateTablePValues(table, threshold);
+        badgeCount += annotateTablePValues(table);
       });
       const abbreviationSummary = global.Shared?.statsTable && typeof global.Shared.statsTable.enhanceAbbreviations === 'function'
         ? global.Shared.statsTable.enhanceAbbreviations(target)
         : null;
-      if(scaffold.hint){
-        scaffold.hint.textContent = badgeCount
-          ? `Legend: NS, *, **, ***, **** (p ≤ ${formatThresholdLabel(threshold)})`
-          : 'Applies when p-values are present.';
-      }
       statsReportingDebug('enhancePanel', {
         id: target.id || null,
         reason: reason || 'manual',
@@ -3692,7 +3548,6 @@
       state = {
         applying: false,
         scheduled: false,
-        thresholdInputEl: null,
         mutationSuspended: false,
         observer: null
       };
@@ -3907,12 +3762,16 @@
     const fallback = typeof options.fallback === 'string'
       ? options.fallback
       : (Number.isFinite(numeric) ? String(sharedFormatPValue(numeric, { scientific: DEFAULT_PVALUE_FORMAT_SCIENTIFIC })) : '—');
-    return {
+    const token = {
       type: 'pValue',
       value: numeric,
       operator: typeof options.operator === 'string' && options.operator.trim() ? options.operator.trim() : '=',
       fallback
     };
+    if(options.inference && typeof options.inference === 'object'){
+      token.__statsInference = options.inference;
+    }
+    return token;
   };
 
   reporting.renderTextParts = function renderStatsReportText(parts, options = {}){
@@ -3921,31 +3780,11 @@
 
   reporting.formatPValueExpression = formatPValueExpression;
   reporting.formatScientificNumber = formatScientificReportNumber;
-  reporting.formatThresholdLabel = formatThresholdLabel;
   reporting.normalizeNotationText = normalizeStatNotationText;
-
-  reporting.getSignificanceThreshold = function getSignificanceThreshold(options = {}){
-    const target = options?.target && options.target.nodeType === 1 ? options.target : null;
-    if(target){
-      return getPanelSignificanceThreshold(target, options);
-    }
-    const tabId = normalizeStatsTabId(options?.tabId || options?.tab?.id) || resolveActiveStatsTabId();
-    return readStoredSignificanceThresholdForTab(tabId);
-  };
 
   reporting.captureTabState = function captureStatsReportingTabState(tabLike){
     const resolved = resolveStatsTabReference(tabLike);
-    const sharedState = getTabStatsReportingControlState(tabLike, {
-      create: false,
-      reason: 'stats-reporting-tab-state-capture'
-    });
     const captured = {};
-    if(sharedState && Object.prototype.hasOwnProperty.call(sharedState, 'significanceThreshold')){
-      captured.significanceThreshold = sanitizeSignificanceThreshold(
-        sharedState.significanceThreshold,
-        DEFAULT_SIGNIFICANCE_THRESHOLD
-      );
-    }
     if(hasStoredPValueScientificForTab(resolved.tabId)){
       captured.pValueScientific = readStoredPValueScientificForTab(resolved.tabId);
     }
@@ -3958,20 +3797,6 @@
       return null;
     }
     const applyReason = options.reason || 'stats-reporting-tab-state-apply';
-    const sharedState = getTabStatsReportingControlState(tabLike, {
-      create: false,
-      reason: applyReason
-    });
-    let significanceThreshold = DEFAULT_SIGNIFICANCE_THRESHOLD;
-    if(source && Object.prototype.hasOwnProperty.call(source, 'significanceThreshold')){
-      significanceThreshold = setTabSignificanceThreshold(
-        tabLike,
-        source.significanceThreshold,
-        { reason: applyReason }
-      );
-    }else if(sharedState){
-      delete sharedState.significanceThreshold;
-    }
     let pValueScientific = DEFAULT_PVALUE_FORMAT_SCIENTIFIC;
     if(source && Object.prototype.hasOwnProperty.call(source, 'pValueScientific')){
       pValueScientific = setTabPValueScientific(
@@ -3985,7 +3810,7 @@
       });
     }
     refreshEnhancedPanelsForTab(tabId, `${applyReason}:project`);
-    return { significanceThreshold, pValueScientific };
+    return { pValueScientific };
   };
 
   reporting.getPValueFormatScientific = function getPValueFormatScientific(options = {}){
@@ -4042,64 +3867,6 @@
       });
     }
     return next;
-  };
-
-  reporting.setSignificanceThreshold = function setSignificanceThreshold(value, options = {}){
-    const target = options?.target && options.target.nodeType === 1 ? options.target : null;
-    const tabId = resolveTargetStatsTabId(target, options) || null;
-    const previous = target
-      ? getPanelSignificanceThreshold(target, options)
-      : readStoredSignificanceThresholdForTab(tabId);
-    const next = target
-      ? setPanelSignificanceThreshold(target, value, {
-          ...options,
-          reason: options.reason || 'stats-significance-threshold-change'
-        })
-      : setTabSignificanceThreshold(tabId, value, {
-          reason: options.reason || 'stats-significance-threshold-change'
-        });
-    statsReportingDebug('setSignificanceThreshold', {
-      previous,
-      next,
-      source: options?.source || null,
-      targetId: target?.id || null,
-      tabId
-    });
-    try{
-      if(typeof global.dispatchEvent === 'function' && typeof global.CustomEvent === 'function'){
-        global.dispatchEvent(new global.CustomEvent('stats:significance-threshold-change', {
-          detail: {
-            threshold: next,
-            previous,
-            source: options?.source || null,
-            targetId: target?.id || null,
-            tabId
-          }
-        }));
-      }
-    }catch(err){
-      statsReportingDebug('dispatchThresholdEventError', { message: err?.message || String(err) });
-    }
-    if(tabId){
-      refreshEnhancedPanelsForTab(tabId, previous === next ? 'threshold-sync' : 'threshold-change');
-    }else if(target){
-      schedulePanelEnhancement(target, previous === next ? 'threshold-sync' : 'threshold-change');
-    }
-    if(options.persist === true && tabId){
-      persistStatsReportingStateForTab(tabId, {
-        source: options.source || null,
-        reason: options.reason || 'stats-significance-threshold-change'
-      });
-    }
-    return next;
-  };
-
-  reporting.getSignificanceToken = function getSignificanceToken(pValue, threshold, options = {}){
-    const parsed = Number.isFinite(Number(pValue))
-      ? { value: Number(pValue), operator: '=' }
-      : null;
-    const fallbackThreshold = reporting.getSignificanceThreshold(options);
-    return resolveSignificanceToken(parsed, sanitizeSignificanceThreshold(threshold, fallbackThreshold));
   };
 
   reporting.enhancePanelNow = function enhancePanelNow(target, reason){
@@ -4159,5 +3926,13 @@
     };
     console.debug('Debug: stats.getCorrectionMeta',{ method: methodKey, label: meta.label });
     return meta;
+  };
+
+  stats.getAdjustedPLabel = function(method){
+    const meta = stats.getCorrectionMeta(method);
+    if(meta.key === 'none'){
+      return 'p-value';
+    }
+    return `${meta.shortLabel}-adjusted p`;
   };
 })(typeof window !== 'undefined' ? window : globalThis);

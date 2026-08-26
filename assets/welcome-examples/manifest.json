@@ -5,10 +5,10 @@
   "previewSource": "Graphitix owner-scoped SVG projection",
   "width": 320,
   "height": 220,
-  "sourceFingerprint": "17093295c1b3477294527fb0c9f31008a48ebb393bbe155fee3111453d15a516",
+  "sourceFingerprint": "a8f03211bbfffbfece2fd06c242f97b8ee9ece14e2c3227d711a12b3fefc6e1d",
   "registry": {
     "file": "thumbnails.js",
-    "sha256": "01f1d5ee6f49489803d52e185e87008a9e7edecbbc5d426d9c18c0cea9527b15",
+    "sha256": "cb2eb999e592c14ef0ce7def8c3c634f72bb96f6c1e70db8025090a426a29136",
     "inline": true
   },
   "examples": [
@@ -49,7 +49,7 @@
       "proportionalStrokeContract": "source-viewport-baked-strokes-v1",
       "visualScale": 0.510204081633,
       "nonScalingStrokeCount": 0,
-      "sourceFingerprint": "ebc75bb25e85f740586ebf5cf1c68b4ffca7b27605b0f59882a2d3416d913c5f",
+      "sourceFingerprint": "68dcd8b7ff78765ac92ea3557869b8110f55ddd6bd16e07a54544b8e329d5717",
       "sha256": "6de92894633772f802a39b04acde09047ec77bea4f20e8bd420695c57a683220"
     },
     {
@@ -89,7 +89,7 @@
       "proportionalStrokeContract": "source-viewport-baked-strokes-v1",
       "visualScale": 0.510204081633,
       "nonScalingStrokeCount": 0,
-      "sourceFingerprint": "974420ae5dd61827ac8ab15444ae905c21581b079e3b42fe8eb0a78c20c6da06",
+      "sourceFingerprint": "76ac9dc41bd7f5fe815ce63408077915c98afe30514ec4704732add238586de8",
       "sha256": "d16592f7cf69ac3ed39efc9fedbc6a3966b54d5d92224b7224742da42d1a20b7"
     },
     {
@@ -129,7 +129,7 @@
       "proportionalStrokeContract": "source-viewport-baked-strokes-v1",
       "visualScale": 0.416666666667,
       "nonScalingStrokeCount": 0,
-      "sourceFingerprint": "79560f40ef0f3c719101638ed3a89222f878bd04814d2e29be0967d177e85eaf",
+      "sourceFingerprint": "467db4973774e960e37bcf11dfb1a79a7e5da0b92bbaab5e2d9f22d7658a3520",
       "sha256": "9518dae8ac3568f8683a3dfe898cf57ccf3477cc75cff3c7207b858fd2eb01a6"
     },
     {
@@ -169,7 +169,7 @@
       "proportionalStrokeContract": "source-viewport-baked-strokes-v1",
       "visualScale": 0.510204081633,
       "nonScalingStrokeCount": 0,
-      "sourceFingerprint": "57fcce0681e9d1f98ea0d078e98f53cde340b8d23020a09631faa860088ce94c",
+      "sourceFingerprint": "c3e48eeb6a5abec4e94d799fd2f988070fd3cd6faf9ee1cff51fdbfd89036230",
       "sha256": "4cd1e2857856f145640d564dff0b7586b2c99f36b4608ef4a5a0b5e635377f4a"
     },
     {
@@ -207,8 +207,8 @@
       "proportionalStrokeContract": "source-viewport-baked-strokes-v1",
       "visualScale": 0.058949154072,
       "nonScalingStrokeCount": 10,
-      "sourceFingerprint": "48925009d09ebe0907b0248dc523210cec385fb907a99c8cbb332ceefd525544",
-      "sha256": "387df3180e10c1bfd67527fddb39a903e2504f52dfd866ab55d3a423e4b99617"
+      "sourceFingerprint": "02219d70b24196ef8012b22c7c9a01bd22dc4261debecff5a35f6188abfc96c9",
+      "sha256": "a809e6dbb5f13daa1917d2bf21f5b6412c937283cb7f2b295a82dbab50e05d50"
     },
     {
       "type": "pca",
@@ -218,12 +218,12 @@
       "source": "Graphitix owner-scoped SVG projection",
       "captureMode": "canonical-export",
       "sourceFormat": "svg",
-      "sourceWidth": 671.77,
+      "sourceWidth": 452,
       "sourceHeight": 392,
       "sourceViewBox": {
         "x": 0,
         "y": 0,
-        "width": 671.77,
+        "width": 452,
         "height": 392
       },
       "sourcePreserveAspectRatio": "xMidYMid meet",
@@ -245,10 +245,10 @@
         "verified": true
       },
       "proportionalStrokeContract": "source-viewport-baked-strokes-v1",
-      "visualScale": 0.446581419236,
+      "visualScale": 0.510204081633,
       "nonScalingStrokeCount": 0,
-      "sourceFingerprint": "67f5b94c5a5ef8c2d48bae611d81606856e7a6b72fcc5cb9e095f6b87b3e1263",
-      "sha256": "546113c007f84f7f5b0634e81b1c2c8f392ffb93975bb243043a7f0fff76332a"
+      "sourceFingerprint": "0158b22dc41c7bbb7f9c1af8eed1ed7a54994f3b40fb9c79c8bb327a857b6585",
+      "sha256": "25822ce5d16f4239005c7d9c8a8674fe6f22ab200c816890351f12fb41d1ddc1"
     },
     {
       "type": "pie",
@@ -287,7 +287,7 @@
       "proportionalStrokeContract": "source-viewport-baked-strokes-v1",
       "visualScale": 0.510204081633,
       "nonScalingStrokeCount": 0,
-      "sourceFingerprint": "0c681f3577b6d7c5f98775a07d8b113f416a7a0a340a0daa185e270c5270624b",
+      "sourceFingerprint": "17bad48a73b418d73b0e1cd03471810f8edef559a21f2c2d300a7ba9ce421637",
       "sha256": "c5cacc3faa59d30e7ed4ceb7d47be19ce13f967b8bb29d9b845ddbe3848d2db9"
     },
     {
@@ -327,7 +327,7 @@
       "proportionalStrokeContract": "source-viewport-baked-strokes-v1",
       "visualScale": 0.510204081633,
       "nonScalingStrokeCount": 0,
-      "sourceFingerprint": "f5f1bcea6e6ea0e458151eda17ff373be9839416ac52b928241e3723ec8d7dde",
+      "sourceFingerprint": "7fe16b74a69195b1da994f11270ac5a4434fa2a08e87e3aeac54136e6e741748",
       "sha256": "5216f758df0a919492ca1411086996a77740fc3689cf745e2e6e8b8944573da8"
     },
     {
@@ -367,7 +367,7 @@
       "proportionalStrokeContract": "source-viewport-baked-strokes-v1",
       "visualScale": 0.510204081633,
       "nonScalingStrokeCount": 0,
-      "sourceFingerprint": "2f432099a53be7cb9831eb303bfefa5e170433850af21f9b25276bd9eb837d6c",
+      "sourceFingerprint": "5ec8745ac9b3ebb98cc650a9c9fa955f05d688c93b94f2a41a897fa20d291258",
       "sha256": "ee307f544fef3b624fe9fa1be652ac6690ef3972bf7d589f46d27c3bfbb66aa1"
     },
     {
@@ -405,7 +405,7 @@
       "proportionalStrokeContract": "source-viewport-baked-strokes-v1",
       "visualScale": 0.510204081633,
       "nonScalingStrokeCount": 0,
-      "sourceFingerprint": "682b025cdadff7f78d18f3dc3f4457249014183bf4008b767c50d3d1d7dca033",
+      "sourceFingerprint": "565d7ef31e2254ee8e626fbfc442c70765ee5afc71fb5934446d658285df15ea",
       "sha256": "fbe30d61de1bffa959d7f7edfb3b0f9bbde53c1bf0a11454ce2deefcf5b46877"
     },
     {
@@ -445,7 +445,7 @@
       "proportionalStrokeContract": "source-viewport-baked-strokes-v1",
       "visualScale": 0.5,
       "nonScalingStrokeCount": 0,
-      "sourceFingerprint": "07882efba2717f5f396380d95ce1bd9025c7d15c6714d4ee7fa659fe5955aef1",
+      "sourceFingerprint": "d994b6e5692574b9a93c29c4fa72a4190e20c93f717de421a111fbffaf6283b5",
       "sha256": "fa93dec8ef661e5c780a547b19988f8dad8b5d2387d62c4b78627860c809fd8f"
     }
   ]

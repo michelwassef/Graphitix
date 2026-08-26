@@ -5891,6 +5891,69 @@
     });
   }
 
+  const DOWNLOAD_FORMATS = Object.freeze({
+    png: { description: 'PNG image', mimeType: 'image/png', extension: '.png' },
+    svg: { description: 'SVG image', mimeType: SVG_MIME_TYPE, extension: '.svg' },
+    'svg-hybrid': { description: 'SVG image', mimeType: SVG_MIME_TYPE, extension: '.svg' },
+    emf: { description: 'EMF image', mimeType: EMF_MIME_TYPE, extension: '.emf' },
+    pdf: { description: 'PDF document', mimeType: PDF_MIME_TYPE, extension: '.pdf' },
+    tiff: { description: 'TIFF image', mimeType: TIFF_MIME_TYPE, extension: '.tiff' }
+  });
+
+  function resolveDownloadFileName(baseFileName, format) {
+    const extension = DOWNLOAD_FORMATS[format]?.extension || '';
+    const base = String(baseFileName || 'chart');
+    return extension && !base.toLowerCase().endsWith(extension) ? `${base}${extension}` : base;
+  }
+
+  async function requestDownloadTarget(baseFileName, format, contextLabel) {
+    const details = DOWNLOAD_FORMATS[format];
+    const fileName = resolveDownloadFileName(baseFileName, format);
+    const desktop = global.desktop;
+    if (desktop && typeof desktop.showSaveDialog === 'function' && typeof desktop.writeFile === 'function') {
+      const result = await desktop.showSaveDialog({
+        title: 'Save exported image',
+        defaultPath: fileName,
+        filters: details ? [{ name: details.description, extensions: [details.extension.slice(1)] }] : undefined
+      });
+      return result?.canceled || !result?.filePath
+        ? { cancelled: true, fileName }
+        : { kind: 'desktop', filePath: result.filePath, fileName };
+    }
+    if (typeof global.showSaveFilePicker === 'function' && details) {
+      try {
+        const handle = await global.showSaveFilePicker({
+          suggestedName: fileName,
+          types: [{ description: details.description, accept: { [details.mimeType]: [details.extension] } }]
+        });
+        return { kind: 'picker', handle, fileName };
+      } catch (err) {
+        if (err?.name === 'AbortError') return { cancelled: true, fileName };
+        warn('save picker unavailable', { contextLabel, message: err?.message });
+      }
+    }
+    return { kind: 'download', fileName };
+  }
+
+  async function saveBlobToTarget(blob, target, contextLabel) {
+    if (!blob || !target || target.cancelled) return false;
+    if (target.kind === 'desktop') {
+      await global.desktop.writeFile({
+        filePath: target.filePath,
+        dataBase64: await blobToBase64(blob)
+      });
+      return true;
+    }
+    if (target.kind === 'picker') {
+      const writable = await target.handle.createWritable();
+      await writable.write(blob);
+      await writable.close();
+      return true;
+    }
+    downloadBlob(blob, target.fileName, contextLabel);
+    return true;
+  }
+
   function downloadBlob(blob, fileName, contextLabel) {
     if (!blob) {
       logDebug('downloadBlob skipped', { contextLabel, reason: 'no blob' });
@@ -6383,7 +6446,11 @@
         return resolveSvg();
       }
     };
-    async function handle(mode, format) {
+    async function handle(mode, format, preparedTarget) {
+      const downloadTarget = mode === 'download'
+        ? (preparedTarget || await requestDownloadTarget(fileName, format, `${contextLabel}-${format}`))
+        : null;
+      if (downloadTarget?.cancelled) return;
       const resolveRequiredSvg = resolver => {
         const svgEl = resolver();
         if (!svgEl) {
@@ -6410,7 +6477,7 @@
           if (!svgEl) return;
           const blob = await svgElementToPngBlob(svgEl, pngOptions);
           if (!blob) return;
-          downloadBlob(blob, `${fileName}.png`, `${contextLabel}-png`);
+          await saveBlobToTarget(blob, downloadTarget, `${contextLabel}-png`);
         } else {
           const payloadPromise = Promise.resolve().then(async () => {
             const svgEl = resolveRequiredSvg(resolveSvg);
@@ -6454,7 +6521,7 @@
         if (mode === 'download') {
           const payload = buildPayload();
           if (!payload) return;
-          downloadBlob(payload.svgBlob, payload.fileName, `${contextLabel}-svg`);
+          await saveBlobToTarget(payload.svgBlob, downloadTarget, `${contextLabel}-svg`);
         } else {
           const payloadPromise = Promise.resolve().then(buildPayload);
           const copied = await copyBlobMap(createDeferredClipboardBlobMap(payloadPromise), `${contextLabel}-svg`);
@@ -6487,10 +6554,10 @@
         const payload = await payloadPromise;
         if (!payload) {
           warn('svgActions hybrid payload missing', { contextLabel });
-          return handle(mode, 'svg');
+          return handle(mode, 'svg', downloadTarget);
         }
         if (mode === 'download') {
-          downloadBlob(payload.svgBlob, payload.fileName, `${contextLabel}-hybrid`);
+          await saveBlobToTarget(payload.svgBlob, downloadTarget, `${contextLabel}-hybrid`);
         }
       } else if (format === 'emf') {
         const svgEl = resolveRequiredSvg(resolveSvg);
@@ -6508,7 +6575,7 @@
         });
         if (!blob) return;
         if (mode === 'download') {
-          downloadBlob(blob, `${fileName}.emf`, `${contextLabel}-emf`);
+          await saveBlobToTarget(blob, downloadTarget, `${contextLabel}-emf`);
         } else {
           const map = { [EMF_MIME_TYPE]: blob, [EMF_MIME_FALLBACK]: blob };
           const copied = await copyBlobMap(map, `${contextLabel}-emf`);
@@ -6537,7 +6604,7 @@
         });
         if (!blob) return;
         if (mode === 'download') {
-          downloadBlob(blob, `${fileName}.pdf`, `${contextLabel}-pdf`);
+          await saveBlobToTarget(blob, downloadTarget, `${contextLabel}-pdf`);
         } else {
           const copied = await copyBlobMap({ [PDF_MIME_TYPE]: blob }, `${contextLabel}-pdf`);
           if (!copied) {
@@ -6565,7 +6632,7 @@
         });
         if (!blob) return;
         if (mode === 'download') {
-          downloadBlob(blob, `${fileName}.tiff`, `${contextLabel}-tiff`);
+          await saveBlobToTarget(blob, downloadTarget, `${contextLabel}-tiff`);
         } else {
           const copied = await copyBlobMap({ [TIFF_MIME_TYPE]: blob }, `${contextLabel}-tiff`);
           if (!copied) {
@@ -6678,11 +6745,15 @@
     }
 
     async function handle(mode, format) {
+      const downloadTarget = mode === 'download'
+        ? await requestDownloadTarget(fileName, format, `${contextLabel}-${format}`)
+        : null;
+      if (downloadTarget?.cancelled) return;
       if (format === 'png') {
         const blob = await getPngBlob();
         if (!blob) return;
         if (mode === 'download') {
-          downloadBlob(blob, `${fileName}.png`, `${contextLabel}-png`);
+          await saveBlobToTarget(blob, downloadTarget, `${contextLabel}-png`);
         } else {
           const copied = await copyBlobMap({ 'image/png': blob }, `${contextLabel}-png`);
           if (!copied) {
@@ -6705,7 +6776,7 @@
           clipboardTypes: Object.keys(payload.clipboardMap || {})
         }); // Debug: canvas svg payload trace
         if (mode === 'download') {
-          downloadBlob(payload.svgBlob, payload.fileName, `${contextLabel}-svg`);
+          await saveBlobToTarget(payload.svgBlob, downloadTarget, `${contextLabel}-svg`);
         } else {
           const copied = await copyBlobMap(payload.clipboardMap, `${contextLabel}-svg`);
           if (!copied) {
@@ -6716,7 +6787,7 @@
         const blob = await getEmfBlob();
         if (!blob) return;
         if (mode === 'download') {
-          downloadBlob(blob, `${fileName}.emf`, `${contextLabel}-emf`);
+          await saveBlobToTarget(blob, downloadTarget, `${contextLabel}-emf`);
         } else {
           const map = { [EMF_MIME_TYPE]: blob, [EMF_MIME_FALLBACK]: blob };
           const copied = await copyBlobMap(map, `${contextLabel}-emf`);
@@ -6738,7 +6809,7 @@
         const blob = await canvasToPdfBlob(canvas, { dpi, dpiX, dpiY, backgroundColor });
         if (!blob) return;
         if (mode === 'download') {
-          downloadBlob(blob, `${fileName}.pdf`, `${contextLabel}-pdf`);
+          await saveBlobToTarget(blob, downloadTarget, `${contextLabel}-pdf`);
         } else {
           const copied = await copyBlobMap({ [PDF_MIME_TYPE]: blob }, `${contextLabel}-pdf`);
           if (!copied) {
@@ -6759,7 +6830,7 @@
         const blob = canvasToTiffBlob(canvas, { dpi, dpiX, dpiY, backgroundColor });
         if (!blob) return;
         if (mode === 'download') {
-          downloadBlob(blob, `${fileName}.tiff`, `${contextLabel}-tiff`);
+          await saveBlobToTarget(blob, downloadTarget, `${contextLabel}-tiff`);
         } else {
           const copied = await copyBlobMap({ [TIFF_MIME_TYPE]: blob }, `${contextLabel}-tiff`);
           if (!copied) {
@@ -6899,6 +6970,10 @@
     });
 
     async function handle(mode, format) {
+      const downloadTarget = mode === 'download'
+        ? await requestDownloadTarget(fileName, format, `${contextLabel}-${format}`)
+        : null;
+      if (downloadTarget?.cancelled) return;
       if (format === 'png' && mode === 'copy') {
         const payloadPromise = resolveProjectedSvg().then(projected => {
           if (!projected?.xml) return null;
@@ -6920,7 +6995,7 @@
         const pngOptions = buildFormatOptions(projected, 'png');
         const blob = await svgStringToPngBlob(projected.xml, pngOptions);
         if (!blob) return;
-        downloadBlob(blob, `${fileName}.png`, `${contextLabel}-png`);
+        await saveBlobToTarget(blob, downloadTarget, `${contextLabel}-png`);
       } else if (format === 'svg') {
         const payload = buildSvgExportPayload(projected.xml, {
           fileName: `${fileName}.svg`,
@@ -6935,7 +7010,7 @@
           clipboardTypes: Object.keys(payload.clipboardMap || {})
         }); // Debug: svg string payload trace
         if (mode === 'download') {
-          downloadBlob(payload.svgBlob, payload.fileName, `${contextLabel}-svg`);
+          await saveBlobToTarget(payload.svgBlob, downloadTarget, `${contextLabel}-svg`);
         } else {
           const copied = await copyBlobMap(payload.clipboardMap, `${contextLabel}-svg`);
           if (!copied) {
@@ -6946,7 +7021,7 @@
         const blob = await svgStringToEmfBlob(projected.xml, buildFormatOptions(projected, 'emf'));
         if (!blob) return;
         if (mode === 'download') {
-          downloadBlob(blob, `${fileName}.emf`, `${contextLabel}-emf`);
+          await saveBlobToTarget(blob, downloadTarget, `${contextLabel}-emf`);
         } else {
           const map = { [EMF_MIME_TYPE]: blob, [EMF_MIME_FALLBACK]: blob };
           const copied = await copyBlobMap(map, `${contextLabel}-emf`);
@@ -6962,7 +7037,7 @@
         const blob = await svgStringToPdfBlob(projected.xml, buildFormatOptions(projected, 'pdf'));
         if (!blob) return;
         if (mode === 'download') {
-          downloadBlob(blob, `${fileName}.pdf`, `${contextLabel}-pdf`);
+          await saveBlobToTarget(blob, downloadTarget, `${contextLabel}-pdf`);
         } else {
           const copied = await copyBlobMap({ [PDF_MIME_TYPE]: blob }, `${contextLabel}-pdf`);
           if (!copied) {
@@ -6977,7 +7052,7 @@
         const blob = await svgStringToTiffBlob(projected.xml, buildFormatOptions(projected, 'tiff'));
         if (!blob) return;
         if (mode === 'download') {
-          downloadBlob(blob, `${fileName}.tiff`, `${contextLabel}-tiff`);
+          await saveBlobToTarget(blob, downloadTarget, `${contextLabel}-tiff`);
         } else {
           const copied = await copyBlobMap({ [TIFF_MIME_TYPE]: blob }, `${contextLabel}-tiff`);
           if (!copied) {
@@ -7112,6 +7187,8 @@
   exporter.canvasToTiffBlob = canvasToTiffBlob;
   exporter.rewritePngResolution = rewritePngResolution;
   exporter.downloadBlob = downloadBlob;
+  exporter.requestDownloadTarget = requestDownloadTarget;
+  exporter.saveBlobToTarget = saveBlobToTarget;
   exporter.copyBlobMap = copyBlobMap;
   exporter.buildHybridSvg = buildHybridSvg;
   exporter.buildHybridSvgExportPayload = buildHybridSvgExportPayload;

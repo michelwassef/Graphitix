@@ -47,7 +47,7 @@
   });
   const COMPONENT_VARIATION_PROFILES = Object.freeze({
     box: {
-      1: { values: { boxGraphType: 'strip', boxPointMode: 'none', boxLayoutMode: 'interleaved', boxSignificanceLabelMode: 'stars' }, checks: { boxShowGrid: true, boxShowFrame: true } },
+      1: { values: { boxGraphType: 'strip', boxPointMode: 'none', boxLayoutMode: 'interleaved', boxSignificanceLabelMode: 'decision' }, checks: { boxShowGrid: true, boxShowFrame: true } },
       2: { values: { boxGraphType: 'violin', boxPointMode: 'overlay', boxLayoutMode: 'separated', boxSignificanceLabelMode: 'p' }, checks: { boxShowGrid: false, boxShowFrame: true } }
     },
     scatter: {
@@ -1119,14 +1119,21 @@
     explicitPayload.__regressionComponent = type;
     return { payload: explicitPayload, changed: true || changed };
   }
-  function getVariantLayoutTargets(variant){
-    return variant === 1
+  function getVariantLayoutTargets(variant, type = null){
+    const target = variant === 1
       ? { width: 426, height: 426, aspectLocked: true }
       : { width: 512, height: 360, aspectLocked: false };
+    // Pie and Donut deliberately force proportional resizing. The regression
+    // target must model that product contract rather than demand an impossible
+    // unlocked state from variant 2.
+    if(String(type || '').toLowerCase() === 'pie'){
+      target.aspectLocked = true;
+    }
+    return target;
   }
-  function mutateLayout(layout, variant){
+  function mutateLayout(layout, variant, type = null){
     const l = clone(layout || {});
-    const target = getVariantLayoutTargets(variant);
+    const target = getVariantLayoutTargets(variant, type);
     const width = target.width;
     const height = target.height;
     const aspectLocked = !!target.aspectLocked;
@@ -1174,7 +1181,7 @@
     return l;
   }
   function applyLiveGraphSize(tab, type, variant){
-    const target = getVariantLayoutTargets(variant);
+    const target = getVariantLayoutTargets(variant, type);
     const root = getRoot(tab.id, type);
     const box = root?.querySelector?.('.svgbox') || root?.querySelector?.(`#${type}GraphPanel .svgbox`) || null;
     if(!box){
@@ -1287,7 +1294,7 @@
         c.showGrid = variant === 1;
         c.showFrame = true;
         c.showLegend = variant === 1;
-        c.significance = Object.assign({}, c.significance || {}, { labelMode: variant === 1 ? 'stars' : 'p' });
+        c.significance = Object.assign({}, c.significance || {}, { labelMode: variant === 1 ? 'decision' : 'p' });
         break;
       case 'scatter':
         c.graphType = variant === 1 ? 'scatter' : 'volcano';
@@ -1684,7 +1691,7 @@
     }catch(err){ warn('draw failed after variation', { tabId: tab.id, type, message: err.message || String(err) }); }
     await settle(400);
     const currentLayout = config?.getLayoutState?.({ tabId: tab.id, exact: true, reason: 'regression-layout-capture' }) || tab.layoutState || null;
-    const nextLayout = mutateLayout(currentLayout, variant);
+    const nextLayout = mutateLayout(currentLayout, variant, type);
     try{
       config?.applyLayoutState?.(nextLayout, { tabId: tab.id, exact: true, resetStyles: false, resetDataset: false, reason: 'regression-layout-variation' });
       applyLiveGraphSize(tab, type, variant);

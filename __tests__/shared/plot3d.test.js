@@ -27,6 +27,11 @@ describe('Shared.plot3d helper', () => {
     expect(rotatedState.z).toBeCloseTo(rotatedTarget.z, 10);
   });
 
+  it('keeps exact zero Euler axes canonical after quaternion normalization', () => {
+    const state = global.Shared.plot3d.createRotationState({ x: -0.55, y: 0.75, z: 0 });
+    expect(state.z).toBe(0);
+  });
+
   it('applies screen-space yaw and pitch updates while dragging', () => {
     const { plot3d } = global.Shared;
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');

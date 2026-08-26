@@ -159,7 +159,7 @@
     let wrapped = angle;
     while(wrapped <= -Math.PI){ wrapped += TAU; }
     while(wrapped > Math.PI){ wrapped -= TAU; }
-    return wrapped;
+    return Math.abs(wrapped) < 1e-12 ? 0 : wrapped;
   }
 
   function clamp(value, min, max){

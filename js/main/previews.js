@@ -939,6 +939,10 @@
       console.debug('Debug: preview update skipped', { reason: 'invalid-tab', tabId: tab?.id || null, type: tab?.type || null, meta });
       return false;
     }
+    if (tab.previewSuppressedSignature
+      && tab.previewSuppressedSignature === tab.payloadSignature) {
+      return clearTabPreview(tab, { reason: meta.reason || 'non-renderable-payload-revision' });
+    }
     const session = Main.session;
     const hasStableTabState = !!(
       tab?.payloadSignature
@@ -1127,6 +1131,23 @@
     }
     console.debug('Debug: preview capture unavailable', { tabId: tab.id, meta });
     return false;
+  }
+
+  function clearTabPreview(tab, meta = {}) {
+    const owner = resolveCurrentPreviewOwner(tab);
+    if (!owner || owner !== tab) {
+      return false;
+    }
+    tabPreviewPngRequests.delete(owner.id);
+    const changed = !!(owner.previewMarkup || owner.previewSignature || owner.previewMeta);
+    owner.previewMarkup = null;
+    owner.previewSignature = null;
+    owner.previewMeta = null;
+    syncTabPreviewIndicator(owner);
+    if (tabPreviewActiveId === owner.id) {
+      hideTabPreviewTooltip(meta.reason || 'preview-cleared');
+    }
+    return changed;
   }
 
   function ensureTabPreviewTooltipElement() {
@@ -1378,6 +1399,7 @@
 
   namespace.captureWorkspacePreview = captureWorkspacePreview;
   namespace.syncTabPreviewIndicator = syncTabPreviewIndicator;
+  namespace.clearTabPreview = clearTabPreview;
   namespace.updateTabPreviewFromWorkspace = updateTabPreviewFromWorkspace;
   namespace.awaitPendingCaptures = awaitPendingCaptures;
   namespace.hasUsableStoredPreview = hasUsableStoredPreview;

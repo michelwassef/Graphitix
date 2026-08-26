@@ -27,6 +27,7 @@ describe('Shared.hot AG Grid binding', () => {
 
     originalAgGrid = global.window?.agGrid;
     const api = {
+      refreshHeader: jest.fn(),
       refreshCells: jest.fn(),
       setRowData: jest.fn(next => {
         if (capturedGridOptions) {
@@ -151,6 +152,33 @@ describe('Shared.hot AG Grid binding', () => {
     expect(hot.getDataAtCell(0, 1)).toBe('X_NEW');
     expect(afterChangeSpy).toHaveBeenCalledWith([[0, 1, 'X Value', 'X_NEW']], 'edit');
     expect(scheduleCalls.some(call => call && call.reason === 'afterChange')).toBe(true);
+  });
+
+  test('destroy retires the grid API before stale table callbacks can refresh it', () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+
+    const hot = Shared.hot.createStandardTable(
+      container,
+      { rows: 2, cols: 2 },
+      () => {},
+      { debugLabel: 'destroyed-grid-lifecycle' }
+    );
+    const api = capturedApi;
+    const staleFilterCallback = capturedGridOptions.onFilterChanged;
+
+    hot.destroy();
+    api.refreshHeader.mockClear();
+    api.refreshCells.mockClear();
+
+    hot.render();
+    staleFilterCallback?.({ api });
+
+    expect(hot.gridApi).toBeNull();
+    expect(hot.columnApi).toBeNull();
+    expect(api.refreshHeader).not.toHaveBeenCalled();
+    expect(api.refreshCells).not.toHaveBeenCalled();
   });
 
   test('getSelectedLast returns flat tuple and setDataAtCell supports change lists', () => {

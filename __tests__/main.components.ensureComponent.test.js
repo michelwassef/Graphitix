@@ -158,6 +158,62 @@ describe('Main.components.ensureComponent', () => {
     });
   });
 
+  test('every workspace distinguishes structural table state from renderable graph data', () => {
+    global.window.Components = {};
+    global.window.Shared = { debounceFrame: fn => fn };
+    require('../js/main/components.js');
+
+    const structuralOnlyPayloads = {
+      venn: { type: 'venn', data: { listA: '', listB: '', listC: '' } },
+      box: {
+        type: 'box',
+        data: [['Group', 'Control', ''], ['Condition', 'A', 'B'], ['', '', '']],
+        config: { tableFormat: 'grouped' }
+      },
+      scatter: { type: 'scatter', data: [['Label', 'X', 'Y'], ['', '', '']], config: {} },
+      pca: {
+        type: 'pca',
+        data: [['Label point', 'No', 'No'], ['Group', 'A', 'A'], ['Sample', 'S1', 'S2'], ['', '', '']],
+        config: { tableFormat: 'grouped' }
+      },
+      line: { type: 'line', data: [['Group', 'A', 'A'], ['X', 'Y1', 'Y2'], ['', '', '']], config: { tableFormat: 'grouped' } },
+      heatmap: { type: 'heatmap', data: [['', 'A'], ['Gene', '']], config: {} },
+      surface: { type: 'surface', data: [['X', 'Y', 'Z'], ['', '', '']], config: {} },
+      roc: { type: 'roc', data: [['Class', 'Score'], ['', '']], config: {} },
+      survival: { type: 'survival', data: [['Group', 'Time', 'Event'], ['', '', '']], config: {} },
+      hist: { type: 'hist', data: [['Value'], ['']], config: {} },
+      pie: { type: 'pie', data: [['Label', 'Value'], ['', '']], config: {} }
+    };
+
+    Object.entries(structuralOnlyPayloads).forEach(([type, payload]) => {
+      const workspace = window.Main.components.registry[type];
+      expect(typeof workspace.hasRenderablePayload).toBe('function');
+      expect(workspace.hasRenderablePayload(payload, { tab: { id: `${type}-empty`, type, payload } })).toBe(false);
+    });
+
+    const renderablePayloads = {
+      venn: { type: 'venn', data: { listA: 'A\nB', listB: 'B\nC', listC: '' } },
+      box: { type: 'box', data: [['Group', 'Control', ''], ['Condition', 'A', 'B'], ['', 1.2, 3.4]], config: { tableFormat: 'grouped' } },
+      scatter: { type: 'scatter', data: [['Label', 'X', 'Y'], ['A', 1, 2]], config: {} },
+      pca: { type: 'pca', data: [['Label point', 'No', 'No'], ['Variable', 'A', 'B'], ['V1', 1, 2], ['V2', 2, 3]], config: {} },
+      line: { type: 'line', data: [['X', 'Y'], [1, 2]], config: {} },
+      heatmap: { type: 'heatmap', data: [['', 'A'], ['Gene', 2]], config: {} },
+      surface: { type: 'surface', data: [['X', 'Y', 'Z'], [1, 2, 3]], config: {} },
+      roc: { type: 'roc', data: [['Class', 'Score'], ['Control', 0.1], ['Case', 0.9]], config: {} },
+      survival: { type: 'survival', data: [['Group', 'Time', 'Event'], ['A', 12, 1]], config: {} },
+      hist: { type: 'hist', data: [['Value'], [4]], config: {} },
+      pie: { type: 'pie', data: [['Label', 'Value'], ['A', 5]], config: {} }
+    };
+    Object.entries(renderablePayloads).forEach(([type, payload]) => {
+      expect(window.Main.components.registry[type].hasRenderablePayload(payload)).toBe(true);
+    });
+
+    expect(window.Main.components.registry.box.hasRenderablePayload({
+      ...renderablePayloads.box,
+      exclusions: { rows: [2], cols: [], cells: [] }
+    })).toBe(false);
+  });
+
   test('compatibility fallbacks do not advertise persistence capabilities', () => {
     global.window.Components = {};
     global.window.Shared = { debounceFrame: fn => fn };

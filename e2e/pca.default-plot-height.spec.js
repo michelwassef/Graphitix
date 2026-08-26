@@ -40,7 +40,7 @@ async function readPcaGeometry(page) {
   });
 }
 
-test('PCA natural-span default keeps standard graph height and metric geometry', async ({ page }) => {
+test('PCA equal-axis-length default keeps standard graph height and metric geometry', async ({ page }) => {
   test.setTimeout(120_000);
   await page.setViewportSize({ width: 1600, height: 900 });
   await installLocalCdnOverrides(page);
@@ -54,15 +54,38 @@ test('PCA natural-span default keeps standard graph height and metric geometry',
   const geometry = await readPcaGeometry(page);
   expect(geometry.hasLockControl).toBe(false);
   expect(geometry.hasAxesLengthControl).toBe(true);
-  expect(geometry.equalAxisLengthsChecked).toBe(false);
+  expect(geometry.equalAxisLengthsChecked).toBe(true);
   expect(geometry.invalidAxisLengthControls).toBe(0);
   expect(geometry.aspectLocked).toBe('true');
   expect(geometry.bottomReserve).toBe(0);
   expect(geometry.envelopeBottom).toBe(0);
   expect(geometry.x?.span).toBeGreaterThan(0);
   expect(geometry.y?.span).toBeGreaterThan(0);
+  expect(Math.abs(geometry.x.span - geometry.y.span)).toBeLessThan(1e-9);
+  expect(Math.abs(geometry.x.length - geometry.y.length)).toBeLessThan(1e-8);
   expect(geometry.y?.length).toBeLessThan(geometry.baseHeight);
   expect(Math.abs((geometry.x.length / geometry.x.span) / (geometry.y.length / geometry.y.span) - 1)).toBeLessThan(1e-8);
+});
+
+test('PCA grouped example uses the equal-axis-length default', async ({ page }) => {
+  test.setTimeout(120_000);
+  await page.setViewportSize({ width: 1600, height: 900 });
+  await installLocalCdnOverrides(page);
+  await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
+  await openComponentFromWelcome(page, PCA_COMPONENT, { first: true });
+  await page.locator('#pcaTableFormat').selectOption('grouped');
+  await page.locator('#pcaLoadExample').click();
+  await page.waitForFunction(() => {
+    const svg = document.querySelector('#pcaPage:not([hidden]) #pcaSvg');
+    return svg?.dataset?.pcaEqualAxisLengths === 'true'
+      && !!svg.querySelector('[data-axis-line="1"][data-axis-key="y"]')
+      && window.Components?.pca?.isIdleForSnapshot?.() === true;
+  }, null, { timeout: 60_000 });
+
+  const geometry = await readPcaGeometry(page);
+  expect(geometry.equalAxisLengthsChecked).toBe(true);
+  expect(Math.abs(geometry.x.span - geometry.y.span)).toBeLessThan(1e-9);
+  expect(Math.abs(geometry.x.length - geometry.y.length)).toBeLessThan(1e-8);
 });
 
 test('PCA 3D uses its renderer-owned canvas without a second content fit', async ({ page }) => {

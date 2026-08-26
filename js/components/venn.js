@@ -171,10 +171,10 @@
     showGrid: true,
     dotSize: 5,
     useSetColors: false,
-    barColor: '#2f2f2f',
-    setBarColor: '#2f2f2f',
-    dotColor: '#2f2f2f',
-    inactiveDotColor: '#d6d6d6',
+    barColor: '#000000',
+    setBarColor: '#000000',
+    dotColor: '#000000',
+    inactiveDotColor: '#cfcfcf',
     gridColor: '#e5e7eb',
     axisColor: '#000000',
     axisWidth: 1,
@@ -289,6 +289,70 @@
     return match ? `p ${match[1]} ${match[2]}` : `p = ${display}`;
   };
 
+  function getVennStatsInferenceTabId(){
+    return String(getVennProjectionTabId() || '').trim() || null;
+  }
+
+  function getVennStatsAlpha(){
+    return Shared.statsInference?.getAlpha?.({ tabId: getVennStatsInferenceTabId() })
+      ?? Shared.statsInference?.DEFAULT_ALPHA
+      ?? 0.05;
+  }
+
+  function createVennAdjustedInferenceSpec(){
+    return Shared.statsInference?.createDecisionSpec?.({
+      tabId: getVennStatsInferenceTabId(),
+      method: 'holm',
+      criterion: 'alpha',
+      valueKind: 'adjusted-p'
+    }) || null;
+  }
+
+  function createVennPValueToken(value, inferenceSpec = null, fallback = null){
+    const numeric = Number(value);
+    if(!Number.isFinite(numeric)){
+      return fallback ?? 'n/a';
+    }
+    if(Shared.statsReporting?.pValue){
+      return Shared.statsReporting.pValue(numeric, {
+        fallback: fallback ?? String(formatSharedPValue(numeric)),
+        inference: inferenceSpec || undefined
+      });
+    }
+    return fallback ?? formatSharedPValue(numeric);
+  }
+
+  function markVennSignificanceResultsStale(){
+    state.analysis.lastSignificance = null;
+    state.analysis.significancePanelModel = null;
+    if(state.ui.significanceResults){
+      state.ui.significanceResults.textContent = 'Significance level changed. Recalculate overlap enrichment statistics.';
+    }
+    captureVennSessionStateFromActive(projectedVennSession, { reason: 'venn-significance-level-change' });
+  }
+
+  function ensureVennStatsInferenceControls(){
+    const host = queryVennRoot('#vennStatsInferenceControls');
+    const inference = Shared.statsInference;
+    if(!host || !inference?.mountControls){
+      return null;
+    }
+    if(host.__vennStatsInferenceController){
+      host.__vennStatsInferenceController.refresh?.();
+      return host.__vennStatsInferenceController;
+    }
+    host.__vennStatsInferenceController = inference.mountControls(host, {
+      tabId: () => getVennStatsInferenceTabId(),
+      includeOverall: false,
+      includeComparisons: true,
+      method: 'holm',
+      source: 'venn-stats-inference',
+      compact: true,
+      onChange: markVennSignificanceResultsStale
+    });
+    return host.__vennStatsInferenceController;
+  }
+
   function attachVennSelectAutoSize(select, label){
     if(!select){ return; }
     if(typeof formControls.attachSelectAutoSize === 'function'){
@@ -340,6 +404,20 @@
   }
 
   function getActivePlotType() {
+    const workspaceActiveTabId = String(Shared.componentLifecycle?.resolveWorkspaceActiveTabId?.('venn') || '').trim();
+    const projectedTabId = String(projectedVennSession?.tabId || '').trim();
+    if(workspaceActiveTabId && projectedTabId === workspaceActiveTabId){
+      const sessionPlotType = projectedVennSession?.state?.snapshot?.payload?.style?.plotType;
+      if(sessionPlotType != null){
+        return normalizePlotType(sessionPlotType);
+      }
+    }
+    if(workspaceActiveTabId){
+      const activeTab = global.Main?.session?.workspaceState?.tabs?.find?.(tab => String(tab?.id || '') === workspaceActiveTabId) || null;
+      if(activeTab?.type === 'venn' && activeTab?.payload?.style?.plotType != null){
+        return normalizePlotType(activeTab.payload.style.plotType);
+      }
+    }
     return normalizePlotType(state.ui?.plotType?.value || DEFAULT_PLOT_TYPE);
   }
 
@@ -1598,7 +1676,8 @@
         analysisAutoRefreshBaselineSignature: null,
         suppressSpeciesAutoDetection: false,
         speciesAutoDetectionBaselineSignature: null,
-        analysisProjectionBaselinePending: false
+        analysisProjectionBaselinePending: false,
+        ownerPayloadHydrated: false
       },
       listeners: new Map(),
       timers: {
@@ -1667,6 +1746,9 @@
     }
     if (!Object.prototype.hasOwnProperty.call(session.cache, 'analysisProjectionBaselinePending')) {
       session.cache.analysisProjectionBaselinePending = false;
+    }
+    if (!Object.prototype.hasOwnProperty.call(session.cache, 'ownerPayloadHydrated')) {
+      session.cache.ownerPayloadHydrated = false;
     }
     session.listeners = session.listeners instanceof Map ? session.listeners : new Map();
     session.timers = session.timers && typeof session.timers === 'object' ? session.timers : {};
@@ -2281,7 +2363,7 @@
     }
 
     const activeWorkspaceTabId = String(global.Main?.session?.workspaceState?.activeTabId || '').trim();
-    if(options.apply === true && activeWorkspaceTabId === tabId && !session.state?.snapshot?.payload){
+    if(options.apply === true && activeWorkspaceTabId === tabId && session.cache.ownerPayloadHydrated !== true){
       const ownerPayload = getVennWorkspaceTab(tabId)?.payload || null;
       if(ownerPayload && typeof ownerPayload === 'object'){
         hydrateVennSessionFromPayload(ownerPayload, {
@@ -2433,11 +2515,11 @@
   function createDefaultVennStyleState(){
     return {
       plotType: normalizePlotType(DEFAULT_PLOT_TYPE),
-      colorA: '#e74c3c',
-      colorB: '#2ecc71',
-      colorC: '#3498db',
+      colorA: '#0000ff',
+      colorB: '#ff0000',
+      colorC: '#00aa00',
       opacity: '0.75',
-      borderColor: '#999999',
+      borderColor: '#000000',
       borderWidth: '1.2',
       fontsize: '12',
       title: DEFAULT_VENN_TITLE,
@@ -2637,6 +2719,18 @@
         .filter(key => hasOwnVennDataField(data, key))
     );
     normalized.type = 'venn';
+    normalized.config = {
+      ...createDefaultVennControlConfig(),
+      ...(normalized.config && typeof normalized.config === 'object' ? cloneSimple(normalized.config) : {})
+    };
+    normalized.config.goCategories = {
+      ...createDefaultVennControlConfig().goCategories,
+      ...(normalized.config.goCategories || {})
+    };
+    normalized.config.stringSources = {
+      ...createDefaultVennControlConfig().stringSources,
+      ...(normalized.config.stringSources || {})
+    };
     normalized.data = {
       ...data,
       ...legacyData,
@@ -2757,6 +2851,7 @@
     session.results = createDefaultVennResultsState(analysis);
     setVennAnalysisProjectionBaselinePending(session, analysis, meta?.reason || 'venn-payload-hydrate');
     session.notes = createDefaultVennNotesState(payload?.notes || session.notes || {});
+    session.cache.ownerPayloadHydrated = true;
     cancelVennAnalysisAutoRefresh(session, meta?.reason || 'venn-payload-hydrate');
     cancelPendingSpeciesDetection(meta?.reason || 'venn-payload-hydrate', {
       abortActive: true,
@@ -8248,6 +8343,8 @@
   }
 
   function computeVennSignificanceResults(inputCounts, universeSize, inputLabels, options = {}) {
+    const alpha = Shared.statsInference?.sanitizeLevel?.(options.alpha, 0.05)
+      ?? (Number.isFinite(Number(options.alpha)) && Number(options.alpha) > 0 && Number(options.alpha) < 1 ? Number(options.alpha) : 0.05);
     const validation = validateVennSignificanceCounts(inputCounts, universeSize);
     if (!validation.valid) {
       return { valid: false, reason: validation.reason, validation, results: [], rows: [] };
@@ -8343,7 +8440,7 @@
       entry.adjustedPValue = Number.isFinite(entry.adjustedLogPValue) && entry.adjustedLogPValue >= Math.log(Number.MIN_VALUE)
         ? Math.exp(entry.adjustedLogPValue)
         : 0;
-      entry.significant = entry.adjustedLogPValue < Math.log(0.05);
+      entry.significant = entry.adjustedLogPValue <= Math.log(alpha);
     });
     const rows = results.map(entry => ({
       overlap: entry.name,
@@ -8351,7 +8448,7 @@
       adjustedPValue: probabilityDisplayFromLog(entry.adjustedLogPValue),
       significant: entry.significant ? 'yes' : 'no'
     }));
-    return { valid: true, reason: null, validation, total, counts, results, rows, cache: significanceCache };
+    return { valid: true, reason: null, validation, total, counts, results, rows, alpha, cache: significanceCache };
   }
 
   function calculateSignificance() {
@@ -8365,13 +8462,21 @@
       state.analysis.lastCounts,
       Number(state.ui.totalGenesInput.value),
       labels,
-      { cache: getSignificanceCache(), statsHelpers: Shared.stats || {} }
+      { cache: getSignificanceCache(), statsHelpers: Shared.stats || {}, alpha: getVennStatsAlpha() }
     );
     if (!significance.valid) {
       state.ui.significanceResults.textContent = significance.reason;
       return;
     }
-    const { validation, total, counts, results, rows } = significance;
+    const { validation, total, counts, results, alpha } = significance;
+    const alphaLabel = Shared.statsInference?.formatLevel?.(alpha) || String(alpha);
+    const adjustedSpec = createVennAdjustedInferenceSpec();
+    const rows = results.map(entry => ({
+      overlap: entry.name,
+      rawPValue: createVennPValueToken(entry.rawPValue, null, probabilityDisplayFromLog(entry.rawLogPValue)),
+      adjustedPValue: createVennPValueToken(entry.adjustedPValue, adjustedSpec, probabilityDisplayFromLog(entry.adjustedLogPValue)),
+      significant: entry.significant ? 'yes' : 'no'
+    }));
     if (Shared.statsTable && typeof Shared.statsTable.render === 'function') {
       Shared.statsTable.render({
         target: state.ui.significanceResults,
@@ -8384,20 +8489,20 @@
         rows,
         caption: 'Overlap enrichment significance (hypergeometric test)',
         footnotes: [
-          'Significance threshold: Holm-adjusted p < 0.05 across the displayed overlap family.',
+          `Family-wise significance level: Holm-adjusted p ≤ ${alphaLabel} across the displayed overlap family.`,
           'Test: One-sided hypergeometric overlap enrichment.'
         ],
         options: { fileName: 'venn-significance', contextLabel: 'venn-significance' }
       });
     } else {
       state.ui.significanceResults.innerHTML = '<table><caption>Overlap enrichment significance (hypergeometric test)</caption><tr><th>Overlap</th><th>Raw p-value</th><th>Holm-adjusted p-value</th><th>Significant</th></tr>'
-        + rows.map(row => `<tr><td>${row.overlap}</td><td>${row.rawPValue}</td><td>${row.adjustedPValue}</td><td>${row.significant}</td></tr>`).join('')
-        + '</table><p class="stats-footnote">Significance threshold: Holm-adjusted p &lt; 0.05 across the displayed overlap family.<br>Test: One-sided hypergeometric overlap enrichment.</p>';
+        + rows.map(row => `<tr><td>${row.overlap}</td><td>${probabilityDisplayFromLog(results.find(entry => entry.name === row.overlap)?.rawLogPValue)}</td><td>${probabilityDisplayFromLog(results.find(entry => entry.name === row.overlap)?.adjustedLogPValue)}</td><td>${row.significant}</td></tr>`).join('')
+        + `</table><p class="stats-footnote">Family-wise significance level: Holm-adjusted p ≤ ${alphaLabel} across the displayed overlap family.<br>Test: One-sided hypergeometric overlap enrichment.</p>`;
     }
     if (Shared.statsReporting && typeof Shared.statsReporting.appendReportPanel === 'function') {
       const best = results.reduce((current, entry) => (!current || entry.adjustedLogPValue < current.adjustedLogPValue ? entry : current), null);
       Shared.statsReporting.appendReportPanel(state.ui.significanceResults, {
-        methodsText: `Venn overlap enrichment was tested with one-sided upper-tail hypergeometric tests using a user-specified universe size of ${total}. Set sizes and overlap counts came from the currently drawn ${validation.setCount === 3 ? 'three-set' : 'two-set'} Venn diagram. The displayed family was adjusted with Holm's method and the reporting threshold was adjusted p < 0.05.`,
+        methodsText: `Venn overlap enrichment was tested with one-sided upper-tail hypergeometric tests using a user-specified universe size of ${total}. Set sizes and overlap counts came from the currently drawn ${validation.setCount === 3 ? 'three-set' : 'two-set'} Venn diagram. The displayed family was adjusted with Holm's method and interpreted at family-wise α = ${alphaLabel} (Holm-adjusted p ≤ ${alphaLabel}).`,
         resultsText: [
           `${results.length} overlap enrichment test${results.length === 1 ? ' was' : 's were'} evaluated.`,
           best ? `Smallest Holm-adjusted p-value: ${best.name}, ${formatProbabilityExpressionFromLog(best.adjustedLogPValue, 'adjusted p')}.` : null
@@ -8409,7 +8514,12 @@
           universeSize: total,
           observedUnion: validation.union,
           setCount: validation.setCount,
-          significanceThreshold: 0.05,
+          inference: Shared.statsInference?.createSnapshot?.({
+            tabId: getVennStatsInferenceTabId(),
+            includeOverall: false,
+            includeComparisons: true,
+            method: 'holm'
+          }) || null,
           counts: cloneSimple(counts) || null,
           overlaps: results.map(entry => ({
             name: entry.name,
@@ -8428,6 +8538,13 @@
       total,
       union: validation.union,
       correction: 'holm',
+      alpha,
+      inference: Shared.statsInference?.createSnapshot?.({
+        tabId: getVennStatsInferenceTabId(),
+        includeOverall: false,
+        includeComparisons: true,
+        method: 'holm'
+      }) || null,
       results: results.map(entry => ({
         name: entry.name,
         rawPValue: entry.rawPValue,
@@ -8637,6 +8754,60 @@
       sources: [...(resolveVennRoot()?.querySelectorAll?.('.stringSource:checked') || [])].map(el => el.value),
       fallbackCode: state.ui.speciesSelect?.selectedOptions?.[0]?.dataset?.string || ''
     };
+  }
+
+  function createDefaultVennControlConfig(){
+    return {
+      caseSensitive: false,
+      goUseAllBackground: false,
+      goCategories: { biologicalProcess: true, molecularFunction: true, cellularComponent: true },
+      stringNetworkType: 'full',
+      stringEdgeMeaning: 'evidence',
+      stringSources: { textmining: true, experiments: true, databases: true }
+    };
+  }
+
+  function captureVennControlConfig(){
+    const checkedValues = selector => new Set(Array.from(resolveVennRoot()?.querySelectorAll?.(selector) || [])
+      .filter(input => input.checked)
+      .map(input => String(input.value || '')));
+    const goCategories = checkedValues('.goCategory');
+    const stringSources = checkedValues('.stringSource');
+    return {
+      caseSensitive: !!state.ui.inputs?.caseSensitive?.checked,
+      goUseAllBackground: !!state.ui.goUseAllBackground?.checked,
+      goCategories: {
+        biologicalProcess: goCategories.has('GO:BP'),
+        molecularFunction: goCategories.has('GO:MF'),
+        cellularComponent: goCategories.has('GO:CC')
+      },
+      stringNetworkType: queryVennRoot('input[name="stringNetworkType"]:checked')?.value || 'full',
+      stringEdgeMeaning: queryVennRoot('input[name="stringEdgeMeaning"]:checked')?.value || 'evidence',
+      stringSources: {
+        textmining: stringSources.has('textmining'),
+        experiments: stringSources.has('experiments'),
+        databases: stringSources.has('databases')
+      }
+    };
+  }
+
+  function applyVennControlConfig(value){
+    const config = { ...createDefaultVennControlConfig(), ...(value && typeof value === 'object' ? value : {}) };
+    config.goCategories = { ...createDefaultVennControlConfig().goCategories, ...(config.goCategories || {}) };
+    config.stringSources = { ...createDefaultVennControlConfig().stringSources, ...(config.stringSources || {}) };
+    if(state.ui.inputs?.caseSensitive) state.ui.inputs.caseSensitive.checked = !!config.caseSensitive;
+    if(state.ui.goUseAllBackground) state.ui.goUseAllBackground.checked = !!config.goUseAllBackground;
+    const goKeys = { 'GO:BP': 'biologicalProcess', 'GO:MF': 'molecularFunction', 'GO:CC': 'cellularComponent' };
+    state.ui.goCategoryChecks.forEach(input => { input.checked = !!config.goCategories[goKeys[input.value]]; });
+    Array.from(resolveVennRoot()?.querySelectorAll?.('input[name="stringNetworkType"]') || []).forEach(input => {
+      input.checked = input.value === config.stringNetworkType;
+    });
+    Array.from(resolveVennRoot()?.querySelectorAll?.('input[name="stringEdgeMeaning"]') || []).forEach(input => {
+      input.checked = input.value === config.stringEdgeMeaning;
+    });
+    Array.from(resolveVennRoot()?.querySelectorAll?.('.stringSource') || []).forEach(input => {
+      input.checked = !!config.stringSources[input.value];
+    });
   }
 
   async function runGOAnalysis(genes, organism, options = {}) {
@@ -8953,10 +9124,12 @@
 
   async function exportGoChart(format) {
     const exporter = Shared.exporter;
-    if (!exporter) {
+    if (!exporter?.requestDownloadTarget || !exporter?.saveBlobToTarget) {
       console.warn('exportGoChart missing exporter');
       return;
     }
+    const target = await exporter.requestDownloadTarget('go_chart', format, 'go-chart');
+    if (target?.cancelled) return;
     const svgString = buildGoChartSvgString();
     if (!svgString) return;
     if (format === 'png') {
@@ -8966,41 +9139,45 @@
       }
       const blob = await exporter.svgStringToPngBlob(svgString, { contextLabel: 'go-chart' });
       if (!blob) return;
-      exporter.downloadBlob(blob, 'go_chart.png', 'go-chart');
+      await exporter.saveBlobToTarget(blob, target, 'go-chart');
     } else if (format === 'svg') {
       const blob = new Blob([svgString], { type: 'image/svg+xml' });
-      exporter.downloadBlob(blob, 'go_chart.svg', 'go-chart');
+      await exporter.saveBlobToTarget(blob, target, 'go-chart');
     }
     debugLog('exportGoChart', { format });
   }
 
   async function downloadStringPNG() {
-    const svgString = buildStringNetworkSvgString();
-    if (!svgString) return;
     const exporter = Shared.exporter;
-    if (!exporter || typeof exporter.svgStringToPngBlob !== 'function') {
+    if (!exporter?.requestDownloadTarget || !exporter?.saveBlobToTarget || typeof exporter.svgStringToPngBlob !== 'function') {
       console.warn('downloadStringPNG missing exporter helpers');
       return;
     }
     try {
+      const target = await exporter.requestDownloadTarget('string_network', 'png', 'string-export');
+      if (target?.cancelled) return;
+      const svgString = buildStringNetworkSvgString();
+      if (!svgString) return;
       const blob = await exporter.svgStringToPngBlob(svgString, { contextLabel: 'string-export' });
       if (!blob) return;
-      exporter.downloadBlob(blob, 'string_network.png', 'string-export');
+      await exporter.saveBlobToTarget(blob, target, 'string-export');
     } catch (err) {
       console.error('downloadStringPNG error', err);
     }
   }
 
-  function downloadStringSVG() {
-    const svgString = buildStringNetworkSvgString();
-    if (!svgString) return;
+  async function downloadStringSVG() {
     const exporter = Shared.exporter;
-    if (!exporter) {
+    if (!exporter?.requestDownloadTarget || !exporter?.saveBlobToTarget) {
       console.warn('downloadStringSVG missing exporter helpers');
       return;
     }
+    const target = await exporter.requestDownloadTarget('string_network', 'svg', 'string-export');
+    if (target?.cancelled) return;
+    const svgString = buildStringNetworkSvgString();
+    if (!svgString) return;
     const blob = new Blob([svgString], { type: 'image/svg+xml' });
-    exporter.downloadBlob(blob, 'string_network.svg', 'string-export');
+    await exporter.saveBlobToTarget(blob, target, 'string-export');
   }
 
   function configureStage(style, options = {}) {
@@ -11112,6 +11289,7 @@
         nBC: inputs.counts.nBC.value,
         nABC: inputs.counts.nABC.value
       },
+      config: captureVennControlConfig(),
       style: {
         plotType: getActivePlotType(),
         colorScheme: getVennSchemeId(),
@@ -11203,6 +11381,7 @@
       nABC: '0'
     };
     payload.style = createDefaultVennStyleState();
+    payload.config = createDefaultVennControlConfig();
     payload.notes = { text: '', open: false };
     payload.analysis = {
       goResult: null,
@@ -11373,6 +11552,7 @@
       return false;
     }
     const d = normalizedPayload.data || {};
+    applyVennControlConfig(normalizedPayload.config);
     if(!skipDataLoad){
       clearVennDerivedCaches(meta?.source ? `payload:${meta.source}` : 'payload');
       inputs.labelA.value = d.labelA;
@@ -11698,6 +11878,11 @@
     persistActiveVennUserChange('venn-case-sensitive-change');
     debug('Debug: venn handleCaseSensitiveChange'); // Debug: case sensitivity toggle
     commitVennUndo(event?.currentTarget || state.ui.inputs.caseSensitive, 'venn:case-sensitive');
+  }
+
+  function handleAnalysisOptionChange(event) {
+    persistActiveVennUserChange('venn-analysis-option-change');
+    commitVennUndo(event?.currentTarget || null, 'venn:analysis-option');
   }
 
   function handlePlotTypeChange(event) {
@@ -12178,6 +12363,8 @@
       { elements: inputs.borderColor, type: 'input', handler: handleBorderColorInput, label: 'border-color' },
       { elements: inputs.borderWidth, type: 'input', handler: handleBorderWidthInput, label: 'border-width' },
       { elements: inputs.caseSensitive, type: 'change', handler: handleCaseSensitiveChange, label: 'case-sensitive' },
+      { elements: [state.ui.goUseAllBackground, ...state.ui.goCategoryChecks], type: 'change', handler: handleAnalysisOptionChange, label: 'go-options' },
+      { elements: Array.from(resolveVennRoot()?.querySelectorAll?.('input[name="stringNetworkType"], input[name="stringEdgeMeaning"], .stringSource') || []), type: 'change', handler: handleAnalysisOptionChange, label: 'string-options' },
       { elements: state.ui.plotType, type: 'change', handler: handlePlotTypeChange, label: 'plot-type' },
       { elements: state.ui.upset?.sort, type: 'change', handler: handleUpSetControlChange, label: 'upset-sort' },
       { elements: state.ui.upset?.max, type: 'input', handler: handleUpSetControlChange, label: 'upset-max' },
@@ -12464,6 +12651,7 @@
     state.ui.totalGenesInput = $root('#totalGenes');
     state.ui.calcSignificanceBtn = $root('#calcSignificance');
     state.ui.significanceResults = $root('#significanceResults');
+    ensureVennStatsInferenceControls();
     state.ui.goCategoryChecks = Array.from(root?.querySelectorAll?.('.goCategory') || []);
     state.ui.goOptsBtn = $root('#goOptsBtn');
     state.ui.goOptions = $root('#goOptions');

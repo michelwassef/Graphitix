@@ -66,12 +66,14 @@ test('AG Grid long inline edits open across neighboring cells like a spreadsheet
       return null;
     }
 
+    const pinnedRows = Number(hot.getSettings?.().fixedRowsTop) || 0;
+    const visualRow = row + pinnedRows;
     hot.setDataAtCell([
-      [row, col, longValue],
-      [row, col + 1, 'NEIGHBOR_ONE'],
-      [row, col + 2, 'NEIGHBOR_TWO']
+      [visualRow, col, longValue],
+      [visualRow, col + 1, 'NEIGHBOR_ONE'],
+      [visualRow, col + 2, 'NEIGHBOR_TWO']
     ], 'e2e-edit-overflow');
-    return { row, col };
+    return { row, visualRow, col };
   }, LONG_EDIT_VALUE);
 
   expect(target).toBeTruthy();

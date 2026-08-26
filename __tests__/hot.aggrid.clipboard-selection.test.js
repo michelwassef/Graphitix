@@ -624,6 +624,113 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     );
   });
 
+  test('uniform column groups expose only their outer resize handle', () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agUniformGroupResizeHandlesHot';
+    document.body.appendChild(container);
+
+    createTable(
+      container,
+      { rows: 3, cols: 5 },
+      () => {},
+      {
+        debugLabel: 'ag-uniform-group-resize-handles',
+        data: Shared.createEmptyData(3, 5),
+        columnGroups: [{ startCol: 1, span: 3 }]
+      }
+    );
+
+    const defs = capturedGridOptions?.columnDefs || [];
+    const flattenDefs = list => (Array.isArray(list) ? list.flatMap(def => {
+      if(def && Array.isArray(def.children)){
+        return flattenDefs(def.children);
+      }
+      return [def];
+    }) : []);
+    const leaves = flattenDefs(defs);
+    const byId = colId => leaves.find(def => def?.colId === colId);
+
+    expect(byId('c1')?.resizable).toBe(false);
+    expect(byId('c2')?.resizable).toBe(false);
+    expect(byId('c3')?.resizable).not.toBe(false);
+    expect(byId('c4')?.resizable).not.toBe(false);
+  });
+
+  test('dragging a group outer edge resizes every child uniformly', () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agUniformGroupResizeHot';
+    document.body.appendChild(container);
+
+    const hot = createTable(
+      container,
+      { rows: 3, cols: 5 },
+      () => {},
+      {
+        debugLabel: 'ag-uniform-group-resize',
+        data: Shared.createEmptyData(3, 5),
+        columnGroups: [{ startCol: 1, span: 3 }]
+      }
+    );
+    const widths = new Map([
+      ['c0', 100],
+      ['c1', 90],
+      ['c2', 110],
+      ['c3', 130],
+      ['c4', 100]
+    ]);
+    const widthStateApi = {
+      getColumnState: jest.fn(() => Array.from(widths, ([colId, width]) => ({ colId, width }))),
+      applyColumnState: jest.fn(({ state }) => {
+        state.forEach(({ colId, width }) => widths.set(colId, width));
+        return true;
+      })
+    };
+    hot.columnApi = widthStateApi;
+    hot.gridApi.columnApi = widthStateApi;
+
+    const header = document.createElement('div');
+    header.className = 'ag-header-cell';
+    header.setAttribute('col-id', 'c3');
+    const resizeHandle = document.createElement('div');
+    resizeHandle.className = 'ag-header-cell-resize';
+    header.appendChild(resizeHandle);
+    container.appendChild(header);
+    resizeHandle.dispatchEvent(new global.window.MouseEvent('mousedown', {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+      clientX: 300
+    }));
+
+    global.window.dispatchEvent(new global.window.MouseEvent('mousemove', {
+      bubbles: true,
+      cancelable: true,
+      buttons: 1,
+      clientX: 330
+    }));
+
+    expect([widths.get('c1'), widths.get('c2'), widths.get('c3')]).toEqual([100, 120, 140]);
+
+    global.window.dispatchEvent(new global.window.MouseEvent('mouseup', {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+      clientX: 330
+    }));
+
+    expect([widths.get('c1'), widths.get('c2'), widths.get('c3')]).toEqual([100, 120, 140]);
+    expect(widthStateApi.applyColumnState).toHaveBeenLastCalledWith({
+      state: [
+        { colId: 'c1', width: 100 },
+        { colId: 'c2', width: 120 },
+        { colId: 'c3', width: 140 }
+      ],
+      applyOrder: false
+    });
+  });
+
   test('dragging column headers selects a multi-column range', async () => {
     const Shared = global.window.Shared;
     const container = document.createElement('div');
@@ -856,7 +963,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     ).toBe(false);
   });
 
-  test('fill handle appears for pinned header-row cells when ghost body row exists', async () => {
+  test('fill handle appears for pinned header-row cells without a duplicate body row', async () => {
     const Shared = global.window.Shared;
     const container = document.createElement('div');
     container.id = 'agPinnedFillHandleHot';
@@ -1260,7 +1367,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     });
     const row = document.createElement('div');
     row.className = 'ag-row';
-    row.setAttribute('row-index', '1');
+    row.setAttribute('row-index', '0');
     const cell = document.createElement('div');
     cell.className = 'ag-cell';
     cell.setAttribute('col-id', 'c1');
@@ -1890,12 +1997,12 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     container.appendChild(floatingTop);
 
     const bodyRow = document.createElement('div');
-    bodyRow.className = 'ag-row hot-pinned-first-body-row';
-    bodyRow.setAttribute('row-index', '1');
+    bodyRow.className = 'ag-row';
+    bodyRow.setAttribute('row-index', '0');
     const bodyCell = document.createElement('div');
     bodyCell.className = 'ag-cell hot-selected-cell';
     bodyCell.setAttribute('col-id', 'c1');
-    bodyCell.setAttribute('row-index', '1');
+    bodyCell.setAttribute('row-index', '0');
     bodyCell.getBoundingClientRect = () => ({
       left: 100,
       top: 60,
@@ -2195,7 +2302,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     expect(moveColumnsSpy.mock.calls[0][0]).toEqual(['c1', 'c2']);
   });
 
-  test('column drag groups hide follower header handles', () => {
+  test('column groups expose one reorder handle on each group anchor', () => {
     const Shared = global.window.Shared;
     const container = document.createElement('div');
     container.id = 'agHeaderDragHandleGroupedVisibilityHot';
@@ -2203,16 +2310,19 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
 
     const hot = createTable(
       container,
-      { rows: 3, cols: 4 },
+      { rows: 3, cols: 5 },
       () => {},
       {
         debugLabel: 'ag-header-drag-handle-grouped-visibility',
-        data: Shared.createEmptyData(3, 4)
+        data: Shared.createEmptyData(3, 5)
       }
     );
 
     hot.updateSettings({
-      columnDragGroups: [{ startCol: 1, span: 3 }]
+      columnGroups: [
+        { startCol: 1, span: 2 },
+        { startCol: 3, span: 2 }
+      ]
     });
 
     const instantiateHeader = colId => {
@@ -2234,17 +2344,39 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
       return headerComponent.getGui();
     };
 
-    const anchorGui = instantiateHeader('c1');
-    const followerGui = instantiateHeader('c2');
-    const anchorHandle = anchorGui.querySelector('.hot-col-drag-handle');
-    const followerHandle = followerGui.querySelector('.hot-col-drag-handle');
+    const firstAnchorGui = instantiateHeader('c1');
+    const firstFollowerGui = instantiateHeader('c2');
+    const secondAnchorGui = instantiateHeader('c3');
+    const secondFollowerGui = instantiateHeader('c4');
+    const outsideGui = instantiateHeader('c0');
+    const firstAnchorHandle = firstAnchorGui.querySelector('.hot-col-drag-handle');
+    const firstFollowerHandle = firstFollowerGui.querySelector('.hot-col-drag-handle');
+    const secondAnchorHandle = secondAnchorGui.querySelector('.hot-col-drag-handle');
+    const secondFollowerHandle = secondFollowerGui.querySelector('.hot-col-drag-handle');
+    const outsideHandle = outsideGui.querySelector('.hot-col-drag-handle');
 
-    expect(anchorHandle).toBeTruthy();
-    expect(anchorHandle.classList.contains('hot-col-drag-handle--hidden')).toBe(false);
-    expect(anchorHandle.getAttribute('aria-label')).toBe('Drag to reorder column group');
-    expect(followerHandle).toBeTruthy();
-    expect(followerHandle.classList.contains('hot-col-drag-handle--hidden')).toBe(true);
-    expect(followerHandle.getAttribute('aria-hidden')).toBe('true');
+    for(const [gui, handle] of [
+      [firstAnchorGui, firstAnchorHandle],
+      [secondAnchorGui, secondAnchorHandle]
+    ]){
+      expect(handle).toBeTruthy();
+      expect(handle.classList.contains('hot-col-drag-handle--hidden')).toBe(false);
+      expect(handle.classList.contains('hot-col-drag-handle--group-anchor')).toBe(true);
+      expect(handle.getAttribute('aria-hidden')).toBeNull();
+      expect(handle.getAttribute('aria-label')).toBe('Drag to reorder column group');
+      expect(gui.classList.contains('hot-ag-header--group-anchor')).toBe(true);
+    }
+
+    for(const handle of [firstFollowerHandle, secondFollowerHandle]){
+      expect(handle).toBeTruthy();
+      expect(handle.classList.contains('hot-col-drag-handle--hidden')).toBe(true);
+      expect(handle.getAttribute('aria-hidden')).toBe('true');
+    }
+
+    expect(outsideHandle).toBeTruthy();
+    expect(outsideHandle.classList.contains('hot-col-drag-handle--hidden')).toBe(false);
+    expect(outsideHandle.getAttribute('aria-hidden')).toBeNull();
+    expect(outsideHandle.getAttribute('aria-label')).toBe('Drag to reorder columns');
   });
 
   test('drag handle drag moves a configured column group without preselecting it', async () => {
@@ -2264,7 +2396,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     );
 
     hot.updateSettings({
-      columnDragGroups: [{ startCol: 1, span: 3 }]
+      columnGroups: [{ startCol: 1, span: 3 }]
     });
 
     const moveColumnsSpy = jest.fn();
@@ -2335,7 +2467,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     );
 
     hot.updateSettings({
-      columnDragGroups: [
+      columnGroups: [
         { startCol: 1, span: 2 },
         { startCol: 4, span: 3 }
       ]
@@ -2412,7 +2544,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     );
 
     hot.updateSettings({
-      columnDragGroups: [
+      columnGroups: [
         { startCol: 1, span: 2 },
         { startCol: 4, span: 3 }
       ]
@@ -3634,6 +3766,86 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     expect(hot.getSelectedLast()).toEqual([0, 1, 3, 1]);
   });
 
+  test('grouped header clicks select the group first and the pointed child second', () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agGroupedHeaderProgressiveSelectHot';
+    document.body.appendChild(container);
+
+    const hot = createTable(
+      container,
+      { rows: 4, cols: 5 },
+      () => {},
+      {
+        debugLabel: 'ag-grouped-header-progressive-select',
+        data: Shared.createEmptyData(4, 5),
+        columnGroups: [{ startCol: 1, span: 3 }]
+      }
+    );
+
+    const header = document.createElement('div');
+    header.className = 'ag-header-cell';
+    header.setAttribute('col-id', 'c2');
+    container.appendChild(header);
+
+    const clickHeader = () => {
+      header.dispatchEvent(new global.window.MouseEvent('mousedown', {
+        bubbles: true,
+        cancelable: true,
+        button: 0
+      }));
+      header.dispatchEvent(new global.window.MouseEvent('click', {
+        bubbles: true,
+        cancelable: true,
+        button: 0
+      }));
+    };
+
+    clickHeader();
+    expect(hot.getSelectedLast()).toEqual([0, 1, 3, 3]);
+
+    clickHeader();
+    expect(hot.getSelectedLast()).toEqual([0, 2, 3, 2]);
+
+    clickHeader();
+    expect(hot.getSelectedLast()).toEqual([0, 1, 3, 3]);
+  });
+
+  test('column-mode groups keep single-column header selection', () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agColumnModeGroupHeaderSelectHot';
+    document.body.appendChild(container);
+
+    const hot = createTable(
+      container,
+      { rows: 4, cols: 4 },
+      () => {},
+      {
+        debugLabel: 'ag-column-mode-group-header-select',
+        data: Shared.createEmptyData(4, 4),
+        columnGroups: [{ startCol: 0, span: 3, selectionMode: 'column' }]
+      }
+    );
+
+    const header = document.createElement('div');
+    header.className = 'ag-header-cell';
+    header.setAttribute('col-id', 'c1');
+    container.appendChild(header);
+    header.dispatchEvent(new global.window.MouseEvent('mousedown', {
+      bubbles: true,
+      cancelable: true,
+      button: 0
+    }));
+    header.dispatchEvent(new global.window.MouseEvent('click', {
+      bubbles: true,
+      cancelable: true,
+      button: 0
+    }));
+
+    expect(hot.getSelectedLast()).toEqual([0, 1, 3, 1]);
+  });
+
   test('full column selection outline hides top edge and stays below horizontal scrollbar layer', async () => {
     const Shared = global.window.Shared;
     const container = document.createElement('div');
@@ -3774,6 +3986,119 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     const clipboardOutline = container.querySelector('.hot-clipboard-outline');
     expect(clipboardOutline).toBeTruthy();
     expect(clipboardOutline.querySelector('.hot-clipboard-outline-edge[data-edge="top"]').style.display).toBe('block');
+  });
+
+  test('first child selection ignores the grouped pinned-header colspan when placing its outline', async () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agGroupedFirstChildOutlineHot';
+    container.getBoundingClientRect = () => ({
+      left: 0,
+      top: 0,
+      right: 500,
+      bottom: 200,
+      width: 500,
+      height: 200
+    });
+    document.body.appendChild(container);
+
+    const hot = createTable(
+      container,
+      { rows: 4, cols: 4 },
+      () => {},
+      {
+        debugLabel: 'ag-grouped-first-child-outline',
+        data: Shared.createEmptyData(4, 4),
+        pinFirstRow: true,
+        columnGroups: [{ startCol: 1, span: 3 }]
+      }
+    );
+
+    const floatingTop = document.createElement('div');
+    floatingTop.className = 'ag-floating-top';
+    const floatingViewport = document.createElement('div');
+    floatingViewport.className = 'ag-floating-top-viewport';
+    floatingViewport.getBoundingClientRect = () => ({
+      left: 0,
+      top: 32,
+      right: 500,
+      bottom: 60,
+      width: 500,
+      height: 28
+    });
+    const pinnedRow = document.createElement('div');
+    pinnedRow.className = 'ag-row';
+    pinnedRow.setAttribute('row-index', 't-0');
+    const groupedCell = document.createElement('div');
+    groupedCell.className = 'ag-cell';
+    groupedCell.setAttribute('col-id', 'c1');
+    groupedCell.setAttribute('row-index', 't-0');
+    groupedCell.getBoundingClientRect = () => ({
+      left: 100,
+      top: 32,
+      right: 400,
+      bottom: 60,
+      width: 300,
+      height: 28
+    });
+    pinnedRow.appendChild(groupedCell);
+    floatingViewport.appendChild(pinnedRow);
+    floatingTop.appendChild(floatingViewport);
+    container.appendChild(floatingTop);
+
+    const bodyViewport = document.createElement('div');
+    bodyViewport.className = 'ag-body-viewport';
+    bodyViewport.getBoundingClientRect = () => ({
+      left: 0,
+      top: 60,
+      right: 500,
+      bottom: 172,
+      width: 500,
+      height: 112
+    });
+    const centerViewport = document.createElement('div');
+    centerViewport.className = 'ag-center-cols-viewport';
+    centerViewport.getBoundingClientRect = bodyViewport.getBoundingClientRect;
+    bodyViewport.appendChild(centerViewport);
+    container.appendChild(bodyViewport);
+
+    for(let rowIndex = 1; rowIndex <= 3; rowIndex += 1){
+      const row = document.createElement('div');
+      row.className = 'ag-row';
+      row.setAttribute('row-index', String(rowIndex));
+      const top = 60 + ((rowIndex - 1) * 28);
+      const cell = document.createElement('div');
+      cell.className = 'ag-cell';
+      cell.setAttribute('col-id', 'c1');
+      cell.setAttribute('row-index', String(rowIndex));
+      cell.getBoundingClientRect = () => ({
+        left: 100,
+        top,
+        right: 200,
+        bottom: top + 28,
+        width: 100,
+        height: 28
+      });
+      row.appendChild(cell);
+      centerViewport.appendChild(row);
+    }
+
+    const header = document.createElement('div');
+    header.className = 'ag-header-cell';
+    header.setAttribute('col-id', 'c1');
+    container.appendChild(header);
+    const clickHeader = () => {
+      header.dispatchEvent(new global.window.MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0 }));
+      header.dispatchEvent(new global.window.MouseEvent('click', { bubbles: true, cancelable: true, button: 0 }));
+    };
+
+    clickHeader();
+    clickHeader();
+    await waitForNextFrame();
+
+    const outline = container.querySelector('.hot-selection-outline');
+    expect(hot.getSelectedLast()).toEqual([0, 1, 3, 1]);
+    expect(parseFloat(outline.style.width)).toBeLessThan(110);
   });
 
   test('plain header click selects full column and header action click preserves selection coordinates', () => {

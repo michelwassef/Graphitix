@@ -26,15 +26,7 @@ describe('color scheme undo', () => {
     const tab = {
       id: 'line-tab',
       type: 'line',
-      payload: {
-        ...clone(customPayload),
-        config: {
-          ...clone(customPayload.config),
-          colors: ['#0000ff'],
-          labelColors: { 'Series 1': '#0000ff' },
-          axisColor: '#000000'
-        }
-      },
+      payload: clone(customPayload),
       sharedState: { runtime: {}, resources: {}, styles: {}, metadata: {} }
     };
     let livePayload = clone(customPayload);
@@ -91,6 +83,7 @@ describe('color scheme undo', () => {
     expect(window.Shared.undoManager.undo({ tabId: tab.id })).toBe(true);
     expect(tab.payload.config).toEqual(customPayload.config);
     expect(workspace.applyLayoutState).not.toHaveBeenCalled();
+    expect(workspace.getPayload).not.toHaveBeenCalled();
 
     expect(window.Shared.undoManager.redo({ tabId: tab.id })).toBe(true);
     expect(tab.payload.config.colorScheme).toBe('dark');

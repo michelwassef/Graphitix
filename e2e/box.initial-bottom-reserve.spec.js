@@ -40,6 +40,13 @@ function readInitialBottomReserveMetrics() {
   const viewBoxHeight = viewBox.length === 4 ? viewBox[3] : NaN;
   const baseHeight = Number(svg.getAttribute('data-box-base-height'));
   const axisY = xAxis ? xAxis.y1 : NaN;
+  const frameRect = svg.closest('.svgbox')?.getBoundingClientRect?.() || null;
+  const rotatedTickRects = Array.from(svg.querySelectorAll('text'))
+    .filter(node => String(node.getAttribute('transform') || '').includes('rotate'))
+    .map(node => node.getBoundingClientRect());
+  const rotatedTickOverflowPx = frameRect && rotatedTickRects.length
+    ? Math.max(...rotatedTickRects.map(rect => rect.bottom)) - frameRect.bottom
+    : null;
   return {
     preserveAspectRatio: readEffectivePreserveAspectRatio(),
     graphType: String(document.getElementById('boxGraphType')?.value || ''),
@@ -47,11 +54,13 @@ function readInitialBottomReserveMetrics() {
     significanceExtensionPx: Number(state.significanceViewportExtensionPx) || 0,
     showSignificanceBars: !!state.showSignificanceBars,
     axisToViewBottomPx: Number.isFinite(viewBoxHeight) && Number.isFinite(axisY) ? (viewBoxHeight - axisY) : NaN,
-    axisToBaseBottomPx: Number.isFinite(baseHeight) && Number.isFinite(axisY) ? (baseHeight - axisY) : NaN
+    axisToBaseBottomPx: Number.isFinite(baseHeight) && Number.isFinite(axisY) ? (baseHeight - axisY) : NaN,
+    rotatedTickOverflowPx
   };
 }
 
-test('box initial strip draw preserves non-significance bottom reserve', async ({ page }) => {
+for (const graphType of ['box', 'strip']) {
+test(`box initial ${graphType} draw preserves non-significance bottom reserve`, async ({ page }) => {
   test.setTimeout(120_000);
   const issues = registerIssueCollectors(page);
   await installLocalCdnOverrides(page);
@@ -62,7 +71,7 @@ test('box initial strip draw preserves non-significance bottom reserve', async (
   await expect(page.locator('#boxLoadExample')).toBeVisible({ timeout: 20_000 });
 
   await page.locator('#boxLoadExample').click();
-  await page.locator('#boxGraphType').selectOption('strip');
+  await page.locator('#boxGraphType').selectOption(graphType);
   await page.waitForFunction(
     () => !!document.querySelector('#boxPlot svg')
       && !!window.Components?.box?.__getState?.()
@@ -74,13 +83,16 @@ test('box initial strip draw preserves non-significance bottom reserve', async (
 
   const metrics = await page.evaluate(readInitialBottomReserveMetrics);
   expect(metrics).not.toBeNull();
-  expect(metrics.graphType).toBe('strip');
+  expect(metrics.graphType).toBe(graphType);
   expect(metrics.showSignificanceBars).toBe(false);
   expect(metrics.significanceExtensionPx).toBe(0);
   expect(metrics.bottomExtensionPx).toBeGreaterThan(0);
   expect(metrics.preserveAspectRatio).toBe('none');
   expect(metrics.axisToViewBottomPx).toBeGreaterThan(metrics.bottomExtensionPx);
   expect(Math.abs(metrics.axisToViewBottomPx - metrics.axisToBaseBottomPx)).toBeLessThanOrEqual(0.5);
+  expect(metrics.rotatedTickOverflowPx).not.toBeNull();
+  expect(metrics.rotatedTickOverflowPx).toBeLessThanOrEqual(1);
 
   expect(issues.critical).toEqual([]);
 });
+}

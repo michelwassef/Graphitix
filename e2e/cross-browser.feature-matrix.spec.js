@@ -132,7 +132,8 @@ test.describe('Cross-browser Feature Matrix', () => {
             if (!hot || typeof hot.setDataAtCell !== 'function') {
               return;
             }
-            const rowIndex = Number.isInteger(targetCell?.rowIndex) ? targetCell.rowIndex : 0;
+            const bodyRowIndex = Number.isInteger(targetCell?.rowIndex) ? targetCell.rowIndex : 0;
+            const rowIndex = bodyRowIndex + (Number(hot.getSettings?.().fixedRowsTop) || 0);
             const colIndex = Number.isInteger(targetCell?.colIndex) ? targetCell.colIndex : 0;
             hot.setDataAtCell(rowIndex, colIndex, token);
             hot.selectCell?.(rowIndex, colIndex, rowIndex, colIndex);

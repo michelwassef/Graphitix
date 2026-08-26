@@ -2113,7 +2113,19 @@
       return hasPublishedWorkspaceGraphContent(root, 'workspace-post-restore-publication-check');
     };
 
-    const tabHasRecoverableData = () => {
+    const tabRequiresPublishedGraph = () => {
+      if (typeof config?.hasRenderablePayload === 'function') {
+        try {
+          return !!config.hasRenderablePayload(tab?.payload || null, {
+            tab,
+            tabId: tab?.id || null,
+            type: tab?.type || null,
+            reason: options.reason || 'workspace-publication-check'
+          });
+        } catch (err) {
+          console.warn('workspace renderable payload inspection error', { tabId: tab.id, type: tab.type, err });
+        }
+      }
       if (typeof session?.tabHasTableData === 'function') {
         try { return !!session.tabHasTableData(tab); }
         catch (err) {
@@ -2180,7 +2192,7 @@
     };
 
     const ensureWorkspaceGraphPublishedAfterRestore = async reason => {
-      if (!tabHasRecoverableData() || isWorkspaceGraphPublished()) {
+      if (!tabRequiresPublishedGraph() || isWorkspaceGraphPublished()) {
         return true;
       }
       const drawResult = requestWorkspaceFallbackDraw(reason || 'workspace-post-restore-empty-graph');

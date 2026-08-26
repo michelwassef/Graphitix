@@ -45,6 +45,32 @@ describe('Shared.hot AG Grid dimensions', () => {
     expect(window.__getCapturedGridOptions().defaultColDef.width).toBe(80);
   });
 
+  test.each([1, 2])('keeps %i pinned editable row(s) out of the normal body model', pinnedCount => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const data = [
+      ['Group'],
+      ['Condition'],
+      ['1.5'],
+      ['2.5']
+    ];
+
+    window.Shared.hot.createStandardTable(container, { rows: 4, cols: 1 }, () => {}, {
+      debugLabel: 'pinned-row-model-test',
+      data,
+      pinFirstRow: pinnedCount
+    });
+
+    const options = window.__getCapturedGridOptions();
+    expect(options.pinnedTopRowData.map(row => row.__rowIndex)).toEqual(
+      Array.from({ length: pinnedCount }, (_, index) => index)
+    );
+    expect(options.rowData.map(row => row.__rowIndex)).toEqual(
+      Array.from({ length: data.length - pinnedCount }, (_, index) => index + pinnedCount)
+    );
+    expect(options.getRowHeight).toBeUndefined();
+  });
+
   test('aligns spreadsheet numeric values right and text values left', () => {
     const container = document.createElement('div');
     document.body.appendChild(container);

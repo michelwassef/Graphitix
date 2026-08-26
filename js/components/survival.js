@@ -2077,6 +2077,7 @@
     refs.statsCox = $('#survivalStatsCox');
     ensureSurvivalCoxReportHost();
     attachSurvivalStatsPValueControlFactory();
+    ensureSurvivalStatsInferenceControls();
     refs.labelColorsDiv = $('#survivalLabelColors');
     refs.labelColorsFieldset = $('#survivalLabelColorsFieldset');
     refs.showCI = $('#survivalShowCI');
@@ -2597,6 +2598,8 @@
     const wrapper = document.createElement('div');
     wrapper.className = 'stats-advisor';
     wrapper.dataset.open = advisorState.open ? '1' : '0';
+    wrapper.setAttribute('data-parameter-observable', 'survival-advisor');
+    wrapper.setAttribute('data-parameter-advisor-open', advisorState.open ? 'true' : 'false');
     const header = document.createElement('div');
     header.className = 'stats-advisor__header';
     const title = document.createElement('strong');
@@ -4776,15 +4779,89 @@
     return match ? `p ${match[1]} ${match[2]}` : `p = ${display}`;
   }
 
-  function pValueToken(value){
+  function getSurvivalStatsInferenceTabId(){
+    return String(getSurvivalProjectionTabId() || '').trim() || null;
+  }
+
+  function getSurvivalStatsAlpha(){
+    const inference = Shared.statsInference;
+    return inference?.getAlpha?.({ tabId: getSurvivalStatsInferenceTabId() })
+      ?? inference?.DEFAULT_ALPHA
+      ?? 0.05;
+  }
+
+  function createSurvivalInferenceSpec(options = {}){
+    const inference = Shared.statsInference;
+    if(!inference?.createDecisionSpec){
+      return null;
+    }
+    const method = options.method || 'none';
+    return inference.createDecisionSpec({
+      tabId: getSurvivalStatsInferenceTabId(),
+      method,
+      criterion: options.criterion,
+      valueKind: options.valueKind || (method === 'none' ? 'raw-p' : 'adjusted-p')
+    });
+  }
+
+  function getSurvivalPairwiseInferenceSpec(){
+    return createSurvivalInferenceSpec({
+      method: state.pairwiseCorrection || 'holm-sidak',
+      valueKind: 'adjusted-p'
+    });
+  }
+
+  function getSurvivalInferenceSnapshot(){
+    return Shared.statsInference?.createSnapshot?.({
+      tabId: getSurvivalStatsInferenceTabId(),
+      includeOverall: true,
+      includeComparisons: true,
+      method: state.pairwiseCorrection || 'holm-sidak'
+    }) || null;
+  }
+
+  function pValueToken(value, inferenceSpec = null){
     const numeric = Number(value);
     if(!Number.isFinite(numeric)){
       return 'n/a';
     }
     if(Shared.statsReporting && typeof Shared.statsReporting.pValue === 'function'){
-      return Shared.statsReporting.pValue(numeric, { fallback: String(formatP(numeric)) });
+      return Shared.statsReporting.pValue(numeric, {
+        fallback: String(formatP(numeric)),
+        inference: inferenceSpec || undefined
+      });
     }
     return formatP(numeric);
+  }
+
+  function ensureSurvivalStatsInferenceControls(){
+    const host = getSurvivalNodeById('survivalStatsInferenceControls');
+    const inference = Shared.statsInference;
+    if(!host || !inference?.mountControls){
+      return null;
+    }
+    if(host.__survivalStatsInferenceController){
+      host.__survivalStatsInferenceController.refresh?.();
+      return host.__survivalStatsInferenceController;
+    }
+    host.__survivalStatsInferenceController = inference.mountControls(host, {
+      tabId: () => getSurvivalStatsInferenceTabId(),
+      includeOverall: true,
+      includeComparisons: true,
+      method: () => state.pairwiseCorrection || 'holm-sidak',
+      source: 'survival-stats-inference',
+      onChange(){
+        const session = getActiveSurvivalSessionForState();
+        if(session){
+          scheduleSurvivalDrawForSession(session, {
+            reason: 'survival-stats-inference-change',
+            tabId: session.tabId || undefined,
+            userInitiated: true
+          });
+        }
+      }
+    });
+    return host.__survivalStatsInferenceController;
   }
 
   function renderStatsValue(value){
@@ -5117,6 +5194,29 @@
     return metrics.titleGap + rowHeight * groups.length;
   }
 
+  function survivalParameterSlug(value){
+    return String(value == null ? '' : value).trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  }
+
+  function stampSurvivalParameterObservables(svg, session = null){
+    if(!svg?.setAttribute){ return; }
+    const axis = ensureAxisSettings(session);
+    const grid = getGridStyle(axis.strokeWidth);
+    const set = (name, value) => svg.setAttribute(`data-parameter-${name}`, value == null ? '' : String(value));
+    set('axis-minor-tick-subdivisions-x', axis.x?.minorTickSubdivisions);
+    set('axis-minor-tick-subdivisions-y', axis.y?.minorTickSubdivisions);
+    set('axis-minor-ticks-x', !!axis.x?.minorTicks);
+    set('axis-minor-ticks-y', !!axis.y?.minorTicks);
+    set('grid-style-color', grid.color);
+    set('grid-style-pattern', grid.pattern);
+    set('grid-style-thickness', grid.thickness);
+    set('grid-style-transparency', grid.transparency);
+    Object.entries(state.labelColors || {}).forEach(([label, color]) => {
+      const slug = survivalParameterSlug(label);
+      if(slug){ set(`label-colors-${slug}`, color); }
+    });
+  }
+
   async function drawSurvival(options = {}, session = null){
     const drawSession = ensureSurvivalSessionOwnershipShape(session || getSurvivalSessionForDrawOptions(options));
     if(drawSession && !isSurvivalSessionActive(drawSession)){
@@ -5195,6 +5295,7 @@
     summary.coxModel = coxModelSummary;
     summary.hazardRatios = hazardSummary;
     summary.flags = { hazardRatiosEnabled, coxEnabled };
+    summary.inference = getSurvivalInferenceSnapshot();
     state.lastSummary = summary;
     renderSurvivalStatsAdvisor(summary);
     logDebug('stat toggles resolved', { hazardRatiosEnabled, coxEnabled, coxAvailable: coxModelSummary.available });
@@ -5245,6 +5346,7 @@
     svg.setAttribute('height', String(svgHeight));
     svg.setAttribute('viewBox', `0 0 ${baseWidth} ${svgHeight}`);
     chartStyle.prepareSvg(svg, { scopeId: 'survival' });
+    stampSurvivalParameterObservables(svg, drawSession);
     if(svg.dataset){
       svg.dataset.fontScope = 'survival';
     }
@@ -5963,7 +6065,8 @@
       medianRatios: summary.medianRatios,
       hazardRatios: summary.hazardRatios,
       coxModel: summary.coxModel,
-      flags: summary.flags
+      flags: summary.flags,
+      inference: summary.inference || getSurvivalInferenceSnapshot()
     };
     state.lastStats = statsPayload;
     if(refs.statsCox && Shared.statsReporting && typeof Shared.statsReporting.appendReportPanel === 'function'){
@@ -5971,13 +6074,13 @@
         ? `Log-rank χ²(${summary.logRank.df ?? 'n/a'}) = ${formatNumber(summary.logRank.chi2, 3)}; ${formatSurvivalPExpression(summary.logRank.p)}.`
         : (summary.logRank?.message || 'Log-rank test unavailable.');
       const logRankParts = summary.logRank?.available
-        ? [`Log-rank χ²(${summary.logRank.df ?? 'n/a'}) = ${formatNumber(summary.logRank.chi2, 3)}, p = `, { type:'pValue', value:summary.logRank.p, fallback:String(formatP(summary.logRank.p)) }, '.']
+        ? [`Log-rank χ²(${summary.logRank.df ?? 'n/a'}) = ${formatNumber(summary.logRank.chi2, 3)}, p = `, pValueToken(summary.logRank.p, createSurvivalInferenceSpec({ method: 'none', valueKind: 'raw-p' })), '.']
         : [summary.logRank?.message || 'Log-rank test unavailable.'];
       const wilcoxonText = summary.logRankWilcoxon?.available
         ? `Gehan-Breslow-Wilcoxon χ²(${summary.logRankWilcoxon.df ?? 'n/a'}) = ${formatNumber(summary.logRankWilcoxon.chi2, 3)}; ${formatSurvivalPExpression(summary.logRankWilcoxon.p)}.`
         : null;
       const wilcoxonParts = summary.logRankWilcoxon?.available
-        ? [`Gehan-Breslow-Wilcoxon χ²(${summary.logRankWilcoxon.df ?? 'n/a'}) = ${formatNumber(summary.logRankWilcoxon.chi2, 3)}, p = `, { type:'pValue', value:summary.logRankWilcoxon.p, fallback:String(formatP(summary.logRankWilcoxon.p)) }, '.']
+        ? [`Gehan-Breslow-Wilcoxon χ²(${summary.logRankWilcoxon.df ?? 'n/a'}) = ${formatNumber(summary.logRankWilcoxon.chi2, 3)}, p = `, pValueToken(summary.logRankWilcoxon.p, createSurvivalInferenceSpec({ method: 'none', valueKind: 'raw-p' })), '.']
         : null;
       const hazardText = summary.hazardRatios?.available && Array.isArray(summary.hazardRatios.rows)
         ? (isTwoGroupUnadjustedCoxSummary(summary)
@@ -5993,7 +6096,7 @@
           : `${summary.coxModel.coefficients.length} Cox coefficient estimate(s) were reported.`)
         : null;
       Shared.statsReporting.appendReportPanel(refs.statsCox, {
-        methodsText: `Kaplan–Meier survival curves were summarized for ${summary.series.length} group(s) using event-time and censoring indicators from the current table. Log-rank testing was used for overall group comparison when estimable, with Gehan-Breslow-Wilcoxon and trend tests reported when enabled and supported by the data. ${summary.flags?.hazardRatiosEnabled ? 'Pairwise hazard ratios were estimated for requested group comparisons.' : 'Pairwise hazard ratios were not requested.'} ${summary.flags?.coxEnabled ? `A Cox proportional-hazards model was fit by partial likelihood with Efron handling of tied event times when estimable${hasSelectedCoxCovariates(summary) ? ', including the selected covariates' : ''}.` : 'Cox modelling was disabled.'} Rows with invalid survival time, group, event, or covariate values were excluded from the corresponding analysis.`,
+        methodsText: `Kaplan–Meier survival curves were summarized for ${summary.series.length} group(s) using event-time and censoring indicators from the current table. Log-rank testing was used for overall group comparison when estimable at α = ${Shared.statsInference?.formatLevel?.(getSurvivalStatsAlpha()) || getSurvivalStatsAlpha()}, with Gehan-Breslow-Wilcoxon and trend tests reported when enabled and supported by the data. Pairwise log-rank comparisons used ${summary.pairwiseComparisons?.correction?.label || state.pairwiseCorrection || 'the selected correction'}${Shared.statsInference?.getMethodSemantics?.(state.pairwiseCorrection || 'holm-sidak')?.criterion === 'fdr' ? ` at target FDR = ${Shared.statsInference?.formatLevel?.(Shared.statsInference?.getTargetFdr?.({ tabId: getSurvivalStatsInferenceTabId() })) || '0.05'}` : ` at the same family-wise α`}. ${summary.flags?.hazardRatiosEnabled ? 'Pairwise hazard ratios were estimated for requested group comparisons.' : 'Pairwise hazard ratios were not requested.'} ${summary.flags?.coxEnabled ? `A Cox proportional-hazards model was fit by partial likelihood with Efron handling of tied event times when estimable${hasSelectedCoxCovariates(summary) ? ', including the selected covariates' : ''}.` : 'Cox modelling was disabled.'} Rows with invalid survival time, group, event, or covariate values were excluded from the corresponding analysis.`,
         resultsText: [
           `${summary.series.length} group(s) contributed survival data.`,
           logRankText,
@@ -6024,7 +6127,8 @@
           trendAvailable: !!summary.logRankTrend?.available,
           covariates: getSelectedCovariates(summary.covariateColumns),
           availableCovariates: Array.isArray(summary.covariateColumns) ? summary.covariateColumns.slice() : [],
-          supportsTimeDependent: !!summary.supportsTimeDependent
+          supportsTimeDependent: !!summary.supportsTimeDependent,
+          inference: summary.inference || getSurvivalInferenceSnapshot()
         }
       }, { title: 'Reporting and reproducibility' });
     }
@@ -6098,7 +6202,7 @@
         test: 'Log-rank',
         statistic: formatNumber(summary.logRank.chi2, 3),
         df: Number.isFinite(summary.logRank.df) ? String(summary.logRank.df) : 'n/a',
-        p: pValueToken(summary.logRank.p)
+        p: pValueToken(summary.logRank.p, createSurvivalInferenceSpec({ method: 'none', valueKind: 'raw-p' }))
       });
     }
     if(summary.logRankWilcoxon?.available){
@@ -6106,7 +6210,7 @@
         test: 'Gehan-Breslow-Wilcoxon',
         statistic: formatNumber(summary.logRankWilcoxon.chi2, 3),
         df: Number.isFinite(summary.logRankWilcoxon.df) ? String(summary.logRankWilcoxon.df) : 'n/a',
-        p: pValueToken(summary.logRankWilcoxon.p)
+        p: pValueToken(summary.logRankWilcoxon.p, createSurvivalInferenceSpec({ method: 'none', valueKind: 'raw-p' }))
       });
     }
     if(summary.logRankTrend?.available){
@@ -6114,7 +6218,7 @@
         test: 'Log-rank trend',
         statistic: formatNumber(summary.logRankTrend.chi2, 3),
         df: Number.isFinite(summary.logRankTrend.df) ? String(summary.logRankTrend.df) : 'n/a',
-        p: pValueToken(summary.logRankTrend.p)
+        p: pValueToken(summary.logRankTrend.p, createSurvivalInferenceSpec({ method: 'none', valueKind: 'raw-p' }))
       });
     }
     if(rows.length){
@@ -6145,13 +6249,15 @@
             { key: 'comparison', label: 'Comparison', align: 'left' },
             { key: 'chi2', label: 'χ²', align: 'right' },
             { key: 'p', label: 'p-value', align: 'right' },
-            { key: 'adjustedP', label: `Adjusted p (${summary.pairwiseComparisons.correction?.shortLabel || 'adj'})`, align: 'right' }
+            { key: 'adjustedP', label: typeof Shared.stats?.getAdjustedPLabel === 'function'
+              ? Shared.stats.getAdjustedPLabel(summary.pairwiseComparisons.correction?.key || 'holm')
+              : `${summary.pairwiseComparisons.correction?.shortLabel || 'Adjusted'}-adjusted p`, align: 'right' }
           ],
           rows: summary.pairwiseComparisons.rows.map(row => ({
             comparison: `${row.groupB} vs ${row.groupA}`,
             chi2: formatNumber(row.chi2, 3),
             p: pValueToken(row.p),
-            adjustedP: pValueToken(row.adjustedP)
+            adjustedP: pValueToken(row.adjustedP, getSurvivalPairwiseInferenceSpec())
           })),
           footnotes: [
             summary.pairwiseComparisons.correction?.footnote
@@ -6216,7 +6322,7 @@
       hazardRatio: formatNumber(row.hazardRatio, 3),
       ci: formatInterval(row.ciLow, row.ciHigh),
       z: Number.isFinite(row.z) ? formatNumber(row.z, 3) : 'n/a',
-      p: pValueToken(row.p)
+      p: pValueToken(row.p, createSurvivalInferenceSpec({ method: 'none', valueKind: 'raw-p' }))
     }));
   }
 
@@ -6351,7 +6457,7 @@
       hazardRatio: formatNumber(coef.hazardRatio, 3),
       ci: formatInterval(coef.ciLow, coef.ciHigh),
       z: Number.isFinite(coef.z) ? formatNumber(coef.z, 3) : 'n/a',
-      p: pValueToken(coef.p)
+      p: pValueToken(coef.p, createSurvivalInferenceSpec({ method: 'none', valueKind: 'raw-p' }))
     }));
     const diag = summary.coxModel.diagnostics || {};
     const lr = diag.likelihoodRatio || {};
@@ -6365,7 +6471,7 @@
       adjustedModel && groupCoefficientCount > 0 ? 'Group hazard ratios are adjusted for the selected Cox covariates.' : null,
       !adjustedModel && groupCoefficientCount > 0 ? 'Group effects are baseline-referenced Cox coefficients; hazard ratio = exp(β).' : null,
       `Log-likelihood = ${formatNumber(diag.logLikelihood, 3)} | Null = ${formatNumber(diag.logLikelihoodNull, 3)}`,
-      [`Likelihood ratio χ²(${lr.df ?? 'n/a'}) = ${formatNumber(lr.statistic, 3)}, p = `, pValueToken(lr.p)],
+      [`Likelihood ratio χ²(${lr.df ?? 'n/a'}) = ${formatNumber(lr.statistic, 3)}, p = `, pValueToken(lr.p, createSurvivalInferenceSpec({ method: 'none', valueKind: 'raw-p' }))],
       `AIC = ${formatNumber(diag.aic, 3)} | BIC = ${formatNumber(diag.bic, 3)}`,
       `Iterations = ${diag.iterations ?? 'n/a'} | Converged: ${diag.converged ? 'Yes' : 'No'}`
     ].filter(Boolean);
@@ -7347,6 +7453,7 @@
       runSurvivalControlOwner(event, 'survival-pairwise-correction', session => {
         state.pairwiseCorrection = String(select.value || 'holm-sidak');
         syncSurvivalStateToSession(session, { pairwiseCorrection: state.pairwiseCorrection });
+        ensureSurvivalStatsInferenceControls()?.refresh?.();
         logDebug('pairwise correction changed', { value: state.pairwiseCorrection });
         scheduleSurvivalDrawForSession(session, {
           reason: 'survival-pairwise-correction',

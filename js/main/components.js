@@ -892,6 +892,87 @@
     pie: scheduleDrawPie,
     survival: scheduleDrawSurvival
   };
+
+  function isFinitePayloadNumber(value) {
+    if (value == null || (typeof value === 'string' && !value.trim())) {
+      return false;
+    }
+    return Number.isFinite(Number(value));
+  }
+
+  function resolvePayloadAnalysisMatrix(payload) {
+    const activeViewId = payload?.activeDataViewId || payload?.dataViews?.activeViewId || null;
+    const views = Array.isArray(payload?.dataViews?.views) ? payload.dataViews.views : [];
+    const activeView = activeViewId ? views.find(view => String(view?.id || '') === String(activeViewId)) : null;
+    return Array.isArray(activeView?.data) ? activeView.data : payload?.data;
+  }
+
+  function resolvePayloadExclusions(payload) {
+    const exclusions = payload?.exclusions && typeof payload.exclusions === 'object' ? payload.exclusions : {};
+    const rows = new Set((Array.isArray(exclusions.rows) ? exclusions.rows : []).map(Number).filter(Number.isInteger));
+    const cols = new Set((Array.isArray(exclusions.cols) ? exclusions.cols : []).map(Number).filter(Number.isInteger));
+    const cells = new Set((Array.isArray(exclusions.cells) ? exclusions.cells : []).map(pair => {
+      if (!Array.isArray(pair) || pair.length < 2) return '';
+      const row = Number(pair[0]);
+      const col = Number(pair[1]);
+      return Number.isInteger(row) && Number.isInteger(col) ? `${row}:${col}` : '';
+    }).filter(Boolean));
+    return { rows, cols, cells };
+  }
+
+  function getRenderablePayloadRows(type, payload) {
+    const matrix = resolvePayloadAnalysisMatrix(payload);
+    if (!Array.isArray(matrix)) return [];
+    const config = payload?.config && typeof payload.config === 'object' ? payload.config : {};
+    const tableFormat = String(config.tableFormat || config.replicateMode || '').toLowerCase();
+    const viewMode = String(config.viewMode || '').toLowerCase();
+    let structuralRows = 1;
+    if (type === 'box' && tableFormat === 'grouped') structuralRows = 2;
+    if (type === 'pca') structuralRows = tableFormat === 'grouped' ? 3 : 2;
+    if (type === 'line' && (tableFormat === 'grouped' || tableFormat === '3d' || viewMode === '3d')) structuralRows = 2;
+    const exclusions = resolvePayloadExclusions(payload);
+    const rows = [];
+    for (let rowIndex = structuralRows; rowIndex < matrix.length; rowIndex += 1) {
+      if (exclusions.rows.has(rowIndex) || !Array.isArray(matrix[rowIndex])) continue;
+      const row = matrix[rowIndex].map((value, colIndex) => (
+        exclusions.cols.has(colIndex) || exclusions.cells.has(`${rowIndex}:${colIndex}`) ? null : value
+      ));
+      rows.push(row);
+    }
+    return rows;
+  }
+
+  function hasRenderablePayloadData(type, payload) {
+    const normalizedType = String(type || payload?.type || '').trim().toLowerCase();
+    if (normalizedType === 'venn') {
+      const data = payload?.data && typeof payload.data === 'object' ? payload.data : {};
+      const hasList = ['listA', 'listB', 'listC'].some(key => String(data[key] || '').trim().length > 0);
+      const hasCounts = ['nA', 'nB', 'nC', 'nAB', 'nAC', 'nBC', 'nABC'].some(key => Number(data[key]) > 0);
+      return hasList || hasCounts;
+    }
+    const rows = getRenderablePayloadRows(normalizedType, payload);
+    if (!rows.length) return false;
+    const finiteCount = row => row.reduce((count, value) => count + (isFinitePayloadNumber(value) ? 1 : 0), 0);
+    if (normalizedType === 'surface') return rows.some(row => finiteCount(row) >= 3);
+    if (normalizedType === 'scatter' || normalizedType === 'line') return rows.some(row => finiteCount(row) >= 2);
+    if (normalizedType === 'pca') return rows.filter(row => finiteCount(row) >= 2).length >= 2;
+    if (normalizedType === 'survival') {
+      return rows.some(row => String(row[0] == null ? '' : row[0]).trim()
+        && isFinitePayloadNumber(row[1])
+        && isFinitePayloadNumber(row[2]));
+    }
+    if (normalizedType === 'pie') {
+      return rows.some(row => String(row[0] == null ? '' : row[0]).trim() && row.slice(1).some(isFinitePayloadNumber));
+    }
+    if (normalizedType === 'roc') {
+      const labels = new Set();
+      rows.forEach(row => {
+        if (String(row[0] == null ? '' : row[0]).trim() && isFinitePayloadNumber(row[1])) labels.add(String(row[0]));
+      });
+      return labels.size >= 2;
+    }
+    return rows.some(row => row.some(isFinitePayloadNumber));
+  }
   console.debug('Debug: main tab-scoped lifecycle schedulers ready', { schedulers: ['boxplot', 'scatter', 'pca', 'line', 'heatmap', 'hist', 'pie', 'survival'] });
 
   const WORKSPACES = {
@@ -1160,6 +1241,16 @@
     }
   };
 
+  Object.keys(WORKSPACES).forEach(type => {
+    WORKSPACES[type].hasRenderablePayload = (payload, meta = {}) => {
+      const componentCheck = window.Components?.[type]?.hasRenderablePayload;
+      if (typeof componentCheck === 'function') {
+        return !!componentCheck(payload, meta);
+      }
+      return hasRenderablePayloadData(type, payload);
+    };
+  });
+
   const WORKSPACE_LIFECYCLE_SPECS = {
     venn: {
       payloadKeys: Object.freeze(['type', 'data', 'style', 'notes', 'analysis']),
@@ -1244,7 +1335,8 @@
         documentedTopLevelKeys: Array.isArray(spec.payloadKeys) ? spec.payloadKeys.slice() : [],
         get: () => workspace.getPayload?.(),
         load: (payload, options) => workspace.loadFromPayload?.(payload, options),
-        createEmpty: () => workspace.createEmptyPayload?.()
+        createEmpty: () => workspace.createEmptyPayload?.(),
+        hasRenderableData: (payload, meta) => workspace.hasRenderablePayload?.(payload, meta)
       },
       runtime: {
         capture: meta => workspace.captureRuntimeState?.(meta),
@@ -1282,6 +1374,7 @@
   namespace.scheduleDrawHist = scheduleDrawHist;
   namespace.scheduleDrawPie = scheduleDrawPie;
   namespace.scheduleDrawSurvival = scheduleDrawSurvival;
+  namespace.hasRenderablePayloadData = hasRenderablePayloadData;
   namespace.ensureComponent = ensureComponent;
   namespace.registry = WORKSPACES;
   namespace.get = type => WORKSPACES[type] || null;

@@ -239,6 +239,31 @@ async function loadBoxExampleData(page) {
   throw new Error('Box example data did not load');
 }
 
+async function loadTwoGroupBoxData(page) {
+  await page.waitForFunction(() => {
+    const hot = window.Components?.box?.__getState?.()?.hot;
+    return !!hot && typeof hot.loadData === 'function';
+  }, null, { timeout: 20_000 });
+  await page.evaluate(() => {
+    const state = window.Components.box.__getState();
+    state.hot.loadData([
+      ['Group 1', 'Group 2'],
+      [0.00021794, 0.00137663],
+      [0.00194322, 0.0004429],
+      [0.00141484, 0.00018088],
+      [0.00070079, 0.000000052]
+    ], {
+      source: 'e2e:box-two-group-first-significance-layout',
+      recordUndo: false
+    });
+  });
+  await page.waitForFunction(() => {
+    const state = window.Components?.box?.__getState?.() || null;
+    const svg = document.querySelector('#boxPlot svg');
+    return !!svg && Number(state?.statsContextVersion) > 0;
+  }, null, { timeout: 20_000 });
+}
+
 async function setBoxSignificanceToggle(page, enabled) {
   const toggle = page.locator('#boxShowSignificance');
   await expect(toggle).toBeVisible();
@@ -259,6 +284,43 @@ async function setBoxSignificanceToggle(page, enabled) {
     el.dispatchEvent(new Event('change', { bubbles: true }));
   }, enabled);
 }
+
+test('two-group statistics apply significance reserve on the first annotated draw', async ({ page }) => {
+  test.setTimeout(120_000);
+  const issues = registerIssueCollectors(page);
+  await installLocalCdnOverrides(page);
+
+  await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
+  await expect(page.locator('#welcomeScreen')).toBeVisible();
+  await openComponentFromWelcome(page, { type: 'box', pageId: 'boxPage' }, { first: true });
+  await loadTwoGroupBoxData(page);
+
+  const before = await page.evaluate(readVerticalBoxLayoutMetrics);
+  expect(before).not.toBeNull();
+  expect(before.significancePathCount).toBe(0);
+
+  await page.locator('#boxComputeStats').click();
+  await page.waitForFunction(() => {
+    const state = window.Components?.box?.__getState?.() || null;
+    return Number(state?.statsLastRunVersion) > 0
+      && Number(state.statsLastRunVersion) === Number(state.statsContextVersion)
+      && state.showSignificanceBars === true
+      && state.significanceMaxLevel === 0
+      && Number(state.significanceViewportExtensionPx) > 0
+      && document.querySelectorAll('#boxPlot path.box-significance-annotation[data-sig-orientation="vertical"]').length > 0;
+  }, null, { timeout: 45_000 });
+  await expectBoxDrawsToSettle(page, 2);
+
+  const after = await page.evaluate(readVerticalBoxLayoutMetrics);
+  expect(after).not.toBeNull();
+  expect(after.significancePathCount).toBeGreaterThan(0);
+  expect(after.significanceViewportExtensionPx).toBeGreaterThan(0);
+  expect(after.svgBoxHeightPx).toBeGreaterThan(
+    before.svgBoxHeightPx + Math.max(2, after.significanceViewportExtensionPx - 2)
+  );
+  expect(Math.abs(after.yAxisSpan - before.yAxisSpan)).toBeLessThanOrEqual(7);
+  expect(issues.critical).toEqual([]);
+});
 
 async function setBoxLockRatioToggle(page, enabled) {
   await page.evaluate((value) => {

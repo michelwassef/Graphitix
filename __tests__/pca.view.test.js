@@ -244,19 +244,19 @@ describe('PCA view controls', () => {
     const standardize = document.getElementById('pcaStandardizeVariables');
     const equalAxisLengths = document.querySelector('#pcaPage .resizer-axeslength-checkbox--equal-scale');
     expect(tab?.payload?.config?.standardizeVariables).toBe(false);
-    expect(tab?.payload?.config?.equalAxisLengths).toBe(false);
+    expect(tab?.payload?.config?.equalAxisLengths).toBe(true);
 
     standardize.checked = true;
     standardize.dispatchEvent(new Event('change', { bubbles: true }));
     expect(tab?.payload?.config?.standardizeVariables).toBe(true);
 
-    equalAxisLengths.checked = true;
-    equalAxisLengths.dispatchEvent(new Event('change', { bubbles: true }));
-    expect(tab?.payload?.config?.equalAxisLengths).toBe(true);
-
     equalAxisLengths.checked = false;
     equalAxisLengths.dispatchEvent(new Event('change', { bubbles: true }));
     expect(tab?.payload?.config?.equalAxisLengths).toBe(false);
+
+    equalAxisLengths.checked = true;
+    equalAxisLengths.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(tab?.payload?.config?.equalAxisLengths).toBe(true);
   });
 
   test('PCA payload hydration projects view mode without firing a user redraw', () => {
@@ -287,7 +287,7 @@ describe('PCA view controls', () => {
 
     const payload = component.getPayload();
     expect(payload.config.standardizeVariables).toBe(false);
-    expect(payload.config.equalAxisLengths).toBe(false);
+    expect(payload.config.equalAxisLengths).toBe(true);
     delete payload.config.standardizeVariables;
     delete payload.config.equalAxisLengths;
     payload.config.scale = true;
@@ -308,6 +308,14 @@ describe('PCA view controls', () => {
     expect(migrated.config.equalAxisLengths).toBe(false);
     expect(migrated.config).not.toHaveProperty('scale');
     expect(migrated.config).not.toHaveProperty('equalScaleAxes');
+
+    const defaultedPayload = component.getPayload();
+    delete defaultedPayload.config.equalAxisLengths;
+    component.loadFromPayload(defaultedPayload, {
+      source: 'test-missing-pca-equal-axis-length-default',
+      skipDraw: true
+    });
+    expect(component.getPayload().config.equalAxisLengths).toBe(true);
   });
 
   test('grouped body edits do not rebuild AG Grid headers', async () => {

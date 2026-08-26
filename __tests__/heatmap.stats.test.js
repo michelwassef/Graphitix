@@ -9,6 +9,15 @@ describe('Heatmap stats formatting', () => {
       await new Promise(resolve => setTimeout(resolve, 0));
     }
   }
+  async function waitFor(predicate, iterations = 80){
+    for(let i = 0; i < iterations; i += 1){
+      if(predicate()){
+        return true;
+      }
+      await new Promise(resolve => setTimeout(resolve, 0));
+    }
+    return !!predicate();
+  }
   async function ensureCorrelationView(){
     const viewSelect = document.getElementById('heatmapView');
     if(viewSelect){
@@ -40,6 +49,7 @@ describe('Heatmap stats formatting', () => {
     require('../js/vendor.js');
     require('../js/shared/chartStyle.js');
     require('../js/shared/stats.js');
+    require('../js/shared/statsInference.js');
     require('../js/shared/debounce.js');
     require('../js/shared/componentLifecycle.js');
     require('../js/shared/resizer.js');
@@ -138,10 +148,7 @@ describe('Heatmap stats formatting', () => {
     const viewSelect = document.getElementById('heatmapView');
     viewSelect.value = 'values';
     viewSelect.dispatchEvent(new Event('change', { bubbles: true }));
-    await flushAsyncWork(8);
-    await heatmap.draw({ force: true, viewOnly: false, reason: 'test-value-scale-values-view-ready' });
-    await flushAsyncWork(8);
-    expect(heatmap.__getState().lastStats?.type).toBe('values');
+    expect(await waitFor(() => heatmap.__getState().lastStats?.type === 'values')).toBe(true);
     const valueScaleRuntime = cloneForTest(heatmap.captureRuntimeState({
       tabId: window.Main?.tabs?.getActiveTab?.()?.id || null,
       reason: 'test-value-scale-override-capture'
@@ -493,6 +500,46 @@ describe('Heatmap stats formatting', () => {
     });
     expect(committedCorrelationScale.rowLabel).toBe(0.72);
     expect(committedCorrelationScale.columnLabel).toBe(0.72);
+  });
+
+  test('manual correlation label sizes stay isolated to their owning role', () => {
+    const hooks = window.Components.heatmap.__testHooks;
+    const common = {
+      normalizedHeavyScene: false,
+      rowLabelDisplayScale: 0.4,
+      correlationLabelDisplayScale: 0.4,
+      cellSize: 20,
+      maxRowLabelFontSize: 16,
+      maxColumnLabelFontSize: 16
+    };
+
+    const rowOnly = hooks.resolveRoleTextScales({
+      metrics: {
+        ...common,
+        rowLabelDisplaySizeOverride: true,
+        columnLabelDisplaySizeOverride: false
+      },
+      scaleX: 0.7,
+      scaleY: 0.7,
+      fallbackScale: 0.7,
+      independentLabels: false
+    });
+    expect(rowOnly.rowLabel).toBe(1);
+    expect(rowOnly.columnLabel).toBeCloseTo((20 * 0.7) / (16 * 1.15), 8);
+
+    const columnOnly = hooks.resolveRoleTextScales({
+      metrics: {
+        ...common,
+        rowLabelDisplaySizeOverride: false,
+        columnLabelDisplaySizeOverride: true
+      },
+      scaleX: 0.7,
+      scaleY: 0.7,
+      fallbackScale: 0.7,
+      independentLabels: false
+    });
+    expect(columnOnly.rowLabel).toBe(0.4);
+    expect(columnOnly.columnLabel).toBe(1);
   });
 
   test('heavy Data-values label fitting is isolated from the normal font contract', () => {
@@ -1055,39 +1102,31 @@ describe('Heatmap stats formatting', () => {
   });
 
 
-  test('legacy payloads without a correction field preserve raw-p significance semantics on reopen', async () => {
+  test('runtime snapshots preserve the current correlation correction', async () => {
     const heatmap = window.Components.heatmap;
-    const payload = heatmap.getPayload();
-    delete payload.config.significanceCorrection;
-    heatmap.loadFromPayload(cloneForTest(payload), {
-      tabId: 'heatmap-stats-test-tab',
-      skipDraw: true,
-      skipInitialDraw: true,
-      source: 'legacy-raw-p-restore-test'
-    });
-    await flushAsyncWork(4);
-    expect(document.getElementById('heatmapSignificanceCorrection').value).toBe('none');
-    expect(heatmap.getPayload().config.significanceCorrection).toBe('none');
-  });
+    const correction = document.getElementById('heatmapSignificanceCorrection');
+    expect(correction).toBeTruthy();
 
-  test('legacy recovery snapshots without a correction field preserve raw-p semantics', async () => {
-    const heatmap = window.Components.heatmap;
+    correction.value = 'by';
+    correction.dispatchEvent(new Event('change', { bubbles: true }));
+    await flushAsyncWork(4);
+
     const snapshot = cloneForTest(heatmap.captureRuntimeState({
       tabId: 'heatmap-stats-test-tab',
-      reason: 'heatmap-legacy-runtime-capture-test'
+      reason: 'heatmap-current-runtime-capture-test'
     }));
-    expect(snapshot?.controls).toBeTruthy();
-    delete snapshot.controls.significanceCorrection;
+    expect(snapshot?.controls?.significanceCorrection).toBe('by');
+
+    correction.value = 'holm';
     expect(heatmap.applyRuntimeState(snapshot, {
       tabId: 'heatmap-stats-test-tab',
-      reason: 'heatmap-legacy-runtime-apply-test'
+      reason: 'heatmap-current-runtime-apply-test'
     })).toBe(true);
-    await flushAsyncWork(4);
-    expect(document.getElementById('heatmapSignificanceCorrection').value).toBe('none');
-    expect(heatmap.getPayload().config.significanceCorrection).toBe('none');
+    expect(document.getElementById('heatmapSignificanceCorrection').value).toBe('by');
+    expect(heatmap.getPayload().config.significanceCorrection).toBe('by');
   });
 
-  test('correlation reporting records the active multiplicity family and threshold', async () => {
+  test('correlation reporting records the active multiplicity family and inference level', async () => {
     const hot = global.__LAST_HEATMAP_HOT__;
     const heatmap = window.Components.heatmap;
     hot.loadData([
@@ -1104,10 +1143,18 @@ describe('Heatmap stats formatting', () => {
     showSignificance.dispatchEvent(new Event('change', { bubbles: true }));
     correction.value = 'bh';
     correction.dispatchEvent(new Event('change', { bubbles: true }));
-    await heatmap.draw({ force: true, viewOnly: false, reason: 'heatmap-stats-reporting-test' });
+
+    expect(await waitFor(() => {
+      const stats = heatmap.__getState().lastStats;
+      return stats?.type === 'correlation'
+        && stats.showSignificance === true
+        && stats.significanceCorrection === 'bh'
+        && stats.testedPairCount === 3;
+    })).toBe(true);
 
     const statsText = document.getElementById('heatmapStatsContent')?.textContent || '';
     expect(statsText).toContain('Benjamini–Hochberg FDR');
+    expect(statsText).toContain('target FDR = 0.05');
     expect(statsText).toContain('unique pairs');
     expect(heatmap.__getState().lastStats).toMatchObject({
       showSignificance: true,

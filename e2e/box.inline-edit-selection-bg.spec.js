@@ -34,15 +34,16 @@ test('box keeps selected-cell background color during inline edit', async ({ pag
       }
     }
     const colIndex = 1;
+    const bodyRowIndex = rowIndex - (Number(hot.getSettings?.().fixedRowsTop) || 0);
     hot.setDataAtCell([[rowIndex, colIndex, '42']], 'e2e-seed-inline-bg');
     hot.selectCell?.(rowIndex, colIndex);
     hot.gridApi?.refreshCells?.({ force: true, suppressFlash: true });
 
-    const getCell = () => document.querySelector(`#hot .ag-center-cols-container .ag-row[row-index="${rowIndex}"] .ag-cell[col-id="c${colIndex}"]`);
+    const getCell = () => document.querySelector(`#hot .ag-center-cols-container .ag-row[row-index="${bodyRowIndex}"] .ag-cell[col-id="c${colIndex}"]`);
     const selectedCell = getCell();
     const selectedColor = selectedCell ? getComputedStyle(selectedCell).backgroundColor : '';
 
-    hot.gridApi?.startEditingCell?.({ rowIndex, colKey: `c${colIndex}` });
+    hot.gridApi?.startEditingCell?.({ rowIndex: bodyRowIndex, colKey: `c${colIndex}` });
     const editingCell = getCell();
     const editingColor = editingCell ? getComputedStyle(editingCell).backgroundColor : '';
 

@@ -36,6 +36,7 @@ const KNOWN_HOOKS = new Set([
   'restoreRenderCache',
   'rehydrateGraphInteractions',
   'canRestoreRenderCache',
+  'hasRenderablePayload',
   'hasRenderedGraph',
   'getLayoutState',
   'getDefaultLayoutState',
@@ -171,7 +172,7 @@ function toMarkdown(entries) {
   lines.push('## Shared Contract');
   lines.push('');
   lines.push('- `Main` expects each workspace entry to provide `ensure`, `draw`, `getPayload`, `loadFromPayload`, and `createEmptyPayload`.');
-  lines.push('- Every component implements `rehydrateGraphInteractions` so restored graph DOM is interactive before it is published. Other optional hooks (`activateTab`, `captureRuntimeState`, `applyRuntimeState`, `captureRenderCache`, `restoreRenderCache`, `canRestoreRenderCache`, `hasRenderedGraph`, layout helpers) are consumed when present.');
+  lines.push('- Every component implements `rehydrateGraphInteractions` so restored graph DOM is interactive before it is published. Workspace wrappers also expose pure `hasRenderablePayload` checks so structural/persisted table state is not confused with data that must publish a graph. Other optional hooks (`activateTab`, `captureRuntimeState`, `applyRuntimeState`, `captureRenderCache`, `restoreRenderCache`, `canRestoreRenderCache`, `hasRenderedGraph`, layout helpers) are consumed when present.');
   lines.push('- Payload objects must stay JSON-serializable so session/archive persistence remains stable.');
   lines.push('');
   lines.push('## Registry Coverage');

@@ -20,7 +20,7 @@ test('scatter formulas display resolved value and reopen as raw formula with hig
     return !!(hot && hot.gridApi && typeof hot.setDataAtCell === 'function');
   });
 
-  const targetRow = await page.evaluate(() => {
+  const target = await page.evaluate(() => {
     const scatter = window.Components.scatter;
     const hot = scatter.__ensureHotForActiveTab();
     let visualRow = 1;
@@ -37,8 +37,9 @@ test('scatter formulas display resolved value and reopen as raw formula with hig
       [visualRow, 2, '7'],
       [visualRow, 3, '']
     ], 'e2e-seed-scatter-formula');
-    hot.gridApi?.startEditingCell?.({ rowIndex: visualRow, colKey: 'c3' });
-    return visualRow;
+    const bodyRow = visualRow - (Number(hot.getSettings?.().fixedRowsTop) || 0);
+    hot.gridApi?.startEditingCell?.({ rowIndex: bodyRow, colKey: 'c3' });
+    return { visualRow, bodyRow };
   });
 
   const editorInput = page.locator('.ag-cell-inline-editing input.ag-text-field-input, .ag-cell-inline-editing input, .ag-popup-editor input.ag-text-field-input, .ag-popup-editor input').first();
@@ -65,34 +66,43 @@ test('scatter formulas display resolved value and reopen as raw formula with hig
   await editorInput.press('Enter');
 
   await expect.poll(async () => {
-    return await page.evaluate((rowIndex) => {
+    return await page.evaluate(({ visualRow, bodyRow }) => {
       const scatter = window.Components?.scatter;
       const hot = scatter?.__ensureHotForActiveTab?.();
       const api = hot?.gridApi;
       if(!hot || !api || typeof api.getDisplayedRowAtIndex !== 'function' || typeof api.getValue !== 'function'){
         return null;
       }
-      const node = api.getDisplayedRowAtIndex(rowIndex);
+      const node = api.getDisplayedRowAtIndex(bodyRow);
       if(!node){
         return null;
       }
       const displayed = api.getValue('c3', node);
-      const raw = hot.getDataAtCell(rowIndex, 3);
+      const raw = hot.getDataAtCell(visualRow, 3);
       return {
         displayed: displayed == null ? '' : String(displayed).trim(),
         raw: raw == null ? '' : String(raw).trim()
       };
-    }, targetRow);
+    }, target);
   }, {
     timeout: 15_000,
     intervals: [200, 400, 800]
   }).toEqual({ displayed: '12', raw: '=B1+C1' });
 
-  await page.evaluate((rowIndex) => {
+  await page.evaluate((visualRow) => {
     const scatter = window.Components.scatter;
     const hot = scatter.__ensureHotForActiveTab();
-    hot.gridApi?.startEditingCell?.({ rowIndex, colKey: 'c3' });
-  }, targetRow);
+    const physicalRow = hot.toPhysicalRow?.(visualRow) ?? visualRow;
+    let bodyRow = null;
+    hot.gridApi?.forEachNode?.(node => {
+      if(bodyRow == null && Number(node?.data?.__rowIndex) === physicalRow){
+        bodyRow = node.rowIndex;
+      }
+    });
+    if(Number.isInteger(bodyRow)){
+      hot.gridApi?.startEditingCell?.({ rowIndex: bodyRow, colKey: 'c3' });
+    }
+  }, target.visualRow);
 
   await expect(editorInput).toBeVisible();
   await expect(editorInput).toHaveValue('=B1+C1');
@@ -130,7 +140,7 @@ test('scatter formulas display resolved value and reopen as raw formula with hig
       }
       const value = api.getValue('c3', node);
       return value == null ? '' : String(value).trim();
-    }, targetRow);
+    }, target.bodyRow);
   }).toBe('12');
 
   expect(issues.critical).toEqual([]);

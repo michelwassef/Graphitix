@@ -24,7 +24,7 @@ test('box formula function suggestions and signature tooltip behave like excel a
     return !!(hot && hot.gridApi && typeof hot.setDataAtCell === 'function');
   });
 
-  const targetRow = await page.evaluate(() => {
+  const target = await page.evaluate(() => {
     const box = window.Components.box;
     const state = box.__getState();
     const hot = state.ensureHotForActiveTab?.() || state.hot;
@@ -42,8 +42,9 @@ test('box formula function suggestions and signature tooltip behave like excel a
       [visualRow, 1, '5'],
       [visualRow, 4, '']
     ], 'e2e-function-assist-seed');
-    hot.gridApi?.startEditingCell?.({ rowIndex: visualRow, colKey: 'c4' });
-    return visualRow;
+    const bodyRow = visualRow - (Number(hot.getSettings?.().fixedRowsTop) || 0);
+    hot.gridApi?.startEditingCell?.({ rowIndex: bodyRow, colKey: 'c4' });
+    return { visualRow, bodyRow };
   });
 
   const editorInput = page.locator('#hot input.ag-text-field-input').first();
@@ -80,7 +81,7 @@ test('box formula function suggestions and signature tooltip behave like excel a
       }
       const resolved = api.getValue('c4', node);
       return resolved == null ? '' : String(resolved).trim();
-    }, targetRow);
+    }, target.bodyRow);
   }, {
     timeout: 15_000,
     intervals: [200, 400, 800]

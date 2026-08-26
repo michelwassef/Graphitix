@@ -11,6 +11,7 @@ const {
 
 const TMP_DIR = path.resolve(__dirname, '.tmp');
 const BOX_COMPONENT = { type: 'box', pageId: 'boxPage' };
+const ALPHA_SELECTOR = '#boxStatsInferenceControls [data-stats-inference-key="alpha"]';
 
 async function getGraphTabIds(page) {
   return page.evaluate(() => (
@@ -40,7 +41,7 @@ async function openBoxTab(page, { first }) {
       const addResult = tabs?.handleAddTabClick?.();
       if (addResult && typeof addResult.then === 'function') await addResult;
       const selectionResult = tabs?.handleGraphSelection?.('box', {
-        reason: 'e2e-stats-threshold-second-box'
+        reason: 'e2e-stats-inference-second-box'
       });
       if (selectionResult && typeof selectionResult.then === 'function') await selectionResult;
       const prompt = document.querySelector('#duplicatePrompt:not([hidden])');
@@ -48,72 +49,54 @@ async function openBoxTab(page, { first }) {
       if (prompt && empty && !empty.disabled) empty.click();
     });
   }
+
   await expect(page.locator('#boxPage:not([hidden])')).toBeVisible({ timeout: 25_000 });
   await page.waitForFunction(() => typeof window.Components?.box?.getPayload === 'function', null, {
     timeout: 25_000
   });
   await clickExampleButtonIfPresent(page, 'boxLoadExample');
-}
-
-async function ensureBoxStatisticsPanel(page) {
-  await page.waitForFunction(() => {
+  await page.waitForFunction(selector => {
     const state = window.Main?.session?.workspaceState;
     const active = state?.tabs?.find(tab => tab?.id === state.activeTabId) || null;
     const root = window.Shared?.workspaceTabs?.getMountedRoot?.(active?.id || null, 'box') || document;
+    const input = root.querySelector(selector);
     const button = root.querySelector('#boxComputeStats');
-    return !!button && !button.disabled;
-  }, null, { timeout: 25_000 });
-
-  await page.evaluate(() => {
-    const state = window.Main?.session?.workspaceState;
-    const active = state?.tabs?.find(tab => tab?.id === state.activeTabId) || null;
-    const root = window.Shared?.workspaceTabs?.getMountedRoot?.(active?.id || null, 'box') || document;
-    root.querySelector('#boxComputeStats')?.click();
-  });
-
-  await page.waitForFunction(() => {
-    const state = window.Main?.session?.workspaceState;
-    const active = state?.tabs?.find(tab => tab?.id === state.activeTabId) || null;
-    const root = window.Shared?.workspaceTabs?.getMountedRoot?.(active?.id || null, 'box') || document;
-    return !!root.querySelector('#statsResults .stats-significance-controls__input');
-  }, null, { timeout: 30_000 });
+    return !!input && !!button && !button.disabled;
+  }, ALPHA_SELECTOR, { timeout: 25_000 });
 }
 
-async function setThreshold(page, value) {
-  await page.evaluate(threshold => {
+async function setAlpha(page, value) {
+  await page.evaluate(({ selector, value: nextValue }) => {
     const state = window.Main?.session?.workspaceState;
     const active = state?.tabs?.find(tab => tab?.id === state.activeTabId) || null;
     const root = window.Shared?.workspaceTabs?.getMountedRoot?.(active?.id || null, 'box') || document;
-    const input = root.querySelector('#statsResults .stats-significance-controls__input');
-    if (!input) throw new Error('Box significance-threshold input not found');
-    input.value = String(threshold);
+    const input = root.querySelector(selector);
+    if (!input) throw new Error('Box inference alpha input not found');
+    input.value = String(nextValue);
     input.dispatchEvent(new Event('change', { bubbles: true }));
-  }, value);
+  }, { selector: ALPHA_SELECTOR, value });
 
   await page.waitForFunction(expected => {
     const state = window.Main?.session?.workspaceState;
     const active = state?.tabs?.find(tab => tab?.id === state.activeTabId) || null;
-    return Number(active?.payload?.meta?.statsReporting?.significanceThreshold) === Number(expected);
+    return Number(active?.payload?.meta?.statsInference?.alpha) === Number(expected)
+      && Number(window.Shared?.statsInference?.getAlpha?.({ tabId: active?.id || null })) === Number(expected);
   }, value, { timeout: 10_000 });
 }
 
-async function captureActiveThreshold(page) {
-  return page.evaluate(() => {
+async function captureActiveAlpha(page) {
+  return page.evaluate(selector => {
     const state = window.Main?.session?.workspaceState;
     const active = state?.tabs?.find(tab => tab?.id === state.activeTabId) || null;
     const root = window.Shared?.workspaceTabs?.getMountedRoot?.(active?.id || null, 'box') || document;
-    const panel = root.querySelector('#statsResults');
-    const input = panel?.querySelector('.stats-significance-controls__input') || null;
+    const input = root.querySelector(selector);
     return {
       tabId: active?.id || null,
       input: Number(input?.value),
-      payload: Number(active?.payload?.meta?.statsReporting?.significanceThreshold),
-      reporting: Number(window.Shared?.statsReporting?.getSignificanceThreshold?.({
-        target: panel,
-        tabId: active?.id || null
-      }))
+      payload: Number(active?.payload?.meta?.statsInference?.alpha),
+      inference: Number(window.Shared?.statsInference?.getAlpha?.({ tabId: active?.id || null }))
     };
-  });
+  }, ALPHA_SELECTOR);
 }
 
 async function captureWorkspaceArchive(page) {
@@ -123,7 +106,7 @@ async function captureWorkspaceArchive(page) {
       scope: 'workspace',
       snapshotKind: 'document-snapshot',
       compression: 'STORE',
-      reason: 'e2e-stats-threshold-roundtrip'
+      reason: 'e2e-stats-inference-roundtrip'
     });
     if (!blob) throw new Error('Workspace archive blob was not produced');
     const bytes = new Uint8Array(await blob.arrayBuffer());
@@ -135,7 +118,7 @@ async function captureWorkspaceArchive(page) {
     return btoa(binary);
   });
   fs.mkdirSync(TMP_DIR, { recursive: true });
-  const archivePath = path.join(TMP_DIR, 'stats-significance-threshold-isolation.graph');
+  const archivePath = path.join(TMP_DIR, 'stats-inference-isolation.graph');
   fs.writeFileSync(archivePath, Buffer.from(base64, 'base64'));
   return archivePath;
 }
@@ -152,7 +135,7 @@ async function reopenWorkspaceArchive(page, archivePath) {
   }, null, { timeout: 30_000 });
 }
 
-test('significance threshold is tab-owned and survives same-component archive reopen', async ({ page }) => {
+test('pre-analysis alpha is tab-owned and survives same-component archive reopen', async ({ page }) => {
   test.setTimeout(150_000);
   const issues = registerIssueCollectors(page);
   await installLocalCdnOverrides(page);
@@ -164,43 +147,44 @@ test('significance threshold is tab-owned and survives same-component archive re
   await openBoxTab(page, { first: true });
   const tabA = (await getGraphTabIds(page)).find(id => !beforeA.has(id));
   expect(tabA).toBeTruthy();
-  await ensureBoxStatisticsPanel(page);
-  await setThreshold(page, 0.01);
-  expect(await captureActiveThreshold(page)).toMatchObject({ input: 0.01, payload: 0.01, reporting: 0.01 });
+  expect(await captureActiveAlpha(page)).toMatchObject({ input: 0.05, inference: 0.05 });
+  await setAlpha(page, 0.01);
+  expect(await captureActiveAlpha(page)).toMatchObject({ input: 0.01, payload: 0.01, inference: 0.01 });
 
   const beforeB = new Set(await getGraphTabIds(page));
   await openBoxTab(page, { first: false });
   const tabB = (await getGraphTabIds(page)).find(id => !beforeB.has(id));
   expect(tabB).toBeTruthy();
   expect(tabB).not.toBe(tabA);
-  await ensureBoxStatisticsPanel(page);
-  expect(await captureActiveThreshold(page)).toMatchObject({ input: 0.05, reporting: 0.05 });
-  await setThreshold(page, 0.1);
-  expect(await captureActiveThreshold(page)).toMatchObject({ input: 0.1, payload: 0.1, reporting: 0.1 });
+  expect(await captureActiveAlpha(page)).toMatchObject({ input: 0.05, inference: 0.05 });
+  await setAlpha(page, 0.1);
+  expect(await captureActiveAlpha(page)).toMatchObject({ input: 0.1, payload: 0.1, inference: 0.1 });
 
   await activateTab(page, tabA);
-  expect(await captureActiveThreshold(page)).toMatchObject({ input: 0.01, payload: 0.01, reporting: 0.01 });
+  await expect(page.locator(ALPHA_SELECTOR)).toHaveValue('0.01');
+  expect(await captureActiveAlpha(page)).toMatchObject({ input: 0.01, payload: 0.01, inference: 0.01 });
   await activateTab(page, tabB);
-  expect(await captureActiveThreshold(page)).toMatchObject({ input: 0.1, payload: 0.1, reporting: 0.1 });
+  await expect(page.locator(ALPHA_SELECTOR)).toHaveValue('0.1');
+  expect(await captureActiveAlpha(page)).toMatchObject({ input: 0.1, payload: 0.1, inference: 0.1 });
 
   const archivePath = await captureWorkspaceArchive(page);
   await reopenWorkspaceArchive(page, archivePath);
 
   const reopenedIds = await getGraphTabIds(page);
   expect(reopenedIds).toHaveLength(2);
-  const restoredThresholds = [];
+  const restoredAlphas = [];
   for (const tabId of reopenedIds) {
     await activateTab(page, tabId);
-    await page.waitForFunction(id => {
+    await page.waitForFunction(({ tabId: id, selector }) => {
       const root = window.Shared?.workspaceTabs?.getMountedRoot?.(id, 'box') || null;
-      return !!root?.querySelector?.('#statsResults .stats-significance-controls__input');
-    }, tabId, { timeout: 25_000 });
-    const snapshot = await captureActiveThreshold(page);
+      return !!root?.querySelector?.(selector);
+    }, { tabId, selector: ALPHA_SELECTOR }, { timeout: 25_000 });
+    const snapshot = await captureActiveAlpha(page);
     expect(snapshot.input).toBe(snapshot.payload);
-    expect(snapshot.reporting).toBe(snapshot.payload);
-    restoredThresholds.push(snapshot.payload);
+    expect(snapshot.inference).toBe(snapshot.payload);
+    restoredAlphas.push(snapshot.payload);
   }
-  expect(restoredThresholds.sort((a, b) => a - b)).toEqual([0.01, 0.1]);
+  expect(restoredAlphas.sort((a, b) => a - b)).toEqual([0.01, 0.1]);
 
   expect(issues.critical).toEqual([]);
 });

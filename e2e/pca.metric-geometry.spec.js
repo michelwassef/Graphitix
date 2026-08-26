@@ -192,8 +192,19 @@ async function changeXAxisTickInterval(page) {
     return values.length >= 2 ? Math.abs(values[1] - values[0]) : NaN;
   });
   expect(Number.isFinite(currentStep)).toBe(true);
-  const xAxis = page.locator('#pcaPage:not([hidden]) #pcaSvg [data-axis-line="1"][data-axis-key="x"]').first();
-  await xAxis.click({ force: true });
+  await page.evaluate(() => {
+    const activeTabId = window.Main?.session?.getActiveTab?.()?.id || null;
+    const lines = Array.from(document.querySelectorAll(
+      '#pcaPage:not([hidden]) #pcaSvg [data-axis-line="1"][data-axis-key="x"]'
+    ));
+    const line = lines.find(node => !activeTabId || node.dataset.axisTabId === activeTabId) || null;
+    if (!line) throw new Error('Active PCA x-axis line not found');
+    line.dispatchEvent(new MouseEvent('click', {
+      bubbles: true,
+      cancelable: true,
+      view: window
+    }));
+  });
   const panel = page.locator('.axis-controls-panel[data-open="1"]');
   await expect(panel).toBeVisible();
   const input = panel.locator('.axis-controls-panel__field', { hasText: 'Tick interval' }).locator('input').first();
@@ -463,11 +474,11 @@ test('PCA axis toolbar changes physical X and Y lengths without breaking metric 
   await openPcaExample(page);
 
   const initial = await readRenderedMetric(page);
-  expectMetric(initial, 'axis-toolbar initial', { equalAxisLengths: false });
+  expectMetric(initial, 'axis-toolbar initial', { equalAxisLengths: true });
 
   const requestedX = await changePcaAxisLength(page, 'x', 60);
   const afterX = await readRenderedMetric(page);
-  expectMetric(afterX, 'axis-toolbar X resize', { equalAxisLengths: false });
+  expectMetric(afterX, 'axis-toolbar X resize', { equalAxisLengths: true });
   expect(Math.abs(afterX.x.pixels - requestedX)).toBeLessThanOrEqual(1.5);
   expect(afterX.x.pixels).toBeGreaterThan(initial.x.pixels + 40);
   expect(afterX.y.pixels).toBeGreaterThan(initial.y.pixels + 15);
@@ -476,7 +487,7 @@ test('PCA axis toolbar changes physical X and Y lengths without breaking metric 
 
   const requestedY = await changePcaAxisLength(page, 'y', -20);
   const afterY = await readRenderedMetric(page);
-  expectMetric(afterY, 'axis-toolbar Y resize', { equalAxisLengths: false });
+  expectMetric(afterY, 'axis-toolbar Y resize', { equalAxisLengths: true });
   expect(Math.abs(afterY.y.pixels - requestedY)).toBeLessThanOrEqual(1.5);
   expect(afterY.x.pixels).toBeLessThan(afterX.x.pixels - 15);
   expect(afterY.y.pixels).toBeLessThan(afterX.y.pixels - 10);
@@ -494,16 +505,16 @@ test('PCA 2D preserves equal physical scale per displayed coordinate unit throug
   await openPcaExample(page);
 
   const initial = await readRenderedMetric(page);
-  expectMetric(initial, 'initial', { equalAxisLengths: false });
+  expectMetric(initial, 'initial', { equalAxisLengths: true });
 
   await dragResize(page, '.resizer-horizontal', 0, 70);
   const verticalResize = await readRenderedMetric(page);
-  expectMetric(verticalResize, 'vertical resize', { equalAxisLengths: false });
+  expectMetric(verticalResize, 'vertical resize', { equalAxisLengths: true });
   expect(verticalResize.boxHeight).toBeGreaterThan(initial.boxHeight + 20);
   expect(verticalResize.boxWidth).toBeGreaterThan(initial.boxWidth + 20);
 
   await dragResize(page, '.resizer-vertical', 70, 0);
-  expectMetric(await readRenderedMetric(page), 'horizontal resize', { equalAxisLengths: false });
+  expectMetric(await readRenderedMetric(page), 'horizontal resize', { equalAxisLengths: true });
 
   await setEqualAxisLengths(page, true);
   expectMetric(await readRenderedMetric(page), 'equal-axis-length presentation', { equalAxisLengths: true });
@@ -566,7 +577,7 @@ test('PCA standardization is owner-scoped and visibly recomputes the raw example
   expect(before.payloadValue).toBe(false);
   expect(before.ownerValue).toBe(false);
   expect(before.pointSignature).not.toBe('');
-  expectMetric(await readRenderedMetric(page), 'unstandardized raw example', { equalAxisLengths: false });
+  expectMetric(await readRenderedMetric(page), 'unstandardized raw example', { equalAxisLengths: true });
 
   await page.locator('#pcaPage:not([hidden]) #pcaStandardizeVariables').check();
   await page.waitForFunction(previousSignature => {
@@ -597,7 +608,7 @@ test('PCA standardization is owner-scoped and visibly recomputes the raw example
   expect(after.ownerValue).toBe(true);
   expect(after.pointSignature).not.toBe(before.pointSignature);
   expect(after.xAxisLabel).not.toBe(before.xAxisLabel);
-  expectMetric(await readRenderedMetric(page), 'standardized raw example', { equalAxisLengths: false });
+  expectMetric(await readRenderedMetric(page), 'standardized raw example', { equalAxisLengths: true });
   expect(issues.critical.filter(entry => entry.kind !== 'requestfailed')).toEqual([]);
 });
 
@@ -703,7 +714,7 @@ test('PCA keeps one metric-safe axis-length presentation across methods and 3D',
         && window.Components?.pca?.isIdleForSnapshot?.() === true;
     }, method, { timeout: 90_000 });
     await waitForPcaMetric(page);
-    expectMetric(await readRenderedMetric(page), `${method} 2D metric`, { equalAxisLengths: false });
+    expectMetric(await readRenderedMetric(page), `${method} 2D metric`, { equalAxisLengths: true });
     await expect(page.locator('#pcaPage:not([hidden]) #pcaVarianceAxisScale')).toHaveCount(0);
     await expect(page.locator('#pcaPage:not([hidden]) .resizer-axeslength-checkbox--equal-length')).toHaveCount(0);
     await expect(page.locator('#pcaPage:not([hidden]) .resizer-axeslength-checkbox--variance')).toHaveCount(0);

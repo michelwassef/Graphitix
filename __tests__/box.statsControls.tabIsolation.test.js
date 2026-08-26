@@ -39,22 +39,6 @@ async function waitForStatsButtonText(text, iterations = 120){
   return getBoxStatsButton();
 }
 
-async function loadBoxExampleForActiveTab(iterations = 120){
-  const button = getBoxNodeInActiveTab('#boxLoadExample');
-  expect(button).toBeTruthy();
-  button.click();
-  await flushAsyncWork(30);
-  for(let i = 0; i < iterations; i += 1){
-    const state = window.Components?.box?.__getState?.();
-    const context = state?.statsContext;
-    if(context && Array.isArray(context.traces) && context.traces.length){
-      return true;
-    }
-    await flushAsyncWork(1);
-  }
-  return false;
-}
-
 async function advanceAsyncTime(ms){
   const duration = Math.max(0, Number(ms) || 0);
   await new Promise(resolve => setTimeout(resolve, duration));
@@ -135,14 +119,7 @@ async function loadSeedPayloadForActiveTab(boxComponent, source){
 }
 
 async function computeBoxStatsForActiveTab(boxComponent){
-  const activeTab = window.Main?.session?.getActiveTab?.() || null;
-  if(activeTab?.id && typeof window.Main?.tabs?.activateTab === 'function'){
-    const result = window.Main.tabs.activateTab(activeTab.id, { reason: 'test-compute-stats-active-tab' });
-    if(result && typeof result.then === 'function'){
-      await result;
-    }
-    await flushAsyncWork(10);
-  }
+  expect(window.Main?.session?.getActiveTab?.()?.type).toBe('box');
   expect(await waitForBoxSvg()).toBeTruthy();
   const statsButton = getBoxStatsButton();
   expect(statsButton).toBeTruthy();
@@ -401,7 +378,7 @@ describe('Box stats controls tab isolation with render cache', () => {
     expect(boxComponent).toBeTruthy();
     expect(main?.tabs).toBeTruthy();
 
-    expect(await loadBoxExampleForActiveTab()).toBe(true);
+    await loadSeedPayloadForActiveTab(boxComponent, 'test-stats-label-a');
 
     const statsButton = getBoxStatsButton();
     expect(statsButton).toBeTruthy();
@@ -590,7 +567,7 @@ describe('Box stats controls tab isolation with render cache', () => {
     expect(boxComponent).toBeTruthy();
     expect(main?.tabs).toBeTruthy();
 
-    expect(await loadBoxExampleForActiveTab()).toBe(true);
+    await loadSeedPayloadForActiveTab(boxComponent, 'test-stats-surface-a');
     const tabA = main.session.getActiveTab();
     expect(tabA?.type).toBe('box');
 

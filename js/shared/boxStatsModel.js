@@ -533,6 +533,14 @@
     };
   }
 
+  function formatAdjustedPLabel(method, correctionMeta){
+    if(typeof Shared.stats?.getAdjustedPLabel === 'function'){
+      return Shared.stats.getAdjustedPLabel(method);
+    }
+    const shortLabel=correctionMeta?.shortLabel || correctionMeta?.label || 'Adjusted';
+    return `${shortLabel}-adjusted p`;
+  }
+
   function applyPValueCorrection(values, method){
     const arr = Array.isArray(values) ? values.slice() : [];
     if(Shared.stats && typeof Shared.stats.adjustPValues === 'function'){
@@ -595,6 +603,22 @@
         : formatFallbackScientificNumber(numeric, 5);
     }
     return numeric >= 0 && numeric <= 0.0001 ? '<0.0001' : numeric.toFixed(4).replace(/0+$/, '').replace(/\.$/, '');
+  }
+
+  function createPValueCell(value, options = {}){
+    const numeric = Number(value);
+    if(!Number.isFinite(numeric)){
+      return options.fallback ?? formatP(value);
+    }
+    const cell = {
+      type: 'pValue',
+      value: numeric,
+      fallback: options.fallback ?? String(formatP(numeric))
+    };
+    if(options.inference){
+      cell.__statsInference = options.inference;
+    }
+    return cell;
   }
 
   function formatPExpression(value, label = 'p'){
@@ -1755,7 +1779,7 @@
       diagnostics.groups.push({label,size:cleaned.length,normality,qqPoints:cleaned.length?computeQQPoints(cleaned,{maxSampleSize:qqSampleLimit}):[]});
       if(normality.passed===false){
         normalityFailures+=1;
-        diagnostics.warnings.push(`${label} failed ${method} normality (${formatPExpression(normality.pValue)}).`);
+        diagnostics.warnings.push(`${label}: ${method} normality diagnostic flagged a deviation (${formatPExpression(normality.pValue)}).`);
       }else if(normality.passed == null){
         diagnostics.warnings.push(`${label}: ${normality.reason || `${method} normality could not be assessed.`}`);
       }
@@ -1763,7 +1787,7 @@
     });
     const variance=varianceMethod==='bartlett'?computeBartlettVarianceDiagnostics(groups,labels,{alpha}):computeVarianceDiagnostics(groups,labels,{alpha,summaries:summaryList});
     diagnostics.variance=variance;diagnostics.varianceConcern=variance?.passed===false;diagnostics.normalityFailures=normalityFailures;
-    if(diagnostics.varianceConcern) diagnostics.warnings.push(`Variance equality failed ${varianceMethod} testing (${formatPExpression(variance.pValue)}).`);
+    if(diagnostics.varianceConcern) diagnostics.warnings.push(`Variance diagnostic (${varianceMethod}) flagged heterogeneity (${formatPExpression(variance.pValue)}).`);
     diagnostics.recommendWelch=diagnostics.varianceConcern&&normalityFailures===0;diagnostics.recommendNonParametric=normalityFailures>0;
     if(options.trendTest===true) diagnostics.trend=computeLinearTrendTest(groups,{alternative:options.alternative});
     return diagnostics;
@@ -4502,12 +4526,12 @@
         { key: 'ss', label: 'SS', align: 'right' },
         { key: 'ms', label: 'MS', align: 'right' },
         { key: 'f', label: 'F', align: 'right' },
-        { key: 'p', label: 'p-value', align: 'right' }
+        { key: 'p', label: 'p-value', align: 'right', inferenceRole: 'overall' }
       ],
       rows: [
-        { source: 'Group', df: String(dfA), ss: formatStatNumber(ssa), ms: formatStatNumber(msa), f: formatStatNumber(fA), p: formatP(pA) },
-        { source: 'Condition', df: String(dfB), ss: formatStatNumber(ssb), ms: formatStatNumber(msb), f: formatStatNumber(fB), p: formatP(pB) },
-        { source: 'Group × Condition', df: String(dfAB), ss: formatStatNumber(ssab), ms: formatStatNumber(msab), f: formatStatNumber(fAB), p: formatP(pAB) },
+        { source: 'Group', df: String(dfA), ss: formatStatNumber(ssa), ms: formatStatNumber(msa), f: formatStatNumber(fA), p: createPValueCell(pA) },
+        { source: 'Condition', df: String(dfB), ss: formatStatNumber(ssb), ms: formatStatNumber(msb), f: formatStatNumber(fB), p: createPValueCell(pB) },
+        { source: 'Group × Condition', df: String(dfAB), ss: formatStatNumber(ssab), ms: formatStatNumber(msab), f: formatStatNumber(fAB), p: createPValueCell(pAB) },
         { source: 'Error', df: String(dfError), ss: formatStatNumber(sse), ms: formatStatNumber(mse), f: '-', p: '-' }
       ],
       options: { fileName: 'box-two-way-anova', contextLabel: 'box-grouped-anova2' },
@@ -4598,12 +4622,12 @@
         { key: 'ss', label: 'SS', align: 'right' },
         { key: 'ms', label: 'MS', align: 'right' },
         { key: 'f', label: 'F', align: 'right' },
-        { key: 'p', label: 'p-value', align: 'right' }
+        { key: 'p', label: 'p-value', align: 'right', inferenceRole: 'overall' }
       ],
       rows: [
-        { source: 'Group', df: String(dfA), ss: formatStatNumber(ssa), ms: formatStatNumber(msa), f: formatStatNumber(fA), p: formatP(pA) },
-        { source: 'Condition', df: String(dfB), ss: formatStatNumber(ssb), ms: formatStatNumber(msb), f: formatStatNumber(fB), p: formatP(pB) },
-        { source: 'Group × Condition', df: String(dfAB), ss: formatStatNumber(ssab), ms: formatStatNumber(msab), f: formatStatNumber(fAB), p: formatP(pAB) },
+        { source: 'Group', df: String(dfA), ss: formatStatNumber(ssa), ms: formatStatNumber(msa), f: formatStatNumber(fA), p: createPValueCell(pA) },
+        { source: 'Condition', df: String(dfB), ss: formatStatNumber(ssb), ms: formatStatNumber(msb), f: formatStatNumber(fB), p: createPValueCell(pB) },
+        { source: 'Group × Condition', df: String(dfAB), ss: formatStatNumber(ssab), ms: formatStatNumber(msab), f: formatStatNumber(fAB), p: createPValueCell(pAB) },
         { source: 'Row (random)', df: String(dfS), ss: formatStatNumber(sss), ms: formatStatNumber(dfS ? sss / dfS : NaN), f: '-', p: '-' },
         { source: 'Group × Row', df: String(dfAS), ss: formatStatNumber(ssas), ms: formatStatNumber(msas), f: '-', p: '-' },
         { source: 'Condition × Row', df: String(dfBS), ss: formatStatNumber(ssbs), ms: formatStatNumber(msbs), f: '-', p: '-' },
@@ -4701,15 +4725,15 @@
         { key: 'ss', label: 'SS', align: 'right' },
         { key: 'ms', label: 'MS', align: 'right' },
         { key: 'f', label: 'F', align: 'right' },
-        { key: 'p', label: 'p-value', align: 'right' }
+        { key: 'p', label: 'p-value', align: 'right', inferenceRole: 'overall' }
       ],
       rows: [
-        { source: 'Group', df: String(dfA), ss: formatStatNumber(ssa), ms: formatStatNumber(msa), f: formatStatNumber(fA), p: formatP(pA) },
-        { source: 'Condition', df: String(dfB), ss: formatStatNumber(ssb), ms: formatStatNumber(msb), f: formatStatNumber(fB), p: formatP(pB) },
-        { source: 'Row', df: String(dfC), ss: formatStatNumber(ssc), ms: formatStatNumber(msc), f: formatStatNumber(fC), p: formatP(pC) },
-        { source: 'Group × Condition', df: String(dfAB), ss: formatStatNumber(ssab), ms: formatStatNumber(msab), f: formatStatNumber(fAB), p: formatP(pAB) },
-        { source: 'Group × Row', df: String(dfAC), ss: formatStatNumber(ssac), ms: formatStatNumber(msac), f: formatStatNumber(fAC), p: formatP(pAC) },
-        { source: 'Condition × Row', df: String(dfBC), ss: formatStatNumber(ssbc), ms: formatStatNumber(msbc), f: formatStatNumber(fBC), p: formatP(pBC) },
+        { source: 'Group', df: String(dfA), ss: formatStatNumber(ssa), ms: formatStatNumber(msa), f: formatStatNumber(fA), p: createPValueCell(pA) },
+        { source: 'Condition', df: String(dfB), ss: formatStatNumber(ssb), ms: formatStatNumber(msb), f: formatStatNumber(fB), p: createPValueCell(pB) },
+        { source: 'Row', df: String(dfC), ss: formatStatNumber(ssc), ms: formatStatNumber(msc), f: formatStatNumber(fC), p: createPValueCell(pC) },
+        { source: 'Group × Condition', df: String(dfAB), ss: formatStatNumber(ssab), ms: formatStatNumber(msab), f: formatStatNumber(fAB), p: createPValueCell(pAB) },
+        { source: 'Group × Row', df: String(dfAC), ss: formatStatNumber(ssac), ms: formatStatNumber(msac), f: formatStatNumber(fAC), p: createPValueCell(pAC) },
+        { source: 'Condition × Row', df: String(dfBC), ss: formatStatNumber(ssbc), ms: formatStatNumber(msbc), f: formatStatNumber(fBC), p: createPValueCell(pBC) },
         { source: 'Group × Condition × Row', df: String(dfABC), ss: formatStatNumber(ssabc), ms: formatStatNumber(msabc), f: '-', p: '-' },
         { source: 'Residual', df: '-', ss: formatStatNumber(residual), ms: '-', f: '-', p: '-' }
       ],
@@ -4769,16 +4793,16 @@
         { key: 'comparison', label: 'Comparison', align: 'left' },
         { key: 't', label: 't', align: 'right' },
         { key: 'df', label: 'df', align: 'right' },
-        { key: 'p', label: 'p-value', align: 'right' },
-        { key: 'padjust', label: `p (adj, ${correctionMeta.shortLabel})`, align: 'right' }
+        { key: 'p', label: 'p-value', align: 'right', inferenceRole: 'raw' },
+        { key: 'padjust', label: formatAdjustedPLabel(correctionMethod, correctionMeta), align: 'right', inferenceRole: 'comparison' }
       ],
       rows: tests.map(test => ({
         condition: test.condition,
         comparison: `${test.groupA} vs ${test.groupB}`,
         t: formatStatNumber(test.t),
         df: Number.isFinite(test.df) ? formatStatNumber(test.df, 2) : '-',
-        p: formatP(test.p),
-        padjust: formatP(test.padjust)
+        p: createPValueCell(test.p),
+        padjust: createPValueCell(test.padjust)
       })),
       options: { fileName: 'box-rowwise-ttest', contextLabel: 'box-grouped-ttests' },
       footnotes: correctionMeta.footnote ? [correctionMeta.footnote] : [],
@@ -5004,14 +5028,55 @@
     return { ok:true,id,label:meta.label,family,variant:meta.variant,paired,pairwise,options,pairTest,lognormal:id==='lognormalT'||id==='lognormalWelchT'||id==='lognormalAnova'||id==='lognormalWelchAnova' };
   }
 
+  function formatInferenceMethodLabel(method){
+    const normalized=String(method || 'none').trim().toLowerCase();
+    if(normalized==='none') return '';
+    if(normalized==='bh') return 'Benjamini-Hochberg';
+    if(normalized==='by') return 'Benjamini-Yekutieli';
+    const correctionMeta=resolveCorrectionMeta(normalized,2);
+    if(correctionMeta?.label && correctionMeta.key===normalized){
+      return correctionMeta.label;
+    }
+    return normalized.split('-').map(part=>part ? `${part.charAt(0).toUpperCase()}${part.slice(1)}` : '').join(' ');
+  }
+
+  function describeInferenceSnapshot(snapshot){
+    const parts=[];
+    const overall=snapshot?.overall;
+    const comparisons=snapshot?.comparisons;
+    if(overall && Number.isFinite(Number(overall.level))){
+      parts.push(`Overall-test decisions used α = ${formatStatNumber(Number(overall.level),4).replace(/0+$/,'').replace(/\.$/,'')}.`);
+    }
+    if(comparisons && Number.isFinite(Number(comparisons.level))){
+      const level=formatStatNumber(Number(comparisons.level),4).replace(/0+$/,'').replace(/\.$/,'');
+      const methodLabel=formatInferenceMethodLabel(comparisons.method);
+      if(comparisons.criterion==='fdr'){
+        parts.push(`${methodLabel || 'FDR-controlled'} pairwise discoveries used target FDR = ${level}.`);
+      }else if(comparisons.errorControl==='fwer'){
+        parts.push(`${methodLabel || 'Multiplicity-adjusted'} pairwise decisions used family-wise α = ${level}.`);
+      }else{
+        parts.push(`Pairwise decisions used α = ${level}.`);
+      }
+    }
+    return parts;
+  }
+
   function buildBoxStatsReport(model,payload){
     const analysis=model?.analysis || {};
     const selectedLabels=(Array.isArray(payload.selection)?payload.selection:[]).map(item=>item?.label).filter(Boolean);
     const correction=resolveCorrectionMeta(payload.statsCorrection,Number(model?.correctionCount)||0);
+    const inferenceSnapshot=payload.inferenceSnapshot || null;
+    const simultaneousCiMethods=new Set(['tukey','games-howell','tamhane-t2','dunnett','dunnett-t3']);
+    const comparisonMethod=String(inferenceSnapshot?.comparisons?.method || '').toLowerCase();
+    const ciDescription=simultaneousCiMethods.has(comparisonMethod) && Number.isFinite(Number(inferenceSnapshot?.comparisons?.level))
+      ? `Simultaneous post-hoc confidence intervals used ${(100*(1-Number(inferenceSnapshot.comparisons.level))).toFixed(2).replace(/\.00$/,'')}%.`
+      : `Confidence intervals not intrinsically tied to the multiplicity procedure used ${Math.round(sanitizeStatsCiLevel(payload.statsCiLevel,0.95)*100)}%.`;
     const methods=[
       `${analysis.label || 'Statistical analysis'} was applied to ${selectedLabels.length || model?.groupCount || 0} selected ${selectedLabels.length===1?'group':'groups'}.`,
       ...(Array.isArray(model?.outlierAudit?.notes)?model.outlierAudit.notes:[]),
-      `The analysis used a ${analysis.paired?'paired':'independent'} design with α = ${sanitizeStatsAlpha(payload.statsAlpha,0.05)} and a ${Math.round(sanitizeStatsCiLevel(payload.statsCiLevel,0.95)*100)}% confidence level.`,
+      `The analysis used a ${analysis.paired?'paired':'independent'} design.`,
+      ...describeInferenceSnapshot(inferenceSnapshot),
+      ciDescription,
       `The alternative hypothesis was ${sanitizeStatsAlternative(payload.statsAlternative)}.`,
       correction?.footnote || ''
     ].filter(Boolean);
@@ -5029,14 +5094,16 @@
       methodsParts:methods.slice(),
       resultsParts:results.slice(),
       analysisSpec:{
-        schemaVersion:'box-stats-spec-v6',
+        schemaVersion:'box-stats-spec-v7',
         analysisId:analysis.id || null,
         analysisLabel:analysis.label || null,
         family:analysis.family || null,
         variant:analysis.variant || null,
         paired:!!analysis.paired,
         mode:payload.statsMode || 'all',
+        inference: payload.inferenceSnapshot || null,
         alpha:sanitizeStatsAlpha(payload.statsAlpha,0.05),
+        targetFdr:sanitizeStatsAlpha(payload.statsTargetFdr,0.05),
         ciLevel:sanitizeStatsCiLevel(payload.statsCiLevel,0.95),
         alternative:sanitizeStatsAlternative(payload.statsAlternative),
         correction:payload.statsCorrection || DEFAULT_CORRECTION,
@@ -5104,7 +5171,7 @@
     const assumptionDiagnostics = computeAssumptionDiagnostics(groups, labels, {
       qqSampleLimit: ASSUMPTION_QQ_SAMPLE_LIMIT,
       summaries,
-      alpha:payload.statsAlpha,
+      alpha:ASSUMPTION_ALPHA,
       normalityMethod:payload.statsNormalityMethod,
       varianceMethod:payload.statsVarianceMethod,
       distributionDiagnostic:payload.statsDistributionDiagnostic,
@@ -5225,8 +5292,8 @@
             { key: 'delta', label: 'Mean − H₀', align: 'right', index: 3 },
             { key: 'statistic', label: 't', align: 'right', index: 4 },
             { key: 'df', label: 'df', align: 'right', index: 5 },
-            { key: 'p', label: 'p-value', align: 'right', index: 6 },
-            { key: 'padj', label: `p (adj, ${correctionMeta.shortLabel})`, align: 'right', index: 7 },
+            { key: 'p', label: 'p-value', align: 'right', index: 6, inferenceRole: 'raw' },
+            { key: 'padj', label: formatAdjustedPLabel(payload.statsCorrection, correctionMeta), align: 'right', index: 7, inferenceRole: 'comparison' },
             { key: 'note', label: 'Note', align: 'left', index: 8 }
           ],
           rows: tests.map(test => ({
@@ -5236,8 +5303,8 @@
             delta: Number.isFinite(test.delta) ? formatStatNumber(test.delta) : '-',
             statistic: Number.isFinite(test.stat) ? formatStatNumber(test.stat) : '-',
             df: Number.isFinite(test.df) ? formatStatNumber(test.df, 2) : '-',
-            p: test.valid ? formatP(test.p) : '-',
-            padj: test.valid ? formatP(test.adjP) : '-',
+            p: test.valid ? createPValueCell(test.p) : '-',
+            padj: test.valid ? createPValueCell(test.adjP) : '-',
             note: test.valid ? '' : (test.message || 'Skipped')
           })),
           footnotes: [
@@ -5258,8 +5325,8 @@
             { key: 'median', label: 'Median − H₀', align: 'right', index: 3 },
             { key: 'statistic', label: 'W', align: 'right', index: 4 },
             { key: 'z', label: 'z', align: 'right', index: 5 },
-            { key: 'p', label: 'p-value', align: 'right', index: 6 },
-            { key: 'padj', label: `p (adj, ${correctionMeta.shortLabel})`, align: 'right', index: 7 },
+            { key: 'p', label: 'p-value', align: 'right', index: 6, inferenceRole: 'raw' },
+            { key: 'padj', label: formatAdjustedPLabel(payload.statsCorrection, correctionMeta), align: 'right', index: 7, inferenceRole: 'comparison' },
             { key: 'note', label: 'Note', align: 'left', index: 8 }
           ],
           rows: tests.map(test => ({
@@ -5269,8 +5336,8 @@
             median: Number.isFinite(test.delta) ? formatStatNumber(test.delta) : '-',
             statistic: Number.isFinite(test.stat) ? formatStatNumber(test.stat) : '-',
             z: Number.isFinite(test.z) ? formatStatNumber(test.z) : '-',
-            p: test.valid ? formatP(test.p) : '-',
-            padj: test.valid ? formatP(test.adjP) : '-',
+            p: test.valid ? createPValueCell(test.p) : '-',
+            padj: test.valid ? createPValueCell(test.adjP) : '-',
             note: test.valid ? '' : (test.message || 'Skipped')
           })),
           footnotes: [
@@ -5347,7 +5414,7 @@
         comparison: `${pr.labelA} vs ${pr.labelB}`,
         statistic: `${pr.statName} = ${Number.isFinite(pr.stat) ? pr.stat.toFixed(4) : '-'}`,
         df: pr.df != null && Number.isFinite(pr.df) ? pr.df : '-',
-        padj: formatP(pr.adjP),
+        padj: createPValueCell(pr.adjP),
         effectParametric: pr.effectParametric,
         effectNonParametric: pr.effectNonParametric
       }));
@@ -5358,7 +5425,7 @@
           { key: 'comparison', label: 'Comparison', align: 'left', index: 0 },
           { key: 'statistic', label: 'Statistic', align: 'left', index: 1 },
           { key: 'df', label: 'df', align: 'right', index: 2 },
-          { key: 'padj', label: `p (adj, ${correctionMeta.shortLabel})`, align: 'right', index: 3 },
+          { key: 'padj', label: formatAdjustedPLabel(payload.statsCorrection, correctionMeta), align: 'right', index: 3, inferenceRole: 'comparison' },
           { key: 'effectParametric', label: `Effect (${paramEffectMeta.shortLabel || paramEffectMeta.label})`, align: 'right', index: 4, tooltip: paramEffectMeta.tooltip },
           { key: 'effectNonParametric', label: `Effect (${nonParamEffectMeta.shortLabel || nonParamEffectMeta.label})`, align: 'right', index: 5, tooltip: nonParamEffectMeta.tooltip }
         ],
@@ -5398,11 +5465,11 @@
       if(res.df !== undefined){
         summaryRows.push({ metric: 'df', value: Number.isFinite(res.df) ? res.df.toFixed(4) : '-' });
       }
-      summaryRows.push({ metric: 'p-value', value: formatP(res.p) });
+      summaryRows.push({ metric: 'p-value', value: createPValueCell(res.p), pValueRaw: res.p, inferenceRole: 'raw' });
       const correctionMeta = resolveCorrectionMeta(payload.statsCorrection, 1);
       const adjusted = applyPValueCorrection([res.p], payload.statsCorrection);
       const adjValue = Array.isArray(adjusted) && adjusted.length ? adjusted[0] : res.p;
-      summaryRows.push({ metric: `p (${correctionMeta.shortLabel})`, value: formatP(adjValue) });
+      summaryRows.push({ metric: `p (${correctionMeta.shortLabel})`, value: createPValueCell(adjValue), pValueRaw: adjValue, inferenceRole: 'comparison' });
       summaryRows.push({ metric: `Effect (${paramEffectMeta.shortLabel || paramEffectMeta.label})`, value: formattedParamEffect });
       summaryRows.push({ metric: `Effect (${nonParamEffectMeta.shortLabel || nonParamEffectMeta.label})`, value: formattedNonParamEffect });
       const footnotes = [
@@ -6071,19 +6138,19 @@
         }else if(overall?.df != null){
           overallRows.push({ metric: 'df', value: String(overall.df) });
         }
-        overallRows.push({ metric: 'p-value', value: formatP(overall.p) });
+        overallRows.push({ metric: 'p-value', value: createPValueCell(overall.p), pValueRaw: overall.p, inferenceRole: 'overall' });
         if(overall.method === 'rmAnova'){
           if(Number.isFinite(overall.ggEpsilon)){
             overallRows.push({ metric: 'GG ε', value: overall.ggEpsilon.toFixed(4) });
           }
           if(Number.isFinite(overall.ggP)){
-            overallRows.push({ metric: 'p-value (GG)', value: formatP(overall.ggP) });
+            overallRows.push({ metric: 'p-value (GG)', value: createPValueCell(overall.ggP), pValueRaw: overall.ggP, inferenceRole: 'overall' });
           }
           if(Number.isFinite(overall.hfEpsilon)){
             overallRows.push({ metric: 'HF ε', value: overall.hfEpsilon.toFixed(4) });
           }
           if(Number.isFinite(overall.hfP)){
-            overallRows.push({ metric: 'p-value (HF)', value: formatP(overall.hfP) });
+            overallRows.push({ metric: 'p-value (HF)', value: createPValueCell(overall.hfP), pValueRaw: overall.hfP, inferenceRole: 'overall' });
           }
         }
         model.tables.push({
@@ -6100,14 +6167,18 @@
       }
 
       const ratioScale=analysisPlan.lognormal || analysisPlan.id==='ratioT' || pairs.some(pair=>pair.differenceScale==='ratio');
-      const ciLabel=`${formatPercentLabel(sanitizeStatsCiLevel(payload.statsCiLevel,0.95))} CI`;
+      const simultaneousCiMethods=new Set(['tukey','gamesHowell','tamhaneT2','dunnett','dunnettT3']);
+      const pairCiLevel=simultaneousCiMethods.has(postHocMode)
+        ? (1-sanitizeStatsAlpha(payload.statsAlpha,0.05))
+        : sanitizeStatsCiLevel(payload.statsCiLevel,0.95);
+      const ciLabel=`${formatPercentLabel(pairCiLevel)}${simultaneousCiMethods.has(postHocMode)?' simultaneous':''} CI`;
       const pairRows = pairs.map(pr => ({
         comparison: `${pr.labelA ?? labels[pr.a]} vs ${pr.labelB ?? labels[pr.b]}`,
         statistic: `${pr.statName} = ${Number.isFinite(pr.stat) ? pr.stat.toFixed(4) : '-'}`,
         df: Number.isFinite(pr.df) ? pr.df.toFixed(2) : (pr.df === Infinity ? 'Infinity' : '-'),
         difference: Number.isFinite(pr.diff) ? formatStatNumber(pr.diff) : '-',
         ci: formatConfidenceInterval(pr.ciLow,pr.ciHigh),
-        padj: formatP(pr.adjP),
+        padj: createPValueCell(pr.adjP),
         effectParametric: pr.effectParametric,
         effectNonParametric: pr.effectNonParametric
       }));
@@ -6124,7 +6195,7 @@
         dunnettT3: 'p (Dunnett T3)'
       };
       const pLabel = postHocPLabels[postHocMode]
-        || `p (adj, ${correctionMeta.shortLabel})`;
+        || formatAdjustedPLabel(payload.statsCorrection, correctionMeta);
       const isSinglePrimaryComparison = !overall && pairs.length === 1;
       model.tables.push({
         caption: isSinglePrimaryComparison
@@ -6137,7 +6208,7 @@
           { key: 'df', label: 'df', align: 'right', index: 2 },
           { key: 'difference', label: ratioScale ? 'Geometric mean ratio (A/B)' : 'Difference', align: 'right', index: 3 },
           { key: 'ci', label: ciLabel, align: 'right', index: 4 },
-          { key: 'padj', label: pLabel, align: 'right', index: 5 },
+          { key: 'padj', label: pLabel, align: 'right', index: 5, inferenceRole: 'comparison' },
           { key: 'effectParametric', label: `Effect (${paramEffectMeta.shortLabel || paramEffectMeta.label})`, align: 'right', index: 6, tooltip: paramEffectMeta.tooltip },
           { key: 'effectNonParametric', label: `Effect (${nonParamEffectMeta.shortLabel || nonParamEffectMeta.label})`, align: 'right', index: 7, tooltip: nonParamEffectMeta.tooltip }
         ],
@@ -6154,6 +6225,7 @@
   function analyzeGroupedMultipleComparisons(data, options={}){
     const scope=String(options.comparisonScope || 'groupsWithinCondition');
     const correction=options.correction || DEFAULT_CORRECTION;
+    const ciLevel=sanitizeStatsCiLevel(options.ciLevel,0.95);
     const rows=[];
     const groupsCount=Number(data.groupsCount)||0;
     const conditionsCount=Number(data.conditionsCount)||0;
@@ -6161,7 +6233,7 @@
     const conditionLabels=Array.isArray(data.conditionLabels)?data.conditionLabels:[];
     const observed=Array.isArray(data.observedCellData) && data.observedCellData.length ? data.observedCellData : data.cellData;
     const addComparison=(labelA,labelB,sampleA,sampleB,paired,familyKey)=>{
-      const result=paired ? tTestPaired(sampleA,sampleB,{ alternative:'two-sided',ciLevel:0.95 }) : tTest(sampleA,sampleB,{ alternative:'two-sided',ciLevel:0.95 });
+      const result=paired ? tTestPaired(sampleA,sampleB,{ alternative:'two-sided',ciLevel }) : tTest(sampleA,sampleB,{ alternative:'two-sided',ciLevel });
       if(result?.available===false || !Number.isFinite(result?.p)){
         return;
       }
@@ -6249,9 +6321,9 @@
         {key:'statisticText',label:'Statistic',align:'right'},
         {key:'dfText',label:'df',align:'right'},
         {key:'differenceText',label:'Difference',align:'right'},
-        {key:'ciText',label:'95% CI',align:'right'},
-        {key:'pText',label:'p-value',align:'right'},
-        {key:'adjPText',label:`p (adj, ${correctionMeta.shortLabel})`,align:'right'}
+        {key:'ciText',label:`${formatPercentLabel(ciLevel)} CI`,align:'right'},
+        {key:'pText',label:'p-value',align:'right',inferenceRole:'raw'},
+        {key:'adjPText',label:formatAdjustedPLabel(correction,correctionMeta),align:'right',inferenceRole:'comparison'}
       ],
       rows:rows.map(row=>({
         ...row,
@@ -6259,8 +6331,8 @@
         dfText:formatStatNumber(row.df,2),
         differenceText:formatStatNumber(row.difference),
         ciText:Number.isFinite(row.ciLow)&&Number.isFinite(row.ciHigh)?`${formatStatNumber(row.ciLow)} to ${formatStatNumber(row.ciHigh)}`:'-',
-        pText:formatP(row.p),
-        adjPText:formatP(row.adjP)
+        pText:createPValueCell(row.p),
+        adjPText:createPValueCell(row.adjP)
       })),
       footnotes:[correctionMeta.footnote,`Multiplicity families: ${familyMode==='global'?'one global family':'separate families within the selected scope'}.`].filter(Boolean),
       options:{fileName:'box-grouped-multiple-comparisons',contextLabel:'box-grouped-multiple-comparisons'},
@@ -6278,13 +6350,19 @@
       multipleComparisons:'Grouped multiple comparisons'
     };
     const label=labels[analysis] || resultModel?.caption || analysis;
+    const inferenceParts=describeInferenceSnapshot(payload.inferenceSnapshot || null);
+    const methodsText=[
+      `${label} was applied to ${summary.groupsCount} groups, ${summary.conditionsCount} conditions, and ${summary.rowsWithData} complete rows. The selected grouped analysis was executed without substitution.`,
+      ...inferenceParts
+    ].join(' ');
     return {
-      methodsText:`${label} was applied to ${summary.groupsCount} groups, ${summary.conditionsCount} conditions, and ${summary.rowsWithData} complete rows. The selected grouped analysis was executed without substitution.`,
+      methodsText,
       resultsText:`The ${label} results are reported in the accompanying table${summary.partialRowsSkipped?`; ${summary.partialRowsSkipped} incomplete row(s) were excluded from complete-case factorial calculations`:''}.`,
-      methodsParts:[`${label} was applied to the grouped dataset.`],
+      methodsParts:[`${label} was applied to the grouped dataset.`, ...inferenceParts],
       resultsParts:[`The selected grouped analysis (${label}) completed.`],
       analysisSpec:{
-        schemaVersion:'box-stats-spec-v6',
+        schemaVersion:'box-stats-spec-v7',
+        inference:payload.inferenceSnapshot || null,
         analysisId:analysis,
         analysisLabel:label,
         mode:'grouped',
@@ -6321,7 +6399,8 @@
     else if(analysis==='multipleComparisons') resultModel=analyzeGroupedMultipleComparisons(data,{
       comparisonScope:grouped.comparisonScope,
       multiplicityFamily:grouped.multiplicityFamily,
-      correction:payload.statsCorrection
+      correction:payload.statsCorrection,
+      ciLevel:payload.statsCiLevel
     });
     else return {mode:'grouped',ok:false,message:`Unknown grouped analysis: ${analysis}.`,groupedSummary:summary,tables:[],correctionCount:0,analysisId:analysis};
     if(!resultModel || !resultModel.ok){
@@ -6335,14 +6414,91 @@
     return model;
   }
 
+  function makeInferencePValueCell(value, inferenceSpec){
+    if(!inferenceSpec){
+      return value;
+    }
+    const numeric = Number(value?.value ?? value?.raw ?? value);
+    const fallback = value && typeof value === 'object'
+      ? (value.fallback ?? value.text ?? String(value.value ?? ''))
+      : String(value ?? '');
+    return {
+      type: 'pValue',
+      value: Number.isFinite(numeric) ? numeric : NaN,
+      fallback,
+      __statsInference: inferenceSpec
+    };
+  }
+
+  function resolveInferenceSpecForRole(role, overallSpec, comparisonSpec){
+    const normalized = String(role || '').trim().toLowerCase();
+    if(normalized === 'overall'){
+      return overallSpec || null;
+    }
+    if(normalized === 'comparison'){
+      return comparisonSpec || null;
+    }
+    return null;
+  }
+
+  function annotateMetricValueInference(table, overallSpec, comparisonSpec){
+    if(!Array.isArray(table?.rows) || !table.rows.length){
+      return false;
+    }
+    const hasMetricValueColumns = Array.isArray(table.columns)
+      && table.columns.some(column => column?.key === 'metric')
+      && table.columns.some(column => column?.key === 'value');
+    if(!hasMetricValueColumns){
+      return false;
+    }
+    let changed = false;
+    table.rows.forEach(row => {
+      const inferenceSpec = resolveInferenceSpecForRole(row?.inferenceRole, overallSpec, comparisonSpec);
+      if(!inferenceSpec){
+        return;
+      }
+      const raw = Number(row?.pValueRaw ?? row?.rawPValue ?? row?.valueRaw ?? row?.value?.value);
+      if(!Number.isFinite(raw)){
+        return;
+      }
+      row.value = makeInferencePValueCell({ value: raw, fallback: row.value?.fallback ?? row.value }, inferenceSpec);
+      changed = true;
+    });
+    return changed;
+  }
+
+  function attachInferenceMetadataToTables(model,payload){
+    const tables=Array.isArray(model?.tables)?model.tables:[];
+    if(!tables.length){
+      return model;
+    }
+    const snapshot=payload?.inferenceSnapshot || null;
+    const overallSpec=snapshot?.overall || null;
+    const comparisonSpec=snapshot?.comparisons || null;
+    tables.forEach(table=>{
+      if(!Array.isArray(table?.columns) || String(table.section || '').toLowerCase()==='diagnostics'){
+        return;
+      }
+      annotateMetricValueInference(table,overallSpec,comparisonSpec);
+      table.columns.forEach(column=>{
+        const inferenceSpec = resolveInferenceSpecForRole(column?.inferenceRole, overallSpec, comparisonSpec);
+        if(inferenceSpec){
+          column.inference = inferenceSpec;
+        }
+      });
+    });
+    return model;
+  }
+
   function computeBoxStatsModel(payload){
     Shared.setDebugLogging?.(payload?.debug === true);
     ensureStats();
     ensureJStat();
-    if(payload?.mode === 'grouped'){
-      return computeGroupedStatsModel(payload);
-    }
-    return computeSingleStatsModel(payload || {});
+    const normalizedPayload=payload || {};
+    const model=normalizedPayload.mode === 'grouped'
+      ? computeGroupedStatsModel(normalizedPayload)
+      : computeSingleStatsModel(normalizedPayload);
+    return attachInferenceMetadataToTables(model,normalizedPayload);
   }
 
 

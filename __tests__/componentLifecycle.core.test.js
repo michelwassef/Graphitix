@@ -3271,4 +3271,24 @@ describe('componentLifecycle — primary graph publication detection', () => {
 
     root.remove();
   });
+
+  test('a standardized terminal plot notice counts as a published result', () => {
+    const root = markRenderable(document.createElement('div'));
+    const plot = markRenderable(document.createElement('div'));
+    plot.id = 'plot';
+    const notice = document.createElement('i');
+    notice.setAttribute('data-plot-notice', '1');
+    notice.textContent = 'This view requires another data column.';
+    plot.appendChild(notice);
+    root.appendChild(plot);
+    document.body.appendChild(root);
+
+    expect(lc.hasRenderableGraphContent(root, {
+      selectors: ['#plot'],
+      contentSelectors: ['path[data-series]'],
+      allowText: false
+    })).toBe(true);
+
+    root.remove();
+  });
 });

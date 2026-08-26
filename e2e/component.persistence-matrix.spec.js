@@ -26,9 +26,10 @@ for (const componentCase of COMPONENT_MATRIX) {
     test.setTimeout(180_000);
     await installLocalCdnOverrides(page);
     const tabId = await openComponent(page, componentCase);
-    const result = await page.evaluate(async ({ type, ownerTabId }) => {
-      return window.GraphitixParameterIsolation.runPersistenceMatrix({ type, tabId: ownerTabId });
-    }, { type: componentCase.type, ownerTabId: tabId });
+    const parameterPaths = String(process.env.PARAMETER_PATHS || '').split(',').map(value => value.trim()).filter(Boolean);
+    const result = await page.evaluate(async ({ type, ownerTabId, parameterPaths }) => {
+      return window.GraphitixParameterIsolation.runPersistenceMatrix({ type, tabId: ownerTabId, parameterPaths });
+    }, { type: componentCase.type, ownerTabId: tabId, parameterPaths });
     await testInfo.attach(`${componentCase.type}-parameter-persistence-matrix.json`, {
       body: Buffer.from(JSON.stringify(result, null, 2), 'utf8'),
       contentType: 'application/json'

@@ -6,8 +6,8 @@ const {
   clickExampleButtonIfPresent
 } = require('./helpers/workspaceHarness');
 
-const NON_CANVAS_COMPONENTS = COMPONENT_MATRIX
-  .filter(component => component.type !== 'box' && component.type !== 'scatter');
+const PREVIEW_COMPONENTS = COMPONENT_MATRIX
+  .filter(component => component.type !== 'box');
 
 async function activateWelcomeTab(page) {
   await page.evaluate(() => {
@@ -51,7 +51,7 @@ async function captureActivePreviewWithRetry(page, expectedType) {
       preview
       && preview.type === expectedType
       && typeof preview.markup === 'string'
-      && preview.markup.includes('<svg')
+      && (preview.markup.includes('<svg') || preview.markup.includes('data-tab-preview-format="png"'))
       && !preview.markup.includes('Preparing preview')
     ) {
       return preview;
@@ -71,8 +71,8 @@ async function captureActivePreviewWithRetry(page, expectedType) {
   return preview;
 }
 
-test.describe('Non-canvas tab previews', () => {
-  for (const component of NON_CANVAS_COMPONENTS) {
+test.describe('Tab previews', () => {
+  for (const component of PREVIEW_COMPONENTS) {
     test(`${component.type} example keeps a usable tab preview`, async ({ page }) => {
       test.setTimeout(180000);
       await installLocalCdnOverrides(page);
@@ -113,6 +113,23 @@ test.describe('Non-canvas tab previews', () => {
           && tooltip.style.display !== 'none'
           && !!tooltip.querySelector('svg, img[data-tab-preview-format="png"]');
       }, preview.tabId, { timeout: 20000 });
+
+      await page.evaluate(({ tabId, type }) => {
+        const tab = window.Main?.session?.workspaceState?.tabs?.find(item => item?.id === tabId);
+        const config = window.Main?.components?.registry?.[type];
+        const emptyPayload = config?.createEmptyPayload?.();
+        window.Main?.session?.assignTabPayload?.(tab, emptyPayload, {
+          reason: 'e2e-all-components-empty-preview'
+        });
+      }, { tabId: preview.tabId, type: component.type });
+      await page.waitForFunction(tabId => {
+        const tab = window.Main?.session?.workspaceState?.tabs?.find(item => item?.id === tabId);
+        return !tab?.previewMarkup
+          && !tab?.previewMeta
+          && tab?.previewSuppressedSignature === tab?.payloadSignature;
+      }, preview.tabId);
+      await page.locator(`button.workspace-tab[data-tab-id="${preview.tabId}"]`).hover();
+      await expect(page.locator('.workspace-tab__preview-tooltip')).not.toBeVisible();
     });
   }
 });

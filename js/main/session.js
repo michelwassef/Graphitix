@@ -33,6 +33,7 @@
    * @property {string|null} [previewMarkup] Cached HTML preview string for quick hover previews.
    * @property {string|null} [previewSignature] Signature used to detect preview changes.
    * @property {Object|null} [previewMeta] Metadata captured when generating previews.
+   * @property {string|null} [previewSuppressedSignature] Empty payload revision that must not recapture stale graph DOM.
    * @property {Object|null} [layoutState] Serialized panel/layout sizing information.
    * @property {string|null} [layoutSignature] Cached signature of the layout state.
    */
@@ -2043,6 +2044,13 @@
     }
     const previousSignature = tab.payloadSignature || null;
     const nextSignature = serializePayloadSignature(payload);
+    const hadPublishedGraph = !!(
+      tab.previewMarkup
+      || tab.previewSignature
+      || tab.previewMeta
+      || tab.renderCache
+      || tab.archiveRenderCache
+    );
     tab.payload = payload || null;
     tab.payloadSignature = nextSignature;
     if (!payload) {
@@ -2073,6 +2081,34 @@
         // A render cache is valid only for the exact payload that produced it.
         clearTabRenderCache(tab, { reason: meta.reason || 'payload-changed' });
         clearTabArchiveRenderCache(tab, { reason: meta.reason || 'payload-changed' });
+      }
+    }
+    if (payload && tab.type) {
+      const hasRenderablePayload = Main.components?.registry?.[tab.type]?.hasRenderablePayload;
+      if (typeof hasRenderablePayload === 'function') {
+        try {
+          if (hasRenderablePayload(payload, { tab, reason: meta.reason || 'assign-tab-payload' }) === false) {
+            if (hadPublishedGraph && nextSignature) {
+              tab.previewSuppressedSignature = nextSignature;
+            }
+            if (typeof Main.previews?.clearTabPreview === 'function') {
+              Main.previews.clearTabPreview(tab, { reason: meta.reason || 'non-renderable-payload' });
+            } else {
+              tab.previewMarkup = null;
+              tab.previewSignature = null;
+              tab.previewMeta = null;
+              notifyPreviewIndicator(tab);
+            }
+          } else {
+            tab.previewSuppressedSignature = null;
+          }
+        } catch (err) {
+          console.debug('Debug: assigned payload renderability check failed', {
+            tabId: tab.id,
+            type: tab.type,
+            message: err?.message || String(err)
+          });
+        }
       }
     }
     try{

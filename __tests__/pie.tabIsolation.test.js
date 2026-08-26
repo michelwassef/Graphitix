@@ -107,6 +107,32 @@ describe('Pie tab host isolation', () => {
     expect(document.querySelectorAll('#pieHotWrapper [id=\"pieHot\"]').length).toBe(1);
   });
 
+  test('same-type activation moves Pie bound-session authority to the activated owner', async () => {
+    const Main = window.Main;
+    await handleGraphSelection(Main, 'pie');
+    const pie = window.Components?.pie;
+    const tabA = Main.session?.getActiveTab?.();
+    expect(pie).toBeTruthy();
+    expect(tabA?.id).toBeTruthy();
+    expect(pie.__boundTabId).toBe(tabA.id);
+
+    Main.tabs.handleAddTabClick();
+    await flush();
+    await handleGraphSelection(Main, 'pie');
+    const tabB = Main.session?.getActiveTab?.();
+    expect(tabB?.id).toBeTruthy();
+    expect(tabB.id).not.toBe(tabA.id);
+    expect(pie.__boundTabId).toBe(tabB.id);
+
+    await Main.tabs.activateTab(tabA.id, { reason: 'pie-bound-owner-regression-a' });
+    await flush();
+    expect(pie.__boundTabId).toBe(tabA.id);
+
+    await Main.tabs.activateTab(tabB.id, { reason: 'pie-bound-owner-regression-b' });
+    await flush();
+    expect(pie.__boundTabId).toBe(tabB.id);
+  });
+
   test('reinitializing pie does not stack import file-picker handlers', async () => {
     const Main = window.Main;
     await handleGraphSelection(Main, 'pie');

@@ -59,6 +59,55 @@ describe('tab preview PNG fallback', () => {
     await window.Main.previews.awaitPendingCaptures([tab.id]);
   });
 
+  test('clears only the canonical owner preview', () => {
+    const tab = {
+      id: 'box-empty-tab',
+      type: 'box',
+      payload: { type: 'box', data: [['A'], ['']] },
+      previewMarkup: '<svg><path d="M0 0L1 1"></path></svg>',
+      previewSignature: 'payload-before-empty',
+      previewMeta: { format: 'svg' }
+    };
+    window.Main.session.workspaceState.tabs = [tab];
+    expect(window.Main.previews.clearTabPreview(tab, { reason: 'payload-change' })).toBe(true);
+    expect(tab).toMatchObject({
+      previewMarkup: null,
+      previewSignature: null,
+      previewMeta: null
+    });
+  });
+
+  test('does not block populated preview capture when payload renderability is true', () => {
+    const tab = {
+      id: 'box-populated-tab',
+      type: 'box',
+      payload: { type: 'box', data: [['A'], [1]] },
+      payloadSignature: 'payload-populated'
+    };
+    const { element } = mountSvg(tab, '<path d="M 0 0 L 100 100"></path>');
+    const config = { type: 'box', element, hasRenderablePayload: jest.fn(() => true) };
+
+    expect(window.Main.previews.updateTabPreviewFromWorkspace(tab, config, { reason: 'hover-inactive' })).toBe(true);
+    expect(tab.previewMarkup).toContain('<svg');
+  });
+
+  test('does not recapture stale live DOM for an empty payload revision', () => {
+    const tab = {
+      id: 'empty-revision-tab',
+      type: 'heatmap',
+      payloadSignature: 'empty-revision',
+      previewSuppressedSignature: 'empty-revision'
+    };
+    const { element } = mountSvg(tab, '<path d="M 0 0 L 100 100"></path>');
+    const config = { type: 'heatmap', element };
+
+    expect(window.Main.previews.updateTabPreviewFromWorkspace(tab, config, {
+      forceCapture: true,
+      reason: 'hover-inactive'
+    })).toBe(false);
+    expect(tab.previewMarkup).toBeNull();
+  });
+
   test('scales non-scaling strokes as part of the thumbnail', () => {
     const tab = {
       id: 'heatmap-stroke-tab',

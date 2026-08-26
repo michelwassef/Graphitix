@@ -148,6 +148,7 @@ describe('UI statistical presentation branches', () => {
     require('../js/shared/graphSizing.js');
     require('../js/shared/regression.js');
     require('../js/shared/stats.js');
+    require('../js/shared/statsInference.js');
     require('../js/shared/boxStatsModel.js');
     require('../js/shared/stats-table.js');
     require('../js/shared/exampleDatasets.js');
@@ -461,7 +462,8 @@ describe('UI statistical presentation branches', () => {
     expect(hazardText).toMatch(/Hazard ratios|Median Survival Ratios/i);
     expect(coxText).toMatch(/Cox Model Coefficients|Cox Model Diagnostics|Residual Summaries|Scaled Schoenfeld Residual Checks/i);
     expect(document.getElementById('survivalStatsReportHost')?.textContent || '').toContain('Reporting and reproducibility');
-    expect(document.querySelectorAll('#survivalStatsSummary .stats-significance-controls').length).toBe(1);
+    expect(document.querySelectorAll('#survivalStatsInferenceControls .stats-inference-controls__input').length).toBeGreaterThanOrEqual(1);
+    expect(document.querySelectorAll('#survivalStatsSummary .stats-significance-controls').length).toBe(0);
     expect(document.querySelectorAll('#survivalStatsLogRank .stats-significance-controls').length).toBe(0);
     expect(document.querySelectorAll('#survivalStatsHazardRatios .stats-significance-controls').length).toBe(0);
     expect(document.querySelectorAll('#survivalStatsCox .stats-significance-controls').length).toBe(0);

@@ -17,16 +17,18 @@ test('Pie biomedical example calculates its two-cohort comparison', async ({ pag
 
   const scope = page.locator('#pieStatsControls .box-stats-options__row').filter({ hasText: 'Comparison scope:' }).locator('select');
   await expect(scope).toHaveValue('all');
+  const alphaInput = page.locator('#pieStatsInferenceControls [data-stats-inference-key="alpha"]');
+  await expect(alphaInput).toBeVisible();
+  await expect(alphaInput).toHaveValue('0.05');
   await page.locator('#pieComputeStats').click();
 
   const results = page.locator('#pieStatsResults');
   await expect(results).toContainText('Overall test summary');
   await expect(results).toContainText('40.1367');
   await expect(results).toContainText('Reporting and reproducibility');
-  await expect(results.locator(':scope > .stats-significance-controls')).toBeVisible();
-  await expect(results.locator('.stats-significance-controls__input')).toHaveValue('0.05');
+  await expect(results.locator(':scope > .stats-significance-controls')).toHaveCount(0);
   await expect(results.locator('.stats-pvalue-format-inline')).toBeVisible();
-  await expect(results.locator('.stats-results-main .stats-significance-badge').first()).toContainText('****');
+  await expect(results.locator('.stats-results-main .stats-significance-badge').first()).toHaveText('*');
 
   const tabs = await page.evaluate(() => {
     const state = window.Main.session.workspaceState;
@@ -38,7 +40,9 @@ test('Pie biomedical example calculates its two-cohort comparison', async ({ pag
   if(tabs.welcome){
     await page.evaluate(id => window.Main.tabs.activateTab(id, { reason: 'e2e-pie-stats-away' }), tabs.welcome);
     await page.evaluate(id => window.Main.tabs.activateTab(id, { reason: 'e2e-pie-stats-return' }), tabs.pie);
-    await expect(results.locator(':scope > .stats-significance-controls')).toBeVisible();
+    await expect(alphaInput).toBeVisible();
+    await expect(alphaInput).toHaveValue('0.05');
+    await expect(results.locator(':scope > .stats-significance-controls')).toHaveCount(0);
   }
   expect(errors).toEqual([]);
 });

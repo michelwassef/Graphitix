@@ -1441,6 +1441,9 @@
     const statsReportingState = typeof global.Shared?.statsReporting?.captureTabState === 'function'
       ? global.Shared.statsReporting.captureTabState(tab)
       : null;
+    const statsInferenceState = typeof global.Shared?.statsInference?.captureTabState === 'function'
+      ? global.Shared.statsInference.captureTabState(tab)
+      : null;
     if(statsReportingState && typeof statsReportingState === 'object'){
       if(!payload.meta || typeof payload.meta !== 'object' || Array.isArray(payload.meta)){
         payload.meta = {};
@@ -1452,11 +1455,23 @@
         ...statsReportingState
       };
     }
+    if(statsInferenceState && typeof statsInferenceState === 'object'){
+      if(!payload.meta || typeof payload.meta !== 'object' || Array.isArray(payload.meta)){
+        payload.meta = {};
+      }
+      payload.meta.statsInference = {
+        ...(payload.meta.statsInference && typeof payload.meta.statsInference === 'object'
+          ? payload.meta.statsInference
+          : {}),
+        ...statsInferenceState
+      };
+    }
     debugLog('Debug: workspaceTabs shared payload state captured', {
       tabId: tab.id,
       type: type || null,
       hasFontStyles: !!fontStyles,
       hasStatsReportingState: !!statsReportingState,
+      hasStatsInferenceState: !!statsInferenceState,
       reason: meta.reason || 'capture-shared-payload'
     });
     return payload;
@@ -1486,11 +1501,20 @@
           { reason: meta.reason || 'apply-shared-payload' }
         )
       : null;
+    const statsInferenceSource = payload?.meta?.statsInference;
+    const appliedStatsInferenceState = typeof global.Shared?.statsInference?.applyTabState === 'function'
+      ? global.Shared.statsInference.applyTabState(
+          tab,
+          statsInferenceSource && typeof statsInferenceSource === 'object' ? statsInferenceSource : {},
+          { reason: meta.reason || 'apply-shared-payload' }
+        )
+      : null;
     debugLog('Debug: workspaceTabs shared payload state applied', {
       tabId: tab.id,
       type: type || null,
       hasFontStyles: !!fontStyles,
       hasStatsReportingState: !!appliedStatsReportingState,
+      hasStatsInferenceState: !!appliedStatsInferenceState,
       reason: meta.reason || 'apply-shared-payload'
     });
     return true;

@@ -1551,10 +1551,10 @@
       cfg.labelColors = buildColorMap(pcaLabelKeys, categorical);
       cfg.labelPointStyles = recolorStyleMap(
         cfg.labelPointStyles,
-        pcaLabelKeys,
+        Object.keys(ensureObject(cfg.labelPointStyles)),
         categorical,
         {
-          force: true,
+          force: false,
           fillFields: ['color', 'fill', 'markerFill'],
           stroke: tokens.borderColor || null,
           strokeFields: ['borderColor', 'stroke', 'markerStroke']
@@ -1591,6 +1591,12 @@
           fillFields: ['fill', 'color'],
           stroke: tokens.borderColor || null,
           strokeFields: ['borderColor', 'stroke']
+        });
+        Object.entries(scopes.points).forEach(([key, style]) => {
+          if(!String(key).startsWith('label:')) return;
+          const label = String(key).slice('label:'.length);
+          const color = cfg.labelColors?.[label];
+          if(color) style.fill = color;
         });
       }
       applyAxisTokens(cfg, scheme);
@@ -1725,6 +1731,10 @@
           fillFields: ['color']
         });
       applyAxisTokens(cfg, scheme);
+      // Box renders theme surface/text from the scheme itself. These fields are
+      // not Box parameters and were previously reintroduced as dead payload state.
+      delete cfg.backgroundColor;
+      delete cfg.textColor;
       return next;
     }
 
@@ -2381,28 +2391,9 @@
   }
 
   function getComparisonPayload(type, options){
-    const opts = ensureObject(options);
     const active = getActiveTab();
     if(!active || active.type !== type){
       return null;
-    }
-    if(opts.preferWorkspace === true){
-      const workspace = getWorkspace(type);
-      if(workspace && typeof workspace.getPayload === 'function'){
-        try{
-          const livePayload = workspace.getPayload({
-            tabId: active.id,
-            type,
-            reason: `color-scheme-compare-${type}`,
-            origin: 'colorSchemes'
-          });
-          if(livePayload){
-            return createColorComparisonPayload(type, livePayload);
-          }
-        }catch(err){
-          debugLog('Debug: colorSchemes live payload read failed', { type, err: err?.message || String(err) });
-        }
-      }
     }
     return createColorComparisonPayload(type, active.payload);
   }
@@ -2567,24 +2558,7 @@
     }
 
     const undoManager = Shared.undoManager || null;
-    let livePayload = null;
-    if(typeof workspace.getPayload === 'function'){
-      try{
-        livePayload = workspace.getPayload({
-          tabId: tab.id,
-          type,
-          reason: `color-scheme-source-${type}`,
-          origin: 'colorSchemes'
-        });
-      }catch(err){
-        debugLog('Debug: colorSchemes source payload read failed', {
-          type,
-          tabId: tab.id,
-          err: err?.message || String(err)
-        });
-      }
-    }
-    let payloadBeforeScheme = livePayload || tab.payload;
+    let payloadBeforeScheme = tab.payload;
     if(!payloadBeforeScheme){
       payloadBeforeScheme = typeof workspace.createEmptyPayload === 'function'
         ? workspace.createEmptyPayload()
@@ -3053,6 +3027,7 @@
       unifiedInput.type = 'radio';
       unifiedInput.name = 'boxColorMode';
       unifiedInput.id = 'boxColorUnified';
+      unifiedInput.value = 'unified';
       unifiedInput.checked = true;
       unifiedLabel.appendChild(unifiedInput);
       unifiedLabel.appendChild(doc.createTextNode(' Unified'));
@@ -3062,6 +3037,7 @@
       individualInput.type = 'radio';
       individualInput.name = 'boxColorMode';
       individualInput.id = 'boxColorIndividual';
+      individualInput.value = 'individual';
       individualLabel.appendChild(individualInput);
       individualLabel.appendChild(doc.createTextNode(' Individual'));
 

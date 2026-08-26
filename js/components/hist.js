@@ -2582,6 +2582,7 @@
     if(comparisonLabel){
       comparisonLabel.title = title;
     }
+    ensureHistStatsInferenceControls()?.refresh?.();
   }
 
   function syncHistRuntimeControlsFromState(seriesCount){
@@ -5154,6 +5155,7 @@
     syncHistPlotModeControls();
     projectHistDistributionControlsFromState({ rebuild: true });
     syncHistStatsControls();
+    ensureHistStatsInferenceControls();
     histFrequencyCreateMode?.addEventListener('change', event => {
       runHistEventOwnerCallback(event, 'hist-frequency-create-mode-change', owner => {
         applyHistFrequencySettings({ createMode: sanitizeHistFrequencyCreateMode(histFrequencyCreateMode.value) }, { schedule: false });
@@ -5657,6 +5659,9 @@
       state.statsSettings.comparisonMode = sanitizeHistComparisonMode(config.stats?.comparisonMode);
       state.lastStatsPanelModel = normalizeHistStatsPanelModel(config.stats || {});
       syncHistStatsControls();
+      if(histStatsPanelModelHasContent(state.lastStatsPanelModel)){
+        restoreHistStatsPanelModel(state.lastStatsPanelModel);
+      }
       if(config.notes && typeof config.notes === 'object'){
         state.notes.text = config.notes.text == null ? '' : String(config.notes.text);
         state.notes.open = !!config.notes.open;
@@ -6106,6 +6111,60 @@
     }
     if(scientific){ return Shared.formatters?.formatScientificNumber?.(num, { fractionalDigits: 5 }) || String(num); }
     return num >= 0 && num <= 0.0001 ? '<0.0001' : num.toFixed(4).replace(/0+$/, '').replace(/\.$/, '');
+  }
+
+  function getHistStatsInferenceTabId(){
+    return String(getHistProjectionTabId() || '').trim() || null;
+  }
+
+  function createHistComparisonInferenceSpec(){
+    return Shared.statsInference?.createDecisionSpec?.({
+      tabId: getHistStatsInferenceTabId(),
+      method: 'none',
+      criterion: 'alpha',
+      valueKind: 'raw-p'
+    }) || null;
+  }
+
+  function histComparisonPValueToken(value){
+    const numeric = Number(value);
+    if(!Number.isFinite(numeric)){
+      return '\u2014';
+    }
+    if(Shared.statsReporting?.pValue){
+      return Shared.statsReporting.pValue(numeric, {
+        fallback: String(formatPValue(numeric)),
+        inference: createHistComparisonInferenceSpec() || undefined
+      });
+    }
+    return formatPValue(numeric);
+  }
+
+  function ensureHistStatsInferenceControls(){
+    const host = getHistNodeById('histStatsInferenceControls');
+    const inference = Shared.statsInference;
+    if(!host || !inference?.mountControls){
+      return null;
+    }
+    if(host.__histStatsInferenceController){
+      host.__histStatsInferenceController.refresh?.();
+      return host.__histStatsInferenceController;
+    }
+    host.__histStatsInferenceController = inference.mountControls(host, {
+      tabId: () => getHistStatsInferenceTabId(),
+      includeOverall: () => sanitizeHistComparisonMode(state.statsSettings?.comparisonMode) === 'ks',
+      includeComparisons: false,
+      method: 'none',
+      source: 'hist-stats-inference',
+      onChange(){
+        scheduleHistOwnerDraw(getActiveHistSessionForState(), {
+          reason: 'hist-stats-inference-change',
+          tabId: getHistStatsInferenceTabId() || undefined,
+          userInitiated: true
+        });
+      }
+    });
+    return host.__histStatsInferenceController;
   }
 
   function computeHistPercentile(sorted, p){
@@ -6589,7 +6648,7 @@
             seriesA: summaries[0].label,
             seriesB: summaries[1].label,
             d: formatNumber(ksResult.D, 4),
-            p: formatPValue(ksResult.p),
+            p: histComparisonPValueToken(ksResult.p),
             method: ksResult.method || '\u2014'
           }],
           footnotes: ['Two-sample Kolmogorov-Smirnov compares the full empirical distributions, not only their means or medians.'],
@@ -6623,13 +6682,13 @@
         methods.push('Fit diagnostics report normal-model KS and Anderson-Darling results and compare normal versus log-normal fits with AICc.');
       }
       if(comparisonMode === 'ks' && summaries.length === 2 && ksResult?.available){
-        methods.push('A two-sample Kolmogorov-Smirnov test compared the complete empirical distributions of the two visible series using the reported exact or asymptotic calibration.');
+        methods.push(`A two-sample Kolmogorov-Smirnov test compared the complete empirical distributions of the two visible series using the reported exact or asymptotic calibration; significance was interpreted at α = ${Shared.statsInference?.formatLevel?.(Shared.statsInference?.getAlpha?.({ tabId: getHistStatsInferenceTabId() })) || '0.05'}.`);
       }
       const resultFragments = summaries.map(entry => `${entry.label}: mean = ${formatNumber(entry.summary.mean, 2)}, median = ${formatNumber(entry.summary.median, 2)}, SD = ${formatNumber(entry.summary.sd, 2)}, skewness = ${formatNumber(entry.summary.skewness, 3)}.`);
       const resultParts = resultFragments.map((text, index) => index === 0 ? text : ` ${text}`);
       if(comparisonMode === 'ks' && summaries.length === 2 && ksResult?.available){
         resultFragments.push(`KS D = ${formatNumber(ksResult.D, 4)}, ${formatHistPExpression(ksResult.p)}.`);
-        resultParts.push(' ', `KS D = ${formatNumber(ksResult.D, 4)}, p = `, { type:'pValue', value:ksResult.p, fallback:String(formatPValue(ksResult.p)) }, '.');
+        resultParts.push(' ', `KS D = ${formatNumber(ksResult.D, 4)}, p = `, histComparisonPValueToken(ksResult.p), '.');
       }
       Shared.statsReporting.appendReportPanel(target, {
         methodsText: methods.join(' '),
@@ -6643,7 +6702,10 @@
           comparisonMode,
           bestFit: bestFitFootnotes.length ? bestFitFootnotes.join('; ') : null,
           ksStatistic: ksResult?.available ? ksResult.D : null,
-          ksPValue: ksResult?.available ? ksResult.p : null
+          ksPValue: ksResult?.available ? ksResult.p : null,
+          inference: ksResult?.available
+            ? Shared.statsInference?.createSnapshot?.({ tabId: getHistStatsInferenceTabId(), includeOverall: true, includeComparisons: false }) || null
+            : null
         }
       }, { title: 'Reporting and reproducibility' });
     }
@@ -8322,6 +8384,55 @@
     }
   }
 
+  function histParameterSlug(value){
+    return String(value == null ? '' : value).trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  }
+
+  function stampHistParameterObservables(svg){
+    if(!svg?.setAttribute){ return; }
+    const axis = ensureAxisSettings();
+    const limits = readHistAxisLimitsFromInputs();
+    const frequency = sanitizeHistFrequencySettings(state.frequencySettings || {});
+    const distributions = state.distributionSettings || {};
+    const grid = getGridStyle(axis.strokeWidth);
+    const set = (name, value) => svg.setAttribute(`data-parameter-${name}`, value == null ? '' : String(value));
+    const entries = {
+      'axis-minor-tick-subdivisions-x': axis.x?.minorTickSubdivisions,
+      'axis-minor-tick-subdivisions-y': axis.y?.minorTickSubdivisions,
+      'axis-minor-ticks-x': !!axis.x?.minorTicks,
+      'axis-minor-ticks-y': !!axis.y?.minorTicks,
+      'axis-notation-x': axis.x?.notation,
+      'axis-notation-y': axis.y?.notation,
+      'axis-limits-x-min': limits.xMin,
+      'axis-limits-x-max': limits.xMax,
+      'axis-limits-y-max': limits.yMax,
+      'border': state.barBorder,
+      'border-width': state.barBorderWidth,
+      'fill': state.barFill,
+      'trace-opacity': normalizeHistTraceOpacity(state.traceOpacity),
+      'frequency-binning-mode': frequency.binningMode,
+      'frequency-create-mode': frequency.createMode,
+      'frequency-manual-bin-width': frequency.manualBinWidth,
+      'distributions-alpha': distributions.alpha,
+      'distributions-show-pdf': !!distributions.showPdf,
+      'distributions-show-cdf': !!distributions.showCdf,
+      'grid-style-color': grid.color,
+      'grid-style-pattern': grid.pattern,
+      'grid-style-thickness': grid.thickness,
+      'grid-style-transparency': grid.transparency
+    };
+    Object.entries(entries).forEach(([name, value]) => set(name, value));
+    (Array.isArray(state.distributionOptions) ? state.distributionOptions : []).forEach((option, index) => {
+      set(`distributions-options-${index}-color`, option?.color);
+      set(`distributions-options-${index}-label`, option?.label);
+      set(`distributions-options-${index}-pattern`, option?.pattern);
+    });
+    Object.entries(state.seriesColors || {}).forEach(([seriesKey, color]) => {
+      const slug = histParameterSlug(seriesKey);
+      if(slug){ set(`series-colors-${slug}`, color); }
+    });
+  }
+
   async function draw(options = {}, session = null){
     const drawSession = ensureHistSessionOwnershipShape(session || getHistSessionForDrawOptions(options));
     if(drawSession && !isHistSessionActiveForModuleState(drawSession)){
@@ -8616,6 +8727,7 @@
     svg.setAttribute('data-hist-plot-mode', plotMode);
     svg.setAttribute('data-hist-series-display', HIST_SERIES_DISPLAY_OVERLAY);
     chartStyle.prepareSvg(svg, { scopeId: 'hist' });
+    stampHistParameterObservables(svg);
     framePublication = Shared.framePublication.stage({
       container: plotEl,
       frame: svg,

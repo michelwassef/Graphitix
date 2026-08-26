@@ -83,7 +83,7 @@ describe('fontControls legend border formatting', () => {
     expect(panel?.dataset.legendControls).toBe('1');
     expect(scope?.value).toBe('legend');
     expect(Array.from(scope?.options || []).map(option => option.textContent)).toEqual([
-      'Selection', 'Labels', 'Legend', 'Scale', 'Graph'
+      'Selection', 'Labels', 'Legend', 'Scale', 'Collection', 'Graph'
     ]);
     expect(width).toBeTruthy();
     expect(color).toBeTruthy();

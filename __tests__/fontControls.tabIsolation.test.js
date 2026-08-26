@@ -54,6 +54,7 @@ describe('fontControls tab-scoped style isolation', () => {
       <div class="workspace-toolbar">
         <div class="workspace-toolbar__section workspace-toolbar__section--dock">
           <button id="boxFontHost" type="button">Font host</button>
+          <button id="heatmapFontHost" type="button">Heatmap font host</button>
         </div>
       </div>
     `;
@@ -285,5 +286,75 @@ describe('fontControls tab-scoped style isolation', () => {
     const exported = fontControls.exportScopeStyles('box', { tabId: 'tab-box-1' });
     expect(exported?.__labels__?.fontSize).toBe('21.33px');
     expect(exported?.['pointLabel:a']?.fontSize).toBeUndefined();
+  });
+
+  test('named collections expose a dynamic bulk scope and remain tab-isolated', () => {
+    const fontControls = window.Shared?.fontControls;
+    const rowA = createSvgText('Row A');
+    const rowB = createSvgText('Row B');
+    const columnA = createSvgText('Column A');
+
+    setActiveTab('tab-box-1');
+    [rowA, rowB].forEach((node, index) => fontControls.markText(node, {
+      scopeId: 'heatmap',
+      role: 'rowLabel',
+      key: `row-label-${index}`,
+      collection: 'rowLabels',
+      collectionLabel: 'Row labels'
+    }));
+    fontControls.markText(columnA, {
+      scopeId: 'heatmap',
+      role: 'columnLabel',
+      key: 'column-label-0',
+      collection: 'columnLabels',
+      collectionLabel: 'Column labels'
+    });
+
+    fontControls.openForElement(rowA, { scopeId: 'heatmap', key: 'row-label-0' });
+    let scope = document.querySelector('select.font-controls-panel__select');
+    expect(Array.from(scope.options).filter(option => !option.hidden).map(option => option.textContent))
+      .toEqual(['Selection', 'Row labels', 'Graph']);
+    setToolbarScope('collection');
+    setToolbarFontFamily('Georgia');
+    expect(rowA.getAttribute('font-family')).toBe('Georgia');
+    expect(rowB.getAttribute('font-family')).toBe('Georgia');
+    expect(columnA.getAttribute('font-family')).toBeNull();
+
+    fontControls.openForElement(columnA, { scopeId: 'heatmap', key: 'column-label-0' });
+    scope = document.querySelector('select.font-controls-panel__select');
+    expect(scope.value).toBe('collection');
+    expect(Array.from(scope.options).filter(option => !option.hidden).map(option => option.textContent))
+      .toEqual(['Selection', 'Column labels', 'Graph']);
+    setToolbarFontFamily('Verdana');
+    expect(columnA.getAttribute('font-family')).toBe('Verdana');
+    expect(rowA.getAttribute('font-family')).toBe('Georgia');
+
+    const exportedTab1 = fontControls.exportScopeStyles('heatmap', { tabId: 'tab-box-1' });
+    expect(exportedTab1?.['__collection__:rowLabels']?.fontFamily).toBe('Georgia');
+    expect(exportedTab1?.['__collection__:columnLabels']?.fontFamily).toBe('Verdana');
+
+    setActiveTab('tab-box-2');
+    const otherRow = createSvgText('Other row');
+    fontControls.markText(otherRow, {
+      scopeId: 'heatmap',
+      role: 'rowLabel',
+      key: 'row-label-0',
+      collection: 'rowLabels',
+      collectionLabel: 'Row labels'
+    });
+    expect(otherRow.getAttribute('font-family')).toBeNull();
+    expect(fontControls.exportScopeStyles('heatmap', { tabId: 'tab-box-2' })?.['__collection__:rowLabels']).toBeUndefined();
+
+    fontControls.importScopeStyles('heatmap', exportedTab1, { tabId: 'tab-box-2', prune: true });
+    expect(otherRow.getAttribute('font-family')).toBe('Georgia');
+    const otherColumn = createSvgText('Other column');
+    fontControls.markText(otherColumn, {
+      scopeId: 'heatmap',
+      role: 'columnLabel',
+      key: 'column-label-0',
+      collection: 'columnLabels',
+      collectionLabel: 'Column labels'
+    });
+    expect(otherColumn.getAttribute('font-family')).toBe('Verdana');
   });
 });

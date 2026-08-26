@@ -520,7 +520,7 @@
       showSignificance: !!source.showSignificance,
       significanceDisplay: source.significanceDisplay || null,
       significanceCorrection: source.significanceCorrection || null,
-      significanceThreshold: source.significanceThreshold ?? null,
+      inferenceLevel: source.inferenceLevel ?? null,
       cellSize: source.cellSize ?? null,
       fontSize: source.fontSize ?? null,
       palette: source.palette || null,
@@ -1702,7 +1702,7 @@
     }
     const restoredRecord = cloneSimple(record) || record;
     session.state = { ...createDefaultHeatmapTabContext(), ...restoredRecord };
-    session.state.controls = normalizeHeatmapRestoredControlState(restoredRecord.controls || restoredRecord.config || {});
+    session.state.controls = normalizeHeatmapControlState(restoredRecord.controls || restoredRecord.config || {});
     session.results = createDefaultHeatmapResultsState({
       stats: session.state.lastStats,
       statsPanelModel: session.state.statsPanelModel
@@ -1917,60 +1917,58 @@
     };
   }
 
-  function normalizeHeatmapRestoredControlState(source = {}){
-    const restored = source && typeof source === 'object' ? (cloneSimple(source) || {}) : {};
-    if(!Object.prototype.hasOwnProperty.call(restored, 'significanceCorrection')){
-      restored.significanceCorrection = 'none';
-    }
-    return normalizeHeatmapControlState(restored);
-  }
-
   function captureHeatmapControlStateFromDom(){
-    const activeControls = getActiveHeatmapSessionForState()?.state?.controls;
+    const activeControls = normalizeHeatmapControlState(
+      getActiveHeatmapSessionForState()?.state?.controls || {}
+    );
     return normalizeHeatmapControlState({
-      view: refs.view?.value || 'corr-columns',
-      method: refs.method?.value || 'pearson',
-      useAbsolute: !!refs.absValues?.checked,
-      maskLower: !!refs.maskLower?.checked,
-      showValues: refs.showValues ? !!refs.showValues.checked : true,
+      view: refs.view?.value || activeControls.view,
+      method: refs.method?.value || activeControls.method,
+      useAbsolute: refs.absValues ? !!refs.absValues.checked : activeControls.useAbsolute,
+      maskLower: refs.maskLower ? !!refs.maskLower.checked : activeControls.maskLower,
+      showValues: refs.showValues ? !!refs.showValues.checked : activeControls.showValues,
       showValuesUserOverride: activeControls?.showValuesUserOverride === true,
-      showSignificance: !!refs.showSignificance?.checked,
-      significanceDisplay: refs.significanceDisplay?.value === 'pvalue' ? 'pvalue' : 'star',
+      showSignificance: refs.showSignificance ? !!refs.showSignificance.checked : activeControls.showSignificance,
+      significanceDisplay: refs.significanceDisplay?.value || activeControls.significanceDisplay,
       significanceCorrection: refs.significanceCorrection?.value || activeControls?.significanceCorrection || 'bh',
-      decimals: refs.decimals?.value,
-      cellSize: refs.cellSize?.value,
-      fontSize: refs.fontSize?.value,
+      decimals: refs.decimals?.value ?? activeControls.decimals,
+      cellSize: refs.cellSize?.value ?? activeControls.cellSize,
+      fontSize: refs.fontSize?.value ?? activeControls.fontSize,
       filters: {
-        presentEnabled: !!refs.filterPresentEnable?.checked,
-        presentThreshold: refs.filterPresentValue?.value,
-        sdEnabled: !!refs.filterSdEnable?.checked,
-        sdThreshold: refs.filterSdValue?.value,
-        absEnabled: !!refs.filterAbsEnable?.checked,
-        absCount: refs.filterAbsCount?.value,
-        absValue: refs.filterAbsValue?.value,
-        rangeEnabled: !!refs.filterRangeEnable?.checked,
-        rangeThreshold: refs.filterRangeValue?.value
+        presentEnabled: refs.filterPresentEnable ? !!refs.filterPresentEnable.checked : activeControls.filters.presentEnabled,
+        presentThreshold: refs.filterPresentValue?.value ?? activeControls.filters.presentThreshold,
+        sdEnabled: refs.filterSdEnable ? !!refs.filterSdEnable.checked : activeControls.filters.sdEnabled,
+        sdThreshold: refs.filterSdValue?.value ?? activeControls.filters.sdThreshold,
+        absEnabled: refs.filterAbsEnable ? !!refs.filterAbsEnable.checked : activeControls.filters.absEnabled,
+        absCount: refs.filterAbsCount?.value ?? activeControls.filters.absCount,
+        absValue: refs.filterAbsValue?.value ?? activeControls.filters.absValue,
+        rangeEnabled: refs.filterRangeEnable ? !!refs.filterRangeEnable.checked : activeControls.filters.rangeEnabled,
+        rangeThreshold: refs.filterRangeValue?.value ?? activeControls.filters.rangeThreshold
       },
       adjust: {
-        logTransform: !!refs.logTransform?.checked,
-        logPlusOne: !!state.logPlusOne,
-        centerRowsMode: refs.centerGenes?.checked ? (getCheckedRadioValue('heatmapCenterGenesMode') || 'mean') : null,
-        normalizeRows: !!refs.normalizeGenes?.checked,
-        centerColumnsMode: refs.centerArrays?.checked ? (getCheckedRadioValue('heatmapCenterArraysMode') || 'mean') : null,
-        normalizeColumns: !!refs.normalizeArrays?.checked
+        logTransform: refs.logTransform ? !!refs.logTransform.checked : activeControls.adjust.logTransform,
+        logPlusOne: activeControls.adjust.logPlusOne,
+        centerRowsMode: refs.centerGenes
+          ? (refs.centerGenes.checked ? (getCheckedRadioValue('heatmapCenterGenesMode') || 'mean') : null)
+          : activeControls.adjust.centerRowsMode,
+        normalizeRows: refs.normalizeGenes ? !!refs.normalizeGenes.checked : activeControls.adjust.normalizeRows,
+        centerColumnsMode: refs.centerArrays
+          ? (refs.centerArrays.checked ? (getCheckedRadioValue('heatmapCenterArraysMode') || 'mean') : null)
+          : activeControls.adjust.centerColumnsMode,
+        normalizeColumns: refs.normalizeArrays ? !!refs.normalizeArrays.checked : activeControls.adjust.normalizeColumns
       },
       clustering: {
         rows: {
-          enabled: refs.clusterGenes ? !!refs.clusterGenes.checked : true,
-          metric: refs.genesMetric?.value || 'pearson',
-          showDendrogram: refs.showRowDendrogram ? !!refs.showRowDendrogram.checked : true
+          enabled: refs.clusterGenes ? !!refs.clusterGenes.checked : activeControls.clustering.rows.enabled,
+          metric: refs.genesMetric?.value || activeControls.clustering.rows.metric,
+          showDendrogram: refs.showRowDendrogram ? !!refs.showRowDendrogram.checked : activeControls.clustering.rows.showDendrogram
         },
         columns: {
-          enabled: refs.clusterArrays ? !!refs.clusterArrays.checked : true,
-          metric: refs.arraysMetric?.value || 'pearson',
-          showDendrogram: refs.showColumnDendrogram ? !!refs.showColumnDendrogram.checked : true
+          enabled: refs.clusterArrays ? !!refs.clusterArrays.checked : activeControls.clustering.columns.enabled,
+          metric: refs.arraysMetric?.value || activeControls.clustering.columns.metric,
+          showDendrogram: refs.showColumnDendrogram ? !!refs.showColumnDendrogram.checked : activeControls.clustering.columns.showDendrogram
         },
-        linkage: refs.linkage?.value || 'average'
+        linkage: refs.linkage?.value || activeControls.clustering.linkage
       }
     });
   }
@@ -4271,11 +4269,14 @@
       || heatmap.__boundTabId
       || null;
     if(fontControls && typeof fontControls.markText === 'function'){
+      const isRowLabel = role === 'rowLabel';
       fontControls.markText(node, {
         scopeId: 'heatmap',
         role,
         key,
         tabId,
+        collection: isRowLabel ? 'rowLabels' : 'columnLabels',
+        collectionLabel: isRowLabel ? 'Row labels' : 'Column labels',
         compactContext: true,
         deferRegistration: true
       });
@@ -4538,42 +4539,35 @@
     return String(method || '').trim().toLowerCase() === 'spearman' ? 'rₛ' : 'r';
   }
 
-  function getHeatmapSignificanceThreshold(){
-    const reporting = Shared.statsReporting;
-    const ownerTabId = getHeatmapProjectionTabId() || getActiveHeatmapSessionForState()?.tabId || null;
-    if(reporting && typeof reporting.getSignificanceThreshold === 'function'){
-      const threshold = Number(reporting.getSignificanceThreshold({
-        target: state.statsEl || $('heatmapStatsContent'),
-        tabId: ownerTabId
-      }));
-      if(Number.isFinite(threshold) && threshold > 0 && threshold <= 1){
-        return threshold;
-      }
-    }
-    if(!ownerTabId){
-      const liveInput = queryHeatmapRoot('#heatmapStats .stats-significance-controls__input');
-      if(liveInput){
-        const liveThreshold = Number(liveInput.value);
-        if(Number.isFinite(liveThreshold) && liveThreshold > 0 && liveThreshold <= 1){
-          return liveThreshold;
-        }
-      }
-    }
-    return 0.05;
+  function getHeatmapStatsInferenceTabId(){
+    return getHeatmapProjectionTabId() || getActiveHeatmapSessionForState()?.tabId || null;
   }
 
-  function formatHeatmapThresholdLabel(value){
+  function getHeatmapSignificanceMethod(){
+    const method = String(refs.significanceCorrection?.value || getHeatmapControlState(getActiveHeatmapSessionForState())?.significanceCorrection || 'bh').toLowerCase();
+    return ['bh','by','holm','none'].includes(method) ? method : 'bh';
+  }
+
+  function getHeatmapInferenceLevel(method = getHeatmapSignificanceMethod()){
+    const value = Number(Shared.statsInference?.getComparisonLevel?.({
+      tabId: getHeatmapStatsInferenceTabId(),
+      method
+    }));
+    if(Number.isFinite(value) && value > 0 && value < 1){
+      return value;
+    }
+    const semantics = Shared.statsInference?.getMethodSemantics?.(method);
+    return semantics?.criterion === 'fdr'
+      ? (Shared.statsInference?.DEFAULT_TARGET_FDR || 0.05)
+      : (Shared.statsInference?.DEFAULT_ALPHA || 0.05);
+  }
+
+  function formatHeatmapInferenceLevelLabel(value){
     const numeric = Number(value);
-    if(!Number.isFinite(numeric)){
-      return '0.05';
+    if(typeof Shared.statsInference?.formatLevel === 'function'){
+      return Shared.statsInference.formatLevel(Number.isFinite(numeric) ? numeric : 0.05);
     }
-    if(Shared.statsReporting && typeof Shared.statsReporting.formatThresholdLabel === 'function'){
-      return Shared.statsReporting.formatThresholdLabel(numeric);
-    }
-    if(numeric >= 0.01){
-      return numeric.toFixed(3).replace(/0+$/, '').replace(/\.$/, '');
-    }
-    return String(numeric);
+    return Number.isFinite(numeric) ? String(numeric) : '0.05';
   }
 
   function bindHeatmapControlHandler(node, eventName, key, handler, options){
@@ -4761,9 +4755,25 @@
       scheduleActiveHeatmapDraw({ viewOnly: true, reason: reason || 'user-view-only-change', userInitiated: true });
     };
     const materialize = reason => {
+      if(state.suspendControlSchedule || state.suspendDataViewMaterialization){
+        return false;
+      }
       syncControlsBeforeSchedule();
       return materializeHeatmapSelectionToDataView(reason);
     };
+
+    const statsInferenceHost = $('heatmapStatsInferenceControls');
+    if(statsInferenceHost && typeof Shared.statsInference?.mountControls === 'function'){
+      Shared.statsInference.mountControls(statsInferenceHost, {
+        tabId: () => getHeatmapStatsInferenceTabId(),
+        method: () => getHeatmapSignificanceMethod(),
+        includeOverall: false,
+        includeComparisons: () => String(refs.view?.value || '').startsWith('corr'),
+        compact: true,
+        source: 'heatmap-stats-inference',
+        onChange: ({ key }) => scheduleViewOnly(`stats-inference-${key}-change`)
+      });
+    }
 
     const syncCorrelationClusteringControls = (view) => {
       if(view === 'corr-columns'){
@@ -4793,6 +4803,7 @@
         : null;
       const previousWasCorrelation = previousViewState ? previousViewState.startsWith('corr') : null;
       const enteringDataValues = !isCorrelation && previousWasCorrelation !== false;
+      Shared.statsInference?.refreshMountedControls?.(getHeatmapStatsInferenceTabId());
       syncCorrelationClusteringControls(view);
       const correlationOnlyRows = resolveHeatmapRoot()?.querySelectorAll?.('.heatmap-correlation-only') || [];
       correlationOnlyRows.forEach(row => {
@@ -5246,20 +5257,6 @@
     });
     refreshHeatmapExportControls();
 
-    const statsPanel = $('heatmapStats');
-    const handleStatsThresholdInteraction = event => {
-      const target = event?.target;
-      if(!(target instanceof global.HTMLElement)){
-        return;
-      }
-      if(!target.closest?.('.stats-significance-controls__input')){
-        return;
-      }
-      debugLog('Debug: heatmap significance threshold changed', { value: target.value || null });
-      scheduleViewOnly('stats-threshold');
-    };
-    bindHeatmapControlHandler(statsPanel, 'input', 'stats-threshold-input', handleStatsThresholdInteraction, true);
-    bindHeatmapControlHandler(statsPanel, 'change', 'stats-threshold-change', handleStatsThresholdInteraction, true);
     if(typeof global.addEventListener === 'function'){
       global.addEventListener('stats:pvalue-format-change', event => {
         const targetId = event?.detail?.targetId || null;
@@ -6535,7 +6532,7 @@
       showSignificance: isCorrelation ? !!controls.showSignificance : false,
       significanceDisplay: controls.significanceDisplay,
       significanceCorrection: controls.significanceCorrection || 'bh',
-      significanceThreshold: getHeatmapSignificanceThreshold(),
+      inferenceLevel: getHeatmapInferenceLevel(controls.significanceCorrection || 'bh'),
       cellSize: controls.cellSize,
       fontSize: controls.fontSize,
       palette: getHeatmapPalette(session || getActiveHeatmapSessionForState()),
@@ -6574,7 +6571,7 @@
       showSignificance: settings.showSignificance,
       significanceDisplay: settings.significanceDisplay,
       significanceCorrection: settings.significanceCorrection || 'bh',
-      significanceThreshold: settings.significanceThreshold,
+      inferenceLevel: settings.inferenceLevel,
       cellSize: settings.cellSize,
       fontSize: settings.fontSize,
       palette: settings.palette,
@@ -8512,7 +8509,9 @@
           cellWidth: horizontal.heatmapWidth / columnCount,
           cellHeight: heatmapHeight / rowCount,
           maxRowLabelFontSize: rowFontSize,
-          maxColumnLabelFontSize: columnFontSize
+          maxColumnLabelFontSize: columnFontSize,
+          rowLabelDisplaySizeOverride: options.rowLabelDisplaySizeOverride === true,
+          columnLabelDisplaySizeOverride: options.columnLabelDisplaySizeOverride === true
         },
         scaleX: rawScaleX,
         scaleY: rawScaleY,
@@ -9071,6 +9070,7 @@
     const normalizedHeavyScene = metrics?.normalizedHeavyScene === true;
     const cellWidth = Number(metrics?.cellWidth);
     const cellHeight = Number(metrics?.cellHeight);
+    const cellSize = Number(metrics?.cellSize);
     const rowFont = Number(metrics?.maxRowLabelFontSize);
     const columnFont = Number(metrics?.maxColumnLabelFontSize);
     const layoutRowLabelScale = Number(metrics?.rowLabelDisplayScale);
@@ -9078,65 +9078,63 @@
     const layoutCorrelationLabelScale = Number(metrics?.correlationLabelDisplayScale);
     const hasLayoutCorrelationLabelScale = Number.isFinite(layoutCorrelationLabelScale)
       && layoutCorrelationLabelScale > 0;
+    const rowLabelDisplaySizeOverride = metrics?.rowLabelDisplaySizeOverride === true;
+    const columnLabelDisplaySizeOverride = metrics?.columnLabelDisplaySizeOverride === true;
     const glyphExtentFactor = 1.15;
-    const resolveColumnLabelScale = () => {
+    const fitScale = (value, minimum) => Number.isFinite(value) && value > 0
+      ? Math.max(minimum, Math.min(1, value))
+      : 1;
+    const resolveRowLabelScale = () => {
+      if(hasLayoutRowLabelScale){
+        return layoutRowLabelScale;
+      }
       if(normalizedHeavyScene){
-        const value = (cellWidth * (Number.isFinite(scaleX) ? scaleX : 1))
-          / (columnFont * glyphExtentFactor);
-        return Number.isFinite(value) && value > 0
-          ? Math.max(0.0001, Math.min(1, value))
-          : 1;
+        return fitScale(
+          (cellHeight * (Number.isFinite(scaleY) ? scaleY : 1)) / (rowFont * glyphExtentFactor),
+          0.0001
+        );
       }
       if(!downsized){
         return baseScale;
       }
-      const value = (Number(metrics?.cellSize) * scaleX) / (columnFont * glyphExtentFactor);
-      return Number.isFinite(value) && value > 0
-        ? Math.max(0.02, Math.min(1, value))
-        : 1;
+      return fitScale((cellSize * scaleY) / (rowFont * glyphExtentFactor), 0.02);
     };
+    const resolveColumnLabelScale = () => {
+      if(normalizedHeavyScene){
+        return fitScale(
+          (cellWidth * (Number.isFinite(scaleX) ? scaleX : 1)) / (columnFont * glyphExtentFactor),
+          0.0001
+        );
+      }
+      if(!downsized){
+        return baseScale;
+      }
+      return fitScale((cellSize * scaleX) / (columnFont * glyphExtentFactor), 0.02);
+    };
+    const rowLabelScale = resolveRowLabelScale();
     const columnLabelScale = resolveColumnLabelScale();
-    const correlationLabelScale = !opts.independentLabels
-      ? (hasLayoutCorrelationLabelScale ? layoutCorrelationLabelScale : columnLabelScale)
-      : null;
-    if(normalizedHeavyScene){
-      const fitHeavyScale = value => Number.isFinite(value) && value > 0
-        ? Math.max(0.0001, Math.min(1, value))
-        : 1;
+
+    // Correlation heatmaps normally keep row and column labels on one automatic
+    // projection scale. A manual display-sized override is different: that role
+    // must stay at the requested visible size without forcing the opposite role
+    // onto the same scale.
+    if(!opts.independentLabels && !rowLabelDisplaySizeOverride && !columnLabelDisplaySizeOverride){
+      const correlationLabelScale = hasLayoutCorrelationLabelScale
+        ? layoutCorrelationLabelScale
+        : columnLabelScale;
       return {
-        rowLabel: opts.independentLabels
-          ? (hasLayoutRowLabelScale
-            ? layoutRowLabelScale
-            : fitHeavyScale((cellHeight * (Number.isFinite(scaleY) ? scaleY : 1)) / (rowFont * glyphExtentFactor)))
-          : correlationLabelScale,
-        columnLabel: opts.independentLabels ? columnLabelScale : correlationLabelScale,
-        graphTitle: 1,
-        scaleTick: 1
+        rowLabel: correlationLabelScale,
+        columnLabel: correlationLabelScale,
+        graphTitle: normalizedHeavyScene || downsized ? 1 : baseScale,
+        scaleTick: normalizedHeavyScene || downsized ? 1 : baseScale
       };
     }
-    if(!downsized){
-      return {
-        rowLabel: opts.independentLabels
-          ? (hasLayoutRowLabelScale ? layoutRowLabelScale : baseScale)
-          : correlationLabelScale,
-        columnLabel: opts.independentLabels ? columnLabelScale : correlationLabelScale,
-        graphTitle: baseScale,
-        scaleTick: baseScale
-      };
-    }
-    const cellSize = Number(metrics?.cellSize);
-    const fitScale = value => Number.isFinite(value) && value > 0
-      ? Math.max(0.02, Math.min(1, value))
-      : 1;
+
     return {
-      rowLabel: opts.independentLabels
-        ? (hasLayoutRowLabelScale
-          ? layoutRowLabelScale
-          : fitScale((cellSize * scaleY) / (rowFont * glyphExtentFactor)))
-        : correlationLabelScale,
-      columnLabel: opts.independentLabels ? columnLabelScale : correlationLabelScale,
-      graphTitle: 1,
-      scaleTick: 1
+      rowLabel: rowLabelDisplaySizeOverride ? 1 : rowLabelScale,
+      columnLabel: columnLabelDisplaySizeOverride ? 1 : columnLabelScale,
+      graphTitle: normalizedHeavyScene || downsized ? 1 : baseScale,
+      scaleTick: normalizedHeavyScene || downsized ? 1 : baseScale
     };
   }
 
@@ -9312,9 +9310,15 @@
       const roleTextScale = role === 'scaleTitle'
         ? heatmapRoleTextScales?.scaleTick
         : heatmapRoleTextScales?.[role];
+      const hasManualDisplaySize = text.dataset?.heatmapFontSizeDisplayOverride === 'true';
       const localTextScale = isCellValueText
         ? cellValueTextScale
-        : (Number.isFinite(roleTextScale) && roleTextScale > 0 ? roleTextScale : textScale);
+        : (hasManualDisplaySize
+          ? 1
+          : (Number.isFinite(roleTextScale) && roleTextScale > 0 ? roleTextScale : textScale));
+      if(text.dataset){
+        text.dataset.fontSizeDisplayScale = formatHeatmapExportNumber(localTextScale);
+      }
       const localAdjustX = scaleX > 0 ? localTextScale / scaleX : 1;
       const localAdjustY = scaleY > 0 ? localTextScale / scaleY : 1;
       const needsMatrix = Math.abs(localAdjustX - 1) > 1e-6 || Math.abs(localAdjustY - 1) > 1e-6;
@@ -9331,6 +9335,9 @@
         text.removeAttribute('transform');
       }
       text.removeAttribute('data-heatmap-aspect-corrected');
+    });
+    svg.querySelectorAll?.('text[data-font-size-display-scale-reference]').forEach(text => {
+      fontControls?.applySavedStyle?.(text);
     });
     debugLog('Debug: heatmap text aspect correction applied', {
       scaleX,
@@ -9489,20 +9496,22 @@
         ? stats.significanceCorrection
         : 'none';
       const correctionLabel = correctionLookup[significanceCorrection];
-      const significanceLabel = ['bh', 'by'].includes(significanceCorrection)
-        ? 'q'
-        : (significanceCorrection === 'none' ? 'p' : 'adjusted p');
+      const isFdrCorrection = ['bh', 'by'].includes(significanceCorrection);
+      const significanceLabel = isFdrCorrection
+        ? `${significanceCorrection.toUpperCase()}-adjusted p`
+        : (significanceCorrection === 'none' ? 'p' : 'Holm-adjusted p');
+      const criterionLabel = isFdrCorrection ? 'target FDR' : 'α';
       appendStatRow('Items analysed', String(stats.itemCount || 0));
       appendStatRow('Pairs evaluated', String(stats.pairCount || 0));
       appendStatRow('Method', methodLabel, { trailing: stats.useAbs ? [' (absolute values shown)'] : [] });
       if(stats.showSignificance){
-        const threshold = Number(stats.significanceThreshold);
-        const thresholdText = Number.isFinite(threshold) ? formatHeatmapThresholdLabel(threshold) : 'n/a';
+        const threshold = Number(stats.inferenceLevel);
+        const thresholdText = Number.isFinite(threshold) ? formatHeatmapInferenceLevelLabel(threshold) : 'n/a';
         const testedPairCount = Number.isFinite(Number(stats.testedPairCount))
           ? Number(stats.testedPairCount)
           : Number(stats.pairCount || 0);
-        appendStatRow('Cell significance', correctionLabel, {
-          trailing: [` (${significanceLabel} ≤ ${thresholdText}; ${testedPairCount} unique pairs)`]
+        appendStatRow(isFdrCorrection ? 'Cell discoveries' : 'Cell significance', correctionLabel, {
+          trailing: [` (${criterionLabel} = ${thresholdText}; ${testedPairCount} unique pairs)`]
         });
       }
       if(stats.rowClusterLabel){
@@ -9554,7 +9563,7 @@
       }
       if(Shared.statsReporting && typeof Shared.statsReporting.appendReportPanel === 'function'){
         Shared.statsReporting.appendReportPanel(state.statsEl, {
-          methodsText: `Heatmap correlation statistics were generated from the current numeric matrix using the ${methodLabel} method${stats.useAbs ? '; absolute correlations were displayed while raw signed values were retained where available for reporting' : ''}. Pairwise correlations used the available finite observations for each item pair.${stats.showSignificance ? ` Cell significance was evaluated across ${Number(stats.testedPairCount || stats.pairCount || 0)} unique off-diagonal pairs using ${correctionLabel} at ${significanceLabel} ≤ ${formatHeatmapThresholdLabel(stats.significanceThreshold)}.` : ''} Row and column clustering summaries reflect the clustering options active in the displayed heatmap.`,
+          methodsText: `Heatmap correlation statistics were generated from the current numeric matrix using the ${methodLabel} method${stats.useAbs ? '; absolute correlations were displayed while raw signed values were retained where available for reporting' : ''}. Pairwise correlations used the available finite observations for each item pair.${stats.showSignificance ? ` Cell-level inference was evaluated across ${Number(stats.testedPairCount || stats.pairCount || 0)} unique off-diagonal pairs using ${correctionLabel}; ${criterionLabel} = ${formatHeatmapInferenceLevelLabel(stats.inferenceLevel)}.` : ''} Row and column clustering summaries reflect the clustering options active in the displayed heatmap.`,
           resultsText: [
             `Items analysed = ${stats.itemCount || 0}; pairs evaluated = ${stats.pairCount || 0}.`,
             stats.strongest ? `Strongest |${correlationSymbol}| involved ${Array.isArray(stats.strongest.labels) ? stats.strongest.labels.join(' vs ') : String(stats.strongest.labels || '')}.` : null
@@ -9568,7 +9577,15 @@
             pairCount: stats.pairCount || 0,
             showSignificance: !!stats.showSignificance,
             significanceCorrection,
-            significanceThreshold: Number.isFinite(Number(stats.significanceThreshold)) ? Number(stats.significanceThreshold) : null,
+            inferenceLevel: Number.isFinite(Number(stats.inferenceLevel)) ? Number(stats.inferenceLevel) : null,
+            inference: typeof Shared.statsInference?.createSnapshot === 'function'
+              ? Shared.statsInference.createSnapshot({
+                  tabId:getHeatmapStatsInferenceTabId(),
+                  method:significanceCorrection,
+                  includeOverall:false,
+                  includeComparisons:true
+                })
+              : null,
             testedPairCount: Number(stats.testedPairCount || 0),
             rowClusterLabel: stats.rowClusterLabel || null,
             columnClusterLabel: stats.columnClusterLabel || null
@@ -9686,6 +9703,15 @@
     return numeric;
   }
 
+  function parseHeatmapStoredFontSizePx(style){
+    const rawSize = parseHeatmapFontSizePx(style?.fontSize);
+    if(!Number.isFinite(rawSize)){ return NaN; }
+    const displayScaleReference = Number(style?.fontSizeDisplayScaleReference);
+    return Number.isFinite(displayScaleReference) && displayScaleReference > 0
+      ? rawSize * displayScaleReference
+      : rawSize;
+  }
+
   function resolveHeatmapLabelMetrics({
     rowLabels,
     columnLabels,
@@ -9697,27 +9723,73 @@
     const safeColumns = Array.isArray(columnLabels) ? columnLabels : [];
     const fallbackFontSize = Math.max(1, Number(baseLabelFontSize) || 1);
     const fontStyles = exportFontStyles('heatmap', { tabId: ownerTabId || null }) || null;
-    const graphFontSize = parseHeatmapFontSizePx(fontStyles?.__graph__?.fontSize);
+    const graphStyle = fontStyles?.__graph__;
+    const graphFontSize = parseHeatmapStoredFontSizePx(graphStyle);
+    const rowCollectionToken = fontControls?.getCollectionStyleToken?.('rowLabels') || '__collection__:rowLabels';
+    const columnCollectionToken = fontControls?.getCollectionStyleToken?.('columnLabels') || '__collection__:columnLabels';
+    const rowCollectionStyle = fontStyles?.[rowCollectionToken];
+    const columnCollectionStyle = fontStyles?.[columnCollectionToken];
+    const rowCollectionFontSize = parseHeatmapStoredFontSizePx(rowCollectionStyle);
+    const columnCollectionFontSize = parseHeatmapStoredFontSizePx(columnCollectionStyle);
+    const hasDisplaySizedStyle = style => Number.isFinite(Number(style?.fontSizeDisplayScaleReference))
+      && Number(style.fontSizeDisplayScaleReference) > 0;
+    const graphDisplaySizeOverride = hasDisplaySizedStyle(graphStyle);
+    const rowLabelDisplaySizeOverride = graphDisplaySizeOverride || hasDisplaySizedStyle(rowCollectionStyle);
+    const columnLabelDisplaySizeOverride = graphDisplaySizeOverride || hasDisplaySizedStyle(columnCollectionStyle);
     const scaleFontSize = Number(chartStyle.resolveScopedLabelMeasureFont?.({
       styles: fontStyles,
       collection: 'scale',
       fallbackPx: Math.max(8, Math.round((Number(scaledFontSize) || fallbackFontSize) * 0.9))
     })?.fontSizePx) || Math.max(8, Math.round((Number(scaledFontSize) || fallbackFontSize) * 0.9));
-    const resolveLabelFontSize = (key, fallback) => {
-      const override = parseHeatmapFontSizePx(fontStyles?.[key]?.fontSize);
-      if(Number.isFinite(override)){
-        return override;
+    const resolveInheritedLabelFontSize = (fallback, collectionFontSize = NaN) => {
+      if(Number.isFinite(collectionFontSize)){
+        return collectionFontSize;
       }
       return Number.isFinite(graphFontSize) ? graphFontSize : fallback;
     };
-    const rowFontSizes = safeRows.map((_, index) => resolveLabelFontSize(`row-label-${index}`, fallbackFontSize));
-    const columnFontSizes = safeColumns.map((_, index) => resolveLabelFontSize(`column-label-${index}`, fallbackFontSize));
+    const resolveLabelFontSize = (key, fallback, collectionFontSize = NaN) => {
+      const override = parseHeatmapStoredFontSizePx(fontStyles?.[key]);
+      return Number.isFinite(override)
+        ? override
+        : resolveInheritedLabelFontSize(fallback, collectionFontSize);
+    };
+    const rowInheritedFontSize = resolveInheritedLabelFontSize(fallbackFontSize, rowCollectionFontSize);
+    const columnInheritedFontSize = resolveInheritedLabelFontSize(fallbackFontSize, columnCollectionFontSize);
+    const rowLabelDisplaySizeOverrides = safeRows.map((_, index) => (
+      rowLabelDisplaySizeOverride || hasDisplaySizedStyle(fontStyles?.[`row-label-${index}`])
+    ));
+    const columnLabelDisplaySizeOverrides = safeColumns.map((_, index) => (
+      columnLabelDisplaySizeOverride || hasDisplaySizedStyle(fontStyles?.[`column-label-${index}`])
+    ));
+    const rowFontSizes = safeRows.map((_, index) => resolveLabelFontSize(
+      `row-label-${index}`,
+      fallbackFontSize,
+      rowCollectionFontSize
+    ));
+    const columnFontSizes = safeColumns.map((_, index) => resolveLabelFontSize(
+      `column-label-${index}`,
+      fallbackFontSize,
+      columnCollectionFontSize
+    ));
+    // Per-label display-sized overrides must not participate in the automatic
+    // role-wide fit calculation. Otherwise changing one selected label changes
+    // the projection scale of every sibling label.
+    const rowAutoFontSizes = rowFontSizes.map((value, index) => (
+      !rowLabelDisplaySizeOverride && rowLabelDisplaySizeOverrides[index]
+        ? rowInheritedFontSize
+        : value
+    ));
+    const columnAutoFontSizes = columnFontSizes.map((value, index) => (
+      !columnLabelDisplaySizeOverride && columnLabelDisplaySizeOverrides[index]
+        ? columnInheritedFontSize
+        : value
+    ));
     const titleFontSize = resolveLabelFontSize(
       'graphTitle',
       Number.isFinite(graphFontSize) ? graphFontSize : (Number(scaledFontSize) || fallbackFontSize)
     );
-    const maxRowFontSize = rowFontSizes.reduce((maxValue, value) => Math.max(maxValue, value), fallbackFontSize);
-    const maxColumnFontSize = columnFontSizes.reduce((maxValue, value) => Math.max(maxValue, value), fallbackFontSize);
+    const maxRowFontSize = rowAutoFontSizes.reduce((maxValue, value) => Math.max(maxValue, value), fallbackFontSize);
+    const maxColumnFontSize = columnAutoFontSizes.reduce((maxValue, value) => Math.max(maxValue, value), fallbackFontSize);
     const measureFonts = new Map();
     let measureFailureLogged = false;
     const resolveMeasureFont = size => {
@@ -9747,16 +9819,20 @@
       graphFontSize,
       rowFontSizes,
       columnFontSizes,
+      rowLabelDisplaySizeOverrides,
+      columnLabelDisplaySizeOverrides,
       titleFontSize,
       scaleFontSize,
       maxRowFontSize,
       maxColumnFontSize,
+      rowLabelDisplaySizeOverride,
+      columnLabelDisplaySizeOverride,
       maxRowLabelWidth: safeRows.reduce(
-        (maxValue, label, index) => Math.max(maxValue, measureWidth(label, rowFontSizes[index])),
+        (maxValue, label, index) => Math.max(maxValue, measureWidth(label, rowAutoFontSizes[index])),
         0
       ),
       maxColumnLabelWidth: safeColumns.reduce(
-        (maxValue, label, index) => Math.max(maxValue, measureWidth(label, columnFontSizes[index])),
+        (maxValue, label, index) => Math.max(maxValue, measureWidth(label, columnAutoFontSizes[index])),
         0
       )
     };
@@ -10036,7 +10112,9 @@
           cellWidth: cellSize,
           cellHeight: cellSize,
           maxRowLabelFontSize,
-          maxColumnLabelFontSize
+          maxColumnLabelFontSize,
+          rowLabelDisplaySizeOverride: options.rowLabelDisplaySizeOverride === true,
+          columnLabelDisplaySizeOverride: options.columnLabelDisplaySizeOverride === true
         },
         scaleX: projection.rawScaleX,
         scaleY: projection.rawScaleY,
@@ -10262,6 +10340,8 @@
     orderedColumnLabels,
     rowLabelFontSizes,
     columnLabelFontSizes,
+    rowLabelDisplaySizeOverrides,
+    columnLabelDisplaySizeOverrides,
     uniformRowLabelFontSize,
     uniformColumnLabelFontSize,
     matrixLeft,
@@ -10284,6 +10364,12 @@
       columnLabels: Array.isArray(orderedColumnLabels) ? orderedColumnLabels.slice() : [],
       rowLabelFontSizes: Array.isArray(rowLabelFontSizes) ? rowLabelFontSizes.slice() : [],
       columnLabelFontSizes: Array.isArray(columnLabelFontSizes) ? columnLabelFontSizes.slice() : [],
+      rowLabelDisplaySizeOverrides: Array.isArray(rowLabelDisplaySizeOverrides)
+        ? rowLabelDisplaySizeOverrides.map(Boolean)
+        : [],
+      columnLabelDisplaySizeOverrides: Array.isArray(columnLabelDisplaySizeOverrides)
+        ? columnLabelDisplaySizeOverrides.map(Boolean)
+        : [],
       uniformRowLabelFontSize: Number.isFinite(uniformRowLabelFontSize) ? uniformRowLabelFontSize : null,
       uniformColumnLabelFontSize: Number.isFinite(uniformColumnLabelFontSize) ? uniformColumnLabelFontSize : null,
       matrixLeft: Number(matrixLeft) || 0,
@@ -10393,6 +10479,8 @@
     text.dataset.fontScope = 'heatmap';
     text.dataset.fontRole = role;
     text.dataset.fontKey = key;
+    text.dataset.fontCollection = role === 'rowLabel' ? 'rowLabels' : 'columnLabels';
+    text.dataset.fontCollectionLabel = role === 'rowLabel' ? 'Row labels' : 'Column labels';
     if(ownerTabId){
       text.dataset.fontTabId = String(ownerTabId);
     }
@@ -10424,7 +10512,8 @@
     rowGroup.setAttribute('text-anchor', 'start');
     const rowFragment = doc.createDocumentFragment();
     projection.rowLabels.forEach((label, index) => {
-      const text = cloneHeatmapProjectionLabel(doc, sourceRowsByIndex.get(index));
+      const sourceText = sourceRowsByIndex.get(index) || null;
+      const text = cloneHeatmapProjectionLabel(doc, sourceText);
       const x = projection.dataStartX + projection.heatmapWidth + projection.labelPaddingX;
       const y = projection.dataStartY + index * projection.cellHeight + projection.cellHeight / 2;
       text.setAttribute('x', formatHeatmapExportNumber(x));
@@ -10436,15 +10525,21 @@
         `row-label-${index}`,
         projection.ownerTabId
       );
+      if(projection.rowLabelDisplaySizeOverrides?.[index] && text.dataset){
+        text.dataset.heatmapFontSizeDisplayOverride = 'true';
+        text.dataset.fontSizeDisplayScale = '1';
+      }
       if(!Number.isFinite(projection.uniformRowLabelFontSize)){
         const fontSize = Number(projection.rowLabelFontSizes[index]);
         if(Number.isFinite(fontSize)){
           text.setAttribute('font-size', formatHeatmapExportNumber(fontSize));
         }
       }
-      const transform = buildHeatmapProjectionTextTransform({ x, y, scale: rowScale });
-      if(transform){
-        text.setAttribute('transform', transform);
+      if(!sourceText){
+        const transform = buildHeatmapProjectionTextTransform({ x, y, scale: rowScale });
+        if(transform){
+          text.setAttribute('transform', transform);
+        }
       }
       text.textContent = label == null ? '' : String(label);
       fontControls?.applySavedStyle?.(text);
@@ -10453,7 +10548,8 @@
     rowGroup.appendChild(rowFragment);
     const columnFragment = doc.createDocumentFragment();
     projection.columnLabels.forEach((label, index) => {
-      const text = cloneHeatmapProjectionLabel(doc, sourceColumnsByIndex.get(index));
+      const sourceText = sourceColumnsByIndex.get(index) || null;
+      const text = cloneHeatmapProjectionLabel(doc, sourceText);
       const x = projection.dataStartX + index * projection.cellWidth + projection.cellWidth / 2;
       const y = projection.matrixTop + projection.labelRowHeight - projection.labelPaddingY;
       text.setAttribute('x', formatHeatmapExportNumber(x));
@@ -10465,21 +10561,27 @@
         `column-label-${index}`,
         projection.ownerTabId
       );
+      if(projection.columnLabelDisplaySizeOverrides?.[index] && text.dataset){
+        text.dataset.heatmapFontSizeDisplayOverride = 'true';
+        text.dataset.fontSizeDisplayScale = '1';
+      }
       if(!Number.isFinite(projection.uniformColumnLabelFontSize)){
         const fontSize = Number(projection.columnLabelFontSizes[index]);
         if(Number.isFinite(fontSize)){
           text.setAttribute('font-size', formatHeatmapExportNumber(fontSize));
         }
       }
-      const baseTransform = `rotate(-90 ${formatHeatmapExportNumber(x)} ${formatHeatmapExportNumber(y)})`;
-      const transform = buildHeatmapProjectionTextTransform({
-        x,
-        y,
-        baseTransform,
-        scale: columnScale
-      });
-      if(transform){
-        text.setAttribute('transform', transform);
+      if(!sourceText){
+        const baseTransform = `rotate(-90 ${formatHeatmapExportNumber(x)} ${formatHeatmapExportNumber(y)})`;
+        const transform = buildHeatmapProjectionTextTransform({
+          x,
+          y,
+          baseTransform,
+          scale: columnScale
+        });
+        if(transform){
+          text.setAttribute('transform', transform);
+        }
       }
       text.textContent = label == null ? '' : String(label);
       fontControls?.applySavedStyle?.(text);
@@ -10684,10 +10786,14 @@
       graphFontSize,
       rowFontSizes: rowLabelFontSizes,
       columnFontSizes: columnLabelFontSizes,
+      rowLabelDisplaySizeOverrides,
+      columnLabelDisplaySizeOverrides,
       titleFontSize,
       scaleFontSize,
       maxRowFontSize: maxRowLabelFontSize,
       maxColumnFontSize: maxColumnLabelFontSize,
+      rowLabelDisplaySizeOverride,
+      columnLabelDisplaySizeOverride,
       maxRowLabelWidth,
       maxColumnLabelWidth
     } = labelMetrics;
@@ -10701,6 +10807,8 @@
           maxColumnLabelWidth,
           maxRowLabelFontSize,
           maxColumnLabelFontSize,
+          rowLabelDisplaySizeOverride,
+          columnLabelDisplaySizeOverride,
           titleFontSize,
           scaleFontSize,
           showRowDendrogram: !!(showRowDendrogram && rowClustering?.tree),
@@ -10723,6 +10831,8 @@
       scaleFontSize,
       maxRowLabelFontSize,
       maxColumnLabelFontSize,
+      rowLabelDisplaySizeOverride,
+      columnLabelDisplaySizeOverride,
       maxRowLabelWidth,
       maxColumnLabelWidth,
       showRowDendrogram: !!(showRowDendrogram && rowClustering?.tree),
@@ -10860,6 +10970,8 @@
       baseLabelFontSize,
       maxRowLabelFontSize,
       maxColumnLabelFontSize,
+      rowLabelDisplaySizeOverride,
+      columnLabelDisplaySizeOverride,
       labelPaddingX,
       labelPaddingY,
       labelDescenderPadY,
@@ -10923,6 +11035,10 @@
         text.setAttribute('font-size', String(labelFontSize));
       }
       text.textContent = label;
+      if(rowLabelDisplaySizeOverrides[index] && text.dataset){
+        text.dataset.heatmapFontSizeDisplayOverride = 'true';
+        text.dataset.fontSizeDisplayScale = '1';
+      }
       markDenseHeatmapLabel(text, 'rowLabel', `row-label-${index}`, ownerTabId);
       rowLabelFragment.appendChild(text);
     });
@@ -10942,6 +11058,10 @@
       }
       text.setAttribute('transform', `rotate(-90 ${x} ${y})`);
       text.textContent = label;
+      if(columnLabelDisplaySizeOverrides[index] && text.dataset){
+        text.dataset.heatmapFontSizeDisplayOverride = 'true';
+        text.dataset.fontSizeDisplayScale = '1';
+      }
       markDenseHeatmapLabel(text, 'columnLabel', `column-label-${index}`, ownerTabId);
       columnLabelFragment.appendChild(text);
     });
@@ -10951,6 +11071,8 @@
       orderedColumnLabels,
       rowLabelFontSizes,
       columnLabelFontSizes,
+      rowLabelDisplaySizeOverrides,
+      columnLabelDisplaySizeOverrides,
       uniformRowLabelFontSize,
       uniformColumnLabelFontSize,
       matrixLeft,
@@ -11095,6 +11217,23 @@
     // points to CSS pixels at the shared 96-DPI export boundary.
     const autoScaledThickness = Math.max(1, Math.min(3, Math.round(effectiveCellSize * 0.025 * 10) / 10));
     const dendroSettings = getHeatmapDendrogramSettings(ownerSession);
+    state.svg.setAttribute('data-parameter-config-cell-size', String(cellSize));
+    state.svg.setAttribute('data-parameter-config-font-size', String(fontSize));
+    state.svg.setAttribute('data-parameter-config-dendrogram-mode', dendroSettings.mode);
+    state.svg.setAttribute('data-parameter-config-dendrogram-thickness-pt', String(dendroSettings.thicknessPt));
+    state.svg.setAttribute('data-parameter-config-dendrogram-color', dendroSettings.color);
+    const renderedControls = getHeatmapControlState(ownerSession);
+    const renderedPalette = getHeatmapPalette(ownerSession);
+    state.svg.setAttribute('data-parameter-config-adjust-center-rows', renderedControls.adjust.centerRowsMode || '');
+    state.svg.setAttribute('data-parameter-config-adjust-center-columns', renderedControls.adjust.centerColumnsMode || '');
+    state.svg.setAttribute('data-parameter-config-use-absolute', String(renderedControls.useAbsolute));
+    state.svg.setAttribute('data-parameter-config-filters-abs-enabled', String(renderedControls.filters.absEnabled));
+    state.svg.setAttribute('data-parameter-config-filters-sd-enabled', String(renderedControls.filters.sdEnabled));
+    state.svg.setAttribute('data-parameter-config-clustering-rows-enabled', String(renderedControls.clustering.rows.enabled));
+    state.svg.setAttribute('data-parameter-config-clustering-columns-metric', renderedControls.clustering.columns.metric);
+    state.svg.setAttribute('data-parameter-config-colors-negative', renderedPalette.negative);
+    state.svg.setAttribute('data-parameter-config-colors-zero', renderedPalette.zero);
+    state.svg.setAttribute('data-parameter-config-colors-positive', renderedPalette.positive);
     const dendrogramStroke = resolveHeatmapDendrogramStrokeWidthCssPx(dendroSettings, autoScaledThickness);
     const scaleStroke = 1;
     const scaleGroup = doc.createElementNS(NS, 'g');
@@ -11202,9 +11341,15 @@
       maxColumnLabelFontSize,
       maxRowLabelWidth,
       maxColumnLabelWidth,
+      rowLabelDisplaySizeOverride,
+      columnLabelDisplaySizeOverride,
       labelColumnWidth,
       rowLabelDisplayScale,
-      correlationLabelDisplayScale: modelType === 'correlation' ? rowLabelDisplayScale : null,
+      correlationLabelDisplayScale: modelType === 'correlation'
+        && !rowLabelDisplaySizeOverride
+        && !columnLabelDisplaySizeOverride
+        ? rowLabelDisplayScale
+        : null,
       labelRowHeight,
       labelPaddingX,
       labelPaddingY,
@@ -11616,6 +11761,7 @@
     if(modelType === 'values' && resizerAspectLocked){
       enforceHeatmapLockedProjection(svgBox);
     }
+    applyHeatmapTextAspect('heatmap-text-correction-committed');
     state.layout?.syncPanels?.({ skipSchedule: true });
     if(modelType === 'values' && resizerAspectLocked){
       svgBox?.__sharedResizableBoxApi?.calibrateLockedGeometryConstraint?.();
@@ -11785,7 +11931,7 @@
           mostNegative: settings.useAbsolute ? null : mostNegative,
           showSignificance: !!settings.showSignificance,
           significanceCorrection,
-          significanceThreshold: settings.significanceThreshold,
+          inferenceLevel: settings.inferenceLevel,
           testedPairCount: pairCells.length,
           rowClusterLabel: resolvedCluster && clusterConfig.enabled
             ? `${clusterConfig.metric} (${settings.clustering.linkage})`
@@ -11981,6 +12127,11 @@
     };
   }
 
+  function getHeatmapDecisionMarker(viewOptions){
+    const correction=String(viewOptions?.significanceCorrection || 'none').toLowerCase();
+    return correction==='bh' || correction==='by' ? 'D' : '*';
+  }
+
   function formatHeatmapCorrelationCellText(cell, viewOptions){
     if(!viewOptions){
       return '';
@@ -11991,14 +12142,14 @@
     const effectivePValue = viewOptions.significanceCorrection === 'none' ? pValue : adjustedPValue;
     const showValues = !!viewOptions.showValues;
     const showSignificance = !!viewOptions.showSignificance;
-    const significanceThreshold = Number(viewOptions.significanceThreshold);
+    const inferenceLevel = Number(viewOptions.inferenceLevel);
     const significant = showSignificance
       && Number.isFinite(effectivePValue)
-      && Number.isFinite(significanceThreshold)
-      && effectivePValue <= significanceThreshold;
+      && Number.isFinite(inferenceLevel)
+      && effectivePValue <= inferenceLevel;
     if(showValues && Number.isFinite(value)){
       const base = value.toFixed(viewOptions.decimals ?? 2);
-      return significant ? `${base}*` : base;
+      return significant ? `${base} ${getHeatmapDecisionMarker(viewOptions)}` : base;
     }
     if(!showSignificance || !significant){
       return '';
@@ -12006,7 +12157,7 @@
     if(viewOptions.significanceDisplay === 'pvalue'){
       return formatHeatmapPValue(effectivePValue);
     }
-    return '*';
+    return getHeatmapDecisionMarker(viewOptions);
   }
 
   function buildDrawPayloadFromModel(model, viewOptions){
@@ -12025,7 +12176,10 @@
         const pValue = Number(cell?.pValue);
         const adjustedPValue = Number(cell?.adjustedPValue);
         const effectivePValue = viewOptions.significanceCorrection === 'none' ? pValue : adjustedPValue;
-        const significanceLabel = viewOptions.significanceCorrection === 'none' ? 'p' : (['bh','by'].includes(viewOptions.significanceCorrection) ? 'q' : 'adjusted p');
+        const isFdrCorrection = ['bh','by'].includes(viewOptions.significanceCorrection);
+        const significanceLabel = viewOptions.significanceCorrection === 'none'
+          ? 'p'
+          : (isFdrCorrection ? `${String(viewOptions.significanceCorrection).toUpperCase()}-adjusted p` : 'Holm-adjusted p');
         const displayValue = Number.isFinite(raw)
           ? (viewOptions.useAbsolute ? Math.abs(raw) : raw)
           : NaN;
@@ -12038,11 +12192,15 @@
           parts.push(`(n = ${count})`);
         }
         if(Number.isFinite(pValue)){
-          const thresholdLabel = formatHeatmapThresholdLabel(viewOptions.significanceThreshold);
+          const thresholdLabel = formatHeatmapInferenceLevelLabel(viewOptions.inferenceLevel);
           const effectiveExpression = Number.isFinite(effectivePValue)
             ? formatHeatmapPExpression(effectivePValue, { label: significanceLabel })
             : `${significanceLabel} = n/a`;
-          parts.push(`(${formatHeatmapPExpression(pValue, { label: 'raw p' })}, ${effectiveExpression}${Number.isFinite(effectivePValue) ? `, ${effectivePValue <= viewOptions.significanceThreshold ? 'significant' : 'not significant'} at ${significanceLabel} ≤ ${thresholdLabel}` : ''})`);
+          const decisionText = isFdrCorrection
+            ? (effectivePValue <= viewOptions.inferenceLevel ? 'discovery' : 'no discovery')
+            : (effectivePValue <= viewOptions.inferenceLevel ? 'significant' : 'not significant');
+          const criterionText = isFdrCorrection ? 'target FDR' : 'α';
+          parts.push(`(${formatHeatmapPExpression(pValue, { label: 'raw p' })}, ${effectiveExpression}${Number.isFinite(effectivePValue) ? `, ${decisionText} at ${criterionText} = ${thresholdLabel}` : ''})`);
         }
         return {
           fill,
@@ -12675,12 +12833,7 @@
           : true,
         showSignificance: config.showSignificance,
         significanceDisplay: config.significanceDisplay,
-        // Archives created before correlation-family correction existed used raw p values.
-        // Preserve that legacy visual/statistical contract on reopen; new workspaces
-        // still default to BH through normalizeHeatmapControlState/createEmptyPayload.
-        significanceCorrection: Object.prototype.hasOwnProperty.call(config, 'significanceCorrection')
-          ? config.significanceCorrection
-          : 'none',
+        significanceCorrection: config.significanceCorrection,
         decimals: config.decimals,
         cellSize: config.cellSize,
         fontSize: config.fontSize,
@@ -14636,10 +14789,13 @@
     const runtime = getHeatmapDrawRuntime(session, { seedFromActive: !session });
     const hasDeferredOptions = !!runtime?.deferredOptions;
     const hasFlushHandle = !!runtime?.deferredDrawReplayHandle;
+    const materialization = session?.timers?.materialization || null;
+    const hasMaterialization = materialization?.frameHandle != null || !!materialization?.task;
     const isActiveOwner = !!session && isHeatmapSessionActiveForModuleState(session);
     return !runtime?.scheduled
       && !runtime?.inProgress
       && !(isActiveOwner && state.isRendering)
+      && !hasMaterialization
       && !hasFlushHandle
       && !hasDeferredOptions;
   };

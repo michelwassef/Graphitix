@@ -43,13 +43,17 @@ test('box first UI edit commit renders value immediately', async ({ page }) => {
     }
     hot.setDataAtCell([[visualRow, targetCol, '']], 'e2e-seed-clear');
     hot.gridApi?.ensureColumnVisible?.(`c${targetCol}`);
-    return { row: visualRow, col: targetCol };
+    return {
+      row: visualRow,
+      bodyRow: visualRow - (Number(hot.getSettings?.().fixedRowsTop) || 0),
+      col: targetCol
+    };
   });
   expect(target).toBeTruthy();
   expect(target.row).toBeGreaterThanOrEqual(0);
   expect(target.col).toBeGreaterThanOrEqual(0);
 
-  const cell = page.locator(`#hot .ag-center-cols-container .ag-row[row-index="${target.row}"] .ag-cell[col-id="c${target.col}"]`).first();
+  const cell = page.locator(`#hot .ag-center-cols-container .ag-row[row-index="${target.bodyRow}"] .ag-cell[col-id="c${target.col}"]`).first();
   await expect(cell).toBeVisible();
   await cell.dblclick();
   await page.keyboard.type('9');
@@ -70,7 +74,7 @@ test('box first UI edit commit renders value immediately', async ({ page }) => {
       }
       const value = api.getValue(`c${colIndex}`, node);
       return value == null ? '' : String(value).trim();
-    }, { rowIndex: target.row, colIndex: target.col });
+    }, { rowIndex: target.bodyRow, colIndex: target.col });
   }, {
     timeout: 15_000,
     intervals: [200, 400, 800]

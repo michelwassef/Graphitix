@@ -48,23 +48,6 @@
     });
   }
 
-  function applyExistingPieOwnedRuntimeRecord(tabLike = null, meta = {}){
-    const snapshot = getPieRuntimeOwner()?.bind(null, {
-      ...(meta || {}),
-      tab: tabLike || meta?.tab || null,
-      componentKey: 'pie',
-      reason: meta?.reason || 'pie-owned-runtime-activate-apply'
-    });
-    if(!snapshot || typeof pie.applyRuntimeState !== 'function'){
-      return false;
-    }
-    return pie.applyRuntimeState(snapshot, {
-      ...(meta || {}),
-      reason: meta?.reason || 'pie-owned-runtime-activate-apply'
-    });
-  }
-
-
   const chartStyle = Shared.chartStyle = Shared.chartStyle || {};
   const fontControls = Shared.fontControls = Shared.fontControls || {};
   const notesHelper = Shared.notes = Shared.notes || {};
@@ -210,7 +193,6 @@
   const DEFAULT_MINOR_TICK_SUBDIVISIONS = Number.isFinite(chartStyle.DEFAULT_MINOR_TICK_SUBDIVISIONS)
     ? chartStyle.DEFAULT_MINOR_TICK_SUBDIVISIONS
     : 3;
-  const PIE_STATS_DEFAULT_ALPHA = 0.05;
   const PIE_STATS_DEFAULT_CORRECTION = 'holm';
   const PIE_STATS_DEFAULT_SCOPE = 'gof';
   const PIE_STATS_DEFAULT_TEST = 'chi-square';
@@ -225,7 +207,6 @@
       scope: PIE_STATS_DEFAULT_SCOPE,
       test: PIE_STATS_DEFAULT_TEST,
       correction: PIE_STATS_DEFAULT_CORRECTION,
-      alpha: PIE_STATS_DEFAULT_ALPHA,
       sparseThreshold: PIE_STATS_DEFAULT_SPARSE_THRESHOLD,
       yatesCorrection: true,
       referenceColumn: null,
@@ -253,7 +234,6 @@
       scope: PIE_STATS_DEFAULT_SCOPE,
       test: PIE_STATS_DEFAULT_TEST,
       correction: PIE_STATS_DEFAULT_CORRECTION,
-      alpha: PIE_STATS_DEFAULT_ALPHA,
       sparseThreshold: PIE_STATS_DEFAULT_SPARSE_THRESHOLD,
       yatesCorrection: true,
       referenceColumn: null,
@@ -1344,9 +1324,10 @@ let state = {
     session.refs.root = root || session.refs.root || null;
     projectedPieSession = session;
     pie.__pieSessionTabId = session.tabId;
-    if(!pie.__boundTabId){
-      pie.__boundTabId = session.tabId;
-    }
+    // The bound-tab authority must move with every successful session bind.
+    // Keeping the first Pie tab here leaves componentLifecycle seeing a stale
+    // owner after same-component A -> B activation.
+    pie.__boundTabId = session.tabId;
     if(options.apply === true){
       applyPieSessionStateToActive(session, options);
     }
@@ -2482,6 +2463,77 @@ let state = {
     return state.statsConfig;
   }
 
+  function resolvePieStatsInferenceTabId(){
+    return getPieProjectionTabId() || global.Main?.session?.getActiveTab?.()?.id || null;
+  }
+
+  function getPieStatsAlpha(){
+    const inference = Shared.statsInference;
+    return typeof inference?.getAlpha === 'function'
+      ? inference.getAlpha({ tabId: resolvePieStatsInferenceTabId() })
+      : 0.05;
+  }
+
+  function getPieStatsTargetFdr(){
+    const inference = Shared.statsInference;
+    return typeof inference?.getTargetFdr === 'function'
+      ? inference.getTargetFdr({ tabId: resolvePieStatsInferenceTabId() })
+      : 0.05;
+  }
+
+  function getPieStatsComparisonMethod(){
+    const stats = getPieStatsConfig();
+    const pairCount = estimatePieStatsComparisonCount();
+    return stats.scope === 'gof' || pairCount <= 1 ? 'none' : sanitizePieStatsCorrection(stats.correction);
+  }
+
+  function buildPieStatsInferenceSnapshot(){
+    const stats = getPieStatsConfig();
+    const hasPairwise = stats.scope !== 'gof' && estimatePieStatsComparisonCount() > 0;
+    const inference = Shared.statsInference;
+    if(typeof inference?.createSnapshot !== 'function'){
+      return {
+        alpha: getPieStatsAlpha(),
+        targetFdr: getPieStatsTargetFdr()
+      };
+    }
+    return inference.createSnapshot({
+      tabId: resolvePieStatsInferenceTabId(),
+      method: getPieStatsComparisonMethod(),
+      includeOverall: true,
+      includeComparisons: hasPairwise
+    });
+  }
+
+  function createPieOverallInferenceSpec(){
+    const inference = Shared.statsInference;
+    return typeof inference?.createDecisionSpec === 'function'
+      ? inference.createDecisionSpec({
+          tabId: resolvePieStatsInferenceTabId(),
+          criterion: 'alpha',
+          method: 'none',
+          valueKind: 'raw-p'
+        })
+      : { criterion: 'alpha', level: getPieStatsAlpha(), method: 'none', valueKind: 'raw-p' };
+  }
+
+  function createPiePairwiseInferenceSpec(){
+    const method = getPieStatsComparisonMethod();
+    const inference = Shared.statsInference;
+    return typeof inference?.createDecisionSpec === 'function'
+      ? inference.createDecisionSpec({
+          tabId: resolvePieStatsInferenceTabId(),
+          method,
+          valueKind: method === 'none' ? 'raw-p' : 'adjusted-p'
+        })
+      : {
+          criterion: method === 'bh' || method === 'by' ? 'fdr' : 'alpha',
+          level: method === 'bh' || method === 'by' ? getPieStatsTargetFdr() : getPieStatsAlpha(),
+          method,
+          valueKind: method === 'none' ? 'raw-p' : 'adjusted-p'
+        };
+  }
+
   function getPieAdvisorState(){
     const stats = getPieStatsConfig();
     if(!stats.advisor || typeof stats.advisor !== 'object'){
@@ -2516,14 +2568,6 @@ let state = {
   function sanitizePieStatsTest(value){
     const allowed = new Set(['chi-square', 'g-test', 'auto']);
     return allowed.has(value) ? value : PIE_STATS_DEFAULT_TEST;
-  }
-
-  function sanitizePieStatsAlpha(value){
-    const numeric = Number(value);
-    if(Number.isFinite(numeric) && numeric > 0 && numeric < 1){
-      return numeric;
-    }
-    return PIE_STATS_DEFAULT_ALPHA;
   }
 
   function sanitizePieStatsSparseThreshold(value){
@@ -2921,7 +2965,6 @@ let state = {
     stats.scope = sanitizePieStatsScope(stats.scope);
     stats.test = sanitizePieStatsTest(stats.test);
     stats.correction = sanitizePieStatsCorrection(stats.correction);
-    stats.alpha = sanitizePieStatsAlpha(stats.alpha);
     stats.sparseThreshold = sanitizePieStatsSparseThreshold(stats.sparseThreshold);
     stats.yatesCorrection = stats.yatesCorrection !== false;
     stats.resultsTab = sanitizePieStatsResultsTab(stats.resultsTab);
@@ -2983,7 +3026,7 @@ let state = {
     return derivePieScopePairs(stats).length;
   }
 
-  function updatePieStatsCorrectionSummary(testCount){
+  function updatePieStatsCorrectionSummary(testCount, correctionOverride = null){
     const note = getPieNodeById('pieStatsCorrectionNote');
     if(!note){
       return;
@@ -3001,10 +3044,34 @@ let state = {
       note.textContent = 'One comparison selected. Multiplicity correction is not required.';
       return;
     }
+    const correctionMethod = correctionOverride || stats.correction;
     const correctionMeta = Shared.stats && typeof Shared.stats.getCorrectionMeta === 'function'
-      ? Shared.stats.getCorrectionMeta(stats.correction)
-      : { label: stats.correction };
-    note.textContent = `Multiple-testing correction: ${correctionMeta?.label || stats.correction} (${testCount} tests).`;
+      ? Shared.stats.getCorrectionMeta(correctionMethod)
+      : { label: correctionMethod };
+    note.textContent = `Multiple-testing correction: ${correctionMeta?.label || correctionMethod} (${testCount} tests).`;
+  }
+
+  function ensurePieStatsInferenceControls(){
+    const host = getPieNodeById('pieStatsInferenceControls');
+    const inference = Shared.statsInference;
+    if(!host || typeof inference?.mountControls !== 'function'){
+      return null;
+    }
+    return inference.mountControls(host, {
+      tabId: () => resolvePieStatsInferenceTabId(),
+      method: () => getPieStatsComparisonMethod(),
+      includeOverall: true,
+      includeComparisons: () => {
+        const stats = getPieStatsConfig();
+        return stats.scope !== 'gof' && estimatePieStatsComparisonCount() > 0;
+      },
+      source: 'pie-stats-inference',
+      onChange: ({ key }) => {
+        requestPieStatsContextRefresh(key === 'targetFdr' ? 'target-fdr-change' : 'alpha-change');
+        const model = state.statsDataModel || buildPieStatsDataModel(getPieStatsDataMatrix());
+        renderPieStatsControls(model, { force: true, reason: 'inference-change' });
+      }
+    });
   }
 
   function buildPieStatsDataSignature(dataModel){
@@ -3029,7 +3096,8 @@ let state = {
       sanitizePieStatsScope(stats.scope),
       sanitizePieStatsTest(stats.test),
       sanitizePieStatsCorrection(stats.correction),
-      String(sanitizePieStatsAlpha(stats.alpha)),
+      String(getPieStatsAlpha()),
+      String(getPieStatsTargetFdr()),
       String(sanitizePieStatsSparseThreshold(stats.sparseThreshold)),
       stats.yatesCorrection ? 'yates' : 'no-yates',
       String(stats.referenceColumn ?? ''),
@@ -3828,7 +3896,10 @@ let state = {
         const tr = document.createElement('tr');
         tableModel.columns.forEach(column => {
           const td = document.createElement('td');
-          td.textContent = row[column.key] ?? '';
+          const cellValue = row[column.key];
+          td.textContent = cellValue && typeof cellValue === 'object'
+            ? (cellValue.fallback ?? cellValue.value ?? '')
+            : (cellValue ?? '');
           tr.appendChild(td);
         });
         body.appendChild(tr);
@@ -3841,7 +3912,15 @@ let state = {
       { metric: 'Test', value: model.summary.testLabel },
       { metric: 'Statistic', value: model.summary.statistic },
       { metric: 'df', value: model.summary.df },
-      { metric: 'p-value', value: model.summary.pValue },
+      {
+        metric: 'p-value',
+        value: {
+          type: 'pValue',
+          value: model.summary.pValueRaw,
+          fallback: model.summary.pValue,
+          __statsInference: model.summary.inferenceSpec || null
+        }
+      },
       { metric: model.summary.effectLabel || "Cramer's V (Pearson X²)", value: model.summary.effectValue ?? model.summary.cramersV }
     ];
     renderTable({
@@ -3870,7 +3949,12 @@ let state = {
           { key: 'statistic', label: 'Statistic', align: 'right' },
           { key: 'df', label: 'df', align: 'right' },
           { key: 'pValue', label: 'p-value', align: 'right' },
-          { key: 'pAdjusted', label: model.adjustedPLabel || 'p (adj)', align: 'right' },
+          {
+            key: 'pAdjusted',
+            label: model.adjustedPLabel || 'p (adj)',
+            align: 'right',
+            inference: model.pairInferenceSpec || null
+          },
           { key: 'cramersV', label: "Effect size", align: 'right' }
         ],
         rows: model.pairs,
@@ -3891,6 +3975,10 @@ let state = {
     state.statsDataModel = dataModel;
     ensurePieStatsSelections(dataModel);
     const signature = buildPieStatsContextSignature(dataModel);
+    const alpha = getPieStatsAlpha();
+    const targetFdr = getPieStatsTargetFdr();
+    const inferenceSnapshot = buildPieStatsInferenceSnapshot();
+    const overallInferenceSpec = createPieOverallInferenceSpec();
     if(!Array.isArray(dataModel.rows) || !dataModel.rows.length){
       clearPieStatsOutputs('Add data to enable statistics.');
       setPieStatsStatus('Statistics unavailable until data is loaded.');
@@ -3929,13 +4017,15 @@ let state = {
             statistic: formatPieStatNumber(gof.statistic, 4),
             df: String(gof.df),
             pValue: formatPiePValue(gof.pValue),
+            pValueRaw: gof.pValue,
+            inferenceSpec: overallInferenceSpec,
             effectValue: formatPieStatNumber(gof.cohensW, 4),
             effectLabel: "Cohen's w (Pearson X²)",
             footnotes: [
               dataset.expectedSource === 'equal-proportions'
                 ? `Compared ${observedMeta.label} with equal expected proportions across ${gof.categories} categories.`
                 : `Compared ${observedMeta.label} to ${expectedMeta.label} across ${gof.categories} categories.`,
-              `α threshold: ${formatPieStatNumber(stats.alpha, 3)}.`,
+              `Significance level: α = ${formatPieStatNumber(alpha, 3)}.`,
               dataset.skipped ? `${dataset.skipped} row(s) were excluded due to missing or invalid values.` : null
             ].filter(Boolean)
           },
@@ -4012,14 +4102,16 @@ let state = {
         });
         const rawPValues = pairResults.map(row => row.pRaw);
         const finitePValues = rawPValues.filter(Number.isFinite);
+        const effectiveCorrection = finitePValues.length > 1 ? sanitizePieStatsCorrection(stats.correction) : 'none';
         let adjusted = [];
         if(finitePValues.length > 1 && Shared.stats && typeof Shared.stats.adjustPValues === 'function'){
-          adjusted = Shared.stats.adjustPValues(finitePValues, { method: stats.correction });
+          adjusted = Shared.stats.adjustPValues(finitePValues, { method: effectiveCorrection });
         }else{
           adjusted = finitePValues.slice();
         }
         let adjustedIndex = 0;
         pairResults.forEach(row => {
+          row.pValueRaw = row.pRaw;
           if(Number.isFinite(row.pRaw)){
             const adjustedValue = adjusted[adjustedIndex];
             adjustedIndex += 1;
@@ -4031,8 +4123,15 @@ let state = {
           delete row.pRaw;
         });
         const correctionMeta = Shared.stats && typeof Shared.stats.getCorrectionMeta === 'function'
-          ? Shared.stats.getCorrectionMeta(stats.correction)
-          : { shortLabel: stats.correction, label: stats.correction, footnote: null };
+          ? Shared.stats.getCorrectionMeta(effectiveCorrection)
+          : { shortLabel: effectiveCorrection, label: effectiveCorrection, footnote: null };
+        const pairInferenceSpec = typeof Shared.statsInference?.createDecisionSpec === 'function'
+          ? Shared.statsInference.createDecisionSpec({
+              tabId: resolvePieStatsInferenceTabId(),
+              method: effectiveCorrection,
+              valueKind: effectiveCorrection === 'none' ? 'raw-p' : 'adjusted-p'
+            })
+          : createPiePairwiseInferenceSpec();
         renderedModel = {
           summary: {
             caption: 'Overall test summary',
@@ -4040,11 +4139,13 @@ let state = {
             statistic: formatPieStatNumber(overall.statistic, 4),
             df: String(overall.df),
             pValue: formatPiePValue(overall.pValue),
+            pValueRaw: overall.pValue,
+            inferenceSpec: overallInferenceSpec,
             effectValue: formatPieStatNumber(overall.cramersV, 4),
             effectLabel: "Cramer's V (Pearson X²)",
             footnotes: [
               `${selected.length} condition(s) and ${overallDataset.rows.length} category row(s) were included.`,
-              `α threshold: ${formatPieStatNumber(stats.alpha, 3)}.`,
+              `Overall-test significance level: α = ${formatPieStatNumber(alpha, 3)}.`,
               overallDataset.skipped ? `${overallDataset.skipped} row(s) were excluded due to missing or invalid values.` : null,
               `Cells with expected count < ${overall.sparseThreshold}: ${overall.sparseCellCount}.`,
               overall.yatesApplied ? 'Yates continuity correction was applied (2×2 chi-square).' : null
@@ -4052,20 +4153,38 @@ let state = {
           },
           pairs: pairResults,
           pairsCaption: 'Pairwise comparisons',
-          adjustedPLabel: `p (adj, ${correctionMeta?.shortLabel || correctionMeta?.label || 'adj'})`,
+          adjustedPLabel: effectiveCorrection === 'none'
+            ? 'Decision p-value'
+            : (typeof Shared.stats?.getAdjustedPLabel === 'function'
+              ? Shared.stats.getAdjustedPLabel(effectiveCorrection)
+              : `${correctionMeta?.shortLabel || correctionMeta?.label || 'Adjusted'}-adjusted p`),
+          pairInferenceSpec,
           pairFootnotes: [
             pairResults.some(row => row.yatesApplied) ? 'Yates continuity correction was applied for eligible 2×2 pairwise tables.' : null,
-            correctionMeta?.footnote && pairResults.length > 1 ? correctionMeta.footnote(pairResults.length) : null
+            correctionMeta?.footnote && finitePValues.length > 1 ? correctionMeta.footnote(finitePValues.length) : null,
+            pairInferenceSpec.criterion === 'fdr'
+              ? `Discoveries use target FDR = ${formatPieStatNumber(targetFdr, 3)} and ${String(effectiveCorrection).toUpperCase()}-adjusted p-values.`
+              : `Pairwise decisions use ${pairInferenceSpec.errorControl === 'fwer' ? 'family-wise ' : ''}α = ${formatPieStatNumber(alpha, 3)}.`
           ].filter(Boolean)
         };
-        updatePieStatsCorrectionSummary(pairResults.length);
+        updatePieStatsCorrectionSummary(finitePValues.length, effectiveCorrection);
       }
       renderPieStatsModel(renderedModel);
       ensurePieStatsReportHost(getPieNodeById('pieStatsResults'));
       if(Shared.statsReporting && typeof Shared.statsReporting.appendReportPanel === 'function'){
+        const reportCorrectionMethod = renderedModel.pairInferenceSpec?.method || 'none';
         const reportCorrectionMeta = Shared.stats && typeof Shared.stats.getCorrectionMeta === 'function'
-          ? Shared.stats.getCorrectionMeta(stats.correction)
-          : { shortLabel: stats.correction, label: stats.correction };
+          ? Shared.stats.getCorrectionMeta(reportCorrectionMethod)
+          : { shortLabel: reportCorrectionMethod, label: reportCorrectionMethod };
+        const completedInferenceSnapshot = {
+          schemaVersion: inferenceSnapshot?.schemaVersion || 1,
+          alpha,
+          targetFdr,
+          overall: renderedModel.summary.inferenceSpec || overallInferenceSpec
+        };
+        if(renderedModel.pairInferenceSpec){
+          completedInferenceSnapshot.comparisons = renderedModel.pairInferenceSpec;
+        }
         const reportMethods = [
           `Categorical count data were analyzed with ${renderedModel.summary.testLabel}.`,
           stats.scope === 'gof'
@@ -4077,21 +4196,37 @@ let state = {
           stats.scope !== 'gof' ? `Expected-count diagnostics used the sparse-cell threshold ${formatPieStatNumber(stats.sparseThreshold, 3)}.` : null,
           stats.scope !== 'gof' && stats.yatesCorrection ? 'Yates continuity correction was applied automatically for eligible 2×2 chi-square tables.' : null,
           stats.scope !== 'gof' && Array.isArray(renderedModel.pairs) && renderedModel.pairs.length
-            ? `Configured pairwise condition comparisons used the same test family, with ${reportCorrectionMeta?.label || reportCorrectionMeta?.shortLabel || stats.correction} multiplicity control across the reported pairwise family.`
+            ? (renderedModel.pairInferenceSpec?.method === 'none'
+              ? 'One pairwise comparison was reported without a multiplicity adjustment.'
+              : `Configured pairwise condition comparisons used the same test family, with ${reportCorrectionMeta?.label || reportCorrectionMeta?.shortLabel || reportCorrectionMethod} multiplicity control across the reported pairwise family.`)
             : null,
-          `The α threshold was ${formatPieStatNumber(stats.alpha, 3)}.`
+          `The overall-test significance level was α = ${formatPieStatNumber(alpha, 3)}.`,
+          stats.scope !== 'gof' && renderedModel.pairInferenceSpec?.criterion === 'fdr'
+            ? `Pairwise discoveries used target FDR = ${formatPieStatNumber(targetFdr, 3)}.`
+            : null
         ].filter(Boolean).join(' ');
         Shared.statsReporting.appendReportPanel(getPieNodeById('pieStatsResults'), {
           methodsText: reportMethods,
           resultsText: `${renderedModel.summary.caption}: statistic = ${renderedModel.summary.statistic}, df = ${renderedModel.summary.df}, ${formatPiePExpression(primaryPValue)}.`,
-          resultsParts: [`${renderedModel.summary.caption}: statistic = ${renderedModel.summary.statistic}, df = ${renderedModel.summary.df}, p = `, { type:'pValue', value:primaryPValue, fallback:String(renderedModel.summary.pValue) }, '.'],
+          resultsParts: [
+            `${renderedModel.summary.caption}: statistic = ${renderedModel.summary.statistic}, df = ${renderedModel.summary.df}, p = `,
+            {
+              type: 'pValue',
+              value: primaryPValue,
+              fallback: String(renderedModel.summary.pValue),
+              __statsInference: renderedModel.summary.inferenceSpec || overallInferenceSpec
+            },
+            '.'
+          ],
           analysisSpec: {
             component: 'pie',
             scope: stats.scope,
             expectedModel: stats.scope === 'gof' ? renderedModel.expectedSource : null,
             test: stats.test,
-            correction: stats.correction,
-            alpha: stats.alpha,
+            correction: reportCorrectionMethod,
+            inference: completedInferenceSnapshot,
+            alpha,
+            targetFdr,
             selectedColumns: Array.from(stats.selectedCols || []).sort((a, b) => a - b),
             referenceColumn: stats.referenceColumn,
             valueColumn: stats.valueColumn,
@@ -4125,7 +4260,8 @@ let state = {
       scope: stats.scope,
       test: stats.test,
       correction: stats.correction,
-      alpha: stats.alpha,
+      inferenceAlpha: getPieStatsAlpha(),
+      inferenceTargetFdr: getPieStatsTargetFdr(),
       sparseThreshold: stats.sparseThreshold,
       yatesCorrection: stats.yatesCorrection,
       referenceColumn: stats.referenceColumn,
@@ -4144,6 +4280,7 @@ let state = {
     }
     stats.controlsSignature = signature;
     controls.innerHTML = '';
+    stampPieStatsParameterObservables(controls, stats);
     renderPieStatsAdvisor(dataModel, controls);
 
     const conditionsWrap = document.createElement('div');
@@ -4370,6 +4507,7 @@ let state = {
     }
 
     const correctionSelect = document.createElement('select');
+    correctionSelect.id = 'pieStatsCorrection';
     const correctionOptions = getPieCorrectionOptions();
     correctionOptions.forEach(optionMeta => {
       const option = document.createElement('option');
@@ -4382,35 +4520,21 @@ let state = {
     correctionSelect.addEventListener('change', event => {
       bindPieStatsEventTarget(event.currentTarget, 'pie-stats-correction-change');
       getPieStatsConfig().correction = sanitizePieStatsCorrection(correctionSelect.value);
+      ensurePieStatsInferenceControls();
       requestPieStatsContextRefresh('correction-change');
     });
     appendRow(rightColumn, 'Multiplicity control:', correctionSelect);
 
-    const alphaInput = document.createElement('input');
-    alphaInput.type = 'number';
-    alphaInput.step = '0.001';
-    alphaInput.min = '0.0001';
-    alphaInput.max = '0.499';
-    alphaInput.value = String(stats.alpha);
-    alphaInput.addEventListener('change', event => {
-      bindPieStatsEventTarget(event.currentTarget, 'pie-stats-alpha-change');
-      const activeStats = getPieStatsConfig();
-      activeStats.alpha = sanitizePieStatsAlpha(alphaInput.value);
-      alphaInput.value = String(activeStats.alpha);
-      requestPieStatsContextRefresh('alpha-change');
-    });
-    appendRow(rightColumn, 'α:', alphaInput);
-
     const advanced = document.createElement('details');
     advanced.className = 'box-stats-advanced';
     advanced.open = !!stats.advancedOpen;
-    advanced.addEventListener('toggle', event => {
-      bindPieStatsEventTarget(event.currentTarget, 'pie-stats-advanced-toggle');
-      getPieStatsConfig().advancedOpen = !!advanced.open;
-      rememberPieStatsState('advanced-toggle', { syncControls: false });
-    });
     const summary = document.createElement('summary');
     summary.textContent = 'Advanced parameters';
+    summary.addEventListener('click', event => {
+      bindPieStatsEventTarget(event.currentTarget, 'pie-stats-advanced-toggle');
+      getPieStatsConfig().advancedOpen = !advanced.open;
+      rememberPieStatsState('advanced-toggle', { syncControls: false });
+    });
     advanced.appendChild(summary);
     const advancedBody = document.createElement('div');
     advancedBody.className = 'box-stats-advanced__body';
@@ -4458,6 +4582,7 @@ let state = {
 
     controls.appendChild(optionWrap);
     updatePieStatsCorrectionSummary(estimatePieStatsComparisonCount());
+    ensurePieStatsInferenceControls();
   }
 
   function exportPieStatsConfig(){
@@ -4470,7 +4595,6 @@ let state = {
       scope: sanitizePieStatsScope(stats.scope),
       test: sanitizePieStatsTest(stats.test),
       correction: sanitizePieStatsCorrection(stats.correction),
-      alpha: sanitizePieStatsAlpha(stats.alpha),
       sparseThreshold: sanitizePieStatsSparseThreshold(stats.sparseThreshold),
       yatesCorrection: stats.yatesCorrection !== false,
       referenceColumn: stats.referenceColumn,
@@ -4498,7 +4622,6 @@ let state = {
     stats.scope = sanitizePieStatsScope(input.scope ?? stats.scope);
     stats.test = sanitizePieStatsTest(input.test ?? stats.test);
     stats.correction = sanitizePieStatsCorrection(input.correction ?? stats.correction);
-    stats.alpha = sanitizePieStatsAlpha(input.alpha ?? stats.alpha);
     stats.sparseThreshold = sanitizePieStatsSparseThreshold(input.sparseThreshold ?? stats.sparseThreshold);
     stats.yatesCorrection = input.yatesCorrection !== false;
     const referenceColumn = parsePieColumnIndex(input.referenceColumn);
@@ -6003,7 +6126,7 @@ let state = {
       const rows=[
         {metric:'Chi²',value:chi2.toFixed(4)},
         {metric:'df',value:String(df)},
-        {metric:'p-value',value:isFinite(p)?formatP(p):'N/A'}
+        {metric:'p-value',value:isFinite(p) ? (Shared.statsReporting?.pValue?.(p, { fallback:String(formatP(p)), inference:createPieOverallInferenceSpec() }) || formatP(p)) : 'N/A'}
       ];
       if(hasRenderer){
         Shared.statsTable.render({
@@ -6024,16 +6147,17 @@ let state = {
       }
       if(Shared.statsReporting && typeof Shared.statsReporting.appendReportPanel === 'function'){
         Shared.statsReporting.appendReportPanel(out, {
-          methodsText: `A chi-square goodness-of-fit test compared observed counts across ${observed.length} categories against the supplied expected counts. Observed counts were required to be non-negative and expected counts positive; categories with invalid values were not analyzed. The test used ${df} degrees of freedom and the reporting threshold was p < 0.05.`,
+          methodsText: `A chi-square goodness-of-fit test compared observed counts across ${observed.length} categories against the supplied expected counts. Observed counts were required to be non-negative and expected counts positive; categories with invalid values were not analyzed. The test used ${df} degrees of freedom and inferential decisions used α = ${Shared.statsInference?.formatLevel?.(getPieStatsAlpha()) || getPieStatsAlpha()}.`,
           resultsText: `χ² = ${chi2.toFixed(4)}, df = ${df}, ${isFinite(p) ? formatPiePExpression(p) : 'p = N/A'}.`,
-          resultsParts: [`χ² = ${chi2.toFixed(4)}, df = ${df}, p = `, { type:'pValue', value:p, fallback:isFinite(p)?String(formatP(p)):'N/A' }, '.'],
+          resultsParts: [`χ² = ${chi2.toFixed(4)}, df = ${df}, p = `, { type:'pValue', value:p, fallback:isFinite(p)?String(formatP(p)):'N/A', __statsInference:createPieOverallInferenceSpec() }, '.'],
           analysisSpec: {
             component: 'pie',
             categoryCount: observed.length,
             labels: Array.isArray(labels) ? labels.slice() : [],
             chiSquare: Number.isFinite(chi2) ? chi2 : null,
             df,
-            p: Number.isFinite(p) ? p : null
+            p: Number.isFinite(p) ? p : null,
+            inference: buildPieStatsInferenceSnapshot()
           }
         }, { title: 'Reporting and reproducibility' });
       }
@@ -6090,6 +6214,41 @@ let state = {
     getTabId: () => getPieProjectionTabId() || null,
     getHost: () => getPieNodeById('pieGraphPanel')?.querySelector?.('.svgbox') || getPieNodeById('pieGraphPanel')
   });
+
+  function pieParameterSlug(value){
+    return String(value == null ? '' : value).trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  }
+
+  function stampPieParameterObservables(svg, session = null){
+    if(!svg?.setAttribute){ return; }
+    const axis = resolveAxisSettingsForOwner(session);
+    const set = (name, value) => svg.setAttribute(`data-parameter-${name}`, value == null ? '' : String(value));
+    set('axis-color', axis.color);
+    set('axis-stroke-width', axis.strokeWidth);
+    set('axis-minor-tick-subdivisions-x', axis.x?.minorTickSubdivisions);
+    set('axis-minor-tick-subdivisions-y', axis.y?.minorTickSubdivisions);
+    set('axis-minor-ticks-x', !!axis.x?.minorTicks);
+    set('axis-minor-ticks-y', !!axis.y?.minorTicks);
+    Object.entries(state.colors || {}).forEach(([label, color]) => {
+      const slug = pieParameterSlug(label);
+      if(slug){ set(`colors-${slug}`, color); }
+    });
+  }
+
+  function stampPieStatsParameterObservables(controls, stats = getPieStatsConfig()){
+    if(!controls?.setAttribute || !stats){ return; }
+    controls.setAttribute('data-parameter-observable', 'pie-stats');
+    const set = (name, value) => controls.setAttribute(`data-parameter-${name}`, value == null ? '' : String(value));
+    set('stats-scope', stats.scope);
+    set('stats-test', stats.test);
+    set('stats-correction', stats.correction);
+    set('stats-alpha', getPieStatsAlpha());
+    set('stats-target-fdr', getPieStatsTargetFdr());
+    set('stats-advanced-open', !!stats.advancedOpen);
+    set('stats-results-tab', stats.resultsTab);
+    controls.setAttribute('data-parameter-stats-selected-columns', JSON.stringify(Array.from(stats.selectedCols || []).sort((a, b) => a - b)));
+    set('stats-advisor-open', !!stats.advisor?.open);
+  }
 
   async function draw(drawOptions = {}){
     const drawSession = ensurePieSessionOwnershipShape(getPieSessionForDrawOptions(drawOptions, { reason: drawOptions?.reason || 'pie-draw-session' }));
@@ -6264,6 +6423,7 @@ let state = {
       svg.setAttribute('data-pie-base-width', String(baseSvgWidth));
       svg.setAttribute('data-pie-base-height', String(svgHeight));
       applyPieSvgDefaults(svg, { isResizePreview });
+      stampPieParameterObservables(svg, drawSession);
       framePublication = Shared.framePublication.stage({
         container: plotEl,
         frame: svg,
@@ -6823,6 +6983,7 @@ let state = {
     svg.setAttribute('data-pie-base-width', String(plotWidth));
     svg.setAttribute('data-pie-base-height', String(svgHeight));
     applyPieSvgDefaults(svg, { isResizePreview });
+    stampPieParameterObservables(svg, drawSession);
     const svgWrapper=document.createElement('div');
     svgWrapper.style.flex='1 1 auto';
     svgWrapper.style.width='100%';
@@ -7462,7 +7623,6 @@ let state = {
         ...(meta || {}),
         reason: meta?.reason || 'pie-activate-session-bind'
       }, { apply: true });
-      applyExistingPieOwnedRuntimeRecord(tabLike || meta?.tabId || null, { ...(meta || {}), reason: meta?.reason || 'pie-activate-apply-owned-runtime' });
       if(typeof state.ensureHotForActiveTab === 'function'){
         state.ensureHotForActiveTab();
       }
@@ -7773,6 +7933,7 @@ let state = {
   };
 
   pie.__testHooks = Object.assign({}, pie.__testHooks, {
+    getSession: tabLike => getPieSession(tabLike || getPieProjectionTabId() || null, { reason: 'pie-test-session' }, { create: false }),
     computeChiSquare: (observed, expected) => computePieChiSquare(observed, expected),
     computeGofStats: (observed, expected, options) => computePieGofStats(observed, expected, options || {}),
     computeContingencyTest: (table, options) => computePieContingencyTest(table, options || {}),

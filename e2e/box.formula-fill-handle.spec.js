@@ -55,11 +55,17 @@ test('box fill handle propagates formulas with relative references', async ({ pa
       [row3, 2, '']
     ], 'e2e-formula-fill-seed');
 
-    return { row1, row2, row3 };
+    const pinnedRows = Number(hot.getSettings?.().fixedRowsTop) || 0;
+    return {
+      row1, row2, row3,
+      bodyRow1: row1 - pinnedRows,
+      bodyRow2: row2 - pinnedRows,
+      bodyRow3: row3 - pinnedRows
+    };
   });
 
-  const sourceCell = page.locator(`#hot .ag-center-cols-container .ag-row[row-index="${targetRows.row1}"] .ag-cell[col-id="c2"]`).first();
-  const targetCell = page.locator(`#hot .ag-center-cols-container .ag-row[row-index="${targetRows.row3}"] .ag-cell[col-id="c2"]`).first();
+  const sourceCell = page.locator(`#hot .ag-center-cols-container .ag-row[row-index="${targetRows.bodyRow1}"] .ag-cell[col-id="c2"]`).first();
+  const targetCell = page.locator(`#hot .ag-center-cols-container .ag-row[row-index="${targetRows.bodyRow3}"] .ag-cell[col-id="c2"]`).first();
   await sourceCell.click({ force: true });
 
   const fillHandle = page.locator('#hot .hot-fill-handle').first();
@@ -84,7 +90,7 @@ test('box fill handle propagates formulas with relative references', async ({ pa
   };
 
   const readFormulaFillSnapshot = async () => {
-    return await page.evaluate(({ row2, row3 }) => {
+    return await page.evaluate(({ row2, row3, bodyRow2, bodyRow3 }) => {
       const box = window.Components?.box;
       const state = box?.__getState?.();
       const hot = state?.ensureHotForActiveTab?.() || state?.hot;
@@ -92,8 +98,8 @@ test('box fill handle propagates formulas with relative references', async ({ pa
       if (!hot || !api || typeof api.getDisplayedRowAtIndex !== 'function' || typeof api.getValue !== 'function') {
         return null;
       }
-      const node2 = api.getDisplayedRowAtIndex(row2);
-      const node3 = api.getDisplayedRowAtIndex(row3);
+      const node2 = api.getDisplayedRowAtIndex(bodyRow2);
+      const node3 = api.getDisplayedRowAtIndex(bodyRow3);
       if (!node2 || !node3) {
         return null;
       }
@@ -178,10 +184,16 @@ test('box fill handle double-click auto-fills formulas down and stops at first m
       [row7, 1, '19'], [row7, 2, ''], [row7, 3, '']
     ], 'e2e-fill-handle-dblclick-seed');
 
-    return { row1, row2, row3, row4, row5, row6, row7 };
+    const pinnedRows = Number(hot.getSettings?.().fixedRowsTop) || 0;
+    return {
+      row1, row2, row3, row4, row5, row6, row7,
+      bodyRow2: row2 - pinnedRows,
+      bodyRow6: row6 - pinnedRows,
+      bodyRow7: row7 - pinnedRows
+    };
   });
 
-  const sourceCell = page.locator(`#hot .ag-center-cols-container .ag-row[row-index="${rows.row2}"] .ag-cell[col-id="c3"]`).first();
+  const sourceCell = page.locator(`#hot .ag-center-cols-container .ag-row[row-index="${rows.bodyRow2}"] .ag-cell[col-id="c3"]`).first();
   await sourceCell.click({ force: true });
 
   const fillHandle = page.locator('#hot .hot-fill-handle').first();
@@ -197,7 +209,7 @@ test('box fill handle double-click auto-fills formulas down and stops at first m
   expect(dispatched).toBe(true);
 
   await expect.poll(async () => {
-    return await page.evaluate(({ row3, row4, row5, row6, row7 }) => {
+    return await page.evaluate(({ row3, row4, row5, row6, row7, bodyRow6, bodyRow7 }) => {
       const box = window.Components?.box;
       const state = box?.__getState?.();
       const hot = state?.ensureHotForActiveTab?.() || state?.hot;
@@ -205,8 +217,8 @@ test('box fill handle double-click auto-fills formulas down and stops at first m
       if (!hot || !api || typeof api.getDisplayedRowAtIndex !== 'function' || typeof api.getValue !== 'function') {
         return null;
       }
-      const n6 = api.getDisplayedRowAtIndex(row6);
-      const n7 = api.getDisplayedRowAtIndex(row7);
+      const n6 = api.getDisplayedRowAtIndex(bodyRow6);
+      const n7 = api.getDisplayedRowAtIndex(bodyRow7);
       if (!n6 || !n7) {
         return null;
       }

@@ -538,6 +538,57 @@ describe('domControls default payload cache isolation', () => {
     expect(tab.activationError || null).toBeNull();
   });
 
+  test('showWorkspaceForTab does not demand a graph from persisted but non-renderable table state', async () => {
+    const domControls = window.Main?.domControls;
+    document.body.innerHTML = '<div id="welcomeScreen"></div><div id="boxPage" hidden></div>';
+    const element = document.getElementById('boxPage');
+    const config = {
+      type: 'box',
+      element,
+      createEmptyPayload: jest.fn(() => ({ type: 'box', data: [], config: {} })),
+      loadFromPayload: jest.fn(),
+      hasRenderablePayload: jest.fn(() => false),
+      draw: jest.fn(() => {
+        element.innerHTML = '<svg data-test-graph-published="true"></svg>';
+      }),
+      hasRenderedGraph: jest.fn(() => !!element.querySelector('[data-test-graph-published="true"]'))
+    };
+    const tab = {
+      id: 'workspace-empty-grouped-box',
+      type: 'box',
+      payload: {
+        type: 'box',
+        data: [
+          ['Group', 'Control', '', 'Treatment', ''],
+          ['Condition', 'A', 'B', 'A', 'B'],
+          ['', '', '', '', '']
+        ],
+        config: { tableFormat: 'grouped' }
+      },
+      payloadSignature: 'empty-grouped-box',
+      layoutSignature: 'empty-grouped-box-layout'
+    };
+    const workspaceState = { loadedWorkspaces: {}, renderedWorkspaceByType: {} };
+    ensureWorkspaceTabs({ activateWorkspace: jest.fn() });
+    domControls.markWorkspaceInitialized('box', { reason: 'test-empty-grouped-box' });
+
+    await domControls.showWorkspaceForTab({
+      tab,
+      options: { reason: 'tab-switch' },
+      dom: { welcomeScreen: document.getElementById('welcomeScreen') },
+      workspaces: { box: config },
+      session: {
+        fastClonePayload: value => deepClone(value),
+        tabHasTableData: jest.fn(() => true)
+      },
+      workspaceState
+    });
+
+    expect(config.hasRenderablePayload).toHaveBeenCalledWith(tab.payload, expect.objectContaining({ tab }));
+    expect(config.draw).not.toHaveBeenCalled();
+    expect(tab.activationError || null).toBeNull();
+  });
+
   test('showWorkspaceForTab reuses a matching per-tab DOM root without payload redraw', () => {
     const domControls = window.Main?.domControls;
     expect(domControls).toBeTruthy();

@@ -24,7 +24,7 @@ test('box plain numeric edit persists and remains visible with formula engine en
     return !!(hot && hot.gridApi && typeof hot.setDataAtCell === 'function');
   });
 
-  const targetRow = await page.evaluate(() => {
+  const target = await page.evaluate(() => {
     const box = window.Components.box;
     const state = box.__getState();
     const hot = state.ensureHotForActiveTab?.() || state.hot;
@@ -38,20 +38,21 @@ test('box plain numeric edit persists and remains visible with formula engine en
       }
     }
     hot.setDataAtCell([[visualRow, 0, '']], 'e2e-seed-clear');
-    hot.gridApi?.startEditingCell?.({ rowIndex: visualRow, colKey: 'c0' });
-    return visualRow;
+    const bodyRow = visualRow - (Number(hot.getSettings?.().fixedRowsTop) || 0);
+    hot.gridApi?.startEditingCell?.({ rowIndex: bodyRow, colKey: 'c0' });
+    return { visualRow, bodyRow };
   });
 
   const editorInput = page.locator('#hot input.ag-text-field-input').first();
-  const targetCell = page.locator(`#hot .ag-center-cols-container .ag-row[row-index="${targetRow}"] .ag-cell[col-id="c0"]`).first();
-  const adjacentCell = page.locator(`#hot .ag-center-cols-container .ag-row[row-index="${targetRow}"] .ag-cell[col-id="c1"]`).first();
+  const targetCell = page.locator(`#hot .ag-center-cols-container .ag-row[row-index="${target.bodyRow}"] .ag-cell[col-id="c0"]`).first();
+  const adjacentCell = page.locator(`#hot .ag-center-cols-container .ag-row[row-index="${target.bodyRow}"] .ag-cell[col-id="c1"]`).first();
   await expect(editorInput).toBeVisible();
   await editorInput.fill('7');
   await adjacentCell.click();
   await expect(editorInput).toBeHidden();
 
   await expect.poll(async () => {
-    return await page.evaluate((rowIndex) => {
+    return await page.evaluate(({ visualRow, bodyRow }) => {
       const box = window.Components?.box;
       const state = box?.__getState?.();
       const hot = state?.ensureHotForActiveTab?.() || state?.hot;
@@ -59,17 +60,17 @@ test('box plain numeric edit persists and remains visible with formula engine en
       if (!api || typeof api.getDisplayedRowAtIndex !== 'function' || typeof api.getValue !== 'function') {
         return null;
       }
-      const node = api.getDisplayedRowAtIndex(rowIndex);
+      const node = api.getDisplayedRowAtIndex(bodyRow);
       if (!node) {
         return null;
       }
       const display = api.getValue('c0', node);
-      const dataAtCell = hot.getDataAtCell?.(rowIndex, 0);
+      const dataAtCell = hot.getDataAtCell?.(visualRow, 0);
       return {
         display: display == null ? '' : String(display),
         dataAtCell: dataAtCell == null ? '' : String(dataAtCell)
       };
-    }, targetRow);
+    }, target);
   }, {
     timeout: 15_000,
     intervals: [200, 400, 800]
@@ -93,7 +94,7 @@ test('box plain numeric edit persists and remains visible with formula engine en
         modelRaw: model?.getRawAt?.(physicalRow, 0),
         modelResolved: model?.getResolvedAt?.(physicalRow, 0)
       };
-    }, targetRow);
+    }, target.visualRow);
   }).toEqual({ dataAtCell: '7', modelRaw: '7', modelResolved: '7' });
 
   expect(issues.critical).toEqual([]);

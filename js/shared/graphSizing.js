@@ -4,7 +4,7 @@
   const Shared = global.Shared = global.Shared || {};
   const chartStyle = Shared.chartStyle = Shared.chartStyle || {};
   const graphSizing = Shared.graphSizing = Shared.graphSizing || {};
-  const GRAPH_SIZING_SCHEMA_VERSION = 2;
+  const GRAPH_SIZING_SCHEMA_VERSION = 3;
 
   const TYPE_TO_PAGE = Object.freeze({
     venn: { pageId: 'vennPage' },
@@ -262,6 +262,7 @@
       || Math.max(heightPx, fallback.maxHeight);
     const aspectRatio = toPositiveNumber(rawDisplay.aspectRatio) || (widthPx > 0 && heightPx > 0 ? widthPx / heightPx : fallback.aspectRatio || 1);
     const aspectLocked = rawDisplay.aspectLocked === true;
+    const proportionalFontResize = rawDisplay.proportionalFontResize === true;
     const allowUnlimitedWidth = rawDisplay.allowUnlimitedWidth === true
       || isUnlimitedValue(rawDisplay.maxWidthPx)
       || isUnlimitedValue(rawDisplay.maxWidth);
@@ -282,6 +283,7 @@
         maxHeightPx,
         aspectRatio,
         aspectLocked,
+        proportionalFontResize,
         allowUnlimitedWidth,
         allowUnlimitedHeight
       }
@@ -340,6 +342,7 @@
       data.graphMaxHeightPx = display.allowUnlimitedHeight === true ? 'Infinity' : String(Math.round(display.maxHeightPx));
       data.graphAspectRatio = String(display.aspectRatio);
       data.graphAspectLocked = display.aspectLocked === true ? 'true' : 'false';
+      data.resizerProportionalFontResize = display.proportionalFontResize === true ? 'true' : 'false';
       data.graphSizingVersion = String(record.version || GRAPH_SIZING_SCHEMA_VERSION);
 
       data.resizerDefaultWidth = String(Math.round(defaultWidthPx));
@@ -442,6 +445,10 @@
       : (data.graphAspectLocked === 'true'
         ? true
         : (data.resizerAspectLocked === 'true' ? true : fallback.aspectLocked === true));
+    const proportionalFontResize = data.resizerProportionalFontResize === 'true'
+      || (data.resizerProportionalFontResize !== 'false' && chartStyle?.isProportionalFontResizeEnabled?.({
+        scopeId: data.resizerProportionalFontResizeScope || null
+      }) === true);
 
     return buildNormalizedSizingRecord({
       display: {
@@ -455,6 +462,7 @@
         maxHeightPx,
         aspectRatio,
         aspectLocked,
+        proportionalFontResize,
         allowUnlimitedWidth,
         allowUnlimitedHeight
       }
@@ -879,6 +887,21 @@
         }
 
         let result = null;
+        if(typeof element.__sharedResizableBoxApi?.setAspectLocked === 'function'){
+          element.__sharedResizableBoxApi.setAspectLocked(record.display.aspectLocked === true, {
+            reason: `${context}-restore-aspect-lock`,
+            preserveGeometry: true,
+            recordUndo: false
+          });
+        }
+        if(typeof chartStyle?.setProportionalFontResize === 'function'){
+          chartStyle.setProportionalFontResize(record.display.proportionalFontResize === true, {
+            origin: `${context}-restore-proportional-font-resize`,
+            scopeId: element.dataset?.resizerProportionalFontResizeScope || null,
+            svgBox: element,
+            force: true
+          });
+        }
         if(typeof Shared.applyResizableBoxSize === 'function'){
           result = Shared.applyResizableBoxSize(element, {
             width: record.display.widthPx,

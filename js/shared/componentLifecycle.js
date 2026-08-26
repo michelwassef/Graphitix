@@ -2531,6 +2531,12 @@
       if(!isElementChainVisible(scope)){
         continue;
       }
+      const publishedNotice = scope.matches?.('[data-plot-notice="1"]')
+        ? scope
+        : scope.querySelector?.('[data-plot-notice="1"]');
+      if(publishedNotice && isElementChainVisible(publishedNotice)){
+        return true;
+      }
       const scopeBox = hasRenderableBox(scope);
       if(scopeBox === false){
         continue;

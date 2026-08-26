@@ -24,7 +24,7 @@ test('box formula references highlight correct cells and resolve on first enter'
     return !!(hot && typeof hot.setDataAtCell === 'function');
   });
 
-  const targetRow = await page.evaluate(() => {
+  const target = await page.evaluate(() => {
     const box = window.Components.box;
     const state = box.__getState();
     const hot = state.ensureHotForActiveTab?.() || state.hot;
@@ -44,15 +44,16 @@ test('box formula references highlight correct cells and resolve on first enter'
       [visualRow, 3, '4'],
       [visualRow, 4, '']
     ], 'e2e-seed');
-    hot.gridApi?.startEditingCell?.({ rowIndex: visualRow, colKey: 'c4' });
-    return visualRow;
+    const bodyRow = visualRow - (Number(hot.getSettings?.().fixedRowsTop) || 0);
+    hot.gridApi?.startEditingCell?.({ rowIndex: bodyRow, colKey: 'c4' });
+    return { visualRow, bodyRow };
   });
 
   const editorInput = page.locator('#hot input.ag-text-field-input').first();
   await expect(editorInput).toBeVisible();
   await page.keyboard.type('=', { delay: 20 });
-  const cellA = page.locator(`#hot .ag-center-cols-container .ag-row[row-index="${targetRow}"] .ag-cell[col-id="c0"]`).first();
-  const cellB = page.locator(`#hot .ag-center-cols-container .ag-row[row-index="${targetRow}"] .ag-cell[col-id="c1"]`).first();
+  const cellA = page.locator(`#hot .ag-center-cols-container .ag-row[row-index="${target.bodyRow}"] .ag-cell[col-id="c0"]`).first();
+  const cellB = page.locator(`#hot .ag-center-cols-container .ag-row[row-index="${target.bodyRow}"] .ag-cell[col-id="c1"]`).first();
   await cellA.click({ force: true });
   await page.keyboard.type('+', { delay: 20 });
   await cellB.click({ force: true });
@@ -68,7 +69,7 @@ test('box formula references highlight correct cells and resolve on first enter'
       const bOutline = document.querySelector('#hot .hot-formula-ref-outline[data-row="1"][data-col="1"]');
       const cOutline = document.querySelector('#hot .hot-formula-ref-outline[data-row="1"][data-col="2"]');
       return !!bOutline && !cOutline;
-    }, targetRow);
+    }, target.bodyRow);
   }, {
     timeout: 10_000,
     intervals: [200, 400, 800]
@@ -87,7 +88,7 @@ test('box formula references highlight correct cells and resolve on first enter'
       bHasRef2: hasOutline(1, 1),
       cHasRef2: hasOutline(1, 2)
     };
-  }, targetRow);
+  }, target.bodyRow);
 
   expect(classSnapshot).toBeTruthy();
   expect(classSnapshot.aHasRef1).toBe(true);
@@ -111,7 +112,7 @@ test('box formula references highlight correct cells and resolve on first enter'
       }
       const value = api.getValue('c4', node);
       return value == null ? '' : String(value).trim();
-    }, targetRow);
+    }, target.bodyRow);
   }, {
     timeout: 15_000,
     intervals: [200, 400, 800]
@@ -144,7 +145,7 @@ test('box click-to-reference remains column-accurate across repeated edits', asy
     return !!(hot && hot.gridApi && typeof hot.setDataAtCell === 'function');
   });
 
-  const targetRow = await page.evaluate(() => {
+  const target = await page.evaluate(() => {
     const box = window.Components.box;
     const state = box.__getState();
     const hot = state.ensureHotForActiveTab?.() || state.hot;
@@ -164,21 +165,24 @@ test('box click-to-reference remains column-accurate across repeated edits', asy
       [visualRow, 3, '4'],
       [visualRow, 4, '']
     ], 'e2e-seed-repeat');
-    return visualRow;
+    return {
+      visualRow,
+      bodyRow: visualRow - (Number(hot.getSettings?.().fixedRowsTop) || 0)
+    };
   });
 
-  const cellA = page.locator(`#hot .ag-center-cols-container .ag-row[row-index="${targetRow}"] .ag-cell[col-id="c0"]`).first();
-  const cellB = page.locator(`#hot .ag-center-cols-container .ag-row[row-index="${targetRow}"] .ag-cell[col-id="c1"]`).first();
+  const cellA = page.locator(`#hot .ag-center-cols-container .ag-row[row-index="${target.bodyRow}"] .ag-cell[col-id="c0"]`).first();
+  const cellB = page.locator(`#hot .ag-center-cols-container .ag-row[row-index="${target.bodyRow}"] .ag-cell[col-id="c1"]`).first();
   const editorInput = page.locator('#hot input.ag-text-field-input').first();
 
   for (let i = 0; i < 8; i += 1) {
-    await page.evaluate(({ row, iteration }) => {
+    await page.evaluate(({ visualRow, bodyRow, iteration }) => {
       const box = window.Components.box;
       const state = box.__getState();
       const hot = state.ensureHotForActiveTab?.() || state.hot;
-      hot.setDataAtCell([[row, 4, '']], `e2e-repeat-reset-${iteration}`);
-      hot.gridApi?.startEditingCell?.({ rowIndex: row, colKey: 'c4' });
-    }, { row: targetRow, iteration: i });
+      hot.setDataAtCell([[visualRow, 4, '']], `e2e-repeat-reset-${iteration}`);
+      hot.gridApi?.startEditingCell?.({ rowIndex: bodyRow, colKey: 'c4' });
+    }, { visualRow: target.visualRow, bodyRow: target.bodyRow, iteration: i });
 
     await expect(editorInput).toBeVisible();
     await page.keyboard.type('=', { delay: 10 });
@@ -283,12 +287,13 @@ test('box formula reference highlighting follows displayed row coordinates after
   const refCell = page.locator(`#hot .ag-center-cols-container .ag-row[row-index="${p1DisplayRow}"] .ag-cell[col-id="c0"]`).first();
   await refCell.click({ force: true });
 
-  await expect(editorInput).toHaveValue(`=A${p1DisplayRow}`);
+  const p1VisualRow = p1DisplayRow + 1;
+  await expect(editorInput).toHaveValue(`=A${p1VisualRow}`);
 
   await expect.poll(async () => {
     return await page.evaluate((rowIndex) => {
       return !!document.querySelector(`#hot .hot-formula-ref-outline[data-row="${rowIndex}"][data-col="0"]`);
-    }, p1DisplayRow);
+    }, p1VisualRow);
   }, {
     timeout: 10_000,
     intervals: [200, 400, 800]
@@ -336,16 +341,22 @@ test('box formula drag range selection inserts A1:A10 and evaluates AVERAGE', as
     }
     updates.push([startRow, 4, '']);
     hot.setDataAtCell(updates, 'e2e-drag-range-seed');
-    hot.gridApi?.startEditingCell?.({ rowIndex: startRow, colKey: 'c4' });
-    return { startRow, endRow };
+    const pinnedRows = Number(hot.getSettings?.().fixedRowsTop) || 0;
+    hot.gridApi?.startEditingCell?.({ rowIndex: startRow - pinnedRows, colKey: 'c4' });
+    return {
+      startRow,
+      endRow,
+      startBodyRow: startRow - pinnedRows,
+      endBodyRow: endRow - pinnedRows
+    };
   });
 
   const editorInput = page.locator('#hot input.ag-text-field-input').first();
   await expect(editorInput).toBeVisible();
   await editorInput.fill('=AVERAGE(');
 
-  const startCell = page.locator(`#hot .ag-center-cols-container .ag-row[row-index="${rangeInfo.startRow}"] .ag-cell[col-id="c0"]`).first();
-  const endCell = page.locator(`#hot .ag-center-cols-container .ag-row[row-index="${rangeInfo.endRow}"] .ag-cell[col-id="c0"]`).first();
+  const startCell = page.locator(`#hot .ag-center-cols-container .ag-row[row-index="${rangeInfo.startBodyRow}"] .ag-cell[col-id="c0"]`).first();
+  const endCell = page.locator(`#hot .ag-center-cols-container .ag-row[row-index="${rangeInfo.endBodyRow}"] .ag-cell[col-id="c0"]`).first();
   await startCell.scrollIntoViewIfNeeded();
   await endCell.scrollIntoViewIfNeeded();
 
@@ -391,7 +402,7 @@ test('box formula drag range selection inserts A1:A10 and evaluates AVERAGE', as
       const value = api.getValue('c4', node);
       const numeric = Number(value);
       return Number.isFinite(numeric) ? numeric : null;
-    }, rangeInfo.startRow);
+    }, rangeInfo.startBodyRow);
   }, {
     timeout: 15_000,
     intervals: [200, 400, 800]
@@ -446,7 +457,7 @@ test('box formula reference outlines stay clipped under pinned/header overlays w
       updates.push([row, 4, '']);
     }
     hot.setDataAtCell(updates, 'e2e-formula-clip-seed');
-    hot.gridApi?.startEditingCell?.({ rowIndex: 1, colKey: 'c4' });
+    hot.gridApi?.startEditingCell?.({ rowIndex: 0, colKey: 'c4' });
   });
 
   const editorInput = page.locator('#hot input.ag-text-field-input').first();
@@ -566,7 +577,7 @@ test('box keeps raw formula after edit session is interrupted by vertical scroll
     hot.setDataAtCell(updates, 'e2e-scroll-interrupt-seed');
   });
 
-  const formulaCell = page.locator('#hot .ag-center-cols-container .ag-row[row-index="1"] .ag-cell[col-id="c3"]').first();
+  const formulaCell = page.locator('#hot .ag-center-cols-container .ag-row[row-index="0"] .ag-cell[col-id="c3"]').first();
   await formulaCell.dblclick();
   const editorInput = page.locator('#hot input.ag-text-field-input').first();
   await expect(editorInput).toBeVisible();

@@ -3,9 +3,14 @@
   const Shared = global.Shared = global.Shared || {};
   const tableImport = Shared.tableImport = Shared.tableImport || {};
   let importOptionsPrompt = null;
+  let prismBatchHandler = null;
 
   tableImport.setImportOptionsPrompt = function setImportOptionsPrompt(handler){
     importOptionsPrompt = typeof handler === 'function' ? handler : null;
+  };
+
+  tableImport.setPrismBatchHandler = function setPrismBatchHandler(handler){
+    prismBatchHandler = typeof handler === 'function' ? handler : null;
   };
 
   const IMPORT_FORMAT_DEFINITIONS = Object.freeze({
@@ -161,7 +166,10 @@
     if(!result || options.renameTab === false){
       return;
     }
-    const nextTitleBase = getImportFileBaseName(file?.name || '');
+    const importedTableTitle = Number(result?.prismTableCount || 0) > 1
+      ? normalizePrismString(result?.prismTableTitle || '')
+      : '';
+    const nextTitleBase = importedTableTitle || getImportFileBaseName(file?.name || '');
     if(!nextTitleBase){
       return;
     }
@@ -1216,7 +1224,7 @@
     if(!rawData){
       return '';
     }
-    const base = Math.max(0, Number(baseOffset) || 0);
+    const base = Number(baseOffset) || 0;
     const primaryKind = prismReadUInt16LE(rawData, base + 548);
     const secondaryKind = prismReadUInt16LE(rawData, base + 572);
     const tertiaryKind = prismReadUInt16LE(rawData, base + 574);
@@ -1230,11 +1238,39 @@
     if(primaryKind === 3 && secondaryKind === 3 && tertiaryKind === 3 && subtypeKind === 1){
       return 'strip';
     }
+    if(primaryKind === 3 && secondaryKind === 3 && tertiaryKind === 3 && subtypeKind === 13){
+      return 'bar';
+    }
     return '';
   }
 
+  function findPrismPlotWrapperBase(rawData){
+    const marker = new Uint8Array([0xFF, 0xFF, 0xFF, 0xFF, 0x2C, 0x01, 0x00, 0x00]);
+    const markerOffset = findByteSequence(rawData, marker);
+    return markerOffset >= 0 ? markerOffset - 512 : null;
+  }
+
   function inferPrismColumnGraphTypeFromWrapper(rawData){
-    return inferPrismColumnGraphTypeFromWrapperAt(rawData, 0);
+    const structuralBase = findPrismPlotWrapperBase(rawData);
+    return (structuralBase != null
+      ? (inferPrismColumnGraphTypeFromWrapperAt(rawData, structuralBase)
+        || inferPrismColumnGraphTypeFromWrapperAt(rawData, structuralBase + 1))
+      : '') || inferPrismColumnGraphTypeFromWrapperAt(rawData, 0);
+  }
+
+  function inferPrismColumnPointModeFromWrapper(rawData){
+    const structuralBase = findPrismPlotWrapperBase(rawData);
+    const bases = structuralBase != null ? [structuralBase, structuralBase + 1] : [0];
+    for(const base of bases){
+      const primaryKind = prismReadUInt16LE(rawData, base + 548);
+      const secondaryKind = prismReadUInt16LE(rawData, base + 572);
+      const tertiaryKind = prismReadUInt16LE(rawData, base + 574);
+      const subtypeKind = prismReadUInt16LE(rawData, base + 576);
+      if(primaryKind === 3 && secondaryKind === 3 && tertiaryKind === 3 && subtypeKind === 13){
+        return 'overlay';
+      }
+    }
+    return '';
   }
 
   function inferPrismColumnGraphTypeFromEmbeddedWrapper(rawData){
@@ -1253,14 +1289,11 @@
 
   function inferPrismPreferredGraphType(strings, tableFormat, rawData, inflatedData){
     const format = normalizePrismString(tableFormat).toLowerCase();
-    if(format === 'column'){
+    if(format === 'column' || format === 'grouped'){
       const wrapperGraphType = inferPrismColumnGraphTypeFromWrapper(rawData)
         || inferPrismColumnGraphTypeFromEmbeddedWrapper(rawData);
       if(wrapperGraphType){
         return wrapperGraphType;
-      }
-      if(prismDataIncludes(inflatedData, 'PCFF_Plot::BarBoxBordercolor')){
-        return 'box';
       }
       if(prismStringsInclude(strings, value => value.includes('violin'))){
         return 'violin';
@@ -1279,6 +1312,13 @@
       }
     }
     return '';
+  }
+
+  function inferPrismPreferredPointMode(tableFormat, rawData){
+    const format = normalizePrismString(tableFormat).toLowerCase();
+    return format === 'column' || format === 'grouped'
+      ? inferPrismColumnPointModeFromWrapper(rawData)
+      : '';
   }
 
 
@@ -1435,12 +1475,24 @@
     return !key || key === 'single' || key === 'y_single' || key === 'replicates';
   }
 
-  function isPzfxColumnSummaryFormat(formatKey){
+  function isPzfxSummaryFormat(formatKey){
     const key = String(formatKey || '').trim().toLowerCase();
     return key === 'sdn' || key === 'sen' || key === 'cvn'
       || key === 'sd' || key === 'se' || key === 'cv'
       || key === 'low-high' || key === 'upper-lower-limits'
       || key === 'error';
+  }
+
+  function prismSummarySubcolumnCount(dataFormat){
+    const key = String(dataFormat || '').trim().toLowerCase();
+    if(key === 'y_sd_n' || key === 'y_se_n' || key === 'y_cv_n'
+      || key === 'y_plus_minus' || key === 'y_high_low'){
+      return 3;
+    }
+    if(key === 'y_sd' || key === 'y_se' || key === 'y_cv'){
+      return 2;
+    }
+    return 1;
   }
 
   function normalizePzfxFormat(value){
@@ -1595,6 +1647,9 @@
     if(raw.includes('column')){
       return 'column';
     }
+    if(raw.includes('two way') || raw.includes('twoway') || raw.includes('grouped')){
+      return 'grouped';
+    }
     if(raw.includes('contingency')){
       return 'contingency';
     }
@@ -1604,23 +1659,40 @@
     return raw.replace(/\s+/g, '_');
   }
 
-  function selectPzfxTable(xmlDoc){
+  function listPzfxTables(xmlDoc){
     const tables = prismXmlDescendants(xmlDoc, ['Table', 'HugeTable']);
     if(!tables.length){
       throw new Error('No Prism data tables found in PZFX file');
     }
     const sequence = prismXmlDescendants(xmlDoc, 'TableSequence')[0] || null;
-    const selectedRefs = sequence
-      ? prismXmlChildren(sequence, 'Ref').filter(ref => prismXmlAttribute(ref, 'Selected') === '1')
-      : [];
-    const selectedId = selectedRefs.length ? prismXmlAttribute(selectedRefs[0], 'ID') : '';
-    if(selectedId){
-      const selectedTable = tables.find(table => prismXmlAttribute(table, 'ID') === selectedId);
-      if(selectedTable){
-        return selectedTable;
-      }
+    const refs = sequence ? prismXmlChildren(sequence, 'Ref') : [];
+    const ordered = [];
+    refs.forEach(ref => {
+      const id = prismXmlAttribute(ref, 'ID');
+      const table = id ? tables.find(candidate => prismXmlAttribute(candidate, 'ID') === id) : null;
+      if(table && !ordered.includes(table)) ordered.push(table);
+    });
+    tables.forEach(table => {
+      if(!ordered.includes(table)) ordered.push(table);
+    });
+    return ordered;
+  }
+
+  function selectPzfxTable(xmlDoc, requestedId = ''){
+    const tables = listPzfxTables(xmlDoc);
+    const wanted = normalizePrismString(requestedId);
+    if(wanted){
+      const selected = tables.find((table, index) => (
+        prismXmlAttribute(table, 'ID') === wanted || `pzfx:${index}` === wanted
+      ));
+      if(selected) return selected;
     }
-    return tables[0];
+    const sequence = prismXmlDescendants(xmlDoc, 'TableSequence')[0] || null;
+    const selectedRef = sequence
+      ? prismXmlChildren(sequence, 'Ref').find(ref => prismXmlAttribute(ref, 'Selected') === '1')
+      : null;
+    const selectedId = selectedRef ? prismXmlAttribute(selectedRef, 'ID') : '';
+    return tables.find(table => prismXmlAttribute(table, 'ID') === selectedId) || tables[0];
   }
 
   function buildPzfxModel(tableNode){
@@ -1722,7 +1794,7 @@
 
   function buildPzfxScatterImport(model){
     const yColumns = model?.yColumns || [];
-    if(!model?.xColumn || !yColumns.length || yColumns.some(column => column.names.length !== 1)){
+    if(!model?.xColumn || !yColumns.length || yColumns.some(column => column.names.length < 1)){
       return null;
     }
     const seriesCount = Math.max(1, yColumns.length);
@@ -1902,7 +1974,7 @@
         return survivalImport;
       }
     }
-    if(tableFormat === 'xy' && (!yFormatKey || yFormatKey === 'single')){
+    if(tableFormat === 'xy' && (!yFormatKey || yFormatKey === 'single' || isPzfxSummaryFormat(yFormatKey))){
       const scatterImport = buildPzfxScatterImport(model);
       if(scatterImport){
         prismDebug('pzfx.xy.scatter', {
@@ -1922,7 +1994,8 @@
         return pieImport;
       }
     }
-    const meta = tableFormat === 'column'
+    const isColumnLike = tableFormat === 'column' || tableFormat === 'grouped';
+    const meta = isColumnLike
       ? {
           kind: 'column',
           dataFormat: yFormat || 'y_single',
@@ -1932,11 +2005,11 @@
           graphType: inferPzfxColumnGraphType(model, graphMetadata),
           graphTypeSource: graphMetadata.source || '',
           graphMetadataType: graphMetadata.graphMetadataType || '',
-          summaryFormat: isPzfxColumnSummaryFormat(yFormatKey),
+          summaryFormat: isPzfxSummaryFormat(yFormatKey),
           rawValueCompatible: isPzfxColumnRawValueFormat(yFormatKey)
         }
       : null;
-    if(tableFormat === 'column'){
+    if(isColumnLike){
       prismDebug('pzfx.table.column', {
         seriesCount: meta.seriesCount,
         rows: Math.max(0, (model?.rows?.length || 1) - 1),
@@ -1953,20 +2026,35 @@
         rows: Math.max(0, (model?.rows?.length || 1) - 1)
       });
     }
-    return { rows: model?.rows || [], meta };
+    return {
+      rows: isColumnLike ? pzfxColumnsToRows(model?.yColumns || []) : (model?.rows || []),
+      meta
+    };
   }
 
-  async function parsePzfxInput(input){
+  async function parsePzfxInput(input, requestedId = ''){
     const payload = extractPzfxXmlAndOpaquePayload(input);
     const doc = parsePrismXmlText(payload.xmlText, 'PZFX');
-    const tableNode = selectPzfxTable(doc);
+    const tableNodes = listPzfxTables(doc);
+    const tableNode = selectPzfxTable(doc, requestedId);
     const model = buildPzfxModel(tableNode);
     const graphMetadata = await inferPzfxOpaqueGraphMetadata(model, payload);
     const built = buildPzfxImportRowsAndMeta(model, graphMetadata);
     const rows = filterRows(built.rows || []);
+    const tables = tableNodes.map((node, index) => {
+      const tableModel = node === tableNode ? model : buildPzfxModel(node);
+      const tableBuilt = node === tableNode ? built : buildPzfxImportRowsAndMeta(tableModel);
+      return {
+        id: prismXmlAttribute(node, 'ID') || `pzfx:${index}`,
+        title: tableModel.title || `Table ${index + 1}`,
+        prismMeta: tableBuilt.meta || null
+      };
+    });
     return {
       rows,
       prismMeta: built.meta || null,
+      prismTableId: prismXmlAttribute(tableNode, 'ID') || `pzfx:${tableNodes.indexOf(tableNode)}`,
+      prismTables: tables,
       tableTitle: model.title || '',
       tableFormat: model.tableFormat || '',
       yFormat: model.yFormat || '',
@@ -2474,7 +2562,7 @@
     return result;
   };
 
-  tableImport.openFile = async function openFile(inputEl, options = {}){
+  const openFileCore = async function openFileCore(inputEl, options = {}){
     const debugLabel = options.debugLabel || inputEl?.id || 'tableImport';
     debugLog('openFile.entry', { inputId: inputEl?.id || null }, debugLabel);
     const file = inputEl?.files && inputEl.files[0];
@@ -2630,13 +2718,19 @@
       try{
         const buffer = await readFileAsArrayBuffer(file);
         prismDebug('pzfx.load', { name: file.name, size: file.size });
-        const parsed = await parsePzfxInput(buffer);
+        const parsed = await parsePzfxInput(buffer, options.prismTableId || inputEl?.dataset?.prismTableId || '');
         if(!parsed.rows.length){
           throw new Error('PZFX table contained no importable data');
         }
         const result = await applyRows(parsed.rows, { delimiter: '\t' });
         if(result && parsed.prismMeta){
           result.prismMeta = parsed.prismMeta;
+        }
+        if(result){
+          result.prismTableId = parsed.prismTableId || '';
+          result.prismTableTitle = parsed.tableTitle || '';
+          result.prismTables = parsed.prismTables || [];
+          result.prismTableCount = result.prismTables.length;
         }
         await finalizeImport(result);
         if(importCompletionAccepted){
@@ -2670,8 +2764,12 @@
         if(!document){
           throw new Error('Prism document.json not found');
         }
-        const dataSheetId = document?.uiSettings?.currentSheets?.data
-          || (Array.isArray(document?.sheets?.data) ? document.sheets.data[0] : null);
+        const dataSheetIds = Array.isArray(document?.sheets?.data) ? document.sheets.data.filter(Boolean) : [];
+        const requestedDataSheetId = options.prismTableId || inputEl?.dataset?.prismTableId || '';
+        const dataSheetId = (requestedDataSheetId && dataSheetIds.includes(requestedDataSheetId) ? requestedDataSheetId : '')
+          || document?.uiSettings?.currentSheets?.data
+          || dataSheetIds[0]
+          || null;
         if(!dataSheetId){
           throw new Error('Prism data sheet not found');
         }
@@ -2697,6 +2795,24 @@
         const rowTitlesId = tableInfo?.rowTitlesDataSet || '';
         const xDataSetId = tableInfo?.xDataSet || '';
         const dataSetIds = Array.isArray(tableInfo?.dataSets) ? tableInfo.dataSets : [];
+        const prismTables = (await Promise.all(dataSheetIds.map(async (id, index) => {
+          const candidate = id === dataSheetId ? sheet : await readZipJson(zip, `data/sheets/${id}/sheet.json`);
+          const candidateTable = candidate?.table || {};
+          const candidateFormat = String(candidateTable?.format || '').toLowerCase();
+          const candidateClass = String(candidateTable?.['@class'] || '');
+          const candidateDataFormat = String(candidateTable?.dataFormat || '');
+          let kind = 'column';
+          if(candidateFormat === 'parts_of_whole') kind = 'pie';
+          else if(candidateFormat === 'survival') kind = 'survival';
+          else if(candidateClass === 'XYDataTable' || candidateFormat === 'xy'){
+            kind = candidateDataFormat === 'y_replicates' ? 'line' : 'scatter';
+          }
+          return candidate?.table?.uid ? {
+            id,
+            title: normalizePrismString(candidate?.title || document?.sheetAttributesMap?.[id]?.title || `Table ${index + 1}`),
+            prismMeta: { kind, dataFormat: candidateDataFormat, tableClass: candidateClass }
+          } : null;
+        }))).filter(Boolean);
         const readDataSetTitle = async uid => {
           if(!uid){
             return '';
@@ -2710,16 +2826,29 @@
         let dataSetTitles = [];
         if(dataSetIds.length){
           const titles = await Promise.all(dataSetIds.map(readDataSetTitle));
-          dataSetTitles = titles.filter(Boolean);
+          dataSetTitles = titles;
         }
         const xTitle = await readDataSetTitle(xDataSetId);
         const rowTitleLabel = await readDataSetTitle(rowTitlesId);
         let prismStyle = null;
         let prismGraphLabels = { title: '', xLabel: '', yLabel: '' };
         let prismPreferredGraphType = '';
+        let prismPreferredPointMode = '';
         const sheetTitle = normalizePrismString(sheet?.title || '');
-        const graphSheetId = document?.uiSettings?.currentSheets?.graph
-          || (Array.isArray(document?.sheets?.graphs) ? document.sheets.graphs[0] : null);
+        const graphSheetIds = Array.isArray(document?.sheets?.graphs) ? document.sheets.graphs.filter(Boolean) : [];
+        let graphSheetId = null;
+        for(const candidateGraphId of graphSheetIds){
+          const candidateGraph = await readZipJson(zip, `graphs/${candidateGraphId}/sheet.json`);
+          const inputs = Array.isArray(candidateGraph?.inputDataSets) ? candidateGraph.inputDataSets : [];
+          if(inputs.some(id => dataSetIds.includes(id))){
+            graphSheetId = candidateGraphId;
+            break;
+          }
+        }
+        graphSheetId = graphSheetId
+          || document?.uiSettings?.currentSheets?.graph
+          || graphSheetIds[0]
+          || null;
         if(graphSheetId){
           const graphSheet = await readZipJson(zip, `graphs/${graphSheetId}/sheet.json`);
           const graphSheetTitle = normalizePrismString(graphSheet?.title || '');
@@ -2761,7 +2890,9 @@
             }
             prismGraphLabels = { title, xLabel, yLabel };
             const inflated = await inflatePrismGraphData(graphBuffer);
-            prismPreferredGraphType = inferPrismPreferredGraphType(normalizedStrings, tableFormat, new Uint8Array(graphBuffer), inflated);
+            const graphBytes = new Uint8Array(graphBuffer);
+            prismPreferredGraphType = inferPrismPreferredGraphType(normalizedStrings, tableFormat, graphBytes, inflated);
+            prismPreferredPointMode = inferPrismPreferredPointMode(tableFormat, graphBytes);
             let fontColor = '';
             let axisColor = '';
             if(inflated){
@@ -2873,11 +3004,12 @@
             xTitle: prismGraphLabels.xLabel || xTitle || 'Time'
           };
           prismDebug('xy.survival', { seriesCount: groupLabels.length, rows: survivalRows.length, hasRowTitles });
-        }else if(isXYTable && dataFormat === 'y_single'){
+        }else if(isXYTable && (dataFormat === 'y_single' || prismSummarySubcolumnCount(dataFormat) > 1)){
           const hasRowTitles = !!rowTitlesId;
           const xIndex = hasRowTitles ? 1 : 0;
           const yStart = xIndex + 1;
-          const seriesCount = Math.max(1, dataSetTitles.length || 1);
+          const seriesCount = Math.max(1, dataSetIds.length || dataSetTitles.length || 1);
+          const seriesStride = prismSummarySubcolumnCount(dataFormat);
           const headerLabel = rowTitleLabel || 'Labels';
           const xHeader = prismGraphLabels.xLabel || xTitle || 'X';
           const yHeader = prismGraphLabels.yLabel || (dataSetTitles[0] || 'Y');
@@ -2894,7 +3026,7 @@
                 label = trimmedBase ? `${trimmedBase} (${dsLabel})` : dsLabel;
               }
               const xValue = src[xIndex] ?? '';
-              const yValue = src[yStart + s] ?? '';
+              const yValue = src[yStart + s * seriesStride] ?? '';
               scatterRows.push([label ?? '', xValue ?? '', yValue ?? '']);
             }
           });
@@ -2939,9 +3071,37 @@
             valueTitles: dataSetTitles.slice()
           };
           prismDebug('table.pie', { seriesCount: dataSetTitles.length || 1, rows: pieRows.length, hasRowTitles });
-        }else if(tableFormat === 'column' && dataFormat === 'y_single' && dataSetIds.length){
+        }else if(!isXYTable && dataFormat === 'y_replicates' && dataSetIds.length){
+          const replicateCountRaw = Number(tableInfo?.replicatesCount);
+          const replicatesCount = Number.isFinite(replicateCountRaw) && replicateCountRaw > 0 ? replicateCountRaw : 1;
+          const groupLabels = dataSetIds.map((_, index) => dataSetTitles[index] || `Series ${index + 1}`);
+          const header = [];
+          groupLabels.forEach(label => {
+            for(let rep = 0; rep < replicatesCount; rep += 1){
+              header.push(`${label} Rep ${rep + 1}`);
+            }
+          });
+          const dataRows = filtered.map(row => {
+            const source = Array.isArray(row) ? row : [];
+            return rowTitlesId ? source.slice(1) : source.slice();
+          });
+          importRows = [header, ...dataRows];
+          prismMeta = {
+            kind: 'column',
+            dataFormat,
+            tableClass,
+            replicatesCount,
+            seriesCount: groupLabels.length,
+            groupLabels
+          };
+        }else if((tableFormat === 'column' || tableFormat === 'grouped') && dataFormat === 'y_single' && dataSetIds.length){
+          const dataRows = rowTitlesId
+            ? filtered.map(row => Array.isArray(row) ? row.slice(1) : row)
+            : filtered;
           if(dataSetTitles.some(title => String(title).trim() !== '')){
-            importRows = [dataSetTitles.map(title => title), ...filtered];
+            importRows = [dataSetTitles.map(title => title), ...dataRows];
+          }else{
+            importRows = dataRows;
           }
           prismMeta = {
             kind: 'column',
@@ -2949,21 +3109,37 @@
             tableClass,
             seriesCount: dataSetTitles.length || dataSetIds.length || 1,
             groupLabels: dataSetTitles.slice(),
-            graphType: prismPreferredGraphType || ''
+            graphType: prismPreferredGraphType || '',
+            pointMode: prismPreferredPointMode || ''
           };
           prismDebug('table.column', {
             seriesCount: dataSetTitles.length || dataSetIds.length || 1,
             rows: filtered.length,
-            graphType: prismPreferredGraphType || ''
+            graphType: prismPreferredGraphType || '',
+            pointMode: prismPreferredPointMode || ''
           });
         }else if(dataSetIds.length){
+          const dataRows = rowTitlesId
+            ? filtered.map(row => Array.isArray(row) ? row.slice(1) : row)
+            : filtered;
           if(dataSetTitles.some(title => String(title).trim() !== '')){
-            importRows = [dataSetTitles.map(title => title), ...filtered];
+            importRows = [dataSetTitles.map(title => title), ...dataRows];
+          }else{
+            importRows = dataRows;
           }
+        }
+        if(!prismMeta){
+          prismMeta = prismTables.find(table => table.id === dataSheetId)?.prismMeta || null;
         }
         const result = await applyRows(importRows, { delimiter });
         if(result && prismMeta){
           result.prismMeta = prismMeta;
+        }
+        if(result){
+          result.prismTableId = dataSheetId;
+          result.prismTableTitle = sheetTitle || '';
+          result.prismTables = prismTables;
+          result.prismTableCount = prismTables.length;
         }
         if(result && prismStyle){
           result.prismStyle = prismStyle;
@@ -3009,6 +3185,30 @@
     }
     notifyError(options, `Unsupported file format: ${ext}`);
     return null;
+  };
+
+  tableImport.openFile = async function openFile(inputEl, options = {}){
+    let result = null;
+    let error = null;
+    try{
+      result = await openFileCore(inputEl, options);
+      const file = inputEl?.files && inputEl.files[0];
+      const tables = Array.isArray(result?.prismTables) ? result.prismTables : [];
+      const requestedId = options.prismTableId || inputEl?.dataset?.prismTableId || '';
+      if(result && tables.length > 1 && !requestedId && options.suppressPrismBatch !== true && prismBatchHandler){
+        await prismBatchHandler(file, result, { inputEl, options });
+      }
+      return result;
+    }catch(err){
+      error = err;
+      throw err;
+    }finally{
+      if(inputEl && typeof inputEl.dispatchEvent === 'function' && typeof global.CustomEvent === 'function'){
+        inputEl.dispatchEvent(new global.CustomEvent('graphitix-table-import-complete', {
+          detail: { result, error }
+        }));
+      }
+    }
   };
 
   if(global.document){

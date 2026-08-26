@@ -66,7 +66,8 @@ test('AG Grid arrow keys move the highlighted cell instead of scrolling a visibl
       return null;
     }
 
-    return { row, col };
+    const pinnedRows = Number(hot.getSettings?.().fixedRowsTop) || 0;
+    return { row, visualRow: row + pinnedRows, col };
   });
 
   expect(target).toBeTruthy();
@@ -88,43 +89,43 @@ test('AG Grid arrow keys move the highlighted cell instead of scrolling a visibl
   });
 
   await expect.poll(async () => (await readState()).selection).toEqual([
-    target.row,
+    target.visualRow,
     target.col,
-    target.row,
+    target.visualRow,
     target.col
   ]);
 
   await page.keyboard.press('ArrowDown');
   await expect.poll(async () => (await readState()).selection).toEqual([
-    target.row + 1,
+    target.visualRow + 1,
     target.col,
-    target.row + 1,
+    target.visualRow + 1,
     target.col
   ]);
 
   await page.keyboard.press('ArrowUp');
   await expect.poll(async () => (await readState()).selection).toEqual([
-    target.row,
+    target.visualRow,
     target.col,
-    target.row,
+    target.visualRow,
     target.col
   ]);
 
   const horizontalBefore = (await readState()).scrollLeft;
   await page.keyboard.press('ArrowRight');
   await expect.poll(async () => (await readState()).selection).toEqual([
-    target.row,
+    target.visualRow,
     target.col + 1,
-    target.row,
+    target.visualRow,
     target.col + 1
   ]);
   expect((await readState()).scrollLeft).toBe(horizontalBefore);
 
   await page.keyboard.press('ArrowLeft');
   await expect.poll(async () => (await readState()).selection).toEqual([
-    target.row,
+    target.visualRow,
     target.col,
-    target.row,
+    target.visualRow,
     target.col
   ]);
   expect((await readState()).scrollLeft).toBe(horizontalBefore);

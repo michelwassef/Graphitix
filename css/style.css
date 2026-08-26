@@ -630,6 +630,16 @@ select {
     cursor: grabbing;
     opacity: 1;
 }
+.ag-theme-balham .hot-ag-header--group-anchor {
+    position: relative;
+}
+.ag-theme-balham .hot-ag-header--group-anchor > .hot-col-drag-handle--group-anchor {
+    position: absolute;
+    left: 2px;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 1;
+}
 .ag-theme-balham .hot-col-drag-handle.hot-col-drag-handle--hidden {
     display: none;
     pointer-events: none;
@@ -638,7 +648,8 @@ select {
 .ag-theme-balham .ag-header-cell:focus-within .hot-col-drag-handle {
     opacity: 1;
 }
-/* Keep AG Grid resize handles functional but invisible globally. */
+/* Keep enabled AG Grid resize hit areas functional but visually invisible.
+   Respect AG Grid's ag-hidden state so non-resizable/internal group boundaries stay inert. */
 .ag-theme-balham .ag-header-cell-resize,
 .ag-theme-balham .ag-header-group-cell-resize,
 .ag-theme-balham .ag-header-cell-resize::after,
@@ -651,8 +662,8 @@ select {
     box-shadow: none !important;
     color: transparent !important;
 }
-.ag-theme-balham .ag-header-cell-resize,
-.ag-theme-balham .ag-header-group-cell-resize {
+.ag-theme-balham .ag-header-cell-resize:not(.ag-hidden),
+.ag-theme-balham .ag-header-group-cell-resize:not(.ag-hidden) {
     display: block !important;
     pointer-events: auto !important;
     cursor: col-resize !important;
@@ -1603,40 +1614,13 @@ select {
 .ag-theme-balham .ag-checkbox-input-wrapper {
     vertical-align: middle;
 }
-/* Hide the duplicate body row that sits under pinned top rows. */
-.ag-theme-balham .ag-row.hot-pinned-ghost-row {
-    height: 0 !important;
-    min-height: 0 !important;
-    max-height: 0 !important;
-    border: 0 !important;
-    overflow: hidden !important;
-}
-.ag-theme-balham .ag-row.hot-pinned-ghost-row .ag-cell {
-    height: 0 !important;
-    min-height: 0 !important;
-    max-height: 0 !important;
-    padding: 0 !important;
-    border: 0 !important;
-    line-height: 0 !important;
-    overflow: hidden !important;
-}
-.ag-theme-balham .ag-row.hot-pinned-ghost-row .ag-checkbox-input-wrapper {
-    display: none !important;
-}
-.ag-theme-balham .ag-row.hot-pinned-first-body-row .ag-cell {
-    border-top: 0 !important;
-}
-/* Ensure pinned top rows fully cover the first body row without gaps. */
+/* Keep native pinned rows opaque above the scrolling body. */
 .ag-theme-balham .ag-pinned-top,
 .ag-theme-balham .ag-floating-top,
 .ag-theme-balham .ag-pinned-top-viewport,
 .ag-theme-balham .ag-floating-top-viewport {
     min-height: var(--ag-row-height);
     background: #ffffff;
-}
-.ag-theme-balham .ag-pinned-top,
-.ag-theme-balham .ag-floating-top {
-    margin-bottom: -1px;
 }
 .ag-theme-balham .ag-pinned-top .ag-row,
 .ag-theme-balham .ag-floating-top .ag-row,
@@ -5538,11 +5522,15 @@ input[type=number]::-webkit-inner-spin-button{
 .stats-report-panel__summary-item{color:#334155}
 .stats-report-panel__advanced{margin:0 12px 12px;border:1px solid #dbe4f3;background:#fff}
 .stats-report-panel__note{margin:0;padding:0 14px 10px;font-size:12px;color:#475569}
-.stats-significance-controls{margin:10px 0 8px;padding:8px 10px;border:1px solid #dbe4f3;background:#f8fbff;display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px}
-.stats-significance-controls__label{display:inline-flex;align-items:center;gap:8px;font-size:12px;font-weight:600;color:#1d2735}
-.stats-significance-controls__input{width:88px;padding:4px 6px;border:1px solid #cbd5e1;background:#fff;color:#1e293b;font-size:12px}
-.stats-significance-controls__hint{font-size:12px;color:#475569}
-.stats-significance-controls__extra{display:inline-flex;align-items:center;gap:8px;margin-left:auto}
+.stats-reporting-controls{margin:10px 0 8px;padding:7px 10px;border:1px solid #dbe4f3;background:#f8fbff;display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:8px 12px}
+.stats-inference-controls{margin:10px 0 8px;padding:10px 12px;border:1px solid #cfd9e8;background:#f8fbff;display:flex;flex-wrap:wrap;align-items:center;gap:8px 18px;min-height:38px}
+.stats-inference-controls__field{display:inline-flex;align-items:center;gap:8px;font-size:12px;font-weight:600;color:#1d2735;white-space:nowrap}
+.stats-inference-controls__label{font-size:12px;font-weight:600;color:#1d2735}
+.stats-inference-controls__input{width:92px;box-sizing:border-box;padding:4px 7px;border:1px solid #9aa9bc;background:#fff;color:#111827;font-size:12px;line-height:1.35}
+.stats-inference-controls__input:focus{border-color:#2563eb;outline:2px solid rgba(37,99,235,.14);outline-offset:0}
+.stats-inference-controls__help{flex:1 1 260px;min-width:180px;font-size:12px;font-weight:400;line-height:1.35;color:#475569}
+.stats-inference-controls--compact{margin:4px 0;padding:6px 8px;gap:6px 12px}
+.stats-inference-controls--compact .stats-inference-controls__help{flex-basis:220px}
 .stats-pvalue-format-inline{display:inline-flex;align-items:center;gap:8px;font-size:12px;color:#1d2735}
 .stats-pvalue-format-inline__label{font-size:12px;color:#1d2735}
 .stats-pvalue-format-toggle{border:1px solid #6b7280;background:#fff;color:#111827;padding:2px 8px;font-size:11px;line-height:1.3;cursor:pointer}

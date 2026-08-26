@@ -54,7 +54,7 @@ describe('graphSizing preserves resize baseline', () => {
     expect(enriched?.meta?.graphSizing?.display?.heightPx).toBe(327);
     expect(enriched?.meta?.graphSizing?.display?.defaultWidthPx).toBe(455);
     expect(enriched?.meta?.graphSizing?.display?.defaultHeightPx).toBe(455);
-    expect(enriched?.meta?.graphSizing?.version).toBe(2);
+    expect(enriched?.meta?.graphSizing?.version).toBe(3);
     expect(enriched?.meta?.graphSizing).not.toHaveProperty('export');
   });
 

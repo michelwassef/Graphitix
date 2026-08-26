@@ -2461,6 +2461,39 @@
     return lineAxisSettings;
   }
 
+  function stampLineParameterObservables(svg, session = null){
+    if(!svg?.setAttribute){ return; }
+    const controls = getLineRuntimeControlsForSession(session, lineFallbackRuntimeControls);
+    const axis = ensureLineAxisSettings(session);
+    const labels = getLineLabelsState(session);
+    const theme = getLineThemeState(session);
+    const entries = {
+      'background-color': theme.backgroundColor,
+      'text-color': theme.textColor,
+      'title': labels.title,
+      'xtitle': labels.x,
+      'ytitle': labels.y,
+      'ztitle': labels.z,
+      'regression-mode': controls.regressionMode,
+      'stats-method': controls.statType,
+      'axis-broken-axis-x-enabled': !!axis.x?.brokenAxis?.enabled,
+      'axis-broken-axis-y-enabled': !!axis.y?.brokenAxis?.enabled,
+      'axis-minor-tick-subdivisions-x': axis.x?.minorTickSubdivisions,
+      'axis-minor-tick-subdivisions-y': axis.y?.minorTickSubdivisions,
+      'axis-minor-ticks-x': !!axis.x?.minorTicks,
+      'axis-minor-ticks-y': !!axis.y?.minorTicks,
+      'axis-notation-x': axis.x?.notation,
+      'axis-notation-y': axis.y?.notation
+    };
+    Object.entries(labels.colors || {}).forEach(([label, color]) => {
+      const slug = String(label).trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+      if(slug){ entries[`label-colors-${slug}`] = color; }
+    });
+    Object.entries(entries).forEach(([key, value]) => {
+      if(value !== undefined && value !== null){ svg.setAttribute(`data-parameter-${key}`, String(value)); }
+    });
+  }
+
   function getLineAxisNotation(axis, session = null){
     if(axis !== 'x' && axis !== 'y'){ return 'auto'; }
     const settings = ensureLineAxisSettings(session);
@@ -2873,6 +2906,16 @@
     }
     lineAspectSyncing = true;
     try{
+      const activeTabId = String(getLineProjectionTabId() || '').trim();
+      const activeRoot = resolveLineRoot(activeTabId || null);
+      const activeSvgBox = activeRoot?.querySelector?.('.svgbox') || null;
+      if(activeSvgBox){
+        refs.svgBox = activeSvgBox;
+        lineSvgBoxRef = activeSvgBox;
+        lineEqualAxesInput = activeSvgBox.querySelector('.resizer-axeslength-checkbox--equal-length');
+        lineEqualScaleAxesInput = activeSvgBox.querySelector('.resizer-axeslength-checkbox--equal-scale');
+        lineVarianceAxisScaleInput = activeSvgBox.querySelector('.resizer-axeslength-checkbox--variance');
+      }
       const lockRatioCheckbox = getLineLockRatioCheckbox();
       const ownerTabId = resolveLineTabIdFromNode(lockRatioCheckbox);
       const ownerSession = ownerTabId
@@ -2957,7 +3000,7 @@
   }
 
   function ensureLineAxesLengthControlPlacement(){
-    const svgBox = lineSvgBoxRef || refs.svgBox;
+    const svgBox = refs.svgBox || lineSvgBoxRef;
     if(!svgBox){
       return;
     }
@@ -3182,7 +3225,7 @@
   }
 
   function closeLineAxesLengthMenu(reason){
-    const svgBox = lineSvgBoxRef || refs.svgBox;
+    const svgBox = refs.svgBox || lineSvgBoxRef;
     if(!svgBox){
       return;
     }
@@ -3235,10 +3278,8 @@
     if(refs.plot){
       refs.plot.innerHTML = '';
       if(options.message){
-        if(options.usePlotNotice && typeof Shared.renderPlotNotice === 'function'){
+        if(typeof Shared.renderPlotNotice === 'function'){
           Shared.renderPlotNotice(refs.plot, options.message, { resetAspect: true, show: true });
-        }else if(options.allowHtml){
-          refs.plot.innerHTML = options.message;
         }else{
           refs.plot.textContent = options.message;
         }
@@ -3544,6 +3585,8 @@
         showConfidenceIntervals: !!controls.showIntervals,
         showPredictionIntervals: !!controls.showPredictionIntervals,
         showDiagnostics: true,
+        // Regression confidence/prediction intervals remain fixed at 95% and are
+        // intentionally independent from the inferential significance level.
         alpha: 0.05,
         regressionCache: new Map(),
         forecast
@@ -3622,7 +3665,8 @@
       });
       seriesKey = parts.join(';');
     }
-    return [method, regressionMode, forecastKey, seriesKey].join('::');
+    const inferenceAlpha = getLineStatsAlpha();
+    return [method, regressionMode, String(inferenceAlpha), forecastKey, seriesKey].join('::');
   }
 
   function isLineStatsDisplayOnlyRefresh(reason){
@@ -7949,6 +7993,56 @@
     return Number(p).toFixed(4).replace(/0+$/, '').replace(/\.$/, '');
   }
 
+  function getLineStatsInferenceTabId(){
+    return getLineProjectionTabId() || getLineActiveSessionForState()?.tabId || null;
+  }
+
+  function getLineStatsAlpha(){
+    const alpha = Number(Shared.statsInference?.getAlpha?.({ tabId: getLineStatsInferenceTabId() }));
+    return Number.isFinite(alpha) && alpha > 0 && alpha < 1
+      ? alpha
+      : (Shared.statsInference?.DEFAULT_ALPHA || 0.05);
+  }
+
+  function createLineInferenceSpec(){
+    if(typeof Shared.statsInference?.createDecisionSpec === 'function'){
+      return Shared.statsInference.createDecisionSpec({
+        tabId: getLineStatsInferenceTabId(),
+        criterion: 'alpha',
+        method: 'none',
+        valueKind: 'raw-p'
+      });
+    }
+    return { criterion:'alpha', level:getLineStatsAlpha(), method:'none', valueKind:'raw-p' };
+  }
+
+  function lineInferencePValue(value){
+    const numeric = Number(value);
+    const fallback = Number.isFinite(numeric) ? String(formatP(numeric)) : '—';
+    const inferenceSpec = createLineInferenceSpec();
+    if(typeof Shared.statsReporting?.pValue === 'function'){
+      return Shared.statsReporting.pValue(numeric, { fallback, inference: inferenceSpec });
+    }
+    return { type:'pValue', value:numeric, fallback, __statsInference:inferenceSpec };
+  }
+
+  function ensureLineStatsInferenceControls(){
+    const host = getLineNodeById('lineStatsInferenceControls');
+    if(!host || typeof Shared.statsInference?.mountControls !== 'function'){
+      return null;
+    }
+    return Shared.statsInference.mountControls(host, {
+      tabId: () => getLineStatsInferenceTabId(),
+      includeOverall: true,
+      includeComparisons: false,
+      method: 'none',
+      source: 'line-stats-inference',
+      onChange: ({ key }) => {
+        requestLineStatsContextRefresh(`stats-inference-${key}-change`);
+      }
+    });
+  }
+
   function formatLinePExpression(value, options = {}){
     const reporting = Shared.statsReporting;
     if(reporting && typeof reporting.formatPValueExpression === 'function'){
@@ -9433,7 +9527,7 @@
     return headers;
   }
 
-  function buildLineGroupedColumnDragGroups(hotInstance, options = {}){
+  function buildLineGroupedColumnGroups(hotInstance, options = {}){
     const hot = hotInstance || getActiveLineHotManager();
     if(!hot || typeof hot.countCols !== 'function'){
       return null;
@@ -9899,7 +9993,7 @@
       hot.updateSettings({
         nestedHeaders: false,
         colHeaders: true,
-        columnDragGroups: buildLine3dColumnDragGroups(hot, { ...options, force3d: true })
+        columnGroups: buildLine3dColumnGroups(hot, { ...options, force3d: true })
       });
       applyLineFirstColumnPinningForFormat(hot, tableFormat, {
         ...options,
@@ -9911,7 +10005,7 @@
       return;
     }
     if(!groupedActive){
-      hot.updateSettings({ nestedHeaders: false, colHeaders: true, columnDragGroups: null });
+      hot.updateSettings({ nestedHeaders: false, colHeaders: true, columnGroups: null });
       applyLineFirstColumnPinningForFormat(hot, tableFormat, {
         ...options,
         reason: options.reason || 'line-single-header-projection'
@@ -9922,7 +10016,7 @@
     hot.updateSettings({
       nestedHeaders: false,
       colHeaders: buildLineAgColHeaders(hot, { ...options, forceGrouped: true }),
-      columnDragGroups: buildLineGroupedColumnDragGroups(hot, { ...options, forceGrouped: true })
+      columnGroups: buildLineGroupedColumnGroups(hot, { ...options, forceGrouped: true })
     });
     applyLineFirstColumnPinningForFormat(hot, tableFormat, {
       ...options,
@@ -10549,7 +10643,7 @@
     return col % LINE_3D_COLS_PER_DATASET === LINE_3D_COLS_PER_DATASET - 1 ? 'end' : 'middle';
   }
 
-  function buildLine3dColumnDragGroups(hotInstance, options = {}){
+  function buildLine3dColumnGroups(hotInstance, options = {}){
     const hot = hotInstance || getActiveLineHotManager();
     if(!hot || typeof hot.countCols !== 'function' || !isLine3dTableActive(hot, options)){
       return null;
@@ -10567,7 +10661,9 @@
       }
       groups.push({
         startCol,
-        span: Math.min(LINE_3D_COLS_PER_DATASET, colCount - startCol)
+        span: Math.min(LINE_3D_COLS_PER_DATASET, colCount - startCol),
+        selectionMode: 'column',
+        resizeMode: 'column'
       });
     }
     return groups;
@@ -10645,7 +10741,7 @@
     hot.updateSettings({
       nestedHeaders: false,
       colHeaders: true,
-      columnDragGroups: buildLine3dColumnDragGroups(hot, { force3d: true })
+      columnGroups: buildLine3dColumnGroups(hot, { force3d: true })
     });
     const hotRoot = hot.rootElement
       || hot.__lineHostContainer
@@ -11794,21 +11890,27 @@
   }
 
 
-  function ensureLineLabelColors(labels){
+  function ensureLineLabelColors(labels, session = null){
+    const owner = resolveLineStateSession(session || getLineActiveSessionForState());
+    const nextColors = cloneLineRuntimeValue(getLineLabelsState(owner).colors, {}) || {};
+    let changed = false;
     const labelSet = new Set(labels);
     labels.forEach((lab,i)=>{
-      if(!lineLabelColors[lab]){
-        lineLabelColors[lab]=DEFAULT_SCATTER_COLORS[i%DEFAULT_SCATTER_COLORS.length];
-        console.debug('Debug: line default label color applied',{label:lab,color:lineLabelColors[lab]});
+      if(!nextColors[lab]){
+        nextColors[lab]=DEFAULT_SCATTER_COLORS[i%DEFAULT_SCATTER_COLORS.length];
+        changed = true;
+        console.debug('Debug: line default label color applied',{label:lab,color:nextColors[lab]});
       }
     });
-    Object.keys(lineLabelColors).forEach(k=>{
-      if(!labelSet.has(k)){
-        console.debug('Debug: line label color pruned',{label:k});
-        delete lineLabelColors[k];
+    Object.keys(nextColors).forEach(label => {
+      if(!labelSet.has(label)){
+        delete nextColors[label];
+        changed = true;
       }
     });
-    console.debug('Debug: ensureLineLabelColors sync complete',{count:Object.keys(lineLabelColors).length});
+    if(changed){ patchLineLabelsState(owner, { colors: nextColors }, { reason: 'line-label-color-defaults' }); }
+    lineLabelColors = cloneLineRuntimeValue(nextColors, {}) || {};
+    console.debug('Debug: ensureLineLabelColors sync complete',{count:Object.keys(nextColors).length});
   }
 
   function upsertLineResidualsDataView(series, options = {}){
@@ -12248,6 +12350,7 @@
             r:formatMetricValue(stats.r),
             rCi:corrCi,
             p:formatP(stats.p),
+            pValueCell:lineInferencePValue(stats.p),
             pRaw:Number.isFinite(stats.p) ? stats.p : null,
             pMethod:stats.pMethod || '—',
             slope:formatMetricValue(stats.slope),
@@ -12257,7 +12360,8 @@
             mae:formatMetricValue(maeValue),
             logLoss:formatMetricValue(logLossValue,6),
             modelF:formatMetricValue(modelF),
-            modelFP:formatP(modelFP)
+            modelFP:formatP(modelFP),
+            modelPValueCell:lineInferencePValue(modelFP)
           });
           if(stats.regression?.summary?.parameters && typeof stats.regression.summary.parameters === 'object'){
             Object.entries(stats.regression.summary.parameters).forEach(([label, value]) => {
@@ -12340,6 +12444,7 @@
                 se: formatMetricValue(stat.standardError),
                 t: formatMetricValue(stat.tStatistic,3),
                 p: formatP(stat.pValue),
+                pValueCell: lineInferencePValue(stat.pValue),
                 ciLow: formatMetricValue(stat.ciLow),
                 ciHigh: formatMetricValue(stat.ciHigh)
               });
@@ -12404,13 +12509,13 @@
             {key:'n',label:'N',align:'right'},
             {key:'r',label:associationSymbol,align:'right'},
             {key:'rCi',label:`${associationSymbol} (95% CI)`,align:'right'},
-            {key:'p',label:'p',align:'right'},
+            {key:'pValueCell',label:'p',align:'right'},
             {key:'pMethod',label:'p method',align:'left'},
             {key:'slope',label:parameterColumnLabel,align:'right'},
             {key:'r2',label:rSquaredLabel,align:'right'},
             {key:'adjR2',label:'Adjusted R²',align:'right'},
             {key:'modelF',label:'Model F',align:'right'},
-            {key:'modelFP',label:'Model p',align:'right'},
+            {key:'modelPValueCell',label:'Model p',align:'right'},
             {key:'rmse',label:'RMSE',align:'right'},
             {key:'mae',label:'MAE',align:'right'},
             {key:'logLoss',label:'Log loss',align:'right'}
@@ -12523,7 +12628,7 @@
               { key:'estimate', label:'Estimate', align:'right' },
               { key:'se', label:'Std Error', align:'right' },
               { key:'t', label:'t-stat', align:'right' },
-              { key:'p', label:'p-value', align:'right' },
+              { key:'pValueCell', label:'p-value', align:'right' },
               { key:'ciLow', label:'CI Low', align:'right' },
               { key:'ciHigh', label:'CI High', align:'right' }
             ],
@@ -12582,7 +12687,7 @@
     }
     if(tableRows.length && statsResults && Shared.statsReporting && typeof Shared.statsReporting.appendReportPanel==='function'){
       const methodsParts = [
-        `Association and regression statistics were computed for ${tableRows.length} series using ${methodLabel || method} correlation with ${regressionModeLabel}.`,
+        `Association and regression statistics were computed for ${tableRows.length} series using ${methodLabel || method} correlation with ${regressionModeLabel}. Inferential decisions used α = ${Shared.statsInference?.formatLevel?.(getLineStatsAlpha()) || getLineStatsAlpha()}.`,
         'For each series, only rows with finite numeric X and Y values were analyzed; missing or non-numeric pairs were omitted before correlation, regression, diagnostics, and forecast summaries.',
         showIntervals ? 'Confidence and prediction interval bounds were calculated from the fitted regression model where estimable.' : null,
         showDiagnostics ? 'Residual diagnostic summaries were requested, including distributional checks, runs tests, and lack-of-fit summaries when the data supported them.' : null,
@@ -12597,7 +12702,7 @@
       ].filter(Boolean);
       const structuredResultsParts = [
         `${tableRows.length} series were analysable.`,
-        bestSeries ? [' ', `${bestSeries.series} returned ${associationSymbol} = ${bestSeries.r}, p = `, { type:'pValue', value:bestSeries.pRaw, fallback:String(bestSeries.p) }, `, and ${rSquaredLabel} = ${bestSeries.r2}.`] : null,
+        bestSeries ? [' ', `${bestSeries.series} returned ${associationSymbol} = ${bestSeries.r}, p = `, { type:'pValue', value:bestSeries.pRaw, fallback:String(bestSeries.p), __statsInference:createLineInferenceSpec() }, `, and ${rSquaredLabel} = ${bestSeries.r2}.`] : null,
         forecastRows.length ? ` ${forecastRows.length} series produced forecast accuracy statistics.` : null,
         coefficientRows.length ? ` ${coefficientRows.length} coefficient estimates were tabulated.` : null
       ].filter(Boolean);
@@ -12618,7 +12723,10 @@
           parameterRows: parameterRows.length,
           seasonalRows: seasonalRows.length,
           forecastRows: forecastRows.length,
-          coefficientRows: coefficientRows.length
+          coefficientRows: coefficientRows.length,
+          inference: typeof Shared.statsInference?.createSnapshot === 'function'
+            ? Shared.statsInference.createSnapshot({ tabId:getLineStatsInferenceTabId(), includeOverall:true, includeComparisons:false })
+            : { alpha:getLineStatsAlpha() }
         }
       }, { title: 'Reporting and reproducibility' });
     }
@@ -13373,7 +13481,7 @@
         // restore stat control values if saved
         if(s.controls && typeof s.controls === 'object'){
           if(typeof s.controls.method === 'string' && payloadRefs.statType){ payloadRefs.statType.value = s.controls.method; }
-          if(typeof s.controls.regressionMode === 'string' && payloadRefs.regressionMode){
+          if(!c.regression?.mode && typeof s.controls.regressionMode === 'string' && payloadRefs.regressionMode){
             ensureLineRegressionSelectOptions(payloadRefs.regressionMode);
             payloadRefs.regressionMode.value = s.controls.regressionMode;
           }
@@ -13424,7 +13532,6 @@
         console.debug('Debug: clearing line stats during payload apply failed', { err: err?.message || String(err) });
       }
     }
-    ensureLineLabelColors(Object.keys(lineLabelColors));
     setLineLabelsState(payloadStateSession, {
       ...getLineLabelsState(payloadStateSession),
       title: lineTitleText,
@@ -13437,6 +13544,7 @@
       ...(meta || {}),
       reason: meta?.colorSchemeOnly ? 'line-color-scheme-labels' : 'line-payload-labels'
     });
+    ensureLineLabelColors(Object.keys(lineLabelColors), payloadStateSession);
     console.debug('Debug: line payload visual state restored', {
       reason: meta?.reason || meta?.source || null,
       colorSchemeOnly: meta?.colorSchemeOnly === true,
@@ -13691,18 +13799,19 @@
       if(!Array.isArray(matrix) || !matrix.length){
         resetLineRenderState('line-3d-no-data-matrix',{
           message: Shared.getEmptyPlotNoticeMessage ? Shared.getEmptyPlotNoticeMessage() : 'Add data to the input table to generate a plot.',
-          usePlotNotice: true
         });
         handleLineStatsUnavailable(null, lineStatsEmptyPlaceholder);
         return;
       }
       const axisHeaders = resolveLine3dAxisHeaders(matrix);
       const prevAxisLabels = { x: lineLabelsState.x, y: lineLabelsState.y, z: lineLabelsState.z };
-      lineLabelsState = patchLineLabelsState(invocation.session, {
-        x: axisHeaders.xLabel,
-        y: axisHeaders.yLabel,
-        z: axisHeaders.zLabel
-      }, { reason: 'line-3d-axis-label-sync' });
+      const inferredAxisLabels = {};
+      if(!String(lineLabelsState.x || '').trim() || lineLabelsState.x === 'X') inferredAxisLabels.x = axisHeaders.xLabel;
+      if(!String(lineLabelsState.y || '').trim() || lineLabelsState.y === 'Y title') inferredAxisLabels.y = axisHeaders.yLabel;
+      if(!String(lineLabelsState.z || '').trim() || lineLabelsState.z === 'Z') inferredAxisLabels.z = axisHeaders.zLabel;
+      if(Object.keys(inferredAxisLabels).length){
+        lineLabelsState = patchLineLabelsState(invocation.session, inferredAxisLabels, { reason: 'line-3d-axis-label-sync' });
+      }
       if(prevAxisLabels.x !== lineLabelsState.x || prevAxisLabels.y !== lineLabelsState.y || prevAxisLabels.z !== lineLabelsState.z){
         lineDebug('Debug: line 3d axis labels synced', {
           previous: prevAxisLabels,
@@ -13818,7 +13927,7 @@
         return;
       }
       const labelsUsed = seriesWithData.map(s => s.name);
-      ensureLineLabelColors(labelsUsed);
+      ensureLineLabelColors(labelsUsed, invocation.session);
       lineLabelsState = patchLineLabelsState(invocation.session, { colors: lineLabelColors }, { reason: 'line-3d-label-colors-sync' });
       const colors = seriesWithData.map((s, i) => lineLabelsState.colors?.[s.name] || borderColor || DEFAULT_SCATTER_COLORS[i % DEFAULT_SCATTER_COLORS.length]);
       const seriesShapes = seriesWithData.map((s) => {
@@ -14001,6 +14110,7 @@
       svg3.setAttribute('font-family', chartStyle.FONT_FAMILY);
       svg3.dataset.viewMode = '3d';
       chartStyle.prepareSvg(svg3, { scopeId: 'line' });
+      stampLineParameterObservables(svg3, invocation.session);
       const legendProjection = chartStyle.stageLegendViewport({
         svgBox: refs.svgBox,
         plot: plotEl,
@@ -14801,6 +14911,7 @@
       let showIntervals = showConfidenceIntervals || showPredictionIntervals;
       const showDiagnostics=isLineDiagnosticsEnabled();
       const regressionModeCurrent = controls.regressionMode || 'linear';
+      // Regression confidence/prediction intervals are 95%; do not couple them to inferential α.
       const regressionAlpha = 0.05;
       const forecastOptions = resolveForecastOptions({ session: invocation.session, reason: 'line-draw-forecast-options' });
       console.debug('Debug: line regression configuration',{ showTrendLine, showIntervals, showConfidenceIntervals, showPredictionIntervals, showDiagnostics, regressionMode: regressionModeCurrent, forecastOptions });
@@ -14819,7 +14930,6 @@
       if(!Array.isArray(data) || !data.length){
         resetLineRenderState('no-data-matrix',{
           message: Shared.getEmptyPlotNoticeMessage ? Shared.getEmptyPlotNoticeMessage() : 'Add data to the input table to generate a plot.',
-          usePlotNotice: true
         });
         handleLineStatsUnavailable(statsContext, lineStatsEmptyPlaceholder);
         return;
@@ -14840,9 +14950,11 @@
       const initialSeriesModel = finalizeLine2dSeriesAccumulator(lineSeriesAccumulator);
       const header = initialSeriesModel.header || (Array.isArray(data[0]) ? data[0] : []);
       const xIndex = Number.isInteger(initialSeriesModel.xIndex) ? initialSeriesModel.xIndex : 0;
-      lineLabelsState = patchLineLabelsState(invocation.session, {
-        x: (header[xIndex] && String(header[xIndex]).trim()) || 'X'
-      }, { reason: 'line-2d-x-label-sync' });
+      if(!String(lineLabelsState.x || '').trim() || lineLabelsState.x === 'X'){
+        lineLabelsState = patchLineLabelsState(invocation.session, {
+          x: (header[xIndex] && String(header[xIndex]).trim()) || 'X'
+        }, { reason: 'line-2d-x-label-sync' });
+      }
       const replicates = initialSeriesModel.replicates || Math.max(LINE_MIN_REPLICATES, lineReplicates);
       const totalSeries = initialSeriesModel.totalSeries || 0;
       const headerSeriesLabels = initialSeriesModel.labels || resolveLine2dSeriesLabelsFromHeader(header, totalSeries, { replicates });
@@ -14852,18 +14964,17 @@
         if(initialSeriesModel.reason === 'no-valid-series'){
           resetLineRenderState('no-valid-series',{
             message: Shared.getEmptyPlotNoticeMessage ? Shared.getEmptyPlotNoticeMessage() : 'Add data to the input table to generate a plot.',
-            usePlotNotice: true
           });
           handleLineStatsUnavailable(statsContext, 'Not enough data for statistics.');
           return;
         }
         if(initialSeriesModel.reason === 'log-x-nonpositive'){
-          resetLineRenderState('log-x-nonpositive',{ message: '<i>Log scale requires positive X values.</i>', allowHtml: true });
+          resetLineRenderState('log-x-nonpositive',{ message: 'Log scale requires positive X values.' });
           handleLineStatsUnavailable(statsContext, 'Log scale requires positive X values before statistics can be calculated.');
           return;
         }
         if(initialSeriesModel.reason === 'log-y-nonpositive'){
-          resetLineRenderState('log-y-nonpositive',{ message: '<i>Log scale requires positive Y values.</i>', allowHtml: true });
+          resetLineRenderState('log-y-nonpositive',{ message: 'Log scale requires positive Y values.' });
           handleLineStatsUnavailable(statsContext, 'Log scale requires positive Y values before statistics can be calculated.');
           return;
         }
@@ -14971,7 +15082,7 @@
           });
         }
       }
-      ensureLineLabelColors(labelsUsed);
+      ensureLineLabelColors(labelsUsed, invocation.session);
       lineLabelsState = patchLineLabelsState(invocation.session, { colors: lineLabelColors }, { reason: 'line-2d-label-colors-sync' });
       const colors=seriesWithData.map((s,i)=>lineLabelsState.colors?.[s.name]||borderColor||DEFAULT_SCATTER_COLORS[i%DEFAULT_SCATTER_COLORS.length]);
       if(!(await checkpoint())){
@@ -15135,7 +15246,9 @@
       const rangeForClipping = { xMin, xMax, yMin, yMax };
       seriesWithData = clipSeriesToRange(seriesWithData, rangeForClipping);
       if(!seriesWithData.length){
-        resetLineRenderState('no-valid-series-after-clipping');
+        resetLineRenderState('no-valid-series-after-clipping', {
+          message: 'Adjust the axis range to include at least two valid points.'
+        });
         handleLineStatsUnavailable(statsContext, 'Adjust the axis range to enable statistics.');
         console.debug('Debug: line plot aborted due to clipping',{ range: rangeForClipping });
         return;
@@ -15178,6 +15291,7 @@
       line.__resizeLiveRevision = (Number(line.__resizeLiveRevision) || 0) + 1;
       svg.dataset.resizeLiveRevision = String(line.__resizeLiveRevision);
       chartStyle.prepareSvg(svg, { scopeId: 'line' });
+      stampLineParameterObservables(svg, invocation.session);
       const lineResolvedTheme2d = Shared.colorSchemes?.resolveThemeState?.('line', { config: { colorScheme: lineThemeState.colorScheme } }) || null;
       const lineThemeDark = lineResolvedTheme2d
         ? lineResolvedTheme2d.isDark === true
@@ -16907,6 +17021,7 @@
       refs.plot.__lineAxesLengthCloseHandler = onPlotPointerDown;
     }
     ensureLineStatsReportHost();
+    ensureLineStatsInferenceControls();
     ensureLineRegressionSelection();
     renderLineStatsAdvisor([], { showIntervals: isLineAnyIntervalEnabled(), showDiagnostics: isLineDiagnosticsEnabled() });
     clearLineStatsOutputs(lineStatsEmptyPlaceholder);
@@ -18524,6 +18639,7 @@
       tabId: targetTabId || null,
       reason: meta?.reason || 'line-activation-bind-session'
     }, { syncControls: false }) || getLineActiveSessionForState();
+    if(!passive){ ensureLineResizerControls(); }
     if(!passive && typeof line.__ensureHotForActiveTab === 'function'){
       const hot = line.__ensureHotForActiveTab();
       if(hot){

@@ -19,6 +19,7 @@ describe('Statistical audit remediation — component contracts', () => {
     require('../js/shared/graphSizing.js');
     require('../js/shared/regression.js');
     require('../js/shared/stats.js');
+    require('../js/shared/statsInference.js');
     require('../js/shared/stats-table.js');
     require('../js/shared/colorPicker.js');
     require('../js/shared/editHighlight.js');
@@ -63,7 +64,7 @@ describe('Statistical audit remediation — component contracts', () => {
     const sortedAdjusted = result.results.map(entry => entry.adjustedPValue).slice().sort((a, b) => a - b);
     sortedAdjusted.forEach((value, index) => expect(value).toBeGreaterThanOrEqual(sortedRaw[index] - 1e-15));
     result.results.forEach(entry => {
-      expect(entry.significant).toBe(entry.adjustedLogPValue < Math.log(0.05));
+      expect(entry.significant).toBe(entry.adjustedLogPValue <= Math.log(result.alpha));
     });
   });
 

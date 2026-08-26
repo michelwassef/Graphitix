@@ -3620,6 +3620,20 @@
     if(state.controls.showFrame){ state.controls.showFrame.checked = !!state.settings.showFrame; }
     if(state.controls.showPoints){ state.controls.showPoints.checked = !!state.settings.showPoints; }
     if(state.controls.showLegend){ state.controls.showLegend.checked = state.settings.showLegend !== false; }
+    projectSurfaceSvgParameterAttributes();
+  }
+
+  function projectSurfaceSvgParameterAttributes(svg = state.svg){
+    if(!svg?.setAttribute) return;
+    const gridStyle = getGridStyle(state.settings?.axisStroke);
+    svg.setAttribute('data-parameter-grid-pattern', String(gridStyle.pattern));
+    svg.setAttribute('data-parameter-grid-thickness', String(gridStyle.thickness));
+    svg.setAttribute('data-parameter-grid-transparency', String(gridStyle.transparency));
+    svg.setAttribute('data-parameter-axis-label-x', String(state.labels?.x || ''));
+    svg.setAttribute('data-parameter-axis-label-y', String(state.labels?.y || ''));
+    svg.setAttribute('data-parameter-axis-label-z', String(state.labels?.z || ''));
+    svg.setAttribute('data-parameter-background-color', String(state.settings?.backgroundColor || ''));
+    svg.setAttribute('data-parameter-color-ramp', String(state.settings?.colorRamp || ''));
   }
 
   function initControls(){
@@ -3915,6 +3929,7 @@
     svg.setAttribute('height', String(height));
     svg.setAttribute('data-surface-base-width', String(width));
     svg.setAttribute('data-surface-base-height', String(height));
+    projectSurfaceSvgParameterAttributes(svg);
     svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
     svg.setAttribute('font-family', chartStyle.FONT_FAMILY || 'Segoe UI, sans-serif');
     if(typeof chartStyle.prepareSvg === 'function'){

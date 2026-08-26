@@ -97,6 +97,35 @@ describe('session.assignTabPayload null-overwrite guard', () => {
     expect(tab.payload.data).toEqual([['A'], [42]]);
   });
 
+  test('every component clears a stale preview when its assigned payload is not renderable', () => {
+    const componentTypes = ['venn', 'box', 'scatter', 'pca', 'line', 'heatmap', 'surface', 'roc', 'survival', 'hist', 'pie'];
+    window.Main.components = { registry: {} };
+    window.Main.previews = { clearTabPreview: jest.fn(tab => {
+      tab.previewMarkup = null;
+      tab.previewSignature = null;
+      tab.previewMeta = null;
+      return true;
+    }) };
+    componentTypes.forEach(type => {
+      window.Main.components.registry[type] = { hasRenderablePayload: jest.fn(() => false) };
+      const tab = session.createTab({
+        title: type,
+        type,
+        payload: { type, data: [['old'], [1]] },
+        previewMarkup: '<svg></svg>',
+        previewSignature: 'old',
+        previewMeta: { format: 'svg' }
+      });
+      session.workspaceState.tabs.push(tab);
+      session.assignTabPayload(tab, { type, data: [[''], ['']] }, { reason: 'user-cleared-data' });
+      expect(tab.previewMarkup).toBeNull();
+      expect(tab.previewSignature).toBeNull();
+      expect(tab.previewMeta).toBeNull();
+      expect(tab.previewSuppressedSignature).toBe(tab.payloadSignature);
+    });
+    expect(window.Main.previews.clearTabPreview).toHaveBeenCalledTimes(componentTypes.length);
+  });
+
   test('archive save keeps a clean loaded tab authoritative without reading live component state', () => {
     const tab = createTabWithPayload();
     tab.loadedFromArchive = true;

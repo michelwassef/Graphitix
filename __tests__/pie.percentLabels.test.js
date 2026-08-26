@@ -62,6 +62,7 @@ describe('Pie percentage labels', () => {
     require('../js/shared/debounce.js');
     require('../js/shared/dataTransforms.js');
     require('../js/shared/dataViews.js');
+    require('../js/shared/componentLifecycle.js');
     require('../js/shared/workspaceTabs.js');
     require('../js/shared/tabContext.js');
     require('../js/shared/undo.js');

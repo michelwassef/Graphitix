@@ -47,7 +47,7 @@ describe('Shared stats reporting layout', () => {
     expect(target.querySelector('.stats-results-advanced-panel .stats-report-panel')).toBeNull();
   });
 
-  test('appending a report synchronously installs p-value controls on its tracked panel', () => {
+  test('appending a report installs presentation-only p-value formatting on its tracked panel', () => {
     const target = document.createElement('div');
     target.id = 'pieStatsResults';
     const table = document.createElement('table');
@@ -60,10 +60,10 @@ describe('Shared stats reporting layout', () => {
       resultsParts: ['p = ', { type: 'pValue', value: 0.004 }, '.']
     });
 
-    expect(target.querySelector(':scope > .stats-significance-controls')).toBeTruthy();
-    expect(target.querySelector('.stats-significance-controls__input')?.value).toBe('0.05');
+    expect(target.querySelector(':scope > .stats-inference-controls')).toBeNull();
+    expect(target.querySelector(':scope > .stats-significance-controls')).toBeNull();
     expect(target.querySelector('.stats-pvalue-format-inline')).toBeTruthy();
-    expect(target.querySelector('td .stats-significance-badge')?.textContent).toBe('**');
+    expect(target.querySelector('td .stats-significance-badge')).toBeNull();
   });
 
   test('a separate report host enhances its tracked ancestor, not the host itself', () => {
@@ -79,8 +79,9 @@ describe('Shared stats reporting layout', () => {
       resultsText: 'The model was significant.'
     });
 
-    expect(target.querySelector(':scope > .stats-significance-controls')).toBeTruthy();
+    expect(target.querySelector(':scope > .stats-significance-controls')).toBeNull();
     expect(reportHost.querySelector(':scope > .stats-significance-controls')).toBeNull();
+    expect(target.querySelector('.stats-pvalue-format-inline')).toBeTruthy();
   });
 
   test('explicit diagnostics stay collapsed while reporting remains a separate bottom section', async () => {

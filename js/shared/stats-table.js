@@ -422,12 +422,16 @@
       // Always default to left alignment unless explicitly specified.
       const align = (col && col.align) ? String(col.align) : 'left';
       const tooltip = col && col.tooltip != null ? String(col.tooltip) : '';
+      const inference = col?.inference && typeof col.inference === 'object'
+        ? { ...col.inference }
+        : null;
       const normalized = {
         key,
         label: col && col.label != null ? String(col.label) : '',
         align: align === 'center' ? 'center' : (align === 'right' ? 'right' : 'left'),
         formatter: typeof col?.formatter === 'function' ? col.formatter : null,
-        tooltip
+        tooltip,
+        inference
       };
       if(tooltip){
         logDebug('normalizeColumns tooltip',{ key, tooltip });
@@ -502,6 +506,39 @@
         ? value.pValueOperator
         : (typeof value.operator === 'string' && value.operator ? value.operator : '='));
     return { pValueRaw: numeric, pValueOperator: operator };
+  };
+
+  const normalizeInferenceMetadata = value => {
+    if(!value || typeof value !== 'object'){
+      return null;
+    }
+    const criterion = value.criterion === 'fdr' ? 'fdr' : (value.criterion === 'alpha' ? 'alpha' : null);
+    const level = Number(value.level);
+    if(!criterion || !Number.isFinite(level) || level <= 0 || level >= 1){
+      return null;
+    }
+    return {
+      schemaVersion: Number.isFinite(Number(value.schemaVersion)) ? Number(value.schemaVersion) : 1,
+      criterion,
+      level,
+      method: String(value.method || 'none').trim().toLowerCase() || 'none',
+      errorControl: String(value.errorControl || (criterion === 'fdr' ? 'fdr' : 'unadjusted')).trim().toLowerCase(),
+      valueKind: String(value.valueKind || 'raw-p').trim() || 'raw-p',
+      decisionLabel: String(value.decisionLabel || (criterion === 'fdr' ? 'Discovery' : 'Significant')),
+      negativeDecisionLabel: String(value.negativeDecisionLabel || (criterion === 'fdr' ? 'No discovery' : 'Not significant'))
+    };
+  };
+
+  const extractInferenceMetadata = value => {
+    if(!value || typeof value !== 'object'){
+      return null;
+    }
+    return normalizeInferenceMetadata(
+      value.__statsInference
+      || value.statsInference
+      || value.inference
+      || null
+    );
   };
 
   const getPValueScientificForTarget = target => {
@@ -658,7 +695,12 @@
           }
         }
         if(pValueMetadata){
-          rowMeta[colIndex] = pValueMetadata;
+          const inferenceMetadata = extractInferenceMetadata(formatted)
+            || extractInferenceMetadata(raw)
+            || normalizeInferenceMetadata(col.inference);
+          rowMeta[colIndex] = inferenceMetadata
+            ? { ...pValueMetadata, inference: inferenceMetadata }
+            : pValueMetadata;
           if(pValueContext){
             return formatPValueMetadata(pValueMetadata, scientific);
           }
@@ -1185,6 +1227,16 @@
           td.dataset.statsPvalueOperator = typeof metadata.pValueOperator === 'string' && metadata.pValueOperator
             ? metadata.pValueOperator
             : '=';
+          const decisionSpec = normalizeInferenceMetadata(metadata.inference);
+          if(decisionSpec){
+            td.dataset.statsInferenceCriterion = decisionSpec.criterion;
+            td.dataset.statsInferenceLevel = String(decisionSpec.level);
+            td.dataset.statsInferenceMethod = decisionSpec.method;
+            td.dataset.statsInferenceErrorControl = decisionSpec.errorControl;
+            td.dataset.statsInferenceValueKind = decisionSpec.valueKind;
+            td.dataset.statsInferenceDecisionLabel = decisionSpec.decisionLabel;
+            td.dataset.statsInferenceNegativeDecisionLabel = decisionSpec.negativeDecisionLabel;
+          }
         }
         tr.appendChild(td);
       });
@@ -1266,10 +1318,25 @@
       const values = Array.from(tr.querySelectorAll('td')).map((td, colIndex) => {
         const raw = Number(td.dataset?.statsPvalueRaw);
         if(Number.isFinite(raw)){
-          metaRow[colIndex] = {
-            pValueRaw: raw,
-            pValueOperator: td.dataset.statsPvalueOperator || '='
-          };
+          const inferenceMetadata = normalizeInferenceMetadata({
+            criterion: td.dataset.statsInferenceCriterion,
+            level: td.dataset.statsInferenceLevel,
+            method: td.dataset.statsInferenceMethod,
+            errorControl: td.dataset.statsInferenceErrorControl,
+            valueKind: td.dataset.statsInferenceValueKind,
+            decisionLabel: td.dataset.statsInferenceDecisionLabel,
+            negativeDecisionLabel: td.dataset.statsInferenceNegativeDecisionLabel
+          });
+          metaRow[colIndex] = inferenceMetadata
+            ? {
+                pValueRaw: raw,
+                pValueOperator: td.dataset.statsPvalueOperator || '=',
+                inference: inferenceMetadata
+              }
+            : {
+                pValueRaw: raw,
+                pValueOperator: td.dataset.statsPvalueOperator || '='
+              };
         }
         return td.textContent != null ? td.textContent : '';
       });
@@ -1360,6 +1427,8 @@
     return changed;
   };
 
+  statsTable.normalizeInferenceMetadata = normalizeInferenceMetadata;
+
   statsTable.refreshPValueFormatting = function refreshPValueFormatting(root) {
     if(!root || typeof root.querySelectorAll !== 'function'){
       return 0;
@@ -1387,6 +1456,16 @@
             td.dataset.statsPvalueOperator = typeof metadata.pValueOperator === 'string' && metadata.pValueOperator
               ? metadata.pValueOperator
               : '=';
+            const decisionSpec = normalizeInferenceMetadata(metadata.inference);
+            if(decisionSpec){
+              td.dataset.statsInferenceCriterion = decisionSpec.criterion;
+              td.dataset.statsInferenceLevel = String(decisionSpec.level);
+              td.dataset.statsInferenceMethod = decisionSpec.method;
+              td.dataset.statsInferenceErrorControl = decisionSpec.errorControl;
+              td.dataset.statsInferenceValueKind = decisionSpec.valueKind;
+              td.dataset.statsInferenceDecisionLabel = decisionSpec.decisionLabel;
+              td.dataset.statsInferenceNegativeDecisionLabel = decisionSpec.negativeDecisionLabel;
+            }
           }
           if(model.rows?.[rowIndex]?.[colIndex] != null){
             td.textContent = String(model.rows[rowIndex][colIndex]);

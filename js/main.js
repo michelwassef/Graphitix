@@ -1010,6 +1010,7 @@
       const result = await tableImport.openFile(fakeInput, {
         renameTab: false,
         suppressPrismLimitations: true,
+        suppressPrismBatch: true,
         debugLabel: 'welcome-prism-inspect',
         onRows: rows => ({ rows: Array.isArray(rows) ? rows.length : 0, cols: Array.isArray(rows?.[0]) ? rows[0].length : 0 }),
         onError: err => { throw err; }
@@ -1076,6 +1077,7 @@
       trimCells: options.trimCells === false ? 'false' : 'true',
       transposeData: options.transposeData ? 'true' : 'false',
       sheetName: options.sheetName || '',
+      prismTableId: options.prismTableId || '',
       importOptionsConfirmed: 'true'
     };
     Object.entries(importDataset).forEach(([key, value]) => { input.dataset[key] = value; });
@@ -1083,11 +1085,62 @@
     if (!setInputFile(input, file)) {
       throw new Error('Could not attach the selected file to the component importer.');
     }
+    const completion = new Promise((resolve, reject) => {
+      input.addEventListener('graphitix-table-import-complete', event => {
+        if(event?.detail?.error) reject(event.detail.error);
+        else resolve(event?.detail?.result || null);
+      }, { once: true });
+    });
     input.dispatchEvent(new Event('change', { bubbles: true }));
-    Object.keys(importDataset).forEach(key => { delete input.dataset[key]; });
+    let result = null;
+    try {
+      result = await completion;
+    } finally {
+      Object.keys(importDataset).forEach(key => { delete input.dataset[key]; });
+    }
     debug('Debug: welcome data import dispatched', Object.assign({ fileName: file?.name || '', component: type }, importDataset));
-    return true;
+    return !!result;
   }
+
+  async function awaitPrismImportedTabReady(component, tabId) {
+    const type = component && WORKSPACES[component] ? component : 'box';
+    const ownerId = String(tabId || '');
+    const active = MainSession.getActiveTab();
+    if (!ownerId || active?.id !== ownerId) {
+      throw new Error('Prism import owner changed before its graph was ready.');
+    }
+    const target = window.Components?.[type] || null;
+    if (!target || typeof target.awaitReadyForSnapshot !== 'function') {
+      throw new Error(`Prism import readiness is unavailable for ${type}.`);
+    }
+    const readiness = await target.awaitReadyForSnapshot({
+      tabId: ownerId,
+      reason: 'prism-batch-import-settle'
+    });
+    if (readiness?.ok === false) {
+      throw new Error(`Prism import graph did not settle for ${type}.`);
+    }
+  }
+
+  Shared.tableImport?.setPrismBatchHandler?.(async (file, firstResult) => {
+    const importedId = String(firstResult?.prismTableId || '');
+    const remaining = (Array.isArray(firstResult?.prismTables) ? firstResult.prismTables : [])
+      .filter(table => String(table?.id || '') !== importedId);
+    const firstComponent = resolvePrismComponent(firstResult?.prismMeta);
+    await awaitPrismImportedTabReady(firstComponent, MainSession.getActiveTab()?.id);
+    for(const table of remaining){
+      const component = resolvePrismComponent(table?.prismMeta);
+      const imported = await importWelcomeDataFile(file, component, {
+        firstRowIsTitles: true,
+        prismTableId: table?.id || '',
+        suppressPrismLimitations: true
+      });
+      if(!imported){
+        throw new Error(`Could not import Prism table ${table?.title || table?.id || ''}.`);
+      }
+      await awaitPrismImportedTabReady(component, MainSession.getActiveTab()?.id);
+    }
+  });
 
   async function openWelcomeFile(file, meta = {}) {
     const ext = getFileExtension(file);
