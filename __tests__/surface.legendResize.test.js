@@ -35,7 +35,7 @@ describe('Surface legend resize metrics', () => {
       expect(metrics.barHeight * metrics.displayScale).toBeCloseTo(80);
       expect(metrics.barWidth * metrics.displayScale).toBeCloseTo(15);
       expect(metrics.tickLength * metrics.displayScale).toBeCloseTo(4.2);
-      expect(metrics.tickLabelGap * metrics.displayScale).toBeCloseTo(5);
+      expect(metrics.tickLabelGap * metrics.displayScale).toBeCloseTo(2);
     });
   });
 
@@ -70,7 +70,7 @@ describe('Surface legend resize metrics', () => {
     const metrics = hooks.resolveLegendMetrics({ width: 420, height: 420, margin, fontSize: 12, legendFontSize: 20 });
 
     expect(metrics.legendFontSize).toBe(20);
-    expect(metrics.tickLabelGap).toBe(5);
+    expect(metrics.tickLabelGap).toBe(4);
   });
 
   test('continuous legend labels retain scale semantics and their rendered size', () => {

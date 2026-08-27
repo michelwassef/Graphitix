@@ -54,12 +54,4 @@ describe('box stats-context handoff and reserve persistence regressions', () => 
     expect(viewportMatch[0]).not.toMatch(/applyResizableBoxSize|commitBoxGraphFrame/);
   });
 
-  test('auxiliary frame reserves preserve canonical graph geometry', () => {
-    const source = boxSource();
-    const reserveMatch = source.match(/function reconcileBoxAuxiliaryFrameReserves\(nextReserves = \{\}, options = \{\}\)\{[\s\S]*?function settleBoxAuxiliaryFrameGeometry/);
-    expect(reserveMatch).toBeTruthy();
-    expect(reserveMatch[0]).toMatch(/authorityMode:\s*'transient'/);
-    expect(reserveMatch[0]).toMatch(/updateAspectRatio:\s*false/);
-    expect(reserveMatch[0]).not.toMatch(/commitBoxGraphFrame/);
-  });
 });

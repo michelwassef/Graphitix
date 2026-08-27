@@ -24,15 +24,6 @@ describe('box frame/layout commit contract', () => {
     expect(source).not.toMatch(/writeLayout\s*:/);
   });
 
-  test('auxiliary reserves resize the physical frame through one transaction', () => {
-    const source = boxSource();
-    const reserveMatch = source.match(/function reconcileBoxAuxiliaryFrameReserves\(nextReserves = \{\}, options = \{\}\)\{[\s\S]*?function settleBoxAuxiliaryFrameGeometry/);
-    expect(reserveMatch).toBeTruthy();
-    expect(reserveMatch[0]).toMatch(/authorityMode:\s*'transient'/);
-    expect(reserveMatch[0]).toMatch(/updateAspectRatio:\s*false/);
-    expect(reserveMatch[0]).not.toMatch(/commitBoxGraphFrame/);
-  });
-
   test('internal frame/layout helpers do not depend on active-tab fallback', () => {
     const source = boxSource();
     const strictHelperMatch = source.match(/function resolveBoxExplicitOrBoundTabId\(meta = \{\}\)\{([\s\S]*?)\n  \}\n\n  function resolveBoxAsyncTabId/);

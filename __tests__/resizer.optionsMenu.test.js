@@ -457,6 +457,73 @@ describe('Shared resizer graph options menu', () => {
     expect(Number(box.dataset.resizerAspectRatio)).toBeCloseTo(510 / 330, 9);
   });
 
+  test('double-click reset adds automatic frame reserves exactly once', () => {
+    const box = createSvgBox();
+    box.style.width = '700px';
+    box.style.height = '500px';
+    const onResize = jest.fn();
+    const resolveAutomaticFrameReserves = jest.fn(() => ({ widthPx: 80, heightPx: 40 }));
+
+    window.Shared.attachResizableBox(box, {
+      defaultWidth: 420,
+      defaultHeight: 320,
+      minWidth: 120,
+      minHeight: 90,
+      resolveAutomaticFrameReserves,
+      onResize
+    });
+
+    const corner = box.querySelector('.resizer-corner');
+    corner.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+    expect(box.style.width).toBe('500px');
+    expect(box.style.height).toBe('360px');
+
+    corner.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+    expect(box.style.width).toBe('500px');
+    expect(box.style.height).toBe('360px');
+    expect(resolveAutomaticFrameReserves).toHaveBeenCalledTimes(2);
+    expect(onResize).toHaveBeenNthCalledWith(1, 'reset');
+    expect(onResize).toHaveBeenNthCalledWith(2, 'reset');
+  });
+
+  test('double-click reset uses a component orientation frame before adding reserves', () => {
+    const box = createSvgBox();
+    box.style.width = '700px';
+    box.style.height = '500px';
+    const resolveResetFrameSize = jest.fn(() => ({ widthPx: 300, heightPx: 460 }));
+
+    window.Shared.attachResizableBox(box, {
+      defaultWidth: 420,
+      defaultHeight: 320,
+      minWidth: 120,
+      minHeight: 90,
+      resolveResetFrameSize,
+      resolveAutomaticFrameReserves: () => ({ widthPx: 30, heightPx: 20 })
+    });
+
+    box.querySelector('.resizer-corner').dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+    expect(box.style.width).toBe('330px');
+    expect(box.style.height).toBe('480px');
+    expect(resolveResetFrameSize).toHaveBeenCalledTimes(1);
+  });
+
+  test('double-click reset remains unchanged without automatic frame reserves', () => {
+    const box = createSvgBox();
+    box.style.width = '700px';
+    box.style.height = '500px';
+
+    window.Shared.attachResizableBox(box, {
+      defaultWidth: 420,
+      defaultHeight: 320,
+      minWidth: 120,
+      minHeight: 90
+    });
+
+    box.querySelector('.resizer-corner').dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+    expect(box.style.width).toBe('420px');
+    expect(box.style.height).toBe('320px');
+  });
+
   test('programmatic lock enforcement updates resizer state even when the checkbox projection already looks locked', () => {
     const box = createSvgBox();
     window.Shared.attachResizableBox(box, {

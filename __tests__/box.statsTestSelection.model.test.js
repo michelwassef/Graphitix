@@ -46,6 +46,42 @@ describe('Box explicit statistical test selection', () => {
     model = global.Shared.boxStatsModel;
   });
 
+  test('a single two-group hypothesis reports only the raw decision p-value even when Holm remains configured', () => {
+    const configuredInference = {
+      criterion: 'alpha',
+      level: 0.05,
+      method: 'holm',
+      errorControl: 'fwer',
+      valueKind: 'adjusted-p'
+    };
+    const result = compute({
+      selection: positiveSelection.slice(0, 2),
+      inferenceSnapshot: { comparisons: configuredInference }
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.correctionCount).toBe(1);
+    expect(result.effectiveComparisonMethod).toBe('none');
+    const summary = result.tables.find(table => table.caption === 'Overall test summary');
+    const pRows = summary.rows.filter(row => /p(?:-value| \()/i.test(String(row.metric)));
+    expect(pRows.map(row => row.metric)).toEqual(['p-value']);
+    expect(pRows[0].inferenceRole).toBe('comparison');
+    expect(pRows[0].value.__statsInference).toEqual(expect.objectContaining({
+      method: 'none',
+      errorControl: 'unadjusted',
+      valueKind: 'raw-p'
+    }));
+    expect(summary.footnotes.join(' ')).not.toMatch(/holm|correction applied across 1 test/i);
+    expect(result.report.methodsText).not.toMatch(/holm|multiplicity-adjusted/i);
+    expect(result.report.analysisSpec.correction).toBe('none');
+    expect(result.report.analysisSpec.configuredCorrection).toBe('holm');
+    expect(result.report.analysisSpec.inference.comparisons).toEqual(expect.objectContaining({
+      method: 'none',
+      errorControl: 'unadjusted',
+      valueKind: 'raw-p'
+    }));
+  });
+
   test.each([
     ['classic', 'studentT'],
     ['welch', 'welchT'],
@@ -144,6 +180,10 @@ describe('Box explicit statistical test selection', () => {
     });
     expect(oneSampleT.ok).toBe(true);
     expect(oneSampleT.analysis.id).toBe('oneSampleT');
+    expect(oneSampleT.effectiveComparisonMethod).toBe('none');
+    const oneSampleColumns = oneSampleT.tables.find(table => table.caption === 'One-sample t-tests').columns;
+    expect(oneSampleColumns.some(column => column.key === 'padj')).toBe(false);
+    expect(oneSampleColumns.find(column => column.key === 'p')?.inferenceRole).toBe('comparison');
 
     const oneSampleW = compute({
       statsTest: 'nonparametric',
@@ -154,6 +194,23 @@ describe('Box explicit statistical test selection', () => {
     });
     expect(oneSampleW.ok).toBe(true);
     expect(oneSampleW.analysis.id).toBe('oneSampleWilcoxon');
+  });
+
+  test('a single custom pair is reported as one unadjusted decision p-value', () => {
+    const result = compute({
+      statsMode: 'custom',
+      statsCustomPairs: [{ ai: 0, bi: 1 }],
+      selection: baseSelection.slice(0, 2)
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.correctionCount).toBe(1);
+    expect(result.effectiveComparisonMethod).toBe('none');
+    const comparisons = result.tables.find(table => table.caption === 'Custom pairwise comparisons');
+    expect(comparisons.columns.find(column => column.key === 'padj')?.label).toBe('p-value');
+    expect(comparisons.footnotes.join(' ')).not.toMatch(/holm|correction applied across 1 test/i);
+    expect(result.report.analysisSpec.correction).toBe('none');
+    expect(result.report.analysisSpec.configuredCorrection).toBe('holm');
   });
 
   test('invalid explicit choices fail instead of falling back', () => {

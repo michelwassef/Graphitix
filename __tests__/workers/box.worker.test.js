@@ -169,6 +169,10 @@ describe('box.worker — box-stats action', () => {
     expect(msg.result.mode).toBe('single');
     expect(msg.result.groupCount).toBe(2);
     expect(Array.isArray(msg.result.tables)).toBe(true);
+    expect(msg.result.effectiveComparisonMethod).toBe('none');
+    const summary = msg.result.tables.find(table => table.caption === 'Overall test summary');
+    expect(summary.rows.filter(row => /p(?:-value| \()/i.test(String(row.metric))).map(row => row.metric)).toEqual(['p-value']);
+    expect(summary.footnotes.join(' ')).not.toMatch(/holm|correction applied across 1 test/i);
   });
 
   test('two nonparametric groups → ok, uses nonparametric path', async () => {

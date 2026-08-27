@@ -990,20 +990,50 @@
   });
 
   function resolvePrismComponent(prismMeta) {
+    if(prismMeta?.supported === false){
+      return null;
+    }
+    const explicit = String(prismMeta?.component || '').toLowerCase();
+    if(explicit === 'box' || explicit === 'line' || explicit === 'scatter' || explicit === 'survival' || explicit === 'pie'){
+      return explicit;
+    }
     const kind = String(prismMeta?.kind || '').toLowerCase();
-    if (kind === 'line' || kind === 'scatter' || kind === 'survival' || kind === 'pie') {
+    if(kind === 'line' || kind === 'scatter' || kind === 'survival' || kind === 'pie'){
       return kind;
     }
-    if (kind === 'column') {
+    if(kind === 'column'){
       return 'box';
     }
-    return 'box';
+    return null;
   }
 
-  async function inspectPrismComponent(file) {
+  function describeUnsupportedPrismTables(tables) {
+    const unsupported = (Array.isArray(tables) ? tables : []).filter(table => table?.prismMeta?.supported === false);
+    if(!unsupported.length){
+      return '';
+    }
+    const lines = unsupported.slice(0, 8).map(table => {
+      const title = String(table?.title || table?.id || 'Untitled table');
+      const reason = String(table?.prismMeta?.unsupportedReason || 'Unsupported Prism table type.');
+      return `• ${title}: ${reason}`;
+    });
+    if(unsupported.length > lines.length){
+      lines.push(`• …and ${unsupported.length - lines.length} more unsupported table(s).`);
+    }
+    return `The following Prism table(s) were not imported because Graphitix cannot represent them losslessly yet:\n\n${lines.join('\n')}`;
+  }
+
+  function notifyUnsupportedPrismTables(tables) {
+    const message = describeUnsupportedPrismTables(tables);
+    if(message && typeof window.alert === 'function'){
+      window.alert(message);
+    }
+  }
+
+  async function inspectPrismImportPlan(file) {
     const tableImport = Shared.tableImport;
-    if (!tableImport || typeof tableImport.openFile !== 'function') {
-      return 'box';
+    if(!tableImport || typeof tableImport.openFile !== 'function'){
+      return null;
     }
     const fakeInput = { id: 'welcomePrismInspect', files: [file], dataset: { suppressPrismLimitations: 'true' } };
     try {
@@ -1011,14 +1041,31 @@
         renameTab: false,
         suppressPrismLimitations: true,
         suppressPrismBatch: true,
+        inspectPrismOnly: true,
         debugLabel: 'welcome-prism-inspect',
-        onRows: rows => ({ rows: Array.isArray(rows) ? rows.length : 0, cols: Array.isArray(rows?.[0]) ? rows[0].length : 0 }),
         onError: err => { throw err; }
       });
-      return resolvePrismComponent(result?.prismMeta);
+      const tables = Array.isArray(result?.prismTables) ? result.prismTables : [];
+      const selected = result?.prismMeta?.supported !== false && resolvePrismComponent(result?.prismMeta)
+        ? {
+            id: result?.prismTableId || '',
+            title: result?.prismTableTitle || '',
+            prismMeta: result?.prismMeta || null
+          }
+        : tables.find(table => resolvePrismComponent(table?.prismMeta));
+      const component = resolvePrismComponent(selected?.prismMeta);
+      return component ? {
+        component,
+        prismTableId: selected?.id || '',
+        unsupportedTables: tables.filter(table => table?.prismMeta?.supported === false)
+      } : {
+        component: null,
+        prismTableId: '',
+        unsupportedTables: tables.filter(table => table?.prismMeta?.supported === false)
+      };
     } catch (err) {
-      debug('Debug: welcome prism inspection failed; using box fallback', { fileName: file?.name || '', error: err?.message || String(err) });
-      return 'box';
+      debug('Debug: welcome prism inspection failed', { fileName: file?.name || '', error: err?.message || String(err) });
+      return null;
     }
   }
 
@@ -1078,6 +1125,7 @@
       transposeData: options.transposeData ? 'true' : 'false',
       sheetName: options.sheetName || '',
       prismTableId: options.prismTableId || '',
+      prismBatchRoot: options.prismBatchRoot ? 'true' : 'false',
       importOptionsConfirmed: 'true'
     };
     Object.entries(importDataset).forEach(([key, value]) => { input.dataset[key] = value; });
@@ -1123,10 +1171,16 @@
   }
 
   Shared.tableImport?.setPrismBatchHandler?.(async (file, firstResult) => {
+    const allTables = Array.isArray(firstResult?.prismTables) ? firstResult.prismTables : [];
     const importedId = String(firstResult?.prismTableId || '');
-    const remaining = (Array.isArray(firstResult?.prismTables) ? firstResult.prismTables : [])
-      .filter(table => String(table?.id || '') !== importedId);
+    const remaining = allTables.filter(table => (
+      String(table?.id || '') !== importedId
+      && resolvePrismComponent(table?.prismMeta)
+    ));
     const firstComponent = resolvePrismComponent(firstResult?.prismMeta);
+    if(!firstComponent){
+      throw new Error(firstResult?.prismMeta?.unsupportedReason || 'The selected Prism table is not supported.');
+    }
     await awaitPrismImportedTabReady(firstComponent, MainSession.getActiveTab()?.id);
     for(const table of remaining){
       const component = resolvePrismComponent(table?.prismMeta);
@@ -1140,6 +1194,7 @@
       }
       await awaitPrismImportedTabReady(component, MainSession.getActiveTab()?.id);
     }
+    notifyUnsupportedPrismTables(allTables);
   });
 
   async function openWelcomeFile(file, meta = {}) {
@@ -1159,8 +1214,19 @@
       });
     }
     if (ext === 'prism' || ext === 'pzfx') {
-      const component = await inspectPrismComponent(file);
-      return importWelcomeDataFile(file, component, { firstRowIsTitles: true });
+      const plan = await inspectPrismImportPlan(file);
+      if(!plan?.component){
+        notifyUnsupportedPrismTables(plan?.unsupportedTables || []);
+        if(!plan && typeof window.alert === 'function'){
+          window.alert('Graphitix could not inspect this Prism file.');
+        }
+        return false;
+      }
+      return importWelcomeDataFile(file, plan.component, {
+        firstRowIsTitles: true,
+        prismTableId: plan.prismTableId || '',
+        prismBatchRoot: true
+      });
     }
     if (['csv', 'tsv', 'xlsx', 'xls', 'ods'].includes(ext)) {
       const choice = await showWelcomeDataImportPrompt(file);

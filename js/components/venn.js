@@ -10154,13 +10154,17 @@
       ? chartStyle.createAxisMetrics(axisBaseFontPx, style.scaleInfo)
       : {
           tickLength: 6,
-          tickLabelGap: Math.max(3, Math.round(style.fontSizePx * 0.35)),
+          tickLabelGap: chartStyle.resolveTickLabelGap
+            ? chartStyle.resolveTickLabelGap(style.fontSizePx)
+            : Math.max(2, Math.round(style.fontSizePx * 0.2)),
           axisTitleGap: Math.max(4, Math.round(style.fontSizePx * 0.75))
         };
     const tickLength = axisMetrics.tickLength ?? 6;
     const xMajorTickLength = settings.xMajorTickLength ?? tickLength;
     const yMajorTickLength = settings.yMajorTickLength ?? tickLength;
-    const tickLabelGap = axisMetrics.tickLabelGap ?? Math.max(3, Math.round(style.fontSizePx * 0.35));
+    const tickLabelGap = axisMetrics.tickLabelGap ?? (chartStyle.resolveTickLabelGap
+      ? chartStyle.resolveTickLabelGap(style.fontSizePx)
+      : Math.max(2, Math.round(style.fontSizePx * 0.2)));
     const axisTitleGap = axisMetrics.axisTitleGap ?? Math.max(4, Math.round(style.fontSizePx * 0.75));
     const axisWidthBase = clampNumber(settings.axisWidth, DEFAULT_UPSET_SETTINGS.axisWidth, 0.25, 10);
     const axisWidth = typeof chartStyle.scaleStrokeWidth === 'function'
@@ -10174,7 +10178,7 @@
     const setAxisLabelFontSize = axisLabelFontSize;
     const setTickBaselineDy = '0.8em';
     const setAxisLabelBaselineDy = '0.8em';
-    const setTickOffset = Math.max(4, Math.round(style.fontSizePx * 0.32));
+    const setTickOffset = tickLabelGap;
     const setTitleGap = Math.max(2, Math.round((axisTitleGap + 1) * 0.4));
     const setTickTextHeight = Math.max(8, Math.round(setTickFontSize * 0.95));
     const setAxisLabelHeight = Math.max(9, Math.round(setAxisLabelFontSize * 0.95));

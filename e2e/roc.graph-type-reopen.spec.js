@@ -55,7 +55,30 @@ async function readRocState(page) {
   });
 }
 
+async function setFastRocResamplingForContract(page) {
+  await page.evaluate(() => {
+    const roc = window.Components?.roc;
+    const workspace = window.Main?.session?.workspaceState || {};
+    const tabId = workspace.activeTabId || null;
+    const payload = roc?.getPayload?.();
+    if (!roc?.loadFromPayload || !payload || payload.type !== 'roc' || !tabId) {
+      throw new Error('Unable to configure deterministic ROC resampling for contract test');
+    }
+    payload.stats = { ...(payload.stats || {}), resamplingIterations: 100 };
+    roc.loadFromPayload(payload, {
+      tabId,
+      source: 'e2e-contract-fast-resampling',
+      skipDraw: true,
+      skipDataLoad: true
+    });
+    if (roc.getPayload?.()?.stats?.resamplingIterations !== 100) {
+      throw new Error('ROC contract-test resampling override did not persist');
+    }
+  });
+}
+
 async function setRocGraphType(page, graphType) {
+  await setFastRocResamplingForContract(page);
   await page.locator('#rocPage:not([hidden]) #rocGraphType').selectOption(graphType);
   await waitForRocRender(page, graphType);
 }

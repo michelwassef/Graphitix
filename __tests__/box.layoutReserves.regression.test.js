@@ -283,6 +283,8 @@ function readBoxAxisMetrics(){
     bottomViewportExtensionPx: Number(state.bottomViewportExtensionPx) || 0,
     leftViewportExtensionPx: Number(state.leftViewportExtensionPx) || 0,
     rightViewportExtensionPx: Number(state.rightViewportExtensionPx) || 0,
+    appliedVerticalFrameReservePx: Number(svgBox.dataset.boxSignificanceFrameReservePx) || 0,
+    appliedHorizontalFrameReservePx: Number(svgBox.dataset.boxHorizontalSignificanceFrameReservePx) || 0,
     significancePathCount: svg.querySelectorAll('path.box-significance-annotation').length,
     plotHeightPx: Number(graphGeometry?.plot?.heightPx) || null,
     plotWidthPx: Number(graphGeometry?.plot?.widthPx) || null,
@@ -359,6 +361,44 @@ async function setBoxWidthAndRedraw(controller, width, height){
     interval: 40
   });
   await flushAsyncWork(50);
+}
+
+async function doubleClickBoxResizeHandle(){
+  const boxComponent = window.Components?.box;
+  const state = boxComponent?.__getState?.();
+  const svgBox = queryBox('#boxGraphPanel .svgbox');
+  const handle = queryBox('#boxGraphPanel .svgbox .resizer-corner');
+  expect(state?.scheduleDraw).toBeInstanceOf(Function);
+  expect(svgBox?.__sharedResizableBoxApi).toBeTruthy();
+  expect(handle).toBeTruthy();
+  const previousDrawToken = Number(state.drawToken) || 0;
+  handle.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+  expect(Number(svgBox.dataset.resizerBaseWidth)).toBeGreaterThan(0);
+  expect(Number(svgBox.dataset.resizerBaseHeight)).toBeGreaterThan(0);
+  state.scheduleDraw({
+    force: true,
+    viewOnly: true,
+    reason: 'box-layout-test-dblclick-settle',
+    resizePhase: 'reset',
+    forceCanvasRecompute: true
+  });
+  await waitFor(() => (Number(boxComponent?.__getState?.()?.drawToken) || 0) > previousDrawToken, {
+    timeout: 15_000,
+    interval: 40
+  });
+  await flushAsyncWork(50);
+}
+
+function setBoxResetDefaults(width, height){
+  const svgBox = queryBox('#boxGraphPanel .svgbox');
+  const api = svgBox?.__sharedResizableBoxApi;
+  expect(api?.restoreSizingState).toBeInstanceOf(Function);
+  const current = api.getState();
+  api.restoreSizingState({
+    ...current,
+    defaultWidth: width,
+    defaultHeight: height
+  }, { reason: 'box-layout-test-reset-defaults' });
 }
 
 async function setFlipAxesAndRedraw(enabled){
@@ -611,6 +651,7 @@ describe('Box layout reserves under horizontal shrink', () => {
     expect(before).toBeTruthy();
     expect(before.rotated).toBe(false);
     expect(before.significanceViewportExtensionPx).toBe(0);
+    expect(before.appliedVerticalFrameReservePx).toBe(before.bottomViewportExtensionPx);
 
     const { width: startWidth, height } = controller.get();
     await setBoxWidthAndRedraw(controller, Math.round(startWidth * 0.5), height);
@@ -624,6 +665,7 @@ describe('Box layout reserves under horizontal shrink', () => {
     expect(after.xLabelLeadingInsetPx).toBeGreaterThan(0);
     expect(after.significanceViewportExtensionPx).toBe(0);
     expect(after.bottomViewportExtensionPx).toBeGreaterThanOrEqual(before.bottomViewportExtensionPx);
+    expect(after.appliedVerticalFrameReservePx).toBe(after.bottomViewportExtensionPx);
     expect(after.viewBoxWidthPx).toBeCloseTo(Math.round(startWidth * 0.5), 0);
     expect(after.svgBoxWidthPx).toBeCloseTo(Math.round(startWidth * 0.5), 0);
     expect(Math.abs(after.yAxisSpan - before.yAxisSpan)).toBeLessThanOrEqual(1.5);
@@ -647,6 +689,7 @@ describe('Box layout reserves under horizontal shrink', () => {
     const payload = window.Components?.box?.getPayload?.() || null;
     const viewportGeometry = payload?.layout?.boxGeometry?.viewportGeometry || null;
     const graphGeometry = payload?.layout?.boxGeometry?.graphGeometry || null;
+    const metrics = readBoxAxisMetrics();
 
     expect(state).toBeTruthy();
     expect(payload).toBeTruthy();
@@ -659,6 +702,11 @@ describe('Box layout reserves under horizontal shrink', () => {
     expect(Number(graphGeometry?.reserves?.significancePx) || 0).toBe(0);
     expect(Number(viewportGeometry?.userFrameWidthPx) || 0).toBeGreaterThan(0);
     expect(Number(viewportGeometry?.userFrameHeightPx) || 0).toBeGreaterThan(0);
+    expect(metrics.appliedVerticalFrameReservePx).toBe(metrics.bottomViewportExtensionPx);
+    expect(Number(viewportGeometry?.userFrameHeightPx) || 0).toBeCloseTo(
+      metrics.svgBoxHeightPx - metrics.appliedVerticalFrameReservePx,
+      0
+    );
   });
 
   test('x-label and significance reserves stay integrated under 50% width shrink', async () => {
@@ -674,6 +722,9 @@ describe('Box layout reserves under horizontal shrink', () => {
     expect(before.rotated).toBe(false);
     expect(before.significancePathCount).toBeGreaterThan(0);
     expect(before.significanceViewportExtensionPx).toBeGreaterThan(0);
+    expect(before.appliedVerticalFrameReservePx).toBe(
+      before.significanceViewportExtensionPx + before.bottomViewportExtensionPx
+    );
 
     const { width: startWidth, height } = controller.get();
     await setBoxWidthAndRedraw(controller, Math.round(startWidth * 0.5), height);
@@ -684,6 +735,9 @@ describe('Box layout reserves under horizontal shrink', () => {
     expect(after.significancePathCount).toBeGreaterThan(0);
     expect(after.significanceViewportExtensionPx).toBeGreaterThan(0);
     expect(after.bottomViewportExtensionPx).toBeGreaterThanOrEqual(before.bottomViewportExtensionPx);
+    expect(after.appliedVerticalFrameReservePx).toBe(
+      after.significanceViewportExtensionPx + after.bottomViewportExtensionPx
+    );
     expect(Math.abs(after.yAxisSpan - before.yAxisSpan)).toBeLessThanOrEqual(1.5);
     expect(after.axisToBaseBottomPx).not.toBeNull();
     expect(before.axisToBaseBottomPx).not.toBeNull();
@@ -828,6 +882,58 @@ describe('Box layout reserves under horizontal shrink', () => {
     expect(Math.abs(after.yAxisSpan - before.xAxisSpan)).toBeLessThanOrEqual(1.5);
     expect(Math.abs(after.plotWidthPx - after.xAxisSpan)).toBeLessThanOrEqual(1.5);
     expect(Math.abs(after.plotHeightPx - after.yAxisSpan)).toBeLessThanOrEqual(1.5);
+  });
+
+  test('repeated double-click reset preserves significance reserves in both orientations', async () => {
+    await activateWorkspace('box');
+    await loadBoxExample();
+    await applyLongBoxLabels();
+
+    const controller = createBoxDimensionController(980, 560);
+    await setBoxWidthAndRedraw(controller, 980, 560);
+    await ensureStatsAndSignificanceReady();
+
+    const defaultWidth = Number(window.Shared?.chartStyle?.DEFAULT_WIDTH) || 427;
+    const defaultHeight = Number(window.Shared?.chartStyle?.DEFAULT_HEIGHT) || defaultWidth;
+    setBoxResetDefaults(defaultWidth, defaultHeight);
+
+    await doubleClickBoxResizeHandle();
+    const verticalFirst = readBoxAxisMetrics();
+    expect(verticalFirst).toBeTruthy();
+    expect(verticalFirst.flipAxes).toBe(false);
+    expect(verticalFirst.significancePathCount).toBeGreaterThan(0);
+    expect(verticalFirst.appliedVerticalFrameReservePx).toBeGreaterThan(0);
+    expect(verticalFirst.appliedHorizontalFrameReservePx).toBe(0);
+    expect(verticalFirst.svgBoxWidthPx).toBeCloseTo(defaultWidth, 0);
+    expect(verticalFirst.svgBoxHeightPx).toBeGreaterThan(defaultHeight);
+    expect(verticalFirst.plotHeightPx).toBeGreaterThan(80);
+
+    await doubleClickBoxResizeHandle();
+    const verticalSecond = readBoxAxisMetrics();
+    expect(verticalSecond.svgBoxWidthPx).toBeCloseTo(verticalFirst.svgBoxWidthPx, 0);
+    expect(verticalSecond.svgBoxHeightPx).toBeCloseTo(verticalFirst.svgBoxHeightPx, 0);
+    expect(Math.abs(verticalSecond.xAxisSpan - verticalFirst.xAxisSpan)).toBeLessThanOrEqual(1.5);
+    expect(Math.abs(verticalSecond.yAxisSpan - verticalFirst.yAxisSpan)).toBeLessThanOrEqual(1.5);
+
+    await setFlipAxesAndRedraw(true);
+    setBoxResetDefaults(defaultWidth, defaultHeight);
+    await doubleClickBoxResizeHandle();
+    const horizontalFirst = readBoxAxisMetrics();
+    expect(horizontalFirst).toBeTruthy();
+    expect(horizontalFirst.flipAxes).toBe(true);
+    expect(horizontalFirst.significancePathCount).toBeGreaterThan(0);
+    expect(horizontalFirst.appliedVerticalFrameReservePx).toBe(0);
+    expect(horizontalFirst.appliedHorizontalFrameReservePx).toBeGreaterThan(0);
+    expect(horizontalFirst.svgBoxWidthPx).toBeGreaterThan(defaultWidth);
+    expect(horizontalFirst.svgBoxHeightPx).toBeGreaterThan(120);
+    expect(horizontalFirst.plotWidthPx).toBeGreaterThan(80);
+
+    await doubleClickBoxResizeHandle();
+    const horizontalSecond = readBoxAxisMetrics();
+    expect(horizontalSecond.svgBoxWidthPx).toBeCloseTo(horizontalFirst.svgBoxWidthPx, 0);
+    expect(horizontalSecond.svgBoxHeightPx).toBeCloseTo(horizontalFirst.svgBoxHeightPx, 0);
+    expect(Math.abs(horizontalSecond.xAxisSpan - horizontalFirst.xAxisSpan)).toBeLessThanOrEqual(1.5);
+    expect(Math.abs(horizontalSecond.yAxisSpan - horizontalFirst.yAxisSpan)).toBeLessThanOrEqual(1.5);
   });
 
   test('repeated flips preserve exact drawable-axis transposition after manual resizing', async () => {

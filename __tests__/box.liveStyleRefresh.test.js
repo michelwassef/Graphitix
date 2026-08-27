@@ -46,4 +46,20 @@ describe('Box live style refresh', () => {
     expect(svg.querySelector('[data-summary-line="1"]').getAttribute('stroke')).toBe('#123456');
     expect(svg.querySelector('[data-legend-swatch="1"]').getAttribute('fill')).toBe('#d55e00');
   });
+
+  test('trace border overrides do not become symbol border defaults', () => {
+    const applied = hooks.tryApplyBoxPaletteLive({
+      plot: document.getElementById('boxPlot'),
+      graphType: 'bar',
+      pointMode: 'overlay',
+      colorScheme: 'custom',
+      colors: ['#808080', '#808080'],
+      borderColors: ['#000000', '#000000'],
+      shapeStyles: { 4: { stroke: '#ff0000', borderColor: '#ff0000' } }
+    });
+
+    expect(applied).toBe(true);
+    expect(document.querySelector('[data-box-shape="body"]').getAttribute('stroke')).toBe('#ff0000');
+    expect(document.querySelector('[data-export-layer="box-points"] circle').getAttribute('stroke')).toBe('#000000');
+  });
 });

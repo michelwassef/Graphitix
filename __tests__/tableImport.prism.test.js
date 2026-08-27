@@ -24,7 +24,7 @@ describe('tableImport Prism import mappings', () => {
     delete window.pako;
   });
 
-  async function importPrismBuffer(fileBuffer, fixtureName, dataset = {}) {
+  async function importPrismBuffer(fileBuffer, fixtureName, dataset = {}, options = {}) {
     const prismFile = new window.File([fileBuffer], fixtureName, {
       type: 'application/octet-stream'
     });
@@ -36,17 +36,26 @@ describe('tableImport Prism import mappings', () => {
       configurable: true
     });
     return window.Shared.tableImport.openFile(input, {
-      onRows: rows => ({
+      ...options,
+      onRows: options.onRows || (rows => ({
         rows: rows.length,
         cols: rows[0]?.length || 0,
         importedRows: rows
-      })
+      }))
     });
   }
 
-  async function importPrismFixture(fixtureName, dataset = {}) {
+  async function importPrismFixture(fixtureName, dataset = {}, options = {}) {
     const fixturePath = path.join(__dirname, '..', 'prism files', fixtureName);
-    return importPrismBuffer(fs.readFileSync(fixturePath), fixtureName, dataset);
+    return importPrismBuffer(fs.readFileSync(fixturePath), fixtureName, dataset, options);
+  }
+
+  async function inspectPrismFixture(fixtureName, prismTableId = '') {
+    return importPrismFixture(fixtureName, {}, {
+      inspectPrismOnly: true,
+      suppressPrismLimitations: true,
+      prismTableId
+    });
   }
 
   async function buildGroupedBarOverlayFixture() {
@@ -74,13 +83,29 @@ describe('tableImport Prism import mappings', () => {
     return zip.generateAsync({ type: 'nodebuffer' });
   }
 
+  async function buildSingletonConditionPrismFixture() {
+    const fixturePath = path.join(__dirname, '..', 'prism files', 'demo_dataset.prism');
+    const zip = await global.JSZip.loadAsync(fs.readFileSync(fixturePath));
+    const documentModel = JSON.parse(await zip.file('document.json').async('string'));
+    for (const dataSheetId of documentModel.sheets.data) {
+      const sheetPath = `data/sheets/${dataSheetId}/sheet.json`;
+      const sheet = JSON.parse(await zip.file(sheetPath).async('string'));
+      if (String(sheet.table?.format || '').toLowerCase() !== 'grouped') continue;
+      const tablePath = `data/tables/${sheet.table.uid}/data.csv`;
+      const rows = (await zip.file(tablePath).async('string')).trim().split(/\r?\n/);
+      zip.file(tablePath, `${rows[0]}\n`);
+      break;
+    }
+    return zip.generateAsync({ type: 'nodebuffer' });
+  }
+
   function expectPrismImportWarning() {
     expect(alertSpy).toHaveBeenCalledTimes(1);
     const message = alertSpy.mock.calls[0]?.[0] || '';
-    expect(message.split('\n')).toHaveLength(3);
     expect(message).toContain('experimental');
-    expect(message).toContain('Only data tables are imported');
-    expect(message).toContain('graph-specific settings are not preserved');
+    expect(message).toContain('Raw XY, Column, Grouped, Survival, and Parts-of-whole tables');
+    expect(message).toContain('summary/error tables');
+    expect(message).toContain('Prism analyses are not imported');
     expect(message).toContain('Saving/exporting back to PRISM/PZFX is not supported');
   }
 
@@ -229,65 +254,92 @@ describe('tableImport Prism import mappings', () => {
     ]);
   });
 
-  test('maps XY PZFX files into line grid rows', async () => {
+  test('maps single-value multi-series XY PZFX files into grouped scatter rows', async () => {
     const result = await importPrismFixture('x_y_no_rep.pzfx');
 
     expect(result.prismMeta).toMatchObject({
-      kind: 'line',
-      dataFormat: 'y_replicates',
-      tableClass: 'PZFXTable',
+      kind: 'scatter',
+      component: 'scatter',
+      adapter: 'scatter-grouped',
+      tableType: 'xy',
       replicatesCount: 1,
       groupLabels: ['Ya', 'Yb', 'Yc'],
       xTitle: 'XX'
     });
     expect(result.importedRows).toEqual([
-      ['XX', 'Ya Rep 1', 'Yb Rep 1', 'Yc Rep 1'],
-      ['1', '100', '1', '5'],
-      ['2', '90', '2', '5'],
-      ['3', '80', '3', '5']
+      ['Labels', 'XX', 'Ya Rep 1', 'Yb Rep 1', 'Yc Rep 1'],
+      ['', '1', '100', '1', '5'],
+      ['', '2', '90', '2', '5'],
+      ['', '3', '80', '3', '5']
     ]);
   });
 
-  test('discovers every demo Prism data sheet and can select mixed table types', async () => {
+  test('discovers every demo Prism data sheet, groups raw two-way data, and marks summaries unsupported', async () => {
     const first = await importPrismFixture('demo_dataset.prism');
     const lineTable = first.prismTables.find(table => table.title === 'XY: Entering replicate data');
     const summaryTable = first.prismTables.find(table => table.title === 'XY: Entering mean with error values');
     const survivalTable = first.prismTables.find(table => table.title === 'Survival: Two groups');
     const line = await importPrismFixture('demo_dataset.prism', { prismTableId: lineTable.id });
-    const summary = await importPrismFixture('demo_dataset.prism', { prismTableId: summaryTable.id });
+    const summary = await inspectPrismFixture('demo_dataset.prism', summaryTable.id);
     const survival = await importPrismFixture('demo_dataset.prism', { prismTableId: survivalTable.id });
 
     expect(first).toMatchObject({
       prismTableTitle: 'Grouped: Entering replicate data',
-      prismTableCount: 14
+      prismTableCount: 14,
+      prismMeta: { component: 'box', tableFormat: 'grouped', adapter: 'box-grouped' }
     });
     expect(first.prismTables.map(table => [table.title, table.prismMeta?.kind])).toEqual([
       ['XY: Entering replicate data', 'line'],
-      ['XY: Entering mean with error values', 'scatter'],
+      ['XY: Entering mean with error values', 'unsupported'],
       ['Grouped: Entering replicate data', 'column'],
       ['Data 6', 'line'],
       ['Survival: Two groups', 'survival'],
       ['Data - missing columns', 'scatter'],
-      ['Y SEN', 'scatter'],
-      ['Y CVN', 'scatter'],
-      ['Y SD', 'scatter'],
-      ['Y SE', 'scatter'],
-      ['Y CV', 'scatter'],
-      ['Y error', 'scatter'],
-      ['Y high low', 'scatter'],
+      ['Y SEN', 'unsupported'],
+      ['Y CVN', 'unsupported'],
+      ['Y SD', 'unsupported'],
+      ['Y SE', 'unsupported'],
+      ['Y CV', 'unsupported'],
+      ['Y error', 'unsupported'],
+      ['Y high low', 'unsupported'],
       ['Data 6', 'line']
     ]);
-    expect(first.importedRows.slice(0, 2)).toEqual([
-      ['CTRL Rep 1', 'CTRL Rep 2', 'CTRL Rep 3', 'TREAT Rep 1', 'TREAT Rep 2', 'TREAT Rep 3'],
-      ['0.7054', '0.7299', '0.8065', '1.3211', '1.1908', '1.2463']
+    expect(first.importedRows.slice(0, 3)).toEqual([
+      ['CTRL', '', '', '', '', 'TREAT', '', '', '', ''],
+      ['compound1', 'compound2', 'compound3', 'compound4', 'compound5', 'compound1', 'compound2', 'compound3', 'compound4', 'compound5'],
+      ['0.7054', '0.6016', '0.5956', '0.6901', '0.602307', '1.3211', '1.137', '1.432', '1.4868', '1.599619']
     ]);
-    expect(line).toMatchObject({ prismTableTitle: 'XY: Entering replicate data', prismMeta: { kind: 'line' } });
-    expect(summary.importedRows.slice(0, 3)).toEqual([
-      ['Labels', 'Hours', 'Control'],
-      ['Control', '0', '45.9'],
-      ['Treated', '0', '39.9']
+    expect(line).toMatchObject({ prismTableTitle: 'XY: Entering replicate data', prismMeta: { kind: 'line', component: 'line' } });
+    expect(summary.prismMeta).toMatchObject({
+      kind: 'unsupported',
+      supported: false,
+      tableType: 'xy'
+    });
+    expect(summary.prismMeta.unsupportedReason).toMatch(/summary data/i);
+    expect(survival).toMatchObject({ prismTableTitle: 'Survival: Two groups', prismMeta: { kind: 'survival', component: 'survival' } });
+  });
+
+  test('imports a singleton-condition grouped Prism table as a single Box table', async () => {
+    const result = await importPrismBuffer(
+      await buildSingletonConditionPrismFixture(),
+      'singleton-condition.prism'
+    );
+
+    expect(result.prismMeta).toMatchObject({
+      component: 'box',
+      adapter: 'box-single',
+      tableType: 'grouped',
+      tableFormat: 'single',
+      collapsedSingletonCondition: true,
+      conditionLabels: ['compound1'],
+      groupLabels: ['CTRL', 'TREAT']
+    });
+    expect(result.importedRows.slice(0, 4)).toEqual([
+      ['CTRL', 'TREAT'],
+      ['0.7054', '1.3211'],
+      ['0.7299', '1.1908'],
+      ['0.8065', '1.2463']
     ]);
-    expect(survival).toMatchObject({ prismTableTitle: 'Survival: Two groups', prismMeta: { kind: 'survival' } });
   });
 
   test('hands a multi-table Prism import to the workspace batch orchestrator once', async () => {
@@ -295,44 +347,210 @@ describe('tableImport Prism import mappings', () => {
     window.Shared.tableImport.setPrismBatchHandler(handler);
 
     const first = await importPrismFixture('demo_dataset.prism');
+    handler.mockClear();
+    const batchRoot = await importPrismFixture('demo_dataset.prism', {
+      prismTableId: first.prismTables[0].id,
+      prismBatchRoot: 'true'
+    });
     await importPrismFixture('demo_dataset.prism', { prismTableId: first.prismTables[0].id });
 
     expect(handler).toHaveBeenCalledTimes(1);
-    expect(handler.mock.calls[0][1]).toBe(first);
+    expect(handler.mock.calls[0][1]).toBe(batchRoot);
   });
 
-  test('discovers every demo PZFX table and preserves Prism type parity', async () => {
+  test('discovers every demo PZFX table with the same semantic routing as .prism', async () => {
     const first = await importPrismFixture('demo_dataset.pzfx');
-    const summary = await importPrismFixture('demo_dataset.pzfx', { prismTableId: 'Table5' });
+    const summary = await inspectPrismFixture('demo_dataset.pzfx', 'Table5');
     const survival = await importPrismFixture('demo_dataset.pzfx', { prismTableId: 'Table14' });
 
     expect(first.prismTables.map(table => [table.title, table.prismMeta?.kind])).toEqual([
       ['XY: Entering replicate data', 'line'],
-      ['XY: Entering mean with error values', 'scatter'],
+      ['XY: Entering mean with error values', 'unsupported'],
       ['Grouped: Entering replicate data', 'column'],
       ['Data 6', 'line'],
       ['Survival: Two groups', 'survival'],
-      ['Data - missing columns', 'line'],
-      ['Y SEN', 'scatter'],
-      ['Y CVN', 'scatter'],
-      ['Y SD', 'scatter'],
-      ['Y SE', 'scatter'],
-      ['Y CV', 'scatter'],
-      ['Y error', 'scatter'],
-      ['Y high low', 'scatter'],
+      ['Data - missing columns', 'scatter'],
+      ['Y SEN', 'unsupported'],
+      ['Y CVN', 'unsupported'],
+      ['Y SD', 'unsupported'],
+      ['Y SE', 'unsupported'],
+      ['Y CV', 'unsupported'],
+      ['Y error', 'unsupported'],
+      ['Y high low', 'unsupported'],
       ['Data 6', 'line']
     ]);
-    expect(first).toMatchObject({ prismTableId: 'Table7', prismTableCount: 14, prismMeta: { kind: 'column' } });
-    expect(first.importedRows.slice(0, 2)).toEqual([
-      ['CTRL_1', 'CTRL_2', 'CTRL_3', 'TREAT_1', 'TREAT_2', 'TREAT_3'],
-      ['0.7054', '0.7299', '0.8065', '1.3211', '1.1908', '1.2463']
+    expect(first).toMatchObject({
+      prismTableId: 'Table7',
+      prismTableCount: 14,
+      prismMeta: { kind: 'column', component: 'box', tableFormat: 'grouped', adapter: 'box-grouped' }
+    });
+    expect(first.importedRows.slice(0, 3)).toEqual([
+      ['CTRL', '', '', '', '', 'TREAT', '', '', '', ''],
+      ['compound1', 'compound2', 'compound3', 'compound4', 'compound5', 'compound1', 'compound2', 'compound3', 'compound4', 'compound5'],
+      ['0.7054', '0.6016', '0.5956', '0.6901', '0.602307', '1.3211', '1.137', '1.432', '1.4868', '1.599619']
     ]);
-    expect(summary.importedRows.slice(0, 3)).toEqual([
-      ['Labels', 'Hours', 'Y'],
-      ['Control', '0', '45.9'],
-      ['Treated', '0', '39.9']
+    expect(summary.prismMeta).toMatchObject({ kind: 'unsupported', supported: false, tableType: 'xy' });
+    expect(survival).toMatchObject({ prismTableId: 'Table14', prismTableTitle: 'Survival: Two groups', prismMeta: { kind: 'survival', component: 'survival' } });
+  });
+
+  test('maps the repository HEK grouped Prism table into Box grouped-table rows', async () => {
+    const fixturePath = path.join(__dirname, '..', 'HEK_RNA_ses_KD_tpm.prism');
+    const result = await importPrismBuffer(fs.readFileSync(fixturePath), 'HEK_RNA_ses_KD_tpm.prism');
+
+    expect(result).toMatchObject({
+      prismTableTitle: 'STAG1_RNA_seq2',
+      prismMeta: {
+        kind: 'column',
+        component: 'box',
+        adapter: 'box-grouped',
+        tableType: 'grouped',
+        tableFormat: 'grouped',
+        groupedReplicatesPerGroup: 1
+      }
+    });
+    expect(result.importedRows.slice(0, 3)).toEqual([
+      ['HEK_WT_NT_R1_JB', 'HEK_WT _NT_R2_JB', 'HEK_WT_STAG1_R1', 'HEK_WT_STAG1_R2', 'HEK_tKO_NT_R1', 'HEK_tKO_NT_R2', 'HEK_tKO_STAG1_R1', 'HEK_tKO_STAG1_R2'],
+      ['STAG1', 'STAG1', 'STAG1', 'STAG1', 'STAG1', 'STAG1', 'STAG1', 'STAG1'],
+      ['49.99', '44.22', '0.47', '0.19', '52.57', '34.9', '3.27', '4.46']
     ]);
-    expect(survival).toMatchObject({ prismTableId: 'Table14', prismTableTitle: 'Survival: Two groups', prismMeta: { kind: 'survival' } });
+  });
+
+  test('preserves PZFX excluded values as Graphitix cell exclusions instead of erasing them', async () => {
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<GraphPadPrismFile>
+<TableSequence><Ref ID="Table0" Selected="1"/></TableSequence>
+<Table ID="Table0" XFormat="numbers" YFormat="replicates" Replicates="1" TableType="XY">
+<Title>Excluded XY</Title>
+<XColumn><Title>X</Title><Subcolumn><d></d><d>1</d><d>2</d></Subcolumn></XColumn>
+<YColumn><Title>Y</Title><Subcolumn><d></d><d>10</d><d Excluded="1">20</d></Subcolumn></YColumn>
+</Table>
+</GraphPadPrismFile>`;
+    const result = await importPrismBuffer(Buffer.from(xml), 'excluded.pzfx');
+
+    expect(result.importedRows).toEqual([
+      ['Labels', 'X', 'Y'],
+      ['', '1', '10'],
+      ['', '2', '20']
+    ]);
+    expect(result.prismExclusions).toEqual({
+      rows: [],
+      cols: [],
+      cells: [{ row: 2, col: 2 }]
+    });
+  });
+
+  test('uses the numeric PZFX X representation for date tables', async () => {
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<GraphPadPrismFile>
+<TableSequence><Ref ID="Table0" Selected="1"/></TableSequence>
+<Table ID="Table0" XFormat="date" YFormat="replicates" Replicates="1" TableType="XY">
+<Title>Date XY</Title>
+<XColumn><Title>Date</Title><Subcolumn><d>0</d><d>1</d></Subcolumn></XColumn>
+<XAdvancedColumn><Title>Date</Title><Subcolumn><d>8-Sep-2008</d><d>9-Sep-2008</d></Subcolumn></XAdvancedColumn>
+<YColumn><Title>Y</Title><Subcolumn><d>10</d><d>20</d></Subcolumn></YColumn>
+</Table>
+</GraphPadPrismFile>`;
+    const result = await importPrismBuffer(Buffer.from(xml), 'date.pzfx');
+
+    expect(result.prismMeta).toMatchObject({ component: 'scatter', dateX: true });
+    expect(result.importedRows.slice(0, 3)).toEqual([
+      ['Labels', 'Date', 'Y'],
+      ['', '0', '10'],
+      ['', '1', '20']
+    ]);
+  });
+
+  test('maps ordinary PZFX OneWay tables into Box single-table rows', async () => {
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<GraphPadPrismFile>
+<TableSequence><Ref ID="Table0" Selected="1"/></TableSequence>
+<Table ID="Table0" XFormat="none" YFormat="replicates" Replicates="1" TableType="OneWay">
+<Title>Column data</Title>
+<YColumn><Title>Control</Title><Subcolumn><d>10</d><d>11</d></Subcolumn></YColumn>
+<YColumn><Title>Treated</Title><Subcolumn><d>20</d><d>21</d></Subcolumn></YColumn>
+</Table>
+</GraphPadPrismFile>`;
+    const result = await importPrismBuffer(Buffer.from(xml), 'oneway.pzfx');
+
+    expect(result.prismMeta).toMatchObject({
+      kind: 'column',
+      component: 'box',
+      adapter: 'box-single',
+      tableType: 'column',
+      tableFormat: 'single'
+    });
+    expect(result.importedRows).toEqual([
+      ['Control', 'Treated'],
+      ['10', '20'],
+      ['11', '21']
+    ]);
+  });
+
+  test('imports a singleton-condition grouped PZFX table as a single Box table', async () => {
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<GraphPadPrismFile>
+<TableSequence><Ref ID="Table0" Selected="1"/></TableSequence>
+<Table ID="Table0" XFormat="none" YFormat="replicates" Replicates="2" TableType="TwoWay">
+<Title>Singleton condition</Title>
+<RowTitlesColumn><Title>Gene</Title><Subcolumn><d>STAG1</d></Subcolumn></RowTitlesColumn>
+<YColumn><Title>Sample A</Title><Subcolumn><d>10</d></Subcolumn><Subcolumn><d>11</d></Subcolumn></YColumn>
+<YColumn><Title>Sample B</Title><Subcolumn><d>20</d></Subcolumn><Subcolumn><d Excluded="1">21</d></Subcolumn></YColumn>
+</Table>
+</GraphPadPrismFile>`;
+    const result = await importPrismBuffer(Buffer.from(xml), 'singleton-condition.pzfx');
+
+    expect(result.prismMeta).toMatchObject({
+      component: 'box',
+      adapter: 'box-single',
+      tableType: 'grouped',
+      tableFormat: 'single',
+      collapsedSingletonCondition: true,
+      conditionLabels: ['STAG1'],
+      groupLabels: ['Sample A', 'Sample B']
+    });
+    expect(result.importedRows).toEqual([
+      ['Sample A', 'Sample B'],
+      ['10', '20'],
+      ['11', '21']
+    ]);
+    expect(result.prismExclusions).toEqual({
+      rows: [],
+      cols: [],
+      cells: [{ row: 2, col: 1 }]
+    });
+  });
+
+  test('marks precomputed PZFX summaries and unsupported table organizations as non-importable', async () => {
+    const summaryXml = `<?xml version="1.0" encoding="UTF-8"?>
+<GraphPadPrismFile>
+<TableSequence><Ref ID="Table0" Selected="1"/></TableSequence>
+<Table ID="Table0" XFormat="numbers" YFormat="SDN" TableType="XY">
+<Title>Summary</Title>
+<XColumn><Title>X</Title><Subcolumn><d>1</d></Subcolumn></XColumn>
+<YColumn><Title>Y</Title><Subcolumn><d>10</d></Subcolumn><Subcolumn><d>2</d></Subcolumn><Subcolumn><d>4</d></Subcolumn></YColumn>
+</Table>
+</GraphPadPrismFile>`;
+    const contingencyXml = `<?xml version="1.0" encoding="UTF-8"?>
+<GraphPadPrismFile>
+<TableSequence><Ref ID="Table0" Selected="1"/></TableSequence>
+<Table ID="Table0" XFormat="none" YFormat="single" TableType="Contingency">
+<Title>Counts</Title>
+<YColumn><Title>A</Title><Subcolumn><d>10</d></Subcolumn></YColumn>
+</Table>
+</GraphPadPrismFile>`;
+    const summary = await importPrismBuffer(Buffer.from(summaryXml), 'summary.pzfx', {}, {
+      inspectPrismOnly: true,
+      suppressPrismLimitations: true
+    });
+    const contingency = await importPrismBuffer(Buffer.from(contingencyXml), 'contingency.pzfx', {}, {
+      inspectPrismOnly: true,
+      suppressPrismLimitations: true
+    });
+
+    expect(summary.prismMeta).toMatchObject({ kind: 'unsupported', supported: false, tableType: 'xy' });
+    expect(summary.prismMeta.unsupportedReason).toMatch(/summary data/i);
+    expect(contingency.prismMeta).toMatchObject({ kind: 'unsupported', supported: false, tableType: 'contingency' });
+    expect(contingency.prismMeta.unsupportedReason).toMatch(/contingency/i);
   });
 
   test('does not show Prism limitation warning for regular text imports', async () => {

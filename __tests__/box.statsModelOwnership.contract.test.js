@@ -133,8 +133,12 @@ describe('Shared Box statistics model ownership', () => {
 
     expect(grouped.ok).toBe(true);
     expect(grouped.columns.find(column => column.key === 'ciText')?.label).toBe('90% CI');
+    expect(grouped.effectiveComparisonMethod).toBe('none');
+    expect(grouped.columns.find(column => column.key === 'pText')?.inferenceRole).toBe('comparison');
+    expect(grouped.columns.some(column => column.key === 'adjPText')).toBe(false);
     expect(grouped.rows[0].pText).toEqual(expect.objectContaining({ type: 'pValue', value: expect.any(Number) }));
-    expect(grouped.rows[0].adjPText).toEqual(expect.objectContaining({ type: 'pValue', value: expect.any(Number) }));
+    expect(grouped.rows[0].adjPText).toBeUndefined();
+    expect(grouped.footnotes.join(' ')).not.toMatch(/holm|correction applied across 1 test/i);
   });
 
 

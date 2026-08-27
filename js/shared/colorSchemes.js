@@ -2557,6 +2557,20 @@
       return false;
     }
 
+    // A palette action is style-only, but it must start from the live owner
+    // session. tab.payload can lag a just-committed control edit; reusing it
+    // would turn a stale graph type or other control into a style side effect.
+    if(typeof session.persistActiveTabState === 'function'){
+      session.persistActiveTabState(tab, {
+        reason: `color-scheme-source-${type}`,
+        origin: 'user',
+        snapshotIntent: {
+          captureLivePayload: true,
+          allowSkipLivePayloadCapture: false
+        }
+      });
+    }
+
     const undoManager = Shared.undoManager || null;
     let payloadBeforeScheme = tab.payload;
     if(!payloadBeforeScheme){

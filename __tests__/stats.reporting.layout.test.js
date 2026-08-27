@@ -259,6 +259,75 @@ describe('Shared stats reporting layout', () => {
     expect(resultBlock?.textContent || '').toContain('The fitted model was reported');
   });
 
+  test('same-component report hosts stay inside their owning workspace root', () => {
+    const reporting = global.Shared.statsReporting;
+    const makeRoot = (tabId) => {
+      const root = document.createElement('div');
+      root.className = 'workspace-page';
+      root.dataset.tabId = tabId;
+      const target = document.createElement('div');
+      target.id = 'rocStatsResults';
+      root.appendChild(target);
+      document.body.appendChild(root);
+      return { root, target };
+    };
+
+    const a = makeRoot('tab-a');
+    const hostA = reporting.ensureReportHost(a.target, {
+      id: 'rocStatsReportHost',
+      className: 'stats-report-host',
+      attachToTarget: true,
+      position: 'last'
+    });
+    const b = makeRoot('tab-b');
+    const hostB = reporting.ensureReportHost(b.target, {
+      id: 'rocStatsReportHost',
+      className: 'stats-report-host',
+      attachToTarget: true,
+      position: 'last'
+    });
+
+    expect(hostA).toBeTruthy();
+    expect(hostB).toBeTruthy();
+    expect(hostB).not.toBe(hostA);
+    expect(hostA.parentNode).toBe(a.target);
+    expect(hostB.parentNode).toBe(b.target);
+    expect(a.target.__statsReportHost).toBe(hostA);
+    expect(b.target.__statsReportHost).toBe(hostB);
+  });
+
+  test('detached report-host lookup is scoped to the target workspace root', () => {
+    const reporting = global.Shared.statsReporting;
+    const makeRoot = (tabId) => {
+      const root = document.createElement('div');
+      root.className = 'workspace-page';
+      root.dataset.tabId = tabId;
+      const target = document.createElement('div');
+      target.id = 'survivalStatsCox';
+      const host = document.createElement('div');
+      host.id = 'survivalStatsReportHost';
+      host.className = 'stats-report-host';
+      root.appendChild(target);
+      root.appendChild(host);
+      document.body.appendChild(root);
+      return { root, target, host };
+    };
+
+    const a = makeRoot('tab-a');
+    const b = makeRoot('tab-b');
+    const resolved = reporting.ensureReportHost(b.target, {
+      id: 'survivalStatsReportHost',
+      className: 'stats-report-host',
+      attachToTarget: false,
+      position: 'last'
+    });
+
+    expect(resolved).toBe(b.host);
+    expect(resolved).not.toBe(a.host);
+    expect(b.target.__statsReportHost).toBe(b.host);
+    expect(b.host.parentNode).toBe(b.root);
+  });
+
 });
 
 describe('Shared stats reporting disclosure persistence', () => {

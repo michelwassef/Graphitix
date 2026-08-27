@@ -108,6 +108,7 @@ function readBoxLayoutInvariantMetrics() {
     significanceViewportExtensionPx: Number(state.significanceViewportExtensionPx) || 0,
     bottomViewportExtensionPx: Number(state.bottomViewportExtensionPx) || 0,
     leftViewportExtensionPx: Number(state.leftViewportExtensionPx) || 0,
+    appliedVerticalFrameReservePx: Number(svgBox.dataset.boxSignificanceFrameReservePx) || 0,
     svgBoxWidthPx: Number(svgBoxRect.width) || null,
     svgBoxHeightPx: Number(svgBoxRect.height) || null,
     overflowNodeCount,
@@ -260,17 +261,15 @@ function assertStableShrinkInvariants(before, after, withSignificance) {
 
   expect(after.svgBoxWidthPx).toBeLessThan(before.svgBoxWidthPx * 0.7);
   expect(after.xAxisSpan).toBeLessThan(before.xAxisSpan * 0.8);
-  const verticalReserveTolerance = Math.max(
-    3,
-    Math.min(48, Math.max(Number(before.bottomViewportExtensionPx) || 0, Number(after.bottomViewportExtensionPx) || 0))
-  );
-  expect(Math.abs(after.yAxisSpan - before.yAxisSpan)).toBeLessThanOrEqual(verticalReserveTolerance);
-  expect(Math.abs(after.xAxisY - before.xAxisY)).toBeLessThanOrEqual(verticalReserveTolerance + 6);
+  expect(Math.abs(after.yAxisSpan - before.yAxisSpan)).toBeLessThanOrEqual(3);
   expect(after.leftViewportExtensionPx).toBe(0);
   expect(after.xLabelLeadingInsetPx).toBeGreaterThan(0);
   expect(after.yAxisSvgX - before.yAxisSvgX).toBeCloseTo(after.xLabelLeadingInsetPx, 0);
-  expect(Math.abs(after.plotHeightPx - before.plotHeightPx)).toBeLessThanOrEqual(verticalReserveTolerance);
+  expect(Math.abs(after.plotHeightPx - before.plotHeightPx)).toBeLessThanOrEqual(3);
   expect(after.bottomViewportExtensionPx).toBeGreaterThanOrEqual(before.bottomViewportExtensionPx);
+  expect(after.appliedVerticalFrameReservePx).toBe(
+    after.significanceViewportExtensionPx + after.bottomViewportExtensionPx
+  );
 
   if (withSignificance) {
     expect(before.significancePathCount).toBeGreaterThan(0);
@@ -354,6 +353,47 @@ test.describe('Box horizontal shrink layout invariants', () => {
     expect(Math.abs(after.xAxisY - before.xAxisY)).toBeLessThanOrEqual(1.5);
     expect(Math.abs(after.plotHeightPx - before.plotHeightPx)).toBeLessThanOrEqual(1.5);
     expect(after.overflowMaxPx).toBeLessThanOrEqual(2.5);
+    expect(issues.critical).toEqual([]);
+  });
+
+  test('lengthening labels grows and then releases the bottom frame reserve without shrinking the plot', async ({ page }) => {
+    const issues = registerIssueCollectors(page);
+    await installLocalCdnOverrides(page);
+    await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
+    await expect(page.locator('#welcomeScreen')).toBeVisible();
+    await openComponentFromWelcome(page, { type: 'box', pageId: 'boxPage' }, { first: true });
+    await loadStripExample(page);
+
+    await setBoxLabelsFromList(page, ['A', 'B', 'C']);
+    const shortLabels = await page.evaluate(readBoxLayoutInvariantMetrics);
+
+    await setBoxLabelsFromList(page, [
+      'Control baseline condition profile',
+      'Treatment alpha condition profile',
+      'Treatment beta condition profile'
+    ]);
+    const longLabels = await page.evaluate(readBoxLayoutInvariantMetrics);
+
+    expect(shortLabels).not.toBeNull();
+    expect(longLabels).not.toBeNull();
+    expect(longLabels.rotated).toBe(true);
+    expect(longLabels.bottomViewportExtensionPx).toBeGreaterThan(shortLabels.bottomViewportExtensionPx + 20);
+    expect(longLabels.svgBoxHeightPx - shortLabels.svgBoxHeightPx).toBeCloseTo(
+      longLabels.bottomViewportExtensionPx - shortLabels.bottomViewportExtensionPx,
+      0
+    );
+    expect(Math.abs(longLabels.svgBoxWidthPx - shortLabels.svgBoxWidthPx)).toBeLessThanOrEqual(2);
+    expect(Math.abs(longLabels.yAxisSpan - shortLabels.yAxisSpan)).toBeLessThanOrEqual(2);
+    expect(Math.abs(longLabels.plotHeightPx - shortLabels.plotHeightPx)).toBeLessThanOrEqual(2);
+    expect(longLabels.appliedVerticalFrameReservePx).toBe(longLabels.bottomViewportExtensionPx);
+    expect(longLabels.overflowMaxPx).toBeLessThanOrEqual(2.5);
+
+    await setBoxLabelsFromList(page, ['A', 'B', 'C']);
+    const shortenedAgain = await page.evaluate(readBoxLayoutInvariantMetrics);
+    expect(Math.abs(shortenedAgain.svgBoxHeightPx - shortLabels.svgBoxHeightPx)).toBeLessThanOrEqual(2);
+    expect(Math.abs(shortenedAgain.yAxisSpan - shortLabels.yAxisSpan)).toBeLessThanOrEqual(2);
+    expect(Math.abs(shortenedAgain.plotHeightPx - shortLabels.plotHeightPx)).toBeLessThanOrEqual(2);
+    expect(shortenedAgain.appliedVerticalFrameReservePx).toBe(shortenedAgain.bottomViewportExtensionPx);
     expect(issues.critical).toEqual([]);
   });
 });

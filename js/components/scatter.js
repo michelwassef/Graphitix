@@ -28808,7 +28808,9 @@ async function drawScatter(drawOptions = {}){
             persistTabState('scatter-fit-range-cleared-import');
           }
           const prismMeta = result?.prismMeta;
-          if(prismMeta?.kind !== 'line'){
+          const prismGroupedAdapter = prismMeta?.adapter === 'scatter-grouped';
+          const legacyLineAdapter = prismMeta?.kind === 'line';
+          if(!prismGroupedAdapter && !legacyLineAdapter){
             return;
           }
           const replicateCount = clampScatterReplicateCount(prismMeta.replicatesCount || SCATTER_MIN_REPLICATES);
@@ -28817,11 +28819,13 @@ async function drawScatter(drawOptions = {}){
             : [];
           const importedMatrix = scatterHot?.getData?.() || [];
           scatterGroupedXReplicates = false;
-          const groupedMatrix = convertScatterLineImportToGroupedMatrix(importedMatrix, {
-            replicates: replicateCount,
-            xReplicatesEnabled: false
-          });
-          if(scatterHot && typeof scatterHot.loadData === 'function'){
+          const groupedMatrix = prismGroupedAdapter
+            ? importedMatrix
+            : convertScatterLineImportToGroupedMatrix(importedMatrix, {
+                replicates: replicateCount,
+                xReplicatesEnabled: false
+              });
+          if(!prismGroupedAdapter && scatterHot && typeof scatterHot.loadData === 'function'){
             scatterHot.loadData(groupedMatrix, {
               source: 'scatter-prism-grouped',
               suppressSchedule: true

@@ -1076,7 +1076,11 @@
     const axisTickFormatters = cfg.axisTickFormatters || {};
     const tickFontSize = Number.isFinite(cfg.tickFontSize) ? cfg.tickFontSize : fontSize;
     const tickLength = Number.isFinite(cfg.tickLength) ? cfg.tickLength : Math.max(4, Math.round(fontSize * 0.5));
-    const tickLabelGap = Number.isFinite(cfg.tickLabelGap) ? cfg.tickLabelGap : Math.max(2, Math.round(fontSize * 0.3));
+    const tickLabelGap = Number.isFinite(cfg.tickLabelGap)
+      ? cfg.tickLabelGap
+      : (typeof chartStyle.resolveTickLabelGap === 'function'
+        ? chartStyle.resolveTickLabelGap(fontSize)
+        : Math.max(2, Math.round(fontSize * 0.2)));
     const axisTitleGap = Number.isFinite(cfg.axisTitleGap) ? cfg.axisTitleGap : Math.max(4, Math.round(fontSize * 0.75));
     const tickTextColor = cfg.tickTextColor || chartStyle.TEXT_COLOR || '#333';
     const axisLabelColor = cfg.axisLabelColor || tickTextColor || chartStyle.TEXT_COLOR || '#333';

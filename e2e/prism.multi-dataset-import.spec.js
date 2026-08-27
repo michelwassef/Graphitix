@@ -2,20 +2,12 @@ const path = require('path');
 const { test, expect } = require('@playwright/test');
 const { installLocalCdnOverrides } = require('./helpers/workspaceHarness');
 
-const expectedTabs = extension => [
+const expectedTabs = () => [
   { title: 'Grouped: Entering replicate data', type: 'box' },
   { title: 'XY: Entering replicate data', type: 'line' },
-  { title: 'XY: Entering mean with error values', type: 'scatter' },
   { title: 'Data 6', type: 'line' },
   { title: 'Survival: Two groups', type: 'survival' },
-  { title: 'Data - missing columns', type: extension === 'pzfx' ? 'line' : 'scatter' },
-  { title: 'Y SEN', type: 'scatter' },
-  { title: 'Y CVN', type: 'scatter' },
-  { title: 'Y SD', type: 'scatter' },
-  { title: 'Y SE', type: 'scatter' },
-  { title: 'Y CV', type: 'scatter' },
-  { title: 'Y error', type: 'scatter' },
-  { title: 'Y high low', type: 'scatter' },
+  { title: 'Data - missing columns', type: 'scatter' },
   { title: 'Data 6 #2', type: 'line' }
 ];
 
@@ -44,6 +36,10 @@ test(`imports and renders every mixed-type demo .${extension} table`, async ({ p
     const root = page.locator(`[data-workspace-tab-id="${tab.id}"]`);
     await expect(root.locator(`#${tab.type}Svg`)).toHaveCount(1);
     await expect(root.locator('.svgbox')).not.toContainText('Add data to the input table');
+    if(tab.title === 'Grouped: Entering replicate data'){
+      await expect(root.locator('#boxTableFormat')).toHaveValue('grouped');
+      await expect(root.locator('#boxGroupedReplicates')).toHaveValue('5');
+    }
   }
 });
 }

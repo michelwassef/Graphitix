@@ -558,6 +558,67 @@
     return adjustFn(arr);
   }
 
+  function resolveEffectiveComparisonCorrection(values, method){
+    const rawValues = Array.isArray(values) ? values.slice() : [];
+    const effectiveMethod = rawValues.length > 1 ? (method || DEFAULT_CORRECTION) : 'none';
+    const adjustedValues = effectiveMethod === 'none'
+      ? rawValues.slice()
+      : applyPValueCorrection(rawValues, effectiveMethod);
+    return {
+      count: rawValues.length,
+      effectiveMethod,
+      adjustedValues,
+      correctionMeta: resolveCorrectionMeta(effectiveMethod, rawValues.length),
+      hasAdjustment: effectiveMethod !== 'none'
+    };
+  }
+
+  function resolvePostHocInferenceMethod(postHocMode, correctionMethod, comparisonCount){
+    if(Number(comparisonCount) <= 1){
+      return 'none';
+    }
+    const intrinsicMethods = {
+      tukey: 'tukey',
+      gamesHowell: 'games-howell',
+      tamhaneT2: 'tamhane-t2',
+      nemenyi: 'nemenyi',
+      dunnett: 'dunnett',
+      dunnettT3: 'dunnett-t3'
+    };
+    return intrinsicMethods[postHocMode] || correctionMethod || DEFAULT_CORRECTION;
+  }
+
+  function normalizeEffectiveInferenceSnapshot(payload, model){
+    const snapshot = payload?.inferenceSnapshot;
+    if(!snapshot || typeof snapshot !== 'object'){
+      return snapshot || null;
+    }
+    const comparison = snapshot.comparisons;
+    const method = String(model?.effectiveComparisonMethod || comparison?.method || 'none').trim().toLowerCase() || 'none';
+    if(!comparison || method === String(comparison.method || 'none').trim().toLowerCase()){
+      return snapshot;
+    }
+    const isFdr = method === 'bh' || method === 'by';
+    const alpha = Number(snapshot.alpha);
+    const targetFdr = Number(snapshot.targetFdr);
+    const level = isFdr
+      ? (Number.isFinite(targetFdr) ? targetFdr : Number(comparison.level))
+      : (Number.isFinite(alpha) ? alpha : Number(comparison.level));
+    return {
+      ...snapshot,
+      comparisons: {
+        ...comparison,
+        criterion: isFdr ? 'fdr' : 'alpha',
+        level,
+        method,
+        errorControl: isFdr ? 'fdr' : (method === 'none' ? 'unadjusted' : 'fwer'),
+        valueKind: method === 'none' ? 'raw-p' : 'adjusted-p',
+        decisionLabel: isFdr ? 'Discovery' : 'Significant',
+        negativeDecisionLabel: isFdr ? 'No discovery' : 'Not significant'
+      }
+    };
+  }
+
   const FALLBACK_SCIENTIFIC_SUPERSCRIPTS = Object.freeze({
     '-': '⁻', '+': '⁺', '0': '⁰', '1': '¹', '2': '²', '3': '³', '4': '⁴', '5': '⁵', '6': '⁶', '7': '⁷', '8': '⁸', '9': '⁹'
   });
@@ -4779,11 +4840,12 @@
       return { ok: false, message: 'Not enough replicates to compute row-wise t-tests.' };
     }
     const m = tests.length;
-    const adjustedValues = applyPValueCorrection(tests.map(test => test.p), correctionMethod);
-    adjustedValues.forEach((adj, idx) => {
-      tests[idx].padjust = adj;
+    const comparisonCorrection = resolveEffectiveComparisonCorrection(tests.map(test => test.p), correctionMethod);
+    comparisonCorrection.adjustedValues.forEach((adj, idx) => {
+      tests[idx].padjust = Number.isFinite(adj) ? adj : tests[idx].p;
     });
-    const correctionMeta = resolveCorrectionMeta(correctionMethod, m);
+    const correctionMeta = comparisonCorrection.correctionMeta;
+    const showAdjustedP = comparisonCorrection.hasAdjustment;
     return {
       ok: true,
       caption: 'Row-wise t-tests',
@@ -4793,8 +4855,8 @@
         { key: 'comparison', label: 'Comparison', align: 'left' },
         { key: 't', label: 't', align: 'right' },
         { key: 'df', label: 'df', align: 'right' },
-        { key: 'p', label: 'p-value', align: 'right', inferenceRole: 'raw' },
-        { key: 'padjust', label: formatAdjustedPLabel(correctionMethod, correctionMeta), align: 'right', inferenceRole: 'comparison' }
+        { key: 'p', label: 'p-value', align: 'right', inferenceRole: showAdjustedP ? 'raw' : 'comparison' },
+        ...(showAdjustedP ? [{ key: 'padjust', label: formatAdjustedPLabel(comparisonCorrection.effectiveMethod, correctionMeta), align: 'right', inferenceRole: 'comparison' }] : [])
       ],
       rows: tests.map(test => ({
         condition: test.condition,
@@ -4802,11 +4864,12 @@
         t: formatStatNumber(test.t),
         df: Number.isFinite(test.df) ? formatStatNumber(test.df, 2) : '-',
         p: createPValueCell(test.p),
-        padjust: createPValueCell(test.padjust)
+        ...(showAdjustedP ? { padjust: createPValueCell(test.padjust) } : {})
       })),
       options: { fileName: 'box-rowwise-ttest', contextLabel: 'box-grouped-ttests' },
-      footnotes: correctionMeta.footnote ? [correctionMeta.footnote] : [],
-      correctionCount: m
+      footnotes: showAdjustedP && correctionMeta.footnote ? [correctionMeta.footnote] : [],
+      correctionCount: m,
+      effectiveComparisonMethod: comparisonCorrection.effectiveMethod
     };
   }
   function createRangeHelpers(indices, groups, annotationMaxByTrace){
@@ -5064,13 +5127,23 @@
   function buildBoxStatsReport(model,payload){
     const analysis=model?.analysis || {};
     const selectedLabels=(Array.isArray(payload.selection)?payload.selection:[]).map(item=>item?.label).filter(Boolean);
-    const correction=resolveCorrectionMeta(payload.statsCorrection,Number(model?.correctionCount)||0);
-    const inferenceSnapshot=payload.inferenceSnapshot || null;
+    const inferenceSnapshot=normalizeEffectiveInferenceSnapshot(payload,model);
+    const correctionCount=Number(model?.correctionCount)||0;
+    const effectiveComparisonMethod=String(model?.effectiveComparisonMethod || inferenceSnapshot?.comparisons?.method || 'none');
+    const correction=FALLBACK_CORRECTION_META[effectiveComparisonMethod]
+      ? resolveCorrectionMeta(effectiveComparisonMethod,correctionCount)
+      : null;
+    const correctionFootnote=correctionCount > 1 && effectiveComparisonMethod !== 'none'
+      ? (correction?.footnote || '')
+      : '';
     const simultaneousCiMethods=new Set(['tukey','games-howell','tamhane-t2','dunnett','dunnett-t3']);
     const comparisonMethod=String(inferenceSnapshot?.comparisons?.method || '').toLowerCase();
+    const ciLevelPercent=Math.round(sanitizeStatsCiLevel(payload.statsCiLevel,0.95)*100);
     const ciDescription=simultaneousCiMethods.has(comparisonMethod) && Number.isFinite(Number(inferenceSnapshot?.comparisons?.level))
       ? `Simultaneous post-hoc confidence intervals used ${(100*(1-Number(inferenceSnapshot.comparisons.level))).toFixed(2).replace(/\.00$/,'')}%.`
-      : `Confidence intervals not intrinsically tied to the multiplicity procedure used ${Math.round(sanitizeStatsCiLevel(payload.statsCiLevel,0.95)*100)}%.`;
+      : effectiveComparisonMethod === 'none'
+        ? `Confidence intervals used ${ciLevelPercent}%.`
+        : `Confidence intervals not intrinsically tied to the multiplicity procedure used ${ciLevelPercent}%.`;
     const methods=[
       `${analysis.label || 'Statistical analysis'} was applied to ${selectedLabels.length || model?.groupCount || 0} selected ${selectedLabels.length===1?'group':'groups'}.`,
       ...(Array.isArray(model?.outlierAudit?.notes)?model.outlierAudit.notes:[]),
@@ -5078,7 +5151,7 @@
       ...describeInferenceSnapshot(inferenceSnapshot),
       ciDescription,
       `The alternative hypothesis was ${sanitizeStatsAlternative(payload.statsAlternative)}.`,
-      correction?.footnote || ''
+      correctionFootnote
     ].filter(Boolean);
     const results=[];
     if(model?.overall){
@@ -5101,12 +5174,13 @@
         variant:analysis.variant || null,
         paired:!!analysis.paired,
         mode:payload.statsMode || 'all',
-        inference: payload.inferenceSnapshot || null,
+        inference: inferenceSnapshot,
         alpha:sanitizeStatsAlpha(payload.statsAlpha,0.05),
         targetFdr:sanitizeStatsAlpha(payload.statsTargetFdr,0.05),
         ciLevel:sanitizeStatsCiLevel(payload.statsCiLevel,0.95),
         alternative:sanitizeStatsAlternative(payload.statsAlternative),
-        correction:payload.statsCorrection || DEFAULT_CORRECTION,
+        correction:effectiveComparisonMethod,
+        configuredCorrection:payload.statsCorrection || DEFAULT_CORRECTION,
         postHoc:model?.postHoc || payload.statsPostHoc || null,
         selectedGroups:selectedLabels,
         seed:sanitizeStatsSeed(payload.statsSeed,1337),
@@ -5273,11 +5347,15 @@
         model.message = 'No one-sample tests could be computed. Check that each selected column has enough numeric values.';
         return model;
       }
-      const adjusted = applyPValueCorrection(validTests.map(test => test.p), payload.statsCorrection);
+      const comparisonCorrection = resolveEffectiveComparisonCorrection(validTests.map(test => test.p), payload.statsCorrection);
       validTests.forEach((test, idx) => {
-        test.adjP = Array.isArray(adjusted) && Number.isFinite(adjusted[idx]) ? adjusted[idx] : test.p;
+        test.adjP = Array.isArray(comparisonCorrection.adjustedValues) && Number.isFinite(comparisonCorrection.adjustedValues[idx])
+          ? comparisonCorrection.adjustedValues[idx]
+          : test.p;
       });
-      const correctionMeta = resolveCorrectionMeta(payload.statsCorrection, validTests.length);
+      const correctionMeta = comparisonCorrection.correctionMeta;
+      const showAdjustedP = comparisonCorrection.hasAdjustment;
+      model.effectiveComparisonMethod = comparisonCorrection.effectiveMethod;
       const skippedNotes = tests
         .filter(test => !test.valid)
         .map(test => `${test.label}: ${test.message || 'skipped'}`);
@@ -5292,9 +5370,9 @@
             { key: 'delta', label: 'Mean − H₀', align: 'right', index: 3 },
             { key: 'statistic', label: 't', align: 'right', index: 4 },
             { key: 'df', label: 'df', align: 'right', index: 5 },
-            { key: 'p', label: 'p-value', align: 'right', index: 6, inferenceRole: 'raw' },
-            { key: 'padj', label: formatAdjustedPLabel(payload.statsCorrection, correctionMeta), align: 'right', index: 7, inferenceRole: 'comparison' },
-            { key: 'note', label: 'Note', align: 'left', index: 8 }
+            { key: 'p', label: 'p-value', align: 'right', index: 6, inferenceRole: showAdjustedP ? 'raw' : 'comparison' },
+            ...(showAdjustedP ? [{ key: 'padj', label: formatAdjustedPLabel(comparisonCorrection.effectiveMethod, correctionMeta), align: 'right', index: 7, inferenceRole: 'comparison' }] : []),
+            { key: 'note', label: 'Note', align: 'left', index: showAdjustedP ? 8 : 7 }
           ],
           rows: tests.map(test => ({
             group: test.label,
@@ -5304,12 +5382,12 @@
             statistic: Number.isFinite(test.stat) ? formatStatNumber(test.stat) : '-',
             df: Number.isFinite(test.df) ? formatStatNumber(test.df, 2) : '-',
             p: test.valid ? createPValueCell(test.p) : '-',
-            padj: test.valid ? createPValueCell(test.adjP) : '-',
+            ...(showAdjustedP ? { padj: test.valid ? createPValueCell(test.adjP) : '-' } : {}),
             note: test.valid ? '' : (test.message || 'Skipped')
           })),
           footnotes: [
             `Null hypothesis value (H₀): ${formatStatNumber(nullValue)}.`,
-            ...(correctionMeta.footnote ? [correctionMeta.footnote] : []),
+            ...(showAdjustedP && correctionMeta.footnote ? [correctionMeta.footnote] : []),
             ...skippedNotes
           ],
           options: { fileName: 'box-one-sample-ttest', contextLabel: 'box-one-sample' }
@@ -5325,9 +5403,9 @@
             { key: 'median', label: 'Median − H₀', align: 'right', index: 3 },
             { key: 'statistic', label: 'W', align: 'right', index: 4 },
             { key: 'z', label: 'z', align: 'right', index: 5 },
-            { key: 'p', label: 'p-value', align: 'right', index: 6, inferenceRole: 'raw' },
-            { key: 'padj', label: formatAdjustedPLabel(payload.statsCorrection, correctionMeta), align: 'right', index: 7, inferenceRole: 'comparison' },
-            { key: 'note', label: 'Note', align: 'left', index: 8 }
+            { key: 'p', label: 'p-value', align: 'right', index: 6, inferenceRole: showAdjustedP ? 'raw' : 'comparison' },
+            ...(showAdjustedP ? [{ key: 'padj', label: formatAdjustedPLabel(comparisonCorrection.effectiveMethod, correctionMeta), align: 'right', index: 7, inferenceRole: 'comparison' }] : []),
+            { key: 'note', label: 'Note', align: 'left', index: showAdjustedP ? 8 : 7 }
           ],
           rows: tests.map(test => ({
             group: test.label,
@@ -5337,12 +5415,12 @@
             statistic: Number.isFinite(test.stat) ? formatStatNumber(test.stat) : '-',
             z: Number.isFinite(test.z) ? formatStatNumber(test.z) : '-',
             p: test.valid ? createPValueCell(test.p) : '-',
-            padj: test.valid ? createPValueCell(test.adjP) : '-',
+            ...(showAdjustedP ? { padj: test.valid ? createPValueCell(test.adjP) : '-' } : {}),
             note: test.valid ? '' : (test.message || 'Skipped')
           })),
           footnotes: [
             `Null hypothesis value (H₀): ${formatStatNumber(nullValue)}.`,
-            ...(correctionMeta.footnote ? [correctionMeta.footnote] : []),
+            ...(showAdjustedP && correctionMeta.footnote ? [correctionMeta.footnote] : []),
             ...skippedNotes
           ],
           options: { fileName: 'box-one-sample-wilcoxon', contextLabel: 'box-one-sample' }
@@ -5405,11 +5483,14 @@
         });
       });
       const m = pairs.length;
-      if(m){
-        const adjusted = applyPValueCorrection(pairs.map(pr => pr.p), payload.statsCorrection);
-        adjusted.forEach((adj, idx) => { pairs[idx].adjP = adj; });
-      }
-      const correctionMeta = resolveCorrectionMeta(payload.statsCorrection, m);
+      const comparisonCorrection = resolveEffectiveComparisonCorrection(pairs.map(pr => pr.p), payload.statsCorrection);
+      comparisonCorrection.adjustedValues.forEach((adj, idx) => {
+        if(pairs[idx]){
+          pairs[idx].adjP = Number.isFinite(adj) ? adj : pairs[idx].p;
+        }
+      });
+      const correctionMeta = comparisonCorrection.correctionMeta;
+      model.effectiveComparisonMethod = comparisonCorrection.effectiveMethod;
       const tableRows = pairs.map(pr => ({
         comparison: `${pr.labelA} vs ${pr.labelB}`,
         statistic: `${pr.statName} = ${Number.isFinite(pr.stat) ? pr.stat.toFixed(4) : '-'}`,
@@ -5425,13 +5506,13 @@
           { key: 'comparison', label: 'Comparison', align: 'left', index: 0 },
           { key: 'statistic', label: 'Statistic', align: 'left', index: 1 },
           { key: 'df', label: 'df', align: 'right', index: 2 },
-          { key: 'padj', label: formatAdjustedPLabel(payload.statsCorrection, correctionMeta), align: 'right', index: 3, inferenceRole: 'comparison' },
+          { key: 'padj', label: formatAdjustedPLabel(comparisonCorrection.effectiveMethod, correctionMeta), align: 'right', index: 3, inferenceRole: 'comparison' },
           { key: 'effectParametric', label: `Effect (${paramEffectMeta.shortLabel || paramEffectMeta.label})`, align: 'right', index: 4, tooltip: paramEffectMeta.tooltip },
           { key: 'effectNonParametric', label: `Effect (${nonParamEffectMeta.shortLabel || nonParamEffectMeta.label})`, align: 'right', index: 5, tooltip: nonParamEffectMeta.tooltip }
         ],
         rows: tableRows,
         footnotes: [
-          ...(correctionMeta.footnote ? [correctionMeta.footnote] : []),
+          ...(comparisonCorrection.hasAdjustment && correctionMeta.footnote ? [correctionMeta.footnote] : []),
           ...effectFootnotes
         ],
         options: { fileName: 'box-custom-comparisons', contextLabel: 'box-custom' }
@@ -5465,17 +5546,12 @@
       if(res.df !== undefined){
         summaryRows.push({ metric: 'df', value: Number.isFinite(res.df) ? res.df.toFixed(4) : '-' });
       }
-      summaryRows.push({ metric: 'p-value', value: createPValueCell(res.p), pValueRaw: res.p, inferenceRole: 'raw' });
-      const correctionMeta = resolveCorrectionMeta(payload.statsCorrection, 1);
-      const adjusted = applyPValueCorrection([res.p], payload.statsCorrection);
-      const adjValue = Array.isArray(adjusted) && adjusted.length ? adjusted[0] : res.p;
-      summaryRows.push({ metric: `p (${correctionMeta.shortLabel})`, value: createPValueCell(adjValue), pValueRaw: adjValue, inferenceRole: 'comparison' });
+      summaryRows.push({ metric: 'p-value', value: createPValueCell(res.p), pValueRaw: res.p, inferenceRole: 'comparison' });
+      const adjValue = res.p;
+      model.effectiveComparisonMethod = 'none';
       summaryRows.push({ metric: `Effect (${paramEffectMeta.shortLabel || paramEffectMeta.label})`, value: formattedParamEffect });
       summaryRows.push({ metric: `Effect (${nonParamEffectMeta.shortLabel || nonParamEffectMeta.label})`, value: formattedNonParamEffect });
-      const footnotes = [
-        ...(correctionMeta.footnote ? [correctionMeta.footnote] : []),
-        ...effectFootnotes
-      ];
+      const footnotes = effectFootnotes.slice();
       model.tables.push({
         caption: 'Overall test summary',
         section: 'summary',
@@ -6071,6 +6147,7 @@
 
     model.pairs = pairs;
     model.correctionCount = pairs.length;
+    model.effectiveComparisonMethod = resolvePostHocInferenceMethod(postHocMode, payload.statsCorrection, pairs.length);
 
     if(pairs.length){
       let correctionMeta;
@@ -6087,10 +6164,10 @@
       }else if(postHocMode === 'dunnettT3'){
         correctionMeta = { key: 'dunnettT3', label: 'Dunnett T3', shortLabel: 'Control Welch + Sidak', footnote: null };
       }else{
-        correctionMeta = resolveCorrectionMeta(payload.statsCorrection, pairs.length);
+        correctionMeta = resolveCorrectionMeta(model.effectiveComparisonMethod, pairs.length);
       }
       const footnotes = [];
-      if(correctionMeta.footnote){
+      if(model.effectiveComparisonMethod !== 'none' && correctionMeta.footnote){
         footnotes.push(correctionMeta.footnote);
       }
       methodFootnotes.forEach(note => { if(note) footnotes.push(note); });
@@ -6195,7 +6272,7 @@
         dunnettT3: 'p (Dunnett T3)'
       };
       const pLabel = postHocPLabels[postHocMode]
-        || formatAdjustedPLabel(payload.statsCorrection, correctionMeta);
+        || formatAdjustedPLabel(model.effectiveComparisonMethod, correctionMeta);
       const isSinglePrimaryComparison = !overall && pairs.length === 1;
       model.tables.push({
         caption: isSinglePrimaryComparison
@@ -6306,11 +6383,24 @@
       if(!buckets.has(key)) buckets.set(key,[]);
       buckets.get(key).push(row);
     });
+    let hasAdjustedFamily=false;
     buckets.forEach(bucket=>{
-      const adjusted=applyPValueCorrection(bucket.map(row=>row.p),correction);
-      bucket.forEach((row,index)=>{row.adjP=Number.isFinite(adjusted?.[index])?adjusted[index]:row.p;});
+      const familyCorrection=resolveEffectiveComparisonCorrection(bucket.map(row=>row.p),correction);
+      if(familyCorrection.hasAdjustment){
+        hasAdjustedFamily=true;
+      }
+      bucket.forEach((row,index)=>{
+        const adjusted=familyCorrection.adjustedValues?.[index];
+        row.adjP=Number.isFinite(adjusted)?adjusted:row.p;
+      });
     });
-    const correctionMeta=resolveCorrectionMeta(correction,rows.length);
+    const effectiveComparisonMethod=hasAdjustedFamily ? correction : 'none';
+    const correctionMeta=resolveCorrectionMeta(effectiveComparisonMethod,rows.length);
+    const correctionFootnote=hasAdjustedFamily
+      ? (familyMode==='global'
+        ? correctionMeta.footnote
+        : `${correctionMeta.label} multiplicity control was applied separately within each family containing more than one comparison.`)
+      : null;
     return {
       ok:true,
       caption:'Grouped Multiple Comparisons',
@@ -6322,8 +6412,8 @@
         {key:'dfText',label:'df',align:'right'},
         {key:'differenceText',label:'Difference',align:'right'},
         {key:'ciText',label:`${formatPercentLabel(ciLevel)} CI`,align:'right'},
-        {key:'pText',label:'p-value',align:'right',inferenceRole:'raw'},
-        {key:'adjPText',label:formatAdjustedPLabel(correction,correctionMeta),align:'right',inferenceRole:'comparison'}
+        {key:'pText',label:'p-value',align:'right',inferenceRole:hasAdjustedFamily?'raw':'comparison'},
+        ...(hasAdjustedFamily ? [{key:'adjPText',label:formatAdjustedPLabel(effectiveComparisonMethod,correctionMeta),align:'right',inferenceRole:'comparison'}] : [])
       ],
       rows:rows.map(row=>({
         ...row,
@@ -6332,11 +6422,12 @@
         differenceText:formatStatNumber(row.difference),
         ciText:Number.isFinite(row.ciLow)&&Number.isFinite(row.ciHigh)?`${formatStatNumber(row.ciLow)} to ${formatStatNumber(row.ciHigh)}`:'-',
         pText:createPValueCell(row.p),
-        adjPText:createPValueCell(row.adjP)
+        ...(hasAdjustedFamily ? {adjPText:createPValueCell(row.adjP)} : {})
       })),
-      footnotes:[correctionMeta.footnote,`Multiplicity families: ${familyMode==='global'?'one global family':'separate families within the selected scope'}.`].filter(Boolean),
+      footnotes:[correctionFootnote,`Multiplicity families: ${familyMode==='global'?'one global family':'separate families within the selected scope'}.`].filter(Boolean),
       options:{fileName:'box-grouped-multiple-comparisons',contextLabel:'box-grouped-multiple-comparisons'},
       correctionCount:rows.length,
+      effectiveComparisonMethod,
       analysisId:'multipleComparisons'
     };
   }
@@ -6350,7 +6441,9 @@
       multipleComparisons:'Grouped multiple comparisons'
     };
     const label=labels[analysis] || resultModel?.caption || analysis;
-    const inferenceParts=describeInferenceSnapshot(payload.inferenceSnapshot || null);
+    const inferenceSnapshot=normalizeEffectiveInferenceSnapshot(payload,resultModel);
+    const effectiveComparisonMethod=String(resultModel?.effectiveComparisonMethod || inferenceSnapshot?.comparisons?.method || 'none');
+    const inferenceParts=describeInferenceSnapshot(inferenceSnapshot);
     const methodsText=[
       `${label} was applied to ${summary.groupsCount} groups, ${summary.conditionsCount} conditions, and ${summary.rowsWithData} complete rows. The selected grouped analysis was executed without substitution.`,
       ...inferenceParts
@@ -6362,7 +6455,7 @@
       resultsParts:[`The selected grouped analysis (${label}) completed.`],
       analysisSpec:{
         schemaVersion:'box-stats-spec-v7',
-        inference:payload.inferenceSnapshot || null,
+        inference:inferenceSnapshot,
         analysisId:analysis,
         analysisLabel:label,
         mode:'grouped',
@@ -6372,7 +6465,8 @@
         partialRowsSkipped:summary.partialRowsSkipped,
         comparisonScope:grouped.comparisonScope || null,
         multiplicityFamily:grouped.multiplicityFamily || null,
-        correction:payload.statsCorrection || DEFAULT_CORRECTION
+        correction:effectiveComparisonMethod,
+        configuredCorrection:payload.statsCorrection || DEFAULT_CORRECTION
       }
     };
   }
@@ -6408,7 +6502,8 @@
     }
     const model={
       mode:'grouped',ok:true,message:null,analysisId:analysis,
-      groupedSummary:summary,tables:[resultModel],correctionCount:resultModel.correctionCount || 0
+      groupedSummary:summary,tables:[resultModel],correctionCount:resultModel.correctionCount || 0,
+      effectiveComparisonMethod:resultModel.effectiveComparisonMethod || null
     };
     model.report=buildGroupedStatsReport(analysis,resultModel,summary,grouped,payload);
     return model;
@@ -6472,7 +6567,7 @@
     if(!tables.length){
       return model;
     }
-    const snapshot=payload?.inferenceSnapshot || null;
+    const snapshot=normalizeEffectiveInferenceSnapshot(payload,model);
     const overallSpec=snapshot?.overall || null;
     const comparisonSpec=snapshot?.comparisons || null;
     tables.forEach(table=>{

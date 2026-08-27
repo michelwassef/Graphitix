@@ -3273,8 +3273,36 @@
         container.style.flex = '0 0 auto';
         container.dataset.resizerResized = 'true';
         const zoomScale = Number.isFinite(zoomLevel) && zoomLevel > 0 ? zoomLevel : 1;
-        const resetWidth = defaultWidth * zoomScale;
-        const resetHeight = defaultHeight * zoomScale;
+        const automaticFrameReserves = typeof opts.resolveAutomaticFrameReserves === 'function'
+          ? opts.resolveAutomaticFrameReserves({
+              container,
+              tabId: normalizeTabId(opts.tabId),
+              componentName: opts.componentName || null,
+              defaultWidth,
+              defaultHeight,
+              zoomScale,
+              reason: 'dblclick-reset'
+            })
+          : null;
+        const resetFrameSize = typeof opts.resolveResetFrameSize === 'function'
+          ? opts.resolveResetFrameSize({
+              container,
+              tabId: normalizeTabId(opts.tabId),
+              componentName: opts.componentName || null,
+              defaultWidth,
+              defaultHeight,
+              zoomScale,
+              reason: 'dblclick-reset'
+            })
+          : null;
+        const resolvedDefaultWidth = parsePositive(resetFrameSize?.widthPx) || defaultWidth;
+        const resolvedDefaultHeight = parsePositive(resetFrameSize?.heightPx) || defaultHeight;
+        const reserveWidth = Number(automaticFrameReserves?.widthPx);
+        const reserveHeight = Number(automaticFrameReserves?.heightPx);
+        const resetBaseWidth = resolvedDefaultWidth + (Number.isFinite(reserveWidth) ? Math.max(0, reserveWidth) : 0);
+        const resetBaseHeight = resolvedDefaultHeight + (Number.isFinite(reserveHeight) ? Math.max(0, reserveHeight) : 0);
+        const resetWidth = resetBaseWidth * zoomScale;
+        const resetHeight = resetBaseHeight * zoomScale;
         const applied = applyResize({
           axis: 'both',
           width: resetWidth,
@@ -3292,7 +3320,19 @@
         if(applied?.changed){
           markResizerTabUserModified(container, opts, 'resizer-reset');
         }
-        console.debug('Debug: resizer size reset', { width: container.style.width, height: container.style.height, applied }); // Debug: resizer reset
+        console.debug('Debug: resizer size reset', {
+          width: container.style.width,
+          height: container.style.height,
+          automaticFrameReserves: {
+            widthPx: resetBaseWidth - resolvedDefaultWidth,
+            heightPx: resetBaseHeight - resolvedDefaultHeight
+          },
+          resetFrameSize: {
+            widthPx: resolvedDefaultWidth,
+            heightPx: resolvedDefaultHeight
+          },
+          applied
+        }); // Debug: resizer reset
         notifyResize('reset');
       };
       handle.addEventListener('dblclick', onDoubleClick);

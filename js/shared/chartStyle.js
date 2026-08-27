@@ -1576,13 +1576,18 @@
     return Number.isFinite(numeric) && numeric >= 0 && numeric <= 100 ? numeric : null;
   };
 
+  chartStyle.resolveTickLabelGap = function resolveTickLabelGap(fontSize){
+    const safeFont = Number(fontSize) || BASE_FONT_SIZE_PX;
+    return Math.max(2, Math.round(safeFont * 0.2));
+  };
+
   chartStyle.createAxisMetrics = function createAxisMetrics(fontSize, scaleInfo){
     const safeFont = Number(fontSize) || BASE_FONT_SIZE_PX;
     const hasScaleInfo = !!(scaleInfo && (Number.isFinite(scaleInfo.styleScale) || Number.isFinite(scaleInfo.scale)));
     const resizeScale = hasScaleInfo ? clampScale(resolveStyleScale(scaleInfo)) : 1;
     const baseMetrics = {
       tickLength: DEFAULT_MAJOR_TICK_LENGTH,
-      tickLabelGap: Math.max(3, Math.round(safeFont * 0.35)),
+      tickLabelGap: chartStyle.resolveTickLabelGap(safeFont),
       axisTitleGap: Math.max(4, Math.round(safeFont * 0.75)),
       outerPadding: Math.max(6, Math.round(safeFont * 0.6)),
       yTitleGap: Math.max(4, Math.round(safeFont * 0.5))
@@ -1618,7 +1623,7 @@
     const plotWidth = options?.plotWidth || 0;
     const axisMetrics = options?.axisMetrics || chartStyle.createAxisMetrics(fontSize);
     const tickLength = axisMetrics.tickLength ?? DEFAULT_MAJOR_TICK_LENGTH;
-    const tickLabelGap = axisMetrics.tickLabelGap ?? Math.max(3, Math.round(fontSize * 0.35));
+    const tickLabelGap = axisMetrics.tickLabelGap ?? chartStyle.resolveTickLabelGap(fontSize);
     const axisTitleGap = axisMetrics.axisTitleGap ?? Math.max(4, Math.round(fontSize * 0.75));
     const outerPadding = axisMetrics.outerPadding ?? Math.max(6, Math.round(fontSize * 0.6));
     const baseLabelOffset = tickLength + tickLabelGap;
@@ -1757,6 +1762,54 @@
     return requiredInset > 0 ? Math.ceil(requiredInset) + 4 : 0;
   };
 
+  function readAxisLabelLengthPx(value, fontSize){
+    const raw = String(value == null ? '' : value).trim();
+    const numeric = Number.parseFloat(raw);
+    if(!Number.isFinite(numeric)){
+      return 0;
+    }
+    if(/em$/i.test(raw)){
+      return numeric * fontSize;
+    }
+    if(/rem$/i.test(raw)){
+      return numeric * BASE_FONT_SIZE_PX;
+    }
+    return numeric;
+  }
+
+  function readAxisLabelFontSizePx(node){
+    const candidates = [
+      node?.getAttribute?.('font-size'),
+      node?.style?.fontSize
+    ];
+    if(typeof global.getComputedStyle === 'function' && node){
+      try{
+        candidates.push(global.getComputedStyle(node).fontSize);
+      }catch(_err){
+        // Detached SVG labels retain their explicit font-size fallback.
+      }
+    }
+    for(let index = 0; index < candidates.length; index += 1){
+      const value = Number.parseFloat(candidates[index]);
+      if(Number.isFinite(value) && value > 0){
+        return value;
+      }
+    }
+    return BASE_FONT_SIZE_PX;
+  }
+
+  chartStyle.resolveRotatedTickLabelDy = function resolveRotatedTickLabelDy(options){
+    const angle = Number(options?.angle) || 0;
+    const fontSize = Math.max(1, Number(options?.fontSize) || BASE_FONT_SIZE_PX);
+    const baseDy = readAxisLabelLengthPx(options?.dy, fontSize);
+    const cosine = Math.abs(Math.cos(angle * Math.PI / 180));
+    if(cosine < 0.25 || cosine > 0.9999){
+      return baseDy;
+    }
+    const ascent = fontSize * 0.8;
+    return ascent + ((baseDy - ascent) / cosine);
+  };
+
   chartStyle.applyLabelOrientation = function applyLabelOrientation(nodes, options){
     const list = Array.from(nodes || []);
     if(!list.length){
@@ -1766,6 +1819,7 @@
     const angle = options?.angle ?? -45;
     const anchor = options?.anchor ?? 'end';
     const dy = options?.dy ?? '0.35em';
+    const preserveOpticalGap = options?.preserveOpticalGap !== false;
     const force = options?.force ?? false;
     const disableAuto = options?.disableAuto === true;
     let rotate = !!force;
@@ -1789,11 +1843,60 @@
         const x = node.getAttribute('x');
         const y = node.getAttribute('y');
         if(x==null || y==null) return;
-        node.setAttribute('transform', `rotate(${angle} ${x} ${y})`);
+        const pivotX = Number(x);
+        const pivotY = Number(y);
+        let unrotatedBox = null;
+        if(preserveOpticalGap && typeof node.getBBox === 'function'){
+          try{
+            const measured = node.getBBox();
+            if(measured && Number.isFinite(measured.y) && Number.isFinite(measured.height) && measured.height > 0){
+              unrotatedBox = measured;
+            }
+          }catch(_err){
+            unrotatedBox = null;
+          }
+        }
         node.setAttribute('text-anchor', anchor);
         if(dy !== null){
           node.setAttribute('dy', dy);
         }
+        if(preserveOpticalGap && dy !== null && Number.isFinite(pivotX) && Number.isFinite(pivotY)){
+          const fontSize = readAxisLabelFontSizePx(node);
+          let adjustedDy = chartStyle.resolveRotatedTickLabelDy({ angle, dy, fontSize });
+          if(unrotatedBox && typeof node.getBBox === 'function'){
+            try{
+              const anchoredBox = node.getBBox();
+              const radians = angle * Math.PI / 180;
+              const sine = Math.sin(radians);
+              const cosine = Math.cos(radians);
+              if(anchoredBox && Number.isFinite(anchoredBox.x) && Number.isFinite(anchoredBox.y)
+                && Number.isFinite(anchoredBox.width) && Number.isFinite(anchoredBox.height)
+                && Math.abs(cosine) >= 0.25){
+                const xs = [anchoredBox.x, anchoredBox.x + anchoredBox.width];
+                const ys = [anchoredBox.y, anchoredBox.y + anchoredBox.height];
+                let rotatedTop = Infinity;
+                xs.forEach(boxX => {
+                  ys.forEach(boxY => {
+                    const transformedY = pivotY
+                      + ((boxX - pivotX) * sine)
+                      + ((boxY - pivotY) * cosine);
+                    rotatedTop = Math.min(rotatedTop, transformedY);
+                  });
+                });
+                const currentDy = readAxisLabelLengthPx(dy, fontSize);
+                if(Number.isFinite(rotatedTop)){
+                  adjustedDy = currentDy + ((unrotatedBox.y - rotatedTop) / cosine);
+                }
+              }
+            }catch(_err){
+              // Use the deterministic font-metric fallback above.
+            }
+          }
+          if(Number.isFinite(adjustedDy)){
+            node.setAttribute('dy', `${Number(adjustedDy.toFixed(4))}px`);
+          }
+        }
+        node.setAttribute('transform', `rotate(${angle} ${x} ${y})`);
       });
     }
     console.debug('Debug: chartStyle.applyLabelOrientation result', {count: list.length, rotated: rotate, angle, disableAuto}); // Debug: label orientation summary
@@ -2352,7 +2455,7 @@
     const xTickFontSize = Number.isFinite(xTickFontSizeRaw) && xTickFontSizeRaw > 0 ? xTickFontSizeRaw : fontSize;
     const axisMetrics = options?.axisMetrics || chartStyle.createAxisMetrics(fontSize);
     const tickLength = axisMetrics.tickLength ?? DEFAULT_MAJOR_TICK_LENGTH;
-    const tickLabelGap = axisMetrics.tickLabelGap ?? Math.max(3, Math.round(fontSize * 0.35));
+    const tickLabelGap = axisMetrics.tickLabelGap ?? chartStyle.resolveTickLabelGap(fontSize);
     const axisTitleGap = axisMetrics.axisTitleGap ?? Math.max(4, Math.round(fontSize * 0.75));
     const outerPadding = axisMetrics.outerPadding ?? Math.max(6, Math.round(fontSize * 0.6));
     const horizontalEdgePadding = chartStyle.resolveGraphHorizontalEdgePadding(

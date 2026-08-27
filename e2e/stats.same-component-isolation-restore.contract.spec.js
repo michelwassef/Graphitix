@@ -191,11 +191,9 @@ const CASES = [
       await expect(page.locator('#rocStatsResults')).toContainText(/ROC metrics|AUC|Reporting and reproducibility/i, { timeout: 40_000 });
     },
     settleAfterRestore: async page => {
+      // Do not force roc.draw() here: a redraw can mask a missing stats-surface
+      // restore while the graph render cache itself restored successfully.
       await page.evaluate(async () => {
-        const drawResult = window.Components?.roc?.draw?.({ reason: 'e2e-stats-contract-restore' });
-        if (drawResult && typeof drawResult.then === 'function') {
-          await drawResult;
-        }
         await window.Components?.roc?.awaitReadyForSnapshot?.({ reason: 'e2e-stats-contract-restore-ready' });
       });
       await expect(page.locator('#rocStatsResults')).toContainText(
@@ -215,13 +213,15 @@ const CASES = [
       const root = rootDoc.querySelector('#rocStatsResults');
       const metrics = root?.querySelector?.('.stats-table-card, table') || null;
       const report = root?.querySelector?.('.stats-report-panel') || null;
+      const ownerSession = window.Components?.roc?.__testHooks?.getSession?.(active?.id || null) || null;
       return {
         option: stats.compareSelection || compare?.value || null,
         selectedText: selectedOption ? String(selectedOption.textContent || '').trim() : '',
         results,
         hasResultsModel: !!stats.resultsModel,
         hasReportModel: !!stats.reportModel,
-        reportAfterMetrics: !!(metrics && report && !!(metrics.compareDocumentPosition(report) & Node.DOCUMENT_POSITION_FOLLOWING))
+        reportAfterMetrics: !!(metrics && report && !!(metrics.compareDocumentPosition(report) & Node.DOCUMENT_POSITION_FOLLOWING)),
+        ownerResultsTargetMatchesRoot: !!(ownerSession && ownerSession.refs?.statsResults === root)
       };
     }),
     assertVariant: snapshot => {
@@ -229,6 +229,7 @@ const CASES = [
       expect(snapshot.selectedText).toMatch(/\S+\s+vs\s+\S+/i);
       expect(snapshot.results).toMatch(/ROC metrics|AUC|Precision.?Recall|Reporting and reproducibility/i);
       expect(snapshot.reportAfterMetrics).toBe(true);
+      expect(snapshot.ownerResultsTargetMatchesRoot).toBe(true);
     }
   }
 ];
@@ -477,6 +478,84 @@ for (const componentCase of CASES) {
       payload: true,
       reporting: true
     });
+
+    if (componentCase.key === 'roc') {
+      // Match the Line-style ownership contract: an inactive same-component root is
+      // detached and must not be used as a live projection target. Corrupt A's
+      // detached stats DOM while B is active, prove no inactive restore/mutation is
+      // attempted, then activate A and require its durable model to restore there.
+      const inactiveRestore = await page.evaluate(tabAId => {
+        const workspaceTabs = window.Shared?.workspaceTabs;
+        const hooks = window.Components?.roc?.__testHooks;
+        const rootA = workspaceTabs?.getMountedRoot?.(tabAId, 'roc') || null;
+        const state = window.Main?.session?.workspaceState;
+        const tabBId = state?.activeTabId || null;
+        const rootB = workspaceTabs?.getMountedRoot?.(tabBId, 'roc') || null;
+        const panelA = rootA?.querySelector?.('#rocStatsResults') || null;
+        const panelB = rootB?.querySelector?.('#rocStatsResults') || null;
+        const beforeB = String(panelB?.textContent || '').replace(/\s+/g, ' ').trim();
+        if (!panelA || !panelB || !hooks?.restoreStatsSurfaceForOwner) {
+          return { restoredWhileInactive: false, reason: 'missing-test-surface' };
+        }
+        const hostABefore = panelA.__statsReportHost || panelA.querySelector?.(':scope > #rocStatsReportHost') || null;
+        const hostBBefore = panelB.__statsReportHost || panelB.querySelector?.(':scope > #rocStatsReportHost') || null;
+        const hostsIsolatedBefore = !!(hostABefore && hostBBefore && hostABefore !== hostBBefore && hostABefore.parentNode === panelA && hostBBefore.parentNode === panelB);
+        const sessionABefore = hooks.getSession?.(tabAId) || null;
+        const modelABefore = sessionABefore?.results?.statsPanelModel || sessionABefore?.state?.statsPanelModel || null;
+        const durableModelBefore = !!(modelABefore?.resultsModel || modelABefore?.reportModel);
+        const rootAConnected = rootA?.isConnected === true;
+        panelA.innerHTML = '';
+        const restoredWhileInactive = hooks.restoreStatsSurfaceForOwner(tabAId) === true;
+        const sessionAAfter = hooks.getSession?.(tabAId) || null;
+        return {
+          restoredWhileInactive,
+          durableModelBefore,
+          hostsIsolatedBefore,
+          rootAConnected,
+          textAWhileInactive: String(panelA.textContent || '').replace(/\s+/g, ' ').trim(),
+          beforeB,
+          afterB: String(panelB.textContent || '').replace(/\s+/g, ' ').trim(),
+          inactiveOwnerRefsCleared: !sessionAAfter?.refs?.root && !sessionAAfter?.refs?.statsResults
+        };
+      }, tabA);
+      expect(inactiveRestore.durableModelBefore, JSON.stringify(inactiveRestore)).toBe(true);
+      expect(inactiveRestore.hostsIsolatedBefore, JSON.stringify(inactiveRestore)).toBe(true);
+      expect(inactiveRestore.rootAConnected, JSON.stringify(inactiveRestore)).toBe(false);
+      expect(inactiveRestore.restoredWhileInactive, JSON.stringify(inactiveRestore)).toBe(false);
+      expect(inactiveRestore.textAWhileInactive).toBe('');
+      expect(inactiveRestore.afterB).toBe(inactiveRestore.beforeB);
+      expect(inactiveRestore.inactiveOwnerRefsCleared).toBe(true);
+
+      await activateTab(page, tabA, componentCase);
+      await page.evaluate(async () => {
+        await window.Components?.roc?.awaitReadyForSnapshot?.({ reason: 'e2e-roc-owner-stats-activation-restore' });
+      });
+      const activatedRestore = await page.evaluate(({ tabAId, tabBId, beforeB }) => {
+        const workspaceTabs = window.Shared?.workspaceTabs;
+        const hooks = window.Components?.roc?.__testHooks;
+        const rootA = workspaceTabs?.getMountedRoot?.(tabAId, 'roc') || null;
+        const rootB = workspaceTabs?.getMountedRoot?.(tabBId, 'roc') || null;
+        const panelA = rootA?.querySelector?.('#rocStatsResults') || null;
+        const panelB = rootB?.querySelector?.('#rocStatsResults') || null;
+        const hostA = panelA?.__statsReportHost || panelA?.querySelector?.(':scope > #rocStatsReportHost') || null;
+        const sessionA = hooks?.getSession?.(tabAId) || null;
+        return {
+          rootAConnected: rootA?.isConnected === true,
+          textA: String(panelA?.textContent || '').replace(/\s+/g, ' ').trim(),
+          hostOwnedByA: !!(hostA && panelA && hostA.parentNode === panelA),
+          ownerA: sessionA?.refs?.root === rootA && sessionA?.refs?.statsResults === panelA,
+          beforeB,
+          afterB: String(panelB?.textContent || '').replace(/\s+/g, ' ').trim()
+        };
+      }, { tabAId: tabA, tabBId: tabB, beforeB: inactiveRestore.beforeB });
+      expect(activatedRestore.rootAConnected, JSON.stringify(activatedRestore)).toBe(true);
+      expect(activatedRestore.textA).toMatch(/ROC metrics|AUC|Precision.?Recall|Reporting and reproducibility/i);
+      expect(activatedRestore.hostOwnedByA, JSON.stringify(activatedRestore)).toBe(true);
+      expect(activatedRestore.ownerA, JSON.stringify(activatedRestore)).toBe(true);
+      expect(activatedRestore.afterB).toBe(activatedRestore.beforeB);
+
+      await activateTab(page, tabB, componentCase);
+    }
 
     const archivePath = await captureArchive(page, componentCase.key);
     await loadArchive(page, archivePath);

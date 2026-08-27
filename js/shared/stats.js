@@ -2823,7 +2823,22 @@
       ? options.id.trim()
       : null;
     let host = target.__statsReportHost;
-    if((!host || host.nodeType !== 1) && desiredId && typeof documentRef.getElementById === 'function'){
+    if((!host || host.nodeType !== 1) && desiredId){
+      const directChild = Array.from(target.children || []).find(node => node?.nodeType === 1 && node.id === desiredId) || null;
+      if(directChild){
+        host = directChild;
+      }
+    }
+    if((!host || host.nodeType !== 1) && desiredId){
+      const ownerRoot = target.closest?.('.workspace-page, [data-tab-id], [data-workspace-tab-id], [data-graphitix-tab-id]') || null;
+      if(ownerRoot && typeof ownerRoot.querySelectorAll === 'function'){
+        const ownedHost = Array.from(ownerRoot.querySelectorAll('[id]')).find(node => node?.id === desiredId) || null;
+        if(ownedHost){
+          host = ownedHost;
+        }
+      }
+    }
+    if((!host || host.nodeType !== 1) && desiredId && options.attachToTarget === false && typeof documentRef.getElementById === 'function'){
       const existing = documentRef.getElementById(desiredId);
       if(existing && existing.nodeType === 1){
         host = existing;

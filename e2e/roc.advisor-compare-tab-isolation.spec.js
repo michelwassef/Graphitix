@@ -51,23 +51,53 @@ async function openRocExampleTab(page, { first = false } = {}) {
 }
 
 async function waitForRocComparison(page, expected) {
-  await page.waitForFunction(({ graphType, diffMethod, metric }) => {
-    const root = document.querySelector('#rocPage:not([hidden])');
-    const payload = window.Components?.roc?.getPayload?.() || {};
-    const selects = Array.from(root?.querySelectorAll?.('#rocStatsControls select') || []);
-    const compareText = root?.querySelector?.('#rocStatsControls span')?.textContent || '';
-    const advisorText = root?.querySelector?.('#rocStatsAdvisor')?.textContent || '';
-    return root?.querySelector?.('#rocGraphType')?.value === graphType
-      && payload?.config?.graphType === graphType
-      && payload?.stats?.diffMethod === diffMethod
-      && selects[0]?.value === diffMethod
-      && new RegExp(metric, 'i').test(compareText)
-      && /p\s*=/.test(compareText)
-      && /Use |Recommendation/i.test(advisorText);
-  }, expected, { timeout: 60_000 });
+  try {
+    await page.waitForFunction(({ graphType, diffMethod, metric }) => {
+      const root = document.querySelector('#rocPage:not([hidden])');
+      const payload = window.Components?.roc?.getPayload?.() || {};
+      const selects = Array.from(root?.querySelectorAll?.('#rocStatsControls select') || []);
+      const compareText = root?.querySelector?.('#rocStatsControls span')?.textContent || '';
+      const advisorText = root?.querySelector?.('#rocStatsAdvisor')?.textContent || '';
+      return root?.querySelector?.('#rocGraphType')?.value === graphType
+        && payload?.config?.graphType === graphType
+        && payload?.stats?.diffMethod === diffMethod
+        && selects[0]?.value === diffMethod
+        && new RegExp(metric, 'i').test(compareText)
+        && /p\s*=/.test(compareText)
+        && /Use |Recommendation/i.test(advisorText);
+    }, expected, { timeout: 60_000 });
+  } catch (err) {
+    const actual = await snapshotRoc(page);
+    throw new Error(
+      `ROC comparison did not reach the expected owner state.\nExpected: ${JSON.stringify(expected)}\nActual: ${JSON.stringify(actual)}\n${err?.message || err}`
+    );
+  }
+}
+
+async function setFastRocResamplingForContract(page) {
+  await page.evaluate(() => {
+    const roc = window.Components?.roc;
+    const workspace = window.Main?.session?.workspaceState || {};
+    const tabId = workspace.activeTabId || null;
+    const payload = roc?.getPayload?.();
+    if (!roc?.loadFromPayload || !payload || payload.type !== 'roc' || !tabId) {
+      throw new Error('Unable to configure deterministic ROC resampling for contract test');
+    }
+    payload.stats = { ...(payload.stats || {}), resamplingIterations: 100 };
+    roc.loadFromPayload(payload, {
+      tabId,
+      source: 'e2e-contract-fast-resampling',
+      skipDraw: true,
+      skipDataLoad: true
+    });
+    if (roc.getPayload?.()?.stats?.resamplingIterations !== 100) {
+      throw new Error('ROC contract-test resampling override did not persist');
+    }
+  });
 }
 
 async function configureRocComparison(page, variant) {
+  await setFastRocResamplingForContract(page);
   await page.locator('#rocPage:not([hidden]) #rocGraphType').selectOption(variant.graphType);
   await page.waitForTimeout(200);
   await page.locator('#rocPage:not([hidden]) #rocStatsAdvisor .stats-advisor__toggle').click();

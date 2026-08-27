@@ -11745,6 +11745,10 @@
       svg.appendChild(parallelPath);
     }
     const xAxisTickLength = 6;
+    const xAxisTickLabelGap = typeof chartStyle.resolveTickLabelGap === 'function'
+      ? chartStyle.resolveTickLabelGap(axisTickFontSize)
+      : Math.max(2, Math.round(axisTickFontSize * 0.2));
+    const xAxisTickLabelBaselineOffset = xAxisTickLength + xAxisTickLabelGap + axisTickFontSize * 0.75;
     data.forEach((item, idx) => {
       const cx = xPositions[idx];
       const cy = yPositions[idx];
@@ -11767,7 +11771,7 @@
       svg.appendChild(circle);
       const label = document.createElementNS(NS, 'text');
       label.setAttribute('x', String(cx));
-      label.setAttribute('y', String(margin.top + plotHeight + 18));
+      label.setAttribute('y', String(margin.top + plotHeight + xAxisTickLabelBaselineOffset));
       label.setAttribute('text-anchor', 'middle');
       label.setAttribute('fill', axisColor);
       label.setAttribute('font-size', `${axisTickFontSize}px`);

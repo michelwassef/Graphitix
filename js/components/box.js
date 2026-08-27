@@ -4095,18 +4095,6 @@
           onColorChange(value, ctx){
             const scopeValue = resolveScope(ctx);
             resolveBodyTargets(scopeValue).forEach(node => node.setAttribute('stroke', value));
-            if(scopeValue === 'global'){
-              if(Array.isArray(state.borderColors)){
-                for(let i = 0; i < state.borderColors.length; i += 1){
-                  state.borderColors[i] = value;
-                }
-              }
-              if(els?.boxBorder){
-                try{ els.boxBorder.value = value; }catch(e){}
-              }
-            }else if(selectedColorIndex != null && selectedColorIndex >= 0){
-              state.borderColors[selectedColorIndex] = value;
-            }
             applyScopePatch(buildTraceShapeBorderStylePatch(value), scopeValue);
             scheduleBoxViewRefresh('shape-border-color-change');
           },
@@ -9202,11 +9190,12 @@
 
   function createDefaultBoxFlipTransitionState(){
     return {
-      version: 2,
+      version: 3,
       phase: 'idle',
       transitionId: 0,
       active: null,
-      axisSpanTarget: null
+      axisSpanTarget: null,
+      resetFrames: {}
     };
   }
 
@@ -13559,8 +13548,17 @@
     const axisSpanTarget = normalizeBoxFlipAxisSpanTarget(
       current.axisSpanTarget || current.pending?.axisSpanTarget
     );
+    const resetFrames = {};
+    ['vertical', 'horizontal'].forEach(orientation => {
+      const frame = current.resetFrames?.[orientation];
+      const widthPx = Number(frame?.widthPx);
+      const heightPx = Number(frame?.heightPx);
+      if(Number.isFinite(widthPx) && widthPx > 0 && Number.isFinite(heightPx) && heightPx > 0){
+        resetFrames[orientation] = { widthPx, heightPx };
+      }
+    });
     state.flipTransition = {
-      version: 2,
+      version: 3,
       phase: current.phase === 'transitioning' || current.phase === 'steady' ? current.phase : 'idle',
       transitionId: Number.isFinite(Number(current.transitionId)) ? Math.max(0, Math.round(Number(current.transitionId))) : 0,
       active: current.active && typeof current.active === 'object'
@@ -13570,7 +13568,8 @@
             at: Number.isFinite(Number(current.active.at)) ? Number(current.active.at) : null
           }
         : null,
-      axisSpanTarget
+      axisSpanTarget,
+      resetFrames
     };
     return state.flipTransition;
   }
@@ -13679,6 +13678,25 @@
       transitionId: transition.transitionId
     });
     return true;
+  }
+
+  function rememberBoxOrientationResetFrame(orientation, frame, reason){
+    const widthPx = Number(frame?.widthPx);
+    const heightPx = Number(frame?.heightPx);
+    if(!Number.isFinite(widthPx) || widthPx <= 0 || !Number.isFinite(heightPx) || heightPx <= 0){
+      return null;
+    }
+    const normalizedOrientation = normalizeBoxFlipOrientation(orientation);
+    const transition = ensureBoxFlipTransitionState();
+    transition.resetFrames[normalizedOrientation] = { widthPx, heightPx };
+    commitBoxFlipTransitionToSession(reason || 'orientation-reset-frame');
+    return transition.resetFrames[normalizedOrientation];
+  }
+
+  function getBoxOrientationResetFrame(orientation){
+    const normalizedOrientation = normalizeBoxFlipOrientation(orientation);
+    const frame = ensureBoxFlipTransitionState().resetFrames[normalizedOrientation];
+    return frame ? { ...frame } : null;
   }
 
   function setBoxHorizontalSpanTarget(value, session = null, reason){
@@ -13805,8 +13823,8 @@
       right: 0
     }, { reason: `${options.reason || 'flip-transition'}-horizontal-reserve`, resizeContainer: false });
     const svgBox = els.svgBox || els.graphPanel?.querySelector?.('.svgbox') || null;
-    rememberBoxAppliedSignificanceFrameReservePx('x', 0, svgBox, `${options.reason || 'flip-transition'}-reset-horizontal-frame-reserve`);
-    rememberBoxAppliedSignificanceFrameReservePx('y', 0, svgBox, `${options.reason || 'flip-transition'}-reset-vertical-frame-reserve`);
+    rememberBoxAppliedAutomaticFrameReservePx('x', 0, svgBox, `${options.reason || 'flip-transition'}-reset-horizontal-frame-reserve`);
+    rememberBoxAppliedAutomaticFrameReservePx('y', 0, svgBox, `${options.reason || 'flip-transition'}-reset-vertical-frame-reserve`);
     if(nextOrientation === 'horizontal'){
       setBoxHorizontalSpanTarget(axisSpanTarget?.plotWidthPx, getActiveBoxSessionForState(), 'flip-horizontal-span-target');
     }else{
@@ -14866,6 +14884,19 @@
     const chromeHeight = Math.max(0, Number(options.frameChromeHeight) || 0);
     const targetWidth = Math.max(50, Math.round(viewportWidth + chromeWidth));
     const targetHeight = Math.max(40, Math.round(viewportHeight + chromeHeight));
+    const orientation = resolveBoxOrientationFromFlipFlag(!!state.flipAxes);
+    const horizontalReserve = readBoxAppliedAutomaticFrameReservePx('x', svgBox, {
+      session: options.session,
+      reason: 'box-flip-reset-frame-horizontal-reserve'
+    });
+    const verticalReserve = readBoxAppliedAutomaticFrameReservePx('y', svgBox, {
+      session: options.session,
+      reason: 'box-flip-reset-frame-vertical-reserve'
+    });
+    rememberBoxOrientationResetFrame(orientation, {
+      widthPx: Math.max(50, targetWidth - horizontalReserve),
+      heightPx: Math.max(40, targetHeight - verticalReserve)
+    }, 'box-flip-layout-reset-frame');
     const currentSize = resolveBoxSvgBoxBaseSize(svgBox);
     const currentWidth = Number(currentSize?.width);
     const currentHeight = Number(currentSize?.height);
@@ -15116,8 +15147,10 @@
     }
   }
 
-  function readBoxAppliedSignificanceFrameReservePx(axis, svgBox, options = {}){
+  function readBoxAppliedAutomaticFrameReservePx(axis, svgBox, options = {}){
     const horizontal = axis === 'x';
+    // Persisted field names predate x-label/category-label frame reserves. They
+    // now store the complete automatic reserve on each axis.
     const geometryKey = horizontal ? 'horizontalSignificanceFramePx' : 'significanceFramePx';
     const datasetKey = horizontal ? 'boxHorizontalSignificanceFrameReservePx' : 'boxSignificanceFrameReservePx';
     const datasetValue = svgBox?.dataset?.[datasetKey];
@@ -15132,7 +15165,7 @@
     return 0;
   }
 
-  function rememberBoxAppliedSignificanceFrameReservePx(axis, value, svgBox, reason, options = {}){
+  function rememberBoxAppliedAutomaticFrameReservePx(axis, value, svgBox, reason, options = {}){
     const reservePx = normalizeBoxSignificancePx(value);
     const horizontal = axis === 'x';
     const geometryKey = horizontal ? 'horizontalSignificanceFramePx' : 'significanceFramePx';
@@ -15147,17 +15180,17 @@
     }, {
       ...options,
       svgBox,
-      reason: reason || 'box-significance-frame-reserve-state'
+      reason: reason || 'box-automatic-frame-reserve-state'
     });
     return reservePx;
   }
 
-  function applyBoxSignificanceFrameReserveAuthority(nextReservePx, options = {}){
+  function applyBoxAutomaticFrameReserveAuthority(nextReservePx, options = {}){
     const axis = options.axis === 'x' ? 'x' : 'y';
     const horizontal = axis === 'x';
     const reason = options.reason || (horizontal
-      ? 'box-horizontal-significance-reserve-frame-authority'
-      : 'box-significance-reserve-frame-authority');
+      ? 'box-horizontal-automatic-reserve-frame-authority'
+      : 'box-vertical-automatic-reserve-frame-authority');
     const svgBox = options.svgBox || els.svgBox || els.graphPanel?.querySelector?.('.svgbox') || null;
     const owner = resolveBoxGeometryOwnerSession({ ...options, svgBox });
     const nextReserve = normalizeBoxSignificancePx(nextReservePx);
@@ -15165,10 +15198,10 @@
       return { applied: false, reason: 'missing-svgbox', axis, nextReserve };
     }
 
-    const previousAppliedReserve = readBoxAppliedSignificanceFrameReservePx(axis, svgBox, { ...options, session: owner });
+    const previousAppliedReserve = readBoxAppliedAutomaticFrameReservePx(axis, svgBox, { ...options, session: owner });
     const delta = nextReserve - previousAppliedReserve;
     if(Math.abs(delta) < 1){
-      rememberBoxAppliedSignificanceFrameReservePx(axis, nextReserve, svgBox, reason, { ...options, session: owner });
+      rememberBoxAppliedAutomaticFrameReservePx(axis, nextReserve, svgBox, reason, { ...options, session: owner });
       return {
         applied: false,
         alreadyCorrect: true,
@@ -15223,12 +15256,12 @@
         height: targetHeight,
         forceExact: true,
         preserveAspectLock: true,
-        updateAspectRatio: true,
+        updateAspectRatio: false,
         updateDefaults: false,
         authorityMode: 'transient',
         reason
       });
-      rememberBoxAppliedSignificanceFrameReservePx(axis, nextReserve, svgBox, reason, { ...options, session: owner });
+      rememberBoxAppliedAutomaticFrameReservePx(axis, nextReserve, svgBox, reason, { ...options, session: owner });
       if(options.commitFrameLayout === true){
         commitBoxGraphFrame({
           widthPx: targetWidth,
@@ -15242,8 +15275,8 @@
       }
     }catch(err){
       console.error(horizontal
-        ? 'box horizontal significance reserve frame authority failed'
-        : 'box significance reserve frame authority failed', err);
+        ? 'box horizontal automatic reserve frame authority failed'
+        : 'box vertical automatic reserve frame authority failed', err);
       return {
         applied: false,
         error: err,
@@ -15260,8 +15293,8 @@
 
     if(boxDebugEnabled()){
       boxLog(horizontal
-        ? 'Debug: box horizontal significance reserve frame authority applied'
-        : 'Debug: box significance reserve frame authority applied', {
+        ? 'Debug: box horizontal automatic reserve frame authority applied'
+        : 'Debug: box vertical automatic reserve frame authority applied', {
         axis,
         previousAppliedReserve,
         nextReserve,
@@ -18952,6 +18985,35 @@
         onProcessed: info => boxLog('boxplot data imported', {rows: info?.rows, cols: info?.cols}),
         onBeforeCompleted: result => {
           const prismMeta = result?.prismMeta;
+          const prismTableFormat = normalizeBoxTableFormat(prismMeta?.tableFormat || 'single');
+          const activeHot = state.ensureHotForActiveTab?.() || getBoxActiveHotManager();
+          const ownerSession = getBoxSessionForHot(activeHot, { reason: 'box-prism-table-format-owner' }, { create: false }) || getActiveBoxSessionForState();
+          if(prismMeta?.component === 'box' && prismTableFormat === 'grouped'){
+            const conditionCount = Math.max(1, Number(prismMeta?.groupedReplicatesPerGroup) || 1);
+            state.grouped = cloneSimple(state.grouped) || {};
+            state.grouped.replicatesPerGroup = conditionCount;
+            state.grouped.groups = Array.isArray(prismMeta?.groupLabels) ? prismMeta.groupLabels.slice() : [];
+            state.grouped.conditions = Array.isArray(prismMeta?.conditionLabels) ? prismMeta.conditionLabels.slice() : [];
+            if(ownerSession?.state){
+              ownerSession.state.visual = cloneBoxPlainObject(ownerSession.state.visual);
+              ownerSession.state.visual.grouped = cloneSimple(state.grouped);
+              ownerSession.state.controls = cloneBoxPlainObject(ownerSession.state.controls);
+              ownerSession.state.controls.groupedReplicates = conditionCount;
+              ownerSession.state.updatedAt = Date.now();
+              ownerSession.updatedAt = Date.now();
+            }
+            if(els.groupedReplicates){
+              els.groupedReplicates.value = String(conditionCount);
+            }
+            setTableFormat('grouped', { system: true, skipDraw: true, preserveLegend: true });
+            if(activeHot){
+              normalizeBoxGroupedHeaderRow(activeHot, { forceGrouped: true, source: 'box-grouped-header-normalize' });
+              updateGroupedHeaders(activeHot);
+              commitBoxGroupedHeaderStateToSession(activeHot, ownerSession, { reason: 'box-prism-grouped-import' });
+            }
+          }else if(prismMeta?.component === 'box' && prismTableFormat === 'single'){
+            setTableFormat('single', { system: true, skipDraw: true, preserveLegend: true });
+          }
           const prismGraphType = normalizeBoxGraphType(prismMeta?.graphType || '');
           const prismPointMode = String(prismMeta?.pointMode || '').toLowerCase();
           if(prismMeta?.kind === 'column' && prismGraphType && els.boxGraphType && els.boxGraphType.value !== prismGraphType){
@@ -20374,7 +20436,17 @@
     const sharedTarget = Shared.statsInference?.getTargetFdr?.({ tabId });
     return sanitizeStatsAlpha(sharedTarget, Shared.statsInference?.DEFAULT_TARGET_FDR || 0.05);
   }
-  function resolveBoxComparisonInferenceMethod(){
+  function resolveBoxComparisonInferenceMethod(options = {}){
+    if(state.tableFormat !== 'grouped'){
+      const comparisonCount = estimateStatsComparisonFamilyCount({
+        mode: options.mode ?? state.statsMode,
+        selectedCount: options.selectedCount,
+        customPairs: options.customPairs
+      });
+      if(comparisonCount <= 1){
+        return 'none';
+      }
+    }
     const intrinsicMethods = {
       tukey: 'tukey',
       gamesHowell: 'games-howell',
@@ -20387,7 +20459,7 @@
   }
   function buildBoxInferenceSnapshot(options = {}){
     const tabId = resolveBoxStatsInferenceTabId(options);
-    const method = options.method || resolveBoxComparisonInferenceMethod();
+    const method = options.method || resolveBoxComparisonInferenceMethod(options);
     const includeOverall = Object.prototype.hasOwnProperty.call(options, 'includeOverall')
       ? options.includeOverall !== false
       : boxStatsHasOverallInference();
@@ -23668,6 +23740,24 @@
     const cellCount=groups*conditions;
     return cellCount >= 2 ? (cellCount*(cellCount-1))/2 : 0;
   }
+  function estimateGroupedMultiplicityFamilySize(data, options={}){
+    const total=estimateGroupedMultipleComparisonCount(data,options);
+    const family=sanitizeGroupedMultiplicityFamily(options.multiplicityFamily);
+    if(family==='global'){
+      return total;
+    }
+    const groups=Math.max(0,Number(data?.groupsCount)||0);
+    const conditions=Math.max(0,Number(data?.conditionsCount)||0);
+    const scope=sanitizeGroupedComparisonScope(options.comparisonScope);
+    if(scope==='groupsWithinCondition' || scope==='groupMarginals'){
+      return groups >= 2 ? (groups*(groups-1))/2 : 0;
+    }
+    if(scope==='conditionsWithinGroup' || scope==='conditionMarginals'){
+      return conditions >= 2 ? (conditions*(conditions-1))/2 : 0;
+    }
+    return total;
+  }
+
   function analyzeGroupedMultipleComparisons(data){
     const scope=sanitizeGroupedComparisonScope(state.groupedStats?.comparisonScope);
     const multiplicityFamily=sanitizeGroupedMultiplicityFamily(state.groupedStats?.multiplicityFamily);
@@ -23842,6 +23932,7 @@
       return { ok:false, message:'Not enough observations to compute the selected grouped comparisons.' };
     }
     let showAdjusted=false;
+    const adjustedFamilySizes=[];
     if(multiplicityFamily==='global'){
       if(rows.length > 1){
         const adjusted=applyPValueCorrection(rows.map(row=>row.p),state.statsCorrection);
@@ -23849,6 +23940,7 @@
           row.adjustedP=Array.isArray(adjusted) && Number.isFinite(adjusted[index]) ? adjusted[index] : row.p;
         });
         showAdjusted=true;
+        adjustedFamilySizes.push(rows.length);
       }else{
         rows[0].adjustedP=rows[0].p;
       }
@@ -23860,13 +23952,19 @@
             row.adjustedP=Array.isArray(adjusted) && Number.isFinite(adjusted[index]) ? adjusted[index] : row.p;
           });
           showAdjusted=true;
+          adjustedFamilySizes.push(bucket.length);
         }else if(bucket.length===1){
           bucket[0].adjustedP=bucket[0].p;
         }
       });
     }
     const correctionMeta=showAdjusted
-      ? resolveCorrectionMeta(state.statsCorrection,rows.length)
+      ? resolveCorrectionMeta(state.statsCorrection,multiplicityFamily==='global' ? rows.length : Math.max(...adjustedFamilySizes))
+      : null;
+    const correctionFootnote=showAdjusted
+      ? (multiplicityFamily==='global'
+        ? correctionMeta?.footnote
+        : `${correctionMeta?.label || 'Selected'} multiplicity control was applied separately within each family containing more than one comparison.`)
       : null;
     updateStatsCorrectionSummary(showAdjusted ? rows.length : 0);
     const scopeLabelMap={
@@ -23916,7 +24014,7 @@
         scope==='conditionsWithinGroup' || scope==='conditionMarginals'
           ? 'Condition contrasts use paired t-tests on matched row-level summaries.'
           : 'Between-group and cell contrasts use Welch t-tests.',
-        ...(showAdjusted && correctionMeta?.footnote ? [correctionMeta.footnote] : []),
+        ...(correctionFootnote ? [correctionFootnote] : []),
         familyDescription
       ],
       report:{
@@ -25941,7 +26039,10 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       ? prepared.conditionsCount * (prepared.groupsCount * (prepared.groupsCount - 1) / 2)
       : 0)
     : (state.groupedStats.analysis==='multipleComparisons'
-      ? estimateGroupedMultipleComparisonCount(prepared,{ comparisonScope:state.groupedStats.comparisonScope })
+      ? estimateGroupedMultiplicityFamilySize(prepared,{
+        comparisonScope:state.groupedStats.comparisonScope,
+        multiplicityFamily:state.groupedStats.multiplicityFamily
+      })
       : 0);
   updateStatsCorrectionSummary(groupedPairCount);
 }
@@ -28369,7 +28470,12 @@ Technical analysis record (advanced)
       statsCustomPairs: Array.isArray(state.statsCustomPairs) ? state.statsCustomPairs : [],
       statsAlpha: resolveStatsAlpha({ tabId: resolveBoxExplicitOrBoundTabId() || null }),
       statsTargetFdr: resolveStatsTargetFdr({ tabId: resolveBoxExplicitOrBoundTabId() || null }),
-      inferenceSnapshot: buildBoxInferenceSnapshot({ tabId: resolveBoxExplicitOrBoundTabId() || null }),
+      inferenceSnapshot: buildBoxInferenceSnapshot({
+        tabId: resolveBoxExplicitOrBoundTabId() || null,
+        mode: state.statsMode,
+        selectedCount: indices.length,
+        customPairs: state.statsCustomPairs
+      }),
       statsAdvancedOpen: !!state.statsAdvancedOpen,
       statsCiLevel: state.statsCiLevel,
       statsAlternative: state.statsAlternative,
@@ -28981,7 +29087,7 @@ Technical analysis record (advanced)
     if(frameWidth == null){
       return null;
     }
-    const horizontalFrameReserve = readBoxAppliedSignificanceFrameReservePx('x', svgBox || null, { ...options, session: owner });
+    const horizontalFrameReserve = readBoxAppliedAutomaticFrameReservePx('x', svgBox || null, { ...options, session: owner });
     return Math.max(50, Math.round(frameWidth - horizontalFrameReserve));
   }
 
@@ -29947,7 +30053,7 @@ Technical analysis record (advanced)
     const inlineBottomReserveBaseHeight = shouldInlineBottomViewportReserve
       ? Math.max(40, H - storedVerticalViewportExtension)
       : H;
-    const storedHorizontalFrameReserve = readBoxAppliedSignificanceFrameReservePx('x', els.svgBox);
+    const storedHorizontalFrameReserve = readBoxAppliedAutomaticFrameReservePx('x', els.svgBox);
     const baseCanvasWidth = Math.max(50, W - storedHorizontalFrameReserve);
     const baseCanvasHeight = Math.max(40, inlineBottomReserveBaseHeight);
     const verticalLevelStep = resolveSignificanceLevelStepPx(annotationLevelGap, annotationLabelFontSize, 'vertical', annotationStrokeWidth, {
@@ -30741,6 +30847,8 @@ Technical analysis record (advanced)
         colorInfo,
         fillColor,
         borderColor,
+        pointFillColor,
+        pointBorderColor,
         strokeWidthEffective,
         bodyStrokeColor,
         opacityOverride,
@@ -30948,8 +31056,8 @@ Technical analysis record (advanced)
           traceIndex: i,
           colorIndex: colorInfo.colorIndex,
           drawToken: token,
-          fillColor,
-          borderColor,
+          fillColor: pointFillColor,
+          borderColor: pointBorderColor,
           overlayPointRadius,
           displayedPointSharedRadius,
           pointRadius,
@@ -31153,7 +31261,7 @@ Technical analysis record (advanced)
     const xMajorTickLength = getAxisMajorTickLength('x') ?? tickLen;
     const yMajorTickLength = getAxisMajorTickLength('y') ?? tickLen;
     const tickGap = axisMetrics.tickLabelGap;
-    const storedHorizontalFrameReserve = readBoxAppliedSignificanceFrameReservePx('x', els.svgBox);
+    const storedHorizontalFrameReserve = readBoxAppliedAutomaticFrameReservePx('x', els.svgBox);
     const storedHorizontalBottomViewportExtension = Math.max(0, Number(storedBottomViewportExtension) || 0);
     const baseCanvasWidth = Math.max(50, W - storedHorizontalFrameReserve);
     const baseCanvasHeight = Math.max(40, H - storedHorizontalBottomViewportExtension);
@@ -31804,6 +31912,8 @@ Technical analysis record (advanced)
         colorInfo: colorInfoH,
         fillColor,
         borderColor,
+        pointFillColor,
+        pointBorderColor,
         strokeWidthEffective: strokeWidthEffectiveH,
         bodyStrokeColor: bodyStrokeColorH,
         opacityOverride,
@@ -32021,8 +32131,8 @@ Technical analysis record (advanced)
           traceIndex: i,
           colorIndex: colorInfoH.colorIndex,
           drawToken: token,
-          fillColor,
-          borderColor,
+          fillColor: pointFillColor,
+          borderColor: pointBorderColor,
           overlayPointRadius,
           displayedPointSharedRadius,
           pointRadius,
@@ -33832,6 +33942,8 @@ Technical analysis record (advanced)
       const colorInfo = resolveTraceColor(trace, traceIndex);
       const fillColor = trace.fillColor || colorInfo.fillColor;
       const borderColor = trace.borderColor || colorInfo.borderColor || defaultBorder || '#000';
+      const pointFillColor = trace.pointFillColor || colorInfo.pointFillColor || fillColor;
+      const pointBorderColor = trace.pointBorderColor || colorInfo.pointBorderColor || defaultBorder || '#000';
       const strokeOverrideRaw = Number.isFinite(Number(colorInfo.strokeWidth))
         ? Number(colorInfo.strokeWidth)
         : (Number.isFinite(borderWidthPx) ? borderWidthPx : null);
@@ -33859,7 +33971,7 @@ Technical analysis record (advanced)
         fillColor,
         borderColor,
         fallbackOpacity: opacityOverride,
-        baseStroke: Math.max(errorBarWidthPx || 0, strokeWidthEffective || borderWidthPx || 0.8, 0.8),
+        baseStroke: Math.max(errorBarWidthPx || 0, 0.8),
         schemeId: selectedSchemeId,
         defaultColor: defaultOverlayColor
       });
@@ -33912,6 +34024,8 @@ Technical analysis record (advanced)
         colorInfo,
         fillColor,
         borderColor,
+        pointFillColor,
+        pointBorderColor,
         strokeOverrideRaw,
         strokeWidthEffective,
         bodyStrokeColor,
@@ -34233,10 +34347,13 @@ Technical analysis record (advanced)
       }
       const startPixelRaw = config.valueToPixel(interval.startValue);
       const endPixel = config.valueToPixel(interval.endValue);
+      const bodyEdgePixel = Number.isFinite(Number(config.bodyEdgePixel))
+        ? Number(config.bodyEdgePixel)
+        : startPixelRaw;
       const startPixel = interval.showStartCap
         ? startPixelRaw
         : insetSummaryOverlayEndpointFromBodyEdge(
-            startPixelRaw,
+            bodyEdgePixel,
             endPixel,
             config.overlayStroke.effectiveWidth(config.overlayStroke.baseStroke),
             config.strokeWidthEffective,
@@ -34278,11 +34395,14 @@ Technical analysis record (advanced)
       }
       const startPxRaw = config.valueToPixel(interval.startValue);
       const endPx = config.valueToPixel(interval.endValue);
+      const bodyEdgePx = Number.isFinite(Number(config.bodyEdgePixel))
+        ? Number(config.bodyEdgePixel)
+        : startPxRaw;
       const errorLineWidth = config.overlayStroke.effectiveWidth(config.overlayStroke.baseStroke);
       const startPx = interval.showStartCap
         ? startPxRaw
         : insetSummaryOverlayEndpointFromBodyEdge(
-            startPxRaw,
+            bodyEdgePx,
             endPx,
             errorLineWidth,
             config.strokeWidthEffective,
@@ -34368,6 +34488,9 @@ Technical analysis record (advanced)
             bottom: baselineIsLowerPixel ? rawEnd : valueRectEnd,
             openSide: baselineIsLowerPixel ? 'bottom' : 'top'
           };
+      const bodyValueEdgePixel = isHorizontal
+        ? (baselineIsLeftPixel ? valueRectEnd : valueRectStart)
+        : (baselineIsLowerPixel ? valueRectStart : valueRectEnd);
       const barAttrs = {
         d: chartStyle.buildOpenRectPath
           ? chartStyle.buildOpenRectPath(barBounds, barBounds.openSide)
@@ -34445,6 +34568,7 @@ Technical analysis record (advanced)
             valueToPixel: config.valueToPixel,
             centerCoord: config.centerCoord,
             boxSpan: config.boxSpan,
+            bodyEdgePixel: bodyValueEdgePixel,
             strokeWidthEffective: config.strokeWidthEffective,
             overlayStroke: config.overlayStroke,
             whiskerAnnotation: config.whiskerAnnotation
@@ -34457,6 +34581,7 @@ Technical analysis record (advanced)
             valueToPixel: config.valueToPixel,
             centerCoord: config.centerCoord,
             boxSpan: config.boxSpan,
+            bodyEdgePixel: bodyValueEdgePixel,
             strokeWidthEffective: config.strokeWidthEffective,
             overlayStroke: config.overlayStroke,
             whiskerAnnotation: config.whiskerAnnotation
@@ -34776,8 +34901,8 @@ Technical analysis record (advanced)
       previousExtension: storedLeftViewportExtensionForSync + storedRightViewportExtensionForSync,
       nextExtension: storedLeftViewportExtensionForSync + storedRightViewportExtensionForSync
     };
-    let significanceFrameUpdate = null;
-    let horizontalSignificanceFrameUpdate = null;
+    let verticalAutomaticFrameUpdate = null;
+    let horizontalAutomaticFrameUpdate = null;
     let flipFrameUpdate = null;
 
     if(shouldDeferViewportExtensionSync){
@@ -34920,19 +35045,19 @@ Technical analysis record (advanced)
       }
     }
 
-    const allowSignificanceFrameAuthority = !resizeDrawReason.startsWith('resize')
+    const allowAutomaticFrameAuthority = !resizeDrawReason.startsWith('resize')
       && !state.resizeInteractionActive
       && !drawSignificanceState.restoredSignificanceGeometryLock;
-    if(!shouldDeferViewportExtensionSync && allowSignificanceFrameAuthority){
+    if(!shouldDeferViewportExtensionSync && allowAutomaticFrameAuthority){
       if(!isFlipped){
-        significanceFrameUpdate = applyBoxSignificanceFrameReserveAuthority(requiredSignificanceViewportExtension, {
+        verticalAutomaticFrameUpdate = applyBoxAutomaticFrameReserveAuthority(requiredViewportExtension, {
           axis: 'y',
           svgBox: els.svgBox,
-          reason: 'box-significance-reserve-frame-authority',
+          reason: 'box-vertical-automatic-reserve-frame-authority',
           commitFrameLayout: true
         });
       }
-      horizontalSignificanceFrameUpdate = applyBoxSignificanceFrameReserveAuthority(requiredHorizontalViewportExtension, {
+      horizontalAutomaticFrameUpdate = applyBoxAutomaticFrameReserveAuthority(requiredHorizontalViewportExtension, {
         axis: 'x',
         svgBox: els.svgBox,
         reason: 'box-horizontal-content-reserve-frame-authority',
@@ -34954,8 +35079,8 @@ Technical analysis record (advanced)
     const extensionChanged = (
       !!extensionUpdate?.changed
       || !!horizontalExtensionUpdate?.changed
-      || !!significanceFrameUpdate?.applied
-      || !!horizontalSignificanceFrameUpdate?.applied
+      || !!verticalAutomaticFrameUpdate?.applied
+      || !!horizontalAutomaticFrameUpdate?.applied
     );
     svg.dataset.boxPlotLeft = String(Number(orientationResult?.margin?.left) || 0);
     svg.dataset.boxPlotTop = String(Number(orientationResult?.margin?.top) || 0);
@@ -35009,8 +35134,8 @@ Technical analysis record (advanced)
       const bottomViewportReserveChanged = requiredBottomViewportExtension !== storedBottomViewportExtensionForSync;
       const structuralViewportNeedsRedraw = bottomViewportReserveChanged
         || (!inlineBottomReserveSatisfied && !inlineHorizontalReserveSatisfied);
-      const frameAuthorityChanged = !!significanceFrameUpdate?.applied
-        || !!horizontalSignificanceFrameUpdate?.applied;
+      const frameAuthorityChanged = !!verticalAutomaticFrameUpdate?.applied
+        || !!horizontalAutomaticFrameUpdate?.applied;
       const shouldScheduleViewportExtensionRedraw = !isActiveResizePreview
         && (
           frameAuthorityChanged
@@ -35592,9 +35717,18 @@ Technical analysis record (advanced)
         const fillResolved = resolveBoxThemeAwareStyleColor(resolveTraceShapeFillStyleColor(styleOverride), fillColor, { schemeId: activeColorSchemeId });
         const borderResolved = resolveBoxThemeAwareStyleColor(resolveTraceShapeBorderStyleColor(styleOverride), borderColor, { schemeId: activeColorSchemeId });
         if(isGroupedMode && trace?.groupName && !groupColorAssignments.has(trace.groupName)){
-          groupColorAssignments.set(trace.groupName, { fill: fillResolved, border: borderResolved, colorIndex });
+          groupColorAssignments.set(trace.groupName, { fill: fillColor, border: borderColor, colorIndex });
         }
-        return { fillColor: fillResolved, borderColor: borderResolved, colorIndex, styleIndex, strokeWidth, opacity };
+        return {
+          fillColor: fillResolved,
+          borderColor: borderResolved,
+          pointFillColor: fillColor,
+          pointBorderColor: borderColor,
+          colorIndex,
+          styleIndex,
+          strokeWidth,
+          opacity
+        };
       }
       const themeUnifiedDefaults = resolveThemeAwareDefaultTraceColors({
         schemeId: activeColorSchemeId,
@@ -35611,9 +35745,18 @@ Technical analysis record (advanced)
       const fillResolved = resolveBoxThemeAwareStyleColor(resolveTraceShapeFillStyleColor(styleOverride), fillColor, { schemeId: activeColorSchemeId });
       const borderResolved = resolveBoxThemeAwareStyleColor(resolveTraceShapeBorderStyleColor(styleOverride), borderColor, { schemeId: activeColorSchemeId });
       if(isGroupedMode && trace?.groupName && !groupColorAssignments.has(trace.groupName)){
-        groupColorAssignments.set(trace.groupName, { fill: fillResolved, border: borderResolved, colorIndex });
+        groupColorAssignments.set(trace.groupName, { fill: fillColor, border: borderColor, colorIndex });
       }
-      return { fillColor: fillResolved, borderColor: borderResolved, colorIndex, styleIndex, strokeWidth, opacity };
+      return {
+        fillColor: fillResolved,
+        borderColor: borderResolved,
+        pointFillColor: fillColor,
+        pointBorderColor: borderColor,
+        colorIndex,
+        styleIndex,
+        strokeWidth,
+        opacity
+      };
     };
     const isGroupedMode = state.tableFormat === 'grouped';
     if(isGroupedMode){
@@ -35985,6 +36128,8 @@ Technical analysis record (advanced)
       const colorInfo = resolveTraceColor(trace, index);
       trace.fillColor = colorInfo.fillColor;
       trace.borderColor = colorInfo.borderColor;
+      trace.pointFillColor = colorInfo.pointFillColor;
+      trace.pointBorderColor = colorInfo.pointBorderColor;
       trace.colorIndex = colorInfo.colorIndex;
       trace.styleIndex = colorInfo.styleIndex;
       trace.shapeStyle = { strokeWidth: colorInfo.strokeWidth, opacity: colorInfo.opacity };
@@ -36908,8 +37053,8 @@ Technical analysis record (advanced)
   function resolveBoxUserFrameSize(svgBox, graphGeometry){
     const node = svgBox || els.svgBox || els.graphPanel?.querySelector?.('.svgbox') || null;
     const physical = resolveBoxSvgBoxBaseSize(node);
-    const horizontalReserve = readBoxAppliedSignificanceFrameReservePx('x', node, { reason: 'capture-user-frame' });
-    const verticalReserve = readBoxAppliedSignificanceFrameReservePx('y', node, { reason: 'capture-user-frame' });
+    const horizontalReserve = readBoxAppliedAutomaticFrameReservePx('x', node, { reason: 'capture-user-frame' });
+    const verticalReserve = readBoxAppliedAutomaticFrameReservePx('y', node, { reason: 'capture-user-frame' });
     const fallbackWidth = parseBoxPositivePx(node?.dataset?.graphWidthPx)
       || Number(graphGeometry?.frame?.widthPx);
     const fallbackHeight = parseBoxPositivePx(node?.dataset?.graphHeightPx)
@@ -37597,6 +37742,19 @@ Technical analysis record (advanced)
       suppressPayloadSyncForHot(state.hot);
     }
     const c=obj.config||{};
+    if(styleOnly){
+      const applied = applyBoxStyleOnlyPayload(c, {
+        payloadSession,
+        tabId: meta?.tabId || null,
+        sessionGeneration: meta?.sessionGeneration || 0,
+        workspaceSessionMeta: meta?.__workspaceSessionMeta || null,
+        reason: meta?.reason || 'box-style-only-payload',
+        suppressDraw,
+        scheduleDraw: scheduleOriginal
+      });
+      resolveOverlay('payload-style-only');
+      return applied;
+    }
     const rawDataMatrix = Array.isArray(obj.data) ? obj.data : [];
     const incomingTableFormat = resolveBoxPayloadTableFormat(obj, rawDataMatrix, meta, hot || state.hot || null);
     commitBoxTableFormatStateToSession(incomingTableFormat, getBoxProjectionSession({ reason: 'box-projection-mutation' }), {
@@ -38602,6 +38760,61 @@ Technical analysis record (advanced)
     }
   };
 
+  function applyBoxStyleOnlyPayload(config, context = {}){
+    const c = config && typeof config === 'object' ? config : {};
+    const owner = ensureBoxSessionOwnershipShape(context.payloadSession || getActiveBoxSessionForState());
+    const schemeId = typeof c.colorScheme === 'string' && c.colorScheme.trim()
+      ? c.colorScheme.trim()
+      : getBoxSelectedColorSchemeId();
+
+    if(typeof c.fill === 'string' && c.fill.trim()){
+      state.lastDefaultFill = c.fill.trim();
+      if(els.boxFill){ els.boxFill.value = state.lastDefaultFill; }
+    }
+    if(typeof c.border === 'string' && c.border.trim()){
+      state.borderColor = c.border.trim();
+      if(els.boxBorder){ els.boxBorder.value = state.borderColor; }
+    }
+    if(Array.isArray(c.colors)) state.fillColors = c.colors.slice();
+    if(Array.isArray(c.borderColors)) state.borderColors = c.borderColors.slice();
+    if(Object.prototype.hasOwnProperty.call(c, 'shapeStyles')) state.traceShapeStyles = cloneSimple(c.shapeStyles) || {};
+    if(Object.prototype.hasOwnProperty.call(c, 'shapeGlobalStyle')) state.traceShapeGlobalStyle = cloneSimple(c.shapeGlobalStyle) || null;
+    if(Object.prototype.hasOwnProperty.call(c, 'pointStyles')) state.pointStyles = cloneSimple(c.pointStyles) || {};
+    if(Object.prototype.hasOwnProperty.call(c, 'pointGlobalStyle')) state.pointGlobalStyle = cloneSimple(c.pointGlobalStyle) || null;
+    if(Object.prototype.hasOwnProperty.call(c, 'summaryStyles')) state.summaryStyles = cloneSimple(c.summaryStyles) || {};
+    if(Object.prototype.hasOwnProperty.call(c, 'summaryGlobalStyle')) state.summaryGlobalStyle = cloneSimple(c.summaryGlobalStyle) || null;
+    if(Object.prototype.hasOwnProperty.call(c, 'gridStyle')){
+      setGridStyle(c.gridStyle, c.axis?.strokeWidth, schemeId);
+    }
+
+    normalizeBoxStoredColorsForScheme({
+      schemeId,
+      colorMode: getBoxColorMode(),
+      tableFormat: state.tableFormat
+    });
+    const appliedLive = tryApplyBoxStylePayloadLive(c);
+    if(owner){
+      captureBoxSessionState(owner, {
+        tabId: owner.tabId,
+        reason: context.reason || 'box-style-only-payload'
+      }, { readActiveGlobals: true });
+      rememberBoxOwnedRuntimeRecord(owner.tabId, {
+        tabId: owner.tabId,
+        reason: context.reason || 'box-style-only-payload'
+      });
+    }
+    if(!context.suppressDraw && !appliedLive && typeof context.scheduleDraw === 'function'){
+      context.scheduleDraw({
+        tabId: owner?.tabId || context.tabId || null,
+        sessionGeneration: context.sessionGeneration || 0,
+        __workspaceSessionMeta: context.workspaceSessionMeta || null,
+        viewOnly: true,
+        reason: context.reason || 'box-style-only-payload'
+      });
+    }
+    return true;
+  }
+
   box.applyColorSchemePayload = function applyBoxColorSchemePayload(payload, options = {}){
     return applyBoxPayload(payload, {
       source: 'color-scheme',
@@ -38726,6 +38939,19 @@ Technical analysis record (advanced)
         boxLog('Debug: box layout min width update', { value: state.minSvgWidth });
       },
       resizableBoxOptions: {
+        resolveResetFrameSize: () => getBoxOrientationResetFrame(
+          resolveBoxOrientationFromFlipFlag(!!state.flipAxes)
+        ),
+        resolveAutomaticFrameReserves: ({ container } = {}) => ({
+          widthPx: readBoxAppliedAutomaticFrameReservePx('x', container || els.svgBox, {
+            tabId: targetTabId || null,
+            reason: 'box-resizer-reset-horizontal-reserve'
+          }),
+          heightPx: readBoxAppliedAutomaticFrameReservePx('y', container || els.svgBox, {
+            tabId: targetTabId || null,
+            reason: 'box-resizer-reset-vertical-reserve'
+          })
+        }),
         onResize: phase => {
           const currentPhase = typeof phase === 'string' ? phase : '';
           const muteResizeObserverUntil = Number(state.resizeObserveDrawMutedUntil) || 0;

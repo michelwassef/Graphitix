@@ -614,7 +614,14 @@
   const HEATMAP_ROW_LABEL_LEGEND_GAP_MAX_PX = 30;
   const HEATMAP_COLOR_SCALE_WIDTH_PX = 15;
   const HEATMAP_COLOR_SCALE_TICK_LENGTH_PX = 4.2;
-  const HEATMAP_COLOR_SCALE_TICK_LABEL_GAP_PX = 5;
+  const HEATMAP_COLOR_SCALE_LEGACY_TICK_LABEL_GAP_PX = 5;
+  const HEATMAP_COLOR_SCALE_TICK_LABEL_GAP_PX = typeof chartStyle.resolveTickLabelGap === 'function'
+    ? chartStyle.resolveTickLabelGap(DEFAULT_HEATMAP_FONT_SIZE_PT)
+    : 2;
+  const HEATMAP_COLOR_SCALE_TRAILING_RESERVE_PX = Math.max(
+    0,
+    HEATMAP_COLOR_SCALE_LEGACY_TICK_LABEL_GAP_PX - HEATMAP_COLOR_SCALE_TICK_LABEL_GAP_PX
+  );
   const HEATMAP_CORRELATION_LEGEND_TITLE_GAP_PX = 10;
   const HEATMAP_CORRELATION_LEGEND_TITLE_LINE_HEIGHT_FACTOR = 1.15;
   const HEATMAP_TEXT_SCALE_MODE = 'preserve-fit';
@@ -9899,6 +9906,7 @@
       scaleTickLength: HEATMAP_COLOR_SCALE_TICK_LENGTH_PX,
       scaleTickLabelGap: HEATMAP_COLOR_SCALE_TICK_LABEL_GAP_PX,
       scaleLabelReserve: Math.max(1, Number(scaleLabelReservePx) || 48)
+        + HEATMAP_COLOR_SCALE_TRAILING_RESERVE_PX
     };
     const targetWidth = Object.values(displayTargets).reduce((sum, value) => sum + value, 0);
     let logicalPerDisplayPixel = 1;

@@ -51,6 +51,38 @@ describe('ROC statistical standardization', () => {
   });
 
 
+  test('single-curve on-plot control reports AUC and p value while multi-curve mode keeps comparison text', () => {
+    const hooks = window.Components.roc.__testHooks;
+    const inference = hooks.computeSingleAucInference(referencePairs(), 0.05, 'auto');
+    const single = hooks.buildOnPlotPresentation({
+      seriesCount: 1,
+      graphType: 'roc',
+      stats: [{ auc: inference.auc, pVal: inference.pValue }]
+    });
+
+    expect(single.label).toBe('Show stats on plot');
+    expect(single.lines).toEqual(['AUC = 0.978; p < 0.0001']);
+
+    const comparison = hooks.buildOnPlotPresentation({
+      seriesCount: 2,
+      graphType: 'roc',
+      compareResultModel: { displayText: 'ΔAUC = 0.120; p = 0.031' }
+    });
+    expect(comparison.label).toBe('Show comparison on plot');
+    expect(comparison.lines).toEqual(['ΔAUC = 0.120; p = 0.031']);
+  });
+
+  test('single precision-recall curve uses the same stats toggle with average precision', () => {
+    const hooks = window.Components.roc.__testHooks;
+    const presentation = hooks.buildOnPlotPresentation({
+      seriesCount: 1,
+      graphType: 'pr',
+      stats: [{ avgPrecision: 0.91234 }]
+    });
+    expect(presentation.label).toBe('Show stats on plot');
+    expect(presentation.lines).toEqual(['AP = 0.912']);
+  });
+
   test('uses tie-corrected asymptotic Mann–Whitney inference when scores are tied', () => {
     const hooks = window.Components.roc.__testHooks;
     const pairs = [

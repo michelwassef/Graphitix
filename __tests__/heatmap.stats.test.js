@@ -310,7 +310,7 @@ describe('Heatmap stats formatting', () => {
     expect(horizontal.scalePadding * projectedScaleX).toBeCloseTo(20, 8);
     expect(horizontal.scaleWidth * projectedScaleX).toBeCloseTo(15, 8);
     expect(horizontal.scaleTickLength * projectedScaleX).toBeCloseTo(4.2, 8);
-    expect(horizontal.scaleTickLabelGap * projectedScaleX).toBeCloseTo(5, 8);
+    expect(horizontal.scaleTickLabelGap * projectedScaleX).toBeCloseTo(2, 8);
 
     const common = {
       rowCount: 30,

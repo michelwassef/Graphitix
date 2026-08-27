@@ -143,7 +143,6 @@
   const SURFACE_LEGEND_HEIGHT_PX = 80;
   const SURFACE_LEGEND_WIDTH_PX = 15;
   const SURFACE_LEGEND_TICK_LENGTH_PX = 4.2;
-  const SURFACE_LEGEND_TICK_LABEL_GAP_PX = 5;
   const SURFACE_LEGEND_PLOT_GAP_PX = 20;
   const SURFACE_LEGEND_TICK_COUNT = 5;
   const DEFAULT_SURFACE_SETTINGS = Object.freeze({
@@ -3314,7 +3313,10 @@
     const barWidth = SURFACE_LEGEND_WIDTH_PX / displayScale;
     const barHeight = Math.min(availableHeight, SURFACE_LEGEND_HEIGHT_PX / displayScale);
     const tickLength = SURFACE_LEGEND_TICK_LENGTH_PX / displayScale;
-    const tickLabelGap = SURFACE_LEGEND_TICK_LABEL_GAP_PX / displayScale;
+    const tickLabelGapDisplayPx = typeof chartStyle.resolveTickLabelGap === 'function'
+      ? chartStyle.resolveTickLabelGap(legendFontSize)
+      : Math.max(2, Math.round(legendFontSize * 0.2));
+    const tickLabelGap = tickLabelGapDisplayPx / displayScale;
     const strokeWidth = 1;
     const legendRightPad = SURFACE_LEGEND_PLOT_GAP_PX / displayScale;
     return {

@@ -70,12 +70,22 @@ describe('Cross-component inference UI contract', () => {
     const model = read('js/shared/boxStatsModel.js');
     expect(model).toContain("inferenceRole: 'overall'");
     expect(model).toContain("inferenceRole: 'comparison'");
-    expect(model).toContain("inferenceRole: 'raw'");
+    expect(model).toMatch(/inferenceRole\s*:\s*showAdjustedP\s*\?\s*'raw'\s*:\s*'comparison'/);
+    expect(model).toMatch(/inferenceRole\s*:\s*hasAdjustedFamily\s*\?\s*'raw'\s*:\s*'comparison'/);
     expect(model).not.toContain('function isPValueColumn(');
     expect(model).not.toContain('function isAdjustedPValueColumn(');
     expect(model).not.toContain('Fallback for older in-memory table models');
   });
 
+
+  test('Box treats a singleton comparison family as unadjusted without overwriting the configured correction', () => {
+    const box = read('js/components/box.js');
+    const model = read('js/shared/boxStatsModel.js');
+    expect(box).toContain('if(comparisonCount <= 1)');
+    expect(box).toContain("return 'none';");
+    expect(model).toContain("const effectiveMethod = rawValues.length > 1 ? (method || DEFAULT_CORRECTION) : 'none';");
+    expect(model).toContain('configuredCorrection:payload.statsCorrection || DEFAULT_CORRECTION');
+  });
 
   test('Pie reports the effective comparison correction and preserves explicit overall inference metadata', () => {
     const pie = read('js/components/pie.js');

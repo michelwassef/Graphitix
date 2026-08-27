@@ -138,7 +138,9 @@
 
   const PRISM_IMPORT_LIMITATION_MESSAGE = [
     'PRISM/PZFX import is experimental.',
-    'Only data tables are imported; graph-specific settings are not preserved.',
+    'Raw XY, Column, Grouped, Survival, and Parts-of-whole tables are imported when Graphitix has a lossless equivalent.',
+    'Precomputed summary/error tables and unsupported Prism table organizations are skipped rather than reinterpreted.',
+    'Prism graph styling is imported only where Graphitix can identify it reliably; Prism analyses are not imported.',
     'Saving/exporting back to PRISM/PZFX is not supported.'
   ].join('\n');
 
@@ -1499,11 +1501,8 @@
     return normalizePrismString(value);
   }
 
-  function normalizePzfxDataValue(value, options = {}){
+  function normalizePzfxDataValue(value){
     if(value == null){
-      return '';
-    }
-    if(options.excluded){
       return '';
     }
     let text = normalizePrismString(value);
@@ -1560,12 +1559,15 @@
 
   function readPzfxSubcolumn(subcolumn){
     const values = [];
+    const excluded = [];
     const valueNodes = prismXmlChildren(subcolumn);
-    valueNodes.forEach(node => {
-      const excluded = prismXmlAttribute(node, 'Excluded') === '1';
-      values.push(normalizePzfxDataValue(node.textContent || '', { excluded }));
+    valueNodes.forEach((node, rowIndex) => {
+      values.push(normalizePzfxDataValue(node.textContent || ''));
+      if(prismXmlAttribute(node, 'Excluded') === '1'){
+        excluded.push(rowIndex);
+      }
     });
-    return values;
+    return { values, excluded };
   }
 
   function readPzfxColumn(columnNode, options = {}){
@@ -1574,13 +1576,16 @@
     const format = options.format || '';
     const title = prismXmlChildText(columnNode, 'Title') || defaultName || requestedKind || 'Column';
     const subcolumnNodes = prismXmlChildren(columnNode, 'Subcolumn');
-    const subcolumns = subcolumnNodes.map(readPzfxSubcolumn);
+    const parsedSubcolumns = subcolumnNodes.map(readPzfxSubcolumn);
+    const subcolumns = parsedSubcolumns.map(entry => entry.values);
+    const excludedSubcolumns = parsedSubcolumns.map(entry => entry.excluded);
     if(!subcolumns.length){
       return {
         kind: requestedKind,
         title,
         names: [],
         subcolumns: [],
+        excludedSubcolumns: [],
         rowCount: 0,
         format
       };
@@ -1592,6 +1597,7 @@
       title,
       names,
       subcolumns,
+      excludedSubcolumns,
       rowCount,
       format
     };
@@ -1644,7 +1650,7 @@
     if(raw.includes('survival')){
       return 'survival';
     }
-    if(raw.includes('column')){
+    if(raw.includes('column') || raw.includes('one way') || raw.includes('one_way') || raw.includes('oneway')){
       return 'column';
     }
     if(raw.includes('two way') || raw.includes('twoway') || raw.includes('grouped')){
@@ -1657,6 +1663,660 @@
       return 'xy';
     }
     return raw.replace(/\s+/g, '_');
+  }
+
+  function normalizePrismTableType(tableFormat, tableClass = ''){
+    const raw = normalizePrismString(tableFormat).toLowerCase().replace(/[\s-]+/g, '_');
+    const className = normalizePrismString(tableClass).toLowerCase();
+    if(raw === 'parts_of_whole' || raw.includes('parts') || raw.includes('whole') || raw.includes('pie')){
+      return 'parts_of_whole';
+    }
+    if(raw.includes('survival')){
+      return 'survival';
+    }
+    if(raw.includes('contingency')){
+      return 'contingency';
+    }
+    if(raw.includes('multiple') && raw.includes('variable')){
+      return 'multiple_variables';
+    }
+    if(raw.includes('nested')){
+      return 'nested';
+    }
+    if(raw.includes('two_way') || raw.includes('twoway') || raw.includes('grouped')){
+      return 'grouped';
+    }
+    if(raw.includes('column') || raw.includes('one_way') || raw.includes('oneway')){
+      return 'column';
+    }
+    if(raw === 'xy' || raw.includes('xy') || className === 'xydatatable'){
+      return 'xy';
+    }
+    return raw || 'unknown';
+  }
+
+  function isPrismArchiveSummaryFormat(dataFormat){
+    return prismSummarySubcolumnCount(dataFormat) > 1;
+  }
+
+  function canonicalizePzfxDataFormat(yFormat){
+    const key = normalizePzfxFormat(yFormat || '').toLowerCase();
+    const mapping = {
+      replicates: 'y_replicates',
+      single: 'y_single',
+      sdn: 'y_sd_n',
+      sen: 'y_se_n',
+      cvn: 'y_cv_n',
+      sd: 'y_sd',
+      se: 'y_se',
+      cv: 'y_cv',
+      'low-high': 'y_plus_minus',
+      'upper-lower-limits': 'y_high_low',
+      error: 'y_error'
+    };
+    return mapping[key] || (key ? `y_${key}` : 'y_single');
+  }
+
+  function prismCanonicalSubcolumn(values, excludedRows = []){
+    return {
+      values: Array.isArray(values) ? values.slice() : [],
+      excludedRows: Array.isArray(excludedRows) ? excludedRows.slice() : []
+    };
+  }
+
+  function prismCanonicalSeries(title, subcolumns){
+    return {
+      title: normalizePrismString(title),
+      subcolumns: Array.isArray(subcolumns) ? subcolumns : []
+    };
+  }
+
+  function prismCanonicalValue(subcolumn, rowIndex){
+    const values = subcolumn?.values;
+    if(!Array.isArray(values) || rowIndex < 0 || rowIndex >= values.length){
+      return '';
+    }
+    return values[rowIndex] ?? '';
+  }
+
+  function prismCanonicalExcluded(subcolumn, rowIndex){
+    return Array.isArray(subcolumn?.excludedRows) && subcolumn.excludedRows.includes(rowIndex);
+  }
+
+  function prismCanonicalRowCount(model){
+    let maxRows = 0;
+    const scan = series => {
+      (series?.subcolumns || []).forEach(subcolumn => {
+        maxRows = Math.max(maxRows, Array.isArray(subcolumn?.values) ? subcolumn.values.length : 0);
+      });
+    };
+    scan(model?.rowTitles);
+    scan(model?.x);
+    (model?.ySeries || []).forEach(scan);
+    return maxRows;
+  }
+
+  function prismCanonicalHasAnyExcludedValues(model){
+    const scan = series => (series?.subcolumns || []).some(subcolumn => Array.isArray(subcolumn?.excludedRows) && subcolumn.excludedRows.length);
+    return scan(model?.rowTitles) || scan(model?.x) || (model?.ySeries || []).some(scan);
+  }
+
+  function buildPrismUnsupportedMeta(model, reason){
+    return {
+      kind: 'unsupported',
+      component: '',
+      supported: false,
+      unsupportedReason: String(reason || 'This Prism table cannot be represented faithfully in Graphitix.'),
+      sourceFormat: model?.sourceFormat || '',
+      tableType: model?.tableType || 'unknown',
+      dataFormat: model?.dataFormat || '',
+      tableClass: model?.tableClass || ''
+    };
+  }
+
+  function prismCanonicalSupportIssue(model){
+    const tableType = model?.tableType || 'unknown';
+    if(model?.summaryFormat === true){
+      return 'Precomputed Prism summary data (mean/error/N) are not supported yet.';
+    }
+    if(tableType === 'contingency'){
+      return 'Prism contingency tables do not yet have a lossless Graphitix component.';
+    }
+    if(tableType === 'multiple_variables'){
+      return 'Prism multiple-variables tables do not yet have a lossless Graphitix component.';
+    }
+    if(tableType === 'nested'){
+      return 'Prism nested tables do not yet have a lossless Graphitix component.';
+    }
+    if(!['xy', 'column', 'grouped', 'survival', 'parts_of_whole'].includes(tableType)){
+      return `Prism table type "${tableType || 'unknown'}" is not supported.`;
+    }
+    const xSubcolumns = model?.x?.subcolumns || [];
+    if(tableType === 'xy' && xSubcolumns.length > 1){
+      return 'Prism XY tables with independent X-error subcolumns are not supported yet.';
+    }
+    return '';
+  }
+
+  function makePrismImportResult(rows, meta, exclusions = null){
+    const cells = Array.isArray(exclusions?.cells) ? exclusions.cells : [];
+    return {
+      rows: Array.isArray(rows) ? rows : [],
+      meta,
+      exclusions: cells.length ? { rows: [], cols: [], cells } : null
+    };
+  }
+
+  function compactPrismImportResult(result, model){
+    if(!result || result?.meta?.supported === false){
+      return result;
+    }
+    const rows = Array.isArray(result.rows) ? result.rows : [];
+    const adapter = String(result?.meta?.adapter || '');
+    const headerRows = adapter === 'survival' ? 0 : (adapter === 'box-grouped' ? 2 : 1);
+    const rowMap = new Map();
+    const compactRows = [];
+    rows.forEach((row, rowIndex) => {
+      const keep = rowIndex < headerRows
+        || (Array.isArray(row) && row.some(cell => !isPrismBlankCell(cell)));
+      if(!keep){
+        return;
+      }
+      rowMap.set(rowIndex, compactRows.length);
+      compactRows.push(row);
+    });
+    if(compactRows.length <= headerRows){
+      return makePrismImportResult([], buildPrismUnsupportedMeta(model, 'Prism table contains no raw observations.'));
+    }
+    const compactCells = (result?.exclusions?.cells || []).flatMap(cell => {
+      const mappedRow = rowMap.get(Number(cell?.row));
+      const col = Number(cell?.col);
+      return Number.isInteger(mappedRow) && Number.isInteger(col)
+        ? [{ row: mappedRow, col }]
+        : [];
+    });
+    const meta = adapter === 'box-grouped'
+      ? { ...result.meta, replicatesCount: compactRows.length - headerRows }
+      : result.meta;
+    return makePrismImportResult(compactRows, meta, { cells: compactCells });
+  }
+
+  function buildCanonicalPrismXYImport(model){
+    const xSeries = model?.x;
+    const ySeries = model?.ySeries || [];
+    if(!xSeries?.subcolumns?.length || !ySeries.length){
+      return makePrismImportResult([], buildPrismUnsupportedMeta(model, 'Prism XY table is missing X or Y data.'));
+    }
+    const xSubcolumn = xSeries.subcolumns[0];
+    const replicateCount = Math.max(1, ...ySeries.map(series => Math.max(1, series?.subcolumns?.length || 0)));
+    const groupLabels = ySeries.map((series, index) => normalizePrismString(series.title) || `Series ${index + 1}`);
+    const rowCount = prismCanonicalRowCount(model);
+    const rowLabels = Array.from({ length: rowCount }, (_, rowIndex) => prismCanonicalValue(model?.rowTitles?.subcolumns?.[0], rowIndex));
+    const xTitle = normalizePrismString(xSeries.title) || 'X';
+
+    if(replicateCount > 1){
+      const header = [xTitle];
+      groupLabels.forEach(label => {
+        for(let rep = 0; rep < replicateCount; rep += 1){
+          header.push(`${label} Rep ${rep + 1}`);
+        }
+      });
+      const rows = [header];
+      const excludedCells = [];
+      for(let rowIndex = 0; rowIndex < rowCount; rowIndex += 1){
+        const row = [prismCanonicalValue(xSubcolumn, rowIndex)];
+        if(prismCanonicalExcluded(xSubcolumn, rowIndex)){
+          excludedCells.push({ row: rowIndex + 1, col: 0 });
+        }
+        ySeries.forEach((series, seriesIndex) => {
+          for(let rep = 0; rep < replicateCount; rep += 1){
+            const subcolumn = series.subcolumns?.[rep] || null;
+            const col = 1 + seriesIndex * replicateCount + rep;
+            row.push(prismCanonicalValue(subcolumn, rowIndex));
+            if(prismCanonicalExcluded(subcolumn, rowIndex)){
+              excludedCells.push({ row: rowIndex + 1, col });
+            }
+          }
+        });
+        rows.push(row);
+      }
+      return makePrismImportResult(rows, {
+        kind: 'line',
+        component: 'line',
+        adapter: 'xy-series',
+        supported: true,
+        sourceFormat: model.sourceFormat,
+        tableType: 'xy',
+        tableFormat: 'grouped',
+        dataFormat: model.dataFormat,
+        tableClass: model.tableClass,
+        replicatesCount: replicateCount,
+        seriesCount: groupLabels.length,
+        groupLabels,
+        rowLabels,
+        xTitle,
+        dateX: model?.xFormat === 'date'
+      }, { cells: excludedCells });
+    }
+
+    if(ySeries.length > 1){
+      const rows = [['Labels', xTitle, ...groupLabels.map(label => `${label} Rep 1`)]];
+      const excludedCells = [];
+      for(let rowIndex = 0; rowIndex < rowCount; rowIndex += 1){
+        const row = [rowLabels[rowIndex] || '', prismCanonicalValue(xSubcolumn, rowIndex)];
+        if(prismCanonicalExcluded(xSubcolumn, rowIndex)){
+          excludedCells.push({ row: rowIndex + 1, col: 1 });
+        }
+        ySeries.forEach((series, seriesIndex) => {
+          const subcolumn = series.subcolumns?.[0] || null;
+          row.push(prismCanonicalValue(subcolumn, rowIndex));
+          if(prismCanonicalExcluded(subcolumn, rowIndex)){
+            excludedCells.push({ row: rowIndex + 1, col: 2 + seriesIndex });
+          }
+        });
+        rows.push(row);
+      }
+      return makePrismImportResult(rows, {
+        kind: 'scatter',
+        component: 'scatter',
+        adapter: 'scatter-grouped',
+        supported: true,
+        sourceFormat: model.sourceFormat,
+        tableType: 'xy',
+        tableFormat: 'grouped',
+        dataFormat: model.dataFormat,
+        tableClass: model.tableClass,
+        replicatesCount: 1,
+        seriesCount: groupLabels.length,
+        groupLabels,
+        rowLabels,
+        xTitle,
+        dateX: model?.xFormat === 'date'
+      }, { cells: excludedCells });
+    }
+
+    const ySeries0 = ySeries[0];
+    const ySubcolumn = ySeries0.subcolumns?.[0] || null;
+    const yTitle = normalizePrismString(ySeries0.title) || 'Y';
+    const rows = [['Labels', xTitle, yTitle]];
+    const excludedCells = [];
+    for(let rowIndex = 0; rowIndex < rowCount; rowIndex += 1){
+      rows.push([
+        rowLabels[rowIndex] || '',
+        prismCanonicalValue(xSubcolumn, rowIndex),
+        prismCanonicalValue(ySubcolumn, rowIndex)
+      ]);
+      if(prismCanonicalExcluded(xSubcolumn, rowIndex)){
+        excludedCells.push({ row: rowIndex + 1, col: 1 });
+      }
+      if(prismCanonicalExcluded(ySubcolumn, rowIndex)){
+        excludedCells.push({ row: rowIndex + 1, col: 2 });
+      }
+    }
+    return makePrismImportResult(rows, {
+      kind: 'scatter',
+      component: 'scatter',
+      adapter: 'xy-single',
+      supported: true,
+      sourceFormat: model.sourceFormat,
+      tableType: 'xy',
+      tableFormat: 'single',
+      dataFormat: model.dataFormat,
+      tableClass: model.tableClass,
+      replicatesCount: 1,
+      seriesCount: 1,
+      groupLabels,
+      xTitle,
+      yTitles: [yTitle],
+      dateX: model?.xFormat === 'date'
+    }, { cells: excludedCells });
+  }
+
+  function buildCanonicalPrismColumnImport(model){
+    const ySeries = model?.ySeries || [];
+    if(!ySeries.length){
+      return makePrismImportResult([], buildPrismUnsupportedMeta(model, 'Prism Column table contains no Y datasets.'));
+    }
+    const groupLabels = ySeries.map((series, index) => normalizePrismString(series.title) || `Series ${index + 1}`);
+    const flattened = ySeries.map(series => {
+      const values = [];
+      const excluded = [];
+      (series.subcolumns || []).forEach(subcolumn => {
+        (subcolumn?.values || []).forEach((value, rowIndex) => {
+          const targetRow = values.length;
+          values.push(value ?? '');
+          if(prismCanonicalExcluded(subcolumn, rowIndex)){
+            excluded.push(targetRow);
+          }
+        });
+      });
+      return { values, excluded };
+    });
+    const maxRows = Math.max(0, ...flattened.map(entry => entry.values.length));
+    const rows = [groupLabels.slice()];
+    const excludedCells = [];
+    for(let rowIndex = 0; rowIndex < maxRows; rowIndex += 1){
+      const row = [];
+      flattened.forEach((entry, colIndex) => {
+        row.push(entry.values[rowIndex] ?? '');
+        if(entry.excluded.includes(rowIndex)){
+          excludedCells.push({ row: rowIndex + 1, col: colIndex });
+        }
+      });
+      rows.push(row);
+    }
+    return makePrismImportResult(rows, {
+      kind: 'column',
+      component: 'box',
+      adapter: 'box-single',
+      supported: true,
+      sourceFormat: model.sourceFormat,
+      tableType: 'column',
+      tableFormat: 'single',
+      dataFormat: model.dataFormat,
+      tableClass: model.tableClass,
+      seriesCount: groupLabels.length,
+      groupLabels,
+      graphType: model.graphType || '',
+      graphTypeSource: model.graphTypeSource || '',
+      graphMetadataType: model.graphMetadataType || '',
+      pointMode: model.pointMode || ''
+    }, { cells: excludedCells });
+  }
+
+  function buildCanonicalPrismGroupedImport(model){
+    const ySeries = model?.ySeries || [];
+    if(!ySeries.length){
+      return makePrismImportResult([], buildPrismUnsupportedMeta(model, 'Prism Grouped table contains no Y datasets.'));
+    }
+    const sourceRowCount = prismCanonicalRowCount(model);
+    const rowTitleSubcolumn = model?.rowTitles?.subcolumns?.[0] || null;
+    const activeSourceRows = [];
+    for(let rowIndex = 0; rowIndex < sourceRowCount; rowIndex += 1){
+      const hasData = ySeries.some(series => (series.subcolumns || []).some(subcolumn => !isPrismBlankCell(prismCanonicalValue(subcolumn, rowIndex))));
+      if(hasData){
+        activeSourceRows.push(rowIndex);
+      }
+    }
+    if(!activeSourceRows.length){
+      return makePrismImportResult([], buildPrismUnsupportedMeta(model, 'Prism Grouped table contains no raw observations.'));
+    }
+    const groupLabels = ySeries.map((series, index) => normalizePrismString(series.title) || `Group ${index + 1}`);
+    const conditionLabels = activeSourceRows.map((rowIndex, conditionIndex) => (
+      normalizePrismString(prismCanonicalValue(rowTitleSubcolumn, rowIndex)) || `Condition ${conditionIndex + 1}`
+    ));
+    const replicateCount = Math.max(1, ...ySeries.map(series => Math.max(1, series?.subcolumns?.length || 0)));
+    if(conditionLabels.length === 1){
+      const sourceRowIndex = activeSourceRows[0];
+      const rows = [groupLabels.slice()];
+      const excludedCells = [];
+      for(let rep = 0; rep < replicateCount; rep += 1){
+        const row = [];
+        ySeries.forEach((series, col) => {
+          const subcolumn = series.subcolumns?.[rep] || null;
+          row.push(prismCanonicalValue(subcolumn, sourceRowIndex));
+          if(prismCanonicalExcluded(subcolumn, sourceRowIndex)){
+            excludedCells.push({ row: 1 + rep, col });
+          }
+        });
+        rows.push(row);
+      }
+      return makePrismImportResult(rows, {
+        kind: 'column',
+        component: 'box',
+        adapter: 'box-single',
+        supported: true,
+        sourceFormat: model.sourceFormat,
+        tableType: 'grouped',
+        tableFormat: 'single',
+        dataFormat: model.dataFormat,
+        tableClass: model.tableClass,
+        replicatesCount: replicateCount,
+        seriesCount: groupLabels.length,
+        groupLabels,
+        conditionLabels,
+        collapsedSingletonCondition: true,
+        graphType: model.graphType || '',
+        graphTypeSource: model.graphTypeSource || '',
+        graphMetadataType: model.graphMetadataType || '',
+        pointMode: model.pointMode || ''
+      }, { cells: excludedCells });
+    }
+    const headerGroups = [];
+    const headerConditions = [];
+    groupLabels.forEach(label => {
+      conditionLabels.forEach((conditionLabel, conditionIndex) => {
+        headerGroups.push(conditionIndex === 0 ? label : '');
+        headerConditions.push(conditionLabel);
+      });
+    });
+    const rows = [headerGroups, headerConditions];
+    const excludedCells = [];
+    for(let rep = 0; rep < replicateCount; rep += 1){
+      const row = [];
+      ySeries.forEach((series, groupIndex) => {
+        const subcolumn = series.subcolumns?.[rep] || null;
+        activeSourceRows.forEach((sourceRowIndex, conditionIndex) => {
+          const col = groupIndex * conditionLabels.length + conditionIndex;
+          row.push(prismCanonicalValue(subcolumn, sourceRowIndex));
+          if(prismCanonicalExcluded(subcolumn, sourceRowIndex)){
+            excludedCells.push({ row: 2 + rep, col });
+          }
+        });
+      });
+      rows.push(row);
+    }
+    return makePrismImportResult(rows, {
+      kind: 'column',
+      component: 'box',
+      adapter: 'box-grouped',
+      supported: true,
+      sourceFormat: model.sourceFormat,
+      tableType: 'grouped',
+      tableFormat: 'grouped',
+      dataFormat: model.dataFormat,
+      tableClass: model.tableClass,
+      replicatesCount: replicateCount,
+      groupedReplicatesPerGroup: conditionLabels.length,
+      seriesCount: groupLabels.length,
+      groupLabels,
+      conditionLabels,
+      graphType: model.graphType || '',
+      graphTypeSource: model.graphTypeSource || '',
+      graphMetadataType: model.graphMetadataType || '',
+      pointMode: model.pointMode || ''
+    }, { cells: excludedCells });
+  }
+
+  function buildCanonicalPrismSurvivalImport(model){
+    const xSubcolumn = model?.x?.subcolumns?.[0] || model?.rowTitles?.subcolumns?.[0] || null;
+    const ySeries = model?.ySeries || [];
+    if(!xSubcolumn || !ySeries.length){
+      return makePrismImportResult([], buildPrismUnsupportedMeta(model, 'Prism Survival table is missing time or event data.'));
+    }
+    const groupLabels = ySeries.map((series, index) => normalizePrismString(series.title) || `Group ${index + 1}`);
+    const rowCount = prismCanonicalRowCount(model);
+    const rows = [];
+    const excludedCells = [];
+    for(let rowIndex = 0; rowIndex < rowCount; rowIndex += 1){
+      const timeValue = prismCanonicalValue(xSubcolumn, rowIndex);
+      ySeries.forEach((series, seriesIndex) => {
+        const eventSubcolumn = series.subcolumns?.[0] || null;
+        const eventValue = prismCanonicalValue(eventSubcolumn, rowIndex);
+        if(isPrismBlankCell(eventValue)){
+          return;
+        }
+        const targetRow = rows.length;
+        rows.push([groupLabels[seriesIndex], timeValue, eventValue, '', '', '', '']);
+        if(prismCanonicalExcluded(xSubcolumn, rowIndex)){
+          excludedCells.push({ row: targetRow, col: 1 });
+        }
+        if(prismCanonicalExcluded(eventSubcolumn, rowIndex)){
+          excludedCells.push({ row: targetRow, col: 2 });
+        }
+      });
+    }
+    return makePrismImportResult(rows, {
+      kind: 'survival',
+      component: 'survival',
+      adapter: 'survival',
+      supported: true,
+      sourceFormat: model.sourceFormat,
+      tableType: 'survival',
+      tableFormat: 'survival',
+      dataFormat: model.dataFormat,
+      tableClass: model.tableClass,
+      seriesCount: groupLabels.length,
+      groupLabels,
+      xTitle: normalizePrismString(model?.x?.title) || 'Time'
+    }, { cells: excludedCells });
+  }
+
+  function buildCanonicalPrismPieImport(model){
+    const categorySubcolumn = model?.rowTitles?.subcolumns?.[0] || model?.x?.subcolumns?.[0] || null;
+    const ySeries = model?.ySeries || [];
+    if(!ySeries.length){
+      return makePrismImportResult([], buildPrismUnsupportedMeta(model, 'Prism parts-of-whole table contains no values.'));
+    }
+    const firstY = ySeries[0];
+    const secondY = ySeries[1] || null;
+    const firstSubcolumn = firstY?.subcolumns?.[0] || null;
+    const secondSubcolumn = secondY?.subcolumns?.[0] || null;
+    const rows = [[
+      normalizePrismString(model?.rowTitles?.title || model?.x?.title) || 'Category',
+      normalizePrismString(firstY.title) || 'Value',
+      secondY ? (normalizePrismString(secondY.title) || 'Expected') : 'Expected'
+    ]];
+    const excludedCells = [];
+    const rowCount = prismCanonicalRowCount(model);
+    for(let rowIndex = 0; rowIndex < rowCount; rowIndex += 1){
+      rows.push([
+        categorySubcolumn ? prismCanonicalValue(categorySubcolumn, rowIndex) : `Category ${rowIndex + 1}`,
+        prismCanonicalValue(firstSubcolumn, rowIndex),
+        prismCanonicalValue(secondSubcolumn, rowIndex)
+      ]);
+      if(prismCanonicalExcluded(firstSubcolumn, rowIndex)){
+        excludedCells.push({ row: rowIndex + 1, col: 1 });
+      }
+      if(prismCanonicalExcluded(secondSubcolumn, rowIndex)){
+        excludedCells.push({ row: rowIndex + 1, col: 2 });
+      }
+    }
+    return makePrismImportResult(rows, {
+      kind: 'pie',
+      component: 'pie',
+      adapter: 'pie',
+      supported: true,
+      sourceFormat: model.sourceFormat,
+      tableType: 'parts_of_whole',
+      tableFormat: 'parts_of_whole',
+      dataFormat: model.dataFormat,
+      tableClass: model.tableClass,
+      seriesCount: ySeries.length,
+      categoryTitle: rows[0][0],
+      valueTitles: ySeries.map(series => normalizePrismString(series.title)).filter(Boolean)
+    }, { cells: excludedCells });
+  }
+
+  function buildCanonicalPrismImport(model){
+    const supportIssue = prismCanonicalSupportIssue(model);
+    if(supportIssue){
+      return makePrismImportResult([], buildPrismUnsupportedMeta(model, supportIssue));
+    }
+    let built;
+    switch(model?.tableType){
+      case 'xy': built = buildCanonicalPrismXYImport(model); break;
+      case 'column': built = buildCanonicalPrismColumnImport(model); break;
+      case 'grouped': built = buildCanonicalPrismGroupedImport(model); break;
+      case 'survival': built = buildCanonicalPrismSurvivalImport(model); break;
+      case 'parts_of_whole': built = buildCanonicalPrismPieImport(model); break;
+      default: built = makePrismImportResult([], buildPrismUnsupportedMeta(model)); break;
+    }
+    return compactPrismImportResult(built, model);
+  }
+
+  function canonicalizePzfxModel(model, graphMetadata = {}){
+    const toSeries = column => column ? prismCanonicalSeries(column.title, (column.subcolumns || []).map((values, index) => (
+      prismCanonicalSubcolumn(values, column.excludedSubcolumns?.[index] || [])
+    ))) : null;
+    const yFormatKey = normalizePzfxFormat(model?.yFormat || '').toLowerCase();
+    const tableType = normalizePrismTableType(model?.tableFormat || model?.tableType || '', 'PZFXTable');
+    return {
+      sourceFormat: 'pzfx',
+      title: model?.title || '',
+      tableClass: 'PZFXTable',
+      tableType,
+      dataFormat: canonicalizePzfxDataFormat(yFormatKey),
+      xFormat: normalizePzfxFormat(model?.xFormat || '').toLowerCase(),
+      summaryFormat: isPzfxSummaryFormat(yFormatKey),
+      rowTitles: toSeries(model?.rowTitleColumn),
+      x: toSeries(model?.xColumn),
+      xDisplay: toSeries(model?.xDisplayColumn),
+      ySeries: (model?.yColumns || []).map(toSeries).filter(Boolean),
+      graphType: inferPzfxColumnGraphType(model, graphMetadata),
+      graphTypeSource: graphMetadata.source || '',
+      graphMetadataType: graphMetadata.graphMetadataType || '',
+      pointMode: '',
+      hasExcludedValues: false
+    };
+  }
+
+  function canonicalizePrismArchiveTable(options = {}){
+    const tableInfo = options.tableInfo || {};
+    const rows = Array.isArray(options.rows) ? options.rows : [];
+    const rowTitlesId = tableInfo?.rowTitlesDataSet || '';
+    const xDataSetId = tableInfo?.xDataSet || '';
+    const dataSetIds = Array.isArray(tableInfo?.dataSets) ? tableInfo.dataSets : [];
+    const dataSetTitles = Array.isArray(options.dataSetTitles) ? options.dataSetTitles : [];
+    const dataFormat = normalizePrismString(tableInfo?.dataFormat || '').toLowerCase() || 'y_single';
+    const tableType = normalizePrismTableType(tableInfo?.format || '', tableInfo?.['@class'] || '');
+    const hasRowTitles = !!rowTitlesId;
+    const hasX = !!xDataSetId;
+    const rowTitleIndex = hasRowTitles ? 0 : -1;
+    const seriesStride = dataFormat === 'y_replicates'
+      ? Math.max(1, Number(tableInfo?.replicatesCount) || 1)
+      : prismSummarySubcolumnCount(dataFormat);
+    const maxSourceCols = rows.reduce((max, row) => Math.max(max, Array.isArray(row) ? row.length : 0), 0);
+    const yColumnCount = dataSetIds.length * seriesStride;
+    const xColumnCount = hasX
+      ? Math.max(1, maxSourceCols - (hasRowTitles ? 1 : 0) - yColumnCount)
+      : 0;
+    const xIndex = hasX ? (hasRowTitles ? 1 : 0) : -1;
+    const yStart = (hasRowTitles ? 1 : 0) + xColumnCount;
+    const columnValues = colIndex => rows.map(row => (Array.isArray(row) ? (row[colIndex] ?? '') : ''));
+    const rowTitles = hasRowTitles
+      ? prismCanonicalSeries(options.rowTitleLabel || 'Labels', [prismCanonicalSubcolumn(columnValues(rowTitleIndex))])
+      : null;
+    const x = hasX
+      ? prismCanonicalSeries(options.xTitle || 'X', Array.from({ length: xColumnCount }, (_, subcolumnIndex) => (
+          prismCanonicalSubcolumn(columnValues(xIndex + subcolumnIndex))
+        )))
+      : null;
+    const ySeries = dataSetIds.map((_, seriesIndex) => {
+      const subcolumns = [];
+      for(let sub = 0; sub < seriesStride; sub += 1){
+        subcolumns.push(prismCanonicalSubcolumn(columnValues(yStart + seriesIndex * seriesStride + sub)));
+      }
+      return prismCanonicalSeries(dataSetTitles[seriesIndex] || `Series ${seriesIndex + 1}`, subcolumns);
+    });
+    return {
+      sourceFormat: 'prism',
+      title: options.title || '',
+      tableClass: normalizePrismString(tableInfo?.['@class'] || ''),
+      tableType,
+      dataFormat,
+      xFormat: normalizePrismString(tableInfo?.xFormat || '').toLowerCase(),
+      summaryFormat: isPrismArchiveSummaryFormat(dataFormat),
+      rowTitles,
+      x,
+      xDisplay: null,
+      ySeries,
+      graphType: options.graphType || '',
+      graphTypeSource: options.graphType ? 'graph-sheet' : '',
+      graphMetadataType: options.graphType || '',
+      pointMode: options.pointMode || '',
+      hasExcludedValues: false
+    };
   }
 
   function listPzfxTables(xmlDoc){
@@ -1718,10 +2378,15 @@
         yColumns.push(readPzfxColumn(child, { kind: 'y', defaultName: `Y${yColumns.length + 1}`, format: yFormat }));
       }
     });
-    const useAdvancedDateX = xFormat.toLowerCase() === 'date' && xAdvancedColumns.some(column => column.names.length);
-    const xColumn = useAdvancedDateX
-      ? xAdvancedColumns.find(column => column.names.length) || null
-      : xColumns.find(column => column.names.length) || null;
+    // Plotting components require numeric X values. Prism date tables commonly carry
+    // a numeric XColumn plus a formatted XAdvancedColumn; preserve both and keep
+    // the numeric representation authoritative for graph import.
+    const xColumn = xColumns.find(column => column.names.length)
+      || xAdvancedColumns.find(column => column.names.length)
+      || null;
+    const xDisplayColumn = xFormat.toLowerCase() === 'date'
+      ? (xAdvancedColumns.find(column => column.names.length) || null)
+      : null;
     const rowTitleColumn = rowTitleColumns.find(column => column.names.length) || null;
     const dataColumns = [];
     if(rowTitleColumn){
@@ -1743,169 +2408,9 @@
       yFormat,
       rowTitleColumn,
       xColumn,
+      xDisplayColumn,
       yColumns: yColumns.filter(column => column.names.length),
       rows: pzfxColumnsToRows(dataColumns)
-    };
-  }
-
-  function pzfxBaseGroupLabels(model){
-    const yColumns = model?.yColumns || [];
-    return yColumns.length
-      ? yColumns.map((column, index) => normalizePrismString(column.title) || `Series ${index + 1}`)
-      : ['Series 1'];
-  }
-
-  function buildPzfxLineImport(model){
-    const yColumns = model?.yColumns || [];
-    if(!model?.xColumn || !yColumns.length){
-      return null;
-    }
-    const replicateCount = yColumns.reduce((max, column) => Math.max(max, column.names.length || 0), 0) || 1;
-    const groupLabels = pzfxBaseGroupLabels(model);
-    const header = [normalizePrismString(model.xColumn.title) || 'X'];
-    groupLabels.forEach(label => {
-      for(let rep = 0; rep < replicateCount; rep += 1){
-        header.push(`${label || 'Series'} Rep ${rep + 1}`);
-      }
-    });
-    const rowCount = pzfxModelRowCount(model, [model.xColumn, ...yColumns]);
-    const rows = [header];
-    for(let rowIndex = 0; rowIndex < rowCount; rowIndex += 1){
-      const row = [pzfxColumnValue(model.xColumn, 0, rowIndex)];
-      yColumns.forEach(column => {
-        for(let rep = 0; rep < replicateCount; rep += 1){
-          row.push(pzfxColumnValue(column, rep, rowIndex));
-        }
-      });
-      rows.push(row);
-    }
-    return {
-      rows,
-      meta: {
-        kind: 'line',
-        dataFormat: 'y_replicates',
-        tableClass: 'PZFXTable',
-        replicatesCount: replicateCount,
-        groupLabels,
-        xTitle: normalizePrismString(model.xColumn.title) || ''
-      }
-    };
-  }
-
-  function buildPzfxScatterImport(model){
-    const yColumns = model?.yColumns || [];
-    if(!model?.xColumn || !yColumns.length || yColumns.some(column => column.names.length < 1)){
-      return null;
-    }
-    const seriesCount = Math.max(1, yColumns.length);
-    const headerLabel = model.rowTitleColumn ? (normalizePrismString(model.rowTitleColumn.title) || 'Labels') : 'Labels';
-    const xHeader = normalizePrismString(model.xColumn.title) || 'X';
-    const yHeader = seriesCount === 1 ? (normalizePrismString(yColumns[0].title) || 'Y') : 'Y';
-    const rows = [[headerLabel, xHeader, yHeader]];
-    const rowCount = pzfxModelRowCount(model, [model.rowTitleColumn, model.xColumn, ...yColumns].filter(Boolean));
-    const groupLabels = pzfxBaseGroupLabels(model);
-    for(let rowIndex = 0; rowIndex < rowCount; rowIndex += 1){
-      const baseLabel = model.rowTitleColumn ? pzfxColumnValue(model.rowTitleColumn, 0, rowIndex) : '';
-      yColumns.forEach((column, seriesIndex) => {
-        const dsLabel = groupLabels[seriesIndex] || '';
-        let label = baseLabel;
-        if(seriesCount > 1 && dsLabel){
-          const trimmedBase = normalizePrismString(baseLabel);
-          label = trimmedBase ? `${trimmedBase} (${dsLabel})` : dsLabel;
-        }
-        rows.push([
-          label || '',
-          pzfxColumnValue(model.xColumn, 0, rowIndex),
-          pzfxColumnValue(column, 0, rowIndex)
-        ]);
-      });
-    }
-    return {
-      rows,
-      meta: {
-        kind: 'scatter',
-        dataFormat: 'y_single',
-        tableClass: 'PZFXTable',
-        seriesCount,
-        xTitle: xHeader,
-        yTitles: groupLabels.slice(),
-        headerRow: rows[0]
-      }
-    };
-  }
-
-  function buildPzfxSurvivalImport(model){
-    const yColumns = model?.yColumns || [];
-    const timeColumn = model?.xColumn || model?.rowTitleColumn || null;
-    if(!timeColumn || !yColumns.length){
-      return null;
-    }
-    const groupLabels = pzfxBaseGroupLabels(model);
-    const rowCount = pzfxModelRowCount(model, [timeColumn, ...yColumns]);
-    const rows = [];
-    for(let rowIndex = 0; rowIndex < rowCount; rowIndex += 1){
-      const timeValue = pzfxColumnValue(timeColumn, 0, rowIndex);
-      yColumns.forEach((column, seriesIndex) => {
-        const eventValue = pzfxColumnValue(column, 0, rowIndex);
-        if(isPrismBlankCell(eventValue)){
-          return;
-        }
-        rows.push([
-          groupLabels[seriesIndex] || `Group ${seriesIndex + 1}`,
-          timeValue,
-          eventValue,
-          '',
-          '',
-          '',
-          ''
-        ]);
-      });
-    }
-    return {
-      rows,
-      meta: {
-        kind: 'survival',
-        dataFormat: 'y_single',
-        tableClass: 'PZFXTable',
-        seriesCount: groupLabels.length,
-        groupLabels: groupLabels.slice(),
-        xTitle: normalizePrismString(timeColumn.title) || 'Time'
-      }
-    };
-  }
-
-  function buildPzfxPieImport(model){
-    const yColumns = model?.yColumns || [];
-    if(!yColumns.length){
-      return null;
-    }
-    const categoryColumn = model?.rowTitleColumn || model?.xColumn || null;
-    const firstY = yColumns[0];
-    const secondY = yColumns[1] || null;
-    const headerRow = [
-      categoryColumn ? (normalizePrismString(categoryColumn.title) || 'Category') : 'Category',
-      normalizePrismString(firstY.title) || 'Value',
-      secondY ? (normalizePrismString(secondY.title) || 'Expected') : 'Expected'
-    ];
-    const rows = [headerRow];
-    const rowCount = pzfxModelRowCount(model, [categoryColumn, firstY, secondY].filter(Boolean));
-    for(let rowIndex = 0; rowIndex < rowCount; rowIndex += 1){
-      rows.push([
-        categoryColumn ? pzfxColumnValue(categoryColumn, 0, rowIndex) : `Category ${rowIndex + 1}`,
-        pzfxColumnValue(firstY, 0, rowIndex),
-        secondY ? pzfxColumnValue(secondY, 0, rowIndex) : ''
-      ]);
-    }
-    return {
-      rows,
-      meta: {
-        kind: 'pie',
-        dataFormat: 'y_single',
-        tableClass: 'PZFXTable',
-        seriesCount: yColumns.length || 1,
-        categoryTitle: headerRow[0],
-        valueTitles: yColumns.map(column => normalizePrismString(column.title)).filter(Boolean)
-      }
     };
   }
 
@@ -1950,86 +2455,19 @@
   }
 
   function buildPzfxImportRowsAndMeta(model, graphMetadata = {}){
-    const tableFormat = model?.tableFormat || '';
-    const yFormat = normalizePzfxFormat(model?.yFormat || '');
-    const yFormatKey = yFormat.toLowerCase();
-    if((tableFormat === 'xy' || tableFormat === 'survival') && yFormatKey === 'replicates'){
-      const lineImport = buildPzfxLineImport(model);
-      if(lineImport){
-        prismDebug('pzfx.xy.line', {
-          replicatesCount: lineImport.meta.replicatesCount,
-          seriesCount: lineImport.meta.groupLabels.length,
-          rows: Math.max(0, lineImport.rows.length - 1)
-        });
-        return lineImport;
-      }
-    }
-    if(tableFormat === 'survival'){
-      const survivalImport = buildPzfxSurvivalImport(model);
-      if(survivalImport){
-        prismDebug('pzfx.xy.survival', {
-          seriesCount: survivalImport.meta.groupLabels.length,
-          rows: survivalImport.rows.length
-        });
-        return survivalImport;
-      }
-    }
-    if(tableFormat === 'xy' && (!yFormatKey || yFormatKey === 'single' || isPzfxSummaryFormat(yFormatKey))){
-      const scatterImport = buildPzfxScatterImport(model);
-      if(scatterImport){
-        prismDebug('pzfx.xy.scatter', {
-          seriesCount: scatterImport.meta.seriesCount,
-          rows: Math.max(0, scatterImport.rows.length - 1)
-        });
-        return scatterImport;
-      }
-    }
-    if(tableFormat === 'parts_of_whole'){
-      const pieImport = buildPzfxPieImport(model);
-      if(pieImport){
-        prismDebug('pzfx.table.pie', {
-          seriesCount: pieImport.meta.seriesCount,
-          rows: Math.max(0, pieImport.rows.length - 1)
-        });
-        return pieImport;
-      }
-    }
-    const isColumnLike = tableFormat === 'column' || tableFormat === 'grouped';
-    const meta = isColumnLike
-      ? {
-          kind: 'column',
-          dataFormat: yFormat || 'y_single',
-          tableClass: 'PZFXTable',
-          seriesCount: model?.yColumns?.length || 0,
-          groupLabels: (model?.yColumns || []).map(column => normalizePrismString(column.title)).filter(Boolean),
-          graphType: inferPzfxColumnGraphType(model, graphMetadata),
-          graphTypeSource: graphMetadata.source || '',
-          graphMetadataType: graphMetadata.graphMetadataType || '',
-          summaryFormat: isPzfxSummaryFormat(yFormatKey),
-          rawValueCompatible: isPzfxColumnRawValueFormat(yFormatKey)
-        }
-      : null;
-    if(isColumnLike){
-      prismDebug('pzfx.table.column', {
-        seriesCount: meta.seriesCount,
-        rows: Math.max(0, (model?.rows?.length || 1) - 1),
-        graphType: meta.graphType || '',
-        graphTypeSource: meta.graphTypeSource || '',
-        yFormat,
-        rawValueCompatible: meta.rawValueCompatible === true,
-        summaryFormat: meta.summaryFormat === true
-      });
-    }else{
-      prismDebug('pzfx.table.raw', {
-        tableFormat,
-        yFormat,
-        rows: Math.max(0, (model?.rows?.length || 1) - 1)
-      });
-    }
-    return {
-      rows: isColumnLike ? pzfxColumnsToRows(model?.yColumns || []) : (model?.rows || []),
-      meta
-    };
+    const canonical = canonicalizePzfxModel(model, graphMetadata);
+    canonical.hasExcludedValues = prismCanonicalHasAnyExcludedValues(canonical);
+    const built = buildCanonicalPrismImport(canonical);
+    prismDebug('pzfx.canonical', {
+      tableType: canonical.tableType,
+      dataFormat: canonical.dataFormat,
+      component: built.meta?.component || '',
+      adapter: built.meta?.adapter || '',
+      supported: built.meta?.supported !== false,
+      hasExcludedValues: canonical.hasExcludedValues === true,
+      rows: Math.max(0, (built.rows?.length || 0) - (built.meta?.tableFormat === 'grouped' ? 2 : 1))
+    });
+    return built;
   }
 
   async function parsePzfxInput(input, requestedId = ''){
@@ -2040,7 +2478,7 @@
     const model = buildPzfxModel(tableNode);
     const graphMetadata = await inferPzfxOpaqueGraphMetadata(model, payload);
     const built = buildPzfxImportRowsAndMeta(model, graphMetadata);
-    const rows = filterRows(built.rows || []);
+    const rows = Array.isArray(built.rows) ? built.rows : [];
     const tables = tableNodes.map((node, index) => {
       const tableModel = node === tableNode ? model : buildPzfxModel(node);
       const tableBuilt = node === tableNode ? built : buildPzfxImportRowsAndMeta(tableModel);
@@ -2059,7 +2497,8 @@
       tableFormat: model.tableFormat || '',
       yFormat: model.yFormat || '',
       opaqueBytes: payload.opaqueBytes?.length || 0,
-      graphMetadata
+      graphMetadata,
+      prismExclusions: built.exclusions || null
     };
   }
 
@@ -2669,6 +3108,12 @@
         importTransaction = null;
         return result;
       }
+      if(result?.prismExclusions && options.hot && typeof Shared.hot?.applyExclusions === 'function'){
+        Shared.hot.applyExclusions(options.hot, result.prismExclusions, {
+          silent: true,
+          source: 'prism-import'
+        });
+      }
       const matrix = typeof options.hot?.getData === 'function' ? options.hot.getData() : null;
       if(Array.isArray(matrix)){
         Shared.hot?.syncOwnerTabPayloadFullData?.(matrix, 'table-import', {
@@ -2719,12 +3164,27 @@
         const buffer = await readFileAsArrayBuffer(file);
         prismDebug('pzfx.load', { name: file.name, size: file.size });
         const parsed = await parsePzfxInput(buffer, options.prismTableId || inputEl?.dataset?.prismTableId || '');
+        if(options.inspectPrismOnly === true){
+          return {
+            prismMeta: parsed.prismMeta || null,
+            prismTableId: parsed.prismTableId || '',
+            prismTableTitle: parsed.tableTitle || '',
+            prismTables: parsed.prismTables || [],
+            prismTableCount: Array.isArray(parsed.prismTables) ? parsed.prismTables.length : 0
+          };
+        }
+        if(parsed.prismMeta?.supported === false){
+          throw new Error(parsed.prismMeta.unsupportedReason || 'This Prism table is not supported by Graphitix.');
+        }
         if(!parsed.rows.length){
           throw new Error('PZFX table contained no importable data');
         }
         const result = await applyRows(parsed.rows, { delimiter: '\t' });
         if(result && parsed.prismMeta){
           result.prismMeta = parsed.prismMeta;
+          if(parsed.prismExclusions){
+            result.prismExclusions = parsed.prismExclusions;
+          }
         }
         if(result){
           result.prismTableId = parsed.prismTableId || '';
@@ -2800,17 +3260,71 @@
           const candidateTable = candidate?.table || {};
           const candidateFormat = String(candidateTable?.format || '').toLowerCase();
           const candidateClass = String(candidateTable?.['@class'] || '');
-          const candidateDataFormat = String(candidateTable?.dataFormat || '');
-          let kind = 'column';
-          if(candidateFormat === 'parts_of_whole') kind = 'pie';
-          else if(candidateFormat === 'survival') kind = 'survival';
-          else if(candidateClass === 'XYDataTable' || candidateFormat === 'xy'){
-            kind = candidateDataFormat === 'y_replicates' ? 'line' : 'scatter';
+          const candidateDataFormat = String(candidateTable?.dataFormat || '').toLowerCase();
+          const candidateTableType = normalizePrismTableType(candidateFormat, candidateClass);
+          const candidateSummary = isPrismArchiveSummaryFormat(candidateDataFormat);
+          const candidateReplicates = candidateDataFormat === 'y_replicates'
+            ? Math.max(1, Number(candidateTable?.replicatesCount) || 1)
+            : 1;
+          let candidateXSubcolumnCount = candidateTable?.xDataSet ? 1 : 0;
+          if(candidateTableType === 'xy' && candidateTable?.xDataSet && candidateTable?.uid && !candidateSummary){
+            const candidateCsv = id === dataSheetId
+              ? dataCsv
+              : await readZipText(zip, `data/tables/${candidateTable.uid}/data.csv`);
+            if(candidateCsv != null){
+              const candidateDelimiter = detectDelimiter(candidateCsv, ',');
+              const candidateRows = filterRows(parseDelimitedText(candidateCsv, candidateDelimiter));
+              const candidateMaxCols = candidateRows.reduce((max, row) => Math.max(max, Array.isArray(row) ? row.length : 0), 0);
+              const candidateStride = candidateDataFormat === 'y_replicates'
+                ? candidateReplicates
+                : prismSummarySubcolumnCount(candidateDataFormat);
+              const candidateYCols = (Array.isArray(candidateTable?.dataSets) ? candidateTable.dataSets.length : 0) * candidateStride;
+              candidateXSubcolumnCount = Math.max(1, candidateMaxCols - (candidateTable?.rowTitlesDataSet ? 1 : 0) - candidateYCols);
+            }
+          }
+          const candidateModel = {
+            sourceFormat: 'prism',
+            tableClass: candidateClass,
+            tableType: candidateTableType,
+            dataFormat: candidateDataFormat || 'y_single',
+            summaryFormat: candidateSummary,
+            x: candidateTable?.xDataSet
+              ? { subcolumns: Array.from({ length: candidateXSubcolumnCount }, () => ({})) }
+              : null
+          };
+          let candidateComponent = '';
+          let candidateKind = 'unsupported';
+          const supportIssue = prismCanonicalSupportIssue(candidateModel);
+          if(!supportIssue){
+            if(candidateTableType === 'xy'){
+              candidateComponent = candidateReplicates > 1 ? 'line' : 'scatter';
+              candidateKind = candidateComponent;
+            }else if(candidateTableType === 'column' || candidateTableType === 'grouped'){
+              candidateComponent = 'box';
+              candidateKind = 'column';
+            }else if(candidateTableType === 'survival'){
+              candidateComponent = 'survival';
+              candidateKind = 'survival';
+            }else if(candidateTableType === 'parts_of_whole'){
+              candidateComponent = 'pie';
+              candidateKind = 'pie';
+            }
           }
           return candidate?.table?.uid ? {
             id,
             title: normalizePrismString(candidate?.title || document?.sheetAttributesMap?.[id]?.title || `Table ${index + 1}`),
-            prismMeta: { kind, dataFormat: candidateDataFormat, tableClass: candidateClass }
+            prismMeta: {
+              kind: candidateKind,
+              component: candidateComponent,
+              supported: !supportIssue,
+              unsupportedReason: supportIssue || '',
+              sourceFormat: 'prism',
+              tableType: candidateTableType,
+              tableFormat: candidateTableType === 'grouped' ? 'grouped' : (candidateTableType === 'column' ? 'single' : candidateTableType),
+              dataFormat: candidateDataFormat || 'y_single',
+              tableClass: candidateClass,
+              replicatesCount: candidateReplicates
+            }
           } : null;
         }))).filter(Boolean);
         const readDataSetTitle = async uid => {
@@ -2924,216 +3438,52 @@
             }
           }
         }
-        let prismMeta = null;
-        let importRows = filtered;
-        const isXYTable = tableClass === 'XYDataTable' || tableFormat === 'xy' || tableFormat === 'survival';
-        const isPieTable = tableFormat === 'parts_of_whole';
-        if(isXYTable && dataFormat === 'y_replicates'){
-          const replicateCountRaw = Number(tableInfo?.replicatesCount);
-          const replicatesCount = Number.isFinite(replicateCountRaw) && replicateCountRaw > 0 ? replicateCountRaw : 1;
-          const groupLabels = dataSetTitles.length
-            ? dataSetTitles.slice()
-            : Array.from({ length: Math.max(1, dataSetIds.length || 1) }, (_, idx) => `Series ${idx + 1}`);
-          const header = [prismGraphLabels.xLabel || xTitle || rowTitleLabel || 'X'];
-          groupLabels.forEach(label => {
-            const base = label || 'Series';
-            for(let rep = 0; rep < replicatesCount; rep += 1){
-              header.push(`${base} Rep ${rep + 1}`);
-            }
-          });
-          const xIndex = rowTitlesId ? 1 : 0;
-          const yStart = xIndex + 1;
-          const targetCols = 1 + groupLabels.length * replicatesCount;
-          const dataRows = filtered.map(row => {
-            const src = Array.isArray(row) ? row : [];
-            const out = new Array(targetCols).fill('');
-            out[0] = src[xIndex] ?? '';
-            for(let s = 0; s < groupLabels.length; s += 1){
-              for(let rep = 0; rep < replicatesCount; rep += 1){
-                const srcIdx = yStart + s * replicatesCount + rep;
-                const outIdx = 1 + s * replicatesCount + rep;
-                out[outIdx] = srcIdx < src.length ? src[srcIdx] : '';
-              }
-            }
-            return out;
-          });
-          importRows = [header, ...dataRows];
-          prismMeta = {
-            kind: 'line',
-            dataFormat,
-            tableClass,
-            replicatesCount,
-            groupLabels: groupLabels.slice(),
-            xTitle: prismGraphLabels.xLabel || xTitle || rowTitleLabel || ''
-          };
-          prismDebug('xy.line', { replicatesCount, seriesCount: groupLabels.length, rows: dataRows.length });
-        }else if(isXYTable && tableFormat === 'survival' && dataFormat === 'y_single'){
-          const hasRowTitles = !!rowTitlesId;
-          const xIndex = hasRowTitles ? 1 : 0;
-          const yStart = xIndex + 1;
-          const groupLabels = dataSetTitles.length
-            ? dataSetTitles.slice()
-            : Array.from({ length: Math.max(1, dataSetIds.length || 1) }, (_, idx) => `Group ${idx + 1}`);
-          const survivalRows = [];
-          filtered.forEach(row => {
-            const src = Array.isArray(row) ? row : [];
-            const timeValue = src[xIndex] ?? '';
-            for(let s = 0; s < groupLabels.length; s += 1){
-              const eventValue = src[yStart + s] ?? '';
-              if(isPrismBlankCell(eventValue)){
-                continue;
-              }
-              survivalRows.push([
-                groupLabels[s] || `Group ${s + 1}`,
-                timeValue,
-                eventValue,
-                '',
-                '',
-                '',
-                ''
-              ]);
-            }
-          });
-          importRows = survivalRows;
-          prismMeta = {
-            kind: 'survival',
-            dataFormat,
-            tableClass,
-            seriesCount: groupLabels.length,
-            groupLabels: groupLabels.slice(),
-            xTitle: prismGraphLabels.xLabel || xTitle || 'Time'
-          };
-          prismDebug('xy.survival', { seriesCount: groupLabels.length, rows: survivalRows.length, hasRowTitles });
-        }else if(isXYTable && (dataFormat === 'y_single' || prismSummarySubcolumnCount(dataFormat) > 1)){
-          const hasRowTitles = !!rowTitlesId;
-          const xIndex = hasRowTitles ? 1 : 0;
-          const yStart = xIndex + 1;
-          const seriesCount = Math.max(1, dataSetIds.length || dataSetTitles.length || 1);
-          const seriesStride = prismSummarySubcolumnCount(dataFormat);
-          const headerLabel = rowTitleLabel || 'Labels';
-          const xHeader = prismGraphLabels.xLabel || xTitle || 'X';
-          const yHeader = prismGraphLabels.yLabel || (dataSetTitles[0] || 'Y');
-          const headerRow = [headerLabel, xHeader, yHeader];
-          const scatterRows = [];
-          filtered.forEach(row => {
-            const src = Array.isArray(row) ? row : [];
-            const baseLabel = hasRowTitles ? (src[0] ?? '') : '';
-            for(let s = 0; s < seriesCount; s += 1){
-              const dsLabel = dataSetTitles[s] || '';
-              let label = baseLabel;
-              if(seriesCount > 1 && dsLabel){
-                const trimmedBase = String(baseLabel ?? '').trim();
-                label = trimmedBase ? `${trimmedBase} (${dsLabel})` : dsLabel;
-              }
-              const xValue = src[xIndex] ?? '';
-              const yValue = src[yStart + s * seriesStride] ?? '';
-              scatterRows.push([label ?? '', xValue ?? '', yValue ?? '']);
-            }
-          });
-          importRows = [headerRow, ...scatterRows];
-          prismMeta = {
-            kind: 'scatter',
-            dataFormat,
-            tableClass,
-            seriesCount,
-            xTitle: prismGraphLabels.xLabel || xTitle || rowTitleLabel || '',
-            yTitles: dataSetTitles.slice(),
-            headerRow
-          };
-          prismDebug('xy.scatter', { seriesCount, rows: scatterRows.length, hasRowTitles });
-        }else if(isPieTable && dataFormat === 'y_single'){
-          const hasRowTitles = !!rowTitlesId;
-          const categoryIndex = hasRowTitles ? 0 : -1;
-          const valueStart = hasRowTitles ? 1 : 0;
-          const headerRow = [
-            rowTitleLabel || 'Category',
-            prismGraphLabels.yLabel || dataSetTitles[0] || 'Value',
-            dataSetTitles[1] || 'Expected'
-          ];
-          const pieRows = filtered.map((row, rowIndex) => {
-            const src = Array.isArray(row) ? row : [];
-            const categoryValue = categoryIndex >= 0
-              ? (src[categoryIndex] ?? '')
-              : (`Category ${rowIndex + 1}`);
-            return [
-              categoryValue,
-              src[valueStart] ?? '',
-              src[valueStart + 1] ?? ''
-            ];
-          });
-          importRows = [headerRow, ...pieRows];
-          prismMeta = {
-            kind: 'pie',
-            dataFormat,
-            tableClass,
-            seriesCount: dataSetTitles.length || 1,
-            categoryTitle: rowTitleLabel || 'Category',
-            valueTitles: dataSetTitles.slice()
-          };
-          prismDebug('table.pie', { seriesCount: dataSetTitles.length || 1, rows: pieRows.length, hasRowTitles });
-        }else if(!isXYTable && dataFormat === 'y_replicates' && dataSetIds.length){
-          const replicateCountRaw = Number(tableInfo?.replicatesCount);
-          const replicatesCount = Number.isFinite(replicateCountRaw) && replicateCountRaw > 0 ? replicateCountRaw : 1;
-          const groupLabels = dataSetIds.map((_, index) => dataSetTitles[index] || `Series ${index + 1}`);
-          const header = [];
-          groupLabels.forEach(label => {
-            for(let rep = 0; rep < replicatesCount; rep += 1){
-              header.push(`${label} Rep ${rep + 1}`);
-            }
-          });
-          const dataRows = filtered.map(row => {
-            const source = Array.isArray(row) ? row : [];
-            return rowTitlesId ? source.slice(1) : source.slice();
-          });
-          importRows = [header, ...dataRows];
-          prismMeta = {
-            kind: 'column',
-            dataFormat,
-            tableClass,
-            replicatesCount,
-            seriesCount: groupLabels.length,
-            groupLabels
-          };
-        }else if((tableFormat === 'column' || tableFormat === 'grouped') && dataFormat === 'y_single' && dataSetIds.length){
-          const dataRows = rowTitlesId
-            ? filtered.map(row => Array.isArray(row) ? row.slice(1) : row)
-            : filtered;
-          if(dataSetTitles.some(title => String(title).trim() !== '')){
-            importRows = [dataSetTitles.map(title => title), ...dataRows];
-          }else{
-            importRows = dataRows;
-          }
-          prismMeta = {
-            kind: 'column',
-            dataFormat,
-            tableClass,
-            seriesCount: dataSetTitles.length || dataSetIds.length || 1,
-            groupLabels: dataSetTitles.slice(),
-            graphType: prismPreferredGraphType || '',
-            pointMode: prismPreferredPointMode || ''
-          };
-          prismDebug('table.column', {
-            seriesCount: dataSetTitles.length || dataSetIds.length || 1,
-            rows: filtered.length,
-            graphType: prismPreferredGraphType || '',
-            pointMode: prismPreferredPointMode || ''
-          });
-        }else if(dataSetIds.length){
-          const dataRows = rowTitlesId
-            ? filtered.map(row => Array.isArray(row) ? row.slice(1) : row)
-            : filtered;
-          if(dataSetTitles.some(title => String(title).trim() !== '')){
-            importRows = [dataSetTitles.map(title => title), ...dataRows];
-          }else{
-            importRows = dataRows;
-          }
-        }
+        const canonicalModel = canonicalizePrismArchiveTable({
+          title: sheetTitle,
+          tableInfo,
+          rows: filtered,
+          dataSetTitles,
+          xTitle: prismGraphLabels.xLabel || xTitle,
+          rowTitleLabel,
+          graphType: prismPreferredGraphType || '',
+          pointMode: prismPreferredPointMode || ''
+        });
+        const canonicalBuilt = buildCanonicalPrismImport(canonicalModel);
+        let prismMeta = canonicalBuilt.meta || null;
+        let importRows = canonicalBuilt.rows || [];
+        const prismExclusions = canonicalBuilt.exclusions || null;
+        prismDebug('archive.canonical', {
+          tableType: canonicalModel.tableType,
+          dataFormat: canonicalModel.dataFormat,
+          component: prismMeta?.component || '',
+          adapter: prismMeta?.adapter || '',
+          supported: prismMeta?.supported !== false,
+          rows: importRows.length
+        });
         if(!prismMeta){
           prismMeta = prismTables.find(table => table.id === dataSheetId)?.prismMeta || null;
+        }
+        if(options.inspectPrismOnly === true){
+          return {
+            prismMeta,
+            prismTableId: dataSheetId,
+            prismTableTitle: sheetTitle || '',
+            prismTables,
+            prismTableCount: prismTables.length
+          };
+        }
+        if(prismMeta?.supported === false){
+          throw new Error(prismMeta.unsupportedReason || 'This Prism table is not supported by Graphitix.');
+        }
+        if(!importRows.length){
+          throw new Error('Prism table contained no importable data');
         }
         const result = await applyRows(importRows, { delimiter });
         if(result && prismMeta){
           result.prismMeta = prismMeta;
+          if(prismExclusions){
+            result.prismExclusions = prismExclusions;
+          }
         }
         if(result){
           result.prismTableId = dataSheetId;
@@ -3195,7 +3545,8 @@
       const file = inputEl?.files && inputEl.files[0];
       const tables = Array.isArray(result?.prismTables) ? result.prismTables : [];
       const requestedId = options.prismTableId || inputEl?.dataset?.prismTableId || '';
-      if(result && tables.length > 1 && !requestedId && options.suppressPrismBatch !== true && prismBatchHandler){
+      const prismBatchRoot = options.prismBatchRoot === true || inputEl?.dataset?.prismBatchRoot === 'true';
+      if(result && tables.length > 1 && (!requestedId || prismBatchRoot) && options.suppressPrismBatch !== true && prismBatchHandler){
         await prismBatchHandler(file, result, { inputEl, options });
       }
       return result;

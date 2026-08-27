@@ -52,6 +52,107 @@ test('Box live styles avoid exposed full-frame redraws', async ({ page }) => {
   expect(exposedGap).toBe(false);
 });
 
+test('Box trace border stays independent and meets bar whiskers', async ({ page }) => {
+  test.setTimeout(60_000);
+  await installLocalCdnOverrides(page);
+  await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
+  await openComponentFromWelcome(page, { type: 'box', pageId: 'boxPage' }, { first: true });
+  await page.locator('#boxLoadExample').click();
+  await page.locator('#boxGraphType').selectOption('bar');
+  await page.locator('#boxPointMode').selectOption('overlay');
+  await waitForBoxIdle(page);
+
+  const traceBody = page.locator('#boxSvg [data-box-shape="body"][data-trace="1"]:not([data-summary-line])');
+  const tracePoints = page.locator('#boxSvg g[data-export-layer="box-points"][data-trace="1"] circle');
+  const traceErrorBar = page.locator('#boxSvg [data-box-overlay-kind="bar-error"][data-trace="1"]');
+  await expect(traceBody).toBeVisible();
+  await expect(tracePoints.first()).toBeVisible();
+  await expect(traceErrorBar).toBeVisible();
+  const pointStrokeBefore = await tracePoints.first().getAttribute('stroke');
+  const errorWidthBefore = await traceErrorBar.getAttribute('stroke-width');
+
+  await traceBody.click();
+  const traceControls = page.locator('.box-shape-controls');
+  await expect(traceControls).toBeVisible();
+  await traceControls.locator('.shared-border-style-chip').click();
+  const picker = page.locator('.shared-color-picker[data-visible="1"]');
+  const thicknessInput = picker.locator('input[aria-label="Border thickness"]');
+  await thicknessInput.fill('10');
+  await thicknessInput.press('Enter');
+  const hexInput = picker.locator('.shared-color-picker__hex-input');
+  await hexInput.fill('#0072B2');
+  await hexInput.press('Enter');
+  await waitForBoxIdle(page);
+
+  await expect(traceBody).toHaveAttribute('stroke', '#0072b2');
+  await expect.poll(() => tracePoints.first().getAttribute('stroke')).toBe(pointStrokeBefore);
+  await expect(traceErrorBar).toHaveAttribute('stroke-width', errorWidthBefore);
+  const seamGap = await page.evaluate(() => {
+    const body = document.querySelector('#boxSvg [data-box-shape="body"][data-trace="1"]:not([data-summary-line])');
+    const error = document.querySelector('#boxSvg [data-box-overlay-kind="bar-error"][data-trace="1"]');
+    const bodyBounds = body.getBBox();
+    const errorBounds = error.getBBox();
+    const bodyHalf = Number(body.getAttribute('stroke-width')) / 2;
+    const errorWidth = Number(error.getAttribute('stroke-width'));
+    const capExtension = error.getAttribute('stroke-linecap') === 'square' ? errorWidth / 2 : 0;
+    const visibleBarTop = bodyBounds.y - bodyHalf;
+    const visibleWhiskerBottom = errorBounds.y + errorBounds.height + capExtension;
+    return Math.abs(visibleBarTop - visibleWhiskerBottom);
+  });
+  expect(seamGap).toBeLessThanOrEqual(0.25);
+
+  await page.locator('#boxFlipAxes').check();
+  await waitForBoxIdle(page);
+  const flippedSeamGap = await page.evaluate(() => {
+    const body = document.querySelector('#boxSvg [data-box-shape="body"][data-trace="1"]:not([data-summary-line])');
+    const error = document.querySelector('#boxSvg [data-box-overlay-kind="bar-error"][data-trace="1"]');
+    const bodyBounds = body.getBBox();
+    const errorBounds = error.getBBox();
+    const bodyHalf = Number(body.getAttribute('stroke-width')) / 2;
+    const errorWidth = Number(error.getAttribute('stroke-width'));
+    const capExtension = error.getAttribute('stroke-linecap') === 'square' ? errorWidth / 2 : 0;
+    const visibleBarRight = bodyBounds.x + bodyBounds.width + bodyHalf;
+    const visibleWhiskerLeft = errorBounds.x - capExtension;
+    return Math.abs(visibleBarRight - visibleWhiskerLeft);
+  });
+  expect(flippedSeamGap).toBeLessThanOrEqual(0.25);
+});
+
+test('Box palette and color-mode changes preserve the active graph type', async ({ page }) => {
+  test.setTimeout(60_000);
+  await installLocalCdnOverrides(page);
+  await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
+  await openComponentFromWelcome(page, { type: 'box', pageId: 'boxPage' }, { first: true });
+  await page.locator('#boxLoadExample').click();
+  await waitForBoxIdle(page);
+  await page.locator('#boxGraphType').selectOption('bar');
+  await waitForBoxIdle(page);
+
+  await page.evaluate(() => {
+    const tab = window.Main?.session?.getActiveTab?.() || window.Main?.tabs?.getActiveTab?.();
+    if (!tab?.payload?.config) {
+      throw new Error('Active Box payload is unavailable.');
+    }
+    // Models a stale archive snapshot arriving while the live owner is Bar.
+    tab.payload.config.graphType = 'strip';
+  });
+
+  await page.locator('#boxColorSchemeSelect').selectOption('scientific');
+  await waitForBoxIdle(page);
+  await expect(page.locator('#boxGraphType')).toHaveValue('bar');
+
+  await page.locator('#boxColorIndividual').check();
+  await waitForBoxIdle(page);
+  await expect(page.locator('#boxGraphType')).toHaveValue('bar');
+  await expect(page.locator('#boxSvg [data-box-overlay-kind="bar-error"]')).toHaveCount(6);
+
+  const persistedGraphType = await page.evaluate(() => {
+    const tab = window.Main?.session?.getActiveTab?.() || window.Main?.tabs?.getActiveTab?.();
+    return tab?.payload?.config?.graphType || null;
+  });
+  expect(persistedGraphType).toBe('bar');
+});
+
 test('Box Density samples updates only the violin layer', async ({ page }) => {
   test.setTimeout(60_000);
   await installLocalCdnOverrides(page);

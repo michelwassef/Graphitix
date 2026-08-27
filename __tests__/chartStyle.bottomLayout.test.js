@@ -4,6 +4,13 @@ describe('chartStyle.computeBottomLayout reserve rotated space', () => {
     require('../js/shared/chartStyle.js');
   });
 
+  test('uses the compact shared default tick-label gap', () => {
+    const { chartStyle } = window.Shared;
+    expect(chartStyle.resolveTickLabelGap(12)).toBe(2);
+    expect(chartStyle.resolveTickLabelGap(16)).toBe(3);
+    expect(chartStyle.createAxisMetrics(16).tickLabelGap).toBe(3);
+  });
+
   test('reserveRotatedLabelSpace keeps bottom stable across widths while preserving rotation trigger', () => {
     const { chartStyle } = window.Shared;
     const labels = ['Treatment A', 'Treatment B', 'Treatment C'];

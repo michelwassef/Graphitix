@@ -252,6 +252,20 @@ async function clickBoxHeightHandleWithoutDrag(page) {
   await page.waitForTimeout(250);
 }
 
+async function doubleClickBoxResizeHandle(page) {
+  const handle = page.locator('#boxGraphPanel .svgbox .resizer-corner');
+  await expect(handle).toBeVisible({ timeout: 20_000 });
+  await handle.scrollIntoViewIfNeeded();
+  const beforeToken = await page.evaluate(() => Number(window.Components?.box?.__getState?.()?.drawToken) || 0);
+  await handle.dblclick();
+  await page.waitForFunction(previousToken => {
+    const component = window.Components?.box;
+    const token = Number(component?.__getState?.()?.drawToken) || 0;
+    return token > previousToken && component?.isIdleForSnapshot?.() === true;
+  }, beforeToken, { timeout: 20_000 });
+  await page.waitForTimeout(350);
+}
+
 async function shrinkBoxWidthByHalf(page) {
   const start = await page.evaluate(() => {
     const svgBox = document.querySelector('#boxGraphPanel .svgbox');
@@ -777,6 +791,55 @@ test.describe('Box flip axes with manual resize', () => {
     expect(finalUnflipWithSignificance.overflowMaxPx).toBeLessThanOrEqual(2.5);
     expectOrientationStable(finalUnflipWithSignificance, restoredWithSignificance, {
       label: 'final unflip with significance',
+      axisTolerance: 1.5
+    });
+
+    expect(issues.critical).toEqual([]);
+  });
+
+  test('repeated double-click reset preserves significance reserves in both orientations', async ({ page }) => {
+    const issues = registerIssueCollectors(page);
+    await installLocalCdnOverrides(page);
+
+    await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
+    await expect(page.locator('#welcomeScreen')).toBeVisible();
+    await openComponentFromWelcome(page, { type: 'box', pageId: 'boxPage' }, { first: true });
+    await loadStripExample(page);
+    await computeStatsAndEnableSignificance(page, { expectedFlip: false });
+
+    await doubleClickBoxResizeHandle(page);
+    const unflippedResetA = await page.evaluate(readFlipTransposeMetrics);
+    await doubleClickBoxResizeHandle(page);
+    const unflippedResetB = await page.evaluate(readFlipTransposeMetrics);
+    expect(unflippedResetA.flipAxes).toBe(false);
+    expect(unflippedResetA.significancePathCount).toBeGreaterThan(0);
+    expect(unflippedResetA.significanceViewportExtensionPx).toBeGreaterThan(0);
+    expect(unflippedResetA.overflowMaxPx).toBeLessThanOrEqual(2.5);
+    expectOrientationStable(unflippedResetB, unflippedResetA, {
+      label: 'repeated unflipped double-click reset',
+      axisTolerance: 1.5
+    });
+
+    await setFlipAxes(page, true);
+    const initialFlippedFrame = await page.evaluate(readFlipTransposeMetrics);
+    await dragBoxWidthHandle(page, 120);
+    await dragBoxHeightHandle(page, 80);
+    const manuallyResizedFlippedFrame = await page.evaluate(readFlipTransposeMetrics);
+    expect(Math.abs(manuallyResizedFlippedFrame.svgBoxWidthPx - initialFlippedFrame.svgBoxWidthPx)).toBeGreaterThan(50);
+    expect(Math.abs(manuallyResizedFlippedFrame.svgBoxHeightPx - initialFlippedFrame.svgBoxHeightPx)).toBeGreaterThan(35);
+    await doubleClickBoxResizeHandle(page);
+    const flippedResetA = await page.evaluate(readFlipTransposeMetrics);
+    await doubleClickBoxResizeHandle(page);
+    const flippedResetB = await page.evaluate(readFlipTransposeMetrics);
+    expect(flippedResetA.flipAxes).toBe(true);
+    expect(flippedResetA.significancePathCount).toBeGreaterThan(0);
+    expect(flippedResetA.rightViewportExtensionPx).toBeGreaterThan(0);
+    expect(flippedResetA.overflowMaxPx).toBeLessThanOrEqual(2.5);
+    expectApprox(flippedResetA.svgBoxWidthPx, initialFlippedFrame.svgBoxWidthPx, 2.5, 'flipped reset frame width');
+    expectApprox(flippedResetA.svgBoxHeightPx, initialFlippedFrame.svgBoxHeightPx, 2.5, 'flipped reset frame height');
+    expectApprox(flippedResetA.svgBoxAspectRatio, initialFlippedFrame.svgBoxAspectRatio, 0.02, 'flipped reset frame ratio');
+    expectOrientationStable(flippedResetB, flippedResetA, {
+      label: 'repeated flipped double-click reset',
       axisTolerance: 1.5
     });
 

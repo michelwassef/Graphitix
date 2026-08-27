@@ -1090,6 +1090,7 @@
       plotDiv: null,
       statsResults: null,
       statsControls: null,
+      statsAdvisor: null,
       renderRow: null,
       renderButton: null,
       autoDrawNotice: null,
@@ -1099,6 +1100,7 @@
       fontSizeVal: null,
       showLegend: null,
       showComparisonOnPlot: null,
+      showComparisonOnPlotLabel: null,
       graphType: null,
       positiveClass: null,
       negativeClass: null,
@@ -1228,7 +1230,7 @@
     }
     session.componentKey = 'roc';
     session.tabId = String(session.tabId || '').trim();
-    session.root = session.root || null;
+    session.root = normalizeRocRefValue(session.root) || null;
     session.state = createDefaultRocDurableState(session.state || {});
     session.results = createDefaultRocResultsState(session.results || {
       statsPanelModel: session.state.statsPanelModel,
@@ -1236,8 +1238,8 @@
       diffMethod: session.state.diffMethod,
       compareResult: session.state.compareResult
     });
-    session.refs = session.refs && typeof session.refs === 'object' ? session.refs : createDefaultRocRefs(session.root || null);
-    session.refs.root = session.refs.root || session.root || null;
+    session.refs = createRocRefsSnapshot(session.refs && typeof session.refs === 'object' ? session.refs : createDefaultRocRefs(session.root || null));
+    session.refs.root = normalizeRocRefValue(session.refs.root) || session.root || null;
     session.cache = session.cache && typeof session.cache === 'object' ? session.cache : {};
     if(!Object.prototype.hasOwnProperty.call(session.cache, 'render')){ session.cache.render = null; }
     if(!Object.prototype.hasOwnProperty.call(session.cache, 'emptyPayloadTemplate')){ session.cache.emptyPayloadTemplate = null; }
@@ -1272,7 +1274,11 @@
     }
     let session = rocSessionsByTabId.get(tabId) || null;
     if(!session && options.create !== false){
-      session = createRocSession({ tabId, root: resolveRocRoot(tabId || null) || null });
+      const projectedTabId = String(getRocProjectionTabId() || '').trim();
+      session = createRocSession({
+        tabId,
+        root: projectedTabId === tabId ? (normalizeRocRefValue(refs.root) || resolveRocRoot(tabId) || null) : null
+      });
       rocSessionsByTabId.set(tabId, session);
     }
     return ensureRocSessionOwnershipShape(session);
@@ -1354,7 +1360,7 @@
       captureRocSessionStateFromActive(targetSession, {
         ...(meta || {}),
         reason: meta?.reason || 'deactivate-tab',
-        captureStatsPanel: false
+        captureStatsPanel: true
       });
     }
     return targetSession;
@@ -1366,12 +1372,14 @@
     if(shaped.tabId && !isRocSessionActive(shaped)){
       return shaped;
     }
-    shaped.root = refs.root || shaped.root || state.root || null;
-    shaped.refs = Object.assign(createDefaultRocRefs(shaped.root || null), shaped.refs || {}, refs || {});
-    shaped.refs.root = refs.root || shaped.refs.root || shaped.root || state.root || null;
-    shaped.refs.notesControl = canUseRocNotesControl(notesState.control) ? notesState.control : null;
-    shaped.refs.legendControl = rocLegendControl || shaped.refs.legendControl || null;
-    shaped.updatedAt = Date.now();
+    const snapshot = createRocRefsSnapshot({
+      ...shaped.refs,
+      ...refs,
+      root: normalizeRocRefValue(refs.root) || shaped.root || state.root || null,
+      notesControl: canUseRocNotesControl(notesState.control) ? notesState.control : null,
+      legendControl: rocLegendControl || shaped.refs?.legendControl || null
+    });
+    setRocSessionRefs(shaped, snapshot, { applyActive: false });
     return shaped;
   }
 
@@ -1390,10 +1398,12 @@
     if(typeof ensureElements === 'function'){
       ensureElements();
     }
-    shaped.root = refs.root || state.root || shaped.root || null;
-    shaped.refs = Object.assign(createDefaultRocRefs(shaped.root || null), shaped.refs || {}, refs || {});
-    shaped.refs.root = refs.root || shaped.root || null;
-    shaped.updatedAt = Date.now();
+    const snapshot = createRocRefsSnapshot({
+      ...shaped.refs,
+      ...refs,
+      root: normalizeRocRefValue(refs.root) || state.root || shaped.root || null
+    });
+    setRocSessionRefs(shaped, snapshot, { applyActive: false });
     console.debug('Debug: roc active DOM refs refreshed for owner session', {
       tabId: shaped.tabId || null,
       reason: meta?.reason || null,
@@ -1750,7 +1760,14 @@
     if(meta.syncControls !== false){
       syncRocRuntimeControlsFromDom();
     }
-    const statsPanelModel = createDefaultRocStatsPanelModel(state.statsPanelModel || {});
+    const storedStatsPanelModel = selectRocStatsPanelModel(
+      shaped.results?.statsPanelModel,
+      shaped.state?.statsPanelModel,
+      state.statsPanelModel
+    );
+    const statsPanelModel = meta.captureStatsPanel === true
+      ? captureRocStatsPanelModel(storedStatsPanelModel, { session: shaped })
+      : createDefaultRocStatsPanelModel(storedStatsPanelModel);
     shaped.state = createDefaultRocDurableState({
       borderWidth: state.borderWidth,
       labelColors: state.labelColors,
@@ -1847,10 +1864,10 @@
     setRocAdvisorState(shaped.advisor || {}, shaped);
     if(options.syncUi !== false){
       syncRocRuntimeControlsFromState(state.controls);
-      renderStatsControls();
+      renderStatsControls({ session: shaped });
       populateRocCompareOptions(getRocSeriesNamesFromHot());
       restoreRocCompareResultControl();
-      restoreRocStatsPanelModel(state.statsPanelModel);
+      restoreRocStatsPanelModel(state.statsPanelModel, { session: shaped });
     }
     if(rocAutoDrawManager && options.syncUi !== false){
       rocAutoDrawManager.setElements?.({
@@ -1873,7 +1890,7 @@
     if(projectedRocSession && projectedRocSession.tabId && projectedRocSession.tabId !== tabId){
       captureRocSessionStateFromActive(projectedRocSession, {
         reason: meta?.reason || 'roc-session-switch-capture',
-        captureStatsPanel: false
+        captureStatsPanel: true
       });
     }
     const session = getRocSession(tabId, { ...(meta || {}), tabId, reason: meta?.reason || 'roc-session-bind' }, { create: true });
@@ -1967,6 +1984,71 @@
       currentRoot: state.root,
       staticRootId: 'rocPage'
     }) || null;
+  }
+
+  function resolveRocOwnedRoot(tabLike = null, options = {}){
+    const tabId = normalizeRocSessionTabId(tabLike || options.tabId || null, { tabId: options.tabId || null });
+    if(tabId){
+      const mountedRoot = normalizeRocRefValue(Shared.workspaceTabs?.getMountedRoot?.(tabId, 'roc') || null);
+      if(mountedRoot){
+        return mountedRoot;
+      }
+      const session = rocSessionsByTabId.get(tabId) || null;
+      const sessionRoot = normalizeRocRefValue(session?.refs?.root || session?.root || null);
+      if(sessionRoot){
+        const rootTabId = String(getRocTabIdFromTarget(sessionRoot) || '').trim();
+        if(rootTabId === tabId || (!rootTabId && String(getRocProjectionTabId() || '') === tabId)){
+          return sessionRoot;
+        }
+      }
+      return null;
+    }
+    if(options.allowProjected === false){
+      return null;
+    }
+    return normalizeRocRefValue(refs.root || state.root || null) || resolveRocRoot(null) || null;
+  }
+
+  function getRocOwnedNodeById(id, tabLike = null, options = {}){
+    if(!id){
+      return null;
+    }
+    const root = resolveRocOwnedRoot(tabLike, options);
+    if(root?.getElementById){
+      const byId = root.getElementById(id);
+      if(byId){
+        return byId;
+      }
+    }
+    return root?.querySelector?.(`#${id}`) || null;
+  }
+
+  function resolveRocStatsRefsForSession(session = null, options = {}){
+    const shaped = ensureRocSessionOwnershipShape(session || getActiveRocSessionForState());
+    const baseRefs = resolveRocRefsContext(shaped, { ...options, allowFallback: !shaped });
+    if(!shaped){
+      return baseRefs;
+    }
+    const ownerRoot = normalizeRocRefValue(options.root)
+      || resolveRocOwnedRoot(shaped.tabId || null, { allowProjected: isRocSessionActive(shaped) })
+      || null;
+    const statsResults = ownerRoot?.querySelector?.('#rocStatsResults') || null;
+    const statsControls = ownerRoot?.querySelector?.('#rocStatsControls') || null;
+    const statsAdvisor = ownerRoot?.querySelector?.('#rocStatsAdvisor') || null;
+    const snapshot = createRocRefsSnapshot({
+      ...baseRefs,
+      root: ownerRoot,
+      statsResults,
+      statsControls,
+      statsAdvisor
+    });
+    // Resolving an owner's stats surface must never mutate the projected refs.
+    // Keep the owner session's snapshot current, but leave active projection
+    // replacement to the normal activation/DOM-binding path.
+    shaped.refs = snapshot;
+    shaped.root = ownerRoot || shaped.root || null;
+    shaped.updatedAt = Date.now();
+    return snapshot;
   }
 
   function queryRocRoot(selector, tabLike){
@@ -2164,6 +2246,63 @@
   };
 
   const refs = {};
+
+  function normalizeRocRefValue(value){
+    if(!value){
+      return null;
+    }
+    if(value && typeof value === 'object' && value.nodeType && value.isConnected === false){
+      return null;
+    }
+    return value;
+  }
+
+  function createRocRefsSnapshot(source = {}){
+    const defaults = createDefaultRocRefs();
+    const src = source && typeof source === 'object' ? source : {};
+    Object.keys(defaults).forEach(key => {
+      defaults[key] = normalizeRocRefValue(src[key]) || null;
+    });
+    return defaults;
+  }
+
+  function replaceActiveRocRefs(source = {}){
+    const snapshot = createRocRefsSnapshot(source);
+    Object.keys(snapshot).forEach(key => {
+      refs[key] = snapshot[key] || null;
+    });
+    return snapshot;
+  }
+
+  function getRocSessionRefs(session = null, options = {}){
+    const shaped = ensureRocSessionOwnershipShape(session);
+    if(shaped){
+      return createRocRefsSnapshot(shaped.refs);
+    }
+    return options.allowFallback === false ? null : createRocRefsSnapshot(refs);
+  }
+
+  function resolveRocRefsContext(session = null, options = {}){
+    if(options.refs && typeof options.refs === 'object'){
+      return createRocRefsSnapshot(options.refs);
+    }
+    return getRocSessionRefs(session || getActiveRocSessionForState(), options) || createRocRefsSnapshot({});
+  }
+
+  function setRocSessionRefs(session = null, source = {}, options = {}){
+    const shaped = ensureRocSessionOwnershipShape(session);
+    const snapshot = createRocRefsSnapshot(source);
+    if(shaped){
+      shaped.refs = snapshot;
+      shaped.root = snapshot.root || null;
+      shaped.updatedAt = Date.now();
+    }
+    if(!shaped || isRocSessionActive(shaped) || options.applyActive === true){
+      replaceActiveRocRefs(snapshot);
+    }
+    return snapshot;
+  }
+
   function createDefaultRocRuntimeControls(){
     return { graphType: 'roc', showGrid: false, showFrame: true, showLegend: true, showComparisonOnPlot: false, fontSize: '12' };
   }
@@ -2397,27 +2536,32 @@
     return setup;
   }
 
-  function ensureRocStatsReportHost(){
+  function ensureRocStatsReportHost(options = {}){
     const reporting = Shared.statsReporting;
-    if(!refs.statsResults || !reporting || typeof reporting.ensureReportHost !== 'function'){
-      return refs.statsResults?.__statsReportHost || null;
+    const rocRefs = resolveRocStatsRefsForSession(options.session || null, options);
+    const statsResults = rocRefs.statsResults || null;
+    if(!statsResults || !reporting || typeof reporting.ensureReportHost !== 'function'){
+      return statsResults?.__statsReportHost || null;
     }
-    return reporting.ensureReportHost(refs.statsResults, {
+    return reporting.ensureReportHost(statsResults, {
       id: 'rocStatsReportHost',
       className: 'stats-report-host',
       attachToTarget: true,
       position: 'last'
     });
   }
-  function clearRocStatsReportHost(){
+
+  function clearRocStatsReportHost(options = {}){
     const reporting = Shared.statsReporting;
+    const rocRefs = resolveRocStatsRefsForSession(options.session || null, options);
     if(reporting && typeof reporting.clearReportHost === 'function'){
-      reporting.clearReportHost(refs.statsResults);
+      reporting.clearReportHost(rocRefs.statsResults || null);
     }
   }
 
-  function pinRocStatsReportAfterMetrics(target = null){
-    const root = target || refs.statsResults;
+  function pinRocStatsReportAfterMetrics(target = null, options = {}){
+    const rocRefs = target ? null : resolveRocStatsRefsForSession(options.session || null, options);
+    const root = target || rocRefs?.statsResults || null;
     if(!root || typeof root.appendChild !== 'function'){
       return false;
     }
@@ -2443,13 +2587,19 @@
     return moved;
   }
 
-  function scheduleRocStatsReportOrderPin(){
-    const run = () => pinRocStatsReportAfterMetrics(getRocNodeById('rocStatsResults') || refs.statsResults || null);
-    const ownerTabId = getRocProjectionTabId() || getActiveRocSessionForState()?.tabId || null;
+  function scheduleRocStatsReportOrderPin(options = {}){
+    const session = ensureRocSessionOwnershipShape(options.session || getActiveRocSessionForState());
+    const rocRefs = resolveRocStatsRefsForSession(session, options);
+    const statsResults = rocRefs.statsResults || null;
+    if(!statsResults){
+      return false;
+    }
+    const ownerTabId = session?.tabId || normalizeRocSessionTabId(options.tabId || null, { tabId: options.tabId || null }) || null;
+    const run = () => pinRocStatsReportAfterMetrics(statsResults, { ...options, session, refs: rocRefs });
     run();
     if(!ownerTabId || !Shared.componentLifecycle?.scheduleComponentFrame || !Shared.componentLifecycle?.scheduleComponentTimeout){
       run();
-      return;
+      return true;
     }
     Shared.componentLifecycle.scheduleComponentFrame(roc, 'roc', {
       tabId: ownerTabId,
@@ -2461,6 +2611,7 @@
         reason: 'roc-stats-report-pin-timeout'
       }, run, delay);
     });
+    return true;
   }
 
   function normalizeRocStatsPanelModel(source = {}){
@@ -2471,29 +2622,81 @@
     return { resultsModel: cloneSimple(src.resultsModel) || null, reportModel: cloneSimple(src.reportModel) || null };
   }
 
-  function captureRocStatsPanelModel(fallback = null){
-    const previous = normalizeRocStatsPanelModel(fallback || state.statsPanelModel || {});
-    if(!refs.statsResults || !Shared.statsReporting || typeof Shared.statsReporting.capturePanelModel !== 'function'){
-      return previous;
+  function captureRocStatsPanelModel(fallback = null, options = {}){
+    const session = ensureRocSessionOwnershipShape(options.session || getActiveRocSessionForState());
+    const rocRefs = resolveRocStatsRefsForSession(session, options);
+    const previous = selectRocStatsPanelModel(
+      fallback,
+      session?.results?.statsPanelModel,
+      session?.state?.statsPanelModel,
+      session && isRocSessionActive(session) ? state.statsPanelModel : null
+    );
+    let captured = null;
+    if(rocRefs.statsResults && Shared.statsReporting && typeof Shared.statsReporting.capturePanelModel === 'function'){
+      try{
+        captured = Shared.statsReporting.capturePanelModel(rocRefs.statsResults);
+      }catch(err){
+        console.debug('Debug: roc stats panel capture failed', {
+          tabId: session?.tabId || null,
+          err: err?.message || String(err)
+        });
+      }
     }
-    state.statsPanelModel = normalizeRocStatsPanelModel(Shared.statsReporting.capturePanelModel(refs.statsResults) || previous);
-    const session = getActiveRocSessionForState();
+    const normalizedCaptured = normalizeRocStatsPanelModel(captured);
+    const normalized = rocStatsPanelModelHasContent(normalizedCaptured)
+      ? normalizedCaptured
+      : previous;
     if(session){
-      session.state.statsPanelModel = createDefaultRocStatsPanelModel(state.statsPanelModel);
+      session.state.statsPanelModel = createDefaultRocStatsPanelModel(normalized);
       session.results = createDefaultRocResultsState({
         statsPanelModel: session.state.statsPanelModel,
-        compareSelection: state.compareSelection || state.compareSel?.value || null,
-        diffMethod: state.diffMethod,
-        compareResult: state.compareResultModel
+        compareSelection: session.results?.compareSelection || session.state.compareSelection || state.compareSelection || state.compareSel?.value || null,
+        diffMethod: session.results?.diffMethod || session.state.diffMethod || state.diffMethod,
+        compareResult: session.results?.compareResult || session.state.compareResult || state.compareResultModel
       });
       session.updatedAt = Date.now();
+      if(isRocSessionActive(session)){
+        state.statsPanelModel = createDefaultRocStatsPanelModel(normalized);
+      }
+    }else{
+      state.statsPanelModel = createDefaultRocStatsPanelModel(normalized);
     }
-    return state.statsPanelModel;
+    return normalized;
   }
 
   function rocStatsPanelModelHasContent(model){
     const normalized = normalizeRocStatsPanelModel(model);
+    // Shared capturePanelModel() always returns an object, including for an
+    // empty/transient panel. The durable ROC contract only needs to reject
+    // that empty { resultsModel:null, reportModel:null } capture. Do not
+    // reinterpret the nested stats model here: ROC may persist valid shared
+    // or fallback node shapes that are not limited to Line's table/card forms.
     return !!(normalized.resultsModel || normalized.reportModel);
+  }
+
+  function selectRocStatsPanelModel(...sources){
+    let fallback = null;
+    for(const source of sources){
+      if(!source || typeof source !== 'object'){
+        continue;
+      }
+      const normalized = normalizeRocStatsPanelModel(source);
+      fallback = fallback || normalized;
+      if(rocStatsPanelModelHasContent(normalized)){
+        return normalized;
+      }
+    }
+    return fallback || createDefaultRocStatsPanelModel();
+  }
+
+  function rocStatsPanelHasRenderedResults(options = {}){
+    const session = ensureRocSessionOwnershipShape(options.session || getActiveRocSessionForState());
+    const rocRefs = resolveRocStatsRefsForSession(session, options);
+    const statsResults = rocRefs.statsResults || null;
+    if(!statsResults || typeof statsResults.querySelector !== 'function'){
+      return false;
+    }
+    return !!statsResults.querySelector('.stats-table-card, table, .stats-report-panel, .stats-assumption-container');
   }
 
   function setRocStatsPanelPValueScientific(model, scientific){
@@ -2528,11 +2731,24 @@
     if(!session){
       return false;
     }
-    const isActiveOwner = !normalizedTabId || isRocSessionActive(session);
-    const captured = isActiveOwner && refs.statsResults && Shared.statsReporting?.capturePanelModel
-      ? Shared.statsReporting.capturePanelModel(refs.statsResults)
-      : null;
-    const sourceModel = captured || session.results?.statsPanelModel || session.state?.statsPanelModel || state.statsPanelModel;
+    const rocRefs = resolveRocStatsRefsForSession(session, { tabId: normalizedTabId || session.tabId || null });
+    let captured = null;
+    if(rocRefs.statsResults && Shared.statsReporting?.capturePanelModel){
+      try{
+        captured = Shared.statsReporting.capturePanelModel(rocRefs.statsResults);
+      }catch(err){
+        console.debug('Debug: roc stats p-value format capture failed', {
+          tabId: session.tabId || null,
+          err: err?.message || String(err)
+        });
+      }
+    }
+    const sourceModel = selectRocStatsPanelModel(
+      captured,
+      session.results?.statsPanelModel,
+      session.state?.statsPanelModel,
+      isRocSessionActive(session) ? state.statsPanelModel : null
+    );
     const normalized = setRocStatsPanelPValueScientific(sourceModel, scientific);
     session.state.statsPanelModel = createDefaultRocStatsPanelModel(normalized);
     session.results = createDefaultRocResultsState({
@@ -2542,7 +2758,7 @@
       compareResult: session.results?.compareResult || null
     });
     session.updatedAt = Date.now();
-    if(isActiveOwner){
+    if(isRocSessionActive(session)){
       state.statsPanelModel = createDefaultRocStatsPanelModel(normalized);
     }
     return true;
@@ -2566,33 +2782,49 @@
     rocStatsPValueFormatEventBound = true;
   }
 
-  function restoreRocStatsPanelModel(model){
+  function restoreRocStatsPanelModel(model, options = {}){
     const normalized = normalizeRocStatsPanelModel(model);
-    if(!refs.statsResults || !rocStatsPanelModelHasContent(normalized) || !Shared.statsReporting || typeof Shared.statsReporting.restorePanelModel !== 'function'){
+    const session = ensureRocSessionOwnershipShape(options.session || getActiveRocSessionForState());
+    const rocRefs = resolveRocStatsRefsForSession(session, options);
+    const statsResults = rocRefs.statsResults || null;
+    if(!statsResults || !rocStatsPanelModelHasContent(normalized) || !Shared.statsReporting || typeof Shared.statsReporting.restorePanelModel !== 'function'){
       return false;
     }
-    Shared.statsReporting.restorePanelModel(refs.statsResults, normalized, {
-      ensureReportHost: () => ensureRocStatsReportHost(),
-      clearMainWhenMissing: false
-    });
-    ensureRocStatsReportHost();
-    if(typeof Shared.statsReporting.pinReportHostLast === 'function'){
-      Shared.statsReporting.pinReportHostLast(refs.statsResults);
+    let restoreOutcome = null;
+    try{
+      restoreOutcome = Shared.statsReporting.restorePanelModel(statsResults, normalized, {
+        ensureReportHost: () => ensureRocStatsReportHost({ ...options, session, refs: rocRefs }),
+        clearMainWhenMissing: false
+      });
+      ensureRocStatsReportHost({ ...options, session, refs: rocRefs });
+      if(typeof Shared.statsReporting.pinReportHostLast === 'function'){
+        Shared.statsReporting.pinReportHostLast(statsResults);
+      }
+      scheduleRocStatsReportOrderPin({ ...options, session, refs: rocRefs });
+    }catch(err){
+      console.debug('Debug: roc stats panel restore failed', {
+        tabId: session?.tabId || null,
+        err: err?.message || String(err)
+      });
+      return false;
     }
-    scheduleRocStatsReportOrderPin();
-    state.statsPanelModel = normalized;
-    const session = getActiveRocSessionForState();
     if(session){
       session.state.statsPanelModel = createDefaultRocStatsPanelModel(normalized);
       session.results = createDefaultRocResultsState({
         statsPanelModel: session.state.statsPanelModel,
-        compareSelection: state.compareSelection || state.compareSel?.value || null,
-        diffMethod: state.diffMethod,
-        compareResult: state.compareResultModel
+        compareSelection: session.results?.compareSelection || session.state.compareSelection || null,
+        diffMethod: session.results?.diffMethod || session.state.diffMethod || 'delong',
+        compareResult: session.results?.compareResult || session.state.compareResult || null
       });
       session.updatedAt = Date.now();
+      if(isRocSessionActive(session)){
+        state.statsPanelModel = createDefaultRocStatsPanelModel(normalized);
+      }
+    }else{
+      state.statsPanelModel = createDefaultRocStatsPanelModel(normalized);
     }
-    return true;
+    const restoredBySharedModel = restoreOutcome?.restoredMain === true || restoreOutcome?.restoredReport === true;
+    return restoredBySharedModel || rocStatsPanelHasRenderedResults({ ...options, session, refs: rocRefs });
   }
 
   function commitRocCompareStateToSession(session = null, patch = {}){
@@ -2622,6 +2854,47 @@
     shaped.updatedAt = Date.now();
     return shaped.results;
   }
+  function persistRocDerivedResultsToOwnerPayload(session = null, reason = 'roc-draw-results-published'){
+    const shaped = ensureRocSessionOwnershipShape(session);
+    const tabId = String(shaped?.tabId || '').trim();
+    const sessionApi = global.Main?.session || null;
+    const tabs = Array.isArray(sessionApi?.workspaceState?.tabs) ? sessionApi.workspaceState.tabs : [];
+    const tab = tabId ? (tabs.find(item => item && String(item.id || '').trim() === tabId) || null) : null;
+    if(!shaped || !tab || tab.type !== 'roc' || typeof sessionApi?.updateTabPayload !== 'function'){
+      return false;
+    }
+    const panelModel = selectRocStatsPanelModel(
+      shaped.results?.statsPanelModel,
+      shaped.state?.statsPanelModel
+    );
+    const statsPatch = {
+      diffMethod: shaped.results?.diffMethod || shaped.state?.diffMethod || 'delong',
+      singleRocPMethod: normalizeSingleRocPMethod(shaped.state?.singleRocPMethod),
+      resamplingSeed: normalizeRocResamplingSeed(shaped.state?.resamplingSeed, ROC_RESAMPLING_DEFAULT_SEED),
+      resamplingIterations: normalizeRocResamplingIterations(shaped.state?.resamplingIterations, ROC_RESAMPLING_DEFAULT_ITERATIONS),
+      compareSelection: shaped.results?.compareSelection || shaped.state?.compareSelection || null,
+      compareResult: normalizeRocCompareResultModel(shaped.results?.compareResult || shaped.state?.compareResult || null),
+      analysisSignature: shaped.state?.analysisSignature || '',
+      statsPanelSignature: shaped.state?.statsPanelSignature || '',
+      advisor: createDefaultRocAdvisorState(getRocAdvisorState(shaped)),
+      resultsModel: panelModel.resultsModel || null,
+      reportModel: panelModel.reportModel || null
+    };
+    return sessionApi.updateTabPayload(tab, draft => {
+      const next = draft && typeof draft === 'object' ? draft : { type: 'roc' };
+      next.type = 'roc';
+      next.stats = {
+        ...(next.stats && typeof next.stats === 'object' ? next.stats : {}),
+        ...cloneSimple(statsPatch)
+      };
+      return next;
+    }, {
+      reason: reason || 'roc-draw-results-published',
+      origin: 'system',
+      renderEquivalent: true
+    });
+  }
+
   let rocLegendControl = null;
   const rocOverlayController = Shared.loadingOverlay?.createPendingController?.({
     component: 'roc',
@@ -3113,6 +3386,7 @@
     refs.statsResults = getRocNodeById('rocStatsResults');
     ensureRocStatsReportHost();
     refs.statsControls = getRocNodeById('rocStatsControls');
+    refs.statsAdvisor = getRocNodeById('rocStatsAdvisor');
     ensureRocStatsInferenceControls();
     refs.renderRow = getRocNodeById('rocRenderRow');
     refs.renderButton = getRocNodeById('rocRenderButton');
@@ -3123,6 +3397,7 @@
     refs.fontSizeVal = getRocNodeById('rocFontSizeVal');
     refs.showLegend = getRocNodeById('rocShowLegend');
     refs.showComparisonOnPlot = getRocNodeById('rocShowComparisonOnPlot');
+    refs.showComparisonOnPlotLabel = getRocNodeById('rocShowComparisonOnPlotLabel');
     if(refs.showLegend){
       const legendHost = refs.showLegend.closest('label');
       if(legendHost){
@@ -3334,25 +3609,29 @@
   }
 
   function clearPlotArea(reason, options = {}){
+    const session = ensureRocSessionOwnershipShape(options.session || getActiveRocSessionForState());
+    const rocRefs = resolveRocStatsRefsForSession(session, options);
+    const plotDiv = rocRefs.plotDiv || null;
+    const statsResults = rocRefs.statsResults || null;
     const noticeMessage = Object.prototype.hasOwnProperty.call(options, 'message')
       ? options.message
       : (Shared.getEmptyPlotNoticeMessage ? Shared.getEmptyPlotNoticeMessage() : 'Add data to the input table to generate a plot.');
-    if(refs.plotDiv){
+    if(plotDiv){
       if(typeof Shared.renderPlotNotice === 'function'){
-        Shared.renderPlotNotice(refs.plotDiv, noticeMessage, { resetAspect: true, show: true });
+        Shared.renderPlotNotice(plotDiv, noticeMessage, { resetAspect: true, show: true });
       }else{
-        while(refs.plotDiv.firstChild){
-          refs.plotDiv.removeChild(refs.plotDiv.firstChild);
+        while(plotDiv.firstChild){
+          plotDiv.removeChild(plotDiv.firstChild);
         }
-        refs.plotDiv.style.display = 'block';
+        plotDiv.style.display = 'block';
         const notice = document.createElement('i');
         notice.textContent = noticeMessage;
-        refs.plotDiv.appendChild(notice);
+        plotDiv.appendChild(notice);
       }
     }
-    if(refs.statsResults){
-      clearRocStatsReportHost();
-      refs.statsResults.textContent = '';
+    if(statsResults){
+      clearRocStatsReportHost({ ...options, session, refs: rocRefs });
+      statsResults.textContent = '';
     }
     if(state.compareSel){
       state.compareSel.innerHTML = '';
@@ -3380,8 +3659,10 @@
   }
 
   // PART: ADVISOR
-  function buildRocAdvisorContext(raw){
-    const graphType=(refs.graphType?.value || raw?.graphType || 'roc').toLowerCase();
+  function buildRocAdvisorContext(raw, options = {}){
+    const session = ensureRocSessionOwnershipShape(options.session || getActiveRocSessionForState());
+    const rocRefs = resolveRocRefsContext(session, options);
+    const graphType=(rocRefs.graphType?.value || raw?.graphType || session?.state?.controls?.graphType || 'roc').toLowerCase();
     const positives=Number.isFinite(raw?.positives)?raw.positives:0;
     const negatives=Number.isFinite(raw?.negatives)?raw.negatives:0;
     const pairCounts=Array.isArray(raw?.pairCounts)?raw.pairCounts:[];
@@ -3394,7 +3675,7 @@
       seriesCount: Number.isFinite(raw?.seriesCount)?raw.seriesCount:0,
       minPairs,
       pairCounts,
-      diffMethod: state.diffMethod
+      diffMethod: session?.results?.diffMethod || session?.state?.diffMethod || state.diffMethod
     };
   }
 
@@ -3441,7 +3722,7 @@
       summary:'',
       rationale:[],
       warnings:[],
-      diffMethod:state.diffMethod || 'delong'
+      diffMethod:context?.diffMethod || state.diffMethod || 'delong'
     };
     if(!answers.methodChoice){
       recommendation.message='Answer the advisor question to receive a recommendation.';
@@ -3475,14 +3756,15 @@
     return recommendation;
   }
 
-  function renderRocStatsAdvisor(rawContext){
-    const container = getRocNodeById('rocStatsAdvisor');
+  function renderRocStatsAdvisor(rawContext, options = {}){
+    const session = ensureRocSessionOwnershipShape(options.session || getActiveRocSessionForState());
+    const rocRefs = resolveRocStatsRefsForSession(session, options);
+    const container = rocRefs.statsAdvisor || null;
     if(!container){
       return;
     }
-    const session = getActiveRocSessionForState();
     const advisorState = getRocAdvisorState(session);
-    const context=buildRocAdvisorContext(rawContext || advisorState.context || {});
+    const context=buildRocAdvisorContext(rawContext || advisorState.context || {}, { ...options, session, refs: rocRefs });
     advisorState.context=context;
     const answers=ensureRocAdvisorDefaults(context, advisorState);
     setRocAdvisorState(advisorState, session);
@@ -3510,14 +3792,16 @@
           }
           console.debug('Debug: roc statsAdvisor toggled',{ open:advisorState.open });
           setRocAdvisorState(advisorState, session);
-          renderRocStatsAdvisor(advisorState.context);
+          persistRocTabState('roc-stats-advisor-toggle', session);
+          renderRocStatsAdvisor(advisorState.context, { ...options, session, refs: rocRefs });
         },
         onAnswerChange: (question, value)=>{
           answers[question.id]=value;
           advisorState.answers=answers;
           console.debug('Debug: roc statsAdvisor answer change',{ question:question.id, value });
           setRocAdvisorState(advisorState, session);
-          renderRocStatsAdvisor(advisorState.context);
+          persistRocTabState('roc-stats-advisor-answer', session);
+          renderRocStatsAdvisor(advisorState.context, { ...options, session, refs: rocRefs });
         },
         onApply: ()=>{
           if(!recommendation.ready){
@@ -3526,18 +3810,19 @@
           state.diffMethod=recommendation.diffMethod;
           state.compareResultModel=null;
           commitRocCompareStateToSession(session, { diffMethod: state.diffMethod, compareResult: null });
-          renderStatsControls();
-          scheduleRocDrawForSession(session, { reason: 'roc-stats-advisor-apply', tabId: session?.tabId || undefined });
           advisorState.lastApplied={ ...recommendation };
           console.debug('Debug: roc statsAdvisor applied',{ diffMethod:recommendation.diffMethod, answers:{ ...answers } });
           setRocAdvisorState(advisorState, session);
-          renderRocStatsAdvisor(advisorState.context);
+          persistRocTabState('roc-stats-advisor-apply', session);
+          renderStatsControls({ ...options, session });
+          scheduleRocDrawForSession(session, { reason: 'roc-stats-advisor-apply', tabId: session?.tabId || undefined });
         },
         onReset: ()=>{
           advisorState.answers={};
           console.debug('Debug: roc statsAdvisor reset');
           setRocAdvisorState(advisorState, session);
-          renderRocStatsAdvisor(advisorState.context);
+          persistRocTabState('roc-stats-advisor-reset', session);
+          renderRocStatsAdvisor(advisorState.context, { ...options, session, refs: rocRefs });
         }
       });
       return;
@@ -3564,7 +3849,8 @@
         }
         console.debug('Debug: roc statsAdvisor toggled',{ open:advisorState.open });
         setRocAdvisorState(advisorState, ownerSession || session);
-        renderRocStatsAdvisor(advisorState.context);
+        persistRocTabState('roc-stats-advisor-toggle', ownerSession || session);
+        renderRocStatsAdvisor(advisorState.context, { ...options, session: ownerSession || session, refs: rocRefs });
       });
     });
     header.appendChild(toggle);
@@ -3640,7 +3926,8 @@
               advisorState.answers=answers;
               console.debug('Debug: roc statsAdvisor answer change',{ question:question.id, value:option.value });
               setRocAdvisorState(advisorState, ownerSession || session);
-              renderRocStatsAdvisor(advisorState.context);
+              persistRocTabState('roc-stats-advisor-answer', ownerSession || session);
+              renderRocStatsAdvisor(advisorState.context, { ...options, session: ownerSession || session, refs: rocRefs });
             });
           });
           const span=document.createElement('span');
@@ -3669,8 +3956,8 @@
           advisorState.lastApplied={ ...recommendation };
           console.debug('Debug: roc statsAdvisor applied',{ diffMethod:recommendation.diffMethod, answers:{ ...answers } });
           setRocAdvisorState(advisorState, ownerSession || session);
-          persistRocTabState('roc-stats-advisor-apply');
-          renderStatsControls();
+          persistRocTabState('roc-stats-advisor-apply', ownerSession || session);
+          renderStatsControls({ ...options, session: ownerSession || session });
           scheduleRocDrawForSession(ownerSession || session, { reason: 'roc-stats-advisor-apply', tabId: (ownerSession || session)?.tabId || undefined });
         });
       });
@@ -3684,7 +3971,8 @@
           advisorState.answers={};
           console.debug('Debug: roc statsAdvisor reset');
           setRocAdvisorState(advisorState, ownerSession || session);
-          renderRocStatsAdvisor(advisorState.context);
+          persistRocTabState('roc-stats-advisor-reset', ownerSession || session);
+          renderRocStatsAdvisor(advisorState.context, { ...options, session: ownerSession || session, refs: rocRefs });
         });
       });
       actions.appendChild(resetBtn);
@@ -3693,11 +3981,12 @@
     container.appendChild(wrapper);
   }
 
-  function renderStatsControls(){
+  function renderStatsControls(options = {}){
+    const session = ensureRocSessionOwnershipShape(options.session || getActiveRocSessionForState());
     if(!refs.statsControls){
       return;
     }
-    renderRocStatsAdvisor(state.advisorContext);
+    renderRocStatsAdvisor(null, { ...options, session });
     refs.statsControls.innerHTML = '';
 
     const diffLabel = document.createElement('label');
@@ -3708,13 +3997,13 @@
     const select = document.createElement('select');
     select.id = 'rocDiffMethod';
     const graphType = refs.graphType?.value || 'roc';
-    const options = graphType === 'roc'
+    const methodOptions = graphType === 'roc'
       ? [['delong', 'DeLong'], ['bootstrap', 'Bootstrap']]
       : [['bootstrap', 'Bootstrap'], ['permutation', 'Permutation']];
-    if(!options.some(opt => opt[0] === state.diffMethod)){
-      state.diffMethod = options[0][0];
+    if(!methodOptions.some(opt => opt[0] === state.diffMethod)){
+      state.diffMethod = methodOptions[0][0];
     }
-    options.forEach(([value, label]) => {
+    methodOptions.forEach(([value, label]) => {
       const opt = document.createElement('option');
       opt.value = value;
       opt.textContent = label;
@@ -3895,6 +4184,7 @@
     }
     state.compareSelection = state.compareSel.value || null;
     commitRocCompareStateToSession(null, { compareSelection: state.compareSelection });
+    updateRocOnPlotControlPresentation(names.length, refs.graphType?.value || state.controls?.graphType || 'roc');
     return options.length > 0;
   }
 
@@ -4466,11 +4756,13 @@
     return { p, diff, ci:[diff-critical*se,diff+critical*se], se, z, pairedCount:aligned.length, method:'DeLong' };
   }
 
-  function formatPValue(value){
+  function formatPValue(value, options = {}){
     const formatter = Shared.formatters?.formatPValue || Shared.formatPValue;
+    const session = ensureRocSessionOwnershipShape(options.session || getActiveRocSessionForState());
+    const rocRefs = resolveRocStatsRefsForSession(session, options);
     const scientific = Shared.statsReporting?.getPValueFormatScientific?.({
-      target: refs.statsResults || null,
-      tabId: getRocProjectionTabId() || null
+      target: rocRefs.statsResults || null,
+      tabId: session?.tabId || normalizeRocSessionTabId(options.tabId || null, { tabId: options.tabId || null }) || null
     }) === true;
     if(typeof formatter === 'function'){
       return formatter(value, { scientific, forceScientific: scientific });
@@ -4490,30 +4782,35 @@
     return formatted;
   }
 
-  function getRocStatsInferenceTabId(){
-    return getRocProjectionTabId() || getActiveRocSessionForState()?.tabId || null;
+  function getRocStatsInferenceTabId(options = {}){
+    const session = ensureRocSessionOwnershipShape(options.session || null);
+    return session?.tabId
+      || normalizeRocSessionTabId(options.tabId || null, { tabId: options.tabId || null })
+      || getRocProjectionTabId()
+      || getActiveRocSessionForState()?.tabId
+      || null;
   }
 
-  function getRocStatsAlpha(){
-    const alpha = Number(Shared.statsInference?.getAlpha?.({ tabId:getRocStatsInferenceTabId() }));
+  function getRocStatsAlpha(options = {}){
+    const alpha = Number(Shared.statsInference?.getAlpha?.({ tabId:getRocStatsInferenceTabId(options) }));
     return Number.isFinite(alpha) && alpha > 0 && alpha < 1
       ? alpha
       : (Shared.statsInference?.DEFAULT_ALPHA || 0.05);
   }
 
-  function createRocInferenceSpec(){
+  function createRocInferenceSpec(options = {}){
     if(typeof Shared.statsInference?.createDecisionSpec === 'function'){
       return Shared.statsInference.createDecisionSpec({
-        tabId:getRocStatsInferenceTabId(), criterion:'alpha', method:'none', valueKind:'raw-p'
+        tabId:getRocStatsInferenceTabId(options), criterion:'alpha', method:'none', valueKind:'raw-p'
       });
     }
-    return { criterion:'alpha', level:getRocStatsAlpha(), method:'none', valueKind:'raw-p' };
+    return { criterion:'alpha', level:getRocStatsAlpha(options), method:'none', valueKind:'raw-p' };
   }
 
-  function rocInferencePValue(value){
+  function rocInferencePValue(value, options = {}){
     const numeric = Number(value);
-    const fallback = Number.isFinite(numeric) ? String(formatPValue(numeric)) : '—';
-    const spec = createRocInferenceSpec();
+    const fallback = Number.isFinite(numeric) ? String(formatPValue(numeric, options)) : '—';
+    const spec = createRocInferenceSpec(options);
     if(typeof Shared.statsReporting?.pValue === 'function'){
       return Shared.statsReporting.pValue(numeric, { fallback, inference:spec });
     }
@@ -4539,18 +4836,66 @@
     });
   }
 
-  function formatRocPExpression(value){
+  function formatRocPExpression(value, options = {}){
     const reporting = Shared.statsReporting;
+    const session = ensureRocSessionOwnershipShape(options.session || getActiveRocSessionForState());
+    const rocRefs = resolveRocStatsRefsForSession(session, options);
     if(reporting && typeof reporting.formatPValueExpression === 'function'){
       return reporting.formatPValueExpression(value, {
         label: 'p',
-        target: refs.statsResults || null,
-        tabId: getRocProjectionTabId() || null
+        target: rocRefs.statsResults || null,
+        tabId: getRocStatsInferenceTabId({ ...options, session })
       });
     }
-    const display = String(formatPValue(value));
+    const display = String(formatPValue(value, { ...options, session }));
     const match = /^(<=|>=|≤|≥|<|>)\s*(.*)$/.exec(display);
     return match ? `p ${match[1]} ${match[2]}` : `p = ${display}`;
+  }
+
+  function buildRocOnPlotPresentation({ seriesCount = 0, graphType = 'roc', stats = [], compareResultModel = null, session = null, refs: ownerRefs = null } = {}){
+    const count = Math.max(0, Math.trunc(Number(seriesCount) || 0));
+    const normalizedGraphType = String(graphType || 'roc').toLowerCase() === 'pr' ? 'pr' : 'roc';
+    const singleCurve = count === 1;
+    const presentation = {
+      mode: singleCurve ? 'stats' : 'comparison',
+      label: singleCurve ? 'Show stats on plot' : 'Show comparison on plot',
+      lines: []
+    };
+    if(singleCurve){
+      const stat = Array.isArray(stats) ? stats[0] : stats;
+      if(!stat || typeof stat !== 'object'){
+        return presentation;
+      }
+      if(normalizedGraphType === 'roc'){
+        const auc = stat.auc;
+        if(auc !== null && auc !== undefined && Number.isFinite(Number(auc))){
+          const parts = [`AUC = ${formatRocDecimal(Number(auc), 3)}`];
+          const pValue = stat.pVal;
+          if(pValue !== null && pValue !== undefined && Number.isFinite(Number(pValue))){
+            parts.push(formatRocPExpression(Number(pValue), { session, refs: ownerRefs }));
+          }
+          presentation.lines.push(parts.join('; '));
+        }
+      }else{
+        const averagePrecision = stat.avgPrecision ?? stat.auc;
+        if(averagePrecision !== null && averagePrecision !== undefined && Number.isFinite(Number(averagePrecision))){
+          presentation.lines.push(`AP = ${formatRocDecimal(Number(averagePrecision), 3)}`);
+        }
+      }
+      return presentation;
+    }
+    if(count >= 2 && compareResultModel?.displayText){
+      presentation.lines.push(String(compareResultModel.displayText));
+    }
+    return presentation;
+  }
+
+  function updateRocOnPlotControlPresentation(seriesCount, graphType = refs.graphType?.value || state.controls?.graphType || 'roc'){
+    const presentation = buildRocOnPlotPresentation({ seriesCount, graphType });
+    if(refs.showComparisonOnPlotLabel){
+      refs.showComparisonOnPlotLabel.textContent = presentation.label;
+    }
+    return presentation;
   }
 
   function rocNormalTwoSidedPValue(z){
@@ -4607,9 +4952,12 @@
     return `${formatValue(interval.low)} to ${formatValue(interval.high)}`;
   }
 
-  function renderRocAucDirectionWarning(stats, graphType){
+  function renderRocAucDirectionWarning(stats, graphType, options = {}){
+    const session = ensureRocSessionOwnershipShape(options.session || getActiveRocSessionForState());
+    const rocRefs = resolveRocStatsRefsForSession(session, options);
+    const statsResults = rocRefs.statsResults || null;
     const warning = getRocAucDirectionWarning(stats, graphType);
-    if(!warning || !refs.statsResults){ return null; }
+    if(!warning || !statsResults){ return null; }
     const banner = document.createElement('div');
     banner.className = 'roc-auc-direction-warning';
     banner.setAttribute('role', 'alert');
@@ -4620,34 +4968,41 @@
     message.textContent = warning;
     banner.appendChild(title);
     banner.appendChild(message);
-    refs.statsResults.insertBefore(banner, refs.statsResults.firstChild || null);
+    statsResults.insertBefore(banner, statsResults.firstChild || null);
     return banner;
   }
 
-  function renderRocStatsSummary(stats, graphType){
-    if(!refs.statsResults){
-      return;
+  function renderRocStatsSummary(stats, graphType, options = {}){
+    const session = ensureRocSessionOwnershipShape(options.session || getActiveRocSessionForState());
+    const rocRefs = resolveRocStatsRefsForSession(session, options);
+    const statsResults = rocRefs.statsResults || null;
+    if(!statsResults){
+      return false;
     }
-    clearRocStatsReportHost();
-    refs.statsResults.innerHTML='';
+    clearRocStatsReportHost({ ...options, session, refs: rocRefs });
+    statsResults.innerHTML='';
     if(!Array.isArray(stats) || !stats.length){
       const message=document.createElement('div');
       message.className='stats-table-lead';
       message.textContent='Add at least one labeled score column to view summary statistics.';
-      refs.statsResults.appendChild(message);
-      state.statsPanelModel = { resultsModel: null, reportModel: null };
-      const session = getActiveRocSessionForState();
+      statsResults.appendChild(message);
+      const emptyModel = createDefaultRocStatsPanelModel({ resultsModel: null, reportModel: null });
       if(session){
-        session.state.statsPanelModel = createDefaultRocStatsPanelModel(state.statsPanelModel);
+        session.state.statsPanelModel = emptyModel;
         session.results = createDefaultRocResultsState({
-          statsPanelModel: session.state.statsPanelModel,
-          compareSelection: state.compareSelection || state.compareSel?.value || null,
-          diffMethod: state.diffMethod,
-          compareResult: state.compareResultModel
+          statsPanelModel: emptyModel,
+          compareSelection: session.results?.compareSelection || session.state.compareSelection || null,
+          diffMethod: session.results?.diffMethod || session.state.diffMethod || 'delong',
+          compareResult: session.results?.compareResult || session.state.compareResult || null
         });
         session.updatedAt = Date.now();
+        if(isRocSessionActive(session)){
+          state.statsPanelModel = emptyModel;
+        }
+      }else{
+        state.statsPanelModel = emptyModel;
       }
-      return;
+      return true;
     }
     const hasStatsTable=Shared.statsTable && typeof Shared.statsTable.render==='function';
     const summaryColumns=[
@@ -4701,8 +5056,8 @@
           value => formatRocDecimal(value, 3)
         )
         : undefined,
-      p:graphType==='roc' ? formatPValue(stat.pVal) : undefined,
-      pCell:graphType==='roc' ? rocInferencePValue(stat.pVal) : undefined,
+      p:graphType==='roc' ? formatPValue(stat.pVal, { ...options, session, refs: rocRefs }) : undefined,
+      pCell:graphType==='roc' ? rocInferencePValue(stat.pVal, { ...options, session, refs: rocRefs }) : undefined,
       pMethod:graphType==='roc' ? (stat.pMethod?.startsWith('exact') ? 'Exact' : 'Asymptotic, tie corrected') : undefined,
       threshold:Number.isFinite(stat.thr)?stat.thr.toFixed(3):'—',
       cutoffRule:stat.cutoffRule || '—',
@@ -4793,27 +5148,27 @@
           }
         };
         if(useSharedTable){
-          Shared.statsTable.render({ target: refs.statsResults, ...thresholdModel, append: true });
+          Shared.statsTable.render({ target: statsResults, ...thresholdModel, append: true });
           return;
         }
         const caption=document.createElement('div');
         caption.className='stats-table-lead';
         caption.textContent=thresholdModel.caption;
-        refs.statsResults.appendChild(caption);
+        statsResults.appendChild(caption);
         const table=document.createElement('table');
         table.className='stats-table stats-table--fallback';
         table.innerHTML = `<thead><tr>${thresholdModel.columns.map(col => `<th>${col.label}</th>`).join('')}</tr></thead><tbody>${
           thresholdModel.rows.map(row => `<tr>${thresholdModel.columns.map(col => `<td>${row[col.key] ?? ''}</td>`).join('')}</tr>`).join('')
         }</tbody>`;
-        refs.statsResults.appendChild(table);
+        statsResults.appendChild(table);
       });
     };
     if(hasStatsTable){
-      Shared.statsTable.render({ target:refs.statsResults, ...model });
+      Shared.statsTable.render({ target:statsResults, ...model });
       appendThresholdTables(true);
-      renderRocAucDirectionWarning(stats, graphType);
+      renderRocAucDirectionWarning(stats, graphType, { ...options, session, refs: rocRefs });
       console.debug('Debug: roc stats rendered via Shared.statsTable',{ graphType, rowCount:rows.length });
-      return;
+      return true;
     }
     rows.forEach(row=>{
       const paragraph=document.createElement('p');
@@ -4831,7 +5186,7 @@
         `F1 ${row.f1}`
       ].filter(Boolean);
       paragraph.textContent=`${row.series}: ${metrics.join(', ')}`;
-      refs.statsResults.appendChild(paragraph);
+      statsResults.appendChild(paragraph);
     });
     const footnoteBlock=document.createElement('div');
     footnoteBlock.className='stats-table-footnotes';
@@ -4841,16 +5196,20 @@
       item.textContent=note;
       footnoteBlock.appendChild(item);
     });
-    refs.statsResults.appendChild(footnoteBlock);
+    statsResults.appendChild(footnoteBlock);
     appendThresholdTables(false);
-    renderRocAucDirectionWarning(stats, graphType);
+    renderRocAucDirectionWarning(stats, graphType, { ...options, session, refs: rocRefs });
     console.debug('Debug: roc stats fallback rendered',{ graphType, rowCount:rows.length });
+    return true;
   }
 
 
-  function appendRocReportPanel(stats, graphType, diffResult){
-    if(!refs.statsResults || !Array.isArray(stats) || !stats.length || !(Shared.statsReporting && typeof Shared.statsReporting.appendReportPanel==='function')){
-      return;
+  function appendRocReportPanel(stats, graphType, diffResult, options = {}){
+    const session = ensureRocSessionOwnershipShape(options.session || getActiveRocSessionForState());
+    const rocRefs = resolveRocStatsRefsForSession(session, options);
+    const statsResults = rocRefs.statsResults || null;
+    if(!statsResults || !Array.isArray(stats) || !stats.length || !(Shared.statsReporting && typeof Shared.statsReporting.appendReportPanel==='function')){
+      return false;
     }
     const primary = stats[0] || null;
     const positiveClassText = formatRocClassValue(primary?.positiveClass);
@@ -4858,7 +5217,13 @@
     const scoreDirectionText = primary?.scoreDirection === 'lower' ? 'Lower values indicate positive' : 'Higher values indicate positive';
     const cutoffRuleText = primary?.cutoffRule || `Score ${rocCutoffOperator(primary?.scoreDirection)} threshold`;
     const directionWarning = getRocAucDirectionWarning(stats, graphType);
-    const compareText = state.compareResult && state.compareResult.textContent ? state.compareResult.textContent.trim() : '';
+    const sessionCompareResult = normalizeRocCompareResultModel(session?.results?.compareResult || session?.state?.compareResult || state.compareResultModel || null);
+    const compareText = String(sessionCompareResult?.displayText || (isRocSessionActive(session) ? state.compareResult?.textContent : '') || '').trim();
+    const diffMethod = session?.results?.diffMethod || session?.state?.diffMethod || state.diffMethod || 'delong';
+    const resamplingSeed = session?.state?.resamplingSeed ?? state.resamplingSeed;
+    const resamplingIterations = session?.state?.resamplingIterations ?? state.resamplingIterations;
+    const compareSelection = session?.results?.compareSelection || session?.state?.compareSelection || state.compareSelection || (isRocSessionActive(session) ? state.compareSel?.value : null) || null;
+    const formatOptions = { ...options, session, refs: rocRefs };
     const primaryCiText = graphType === 'roc' && Number.isFinite(primary?.aucCiLow) && Number.isFinite(primary?.aucCiHigh)
       ? `; 95% CI [${formatRocDecimal(primary.aucCiLow,3)}, ${formatRocDecimal(primary.aucCiHigh,3)}]`
       : '';
@@ -4867,24 +5232,24 @@
       : '';
     const compareParts = compareText && diffResult && Number.isFinite(diffResult.p)
       ? [
-          `${graphType === 'roc' ? 'ΔAUC' : 'ΔAP'} = ${diffResult.diff.toFixed(3)} (${diffResult.method || state.diffMethod})`,
+          `${graphType === 'roc' ? 'ΔAUC' : 'ΔAP'} = ${diffResult.diff.toFixed(3)} (${diffResult.method || diffMethod})`,
           Array.isArray(diffResult.ci) ? `; 95% CI [${diffResult.ci[0].toFixed(3)}, ${diffResult.ci[1].toFixed(3)}]` : '',
           '; p = ',
-          { type:'pValue', value:diffResult.p, fallback:String(formatPValue(diffResult.p)), __statsInference:createRocInferenceSpec() }
+          { type:'pValue', value:diffResult.p, fallback:String(formatPValue(diffResult.p, formatOptions)), __statsInference:createRocInferenceSpec(formatOptions) }
         ]
       : (compareText || null);
-    Shared.statsReporting.appendReportPanel(refs.statsResults, {
-      methodsText: `${graphType === 'roc' ? 'ROC' : 'Precision–recall'} summary statistics were computed for ${stats.length} series after excluding rows with missing labels or non-numeric scores. Positive class: ${positiveClassText}. Negative class: ${negativeClassText}. Score direction: ${scoreDirectionText}. ${graphType === 'roc' ? 'Tied scores were processed as one threshold. AUC standard errors and Wald 95% confidence intervals used the nonparametric DeLong variance estimate. Single-curve significance used a two-sided Mann–Whitney test of AUC = 0.5: exact for eligible untied samples and tie-corrected, continuity-corrected asymptotic inference otherwise. The default cutoff maximized the Youden index. Diagnostic-rate confidence intervals used the Wilson method.' : 'Tied scores were processed as one threshold. Average precision used step-wise precision weighted by increases in recall. The displayed cutoff maximized F1.'} ${diffResult && state.diffMethod !== 'delong' ? `Monte Carlo curve-comparison p values used ${state.resamplingIterations} iterations with seed ${state.resamplingSeed}.` : ''} Inferential decisions used α = ${Shared.statsInference?.formatLevel?.(getRocStatsAlpha()) || getRocStatsAlpha()}. Cutoff rule: ${cutoffRuleText}.`,
+    Shared.statsReporting.appendReportPanel(statsResults, {
+      methodsText: `${graphType === 'roc' ? 'ROC' : 'Precision–recall'} summary statistics were computed for ${stats.length} series after excluding rows with missing labels or non-numeric scores. Positive class: ${positiveClassText}. Negative class: ${negativeClassText}. Score direction: ${scoreDirectionText}. ${graphType === 'roc' ? 'Tied scores were processed as one threshold. AUC standard errors and Wald 95% confidence intervals used the nonparametric DeLong variance estimate. Single-curve significance used a two-sided Mann–Whitney test of AUC = 0.5: exact for eligible untied samples and tie-corrected, continuity-corrected asymptotic inference otherwise. The default cutoff maximized the Youden index. Diagnostic-rate confidence intervals used the Wilson method.' : 'Tied scores were processed as one threshold. Average precision used step-wise precision weighted by increases in recall. The displayed cutoff maximized F1.'} ${diffResult && diffMethod !== 'delong' ? `Monte Carlo curve-comparison p values used ${resamplingIterations} iterations with seed ${resamplingSeed}.` : ''} Inferential decisions used α = ${Shared.statsInference?.formatLevel?.(getRocStatsAlpha(formatOptions)) || getRocStatsAlpha(formatOptions)}. Cutoff rule: ${cutoffRuleText}.`,
       resultsText: [
         `${stats.length} series were analysed.`,
-        primary ? (graphType === 'roc' ? `${primaryTextPrefix}${formatPValue(primary.pVal)}.` : primaryTextPrefix) : null,
+        primary ? (graphType === 'roc' ? `${primaryTextPrefix}${formatPValue(primary.pVal, formatOptions)}.` : primaryTextPrefix) : null,
         graphType === 'roc' && primary && Array.isArray(primary.thresholdRows) ? `${primary.thresholdRows.length} cutoff row(s) were tabulated for ${primary.name}.` : null,
         directionWarning || null,
         compareText || null
       ].filter(Boolean).join(' '),
       resultsParts: [
         `${stats.length} series were analysed.`,
-        primary ? (graphType === 'roc' ? [' ', primaryTextPrefix, { type:'pValue', value:primary.pVal, fallback:String(formatPValue(primary.pVal)), __statsInference:createRocInferenceSpec() }, '.'] : [' ', primaryTextPrefix]) : null,
+        primary ? (graphType === 'roc' ? [' ', primaryTextPrefix, { type:'pValue', value:primary.pVal, fallback:String(formatPValue(primary.pVal, formatOptions)), __statsInference:createRocInferenceSpec(formatOptions) }, '.'] : [' ', primaryTextPrefix]) : null,
         graphType === 'roc' && primary && Array.isArray(primary.thresholdRows) ? ` ${primary.thresholdRows.length} cutoff row(s) were tabulated for ${primary.name}.` : null,
         directionWarning ? ` ${directionWarning}` : null,
         compareParts ? [' ', compareParts] : null
@@ -4894,18 +5259,18 @@
         graphType,
         seriesCount: stats.length,
         cutoffRows: stats.reduce((sum, stat) => sum + (Array.isArray(stat.thresholdRows) ? stat.thresholdRows.length : 0), 0),
-        diffMethod: state.diffMethod,
-        resamplingSeed: state.resamplingSeed,
-        resamplingIterations: state.resamplingIterations,
-        compareSelection: state.compareSelection || state.compareSel?.value || null,
+        diffMethod,
+        resamplingSeed,
+        resamplingIterations,
+        compareSelection,
         positiveClass: primary?.positiveClass,
         negativeClass: primary?.negativeClass,
         scoreDirection: primary?.scoreDirection,
         cutoffRule: cutoffRuleText,
         compared: !!compareText,
         inference: typeof Shared.statsInference?.createSnapshot === 'function'
-          ? Shared.statsInference.createSnapshot({ tabId:getRocStatsInferenceTabId(), includeOverall:true, includeComparisons:false })
-          : { alpha:getRocStatsAlpha() },
+          ? Shared.statsInference.createSnapshot({ tabId:getRocStatsInferenceTabId(formatOptions), includeOverall:true, includeComparisons:false })
+          : { alpha:getRocStatsAlpha(formatOptions) },
         differenceSummary: diffResult ? {
           diff: Number.isFinite(diffResult.diff) ? Number(diffResult.diff) : null,
           p: Number.isFinite(diffResult.p) ? Number(diffResult.p) : null,
@@ -4913,8 +5278,10 @@
         } : null
       }
     }, { title: 'Reporting and reproducibility' });
-    pinRocStatsReportAfterMetrics();
+    pinRocStatsReportAfterMetrics(statsResults, formatOptions);
+    return true;
   }
+
 
   function getRocSessionForDrawMeta(meta = {}, options = {}){
     const source = meta && typeof meta === 'object' ? meta : {};
@@ -5060,19 +5427,16 @@
     };
     let framePublication = null;
     try{
-    const drawRefs = Object.assign(createDefaultRocRefs(drawSession?.root || state.root || null), drawSession?.refs || {}, refs || {});
-    drawRefs.root = drawSession?.root || drawRefs.root || state.root || resolveRocRoot(drawTabId) || null;
-    drawRefs.plotDiv = getRocNodeById('rocPlot', drawTabId) || drawRefs.plotDiv || refs.plotDiv || null;
-    drawRefs.svgBox = drawRefs.plotDiv?.closest?.('.svgbox') || queryRocRoot('#rocGraphPanel .svgbox', drawTabId) || drawRefs.svgBox || refs.svgBox || null;
-    drawRefs.fontSize = getRocNodeById('rocFontSize', drawTabId) || drawRefs.fontSize || refs.fontSize || null;
-    drawRefs.fontSizeVal = getRocNodeById('rocFontSizeVal', drawTabId) || drawRefs.fontSizeVal || refs.fontSizeVal || null;
-    if(drawSession){
-      drawSession.refs = Object.assign(createDefaultRocRefs(drawRefs.root || null), drawSession.refs || {}, drawRefs);
-      drawSession.updatedAt = Date.now();
-    }
-    if(isRocSessionActive(drawSession)){
-      Object.assign(refs, drawRefs);
-    }
+    refreshRocActiveDomRefsForSession(drawSession, { reason: meta?.reason || 'roc-draw-owner-refs' });
+    const drawRefs = resolveRocRefsContext(drawSession, { allowFallback: false });
+    const drawRoot = resolveRocOwnedRoot(drawTabId, { allowProjected: isRocSessionActive(drawSession) }) || drawRefs.root || null;
+    drawRefs.root = drawRoot;
+    drawRefs.plotDiv = getRocOwnedNodeById('rocPlot', drawTabId, { allowProjected: false }) || drawRefs.plotDiv || null;
+    drawRefs.statsResults = getRocOwnedNodeById('rocStatsResults', drawTabId, { allowProjected: false }) || drawRefs.statsResults || null;
+    drawRefs.svgBox = drawRefs.plotDiv?.closest?.('.svgbox') || drawRoot?.querySelector?.('#rocGraphPanel .svgbox') || drawRefs.svgBox || null;
+    drawRefs.fontSize = getRocOwnedNodeById('rocFontSize', drawTabId, { allowProjected: false }) || drawRefs.fontSize || null;
+    drawRefs.fontSizeVal = getRocOwnedNodeById('rocFontSizeVal', drawTabId, { allowProjected: false }) || drawRefs.fontSizeVal || null;
+    setRocSessionRefs(drawSession, drawRefs, { applyActive: false });
     if(!state.hot || !drawRefs.plotDiv){
       return false;
     }
@@ -5134,7 +5498,7 @@
       return false;
     }
     if(!data || !data.length){
-      clearPlotArea('no-table');
+      clearPlotArea('no-table', { session: drawSession, refs: drawRefs });
       return;
     }
     const bodyRows = data.slice(1);
@@ -5145,7 +5509,7 @@
       return text.trim().length > 0;
     }));
     if(!hasRowContent){
-      clearPlotArea('empty-rows');
+      clearPlotArea('empty-rows', { session: drawSession, refs: drawRefs });
       return;
     }
     const header = data[0] || [];
@@ -5156,7 +5520,7 @@
     const rawLabels = bodyRows.map(row => row[labelIndex]);
     const classification = syncRocClassificationControls(rawLabels);
     if(!classification.valid){
-      clearPlotArea('invalid-outcome-classes', { message: 'Exactly two valid Label classes are required.' });
+      clearPlotArea('invalid-outcome-classes', { session: drawSession, refs: drawRefs, message: 'Exactly two valid Label classes are required.' });
       return;
     }
     const scoreColumns = header
@@ -5170,12 +5534,12 @@
       return false;
     }
     if(!series.length){
-      clearPlotArea('no-series');
+      clearPlotArea('no-series', { session: drawSession, refs: drawRefs });
       return;
     }
     const hasValidScores = series.some(serie => serie.scores.some(score => !Number.isNaN(score)));
     if(!hasValidScores){
-      clearPlotArea('no-scores');
+      clearPlotArea('no-scores', { session: drawSession, refs: drawRefs });
       return;
     }
 
@@ -5192,7 +5556,7 @@
     const positives = referencePairs.filter(pair => pair.analysisLabel === 1).length;
     const negatives = referencePairs.filter(pair => pair.analysisLabel === 0).length;
     const pairCountsForAdvisor = canonicalSeries.map(serie => serie.pairs.length);
-    state.advisorContext = {
+    const advisorContext = {
       graphType,
       positives,
       negatives,
@@ -5200,7 +5564,10 @@
       pairCounts: pairCountsForAdvisor,
       minPairs: pairCountsForAdvisor.length ? Math.min(...pairCountsForAdvisor) : 0
     };
-    renderRocStatsAdvisor(state.advisorContext);
+    const drawAdvisorState = getRocAdvisorState(drawSession);
+    drawAdvisorState.context = advisorContext;
+    setRocAdvisorState(drawAdvisorState, drawSession);
+    renderRocStatsAdvisor(advisorContext, { session: drawSession, refs: drawRefs, tabId: drawTabId });
 
     const legendLabels = canonicalSeries.map(s => s.name);
     ensureLabelColors(legendLabels);
@@ -5812,7 +6179,7 @@
     if(!(await checkpoint())){
       return false;
     }
-    renderRocStatsSummary(stats, graphType);
+    renderRocStatsSummary(stats, graphType, { session: drawSession, refs: drawRefs, tabId: drawTabId });
 
     let diffResult = null;
     if(series.length >= 2 && state.compareSel && state.compareSel.value){
@@ -5878,7 +6245,18 @@
     if(!(await checkpoint())){
       return false;
     }
-    if(controls.showComparisonOnPlot && state.compareResultModel?.displayText){
+    const onPlotPresentation = buildRocOnPlotPresentation({
+      seriesCount: series.length,
+      graphType,
+      stats,
+      compareResultModel: state.compareResultModel,
+      session: drawSession,
+      refs: drawRefs
+    });
+    if(refs.showComparisonOnPlotLabel){
+      refs.showComparisonOnPlotLabel.textContent = onPlotPresentation.label;
+    }
+    if(controls.showComparisonOnPlot && onPlotPresentation.lines.length){
       const statsFontSize = chartStyle.resolveStatsAnnotationFontMetrics(fontSize, { styles: rocFontStyles }).fontSizePx;
       const statsFrame = { originX: margin.left, originY: margin.top, width: plotWidth, height: plotHeight };
       const statsPosition = chartStyle.resolveStatsAnnotationPosition(
@@ -5890,7 +6268,7 @@
         statsFrame
       );
       chartStyle.renderStatsAnnotation(svg, {
-        lines: [state.compareResultModel.displayText],
+        lines: onPlotPresentation.lines,
         x: statsPosition.x,
         y: statsPosition.y,
         textAnchor: 'end',
@@ -5902,13 +6280,13 @@
           drawSession,
           'stats',
           chartStyle.captureStatsAnnotationPosition(pos, statsFrame),
-          { reason: 'roc-comparison-position' }
+          { reason: 'roc-stats-position' }
         )
       });
     }
-    appendRocReportPanel(stats, graphType, diffResult);
+    appendRocReportPanel(stats, graphType, diffResult, { session: drawSession, refs: drawRefs, tabId: drawTabId });
     state.statsPanelSignature = state.analysisSignature;
-    captureRocStatsPanelModel();
+    captureRocStatsPanelModel(null, { session: drawSession, refs: drawRefs, tabId: drawTabId });
     captureRocSessionStateFromActive(drawSession, {
       reason: 'roc-draw-complete',
       captureStatsPanel: false
@@ -5941,6 +6319,7 @@
     if(!(await checkpoint()) || !framePublication.commit()){
       return false;
     }
+    persistRocDerivedResultsToOwnerPayload(drawSession, 'roc-draw-results-published');
     legendViewport.commit();
     state.layout?.syncPanels?.({ skipSchedule: true });
     syncRocAutoDrawNoticeWidth('draw');
@@ -5977,6 +6356,11 @@
     }, { apply: true, syncUi: true }) || getActiveRocSessionForState();
     refreshRocActiveDomRefsForSession(payloadSession, { reason: 'roc-get-payload' });
     syncRocRuntimeControlsFromDom(payloadSession);
+    captureRocSessionStateFromActive(payloadSession, {
+      reason: 'roc-get-payload-canonicalize',
+      captureStatsPanel: true,
+      syncControls: false
+    });
     const activeHot = ensureHotForActiveTab();
     const activeManager = ensureRocDataViewsForHot(activeHot, {
       wrapper: refs.hotWrapper || getRocNodeById('rocHotWrapper'),
@@ -6037,11 +6421,10 @@
       minorTickSubdivisionsX: clampMinorTickSubdivisions(axisSettings.x?.minorTickSubdivisions),
       minorTickSubdivisionsY: clampMinorTickSubdivisions(axisSettings.y?.minorTickSubdivisions)
     };
-    const statsPanelModel = createDefaultRocStatsPanelModel(
-      payloadSession?.results?.statsPanelModel
-      || payloadSession?.state?.statsPanelModel
-      || state.statsPanelModel
-      || {}
+    const statsPanelModel = selectRocStatsPanelModel(
+      payloadSession?.results?.statsPanelModel,
+      payloadSession?.state?.statsPanelModel,
+      state.statsPanelModel
     );
     payload.stats = {
       diffMethod: state.diffMethod,
@@ -6119,7 +6502,7 @@
       ? captureRocSessionStateFromActive(requestedSession, {
           ...(meta || {}),
           reason: meta?.reason || 'roc-runtime-capture',
-          captureStatsPanel: false
+          captureStatsPanel: true
         })
       : ensureRocSessionOwnershipShape(requestedSession);
     const sessionState = createDefaultRocDurableState(session?.state || state);
@@ -6460,7 +6843,7 @@
       state.compareResultModel = normalizeRocCompareResultModel(statsConfig.compareResult || null);
       state.analysisSignature = statsConfig.analysisSignature == null ? '' : String(statsConfig.analysisSignature);
       state.statsPanelSignature = statsConfig.statsPanelSignature == null ? '' : String(statsConfig.statsPanelSignature);
-      setRocAdvisorState(statsConfig.advisor || {}, getRocProjectionSession({ reason: 'roc-projection-mutation' }));
+      setRocAdvisorState(statsConfig.advisor || {}, payloadSession || scheduleTargetSession || getRocProjectionSession({ reason: 'roc-projection-mutation' }));
       state.statsPanelModel = normalizeRocStatsPanelModel(statsConfig);
     }else{
       state.diffMethod = 'delong';
@@ -6471,7 +6854,7 @@
       state.compareResultModel = null;
       state.analysisSignature = '';
       state.statsPanelSignature = '';
-      setRocAdvisorState({}, getRocProjectionSession({ reason: 'roc-projection-mutation' }));
+      setRocAdvisorState({}, payloadSession || scheduleTargetSession || getRocProjectionSession({ reason: 'roc-projection-mutation' }));
       state.statsPanelModel = { resultsModel: null, reportModel: null };
     }
     // A payload is authoritative for label placement. Missing legacy positions
@@ -6493,14 +6876,16 @@
       resamplingIterations: state.resamplingIterations
     });
     const statsSignatureMatches = !state.statsPanelSignature || state.statsPanelSignature === expectedAnalysisSignature;
+    const statsOwnerSession = payloadSession || scheduleTargetSession || getActiveRocSessionForState();
+    const statsOwnerRefs = resolveRocStatsRefsForSession(statsOwnerSession, { tabId: statsOwnerSession?.tabId || scheduleTargetTab || null });
     if(statsConfig && statsSignatureMatches && rocStatsPanelModelHasContent(state.statsPanelModel)){
-      restoreRocStatsPanelModel(state.statsPanelModel);
-    }else if(refs.statsResults){
+      restoreRocStatsPanelModel(state.statsPanelModel, { session: statsOwnerSession, refs: statsOwnerRefs });
+    }else if(statsOwnerRefs.statsResults){
       if(!statsSignatureMatches){
         state.statsPanelModel = { resultsModel: null, reportModel: null };
         state.statsPanelSignature = '';
       }
-      renderRocStatsSummary([], refs.graphType?.value || 'roc');
+      renderRocStatsSummary([], refs.graphType?.value || 'roc', { session: statsOwnerSession, refs: statsOwnerRefs });
     }
     if(!skipDraw){
       scheduleActiveRocDraw({ reason: `roc-payload-${source}` });
@@ -7274,10 +7659,12 @@
   }
 
   function resolveRocRenderCacheRoot(tabLike = null){
-    return resolveRocRoot(tabLike || getRocProjectionTabId() || null)
-      || state.root
-      || refs.root
-      || null;
+    const targetTabId = normalizeRocSessionTabId(tabLike || getRocProjectionTabId() || null, {});
+    if(targetTabId){
+      return resolveRocOwnedRoot(targetTabId, { allowProjected: false })
+        || (String(getRocProjectionTabId() || '') === String(targetTabId) ? (normalizeRocRefValue(refs.root) || normalizeRocRefValue(state.root) || null) : null);
+    }
+    return normalizeRocRefValue(refs.root) || normalizeRocRefValue(state.root) || null;
   }
 
   function hasRocPublishedGraph(root = null){
@@ -7378,15 +7765,26 @@
   }
 
   function restoreRocStatsSurfaceFromOwner(owner = null){
-    const shaped = ensureRocSessionOwnershipShape(owner) || getActiveRocSessionForState();
-    const model = shaped?.results?.statsPanelModel
-      || shaped?.state?.statsPanelModel
-      || state.statsPanelModel
-      || null;
+    const shaped = ensureRocSessionOwnershipShape(owner || getActiveRocSessionForState());
+    if(!shaped){
+      return false;
+    }
+    const model = selectRocStatsPanelModel(
+      shaped.results?.statsPanelModel,
+      shaped.state?.statsPanelModel,
+      isRocSessionActive(shaped) ? state.statsPanelModel : null
+    );
     if(!rocStatsPanelModelHasContent(model)){
       return false;
     }
-    return restoreRocStatsPanelModel(model);
+    const ownerRoot = resolveRocOwnedRoot(shaped.tabId || null, { allowProjected: isRocSessionActive(shaped) });
+    const ownerRefs = resolveRocStatsRefsForSession(shaped, { root: ownerRoot, tabId: shaped.tabId || null });
+    return restoreRocStatsPanelModel(model, {
+      session: shaped,
+      refs: ownerRefs,
+      root: ownerRoot,
+      tabId: shaped.tabId || null
+    });
   }
 
   roc.captureRenderCache = function captureRenderCache(meta = {}){
@@ -7561,7 +7959,8 @@
       return false;
     }
     const curveBindings = rehydrateRocCurveInteractions(ownerRoot);
-    const statsRestored = restoreRocStatsSurfaceFromOwner(owner);
+    const requiresStatsRestore = rocStatsPanelModelHasContent(owner.results?.statsPanelModel || owner.state?.statsPanelModel || null);
+    const statsRestored = requiresStatsRestore ? restoreRocStatsSurfaceFromOwner(owner) : true;
     const visuallyReady = hasRocPublishedGraph(ownerRoot);
     if(visuallyReady){
       chartStyle.rehydrateLegendViewports?.(plot);
@@ -7577,15 +7976,20 @@
         visuallyReady,
         plot: restoredPlot,
         statsRestored,
+        requiresStatsRestore,
         curveBindings,
         tabId: targetTabId
       });
     }
-    return visuallyReady;
+    return visuallyReady && (!requiresStatsRestore || statsRestored);
   };
 
   roc.__testHooks = Object.assign({}, roc.__testHooks, {
     getSession: tabId => getRocSession(tabId, { tabId, reason: 'roc-test-session' }, { create: false }),
+    restoreStatsSurfaceForOwner: tabId => {
+      const session = getRocSession(tabId, { tabId, reason: 'roc-test-stats-surface-restore' }, { create: false });
+      return restoreRocStatsSurfaceFromOwner(session);
+    },
     resolveClassificationSetup: (labels, source = {}) => resolveRocClassificationSetup(labels, source),
     buildCanonicalAnalysisPairs: (labels, scores, source = {}) => buildCanonicalAnalysisPairs(labels, scores, source),
     originalThreshold: (threshold, scoreDirection) => rocOriginalThreshold(threshold, scoreDirection),
@@ -7615,6 +8019,7 @@
       { iterations, seed }
     ),
     buildLegendMetricLabel: (serie, graphType = 'roc', pMethod = 'auto') => buildRocLegendMetricLabel(serie, graphType, pMethod),
+    buildOnPlotPresentation: options => buildRocOnPlotPresentation(options || {}),
     applyDefaultXAxisGutter: (margin, plotWidth, plotHeight, svgBox = null) => applyRocDefaultXAxisGutter(margin, plotWidth, plotHeight, svgBox),
     resolveDrawableFrame: plot => resolveRocDrawableFrame(plot),
     createDrawRuntime: source => createDefaultRocDrawRuntime(source),
