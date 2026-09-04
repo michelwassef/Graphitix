@@ -168,6 +168,12 @@
     const componentName = normalizeTabId(opts.componentName).toLowerCase();
     const containerRect = container?.getBoundingClientRect?.() || null;
     const containerVisible = !!(containerRect && Number(containerRect.width) > 0 && Number(containerRect.height) > 0);
+    // A concrete, unowned element is not safe to associate with the active tab:
+    // it may be a stale same-component projection. Callers must provide an owner
+    // stamp or an explicit tab id before a user mutation can be persisted.
+    if(container){
+      return null;
+    }
     if(activeTabId && containerVisible && (!componentName || componentName === activeTabType)){
       return activeTab;
     }
@@ -183,7 +189,8 @@
       }
       const marked = session.markTabUserModified(tab, reason, {
         origin: 'user',
-        affectsPayload: false
+        affectsPayload: false,
+        captureCanonical: false
       });
       if(marked && typeof session.captureUserModifiedTabLayout === 'function'){
         session.captureUserModifiedTabLayout(tab, { reason });

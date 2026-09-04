@@ -63,9 +63,36 @@ test('Box example loading keeps the graph controls visible', async ({ page }) =>
   // The stack includes the outward content envelope around the canonical SVG box.
   expect(after.stackWidth).toBeGreaterThanOrEqual(after.svgBoxWidth - 1);
   expect(after.notesOpen).toBe(true);
-  expect(Math.abs(after.notesWidth - after.svgBoxWidth)).toBeLessThanOrEqual(1);
+  expect(Math.abs(after.notesWidth - after.stackWidth)).toBeLessThanOrEqual(1);
   expect(after.notesHeight).toBeGreaterThan(before.notesHeight);
   expect(after.notesFontSizePx).toBeCloseTo(40 / 3, 1);
   expect(after.graphScrollLeft).toBe(0);
+  expect(issues.critical).toEqual([]);
+});
+
+test('Box notes track the resized SVG container width', async ({ page }) => {
+  test.setTimeout(60_000);
+  const issues = registerIssueCollectors(page);
+  await installLocalCdnOverrides(page);
+  await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
+  await openComponentFromWelcome(page, { type: 'box', pageId: 'boxPage' }, { first: true, loadExample: true });
+  await page.waitForFunction(() => document.querySelectorAll('#boxPlot svg circle').length > 0);
+
+  const before = await controlPanelGeometry(page);
+  const handle = page.locator('#boxGraphPanel .svgbox .resizer-vertical').first();
+  const handleBox = await handle.boundingBox();
+  expect(handleBox).not.toBeNull();
+  const x = handleBox.x + handleBox.width / 2;
+  const y = handleBox.y + handleBox.height / 2;
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  await page.mouse.move(x + 120, y, { steps: 8 });
+  await page.mouse.up();
+  await expect.poll(async () => {
+    const metrics = await controlPanelGeometry(page);
+    return metrics.stackWidth > before.stackWidth + 40
+      && Math.abs(metrics.notesWidth - metrics.stackWidth) <= 1;
+  }).toBe(true);
+
   expect(issues.critical).toEqual([]);
 });

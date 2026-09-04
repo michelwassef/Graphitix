@@ -706,6 +706,26 @@ describe('session.assignTabPayload null-overwrite guard', () => {
     expect(session.workspaceState.sessionUserDirty).toBe(true);
   });
 
+  test('layout-only user modifications do not recapture payload from the live projection', async () => {
+    const tab = createTabWithPayload();
+    session.workspaceState.activeTabId = tab.id;
+    window.Main.components = {
+      registry: {
+        box: { getPayload: jest.fn(() => ({ type: 'box', data: [['live-projection']] })) }
+      }
+    };
+    const capture = jest.spyOn(session, 'captureCanonicalUserMutationState');
+
+    session.markTabUserModified(tab, 'graph-resize', {
+      origin: 'user',
+      affectsPayload: false
+    });
+    await new Promise(resolve => setTimeout(resolve, 5));
+
+    expect(capture).not.toHaveBeenCalled();
+    expect(tab.payload.data).toEqual([['Lib1', 'Lib2'], [180, 109], [337, 204]]);
+  });
+
   test('clearSessionDirty clears both session and per-tab user dirty state', () => {
     const tab = createTabWithPayload();
     session.markTabUserModified(tab, 'table-cell-edit', { origin: 'user' });

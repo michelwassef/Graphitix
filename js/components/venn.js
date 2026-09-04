@@ -12271,7 +12271,22 @@
     const link = e.target.closest('.gene-link');
     if (link && state.ui.regionList.contains(link)) {
       const gene = link.dataset.gene;
+      const callbackOwner = getVennCallbackOwner({
+        event: e,
+        target: link,
+        reason: 'venn-uniprot-tooltip'
+      });
       const fn = await fetchUniProtAnnotation(gene);
+      if(!isVennCallbackOwnerActive(callbackOwner)
+        || !link.isConnected
+        || !state.ui.regionList?.contains?.(link)){
+        debugLog('venn UniProt tooltip skipped for stale owner', {
+          gene,
+          ownerTabId: callbackOwner?.tabId || callbackOwner?.session?.tabId || null,
+          activeTabId: getVennActiveTabId() || null
+        });
+        return;
+      }
       if (state.ui.tooltip) {
         state.ui.tooltip.innerHTML = fn ? `<strong>${gene}</strong><br>${fn}` : `<strong>${gene}</strong><br><i>Function not found</i>`;
         state.ui.tooltip.style.fontSize = '12px';

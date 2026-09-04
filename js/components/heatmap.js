@@ -5293,38 +5293,41 @@
         return;
       }
       const hasFile = !!(fileInput?.files && fileInput.files[0]);
+      const importOwnerTabId = String(state.hot?.__heatmapTabId || getHeatmapProjectionTabId() || '').trim() || null;
       let forcedOverlay = false;
       if(hasFile){
-        forcedOverlay = !!forceHeatmapOverlay('file-import', { message: 'Importing table data...' });
-        markHeatmapOverlayPending('file-import');
+        forcedOverlay = !!forceHeatmapOverlay({ reason: 'file-import', tabId: importOwnerTabId }, { message: 'Importing table data...' });
+        markHeatmapOverlayPending({ reason: 'file-import', tabId: importOwnerTabId });
       }
       try{
         const result = await tableImport.openFile(fileInput, {
           hot: state.hot,
           minCols: 2,
           minRows: DEFAULT_ROWS,
-          scheduleDraw: () => {
-            markHeatmapOverlayPending('file-import');
-            scheduleActiveHeatmapDraw({ force: true, reason: 'import-load', skipThresholdEvaluation: true });
+          scheduleDraw: (meta = {}) => {
+            const tabId = meta.tabId || importOwnerTabId;
+            markHeatmapOverlayPending({ reason: 'file-import', tabId });
+            scheduleActiveHeatmapDraw({ ...meta, tabId, force: true, reason: 'import-load', skipThresholdEvaluation: true });
           },
           debugLabel: 'heatmap',
           onProcessed: info => debugLog('heatmap data imported', info),
-          onCompleted: () => {
+          onCompleted: (_result, meta = {}) => {
             const renderReason = 'import-load';
-            markHeatmapOverlayPending(renderReason);
-            forceHeatmapOverlay(renderReason, { message: 'Rendering heatmap...' });
+            const tabId = meta.tabId || importOwnerTabId;
+            markHeatmapOverlayPending({ reason: renderReason, tabId });
+            forceHeatmapOverlay({ reason: renderReason, tabId }, { message: 'Rendering heatmap...' });
             // resolve after draw completes
           },
           onOwnerInactive: (_result, meta) => {
-            resolveHeatmapOverlay({ reason: 'file-import-owner-inactive', tabId: meta?.tabId || null });
+            resolveHeatmapOverlay({ reason: 'file-import-owner-inactive', tabId: meta?.tabId || importOwnerTabId || null });
           }
         });
         if(!result && forcedOverlay){
-          resolveHeatmapOverlay('file-import-empty');
+          resolveHeatmapOverlay({ reason: 'file-import-empty', tabId: importOwnerTabId || null });
         }
       }catch(err){
         if(forcedOverlay){
-          resolveHeatmapOverlay('file-import-error');
+          resolveHeatmapOverlay({ reason: 'file-import-error', tabId: importOwnerTabId || null });
         }
         console.error('heatmap import failed', err);
       }

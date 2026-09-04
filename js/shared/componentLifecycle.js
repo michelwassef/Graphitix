@@ -268,8 +268,7 @@
       owner.__graphitixTabId,
       owner.__ownerTabId,
       owner.__hotWorkspaceTabId,
-      owner.tabId,
-      owner.id
+      owner.tabId
     );
     const nestedOwners = Array.isArray(options.nestedOwners)
       ? options.nestedOwners
@@ -287,8 +286,7 @@
         nested.__graphitixTabId,
         nested.__ownerTabId,
         nested.__hotWorkspaceTabId,
-        nested.tabId,
-        nested.id
+        nested.tabId
       );
     });
     [owner.rootElement, owner.container, owner.__hostContainer, owner[`__${key}HostContainer`]].forEach(node => {
@@ -572,9 +570,6 @@
       ? (tabs.find(tab => tab && normalizeLifecycleTabId(tab.id || '') === requestedTabId) || source.tab || null)
       : null;
     const workspaceActiveTabId = normalizeLifecycleTabId(workspace?.activeTabId || '');
-    const workspaceActiveTab = workspaceActiveTabId
-      ? tabs.find(tab => tab && normalizeLifecycleTabId(tab.id || '') === workspaceActiveTabId) || null
-      : null;
     const workspaceOwnerTabId = namespace.resolveWorkspaceActiveTabId(key);
     const componentBoundTabId = normalizeLifecycleTabId(options?.component?.__boundTabId || '');
     const projectedSessionTabId = normalizeLifecycleTabId(options?.projectedSession?.tabId || '');

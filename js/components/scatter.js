@@ -28793,10 +28793,11 @@ async function drawScatter(drawOptions = {}){
           return;
         }
         const hasFile = !!(scatterFileInput?.files && scatterFileInput.files[0]);
+        const importOwnerTabId = String(scatterHot?.__scatterTabId || getScatterProjectionTabId() || '').trim() || null;
         let forcedOverlay = false;
         if(hasFile){
-          forcedOverlay = !!forceScatterOverlay('file-import', { message: 'Importing table data...' });
-          markScatterOverlayPending('file-import');
+          forcedOverlay = !!forceScatterOverlay({ reason: 'file-import', tabId: importOwnerTabId }, { message: 'Importing table data...' });
+          markScatterOverlayPending({ reason: 'file-import', tabId: importOwnerTabId });
         }
         const applyScatterImportResult = result => {
           const fitRangeCleared = clearScatterFitRangeInputs('file-import');
@@ -28882,7 +28883,7 @@ async function drawScatter(drawOptions = {}){
           minCols: 4,
           minRows: DEFAULT_ROWS,
           scheduleDraw: (meta = {}) => {
-            const tabId = meta.tabId || getScatterProjectionTabId() || null;
+            const tabId = meta.tabId || importOwnerTabId;
             markScatterOverlayPending({ reason: 'import-load', tabId });
             forceScatterOverlay({ reason: 'import-load', tabId }, { message: 'Rendering scatter plot...' });
             scheduleActiveScatterDraw({
@@ -28952,22 +28953,22 @@ async function drawScatter(drawOptions = {}){
           onBeforeCompleted: applyScatterImportResult,
           onCompleted: (_result, meta = {}) => {
             const renderReason = 'import-load';
-            const tabId = meta.tabId || getScatterProjectionTabId() || null;
+            const tabId = meta.tabId || importOwnerTabId;
             markScatterOverlayPending({ reason: renderReason, tabId });
             forceScatterOverlay({ reason: renderReason, tabId }, { message: 'Rendering scatter plot...' });
             // Do not resolve here; final resolve happens after draw completes.
           },
           onOwnerInactive: (_result, meta) => {
-            resolveScatterOverlay({ reason: 'file-import-owner-inactive', tabId: meta?.tabId || null });
+            resolveScatterOverlay({ reason: 'file-import-owner-inactive', tabId: meta?.tabId || importOwnerTabId || null });
           }
         });
         Promise.resolve(importPromise).then(result => {
           if(!result && forcedOverlay){
-            resolveScatterOverlay('file-import-empty');
+            resolveScatterOverlay({ reason: 'file-import-empty', tabId: importOwnerTabId || null });
           }
         }).catch(err => {
           if(forcedOverlay){
-            resolveScatterOverlay('file-import-error');
+            resolveScatterOverlay({ reason: 'file-import-error', tabId: importOwnerTabId || null });
           }
           console.error('scatter import failed', err);
         });

@@ -18201,13 +18201,6 @@
       });
       return false;
     }
-    const runtimeWorkspace = global.Main?.session?.workspaceState;
-    const explicitCanonicalTab = meta?.tab?.type === 'pca' ? meta.tab : null;
-    const canonicalTab = explicitCanonicalTab || runtimeWorkspace?.tabs?.find?.(
-      tab => String(tab?.id || '') === String(effectiveMeta.tabId || '') && tab?.type === 'pca'
-    ) || runtimeWorkspace?.tabs?.find?.(
-      tab => String(tab?.id || '') === String(runtimeWorkspace?.activeTabId || '') && tab?.type === 'pca'
-    ) || null;
     applyPcaOwnedRuntimeSlicesFromSnapshot(snapshot, effectiveMeta.tab || effectiveMeta.tabId || null, {
       ...effectiveMeta,
       reason: effectiveMeta.reason || 'pca-runtime-apply-owned-slices'
@@ -19116,22 +19109,27 @@
         return;
       }
       const hasFile = !!(pcaFileInput?.files && pcaFileInput.files[0]);
+      const importHot = ensurePcaHotForActiveTab();
+      const importOwnerTabId = String(importHot?.__pcaTabId || getPcaProjectionTabId() || '').trim() || null;
       let forcedOverlay = false;
       if (hasFile) {
-        forcedOverlay = !!forcePcaOverlay('file-import', {
+        forcedOverlay = !!forcePcaOverlay({ reason: 'file-import', tabId: importOwnerTabId }, {
           message: 'Importing table data...'
         });
-        markPcaOverlayPending('file-import');
+        markPcaOverlayPending({ reason: 'file-import', tabId: importOwnerTabId });
       }
       try {
         const result = await tableImport.openFile(pcaFileInput, {
-          hot: ensurePcaHotForActiveTab(),
+          hot: importHot,
           minCols: DEFAULT_COLS,
           minRows: DEFAULT_ROWS,
-          scheduleDraw: () => {
-            markPcaOverlayPending('file-import');
+          scheduleDraw: (meta = {}) => {
+            const tabId = meta.tabId || importOwnerTabId;
+            markPcaOverlayPending({ reason: 'file-import', tabId });
             evaluateAutoDrawThresholds();
             scheduleActivePcaDraw({
+              ...meta,
+              tabId,
               force: true,
               reason: 'import-load',
               skipThresholdEvaluation: true
@@ -19155,23 +19153,24 @@
             });
             evaluateAutoDrawThresholds();
           },
-          onCompleted: () => {
+          onCompleted: (_result, meta = {}) => {
             const renderReason = 'import-load';
-            markPcaOverlayPending(renderReason);
-            forcePcaOverlay(renderReason, {
+            const tabId = meta.tabId || importOwnerTabId;
+            markPcaOverlayPending({ reason: renderReason, tabId });
+            forcePcaOverlay({ reason: renderReason, tabId }, {
               message: 'Rendering PCA view...'
             });
           },
           onOwnerInactive: (_result, meta) => {
-            resolvePcaOverlay({ reason: 'file-import-owner-inactive', tabId: meta?.tabId || null });
+            resolvePcaOverlay({ reason: 'file-import-owner-inactive', tabId: meta?.tabId || importOwnerTabId || null });
           }
         });
         if (!result && forcedOverlay) {
-          resolvePcaOverlay('file-import-empty');
+          resolvePcaOverlay({ reason: 'file-import-empty', tabId: importOwnerTabId || null });
         }
       } catch (err) {
         if (forcedOverlay) {
-          resolvePcaOverlay('file-import-error');
+          resolvePcaOverlay({ reason: 'file-import-error', tabId: importOwnerTabId || null });
         }
         console.error('pca import failed', err);
       }

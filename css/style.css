@@ -6395,7 +6395,7 @@ input[type=color]::-moz-color-swatch{border:none;border-radius:0}
 #heatmapGraphPanel .config-panel .heatmap-metric-select{min-width:180px}
 .color-picker input[type=color]{flex:0 0 var(--color-swatch-size,20px)}
 details{background:#fff;border:1px solid #ddd;border-radius:var(--ui-rounded-radius);padding:8px}
-.shared-notes{width:var(--graph-default-width,100%);max-width:100%;min-width:0;align-self:stretch;box-sizing:border-box;contain:inline-size;margin-top:6px;border:1px solid #ddd;background:#fff;padding:0}
+.shared-notes{width:auto;max-width:100%;min-width:0;align-self:stretch;box-sizing:border-box;contain:inline-size;margin-top:6px;border:1px solid #ddd;background:#fff;padding:0}
 .shared-notes__summary{cursor:pointer;list-style:none;padding:8px 10px;font-size:12px;font-weight:600;color:inherit}
 .shared-notes__summary::-webkit-details-marker{display:none}
 .shared-notes__summary::before{content:"\25B8";display:inline-block;margin-right:6px;color:inherit;transition:transform .15s ease}

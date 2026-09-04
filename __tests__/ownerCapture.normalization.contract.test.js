@@ -169,4 +169,19 @@ describe('live projection ownership normalization', () => {
       expect(read(`js/components/${component}.js`)).not.toMatch(/if\s*\(!ownerTabId\)\s*\{\s*return true;/);
     });
   });
+
+  test.each(['box', 'scatter', 'heatmap', 'line', 'pca'])('%s import completion keeps the originating tab owner', component => {
+    const source = read(`js/components/${component}.js`);
+    expect(source).toContain('const importOwnerTabId');
+    expect(source).toContain("reason: 'file-import-empty', tabId: importOwnerTabId || null");
+    expect(source).toContain("reason: 'file-import-error', tabId: importOwnerTabId || null");
+  });
+
+  test('Venn UniProt tooltip drops an async result after its owner changes', () => {
+    const source = read('js/components/venn.js');
+    const handler = extractFunction(source, 'handleRegionListMouseover');
+    expect(handler).toContain('const callbackOwner');
+    expect(handler).toContain('isVennCallbackOwnerActive(callbackOwner)');
+    expect(handler).toContain('link.isConnected');
+  });
 });

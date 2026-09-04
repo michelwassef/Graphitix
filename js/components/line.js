@@ -18110,10 +18110,12 @@
       }
       const fileName = e.target.files?.[0]?.name || '';
       const hasFile = !!(e.target.files && e.target.files[0]);
+      const importHot = getActiveLineHotManager();
+      const importOwnerTabId = String(importHot?.__lineTabId || getLineProjectionTabId() || '').trim() || null;
       let forcedOverlay = false;
       if(hasFile){
-        forcedOverlay = !!forceLineOverlay('file-import', { message: 'Importing table data...' });
-        markLineOverlayPending('file-import');
+        forcedOverlay = !!forceLineOverlay({ reason: 'file-import', tabId: importOwnerTabId }, { message: 'Importing table data...' });
+        markLineOverlayPending({ reason: 'file-import', tabId: importOwnerTabId });
       }
       console.debug('Debug: line import start',{fileName}); // Debug: import start trace
       try{
@@ -18163,12 +18165,13 @@
           scheduleActiveLineDraw({ force: true, reason: 'import-prism-style', skipThresholdEvaluation: true });
         };
         const result = await tableImport.openFile(refs.fileInput,{
-          hot: getActiveLineHotManager(),
+          hot: importHot,
           minCols: LINE_DEFAULT_COLS,
           minRows: DEFAULT_ROWS,
-          scheduleDraw: () => {
-            markLineOverlayPending('file-import');
-            scheduleActiveLineDraw({ force: true, reason: 'import-load', skipThresholdEvaluation: true });
+          scheduleDraw: (meta = {}) => {
+            const tabId = meta.tabId || importOwnerTabId;
+            markLineOverlayPending({ reason: 'file-import', tabId });
+            scheduleActiveLineDraw({ ...meta, tabId, force: true, reason: 'import-load', skipThresholdEvaluation: true });
           },
           debugLabel: 'line',
           onPrismStyle: applyLinePrismStyle,
@@ -18201,22 +18204,23 @@
               applyLineTableFormatToHot(getActiveLineHotManager(), { reason: 'line-import-prism' });
             }
           },
-          onCompleted: () => {
+          onCompleted: (_result, meta = {}) => {
             const renderReason = 'import-load';
-            markLineOverlayPending(renderReason);
-            forceLineOverlay(renderReason, { message: 'Rendering line graph...' });
+            const tabId = meta.tabId || importOwnerTabId;
+            markLineOverlayPending({ reason: renderReason, tabId });
+            forceLineOverlay({ reason: renderReason, tabId }, { message: 'Rendering line graph...' });
           },
           onOwnerInactive: (_result, meta) => {
-            resolveLineOverlay({ reason: 'file-import-owner-inactive', tabId: meta?.tabId || null });
+            resolveLineOverlay({ reason: 'file-import-owner-inactive', tabId: meta?.tabId || importOwnerTabId || null });
           }
         });
         if(!result && forcedOverlay){
-          resolveLineOverlay('file-import-empty');
+          resolveLineOverlay({ reason: 'file-import-empty', tabId: importOwnerTabId || null });
         }
         console.debug('Debug: line import finished',{rows: result?.rows || 0, cols: result?.cols || 0}); // Debug: import finish trace
       }catch(err){
         if(forcedOverlay){
-          resolveLineOverlay('file-import-error');
+          resolveLineOverlay({ reason: 'file-import-error', tabId: importOwnerTabId || null });
         }
         console.error('line import failed',err);
       }

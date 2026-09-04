@@ -563,7 +563,8 @@
       return session.markTabUserModified(tab, reason || 'table-edit', {
         origin: 'user',
         affectsPayload: meta.affectsPayload !== false,
-        source: meta.source || null
+        source: meta.source || null,
+        captureCanonical: meta.captureCanonical
       });
     } catch (err) {
       console.error('Shared.hot mark owner tab modified error', { tabId: tab?.id || null, err });
@@ -590,7 +591,8 @@
     tab.uiState.component.table = tableState;
     markTabUserModifiedForOwner(tab, reason || 'table-ui-state-change', {
       affectsPayload: false,
-      source: 'table-ui'
+      source: 'table-ui',
+      captureCanonical: false
     });
     return true;
   };
@@ -18453,6 +18455,15 @@
         console.error('Shared.hot.applyHotUiState ensureIndexVisible error', { reason, err });
       }
     }
+    if(Number.isFinite(Number(state.scrollTopPx)) && Number(state.scrollTopPx) >= 0
+      && gridApi && typeof gridApi.setVerticalScrollPosition === 'function'){
+      try{
+        gridApi.setVerticalScrollPosition(Math.max(0, Math.round(Number(state.scrollTopPx))));
+        appliedAny = true;
+      }catch(err){
+        console.error('Shared.hot.applyHotUiState setVerticalScrollPosition error', { reason, err });
+      }
+    }
     if(state.selection && state.selection.from && state.selection.to
       && typeof instance.selectCell === 'function'){
       const from = state.selection.from;
@@ -18490,7 +18501,8 @@
         const hot = typeof getHot === 'function' ? getHot() : getHot;
         if(!hot){ return false; }
         return applyHotUiState(hot, uiState.table, {
-          reason: meta.reason || (componentLabel + '-apply-uiState')
+          reason: meta.reason || (componentLabel + '-apply-uiState'),
+          tabId: meta.tabId || uiState.table.tabId || null
         });
       }
     };

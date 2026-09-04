@@ -18385,18 +18385,20 @@
         return;
       }
       const hasFile = !!(fileInput?.files && fileInput.files[0]);
+      const importOwnerTabId = resolveBoxTabId(state.hot?.__boxTabId || getBoxProjectionTabId() || null);
       let forcedOverlay = false;
       if(hasFile){
-        forcedOverlay = !!forceBoxOverlay('file-import', { message: 'Importing table data...' });
-        markBoxOverlayPending('file-import');
+        forcedOverlay = !!forceBoxOverlay({ reason: 'file-import', tabId: importOwnerTabId }, { message: 'Importing table data...' });
+        markBoxOverlayPending({ reason: 'file-import', tabId: importOwnerTabId });
       }
       const importPromise = tableImport.openFile(fileInput, {
         hot: state.hot,
         minCols: DEFAULT_COLS,
         minRows: DEFAULT_ROWS,
-        scheduleDraw: () => {
-          markBoxOverlayPending('file-import');
-          scheduleActiveBoxDraw({ force: true, reason: 'import-load' });
+        scheduleDraw: (meta = {}) => {
+          const tabId = meta.tabId || importOwnerTabId;
+          markBoxOverlayPending({ reason: 'file-import', tabId });
+          scheduleActiveBoxDraw({ ...meta, tabId, force: true, reason: 'import-load' });
         },
         debugLabel: 'box',
         onPrismStyle: applyBoxPrismStyle,
@@ -18451,22 +18453,23 @@
             els.boxPointMode.dispatchEvent(new Event('change', { bubbles: true }));
           }
         },
-        onCompleted: () => {
+        onCompleted: (_result, meta = {}) => {
           const renderReason = 'import-load';
-          markBoxOverlayPending(renderReason);
-          forceBoxOverlay(renderReason, { message: 'Rendering box plot...' });
+          const tabId = meta.tabId || importOwnerTabId;
+          markBoxOverlayPending({ reason: renderReason, tabId });
+          forceBoxOverlay({ reason: renderReason, tabId }, { message: 'Rendering box plot...' });
         },
         onOwnerInactive: (_result, meta) => {
-          resolveBoxLoading({ reason: 'file-import-owner-inactive', tabId: meta?.tabId || null });
+          resolveBoxLoading({ reason: 'file-import-owner-inactive', tabId: meta?.tabId || importOwnerTabId || null });
         }
       });
       Promise.resolve(importPromise).then(result => {
         if(!result && forcedOverlay){
-          resolveBoxLoading('file-import-empty');
+          resolveBoxLoading({ reason: 'file-import-empty', tabId: importOwnerTabId || null });
         }
       }).catch(err => {
         if(forcedOverlay){
-          resolveBoxLoading('file-import-error');
+          resolveBoxLoading({ reason: 'file-import-error', tabId: importOwnerTabId || null });
         }
         console.error('boxplot import failed', err);
       });

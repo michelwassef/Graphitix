@@ -1249,7 +1249,8 @@
         if (stylePatch.layout && !changed && typeof state.session?.markTabUserModified === 'function') {
           state.session.markTabUserModified(targetTab, 'style-sync-layout', {
             origin: 'user',
-            affectsPayload: false
+            affectsPayload: false,
+            captureCanonical: false
           });
         }
         applied.push(targetTab);

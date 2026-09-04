@@ -372,7 +372,12 @@
         affectsPayload
       });
     }
-    if (meta.captureCanonical !== false && meta.origin !== 'lifecycle') {
+    // Payload-affecting mutations need a canonical capture after the complete
+    // control gesture. Layout-only mutations already persist through the layout
+    // path and must never reconstruct payload from the visible projection.
+    const shouldCaptureCanonical = meta.captureCanonical === true
+      || (meta.captureCanonical !== false && affectsPayload);
+    if (shouldCaptureCanonical && meta.origin !== 'lifecycle') {
       queueCanonicalUserMutationCapture(tab, tab.lastUserModifiedReason);
     }
     console.debug('Debug: tab user modification marked', {

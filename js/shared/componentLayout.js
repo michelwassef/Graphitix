@@ -84,13 +84,53 @@
     return '';
   }
 
+  function stampElementsOwnerTabId(elements, tabId){
+    const target = normalizeTabId(tabId);
+    if(!target){
+      return;
+    }
+    [
+      elements?.resizeTarget,
+      elements?.svgBox,
+      elements?.graphPanel,
+      elements?.tablePanel,
+      elements?.hotWrapper,
+      elements?.hotContainer,
+      elements?.configPanel
+    ].forEach(node => {
+      if(!node?.dataset){
+        return;
+      }
+      const existing = resolveElementOwnerTabId(node);
+      if(existing && existing !== target){
+        return;
+      }
+      if(!existing){
+        node.dataset.workspaceTabId = target;
+        node.dataset.tabId = target;
+      }
+    });
+  }
+
   function elementsBelongToLayoutTab(elements, tabId){
     const target = normalizeTabId(tabId);
     if(!target){
       return true;
     }
-    const owner = resolveElementsOwnerTabId(elements);
-    return !owner || owner === target;
+    const candidates = [
+      elements?.resizeTarget,
+      elements?.svgBox,
+      elements?.graphPanel,
+      elements?.tablePanel,
+      elements?.hotWrapper,
+      elements?.hotContainer,
+      elements?.configPanel
+    ].filter(Boolean);
+    if(!candidates.length){
+      return false;
+    }
+    const owners = candidates.map(resolveElementOwnerTabId).filter(Boolean);
+    return owners.length > 0 && owners.every(owner => owner === target);
   }
 
 
@@ -953,8 +993,12 @@
           }catch(err){
             console.error('Shared.componentLayout root-scoped selector error', { component: componentName, label, selector, err });
           }
-        }
-        if(!node){
+          // An explicit root is an ownership boundary. A document-wide fallback
+          // could select a same-type sibling tab when the scoped selector misses.
+          if(!node){
+            return null;
+          }
+        }else{
           node = documentRef.querySelector(selector);
         }
         console.debug('Debug: componentLayout resolved selector', {
@@ -968,10 +1012,16 @@
       }
       if(typeof selector === 'function'){
         const node = selector();
+        if(rootRef && node && typeof rootRef.contains === 'function' && !rootRef.contains(node)){
+          return null;
+        }
         console.debug('Debug: componentLayout resolved function selector', { component: componentName, label, found: !!node });
         return node || null;
       }
       if(selector && typeof selector === 'object'){
+        if(rootRef && typeof rootRef.contains === 'function' && !rootRef.contains(selector)){
+          return null;
+        }
         console.debug('Debug: componentLayout resolved direct node', { component: componentName, label });
         return selector;
       }
@@ -1033,6 +1083,7 @@
       rootRef: preferredRoot
     });
     const layoutTabId = resolveElementTabId(elements, config);
+    stampElementsOwnerTabId(elements, layoutTabId);
     const runAspectLockPolicy = (reason = 'component-layout-aspect-policy', options = {}) => {
       if(typeof config?.syncAspectLockPolicy !== 'function'){
         return false;

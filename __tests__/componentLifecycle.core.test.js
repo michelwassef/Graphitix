@@ -349,6 +349,15 @@ describe('componentLifecycle — notes control ownership', () => {
   });
 });
 
+describe('componentLifecycle — explicit owner identity', () => {
+  beforeEach(loadFresh);
+
+  test('does not infer a tab from a generic object id', () => {
+    expect(lc.resolveOwnedObjectTabId({ id: 'tab-a' }, 'box')).toBe('');
+    expect(lc.resolveOwnedObjectTabId({ manager: { id: 'tab-a' } }, 'box')).toBe('');
+  });
+});
+
 describe('componentLifecycle — snapshot publication readiness', () => {
   beforeEach(() => {
     jest.resetModules();
