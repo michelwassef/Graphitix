@@ -75,6 +75,28 @@ describe('shared export projection physical-size contract', () => {
     expect(projection.logicalToPhysical.x).toBeCloseTo(4, 12);
   });
 
+  test('left and top content reserves extend export size without shifting canonical base scale', () => {
+    const svg = makeSvg({ viewBox: '-10 -5 135 115', preserveAspectRatio: 'none' });
+    svg.dataset.graphContentBaseWidth = '100';
+    svg.dataset.graphContentBaseHeight = '100';
+    svg.dataset.graphContentReserveLeft = '10';
+    svg.dataset.graphContentReserveTop = '5';
+    svg.dataset.graphContentReserveRight = '25';
+    svg.dataset.graphContentReserveBottom = '10';
+
+    const projection = window.Shared.exportProjection.resolve(svg, {
+      ownerFrame: { width: 400, height: 300 }
+    });
+
+    expect(projection.baseLogicalViewBox).toEqual({ minX: 0, minY: 0, width: 100, height: 100 });
+    expect(projection.logicalToPhysical).toEqual({ x: 4, y: 3, uniform: false });
+    expect(projection.declaredExtension.left).toBeCloseTo(40, 12);
+    expect(projection.declaredExtension.top).toBeCloseTo(15, 12);
+    expect(projection.declaredExtension.right).toBeCloseTo(100, 12);
+    expect(projection.declaredExtension.bottom).toBeCloseTo(30, 12);
+    expect(projection.physical).toEqual({ width: 540, height: 345 });
+  });
+
   test('a larger export viewBox extends the canvas at the existing plot scale', () => {
     const svg = makeSvg({ viewBox: '0 0 100 50', preserveAspectRatio: 'none' });
     const projection = window.Shared.exportProjection.resolve(svg, {

@@ -102,6 +102,8 @@ Autosave is off by default and persisted in `localStorage` under `graphitix.auto
 
 Crash recovery is separate from Autosave. `Main.documentState` writes a private `.graph` archive from canonical tab payload/layout/UI state through `Main.sessionActions.buildWorkspaceArchiveBlob`. Lean recovery skips live DOM projection capture when that canonical state is current, and falls back to capture only when a tab is still payload-dirty. Browser builds store the Blob in IndexedDB. Electron writes `active-recovery.graph` plus metadata under `app.getPath('userData')/recovery` through binary preload IPC and atomic main-process writes. Recovery scheduling is revision-aware and rejects a completed checkpoint if `sessionRevision` changed while it was serialized.
 
+To cover a renderer/process loss before that rich archive finishes, dirty document events also write a small owner-scoped canonical journal in the `canonical-journal` IndexedDB store. Native controls are marked dirty in the capture phase, then the owning payload/layout is captured after the control handler; a synchronous `localStorage` mirror is written for a hard reload, while the IndexedDB journal is coalesced from the settled owner state. A stopped-propagation control uses a next-turn fallback, and the unload path repeats the synchronous owner capture. The journal contains the latest revision, tab order/metadata, and canonical payload/layout/UI state; it deliberately contains no preview or render-cache data. Only the changed tab is written after the initial workspace baseline, and recovery promotes the journal or mirror to a lean archive when its revision is newer than the rich private snapshot. This keeps mutation-time protection cheap while leaving heavy preview/cache serialization on the existing recovery path.
+
 Snapshot capture policy is centralized in `js/main/snapshotPolicy.js` and consumed by `Main.sessionActions` + `Main.documentState`. This keeps manual save, autosave, and recovery behavior consistent:
 
 - Manual save / explicit archive snapshot (`archive-save`, `document-snapshot`):
@@ -147,6 +149,14 @@ archive worker, which performs cloning and runtime-id rehoming off the main thre
 ```
 
 `Main.session.applySessionData()` expects this same shape when restoring.
+
+### Cartesian layout publication metadata
+
+For migrated 2D Cartesian renderers, the durable sizing authority remains the tab-owned `layout`/`.svgbox` user frame. `Shared.cartesianLayout` publishes the completed `userFrame`, `plotRect`, `contentEnvelope`, rendered-axis Lock metadata, owner tab/component, publication generation, payload signature, and layout signature as derived live SVG/resizer metadata. Automatic label/significance/legend/risk-table/panel/metric reserves are **not** independent payload or layout fields. This live publication metadata describes the current rendered projection; it is not durable payload state.
+
+The signatures have separate authority: `payloadSignature` identifies the canonical tab payload, and `layoutSignature` identifies the durable user-frame/layout state. Manual-save render caches may carry those same values only as render-cache provenance, alongside the cached Cartesian publication metadata. This provenance certifies which owner/payload/layout produced a cache; it does not publish new live geometry and is discarded when the cache is stale. A cache signature or cached publication is never a second sizing authority. Rehydration may restore that derived projection metadata and interactions, but it must never merge the cached `contentEnvelope` or measured reserves back over the canonical user frame. Lean recovery may omit the render cache and recompute the same plan from canonical owner state. Download/Copy footers and resizer controls are external UI chrome and are never persisted as graph geometry.
+
+When a component explicitly marks a payload change as render-equivalent, the session updates both the cache envelope signature and any embedded Cartesian payload signature together. This retains valid geometry without weakening exact cache provenance; ordinary payload changes still invalidate the cache.
 
 The archive writer schema shared by the main-thread and worker builders is defined in `js/shared/graphArchiveSchema.js`, which owns README content and per-tab archive file paths. This keeps optional entries such as `preview.json`, `render-cache.json`, and `ui-state.json` aligned between writer implementations.
 

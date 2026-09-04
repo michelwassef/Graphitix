@@ -5,6 +5,22 @@ const {
   openComponentFromWelcome
 } = require('./helpers/workspaceHarness');
 
+async function startBoxFormulaEditing(page, rowIndex) {
+  const editorInput = page.locator('#hot input.ag-text-field-input').first();
+  await expect.poll(async () => {
+    if (!await editorInput.isVisible().catch(() => false)) {
+      await page.evaluate(displayedRow => {
+        const box = window.Components?.box;
+        const state = box?.__getState?.();
+        const hot = state?.ensureHotForActiveTab?.() || state?.hot;
+        hot?.gridApi?.startEditingCell?.({ rowIndex: displayedRow, colKey: 'c4' });
+      }, rowIndex);
+    }
+    return await editorInput.isVisible().catch(() => false);
+  }, { timeout: 15_000, intervals: [200, 400, 800] }).toBe(true);
+  return editorInput;
+}
+
 test('box formula references highlight correct cells and resolve on first enter', async ({ page }) => {
   test.setTimeout(120_000);
   const issues = registerIssueCollectors(page);
@@ -273,15 +289,7 @@ test('box formula reference highlighting follows displayed row coordinates after
   });
   expect(Number.isInteger(p1DisplayRow)).toBe(true);
 
-  await page.evaluate((rowIndex) => {
-    const box = window.Components.box;
-    const state = box.__getState();
-    const hot = state.ensureHotForActiveTab?.() || state.hot;
-    hot.gridApi?.startEditingCell?.({ rowIndex, colKey: 'c4' });
-  }, p1DisplayRow);
-
-  const editorInput = page.locator('#hot input.ag-text-field-input').first();
-  await expect(editorInput).toBeVisible();
+  const editorInput = await startBoxFormulaEditing(page, p1DisplayRow);
   await editorInput.fill('=');
 
   const refCell = page.locator(`#hot .ag-center-cols-container .ag-row[row-index="${p1DisplayRow}"] .ag-cell[col-id="c0"]`).first();

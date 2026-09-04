@@ -9,7 +9,8 @@ const {
   waitForDocumentOpenComplete
 } = require('./helpers/workspaceHarness');
 
-const TMP_DIR = path.resolve(__dirname, '.tmp-render-cache-contract');
+const TMP_DIR = path.resolve(__dirname, '.tmp', 'render-cache-contract');
+const DEFAULT_CARTESIAN_CACHE_TYPES = new Set(['box', 'scatter', 'pca', 'line', 'roc', 'survival', 'hist', 'pie']);
 const STATS_CONTROLS = {
   box: { method: '#boxStatsTest', compute: '#boxComputeStats' },
   scatter: { method: '#scatterStatsTest', compute: '#scatterComputeStats' },
@@ -58,6 +59,28 @@ async function openExample(page, componentCase, first = false) {
       && (!config?.hasRenderedGraph || config.hasRenderedGraph({ tab, tabId: tab.id, type, reason: 'e2e-cache-contract-ready' }) === true);
   }, componentCase.type, { timeout: 120_000 });
   return page.evaluate(() => window.Main?.session?.workspaceState?.activeTabId || null);
+}
+
+async function ensureMigratedCartesianMode(page, type) {
+  if (type !== 'pie') return;
+  const chartType = page.locator('#piePage:not([hidden]) #pieChartType').first();
+  await expect(chartType).toBeVisible({ timeout: 20_000 });
+  await chartType.selectOption('stacked');
+  await page.waitForFunction(() => {
+    const state = window.Main?.session?.workspaceState;
+    const tab = state?.tabs?.find(item => item?.id === state.activeTabId) || null;
+    const root = tab?.id
+      ? (window.Shared?.workspaceTabs?.getMountedRoot?.(tab.id, 'pie') || document.querySelector('#piePage:not([hidden])'))
+      : null;
+    const traces = Array.from(root?.querySelectorAll?.('#piePlot svg [data-pie-trace-mode]') || []);
+    const published = root?.querySelector?.('[data-cartesian-layout-complete="true"]') || null;
+    return tab?.type === 'pie'
+      && tab?.payload?.config?.chartType === 'stacked'
+      && traces.length > 0
+      && traces.every(trace => trace.getAttribute('data-pie-trace-mode') === 'stacked')
+      && published?.dataset?.cartesianLayoutComponent === 'pie'
+      && published?.dataset?.cartesianLayoutComplete === 'true';
+  }, { timeout: 30_000 });
 }
 
 async function setVariant(page, type, variant) {
@@ -215,6 +238,20 @@ async function buildArchive(page, label, options = {}) {
   return page.evaluate(async ({ archiveLabel, archiveOptions }) => {
     const diagnostics = window.Shared?.renderCacheDiagnostics;
     const session = window.Main.session;
+    const normalizeComparablePayload = payload => {
+      const next = session.clonePayload ? session.clonePayload(payload) : structuredClone(payload);
+      if (next?.config?.stats?.advisor && Object.prototype.hasOwnProperty.call(next.config.stats.advisor, 'pendingPoints')) {
+        delete next.config.stats.advisor.pendingPoints;
+      }
+      if (next?.meta?.statsReporting?.pValueScientific === false) {
+        delete next.meta.statsReporting.pValueScientific;
+        if (!Object.keys(next.meta.statsReporting).length) delete next.meta.statsReporting;
+      }
+      if (next?.meta?.graphSizing) delete next.meta.graphSizing;
+      if (next?.meta && !Object.keys(next.meta.statsReporting || {}).length) delete next.meta.statsReporting;
+      if (next?.meta && !Object.keys(next.meta).length) delete next.meta;
+      return next;
+    };
     // Recovery allocates fresh runtime tab IDs. Compare durable layout content
     // after rebasing tab-scoped identifiers to one stable test owner.
     const serializeOwnerNeutralLayout = layout => session.serializePayloadSignature(
@@ -241,14 +278,16 @@ async function buildArchive(page, label, options = {}) {
         type: tab.type,
         title: tab.title,
         variant: / \[[AB]\]$/.test(String(tab.title || '')) ? String(tab.title).slice(-2, -1) : null,
-        canonicalPayloadSignature: session.serializePayloadSignature(tab.payload || null),
+        chartType: tab.payload?.config?.chartType || null,
+        canonicalPayloadSignature: session.serializePayloadSignature(normalizeComparablePayload(tab.payload || null)),
         canonicalLayoutSignature: serializeOwnerNeutralLayout(tab.layout),
         runtimeLayoutSignature: session.serializePayloadSignature(tab.layout || null),
         hasCache: !!tab.archiveRenderCache,
         payloadSignature: tab.archiveRenderCacheSignature || null,
         layoutSignature: tab.archiveRenderCacheLayoutSignature || null,
         ownerTabId: tab.archiveRenderCache?.__graphitixRenderCache?.tabId || null,
-        component: tab.archiveRenderCache?.__graphitixRenderCache?.component || null
+        component: tab.archiveRenderCache?.__graphitixRenderCache?.component || null,
+        cartesianLayout: tab.archiveRenderCache?.__graphitixRenderCache?.cartesianLayout || null
       })),
       events: diagnostics?.getEvents?.({ afterCursor: cursor }) || []
     };
@@ -258,7 +297,10 @@ async function buildArchive(page, label, options = {}) {
 async function auditRestoredTabs(page, cursor) {
   const baseline = await page.evaluate(() => {
     const tabs = window.Main.session.workspaceState.tabs.filter(tab => !tab.isWelcome);
-    return Object.fromEntries(tabs.map(tab => [tab.id, {
+    // Archive reopen/recovery may allocate fresh runtime tab ids. Match the
+    // dirty-state baseline by the persisted tab identity used by this test.
+    const key = tab => `${tab.type}::${tab.title}`;
+    return Object.fromEntries(tabs.map(tab => [key(tab), {
       payloadDirty: !!tab.payloadDirty,
       userModified: !!tab.userModified
     }]));
@@ -286,6 +328,20 @@ async function auditRestoredTabs(page, cursor) {
 
     auditedTabs.push(await page.evaluate(({ id, statsControls, initial }) => {
       const session = window.Main.session;
+      const normalizeComparablePayload = payload => {
+        const next = session.clonePayload ? session.clonePayload(payload) : structuredClone(payload);
+        if (next?.config?.stats?.advisor && Object.prototype.hasOwnProperty.call(next.config.stats.advisor, 'pendingPoints')) {
+          delete next.config.stats.advisor.pendingPoints;
+        }
+        if (next?.meta?.statsReporting?.pValueScientific === false) {
+          delete next.meta.statsReporting.pValueScientific;
+          if (!Object.keys(next.meta.statsReporting).length) delete next.meta.statsReporting;
+        }
+        if (next?.meta?.graphSizing) delete next.meta.graphSizing;
+        if (next?.meta && !Object.keys(next.meta.statsReporting || {}).length) delete next.meta.statsReporting;
+        if (next?.meta && !Object.keys(next.meta).length) delete next.meta;
+        return next;
+      };
       const serializeOwnerNeutralLayout = layout => session.serializePayloadSignature(
         session.rehomeTabScopedState(layout || null, 'workspace-0')
       );
@@ -294,13 +350,20 @@ async function auditRestoredTabs(page, cursor) {
       const root = window.Shared?.workspaceTabs?.getMountedRoot?.(id, tab?.type) || document;
       const methodSelector = statsControls?.[tab?.type]?.method || null;
       const method = methodSelector ? (root.querySelector(methodSelector) || document.querySelector(methodSelector)) : null;
-      const before = initial?.[id] || { payloadDirty: false, userModified: false };
+      const baselineKey = `${tab?.type || ''}::${tab?.title || ''}`;
+      const before = initial?.[baselineKey] || { payloadDirty: false, userModified: false };
+      const cartesianLayout = window.Shared?.cartesianLayout?.capturePublicationProvenance?.(root, {
+        tabId: tab?.id || null,
+        component: tab?.type || null
+      }) || null;
+      const cacheCartesianLayout = tab?.renderCache?.cache?.__graphitixRenderCache?.cartesianLayout || null;
       return {
         id: tab.id,
         type: tab.type,
         title: tab.title,
         variant: / \[[AB]\]$/.test(String(tab.title || '')) ? String(tab.title).slice(-2, -1) : null,
-        canonicalPayloadSignature: session.serializePayloadSignature(tab.payload || null),
+        chartType: tab.payload?.config?.chartType || null,
+        canonicalPayloadSignature: session.serializePayloadSignature(normalizeComparablePayload(tab.payload || null)),
         canonicalLayoutSignature: serializeOwnerNeutralLayout(tab.layoutState),
         runtimeLayoutSignature: session.serializePayloadSignature(tab.layoutState || null),
         runtimeLayoutOwner: {
@@ -308,6 +371,10 @@ async function auditRestoredTabs(page, cursor) {
           workspaceTabId: layoutDataset.workspaceTabId || null,
           resizerScope: layoutDataset.resizerProportionalFontResizeScope || null
         },
+        payloadSignature: tab.payloadSignature || null,
+        layoutSignature: tab.layoutSignature || null,
+        cartesianLayout,
+        cacheCartesianLayout,
         statsMethod: method?.value ?? null,
         payloadDirty: !!tab.payloadDirty,
         userModified: !!tab.userModified,
@@ -351,6 +418,34 @@ async function recoverAndAudit(page, archive) {
   return auditRestoredTabs(page, cursor);
 }
 
+function assertCartesianPublication(provenance, expected, label) {
+  expect(provenance, `${label}: missing Cartesian publication provenance`).toBeTruthy();
+  expect(provenance.complete, `${label}: Cartesian publication is incomplete`).toBe(true);
+  expect(provenance.owner?.tabId, `${label}: Cartesian owner tab mismatch`).toBe(expected.tabId);
+  expect(provenance.owner?.component, `${label}: Cartesian owner component mismatch`).toBe(expected.type);
+  expect(Number(provenance.publicationGeneration), `${label}: missing Cartesian publication generation`).toBeGreaterThan(0);
+  if (provenance.payloadSignature != null) {
+    expect(provenance.payloadSignature, `${label}: Cartesian payload signature mismatch`).toBe(expected.payloadSignature);
+  }
+  if (provenance.layoutSignature != null) {
+    expect(provenance.layoutSignature, `${label}: Cartesian layout signature mismatch`).toBe(expected.layoutSignature);
+  }
+}
+
+test.afterAll(() => {
+  fs.rmSync(TMP_DIR, { recursive: true, force: true });
+});
+
+function assertCartesianCacheProvenance(provenance, expected, label) {
+  expect(provenance, `${label}: missing Cartesian cache provenance`).toBeTruthy();
+  expect(provenance.complete, `${label}: Cartesian cache provenance is incomplete`).toBe(true);
+  expect(provenance.owner?.tabId, `${label}: Cartesian cache owner tab mismatch`).toBe(expected.tabId);
+  expect(provenance.owner?.component, `${label}: Cartesian cache owner component mismatch`).toBe(expected.type);
+  expect(Number(provenance.publicationGeneration), `${label}: missing Cartesian cache publication generation`).toBeGreaterThan(0);
+  expect(provenance.payloadSignature, `${label}: missing Cartesian cache payload signature`).toBe(expected.payloadSignature);
+  expect(provenance.layoutSignature, `${label}: missing Cartesian cache layout signature`).toBe(expected.layoutSignature);
+}
+
 function assertSavePhase(archive, expectedCount, componentType = null) {
   expect(archive.tabs).toHaveLength(expectedCount);
   for (const tab of archive.tabs) {
@@ -360,6 +455,15 @@ function assertSavePhase(archive, expectedCount, componentType = null) {
     expect(tab.layoutSignature, `${tab.type}/${tab.title}: missing layout provenance`).toBeTruthy();
     expect(tab.ownerTabId, `${tab.type}/${tab.title}: missing cache owner`).toBeTruthy();
     expect(tab.component).toBe(tab.type);
+    if (tab.type === 'pie') expect(tab.chartType, `${tab.type}/${tab.title}: cache contract must exercise stacked Pie`).toBe('stacked');
+    if (DEFAULT_CARTESIAN_CACHE_TYPES.has(tab.type)) {
+      assertCartesianCacheProvenance(tab.cartesianLayout, {
+        tabId: tab.ownerTabId,
+        type: tab.type,
+        payloadSignature: tab.payloadSignature,
+        layoutSignature: tab.layoutSignature
+      }, `${tab.type}/${tab.title} save`);
+    }
   }
 }
 
@@ -370,6 +474,21 @@ function assertReopenPhase(result, expectedCount) {
     expect(tab.runtimeLayoutOwner?.tabId, JSON.stringify(tab, null, 2)).toBe(tab.id);
     expect(tab.runtimeLayoutOwner?.workspaceTabId, JSON.stringify(tab, null, 2)).toBe(tab.id);
     expect(tab.runtimeLayoutOwner?.resizerScope, JSON.stringify(tab, null, 2)).toContain(`@tab:${tab.id}`);
+    if (tab.type === 'pie') expect(tab.chartType, JSON.stringify(tab, null, 2)).toBe('stacked');
+    if (DEFAULT_CARTESIAN_CACHE_TYPES.has(tab.type)) {
+      assertCartesianPublication(tab.cartesianLayout, {
+        tabId: tab.id,
+        type: tab.type,
+        payloadSignature: tab.payloadSignature,
+        layoutSignature: tab.layoutSignature
+      }, `${tab.type}/${tab.title} reopen`);
+      assertCartesianCacheProvenance(tab.cacheCartesianLayout, {
+        tabId: tab.id,
+        type: tab.type,
+        payloadSignature: tab.payloadSignature,
+        layoutSignature: tab.layoutSignature
+      }, `${tab.type}/${tab.title} reopened cache`);
+    }
   }
   const fallbacks = result.events.filter(event => event.outcome === 'fallback-redraw');
   const hits = result.events.filter(event => event.phase === 'hydrate' && event.outcome === 'hit');
@@ -386,6 +505,7 @@ for (const componentCase of COMPONENT_MATRIX) {
     test.setTimeout(240_000);
     await openFresh(page);
     await openExample(page, componentCase, true);
+    await ensureMigratedCartesianMode(page, componentCase.type);
     await setVariant(page, componentCase.type, 'A');
     const statsA = await configureStatsVariant(page, componentCase.type, 'A');
     const archive = await buildArchive(page, `cache-single-${componentCase.type}`);
@@ -404,9 +524,11 @@ for (const componentCase of COMPONENT_MATRIX) {
     test.setTimeout(360_000);
     await openFresh(page);
     await openExample(page, componentCase, true);
+    await ensureMigratedCartesianMode(page, componentCase.type);
     await setVariant(page, componentCase.type, 'A');
     const statsA = await configureStatsVariant(page, componentCase.type, 'A');
     await openExample(page, componentCase, false);
+    await ensureMigratedCartesianMode(page, componentCase.type);
     await setVariant(page, componentCase.type, 'B');
     const statsB = await configureStatsVariant(page, componentCase.type, 'B');
     const archive = await buildArchive(page, `cache-dual-${componentCase.type}`);
@@ -473,9 +595,11 @@ test('mixed document: two tabs per component save and reopen exclusively from ow
   for (const componentCase of COMPONENT_MATRIX) {
     await openExample(page, componentCase, first);
     first = false;
+    await ensureMigratedCartesianMode(page, componentCase.type);
     await setVariant(page, componentCase.type, 'A');
     await configureStatsVariant(page, componentCase.type, 'A');
     await openExample(page, componentCase, false);
+    await ensureMigratedCartesianMode(page, componentCase.type);
     await setVariant(page, componentCase.type, 'B');
     await configureStatsVariant(page, componentCase.type, 'B');
   }

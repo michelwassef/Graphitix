@@ -269,6 +269,7 @@
   const PCA_PARALLEL_MAX_CELLS = 40000;
   const PCA_BIPLOT_POINT_LIMIT = 120;
   const PCA_BIPLOT_VECTOR_LIMIT = 8;
+  const MDS_CACHED_DIMENSIONS = 3;
   const PCA_PREPROCESSING_NONE = 'none';
   const PCA_PREPROCESSING_RNASEQ_LOG = 'rna-seq-normalized-log';
   const PCA_RNASEQ_TRANSFORM_TYPE = 'rnaSeqNormalizedLog';
@@ -4650,79 +4651,136 @@
     };
   }
 
-  function capturePcaStatsPanelState(fallback = null) {
-    const previous = normalizePcaStatsPanelState(fallback || getPcaResultsState(getActivePcaSessionForState())?.statsPanel || {});
-    const summaryTarget = getPcaNodeById('pcaStatsSummary');
-    const resultsTarget = getPcaNodeById('pcaStatsResults');
-    const summarySnapshot = Shared.statsReporting && typeof Shared.statsReporting.capturePanelModel === 'function' && summaryTarget ?
-      Shared.statsReporting.capturePanelModel(summaryTarget) :
+  function resolvePcaStatsPanelContext(options = {}) {
+    const session = ensurePcaSessionOwnershipShape(options.session || getActivePcaSessionForState());
+    const canUseLiveProjection = !session || isPcaSessionActiveForModuleState(session);
+    const root = session?.root || null;
+    const belongsToOwner = node => !!node && (!root || node === root || root.contains?.(node));
+    const resolveTarget = (refKey, id) => {
+      if(!canUseLiveProjection){ return null; }
+      const ownedRef = session?.refs?.[refKey] || null;
+      if(belongsToOwner(ownedRef)){ return ownedRef; }
+      const resolved = getPcaNodeById(id, session?.tabId || null);
+      if(belongsToOwner(resolved)){
+        if(session?.refs){
+          session.refs[refKey] = resolved;
+        }
+        return resolved;
+      }
+      return null;
+    };
+    return {
+      session,
+      canUseLiveProjection,
+      summaryTarget: resolveTarget('statsSummary', 'pcaStatsSummary'),
+      resultsTarget: resolveTarget('statsResults', 'pcaStatsResults')
+    };
+  }
+
+  function capturePcaStatsPanelState(fallback = null, options = {}) {
+    const context = resolvePcaStatsPanelContext(options);
+    const previous = normalizePcaStatsPanelState(
+      fallback || getPcaResultsState(context.session)?.statsPanel || {}
+    );
+    if(!context.canUseLiveProjection){
+      return previous;
+    }
+    const summarySnapshot = Shared.statsReporting && typeof Shared.statsReporting.capturePanelModel === 'function' && context.summaryTarget ?
+      Shared.statsReporting.capturePanelModel(context.summaryTarget) :
       null;
-    const resultsSnapshot = Shared.statsReporting && typeof Shared.statsReporting.capturePanelModel === 'function' && resultsTarget ?
-      Shared.statsReporting.capturePanelModel(resultsTarget) :
+    const resultsSnapshot = Shared.statsReporting && typeof Shared.statsReporting.capturePanelModel === 'function' && context.resultsTarget ?
+      Shared.statsReporting.capturePanelModel(context.resultsTarget) :
       null;
+    const summaryCandidate = normalizePcaStatsPanelState({ summaryModel: summarySnapshot?.resultsModel || null });
+    const reportCandidate = normalizePcaStatsPanelState({ reportModel: resultsSnapshot?.reportModel || null });
+    // pcaStatsResults is a structural host containing the summary, scree plot, eigen
+    // table and loadings. A generic stats-panel model cannot preserve those nodes'
+    // identities/controls, so it must never become durable restore authority. PCA's
+    // calculated result surfaces are rebuilt from owner-local results state; only the
+    // independent summary model and owner-local reporting model are persisted here.
     return normalizePcaStatsPanelState({
-      summaryModel: summarySnapshot?.resultsModel || previous.summaryModel || null,
-      resultsModel: resultsSnapshot?.resultsModel || previous.resultsModel || null,
-      reportModel: resultsSnapshot?.reportModel || previous.reportModel || null
+      summaryModel: pcaStatsPanelSnapshotHasContent(summaryCandidate) ? summaryCandidate.summaryModel : previous.summaryModel,
+      resultsModel: null,
+      reportModel: pcaStatsPanelSnapshotHasContent(reportCandidate) ? reportCandidate.reportModel : previous.reportModel
     });
   }
 
   function pcaStatsPanelSnapshotHasContent(source) {
     const normalized = normalizePcaStatsPanelState(source);
-    return !!(normalized.summaryModel || normalized.resultsModel || normalized.reportModel);
+    const placeholder = /^(?:no statistics computed\.?|component variance summary appears alongside the scree plot\.?|statistics will appear|statistics ready)/i;
+    const modelHasContent = model => {
+      if(!model || typeof model !== 'object'){ return false; }
+      if(model.kind === 'stats-report' || model.type === 'stats-table'){ return true; }
+      if(Array.isArray(model.sections) && model.sections.length){ return true; }
+      const className = String(model.className || '');
+      if(/(?:stats-table-card|stats-table-lead|stats-assumption|stats-report)/.test(className)){ return true; }
+      if(model.type === 'text'){
+        const text = String(model.text || '').trim();
+        return !!text && !placeholder.test(text);
+      }
+      return Array.isArray(model.children) && model.children.some(modelHasContent);
+    };
+    return modelHasContent(normalized.summaryModel)
+      || modelHasContent(normalized.resultsModel)
+      || modelHasContent(normalized.reportModel);
   }
 
   function restorePcaStatsPanelState(panelState, options = {}) {
+    const context = resolvePcaStatsPanelContext(options);
     const normalized = normalizePcaStatsPanelState(panelState);
+    const durable = normalizePcaStatsPanelState({
+      summaryModel: normalized.summaryModel,
+      resultsModel: null,
+      reportModel: normalized.reportModel
+    });
+    if(context.session && !context.canUseLiveProjection){
+      setPcaStatsPanelResultsState(durable, context.session, { mirrorActive: false });
+      return false;
+    }
     let restored = false;
-    const summaryTarget = getPcaNodeById('pcaStatsSummary');
-    const resultsTarget = getPcaNodeById('pcaStatsResults');
-    if (summaryTarget && normalized.summaryModel && Shared.statsReporting && typeof Shared.statsReporting.restorePanelModel === 'function') {
-      Shared.statsReporting.restorePanelModel(summaryTarget, {
-        resultsModel: normalized.summaryModel,
+    const summaryPart = normalizePcaStatsPanelState({ summaryModel: durable.summaryModel });
+    if (context.summaryTarget && pcaStatsPanelSnapshotHasContent(summaryPart) && Shared.statsReporting && typeof Shared.statsReporting.restorePanelModel === 'function') {
+      Shared.statsReporting.restorePanelModel(context.summaryTarget, {
+        resultsModel: durable.summaryModel,
         reportModel: null
       }, {
         clearMainWhenMissing: options.clearWhenMissing !== false
       });
       restored = true;
     }
-    if (resultsTarget && (normalized.resultsModel || normalized.reportModel) && Shared.statsReporting && typeof Shared.statsReporting.restorePanelModel === 'function') {
-      const reportHost = Shared.statsReporting && typeof Shared.statsReporting.ensureReportHost === 'function' ?
-        Shared.statsReporting.ensureReportHost(resultsTarget, {
-          id: 'pcaStatsReportHost',
-          className: 'stats-report-host',
-          attachToTarget: true,
-          position: 'last',
-          migrateReportPanels: true
-        }) :
-        null;
-      Shared.statsReporting.restorePanelModel(resultsTarget, {
-        resultsModel: normalized.resultsModel,
-        reportModel: normalized.reportModel
+    // pcaStatsResults is a structural container, not a replaceable stats-output
+    // body. Restore only its owner-local report host; replacing the parent would
+    // destroy the live summary/scree/eigen/loadings nodes and stale session refs.
+    if (context.resultsTarget && durable.reportModel && Shared.statsReporting && typeof Shared.statsReporting.restorePanelModel === 'function') {
+      const reportHost = ensurePcaReportHost(context.session);
+      Shared.statsReporting.restorePanelModel(context.resultsTarget, {
+        resultsModel: null,
+        reportModel: durable.reportModel
       }, {
         ensureReportHost: reportHost ? () => reportHost : undefined,
         clearMainWhenMissing: false
       });
       restored = true;
     }
-    if (restored) {
-      setPcaStatsPanelResultsState(normalized, getPcaProjectionSession({
-        reason: 'pca-projection-mutation'
-      }), {
-        mirrorActive: true
-      });
+    if(context.session){
+      setPcaStatsPanelResultsState(durable, context.session, { mirrorActive: context.canUseLiveProjection });
+      if(context.canUseLiveProjection){
+        syncPcaSessionRefsFromActive(context.session);
+      }
     }
     return restored;
   }
 
-  function rememberPcaStatsPanelState(panelState = null) {
-    const normalized = normalizePcaStatsPanelState(panelState || capturePcaStatsPanelState());
-    setPcaStatsPanelResultsState(normalized, getPcaProjectionSession({
-      reason: 'pca-projection-mutation'
-    }), {
-      mirrorActive: true
-    });
-    return getPcaStatsPanelSnapshot(getActivePcaSessionForState());
+  function rememberPcaStatsPanelState(panelState = null, options = {}) {
+    const context = resolvePcaStatsPanelContext(options);
+    const normalized = normalizePcaStatsPanelState(
+      panelState || capturePcaStatsPanelState(null, { ...options, session: context.session })
+    );
+    if(context.session){
+      setPcaStatsPanelResultsState(normalized, context.session, { mirrorActive: context.canUseLiveProjection });
+      return getPcaStatsPanelSnapshot(context.session);
+    }
+    return normalized;
   }
 
   function normalizePcaResultsMethod(value) {
@@ -4862,7 +4920,6 @@
     matrix,
     labels,
     controls,
-    viewMode,
     nSamples,
     nFeatures
   } = {}) {
@@ -4878,7 +4935,6 @@
     ];
     const settingsSeed = [
       normalizePcaResultsMethod(method) || '',
-      viewMode || controls?.viewMode || '',
       controls?.standardizeVariables ? 'standardize' : 'center',
       sanitizePcaPreprocessingMode(controls?.preprocessing),
       JSON.stringify(pcaState.axisSelection || {}),
@@ -6408,6 +6464,10 @@
     }
     syncPcaSessionRefsFromActive(shaped);
     syncPcaSessionManagersFromActive(shaped);
+    const durableStatsPanel = getPcaStatsPanelSnapshot(shaped);
+    if(pcaStatsPanelSnapshotHasContent(durableStatsPanel)){
+      restorePcaStatsPanelState(durableStatsPanel, { session: shaped, clearWhenMissing: false });
+    }
     return true;
   }
 
@@ -6439,7 +6499,7 @@
     getPcaDrawRuntime(shaped, { seedFromActive: true });
     getPcaAnalysisRuntime(shaped, { seedFromRenderRuntime: true });
     const statsSnapshot = getPcaStatsSnapshot(shaped);
-    const panelSnapshot = capturePcaStatsPanelState(shaped.state?.results?.statsPanel || shaped.state?.statsPanel || getPcaStatsPanelSnapshot(shaped));
+    const panelSnapshot = capturePcaStatsPanelState(shaped.state?.results?.statsPanel || shaped.state?.statsPanel || getPcaStatsPanelSnapshot(shaped), { session: shaped });
     shaped.state = normalizePcaSessionRecord({
       ...(shaped.state || {}),
       componentKey: 'pca',
@@ -6864,6 +6924,10 @@
           out[key] = numeric;
         }
       });
+      if (value.anchor === chartStyle.LEGEND_POSITION_ANCHOR
+        || value.anchor === 'start' || value.anchor === 'end' || value.anchor === 'middle') {
+        out.anchor = value.anchor;
+      }
       return Object.keys(out).length ? out : null;
     };
     const normalizePointLabels = value => {
@@ -7095,6 +7159,7 @@
       originY: Number.isFinite(Number(options.originY)) ? options.originY : Number(legend.dataset.pcaLegendOriginY),
       scaleX: Number.isFinite(Number(options.scaleX)) ? options.scaleX : Number(legend.dataset.pcaLegendScaleX),
       scaleY: Number.isFinite(Number(options.scaleY)) ? options.scaleY : Number(legend.dataset.pcaLegendScaleY),
+      positionAnchor: chartStyle.LEGEND_POSITION_ANCHOR,
       undoLabel: `pca-legend-${legend.dataset.pcaLegendMode}`,
       onCommit: (position, boundOwner) => {
         const dragOwner = ensurePcaSessionOwnershipShape(boundOwner || getActivePcaSessionForState());
@@ -7440,6 +7505,15 @@
 
   function applyPcaColorSchemeInPlace(session = null) {
     const owner = ensurePcaSessionOwnershipShape(session || getActivePcaSessionForState());
+    const ownerState = getPcaSessionOwnedState(owner).state || pcaState;
+    const ownerControls = normalizePcaRuntimeControls(ownerState.controls || {});
+    const ownerScopes = normalizePcaPointStyleScopes(ownerState.pointStyleScopes || {}, {
+      controls: ownerControls,
+      grouped: ownerState.grouped,
+      labelColors: ownerState.labelColors,
+      labelShapes: ownerState.labelShapes,
+      labelPointStyles: ownerState.labelPointStyles
+    });
     const tabId = owner?.tabId || getPcaProjectionTabId() || null;
     const plotRoot = getPcaNodeById('pcaPlot', tabId) || getPcaNodeById('pcaPlot');
     const svg = plotRoot?.querySelector?.('#pcaSvg') || null;
@@ -7455,12 +7529,16 @@
       columnIndices: cache.sampleColumnIndices || [],
       groupHeaderRow: cache.groupedHeaderRow || []
     });
-    const borderColor = pcaBorder?.value || '#000000';
-    const fill = pcaFill?.value || DEFAULT_SCATTER_COLORS[0];
+    const borderColor = ownerControls.border || '#000000';
+    const fill = ownerControls.fill || DEFAULT_SCATTER_COLORS[0];
     const colorForPoint = data => {
       const index = Number(data?.index);
       const assignment = groupMeta && Number.isInteger(index) ? groupMeta.assignments?.[index] : null;
-      const pointStyle = resolvePcaPointStyle(data, Number.isInteger(assignment) ? assignment : null, index);
+      const pointStyle = resolvePcaPointStyle(data, Number.isInteger(assignment) ? assignment : null, index, {
+        controls: ownerControls,
+        scopes: ownerScopes,
+        tableFormat: ownerState.tableFormat
+      });
       return {
         fill: pointStyle.fill || fill,
         stroke: pointStyle.borderColor || borderColor
@@ -7482,7 +7560,7 @@
         return;
       }
       seenLabels.add(key);
-      legendColors.set(`label-${key}`, ensurePcaPointStyleScopes().points?.[pcaLabelPointStyleKey(key)]?.fill || DEFAULT_SCATTER_COLORS[legendColors.size % DEFAULT_SCATTER_COLORS.length]);
+      legendColors.set(`label-${key}`, ownerScopes.points?.[pcaLabelPointStyleKey(key)]?.fill || DEFAULT_SCATTER_COLORS[legendColors.size % DEFAULT_SCATTER_COLORS.length]);
     });
     svg.querySelectorAll('[data-legend-swatch="1"]').forEach(node => {
       const color = legendColors.get(String(node.dataset?.legendKey || ''));
@@ -8319,10 +8397,14 @@
     return true;
   }
 
-  function resolvePcaPointStyle(point = {}, groupIndex = null, fallbackIndex = 0) {
-    const scopes = ensurePcaPointStyleScopes();
+  function resolvePcaPointStyle(point = {}, groupIndex = null, fallbackIndex = 0, options = {}) {
+    const controls = options.controls || pcaState.controls;
+    const scopes = options.scopes
+      ? normalizePcaPointStyleScopes(options.scopes, { controls })
+      : ensurePcaPointStyleScopes();
     const style = { ...scopes.global };
-    if (pcaState.tableFormat === 'grouped' && Number.isInteger(groupIndex)) {
+    const tableFormat = options.tableFormat || pcaState.tableFormat;
+    if (tableFormat === 'grouped' && Number.isInteger(groupIndex)) {
       Object.assign(style, scopes.groups[String(groupIndex)] || {});
     } else {
       const labelKey = pcaLabelPointStyleKey(point.label);
@@ -8335,7 +8417,7 @@
       Object.assign(style, scopes.points[pointKey] || {});
     }
     return {
-      ...createPcaGlobalPointStyle(pcaState.controls),
+      ...createPcaGlobalPointStyle(controls),
       ...normalizePcaPointStyle(style, { fallbackIndex })
     };
   }
@@ -8954,15 +9036,108 @@
     };
   }
 
-  function resolvePca2dMetricLayout(totalWidth, totalHeight, margin, xScale, yScale, equalAxisLengths) {
+  function resolvePca2dMetricLayout(totalWidth, totalHeight, margin, xScale, yScale, equalAxisLengths, options = {}) {
     const metricScales = resolvePca2dMetricScales(xScale, yScale, equalAxisLengths);
     const spanX = Math.max(1e-12, Number(metricScales.x.max) - Number(metricScales.x.min));
     const spanY = Math.max(1e-12, Number(metricScales.y.max) - Number(metricScales.y.min));
     const desiredAspect = spanX / spanY;
+    const baselineMargin = {
+      top: Math.max(0, Number(margin?.top) || 0),
+      right: Math.max(0, Number(margin?.right) || 0),
+      bottom: Math.max(0, Number(margin?.bottom) || 0),
+      left: Math.max(0, Number(margin?.left) || 0)
+    };
+    const cartesian = Shared.cartesianLayout;
+    if(cartesian && typeof cartesian.planCartesianLayout === 'function'){
+      const requiredMargins = options.requiredMargins && typeof options.requiredMargins === 'object'
+        ? options.requiredMargins
+        : baselineMargin;
+      const requestedExternalExtensions = options.externalExtensions && typeof options.externalExtensions === 'object'
+        ? options.externalExtensions
+        : {};
+      const buildPlan = externalExtensions => cartesian.planCartesianLayout({
+        owner: options.owner || null,
+        userFrame: { width: totalWidth, height: totalHeight },
+        baselineMargins: baselineMargin,
+        requiredMargins,
+        auxiliaryReserves: options.auxiliaryReserves || [],
+        externalExtensions,
+        orientation: 'normal',
+        // PCA's metric is component-owned. The transaction receives the final
+        // coordinate-span ratio and resolves that plot before any legend or
+        // measured label extension is published.
+        plotConstraint: {
+          type: 'ratio',
+          ratio: desiredAspect,
+          fit: 'height-extend',
+          anchor: 'top-left'
+        },
+        lock: {
+          enabled: options.resizeMetricLocked === true,
+          targetRatio: desiredAspect,
+          drive: options.resizeDrive || 'both'
+        },
+        minimumPlot: options.minimumPlot || { width: 20, height: 20 },
+        contentBounds: options.contentBounds || null,
+        rounding: { mode: 'none', precision: 6 }
+      });
+      let plan = buildPlan({});
+      const plotRight = plan.plotRect.x + plan.plotRect.width;
+      const availableRightRail = Math.max(0, Number(totalWidth) - plotRight);
+      const resolvedExternalExtensions = {
+        ...requestedExternalExtensions,
+        right: Math.max(0, (Number(requestedExternalExtensions.right) || 0) - availableRightRail)
+      };
+      if(Object.values(resolvedExternalExtensions).some(value => Number(value) > 0)){
+        plan = buildPlan(resolvedExternalExtensions);
+      }
+      const plotRect = plan.plotRect;
+      const basePlotRect = plan.basePlotRect;
+      const plotRightOverflow = Math.max(
+        0,
+        (plotRect.x + plotRect.width) - (basePlotRect.x + basePlotRect.width)
+      );
+      const plotBottomOverflow = Math.max(
+        0,
+        (plotRect.y + plotRect.height) - (basePlotRect.y + basePlotRect.height)
+      );
+      // Preserve the canonical opposite rails exactly as the pre-transaction
+      // metric helper did. A plot that is narrower/taller can add slack to the
+      // corresponding margin; a plot that extends outward must not expose a
+      // negative margin to downstream axis/legend code. Its overflow lives in
+      // the derived content envelope instead.
+      const resolvedMargin = {
+        left: plotRect.x,
+        top: plotRect.y,
+        right: Math.max(
+          baselineMargin.right,
+          baselineMargin.right + Math.max(0, basePlotRect.width - plotRect.width)
+        ),
+        bottom: Math.max(
+          baselineMargin.bottom,
+          baselineMargin.bottom + Math.max(0, basePlotRect.height - plotRect.height)
+        )
+      };
+      return {
+        xScale: metricScales.x,
+        yScale: metricScales.y,
+        spanX,
+        spanY,
+        desiredAspect,
+        margin: resolvedMargin,
+        plotW: plotRect.width,
+        plotH: plotRect.height,
+        rightExtension: plotRightOverflow,
+        bottomExtension: plotBottomOverflow,
+        renderWidth: Math.max(Number(totalWidth) || 1, Number(totalWidth || 0) + plotRightOverflow),
+        renderHeight: Math.max(Number(totalHeight) || 1, Number(totalHeight || 0) + plotBottomOverflow),
+        cartesianPlan: plan
+      };
+    }
     const layout = chartStyle.fitPlotAspectPreservingHeight(
       totalWidth,
       totalHeight,
-      margin,
+      baselineMargin,
       desiredAspect
     );
     return {
@@ -8975,7 +9150,8 @@
       plotW: layout.plotW,
       plotH: layout.plotH,
       rightExtension: layout.rightExtension,
-      renderWidth: layout.renderWidth
+      renderWidth: layout.renderWidth,
+      cartesianPlan: null
     };
   }
 
@@ -10813,13 +10989,15 @@
     }
   }
 
-  function ensurePcaReportHost() {
-    if (!pcaStatsResults) {
+  function ensurePcaReportHost(session = null) {
+    const context = resolvePcaStatsPanelContext({ session });
+    const target = context.resultsTarget;
+    if (!target) {
       return null;
     }
     const reporting = Shared.statsReporting;
     if (reporting && typeof reporting.ensureReportHost === 'function') {
-      return reporting.ensureReportHost(pcaStatsResults, {
+      return reporting.ensureReportHost(target, {
         id: 'pcaStatsReportHost',
         className: 'stats-report-host',
         attachToTarget: true,
@@ -10827,18 +11005,14 @@
         migrateReportPanels: true
       });
     }
-    let host = getPcaNodeById('pcaStatsReportHost');
-    if (host && host.parentNode !== pcaStatsResults) {
-      host.parentNode?.removeChild?.(host);
-      host = null;
-    }
+    let host = target.querySelector?.(':scope > #pcaStatsReportHost') || null;
     if (!host) {
       host = document.createElement('div');
       host.id = 'pcaStatsReportHost';
       host.className = 'stats-report-host';
-      pcaStatsResults.appendChild(host);
+      target.appendChild(host);
     }
-    pcaStatsResults.__statsReportHost = host;
+    target.__statsReportHost = host;
     return host;
   }
 
@@ -10945,7 +11119,7 @@
         'PCA used DESeq2 median-ratio size factors, log2(normalized count + 1), up to the 500 most variable genes, gene centering, and no unit-variance scaling.' :
         'PCA used centered numeric variables with optional unit-variance scaling and reports eigenvalue, variance, cumulative-variance, component-selection, and optional biplot-loading summaries.' :
         reportMethod === 'mds' ?
-        'MDS reports dimension inertia/eigen summaries and stress where available for the displayed distance-based ordination.' :
+        'MDS reports inertia/eigen summaries for the reusable cached coordinate solution and stress where available.' :
         reportMethod === 'tsne' ?
         't-SNE reports embedding settings and stress/KL-type optimization summaries where available; axes are embedding coordinates rather than variance-explained components.' :
         reportMethod === 'umap' ?
@@ -11396,7 +11570,7 @@
       summaryModel: options.savedSummaryModel || getPcaStatsPanelSnapshot(session).summaryModel || null,
       resultsModel: options.savedResultsModel || getPcaStatsPanelSnapshot(session).resultsModel || null,
       reportModel: options.savedReportModel || getPcaStatsPanelSnapshot(session).reportModel || null
-    }), session, {
+    }, { session }), session, {
       mirrorActive: true
     });
     debugLog('Debug: pca stats restored from persisted payload UI', {
@@ -11422,14 +11596,19 @@
     };
   }
 
-  function finalizePcaStatsPayloadRestore(savedStatsModels, reason) {
-    if (!getPcaStatsSnapshot(getActivePcaSessionForState()) || !savedStatsModels || typeof savedStatsModels !== 'object') {
+  function finalizePcaStatsPayloadRestore(savedStatsModels, reason, session = null) {
+    const ownerSession = ensurePcaSessionOwnershipShape(session || getActivePcaSessionForState());
+    if (!getPcaStatsSnapshot(ownerSession) || !savedStatsModels || typeof savedStatsModels !== 'object') {
       return;
     }
     const restore = () => {
-      restorePcaStatsFromPayload(savedStatsModels);
+      restorePcaStatsFromPayload({
+        ...savedStatsModels,
+        session: ownerSession,
+        reason: reason || 'pca-stats-payload-restore'
+      });
     };
-    const ownerTabId = getPcaProjectionTabId() || getActivePcaSessionForState()?.tabId || null;
+    const ownerTabId = ownerSession?.tabId || null;
     if (ownerTabId && Shared.componentLifecycle?.scheduleComponentTimeout) {
       Shared.componentLifecycle.scheduleComponentTimeout(pca, 'pca', {
         tabId: ownerTabId,
@@ -12042,6 +12221,7 @@
       biplot: opts.biplot
     });
     ensurePcaReportHost();
+    syncPcaSessionRefsFromActive(getActivePcaSessionForState());
   }
 
   function handleEigenExport() {
@@ -12359,6 +12539,17 @@
         runtime.token = drawToken;
       });
     }
+    const pcaCartesianGeneration = (Number(renderRuntime?.cartesianLayoutGeneration) || 0) + 1;
+    updatePcaRenderRuntime(drawSession, runtime => {
+      runtime.cartesianLayoutGeneration = pcaCartesianGeneration;
+    }, {
+      mirrorActive: isPcaSessionActiveForModuleState(drawSession)
+    });
+    const pcaCartesianOwner = {
+      tabId: drawTabId || null,
+      component: 'pca',
+      generation: pcaCartesianGeneration
+    };
     const drawAsyncState = shouldBumpToken ?
       createPcaDrawAsyncState({
         ...drawOpts,
@@ -12940,7 +13131,6 @@
           matrix,
           labels,
           controls,
-          viewMode: requestedViewMode,
           nSamples,
           nFeatures
         });
@@ -12993,8 +13183,7 @@
           let mdsWorkerResult = null;
           if (shouldUsePcaEmbedWorker('mds', nSamples, nFeatures)) {
             mdsWorkerResult = await runPcaEmbedWorker('mds', {
-              matrix,
-              requestedDims: requestedViewMode === '3d' ? 3 : 2
+              matrix
             }, {
               session: drawSession,
               drawToken,
@@ -13157,8 +13346,10 @@
                 val
               }) => val > 1e-9);
             const dimsAvailable = positiveEigen.length;
-            const requestedDims = (requestedViewMode === '3d') ? 3 : 2;
-            const dimsToUse = Math.min(Math.max(requestedDims, 2), dimsAvailable);
+            // Classical MDS already pays the full eigendecomposition cost here.
+            // Retain enough coordinates for every supported view so 2D <-> 3D is
+            // a projection-only change, matching PCA's cached-score contract.
+            const dimsToUse = Math.min(MDS_CACHED_DIMENSIONS, dimsAvailable);
             console.debug('Debug: mds eigen summary', {
               eigenValues,
               dimsAvailable,
@@ -14083,6 +14274,10 @@
       }
 
       if (effectiveViewMode === '3d') {
+        Shared.cartesianLayout?.clearPublishedLayout?.(pcaSvgBox, {
+          tabId: drawTabId || null,
+          component: 'pca'
+        });
         if (!points3d.length) {
           plotEl.replaceChildren();
           debugLog('Debug: pca 3d render skipped', {
@@ -14135,7 +14330,8 @@
         svg3.setAttribute('height', String(H3));
         svg3.setAttribute('viewBox', `0 0 ${W3} ${H3}`);
         svg3.setAttribute('font-family', chartStyle.FONT_FAMILY);
-        svg3.dataset.viewMode = '3d';
+      svg3.dataset.viewMode = '3d';
+      svg3.dataset.pcaMethod = method;
         chartStyle.prepareSvg(svg3, { scopeId: 'pca' });
         const legendProjection = chartStyle.stageLegendViewport({
           svgBox: pcaSvgBox,
@@ -14728,12 +14924,27 @@
         contentRightBound = Math.max(contentRightBound, maxPointRight);
         let legendGroup3d = null;
         if (legendVisible) {
-          const horizontalBase = margin3.left + plotW3 + legendLayout.legendGapPx + appliedLegendAxisGap;
           const legendGapFor3d = legendLayout.legendGapPx;
+          const legacyHorizontalBase = margin3.left + plotW3 + legendGapFor3d + appliedLegendAxisGap;
+          const reserveOriginX = baseW3 + appliedLegendAxisGap;
+          const horizontalBase = reserveOriginX + legendGapFor3d;
           const legendHeight = legendRenderer.height || 0;
           const legendContentWidth = legendRenderer.width || 0;
           const horizontalPadding = Math.max(fs * 0.6, 12) + appliedLegendAxisGap;
-          let legendX3 = Math.max(horizontalBase, contentRightBound + horizontalPadding);
+          const storedLegendPos = pcaLabelPositionsState?.legend;
+          const legendPosition = chartStyle.resolveLegendPosition(storedLegendPos, {
+            defaultX: horizontalBase,
+            defaultY: margin3.top,
+            reserveOriginX,
+            reserveOriginY: margin3.top,
+            reserveScaleX: legendGapFor3d,
+            reserveScaleY: plotH3,
+            legacyOriginX: legacyHorizontalBase,
+            legacyOriginY: margin3.top,
+            legacyScaleX: legendGapFor3d,
+            legacyScaleY: plotH3
+          });
+          let legendX3 = legendPosition.x;
           const safeRightPad = Math.max(fs * 0.6, 12);
           const maxLegendX = W3 - safeRightPad - legendContentWidth;
           if (maxLegendX < horizontalBase) {
@@ -14755,23 +14966,11 @@
             });
           }
           const baseLegendY = margin3.top;
-          const canonicalLegendX3 = legendX3;
-          const canonicalLegendY3 = baseLegendY;
+          const canonicalLegendX3 = legendPosition.canonicalX;
+          const canonicalLegendY3 = legendPosition.canonicalY;
           const legendBottomLimit = Math.max(baseLegendY, H3 - margin3.bottom - legendHeight);
           const verticalPadding = Math.max(fs * 0.45, 8);
-          let legendStartY = baseLegendY;
-          const storedLegendPos = pcaLabelPositionsState?.legend;
-          if (storedLegendPos) {
-            if (storedLegendPos.relX !== undefined && storedLegendPos.relY !== undefined) {
-              // Use relative positioning for 3D legend
-              legendX3 = horizontalBase + storedLegendPos.relX * legendGapFor3d;
-              legendStartY = baseLegendY + storedLegendPos.relY * plotH3;
-            } else if (Number.isFinite(storedLegendPos.x) && Number.isFinite(storedLegendPos.y)) {
-              // Use absolute positioning (backward compatibility)
-              legendX3 = storedLegendPos.x;
-              legendStartY = storedLegendPos.y;
-            }
-          }
+          let legendStartY = storedLegendPos ? legendPosition.y : baseLegendY;
           if (!storedLegendPos || (storedLegendPos.relX === undefined && storedLegendPos.relY === undefined && (isNaN(storedLegendPos?.x) || isNaN(storedLegendPos?.y)))) {
             const candidates = [baseLegendY];
             if (axisLabelBounds.length) {
@@ -14851,10 +15050,10 @@
           });
           bindPcaLegendInteractions(legendGroup, svg3, drawSession, {
             mode: '3d',
-            originX: horizontalBase,
-            originY: baseLegendY,
-            scaleX: legendGapFor3d,
-            scaleY: plotH3
+            originX: legendPosition.originX,
+            originY: legendPosition.originY,
+            scaleX: legendPosition.scaleX,
+            scaleY: legendPosition.scaleY
           });
         } else {
           debugLog('Debug: pca legend skipped', {
@@ -15056,11 +15255,10 @@
       plotEl.style.padding = '';
       const baseDrawableWidth = Math.max(50, Math.floor(drawableFrame.width || 50));
       const H = Math.max(40, Math.floor(drawableFrame.height || 40));
-      const W = chartStyle.computeLegendViewport({
-        baseWidth: baseDrawableWidth,
-        baseHeight: H,
-        legendWidth: legendVisible ? effectiveLegendWidth : 0
-      }).width;
+      // The canonical Cartesian user frame is the drawable graph frame.
+      // Legend width is derived presentation geometry and is added only through
+      // the transaction's external content envelope below.
+      const W = baseDrawableWidth;
 
       function niceNum(range, round) {
         const exp = Math.floor(Math.log10(range));
@@ -15194,36 +15392,53 @@
         const candidateMaxYLabelWidth = Math.max(...yLabelWidths, 0);
         const candidateMaxXLabelWidth = Math.max(...xLabelWidths, 0);
 
-        let candidateMargin = chartStyle.computeBaseMargins({
+        const cartesianMarginRequirements = chartStyle.computeCartesianMarginRequirements({
           fontSize: fs,
-          legendWidth: effectiveLegendWidth,
           maxYLabelWidth: candidateMaxYLabelWidth,
           hasYTitle,
           axisMetrics,
           xTickLabels: candidateXLabels,
-          xTickMeasureFont
+          xTickMeasureFont,
+          yTickFontSize: fs,
+          xTickFontSize: fs
         });
-        candidateMargin.left = Math.max(
-          candidateMargin.left,
-          candidateMaxYLabelWidth + yMajorTickLength + tickGap + fs * 0.5
-        );
+        let candidateMargin = { ...cartesianMarginRequirements.baselineMargins };
+        candidateMargin.left = Math.max(candidateMargin.left, fs * 0.5);
+        let candidateRequiredMargins = {
+          ...cartesianMarginRequirements.requiredMargins,
+          left: Math.max(
+            cartesianMarginRequirements.requiredMargins.left,
+            candidateMaxYLabelWidth + yMajorTickLength + tickGap + fs * 0.5
+          )
+        };
         if (axisLengthTransaction) {
           candidateMargin.top = Number(axisLengthTransaction.marginTop);
           candidateMargin.bottom = Number(axisLengthTransaction.marginBottom);
+          candidateRequiredMargins.top = Math.max(candidateRequiredMargins.top, candidateMargin.top);
+          candidateRequiredMargins.bottom = Math.max(candidateRequiredMargins.bottom, candidateMargin.bottom);
         }
 
         // PCA's displayed X width is metric-owned: it is derived from plot
         // height and the final coordinate spans. Tick density and label
         // orientation must use that width, not the outer square frame width.
-        // The old pre-metric estimate could add ticks while the actual X axis
-        // stayed shorter, creating the axis-length resize feedback loop.
+        // Measured labels are outward reserves; they must not feed back into the
+        // physical px/unit metric.
         let metricLayout = resolvePca2dMetricLayout(
           W,
           H,
           candidateMargin,
           candidateXScale,
           candidateYScale,
-          equalAxisLengths2d
+          equalAxisLengths2d,
+          {
+            owner: pcaCartesianOwner,
+            requiredMargins: candidateRequiredMargins,
+            externalExtensions: { right: legendVisible ? effectiveLegendWidth : 0 },
+            resizeMetricLocked: true,
+            resizeDrive: pcaSvgBox?.dataset?.resizerLastAxis === 'x'
+              ? 'width'
+              : (pcaSvgBox?.dataset?.resizerLastAxis === 'y' ? 'height' : 'both')
+          }
         );
         const candidateBottomLayout = chartStyle.computeBottomLayout({
           labels: candidateXLabels,
@@ -15231,28 +15446,29 @@
           labelMeasureFont: xTickMeasureFont,
           plotWidth: metricLayout.plotW,
           baseBottom: candidateMargin.bottom,
-          axisMetrics
+          axisMetrics,
+          preservePlotRail: true
         });
-        if (!axisLengthTransaction) {
-          candidateMargin.bottom = candidateBottomLayout.bottom;
-        }
-        candidateMargin = chartStyle.stabilizeAxisResizeMargins ?
-          chartStyle.stabilizeAxisResizeMargins(candidateMargin, {
-            svgBox: pcaSvgBox,
-            scopeId: 'pca'
-          }) :
-          candidateMargin;
-        if (axisLengthTransaction) {
-          candidateMargin.top = Number(axisLengthTransaction.marginTop);
-          candidateMargin.bottom = Number(axisLengthTransaction.marginBottom);
-        }
+        candidateRequiredMargins = {
+          ...candidateRequiredMargins,
+          bottom: Math.max(candidateRequiredMargins.bottom, candidateBottomLayout.requiredBottom || candidateMargin.bottom)
+        };
         metricLayout = resolvePca2dMetricLayout(
           W,
           H,
           candidateMargin,
           candidateXScale,
           candidateYScale,
-          equalAxisLengths2d
+          equalAxisLengths2d,
+          {
+            owner: pcaCartesianOwner,
+            requiredMargins: candidateRequiredMargins,
+            externalExtensions: { right: legendVisible ? effectiveLegendWidth : 0 },
+            resizeMetricLocked: true,
+            resizeDrive: pcaSvgBox?.dataset?.resizerLastAxis === 'x'
+              ? 'width'
+              : (pcaSvgBox?.dataset?.resizerLastAxis === 'y' ? 'height' : 'both')
+          }
         );
 
         return {
@@ -15269,7 +15485,9 @@
           finalSpanX: metricLayout.spanX,
           finalSpanY: metricLayout.spanY,
           desiredMetricAspect: metricLayout.desiredAspect,
-          aspectRightExtension: metricLayout.rightExtension
+          aspectRightExtension: metricLayout.rightExtension,
+          requiredMargins: candidateRequiredMargins,
+          cartesianPlan: metricLayout.cartesianPlan
         };
       };
 
@@ -15334,8 +15552,6 @@
       }
       let xScale = tickLayout.xScale;
       let yScale = tickLayout.yScale;
-      const xTickLabels = tickLayout.xTickLabels;
-      const yTickLabels = tickLayout.yTickLabels;
       const maxXLabelWidth = tickLayout.maxXLabelWidth;
       const maxYLabelWidth = tickLayout.maxYLabelWidth;
       let margin = tickLayout.margin;
@@ -15346,6 +15562,8 @@
       const finalSpanY = tickLayout.finalSpanY;
       const desiredMetricAspect = tickLayout.desiredMetricAspect;
       const aspectRightExtension = tickLayout.aspectRightExtension;
+      const pcaRequiredMargins = tickLayout.requiredMargins || margin;
+      let pcaCartesianPlan = tickLayout.cartesianPlan || null;
 
       debugLog('Debug: pca tick targets finalized', {
         xTickTarget,
@@ -15369,29 +15587,34 @@
 
       let legendOrigin2d = null;
       if (legendVisible) {
-        const defaultLegendX = margin.left + plotW + legendLayout.legendGapPx + appliedLegendAxisGap;
         const defaultLegendY = margin.top;
         const legendPos = pcaLabelPositionsState?.legend;
-        let absoluteLegendX = defaultLegendX;
-        let absoluteLegendY = defaultLegendY;
-        if (legendPos) {
-          if (legendPos.relX !== undefined && legendPos.relY !== undefined) {
-            absoluteLegendX = margin.left + plotW + legendPos.relX * legendLayout.legendGapPx;
-            absoluteLegendY = margin.top + legendPos.relY * plotH;
-          } else if (legendPos.x !== undefined && legendPos.y !== undefined) {
-            absoluteLegendX = legendPos.x;
-            absoluteLegendY = legendPos.y;
-          }
-        }
+        const plotRight = margin.left + plotW;
+        const legendPosition = chartStyle.resolveLegendPosition(legendPos, {
+          defaultX: baseDrawableWidth + appliedLegendAxisGap + legendLayout.legendGapPx,
+          defaultY: defaultLegendY,
+          reserveOriginX: baseDrawableWidth + appliedLegendAxisGap,
+          reserveOriginY: margin.top,
+          reserveScaleX: legendLayout.legendGapPx,
+          reserveScaleY: plotH,
+          legacyOriginX: plotRight,
+          legacyOriginY: margin.top,
+          legacyScaleX: legendLayout.legendGapPx,
+          legacyScaleY: plotH
+        });
         legendOrigin2d = {
-          defaultLegendX,
-          defaultLegendY,
-          absoluteLegendX,
-          absoluteLegendY
+          defaultLegendX: legendPosition.canonicalX,
+          defaultLegendY: legendPosition.canonicalY,
+          absoluteLegendX: legendPosition.x,
+          absoluteLegendY: legendPosition.y,
+          originX: legendPosition.originX,
+          originY: legendPosition.originY,
+          scaleX: legendPosition.scaleX,
+          scaleY: legendPosition.scaleY
         };
       }
-      const renderW = W + aspectRightExtension;
-      const renderH = H;
+      const renderW = Math.max(W, pcaCartesianPlan?.contentEnvelope?.maxX || (W + aspectRightExtension));
+      const renderH = Math.max(H, pcaCartesianPlan?.contentEnvelope?.maxY || H);
       plotEl.style.position = 'relative';
       const layeredRoot = document.createElement('div');
       layeredRoot.className = 'pca-layered-plot';
@@ -15407,6 +15630,7 @@
       svg.setAttribute('viewBox', `0 0 ${renderW} ${renderH}`);
       svg.setAttribute('font-family', chartStyle.FONT_FAMILY);
       svg.dataset.viewMode = effectiveViewMode;
+      svg.dataset.pcaMethod = method;
       svg.dataset.pcaEqualAxisLengths = String(equalAxisLengths2d);
       svg.dataset.pcaMetricPlotWidth = String(plotW);
       svg.dataset.pcaMetricPlotHeight = String(plotH);
@@ -15415,15 +15639,18 @@
       svg.dataset.pcaPixelsPerXUnit = String(plotW / finalSpanX);
       svg.dataset.pcaPixelsPerYUnit = String(plotH / finalSpanY);
       chartStyle.prepareSvg(svg, { scopeId: 'pca' });
-      const legendProjection = chartStyle.stageGraphContentViewport({
+      let legendProjection = chartStyle.stageGraphContentViewport({
         svgBox: pcaSvgBox,
         plot: plotEl,
         svg,
         baseWidth: baseDrawableWidth,
         baseHeight: H,
-        rightWidth: (legendVisible ? effectiveLegendWidth : 0) + aspectRightExtension,
-        legendWidth: legendVisible ? effectiveLegendWidth : 0,
-        bottomHeight: 0
+        rightWidth: pcaCartesianPlan?.contentEnvelope?.extensionRight
+          ?? ((legendVisible ? effectiveLegendWidth : 0) + aspectRightExtension),
+        leftWidth: pcaCartesianPlan?.contentEnvelope?.extensionLeft || 0,
+        topHeight: pcaCartesianPlan?.contentEnvelope?.extensionTop || 0,
+        bottomHeight: pcaCartesianPlan?.contentEnvelope?.extensionBottom || 0,
+        legendWidth: legendVisible ? effectiveLegendWidth : 0
       });
       svg.addEventListener('mouseleave', handlePcaPlotMouseLeave);
       const shouldUseCanvasPoints = points.length >= PCA_FAST_POINT_THRESHOLD;
@@ -16102,9 +16329,9 @@
             plotTop,
             plotBottom,
             containerLeft: 0,
-            containerRight: W,
+            containerRight: Math.max(W, ...pointBounds.map(point => point.cx + 4)),
             containerTop: 0,
-            containerBottom: H,
+            containerBottom: Math.max(H, ...pointBounds.map(point => point.cy + 4)),
             labelFontSize,
             leaderGap: Math.max(2, Math.round(labelFontSize * 0.2)),
             leaderScale: labelScale,
@@ -16201,10 +16428,10 @@
         }
         bindPcaLegendInteractions(legendGroup, svg, drawSession, {
           mode: '2d',
-          originX: margin.left + plotW,
-          originY: margin.top,
-          scaleX: legendLayout.legendGapPx,
-          scaleY: plotH
+          originX: legendOrigin2d?.originX ?? baseDrawableWidth,
+          originY: legendOrigin2d?.originY ?? margin.top,
+          scaleX: legendOrigin2d?.scaleX ?? legendLayout.legendGapPx,
+          scaleY: legendOrigin2d?.scaleY ?? plotH
         });
       } else {
         debugLog('Debug: pca legend skipped', {
@@ -16236,14 +16463,79 @@
         fitContent: false
       });
       projectPcaRenderedParameterMetadata(svg, drawSession);
-      if (!framePublication.commit()) {
-        return false;
+      const measuredPcaViewport = legendProjection.measure?.() || legendProjection.getViewport?.() || null;
+      if(pcaCartesianPlan && measuredPcaViewport){
+        const replannedMetric = resolvePca2dMetricLayout(
+          W,
+          H,
+          pcaCartesianPlan.baselineMargins,
+          xScale,
+          yScale,
+          equalAxisLengths2d,
+          {
+            owner: pcaCartesianOwner,
+            requiredMargins: pcaRequiredMargins,
+            externalExtensions: { right: legendVisible ? effectiveLegendWidth : 0 },
+            resizeMetricLocked: true,
+            resizeDrive: pcaSvgBox?.dataset?.resizerLastAxis === 'x'
+              ? 'width'
+              : (pcaSvgBox?.dataset?.resizerLastAxis === 'y' ? 'height' : 'both'),
+            contentBounds: {
+              minX: measuredPcaViewport.minX,
+              minY: measuredPcaViewport.minY,
+              maxX: measuredPcaViewport.maxX,
+              maxY: measuredPcaViewport.maxY
+            }
+          }
+        );
+        pcaCartesianPlan = replannedMetric.cartesianPlan;
+        // Measurement may enlarge the metric/content envelope. Re-stage from
+        // that final plan so the SVG, outer border, and published transaction
+        // commit the same bounds instead of retaining the provisional legend.
+        legendProjection = chartStyle.stageGraphContentViewport({
+          svgBox: pcaSvgBox,
+          plot: plotEl,
+          svg,
+          baseWidth: baseDrawableWidth,
+          baseHeight: H,
+          rightWidth: pcaCartesianPlan?.contentEnvelope?.extensionRight || 0,
+          leftWidth: pcaCartesianPlan?.contentEnvelope?.extensionLeft || 0,
+          topHeight: pcaCartesianPlan?.contentEnvelope?.extensionTop || 0,
+          bottomHeight: pcaCartesianPlan?.contentEnvelope?.extensionBottom || 0,
+          legendWidth: legendVisible ? effectiveLegendWidth : 0,
+          refineLegendReserve: false,
+          refineContentBounds: false
+        });
       }
       plotEl.style.removeProperty('min-width');
-      legendProjection.commit();
-      const finalizedRightReserve = Number(svg.dataset?.graphContentReserveRight);
-      if(Number.isFinite(finalizedRightReserve) && finalizedRightReserve >= 0){
-        layeredRoot.style.width = `${baseDrawableWidth + finalizedRightReserve}px`;
+      const pcaLayoutPublished = pcaCartesianPlan
+        ? Shared.cartesianLayout?.publishCartesianLayout?.(pcaSvgBox, pcaCartesianPlan, {
+            tabId: pcaCartesianOwner.tabId,
+            component: 'pca',
+            generation: pcaCartesianOwner.generation,
+            resizePhase: explicitDrawOptions?.resizePhase || null,
+            canCommit: () => (!drawAsyncState || isPcaDrawAsyncCurrent(drawToken, drawAsyncState))
+              && (!drawSession || getPcaSession(drawSession.tabId, {}, { create: false }) === drawSession),
+            projectionTarget: svg,
+            commitFrame: () => framePublication.commit(),
+            commitPresentation: () => legendProjection.commit()
+          })
+        : false;
+      if(pcaCartesianPlan && !pcaLayoutPublished){
+        return false;
+      }
+      if(!pcaCartesianPlan){
+        if(!framePublication.commit()) return false;
+        legendProjection.commit();
+      }
+      const finalizedEnvelopeWidth = Number(pcaCartesianPlan?.contentEnvelope?.width);
+      if(Number.isFinite(finalizedEnvelopeWidth) && finalizedEnvelopeWidth > 0){
+        layeredRoot.style.width = `${finalizedEnvelopeWidth}px`;
+      }else{
+        const finalizedRightReserve = Number(svg.dataset?.graphContentReserveRight);
+        if(Number.isFinite(finalizedRightReserve) && finalizedRightReserve >= 0){
+          layeredRoot.style.width = `${baseDrawableWidth + finalizedRightReserve}px`;
+        }
       }
       pcaLayout?.syncPanels?.({
         skipSchedule: true
@@ -16335,6 +16627,9 @@
         debugLog('Debug: pca session capture after draw failed', {
           message: captureErr?.message || String(captureErr)
         });
+      }
+      if (drawOpts.restoreOwnerStatsAfterDraw === true && drawOwnerStillProjected && drawSession?.tabId) {
+        projectPcaStatsForOwner(drawSession.tabId, `${drawOpts.reason || 'pca-recovery-draw'}:post-draw`);
       }
       if (!skipPerfRecord && drawOwnerStillProjected) {
         recordPcaPerformance('draw', {
@@ -17098,22 +17393,18 @@
         resultsModel: savedStatsModels.savedResultsModel,
         reportModel: savedStatsModels.savedReportModel
       });
-      setPcaStatsPanelResultsState(restoredPanelState, getPcaProjectionSession({
-        reason: 'pca-projection-mutation'
-      }), {
-        mirrorActive: true
+      setPcaStatsPanelResultsState(restoredPanelState, payloadSession, {
+        mirrorActive: payloadOwnerIsActive
       });
       const restoredStats = (obj.stats && typeof obj.stats === 'object') ?
         obj.stats :
         ((c.stats && typeof c.stats === 'object') ? c.stats : null);
       if (restoredStats) {
-        setPcaStatsSnapshot(restoredStats, getPcaProjectionSession({
-          reason: 'pca-projection-mutation'
-        }), {
+        setPcaStatsSnapshot(restoredStats, payloadSession, {
           statsPanel: restoredPanelState,
-          mirrorActive: true
+          mirrorActive: payloadOwnerIsActive
         });
-        const restoredStatsSnapshot = getPcaStatsSnapshot(getActivePcaSessionForState());
+        const restoredStatsSnapshot = getPcaStatsSnapshot(payloadSession);
         debugLog('Debug: pca stats restored from payload', {
           hasEigenSummary: Array.isArray(restoredStatsSnapshot?.eigenSummary) && restoredStatsSnapshot.eigenSummary.length > 0,
           hasScree: Array.isArray(restoredStatsSnapshot?.scree) && restoredStatsSnapshot.scree.length > 0,
@@ -17122,14 +17413,18 @@
           hasSavedSummaryModel: !!savedStatsModels.savedSummaryModel,
           source: (obj.stats && typeof obj.stats === 'object') ? 'payload.stats' : 'config.stats'
         });
-        restorePcaStatsFromPayload(savedStatsModels);
+        restorePcaStatsFromPayload({
+          ...savedStatsModels,
+          session: payloadSession,
+          reason: 'pca-payload-stats-restore'
+        });
         if (skipDraw && !skipDataLoad) {
-          finalizePcaStatsPayloadRestore(savedStatsModels, 'pca-stats-payload-restore-after-data-load');
+          finalizePcaStatsPayloadRestore(savedStatsModels, 'pca-stats-payload-restore-after-data-load', payloadSession);
         }
       } else {
         resetStatsPanel('');
-        clearPcaResultsState(getActivePcaSessionForState(), {
-          mirrorActive: true
+        clearPcaResultsState(payloadSession, {
+          mirrorActive: payloadOwnerIsActive
         });
       }
       // Restore label positions through the owner session so same-component
@@ -17508,7 +17803,8 @@
       viewOnly: true,
       force: true,
       forceDraw: true,
-      userInitiated: true
+      userInitiated: true,
+      restoreOwnerStatsAfterDraw: true
     });
     return true;
   }
@@ -17528,6 +17824,7 @@
     if (!ownerSession || !getPcaStatsSnapshot(ownerSession)) {
       return false;
     }
+    rebindPcaProjectionDomRefs(ownerTabId);
     return restorePcaStatsFromPayload({
       ...normalizePcaSavedStatsModels(getPcaStatsPanelSnapshot(ownerSession)),
       session: ownerSession,
@@ -17911,35 +18208,14 @@
     ) || runtimeWorkspace?.tabs?.find?.(
       tab => String(tab?.id || '') === String(runtimeWorkspace?.activeTabId || '') && tab?.type === 'pca'
     ) || null;
-    const canonicalConfig = canonicalTab?.payload?.config;
-    if(canonicalConfig && snapshot.state && typeof snapshot.state === 'object'){
-      const canonicalControls = {};
-      [
-        'method', 'viewMode', 'showGrid', 'showFrame', 'showLegend',
-        'standardizeVariables', 'equalAxisLengths', 'preprocessing', 'dotSize',
-        'fill', 'border', 'borderWidth', 'alpha', 'fontSize', 'tsne', 'umap'
-      ].forEach(key => {
-        if(Object.prototype.hasOwnProperty.call(canonicalConfig, key)) canonicalControls[key] = cloneSimple(canonicalConfig[key]);
-      });
-      snapshot = {
-        ...snapshot,
-        state: {
-          ...snapshot.state,
-          controls: normalizePcaRuntimeControls({
-            ...(snapshot.state.controls || {}),
-            ...canonicalControls
-          }),
-          ...(canonicalConfig.axisSelection ? { axisSelection: cloneSimple(canonicalConfig.axisSelection) } : {}),
-          ...(canonicalConfig.rotation ? { rotation: cloneSimple(canonicalConfig.rotation) } : {}),
-          ...(canonicalConfig.labels ? { labels: cloneSimple(canonicalConfig.labels) } : {}),
-          ...(canonicalConfig.pointStyleScopes ? { pointStyleScopes: cloneSimple(canonicalConfig.pointStyleScopes) } : {})
-        }
-      };
-    }
     applyPcaOwnedRuntimeSlicesFromSnapshot(snapshot, effectiveMeta.tab || effectiveMeta.tabId || null, {
       ...effectiveMeta,
       reason: effectiveMeta.reason || 'pca-runtime-apply-owned-slices'
     });
+    const applySession = getPcaSession(effectiveMeta.tab || effectiveMeta.tabId || null, {
+      ...effectiveMeta,
+      reason: effectiveMeta.reason || 'pca-runtime-apply-owner'
+    }, { create: false }) || getActivePcaSessionForState();
     if (snapshot.state && typeof snapshot.state === 'object') {
       const nextState = snapshot.state;
       pcaState.axisSelection = cloneSimple(nextState.axisSelection) || pcaState.axisSelection;
@@ -18014,42 +18290,39 @@
       syncPcaRuntimeControlsFromState(snapshot.state.controls || {});
     }
     if (Object.prototype.hasOwnProperty.call(snapshot, 'results')) {
-      setPcaResultsState(snapshot.results, getPcaProjectionSession({
-        reason: 'pca-projection-mutation'
-      }), {
-        mirrorActive: true
+      setPcaResultsState(snapshot.results, applySession, {
+        mirrorActive: isPcaSessionActiveForModuleState(applySession)
       });
     } else {
       if (Object.prototype.hasOwnProperty.call(snapshot, 'stats')) {
-        setPcaStatsSnapshot(snapshot.stats, getPcaProjectionSession({
-          reason: 'pca-projection-mutation'
-        }), {
-          mirrorActive: true
+        setPcaStatsSnapshot(snapshot.stats, applySession, {
+          mirrorActive: isPcaSessionActiveForModuleState(applySession)
         });
       }
       if (Object.prototype.hasOwnProperty.call(snapshot, 'statsPanel')) {
-        setPcaStatsPanelResultsState(snapshot.statsPanel, getPcaProjectionSession({
-          reason: 'pca-projection-mutation'
-        }), {
-          mirrorActive: true
+        setPcaStatsPanelResultsState(snapshot.statsPanel, applySession, {
+          mirrorActive: isPcaSessionActiveForModuleState(applySession)
         });
       } else {
-        const statsSnapshot = getPcaStatsSnapshot(getActivePcaSessionForState());
+        const statsSnapshot = getPcaStatsSnapshot(applySession);
         if (statsSnapshot?.statsPanel) {
-          setPcaStatsPanelResultsState(statsSnapshot.statsPanel, getPcaProjectionSession({
-            reason: 'pca-projection-mutation'
-          }), {
-            mirrorActive: true
+          setPcaStatsPanelResultsState(statsSnapshot.statsPanel, applySession, {
+            mirrorActive: isPcaSessionActiveForModuleState(applySession)
           });
         }
       }
     }
-    const restoredStatsSnapshot = getPcaStatsSnapshot(getActivePcaSessionForState());
-    const restoredPanelSnapshot = getPcaStatsPanelSnapshot(getActivePcaSessionForState());
+    const restoredStatsSnapshot = getPcaStatsSnapshot(applySession);
+    const restoredPanelSnapshot = getPcaStatsPanelSnapshot(applySession);
     if (restoredStatsSnapshot && typeof restorePcaStatsFromPayload === 'function') {
-      restorePcaStatsFromPayload(normalizePcaSavedStatsModels(restoredPanelSnapshot));
+      restorePcaStatsFromPayload({
+        ...normalizePcaSavedStatsModels(restoredPanelSnapshot),
+        session: applySession,
+        reason: 'pca-runtime-apply-stats'
+      });
     } else if (pcaStatsPanelSnapshotHasContent(restoredPanelSnapshot)) {
       restorePcaStatsPanelState(restoredPanelSnapshot, {
+        session: applySession,
         clearWhenMissing: false
       });
     }
@@ -18488,9 +18761,12 @@
     // scree/summary/biplot/eigen/loadings in sync on every restore path (file reopen,
     // recovery, tab switch). The active-session mirror is refreshed before this runs,
     // so older payloads remain compatible without making the mirror authoritative.
-    restorePcaStatsFromPayload();
-    const session = getActivePcaSessionForState();
-    const ownerTabId = _meta?.tab?.id || _meta?.tabId || session?.tabId || getPcaProjectionTabId() || null;
+    const ownerTabId = _meta?.tab?.id || _meta?.tabId || getPcaProjectionTabId() || null;
+    const session = getPcaSession(_meta?.tab || ownerTabId || null, {
+      ...(_meta || {}),
+      reason: 'pca-render-cache-restore-owner'
+    }, { create: false }) || getActivePcaSessionForState();
+    restorePcaStatsFromPayload({ session, reason: 'pca-render-cache-restore-stats' });
     rebindPcaProjectionDomRefs(ownerTabId);
     const canonicalControls = hydratePcaControlsFromCanonicalTab(ownerTabId, session, 'pca-render-cache-canonical-controls');
     syncPcaRuntimeControlsFromState(canonicalControls || createDefaultPcaRuntimeControls());
@@ -18674,6 +18950,15 @@
       resizableBoxOptions: {
         forceAspectLocked: true,
         showAspectControl: false,
+        cartesianLayoutTransactionEnabled: context => {
+          const ownerTabId = String(context?.tabId || targetTabId || '').trim() || null;
+          const ownerSession = ownerTabId
+            ? getPcaSession(ownerTabId, { tabId: ownerTabId }, { create: false })
+            : null;
+          if(!ownerSession) return false;
+          const ownerState = getPcaSessionOwnedState(ownerSession).state;
+          return String(ownerState?.controls?.viewMode || DEFAULT_VIEW_MODE).trim().toLowerCase() !== '3d';
+        },
         onResize: (phase) => {
           const resizePhase = typeof phase === 'string' ? phase : '';
           const aspectLocked = pcaSvgBox?.dataset?.resizerAspectLocked === 'true';
@@ -19461,6 +19746,14 @@
     compute2dAxisLengthResizePlan: input => computePca2dAxisLengthResizePlan(input),
     resolve3dMetricRanges: (axisRanges, equalAxisLengths) => resolvePca3dMetricRanges(axisRanges, equalAxisLengths),
     getSession: tabLike => getPcaSession(tabLike || getPcaProjectionTabId() || null, { reason: 'pca-test-session' }, { create: false }),
+    captureStatsPanelForOwner: tabLike => {
+      const session = getPcaSession(tabLike || getPcaProjectionTabId() || null, { reason: 'pca-test-stats-capture' }, { create: false });
+      return session ? cloneSimple(rememberPcaStatsPanelState(null, { session })) : null;
+    },
+    restoreStatsPanelForOwner: tabLike => {
+      const session = getPcaSession(tabLike || getPcaProjectionTabId() || null, { reason: 'pca-test-stats-restore' }, { create: false });
+      return session ? restorePcaStatsPanelState(getPcaStatsPanelSnapshot(session), { session, clearWhenMissing: false }) : false;
+    },
     snapshotConfig: session => cloneSimple(snapshotPcaConfig(null, session || getActivePcaSessionForState())),
     calculateMedianRatioSizeFactors: matrix => dataTransformsApi.calculateMedianRatioSizeFactors(matrix),
     preprocessRnaSeqCounts: (matrix, labels, options) => dataTransformsApi.preprocessRnaSeqCounts(matrix, labels, options),

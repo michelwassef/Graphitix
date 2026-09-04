@@ -16,23 +16,39 @@ async function waitForRocRender(page, expectedType) {
     const root = document.querySelector('#rocPage:not([hidden])');
     const svg = root?.querySelector?.('#rocSvg') || null;
     const select = root?.querySelector?.('#rocGraphType') || null;
-    const text = [
-      svg?.textContent || '',
-      root?.querySelector?.('#rocStatsResults')?.textContent || ''
-    ].join('\n');
     if (!svg || select?.value !== type) {
       return false;
     }
-    if (type === 'roc') {
-      return /ROC curve/i.test(text)
-        && /False Positive Rate/i.test(text)
-        && /True Positive Rate/i.test(text)
-        && /\bAUC\b/i.test(text);
+    const active = window.Main?.session?.workspaceState?.activeTabId || null;
+    const publication = window.Shared?.componentLifecycle?.isPublicationSettled?.(window.Components?.roc, {
+      componentKey: 'roc',
+      tabId: active
+    });
+    if (!active || publication?.staged === true) {
+      return false;
     }
-    return /Precision-Recall curve/i.test(text)
-      && /\bRecall\b/i.test(text)
-      && /\bPrecision\b/i.test(text)
-      && /Average Precision|AP\b/i.test(text);
+    const xLabel = svg.querySelector('[data-font-role="xTitle"]')?.textContent?.trim() || '';
+    const yLabel = svg.querySelector('[data-font-role="yTitle"]')?.textContent?.trim() || '';
+    const title = svg.querySelector('[data-font-role="graphTitle"]')?.textContent?.trim() || '';
+    const statsText = root?.querySelector?.('#rocStatsResults')?.textContent || '';
+    const hasCurve = Array.from(svg.querySelectorAll('path[data-series][d]'))
+      .some(path => String(path.getAttribute('d') || '').trim().length > 0);
+    if (type === 'roc') {
+      return svg.dataset?.rocGraphType === 'roc'
+        && hasCurve
+        && title === 'ROC curve'
+        && xLabel === 'False Positive Rate'
+        && yLabel === 'True Positive Rate'
+        && /\bAUC\b/i.test(statsText)
+        && /ROC metrics|ROC summary/i.test(statsText);
+    }
+    return svg.dataset?.rocGraphType === 'pr'
+      && hasCurve
+      && /Precision-Recall/i.test(title)
+      && xLabel === 'Recall'
+      && yLabel === 'Precision'
+      && /Average Precision|AP\b/i.test(statsText)
+      && /Precision.*Recall|Precision-Recall|Precision–Recall/i.test(statsText);
   }, expectedType, { timeout: 45_000 });
 }
 
@@ -46,7 +62,11 @@ async function readRocState(page) {
       graphType: root?.querySelector?.('#rocGraphType')?.value || null,
       payloadGraphType: payload?.config?.graphType || null,
       payloadTitle: payload?.config?.title || null,
-      payloadStatsGraphType: payload?.stats?.resultsModel?.meta?.graphType || payload?.stats?.reportModel?.meta?.graphType || null,
+      renderedGraphType: svg?.dataset?.rocGraphType || null,
+      xLabel: svg?.querySelector?.('[data-font-role="xTitle"]')?.textContent?.trim() || null,
+      yLabel: svg?.querySelector?.('[data-font-role="yTitle"]')?.textContent?.trim() || null,
+      title: svg?.querySelector?.('[data-font-role="graphTitle"]')?.textContent?.trim() || null,
+      curveCount: svg ? Array.from(svg.querySelectorAll('path[data-series][d]')).filter(path => String(path.getAttribute('d') || '').trim()).length : 0,
       svgText: svg?.textContent || '',
       statsText: stats?.textContent || '',
       hasSvg: !!svg,
@@ -77,10 +97,62 @@ async function setFastRocResamplingForContract(page) {
   });
 }
 
-async function setRocGraphType(page, graphType) {
+async function setRocGraphType(page, graphType, options = {}) {
   await setFastRocResamplingForContract(page);
-  await page.locator('#rocPage:not([hidden]) #rocGraphType').selectOption(graphType);
+  const select = page.locator('#rocPage:not([hidden]) #rocGraphType');
+  await select.focus();
+  const current = await select.inputValue();
+  if (current !== graphType) {
+    await select.press(graphType === 'pr' ? 'ArrowDown' : 'ArrowUp');
+  }
+  await expect(select).toHaveValue(graphType, { timeout: 20_000 });
+  if (options.assertStatsAtBaseFrame) {
+    await expectRocStatsAtBaseFrame(page, graphType);
+  }
   await waitForRocRender(page, graphType);
+}
+
+async function expectRocStatsAtBaseFrame(page, graphType) {
+  await page.waitForFunction(type => {
+    const root = document.querySelector('#rocPage:not([hidden])');
+    return root?.querySelector?.('#rocSvg')?.dataset?.rocGraphType === type;
+  }, graphType, { timeout: 45_000 });
+  const statsText = await page.locator('#rocPage:not([hidden]) #rocStatsResults').textContent();
+  if (graphType === 'roc') {
+    expect(statsText).toMatch(/ROC metrics|ROC summary/i);
+    expect(statsText).toMatch(/\bAUC\b/i);
+  } else {
+    expect(statsText).toMatch(/Average Precision|AP\b/i);
+  }
+}
+
+async function expectRocResamplingLayout(page) {
+  await expect(page.locator('#rocPage:not([hidden]) #rocDiffMethod')).toHaveValue('bootstrap');
+  const layout = await page.locator('#rocPage:not([hidden]) #rocStatsControls').evaluate(controls => {
+    const group = controls.querySelector('.roc-resampling-controls');
+    const iterations = group?.querySelector('#rocResamplingIterations');
+    const seed = group?.querySelector('#rocResamplingSeed');
+    if (!group || !iterations || !seed) {
+      return null;
+    }
+    const groupRect = group.getBoundingClientRect();
+    const controlsRect = controls.getBoundingClientRect();
+    const iterationsRect = iterations.getBoundingClientRect();
+    const seedRect = seed.getBoundingClientRect();
+    return {
+      groupTop: groupRect.top,
+      controlsTop: controlsRect.top,
+      iterationsTop: iterationsRect.top,
+      seedTop: seedRect.top,
+      iterationsWidth: iterationsRect.width,
+      seedWidth: seedRect.width
+    };
+  });
+  expect(layout).not.toBeNull();
+  expect(layout.groupTop).toBeGreaterThan(layout.controlsTop);
+  expect(Math.abs(layout.iterationsTop - layout.seedTop)).toBeLessThan(2);
+  expect(layout.iterationsWidth).toBeLessThan(200);
+  expect(layout.seedWidth).toBeLessThan(200);
 }
 
 async function captureWorkspaceArchive(page, fileStem) {
@@ -133,8 +205,13 @@ function expectRocConsistency(state, graphType) {
   expect(state.hasStats).toBe(true);
   expect(state.graphType).toBe(graphType);
   expect(state.payloadGraphType).toBe(graphType);
+  expect(state.renderedGraphType).toBe(graphType);
+  expect(state.curveCount).toBeGreaterThan(0);
   if (graphType === 'roc') {
     expect(state.payloadTitle).toBe('ROC curve');
+    expect(state.title).toBe('ROC curve');
+    expect(state.xLabel).toBe('False Positive Rate');
+    expect(state.yLabel).toBe('True Positive Rate');
     expect(state.svgText).toMatch(/ROC curve/i);
     expect(state.svgText).toMatch(/False Positive Rate/i);
     expect(state.svgText).toMatch(/True Positive Rate/i);
@@ -142,6 +219,9 @@ function expectRocConsistency(state, graphType) {
     expect(state.statsText).toMatch(/ROC metrics|ROC summary/i);
   } else {
     expect(state.payloadTitle).toBe('Precision-Recall curve');
+    expect(state.title).toMatch(/Precision-Recall/i);
+    expect(state.xLabel).toBe('Recall');
+    expect(state.yLabel).toBe('Precision');
     expect(state.svgText).toMatch(/Precision-Recall curve/i);
     expect(state.svgText).toMatch(/\bRecall\b/i);
     expect(state.svgText).toMatch(/Precision/i);
@@ -163,9 +243,10 @@ test('ROC and Precision-Recall graph type survives toggles, tab switch, and reop
   expectRocConsistency(await readRocState(page), 'roc');
 
   await setRocGraphType(page, 'pr');
+  await expectRocResamplingLayout(page);
   expectRocConsistency(await readRocState(page), 'pr');
 
-  await setRocGraphType(page, 'roc');
+  await setRocGraphType(page, 'roc', { assertStatsAtBaseFrame: true });
   expectRocConsistency(await readRocState(page), 'roc');
 
   await setRocGraphType(page, 'pr');

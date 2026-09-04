@@ -798,6 +798,220 @@ describe('session.assignTabPayload null-overwrite guard', () => {
     }
   });
 
+  test('global user-input listener does not treat focusout as a content edit', () => {
+    const tab = createTabWithPayload();
+    session.workspaceState.activeTabId = tab.id;
+    tab.userModified = false;
+    tab.payloadDirty = false;
+    const root = document.createElement('div');
+    root.setAttribute('data-workspace-component', 'box');
+    const input = document.createElement('input');
+    root.appendChild(input);
+    document.body.appendChild(root);
+    try {
+      input.dispatchEvent(makeTrustedEvent('focusout', input));
+      expect(tab.userModified).toBe(false);
+      expect(tab.payloadDirty).toBe(false);
+    } finally {
+      document.body.removeChild(root);
+    }
+  });
+
+  test('canonical capture runs after change, input, and click handlers', async () => {
+    const tab = createTabWithPayload();
+    session.workspaceState.activeTabId = tab.id;
+    const root = document.createElement('div');
+    root.setAttribute('data-workspace-component', 'box');
+    root.setAttribute('data-workspace-tab-id', tab.id);
+    const select = document.createElement('select');
+    ['strip', 'box', 'violin'].forEach(value => {
+      const option = document.createElement('option');
+      option.value = value;
+      select.appendChild(option);
+    });
+    const input = document.createElement('input');
+    const button = document.createElement('button');
+    button.type = 'button';
+    root.append(select, input, button);
+    document.body.appendChild(root);
+    let canonicalValue = 'strip';
+    window.Main.components = {
+      registry: {
+        box: {
+          getPayload: jest.fn(() => ({
+            type: 'box',
+            data: [['A'], [1]],
+            config: { graphType: canonicalValue }
+          }))
+        }
+      }
+    };
+    window.Main.documentState = {
+      persistCanonicalJournalNow: jest.fn(() => true)
+    };
+    select.value = 'strip';
+    input.value = '2d';
+    select.addEventListener('change', () => { canonicalValue = 'box'; });
+    input.addEventListener('input', () => { canonicalValue = '3d'; });
+    button.addEventListener('click', () => { canonicalValue = 'violin'; });
+    try {
+      select.dispatchEvent(makeTrustedEvent('change', select));
+      await session.flushCanonicalUserMutationState();
+      await new Promise(resolve => setTimeout(resolve, 0));
+      expect(window.Main.documentState.persistCanonicalJournalNow).toHaveBeenCalledWith(
+        expect.objectContaining({ tabId: tab.id, reason: 'control-change' })
+      );
+      expect(tab.payload.config.graphType).toBe('box');
+
+      input.dispatchEvent(makeTrustedEvent('input', input));
+      await session.flushCanonicalUserMutationState();
+      expect(tab.payload.config.graphType).toBe('3d');
+
+      button.dispatchEvent(makeTrustedEvent('click', button));
+      await session.flushCanonicalUserMutationState();
+      expect(tab.payload.config.graphType).toBe('violin');
+    } finally {
+      document.body.removeChild(root);
+    }
+  });
+
+  test('select input cannot project the old value before its following change event', async () => {
+    const tab = createTabWithPayload();
+    session.workspaceState.activeTabId = tab.id;
+    const root = document.createElement('div');
+    root.setAttribute('data-workspace-component', 'box');
+    root.setAttribute('data-workspace-tab-id', tab.id);
+    const select = document.createElement('select');
+    ['strip', 'box'].forEach(value => {
+      const option = document.createElement('option');
+      option.value = value;
+      select.appendChild(option);
+    });
+    root.appendChild(select);
+    document.body.appendChild(root);
+    let canonicalValue = 'strip';
+    const getPayload = jest.fn(() => {
+      // A real component projects its canonical session value while taking
+      // a capture. This exposes a stale capture that runs between input and
+      // change: it puts the select back on the old option.
+      select.value = canonicalValue;
+      return {
+        type: 'box',
+        data: [['A'], [1]],
+        config: { graphType: canonicalValue }
+      };
+    });
+    window.Main.components = {
+      registry: {
+        box: { getPayload }
+      }
+    };
+    select.value = 'strip';
+    select.addEventListener('change', () => {
+      canonicalValue = select.value;
+    });
+    try {
+      select.value = 'box';
+      select.dispatchEvent(makeTrustedEvent('input', select));
+      await Promise.resolve();
+      expect(getPayload).not.toHaveBeenCalled();
+      select.dispatchEvent(makeTrustedEvent('change', select));
+      expect(select.value).toBe('box');
+      expect(canonicalValue).toBe('box');
+      await session.flushCanonicalUserMutationState();
+      expect(getPayload).toHaveBeenCalled();
+      expect(select.value).toBe('box');
+      expect(tab.payload.config.graphType).toBe('box');
+    } finally {
+      document.body.removeChild(root);
+    }
+  });
+
+  test('checkbox input cannot restore the old value before its following change event', async () => {
+    const tab = createTabWithPayload();
+    session.workspaceState.activeTabId = tab.id;
+    const root = document.createElement('div');
+    root.setAttribute('data-workspace-component', 'box');
+    root.setAttribute('data-workspace-tab-id', tab.id);
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.checked = true;
+    root.appendChild(checkbox);
+    document.body.appendChild(root);
+    let canonicalChecked = true;
+    const getPayload = jest.fn(() => {
+      // Components project canonical state while capturing. If this runs after
+      // input but before change, it changes a real unchecked checkbox back to
+      // checked and the component never receives the requested value.
+      checkbox.checked = canonicalChecked;
+      return {
+        type: 'box',
+        data: [['A'], [1]],
+        config: { showLegend: canonicalChecked }
+      };
+    });
+    window.Main.components = { registry: { box: { getPayload } } };
+    checkbox.addEventListener('change', () => {
+      canonicalChecked = checkbox.checked;
+    });
+    try {
+      checkbox.checked = false;
+      checkbox.dispatchEvent(makeTrustedEvent('input', checkbox));
+      await Promise.resolve();
+      expect(getPayload).not.toHaveBeenCalled();
+      expect(checkbox.checked).toBe(false);
+
+      checkbox.dispatchEvent(makeTrustedEvent('change', checkbox));
+      expect(canonicalChecked).toBe(false);
+      await session.flushCanonicalUserMutationState();
+      expect(getPayload).toHaveBeenCalled();
+      expect(checkbox.checked).toBe(false);
+      expect(tab.payload.config.showLegend).toBe(false);
+    } finally {
+      document.body.removeChild(root);
+    }
+  });
+
+  test('canonical capture still runs when a control stops event propagation', async () => {
+    const tab = createTabWithPayload();
+    session.workspaceState.activeTabId = tab.id;
+    const root = document.createElement('div');
+    root.setAttribute('data-workspace-component', 'box');
+    root.setAttribute('data-workspace-tab-id', tab.id);
+    const select = document.createElement('select');
+    ['strip', 'box'].forEach(value => {
+      const option = document.createElement('option');
+      option.value = value;
+      select.appendChild(option);
+    });
+    root.appendChild(select);
+    document.body.appendChild(root);
+    let canonicalValue = 'strip';
+    window.Main.components = {
+      registry: {
+        box: {
+          getPayload: jest.fn(() => ({
+            type: 'box',
+            data: [['A'], [1]],
+            config: { graphType: canonicalValue }
+          }))
+        }
+      }
+    };
+    select.addEventListener('change', event => {
+      canonicalValue = 'box';
+      event.stopPropagation();
+    });
+    try {
+      select.dispatchEvent(makeTrustedEvent('change', select));
+      await session.flushCanonicalUserMutationState();
+      await new Promise(resolve => setTimeout(resolve, 0));
+      expect(tab.payload.config.graphType).toBe('box');
+    } finally {
+      document.body.removeChild(root);
+    }
+  });
+
   test('global user-input listener ignores untrusted (programmatic) events', () => {
     const tab = createTabWithPayload();
     session.workspaceState.activeTabId = tab.id;
@@ -1012,6 +1226,45 @@ describe('session.assignTabPayload null-overwrite guard', () => {
     expect(tab.archiveRenderCache).toBeNull();
     expect(tab.archiveRenderCacheSignature).toBeNull();
     expect(tab.archiveRenderCacheLayoutSignature).toBeNull();
+  });
+
+  test('render-equivalent payload updates keep Cartesian cache provenance aligned', () => {
+    const tab = createTabWithPayload();
+    tab.layoutSignature = 'layout-A';
+    const cartesian = {
+      complete: true,
+      owner: { tabId: tab.id, component: tab.type, generation: 4 },
+      payloadSignature: 'sig-A',
+      layoutSignature: 'layout-A'
+    };
+    tab.renderCache = {
+      cache: {
+        __graphitixRenderCache: { tabId: tab.id, component: tab.type, cartesianLayout: cartesian }
+      },
+      payloadSignature: 'sig-A',
+      layoutSignature: 'layout-A'
+    };
+    tab.archiveRenderCache = {
+      __graphitixRenderCache: { tabId: tab.id, component: tab.type, cartesianLayout: cartesian },
+      payloadSignature: 'sig-A',
+      layoutSignature: 'layout-A'
+    };
+    tab.payloadSignature = 'sig-A';
+    tab.archiveRenderCacheSignature = 'sig-A';
+    tab.archiveRenderCacheLayoutSignature = 'layout-A';
+
+    session.assignTabPayload(
+      tab,
+      { type: 'box', data: [['updated']], config: {} },
+      { reason: 'stats-computed', renderEquivalent: true }
+    );
+
+    expect(tab.renderCache.cache.__graphitixRenderCache.cartesianLayout.payloadSignature)
+      .toBe(tab.payloadSignature);
+    expect(tab.archiveRenderCache.__graphitixRenderCache.cartesianLayout.payloadSignature)
+      .toBe(tab.payloadSignature);
+    expect(tab.renderCache.cache.__graphitixRenderCache.cartesianLayout.layoutSignature)
+      .toBe('layout-A');
   });
 
   test('completed render caches keep an archive-ready checkpoint after warm runtime pruning', () => {

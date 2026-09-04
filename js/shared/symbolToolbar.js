@@ -335,7 +335,8 @@
     const formatStyleNumericDisplay = (value, step) => {
       const numeric = Number(value);
       if(!Number.isFinite(numeric)){ return '0'; }
-      return toolbarApi.formatNumericValue?.(numeric, step || 'any', { maxPrecision: 2 })
+      return toolbarApi.formatPxDisplayValue?.(numeric, step || 'any')
+        || toolbarApi.formatNumericValue?.(numeric, step || 'any', { maxPrecision: 2 })
         || String(Math.round(numeric * 100) / 100);
     };
     const sharedPanel = toolbarApi.createSubPanel({

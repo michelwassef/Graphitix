@@ -62,9 +62,9 @@ describe('Box statistics-state performance contract', () => {
 
   test('routine draw capture preserves the canonical computed-output tree', () => {
     const capture = extractModuleFunction(boxSource(), 'captureBoxStatsResultsState');
-    expect(capture).toContain('const captureLivePanel = options.captureLivePanel === true;');
+    expect(capture).toContain('const captureLivePanel = options.captureLivePanel === true && canUseLiveProjection;');
     expect(capture).toContain(': previous.panelModel;');
-    expect(capture).toContain('Routine draw/session capture');
+    expect(capture).toContain('previous.runtime = getBoxStatsRuntimeState(shaped);');
     expect(capture).not.toContain(': normalizeBoxStatsPanelModel(previous.panelModel)');
   });
 

@@ -70,7 +70,12 @@ test('Pie stacked view keeps rotated x-axis labels inside its SVG viewport', asy
       .map(rect => Number(rect.getAttribute('x')))
       .filter(Number.isFinite));
     return {
-      extension: Number(svg.closest('.svgbox')?.dataset?.pieAutoReserveExtensionPx) || 0,
+      extension: (() => {
+        const envelope = svg.closest('.svgbox')?.__cartesianLayoutPlan?.contentEnvelope || null;
+        return envelope
+          ? (Number(envelope.extensionLeft) || 0) + (Number(envelope.extensionRight) || 0) + (Number(envelope.extensionBottom) || 0)
+          : 0;
+      })(),
       axisDatasetGap: firstBarX - yAxis.x1,
       labels: labels.map(label => {
         const rect = label.getBoundingClientRect();

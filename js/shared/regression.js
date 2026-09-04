@@ -1722,7 +1722,6 @@
     let b0=Math.log(eventCount/(n-eventCount));
     let b1=0;
     let converged=false;
-    let information=null;
     let iteration=0;
     let currentLl=logLikelihood(b0,b1);
     for(;iteration<100;iteration++){
@@ -1750,7 +1749,6 @@
         factor/=2;
       }
       if(!accepted){ warnings.push('Logistic maximum-likelihood optimization could not find an improving Newton step.'); break; }
-      information=[[i00,i01],[i01,i11]];
       if(Math.max(Math.abs(factor*step0),Math.abs(factor*step1))<1e-9){ converged=true; break; }
       if(Math.abs(b0)>30 || Math.abs(b1)>30){ warnings.push('Very large coefficients indicate complete or quasi-complete separation; Wald inference is unreliable.'); break; }
     }
@@ -1769,7 +1767,6 @@
     const nullLl=ys.reduce((sum,y)=>sum+y*Math.log(meanY)+(1-y)*Math.log(1-meanY),0);
     const pseudoR2=1-(ll/nullLl);
     let covariance=null;
-    let finalInformation=null;
     {
       let i00=0,i01=0,i11=0;
       for(let i=0;i<n;i++){
@@ -1779,7 +1776,6 @@
         i01+=w*xs[i];
         i11+=w*xs[i]*xs[i];
       }
-      finalInformation=[[i00,i01],[i01,i11]];
       const det=i00*i11-i01*i01;
       if(det>1e-14){
         const covStd=[[i11/det,-i01/det],[-i01/det,i00/det]];

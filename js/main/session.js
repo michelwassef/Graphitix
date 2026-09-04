@@ -93,6 +93,9 @@
   const MAX_WARM_RENDER_CACHES_PER_TYPE = 2;
   let renderCacheCaptureSequence = 0;
   let renderCachePruneSuspendDepth = 0;
+  let canonicalUserMutationCaptureTail = Promise.resolve();
+  let pendingCanonicalUserMutationTabs = new Map();
+  let canonicalUserMutationCaptureScheduled = false;
 
   function setRenderCachePruneSuspended(suspended) {
     if (suspended) {
@@ -368,6 +371,9 @@
         origin: meta.origin || 'user',
         affectsPayload
       });
+    }
+    if (meta.captureCanonical !== false && meta.origin !== 'lifecycle') {
+      queueCanonicalUserMutationCapture(tab, tab.lastUserModifiedReason);
     }
     console.debug('Debug: tab user modification marked', {
       tabId: tab.id,
@@ -1680,16 +1686,63 @@
     return captured || cacheForStorage;
   }
 
+  function resolveRenderCacheGraphicRoot(cache, graphicKey){
+    if(!cache || typeof cache !== 'object' || !graphicKey) return null;
+    const graphic = cache[graphicKey];
+    if(!graphic || typeof graphic !== 'object') return null;
+    return graphic.fragment || graphic.root || graphic.node || null;
+  }
+
   function normalizeRenderCacheShapeForTab(cache, tab, meta = {}){
     if(!cache || typeof cache !== 'object'){
       return cache || null;
     }
     const graphicKey = detectRenderCacheGraphicKey(cache);
-    return Shared.renderCacheSchema?.withPresentationMetadata?.(cache, {
+    const normalized = Shared.renderCacheSchema?.withPresentationMetadata?.(cache, {
       graphicKey,
       previewKey: graphicKey,
       reason: meta?.reason || 'render-cache-normalize'
     }) || null;
+    if(!normalized) return null;
+
+    // Cartesian layout is derived presentation state.  Keep its publication
+    // provenance with the render cache so reopen/recovery can prove that the
+    // envelope came from this exact owner/payload/layout publication without
+    // ever merging that geometry into the canonical user-frame snapshot.
+    const graphicRoot = resolveRenderCacheGraphicRoot(normalized, graphicKey);
+    const hasPublishedCartesian = graphicRoot?.dataset?.cartesianLayoutComplete === 'true'
+      || !!graphicRoot?.querySelector?.('[data-cartesian-layout-complete="true"]');
+    // Publication owner/generation comes from the settled rendered frame. Payload
+    // and layout freshness are certified separately by isRenderCacheCurrent()
+    // against this explicit owner before capture. Live SVG publications may carry
+    // signatures, but they are optional because several migrated renderers publish
+    // geometry before the session checkpoint serializes its canonical layout.
+    const cartesian = Shared.cartesianLayout?.capturePublicationProvenance?.(graphicRoot, {
+      tabId: tab?.id || null,
+      component: tab?.type || null
+    }) || null;
+    if(hasPublishedCartesian && (!cartesian || !(Number(cartesian.publicationGeneration) > 0))){
+      console.warn('render cache rejected: Cartesian publication provenance is incomplete', {
+        tabId: tab?.id || null,
+        type: tab?.type || null,
+        reason: meta?.reason || 'render-cache-normalize'
+      });
+      return null;
+    }
+    if(cartesian){
+      normalized.__graphitixRenderCache = {
+        ...normalized.__graphitixRenderCache,
+        // Cache provenance is signature-exact even when the live publication is
+        // owner/generation-only: by this point the capture is settled/current and
+        // tab.payloadSignature/layoutSignature are the canonical checkpoint state.
+        cartesianLayout: {
+          ...cartesian,
+          payloadSignature: tab?.payloadSignature || null,
+          layoutSignature: tab?.layoutSignature || null
+        }
+      };
+    }
+    return normalized;
   }
 
   function peekArchiveRenderCache(tab, meta = {}) {
@@ -2068,9 +2121,17 @@
       if (meta.renderEquivalent === true) {
         if (tab.renderCache) {
           tab.renderCache.payloadSignature = nextSignature;
+          tab.renderCache.cache = updateRenderCacheCartesianPayloadSignature(
+            tab.renderCache.cache,
+            nextSignature
+          );
           tab.renderCacheSignature = nextSignature;
         }
         if (tab.archiveRenderCache) {
+          tab.archiveRenderCache = updateRenderCacheCartesianPayloadSignature(
+            tab.archiveRenderCache,
+            nextSignature
+          );
           tab.archiveRenderCache.payloadSignature = nextSignature;
           tab.archiveRenderCacheSignature = nextSignature;
         }
@@ -2211,6 +2272,140 @@
       ...options,
       reason
     });
+  }
+
+  function captureUserModifiedTabLayout(tabLike, options = {}) {
+    const tab = resolveTab(tabLike);
+    if (!tab || tab.isWelcome || !tab.type) {
+      return false;
+    }
+    const reason = normalizeReason(options.reason) || 'user-layout-change';
+    const layoutCapture = captureExactTabLayoutClone(tab, reason);
+    if (!layoutCapture.captured || layoutCapture.fallback || !layoutCapture.clone) {
+      return false;
+    }
+    syncTabLayoutAspectStateFromClone(tab, layoutCapture.clone);
+    const previousSignature = tab.layoutSignature || serializePayloadSignature(tab.layoutState || null);
+    const nextSignature = serializePayloadSignature(layoutCapture.clone);
+    tab.layoutState = layoutCapture.clone;
+    tab.layoutSignature = nextSignature;
+    const changed = previousSignature !== nextSignature;
+    if (changed) {
+      tab.layoutVersion = Number(tab.layoutVersion || 0) + 1;
+    }
+    tab.layoutDirty = false;
+    tab.layoutDirtyReason = '';
+    if (workspaceState.loadedWorkspaces && workspaceState.activeTabId === tab.id) {
+      workspaceState.loadedWorkspaces[tab.id] = {
+        tabId: tab.id,
+        type: tab.type || null,
+        payloadSignature: tab.payloadSignature,
+        layoutSignature: tab.layoutSignature
+      };
+    }
+    return changed;
+  }
+
+  function captureCanonicalUserMutationState(tabLike, options = {}) {
+    const tab = resolveTab(tabLike);
+    if (!tab || tab.isWelcome || !tab.type || workspaceState.activeTabId !== tab.id) {
+      return false;
+    }
+    const config = Main.components?.registry?.[tab.type];
+    if (!config || typeof config.getPayload !== 'function') {
+      return false;
+    }
+    const reason = normalizeReason(options.reason) || 'canonical-user-mutation';
+    let payload = null;
+    try {
+      payload = config.getPayload({
+        tab,
+        tabId: tab.id,
+        type: tab.type,
+        reason,
+        origin: 'user',
+        canonicalCapture: true
+      });
+    } catch (err) {
+      console.debug('Debug: canonical user mutation payload capture skipped', {
+        tabId: tab.id,
+        type: tab.type,
+        reason,
+        message: err?.message || String(err)
+      });
+      return false;
+    }
+    if (!payload) {
+      return false;
+    }
+    const payloadClone = clonePayload(payload);
+    if (Shared.workspaceTabs?.captureSharedPayloadState) {
+      Shared.workspaceTabs.captureSharedPayloadState(tab, tab.type, payloadClone, config, {
+        reason
+      });
+    }
+    const payloadChanged = assignTabPayload(tab, payloadClone, {
+      reason,
+      allowClear: false
+    });
+    const layoutChanged = captureUserModifiedTabLayout(tab, { reason });
+    return payloadChanged || layoutChanged;
+  }
+
+  // The document-level dirty listener runs in capture phase so it cannot miss
+  // delegated controls. Component handlers therefore run after the dirty mark.
+  // Queue one owner-scoped capture after the browser's complete control gesture.
+  // A native select emits input before change; a microtask here would capture the
+  // old value and project it back before the change handler receives it.
+  function queueCanonicalUserMutationCapture(tabLike, reason) {
+    const tab = resolveTab(tabLike);
+    const tabId = String(tab?.id || '').trim();
+    if (!tab || tab.isWelcome || !tab.type || !tabId || workspaceState.activeTabId !== tabId) {
+      return canonicalUserMutationCaptureTail;
+    }
+    pendingCanonicalUserMutationTabs.set(tabId, {
+      tabId,
+      reason: normalizeReason(reason) || 'canonical-user-mutation'
+    });
+    if (canonicalUserMutationCaptureScheduled) {
+      return canonicalUserMutationCaptureTail;
+    }
+    canonicalUserMutationCaptureScheduled = true;
+    canonicalUserMutationCaptureTail = canonicalUserMutationCaptureTail
+      .catch(() => {})
+      .then(() => new Promise(resolve => {
+        setTimeout(resolve, 0);
+      }))
+      .then(() => {
+        const pending = pendingCanonicalUserMutationTabs;
+        pendingCanonicalUserMutationTabs = new Map();
+        canonicalUserMutationCaptureScheduled = false;
+        pending.forEach(entry => {
+          const owner = resolveTab(entry.tabId);
+          if (!owner || owner.isWelcome || workspaceState.activeTabId !== entry.tabId) {
+            return;
+          }
+          captureCanonicalUserMutationState(owner, { reason: entry.reason });
+          // This runs in the next macrotask, after input/change handlers and any
+          // component projection they perform. The owner payload is now current,
+          // so the recovery mirror cannot capture the prior control value.
+          window.Main?.documentState?.persistCanonicalJournalNow?.({
+            tabId: owner.id,
+            reason: entry.reason
+          });
+          // The local mirror is synchronous; also advance the durable journal
+          // from this settled owner state without waiting on this capture chain.
+          window.Main?.documentState?.scheduleCanonicalJournal?.({
+            tabId: owner.id,
+            reason: entry.reason
+          }, { skipSessionFlush: true });
+        });
+      });
+    return canonicalUserMutationCaptureTail;
+  }
+
+  function flushCanonicalUserMutationState() {
+    return canonicalUserMutationCaptureTail.catch(() => {});
   }
 
   function getActiveTab() {
@@ -3544,6 +3739,24 @@
     }) === true;
   }
 
+  function updateRenderCacheCartesianPayloadSignature(cache, payloadSignature) {
+    const metadata = cache?.__graphitixRenderCache;
+    const cartesian = metadata?.cartesianLayout;
+    if (!cartesian || typeof cartesian !== 'object') {
+      return cache;
+    }
+    return {
+      ...cache,
+      __graphitixRenderCache: {
+        ...metadata,
+        cartesianLayout: {
+          ...cartesian,
+          payloadSignature: payloadSignature || null
+        }
+      }
+    };
+  }
+
   function resolveRehomedArchiveCacheSignatures(tabData, clonedPayload, clonedLayout, targetTabId) {
     const archiveCache = tabData?.archiveRenderCache;
     if (!archiveCache || typeof archiveCache !== 'object') {
@@ -3565,7 +3778,16 @@
       && embeddedComponentType === expectedComponentType;
     const payloadProvenanceValid = !!storedPayloadSignature && storedPayloadSignature === sourcePayloadSignature;
     const layoutProvenanceValid = !!storedLayoutSignature && storedLayoutSignature === sourceLayoutSignature;
-    if (!ownerProvenanceValid || !componentProvenanceValid || !payloadProvenanceValid || !layoutProvenanceValid) {
+    const cartesianProvenance = archiveCache?.__graphitixRenderCache?.cartesianLayout || null;
+    const cartesianProvenanceValid = !cartesianProvenance || (
+      cartesianProvenance.complete === true
+      && String(cartesianProvenance.owner?.tabId || '') === String(sourceRuntimeTabId || '')
+      && String(cartesianProvenance.owner?.component || '') === String(expectedComponentType || '')
+      && Number(cartesianProvenance.publicationGeneration) > 0
+      && cartesianProvenance.payloadSignature === storedPayloadSignature
+      && cartesianProvenance.layoutSignature === storedLayoutSignature
+    );
+    if (!ownerProvenanceValid || !componentProvenanceValid || !payloadProvenanceValid || !layoutProvenanceValid || !cartesianProvenanceValid) {
       console.debug('Debug: session rejected archive render cache provenance', {
         targetTabId,
         type: tabData?.type || null,
@@ -3576,7 +3798,8 @@
         ownerProvenanceValid,
         componentProvenanceValid,
         payloadProvenanceValid,
-        layoutProvenanceValid
+        layoutProvenanceValid,
+        cartesianProvenanceValid
       });
       emitRenderCacheEvent({
         tabId: targetTabId,
@@ -3587,7 +3810,9 @@
           ? (embeddedOwnerTabId ? 'owner-mismatch' : 'owner-missing')
           : (!componentProvenanceValid
             ? (embeddedComponentType ? 'component-mismatch' : 'component-missing')
-            : (!payloadProvenanceValid ? 'payload-signature-mismatch' : 'layout-signature-mismatch')),
+            : (!payloadProvenanceValid
+              ? 'payload-signature-mismatch'
+              : (!layoutProvenanceValid ? 'layout-signature-mismatch' : 'cartesian-publication-provenance-mismatch'))),
         source: 'archive',
         cacheOwnerTabId: embeddedOwnerTabId,
         runtimeOwnerTabId: targetTabId,
@@ -3600,7 +3825,8 @@
           ownerProvenanceValid,
           componentProvenanceValid,
           payloadProvenanceValid,
-          layoutProvenanceValid
+          layoutProvenanceValid,
+          cartesianProvenanceValid
         }
       });
       return { valid: false, payloadSignature: null, layoutSignature: null };
@@ -3610,6 +3836,21 @@
       payloadSignature: serializePayloadSignature(clonedPayload || null),
       layoutSignature: serializePayloadSignature(clonedLayout || null)
     };
+  }
+
+  function rehomeCartesianArchiveCacheProvenance(cache, targetTabId, componentType, signatures) {
+    const cartesian = cache?.__graphitixRenderCache?.cartesianLayout;
+    if (!cartesian || !signatures?.valid) {
+      return cache;
+    }
+    cartesian.owner = {
+      ...(cartesian.owner && typeof cartesian.owner === 'object' ? cartesian.owner : {}),
+      tabId: targetTabId,
+      component: componentType
+    };
+    cartesian.payloadSignature = signatures.payloadSignature;
+    cartesian.layoutSignature = signatures.layoutSignature;
+    return cache;
   }
 
   const WORKSPACE_REPLACEMENT_STATE_KEYS = [
@@ -3708,6 +3949,14 @@
           clonedLayout,
           predictedRuntimeTabId
         );
+        if (rehomedArchiveCacheSignatures.valid && clonedArchiveRenderCache) {
+          rehomeCartesianArchiveCacheProvenance(
+            clonedArchiveRenderCache,
+            predictedRuntimeTabId,
+            tabData.type,
+            rehomedArchiveCacheSignatures
+          );
+        }
         if (staleRuntimeIds.length) {
           console.warn('Debug: session archive tab contains stale runtime ids after rehome', {
             title: tabData.title || `Workspace ${index + 1}`,
@@ -3865,6 +4114,9 @@
   namespace.commitTabPayload = commitTabPayload;
   namespace.updateTabPayload = updateTabPayload;
   namespace.persistUserModifiedTabState = persistUserModifiedTabState;
+  namespace.captureUserModifiedTabLayout = captureUserModifiedTabLayout;
+  namespace.captureCanonicalUserMutationState = captureCanonicalUserMutationState;
+  namespace.flushCanonicalUserMutationState = flushCanonicalUserMutationState;
   namespace.clearTabRenderCache = clearTabRenderCache;
   namespace.clearTabArchiveRenderCache = clearTabArchiveRenderCache;
   namespace.peekArchiveRenderCache = peekArchiveRenderCache;
@@ -4010,14 +4262,16 @@
         source,
         ownerResolvedFrom: explicitTabId ? 'explicit-tab' : (ownerId ? 'workspace-dom' : 'active-tab'),
         affectsPayload,
-        markSessionDirty: meta.markSessionDirty !== false
+        markSessionDirty: meta.markSessionDirty !== false,
+        captureCanonical: meta.captureCanonical
       });
     } else {
       marked = !!markActiveTabUserModified(reasonText, {
         origin: meta.origin || 'user',
         source,
         affectsPayload,
-        markSessionDirty: meta.markSessionDirty !== false
+        markSessionDirty: meta.markSessionDirty !== false,
+        captureCanonical: meta.captureCanonical
       });
       resolvedTabId = String(getActiveTab()?.id || '').trim();
       resolvedComponentKey = resolvedComponentKey || String(getActiveTab()?.type || '').trim();
@@ -4060,6 +4314,9 @@
             origin: 'user',
             source: source || 'unknown',
             affectsPayload,
+            // The listener runs in capture phase. The session queues exactly
+            // one owner-scoped capture after the complete native gesture.
+            captureCanonical: true,
             ownerTabId,
             componentKey
           });
@@ -4068,6 +4325,9 @@
             origin: 'user',
             source: source || 'unknown',
             affectsPayload,
+            // The listener runs in capture phase. The session queues exactly
+            // one owner-scoped capture after the complete native gesture.
+            captureCanonical: true,
             ownerTabId,
             componentKey,
             requireWorkspace: false
@@ -4082,15 +4342,15 @@
     // listener treat it as user input. Real browsers never set this property.
     const USER_TRUSTED_FLAG = namespace.__USER_TRUSTED_FLAG__ = '__graphitixUserTrusted';
     const isTrustedUserEvent = event => !!(event && (event.isTrusted === true || event[USER_TRUSTED_FLAG] === true));
+    const canTrackTarget = target => {
+      if (!target || !isInsideWorkspaceTarget(target)) return false;
+      if (isDocumentStateTarget(target) || shouldIgnoreDirtyTrackingTarget(target)) return false;
+      return !(target.closest && target.closest('[data-workspace-tablist], .workspace-tab'));
+    };
     const handler = reason => event => {
       if (!isTrustedUserEvent(event)) return;
       const target = event.target;
-      if (!target || !isInsideWorkspaceTarget(target)) return;
-      if (isDocumentStateTarget(target)) return;
-      if (shouldIgnoreDirtyTrackingTarget(target)) return;
-      // Skip events on the per-tab tab list itself (clicking tabs is lifecycle, not
-      // a content change).
-      if (target.closest && target.closest('[data-workspace-tablist], .workspace-tab')) return;
+      if (!canTrackTarget(target)) return;
       callMark(
         reason,
         target?.id || target?.tagName,
@@ -4107,9 +4367,7 @@
     document.addEventListener('click', event => {
       if (!isTrustedUserEvent(event)) return;
       const target = event.target;
-      if (!target || !isInsideWorkspaceTarget(target)) return;
-      if (isDocumentStateTarget(target)) return;
-      if (shouldIgnoreDirtyTrackingTarget(target)) return;
+      if (!canTrackTarget(target)) return;
       const interactive = target.closest && target.closest('button, [role="button"], [data-action]');
       if (!interactive) return;
       // Skip the workspace tab strip and its close buttons (lifecycle, not content).
@@ -4123,6 +4381,15 @@
         target
       );
     }, true);
+    window.addEventListener('beforeunload', () => {
+      const active = getActiveTab();
+      if (!active || !workspaceState.sessionUserDirty) return;
+      captureCanonicalUserMutationState(active, { reason: 'beforeunload' });
+      window.Main?.documentState?.persistCanonicalJournalNow?.({
+        tabId: active.id,
+        reason: 'beforeunload'
+      });
+    });
     console.debug('Debug: Main session global user-input listener installed');
   }
 

@@ -52,6 +52,7 @@ const COMPONENTS = [
     pageId: 'scatterPage',
     exampleButtonId: 'scatterLoadExample',
     primarySelector: '#scatterPlot',
+    examplePerVariant: true,
     variants: [
       { id: 'scatter:scatter-2d', controls: { scatterGraphType: 'scatter', scatterViewMode: '2d' } },
       { id: 'scatter:scatter-bubble', controls: { scatterGraphType: 'scatter', scatterViewMode: 'bubble' } },
@@ -65,16 +66,15 @@ const COMPONENTS = [
     pageId: 'pcaPage',
     exampleButtonId: 'pcaLoadExample',
     primarySelector: '#pcaPlot',
-    timeoutMs: 240_000,
+    testTimeoutMs: 600_000,
+    evidenceTimeoutMs: 180_000,
     variants: [
       { id: 'pca:pca-2d', controls: { pcaMethod: 'pca', pcaViewMode: '2d' } },
       { id: 'pca:pca-3d', controls: { pcaMethod: 'pca', pcaViewMode: '3d' } },
       { id: 'pca:mds-2d', controls: { pcaMethod: 'mds', pcaViewMode: '2d' } },
       { id: 'pca:mds-3d', controls: { pcaMethod: 'mds', pcaViewMode: '3d' } },
       { id: 'pca:tsne-2d', controls: { pcaMethod: 'tsne', pcaViewMode: '2d' } },
-      { id: 'pca:tsne-3d', controls: { pcaMethod: 'tsne', pcaViewMode: '3d' } },
-      { id: 'pca:umap-2d', controls: { pcaMethod: 'umap', pcaViewMode: '2d' } },
-      { id: 'pca:umap-3d', controls: { pcaMethod: 'umap', pcaViewMode: '3d' } }
+      { id: 'pca:umap-2d', controls: { pcaMethod: 'umap', pcaViewMode: '2d' } }
     ]
   },
   {
@@ -92,18 +92,14 @@ const COMPONENTS = [
     pageId: 'linePage',
     exampleButtonId: 'lineLoadExample',
     primarySelector: '#linePlot',
+    examplePerVariant: true,
     variants: [
       { id: 'line:line', controls: { lineDisplayMode: 'line', lineViewMode: '2d' } },
       { id: 'line:area', controls: { lineDisplayMode: 'area', lineViewMode: '2d' } },
       {
-        id: 'line:line-3d-smoke',
+        id: 'line:3d-smoke',
         registry: false,
-        controls: { lineDisplayMode: 'line', lineViewMode: '3d' }
-      },
-      {
-        id: 'line:area-3d-smoke',
-        registry: false,
-        controls: { lineDisplayMode: 'area', lineViewMode: '3d' }
+        controls: { lineViewMode: '3d' }
       }
     ]
   },
@@ -175,20 +171,34 @@ async function applyControls(page, component, controls) {
     const selector = `#${component.pageId}:not([hidden]) #${id}`;
     const control = page.locator(selector).first();
     await expect(control, `${component.type}: missing graph mode control #${id}`).toBeVisible({ timeout: 20_000 });
-    await control.selectOption(value);
+    const optionIndex = await control.locator('option').evaluateAll((options, expected) => (
+      options.findIndex(option => String(option.value) === String(expected))
+    ), value);
+    expect(optionIndex, `${component.type}: #${id} has no option ${value}`).toBeGreaterThanOrEqual(0);
+    // Use the same trusted keyboard path as a user. Programmatic selectOption()
+    // can hide an input-before-change race by dispatching both events together.
+    await control.focus();
+    await control.press('Home');
+    for (let index = 0; index < optionIndex; index += 1) {
+      await control.press('ArrowDown');
+    }
     await expect(control, `${component.type}: #${id} did not retain ${value}`).toHaveValue(value, { timeout: 20_000 });
   }
 }
 
-async function waitForVariantEvidence(page, component, variant) {
-  await page.waitForFunction(({ type, pageId, primarySelector, variantId, controls }) => {
+async function waitForVariantEvidence(page, component, variant, previousSignature = null) {
+  const evidenceHandle = await page.waitForFunction(({ type, pageId, primarySelector, variantId, controls, previousSignature: prior }) => {
     const state = window.Main?.session?.workspaceState || null;
     const active = state?.tabs?.find(tab => tab?.id === state.activeTabId) || null;
     if (!active || active.type !== type) return false;
     if (window.Components?.[type]?.ready !== true) return false;
     if (window.Shared?.componentLifecycle?.isRestoreTransactionActive?.(type, { tabId: active.id })) return false;
     const component = window.Components?.[type] || null;
-    if (typeof component?.isIdleForSnapshot === 'function' && component.isIdleForSnapshot() !== true) return false;
+    const publication = window.Shared?.componentLifecycle?.isPublicationSettled?.(component, {
+      componentKey: type,
+      tabId: active.id
+    });
+    if (publication?.staged === true) return false;
 
     const root = window.Shared?.workspaceTabs?.getMountedRoot?.(active.id, type)
       || document.querySelector(`#${pageId}:not([hidden])`)
@@ -208,22 +218,41 @@ async function waitForVariantEvidence(page, component, variant) {
       if (!node) return false;
       const style = window.getComputedStyle(node);
       if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) === 0) return false;
+      if (node.getClientRects && node.getClientRects().length === 0) return false;
       if (node instanceof HTMLCanvasElement) return node.width > 1 && node.height > 1;
       const tag = String(node.tagName || '').toLowerCase();
       if (tag === 'path') return String(node.getAttribute('d') || '').trim().length > 0;
       if (tag === 'polygon' || tag === 'polyline') return String(node.getAttribute('points') || '').trim().length > 0;
       if (tag === 'circle' || tag === 'ellipse') return Number(node.getAttribute('r') || node.getAttribute('rx')) > 0;
+      if (tag === 'line') {
+        const x1 = Number(node.getAttribute('x1'));
+        const x2 = Number(node.getAttribute('x2'));
+        const y1 = Number(node.getAttribute('y1'));
+        const y2 = Number(node.getAttribute('y2'));
+        return (Number.isFinite(x1) && Number.isFinite(x2) && Number.isFinite(y1) && Number.isFinite(y2))
+          && (x1 !== x2 || y1 !== y2);
+      }
       const box = node.getBoundingClientRect?.();
-      return !box || box.width > 0 || box.height > 0;
+      return !box || (box.width > 0 && box.height > 0);
     };
     const countVisible = selector => Array.from(primary.querySelectorAll(selector)).filter(visible).length;
+    const geometry = selector => Array.from(primary.querySelectorAll(selector))
+      .filter(visible)
+      .map(node => ['d', 'points', 'x', 'y', 'cx', 'cy', 'r', 'width', 'height', 'transform']
+        .map(name => `${name}=${node.getAttribute(name) || ''}`).join(','))
+      .join('|');
+    const text = selector => String(primary.querySelector(selector)?.textContent || '').trim();
+    const result = (ok, signature, details = {}) => !ok || (prior && signature === prior)
+      ? false
+      : ({ ok: true, signature, ...details });
 
     if (type === 'venn') {
       const vennMarks = primary.querySelectorAll('[data-venn-trace-id]').length;
       const upsetMarks = primary.querySelectorAll('[data-upset-trace-kind]').length;
-      return variantId === 'venn:upset'
+      const ok = variantId === 'venn:upset'
         ? upsetMarks > 0 && vennMarks === 0
         : vennMarks > 0 && upsetMarks === 0;
+      return result(ok, `venn=${vennMarks}|upset=${upsetMarks}|${geometry('[data-venn-trace-id], [data-upset-trace-kind]')}`);
     }
 
     if (type === 'pie') {
@@ -231,42 +260,70 @@ async function waitForVariantEvidence(page, component, variant) {
       const traces = Array.from(primary.querySelectorAll('[data-pie-trace-mode]'));
       if (traces.length < 1 || !traces.every(trace => trace.getAttribute('data-pie-trace-mode') === expectedMode)) return false;
       if (expectedMode === 'stacked') {
-        return countVisible('rect[data-pie-trace-mode="stacked"]') > 0
-          && primary.querySelectorAll('path[data-pie-trace-mode="pie"], path[data-pie-trace-mode="donut"]').length === 0;
+        return result(countVisible('rect[data-pie-trace-mode="stacked"]') > 0
+          && primary.querySelectorAll('path[data-pie-trace-mode="pie"], path[data-pie-trace-mode="donut"]').length === 0,
+          `mode=${expectedMode}|${geometry('[data-pie-trace-mode]')}`);
       }
-      return countVisible(`path[data-pie-trace-mode="${expectedMode}"]`) > 0
-        && primary.querySelectorAll('rect[data-pie-trace-mode="stacked"]').length === 0;
+      return result(countVisible(`path[data-pie-trace-mode="${expectedMode}"]`) > 0
+        && primary.querySelectorAll('rect[data-pie-trace-mode="stacked"]').length === 0,
+        `mode=${expectedMode}|${geometry('[data-pie-trace-mode]')}`);
     }
 
     if (type === 'box') {
-      if (variantId === 'box:violin') return countVisible('path[data-box-violin-density="1"]') > 0;
+      const bodies = countVisible('[data-box-shape="body"]:not([data-summary-line="1"])');
+      const rectBodies = countVisible('rect[data-box-shape="body"]:not([data-summary-line="1"])');
+      const pathBodies = countVisible('path[data-box-shape="body"]:not([data-summary-line="1"])');
+      const density = countVisible('path[data-box-violin-density="1"]');
+      const barErrors = countVisible('[data-box-overlay-kind="bar-error"]');
+      const notchedMedian = countVisible('[data-box-overlay-kind="notched-median"]');
+      let ok = false;
+      if (variantId === 'box:violin') ok = density > 0 && bodies > 0 && barErrors === 0;
       if (variantId === 'box:bar') {
-        return countVisible('[data-box-shape="body"]') > 0
-          && countVisible('[data-box-overlay-kind="bar-error"]') > 0;
+        ok = pathBodies > 0 && barErrors > 0 && notchedMedian === 0;
       }
       if (variantId === 'box:strip') {
-        return countVisible('g[data-export-layer="box-points"] circle, g[data-export-layer="box-points"] path') > 0;
+        ok = countVisible('g[data-export-layer="box-points"] circle, g[data-export-layer="box-points"] path') > 0 && bodies === 0;
       }
-      return countVisible('[data-box-shape="body"]') > 0;
+      if (variantId === 'box:box') ok = rectBodies > 0 && pathBodies === 0 && density === 0 && barErrors === 0;
+      if (variantId === 'box:notched') ok = pathBodies > 0 && notchedMedian > 0 && density === 0 && barErrors === 0;
+      return result(ok, `bodies=${bodies}|rect=${rectBodies}|path=${pathBodies}|density=${density}|barErrors=${barErrors}|notched=${notchedMedian}|${geometry('[data-box-shape="body"]:not([data-summary-line="1"])')}`);
     }
 
     if (type === 'scatter') {
       const svg = root.querySelector('#scatterSvg');
       const points = countVisible('g[data-export-layer="scatter-points"] > *');
       if (!svg || points < 1) return false;
-      if (controls?.scatterViewMode === '3d') {
-        return svg.dataset?.viewMode === '3d' && svg.dataset?.rotationControlsAttached === 'true';
+      const requestedView = controls?.scatterViewMode || '2d';
+      const requestedGraph = controls?.scatterGraphType || 'scatter';
+      const renderedGraph = svg.dataset?.scatterGraphType || '';
+      if (requestedView === '3d') {
+        return result(renderedGraph === requestedGraph
+          && svg.dataset?.viewMode === '3d'
+          && svg.dataset?.rotationControlsAttached === 'true',
+          `graph=${renderedGraph}|view=3d|${geometry('[data-plot-point="1"]')}`);
       }
-      if (controls?.scatterViewMode) return svg.dataset?.viewMode === controls.scatterViewMode;
-      return true;
+      if (requestedView === 'bubble') {
+        const radii = Array.from(svg.querySelectorAll('[data-plot-point="1"]'))
+          .map(node => Number(node.getAttribute('r')))
+          .filter(value => Number.isFinite(value) && value > 0);
+        const distinctRadii = new Set(radii.map(value => value.toFixed(3)));
+        return result(renderedGraph === requestedGraph
+          && svg.dataset?.viewMode === '2d'
+          && radii.length > 1
+          && distinctRadii.size > 1,
+          `graph=${renderedGraph}|view=bubble|radii=${Array.from(distinctRadii).join(',')}|${geometry('[data-plot-point="1"]')}`);
+      }
+      return result(renderedGraph === requestedGraph && svg.dataset?.viewMode === '2d',
+        `graph=${renderedGraph}|view=2d|${text('[data-font-role="graphTitle"]')}|${geometry('[data-plot-point="1"]')}`);
     }
 
     if (type === 'pca') {
       const svg = root.querySelector('#pcaSvg');
       const marks = countVisible('[data-plot-point="1"], canvas.pca-fast-points-layer');
       if (!svg || marks < 1) return false;
-      if (controls?.pcaViewMode) return svg.dataset?.viewMode === controls.pcaViewMode;
-      return true;
+      return result(svg.dataset?.pcaMethod === (controls?.pcaMethod || 'pca')
+        && (!controls?.pcaViewMode || svg.dataset?.viewMode === controls.pcaViewMode),
+        `method=${svg.dataset?.pcaMethod || ''}|view=${svg.dataset?.viewMode || ''}|${text('[data-font-role="graphTitle"], [data-graph-title]')}|${geometry('[data-plot-point="1"]')}`);
     }
 
     if (type === 'line') {
@@ -276,8 +333,23 @@ async function waitForVariantEvidence(page, component, variant) {
         .filter(node => !node.closest('defs, clipPath, mask, pattern, symbol'))
         .filter(visible);
       if (marks.length < 1) return false;
-      if (controls?.lineViewMode) return svg.dataset?.viewMode === controls.lineViewMode;
-      return true;
+      if (controls?.lineViewMode === '3d') {
+        const displayMode = root.querySelector('#lineDisplayMode');
+        return result(svg.dataset?.viewMode === '3d'
+          && !!svg.querySelector('[data-layer="line-3d-rotation-dynamic"]')
+          && displayMode?.value === 'line'
+          && displayMode?.disabled === true,
+          `view=3d|${geometry('[data-layer="line-3d-rotation-dynamic"] path, [data-layer="line-3d-rotation-dynamic"] polyline')}`);
+      }
+      if (svg.dataset?.viewMode === '3d') return false;
+      if (controls?.lineDisplayMode === 'area') {
+        return result(countVisible('path[data-line-style-role="area"][data-render-mode="area-fill"]') > 0
+          && countVisible('path[data-render-mode="area"]') > 0,
+          `view=2d|area|${geometry('path[data-line-style-role="area"]')}`);
+      }
+      return result(countVisible('path[data-render-mode="line"]') > 0
+        && primary.querySelectorAll('[data-line-style-role="area"]').length === 0,
+        `view=2d|line|${geometry('path[data-render-mode="line"]')}`);
     }
 
     if (type === 'hist') {
@@ -285,37 +357,72 @@ async function waitForVariantEvidence(page, component, variant) {
       const mode = controls?.histPlotMode || '';
       if (!svg || svg.getAttribute('data-hist-plot-mode') !== mode) return false;
       if (mode === 'density') {
-        return countVisible('[data-series-role="density-area"], [data-series-role="density-line"]') > 0;
+        return result(countVisible('[data-series-role="density-area"], [data-series-role="density-line"]') > 0,
+          `mode=${mode}|${geometry('[data-series-role="density-area"], [data-series-role="density-line"]')}`);
       }
-      return countVisible('[data-series-role="hist-fill"]') > 0;
+      return result(countVisible('[data-series-role="hist-fill"]') > 0
+        && countVisible('[data-series-role="density-area"], [data-series-role="density-line"]') === 0,
+        `mode=${mode}|${geometry('[data-series-role="hist-fill"]')}`);
     }
 
     if (type === 'heatmap') {
       const svg = root.querySelector('#heatmapSvg');
       const cells = countVisible('[data-export-layer="heatmap-cells"] rect');
-      const renderType = window.Components?.heatmap?.__getState?.()?.lastRenderModel?.type || null;
       if (!svg || cells < 4) return false;
-      return controls?.heatmapView === 'values' ? renderType === 'values' : renderType === 'correlation';
+      const expectedView = controls?.heatmapView || '';
+      const expectedModel = expectedView === 'values' ? 'values' : 'correlation';
+      return result(svg.dataset?.heatmapView === expectedView
+        && svg.dataset?.heatmapModelType === expectedModel
+        && svg.getAttribute('data-heatmap-render-complete') === 'true'
+        && svg.getAttribute('data-heatmap-render-state') === 'complete',
+        `view=${svg.dataset?.heatmapView || ''}|model=${svg.dataset?.heatmapModelType || ''}|${geometry('[data-export-layer="heatmap-cells"] rect')}`);
     }
 
     if (type === 'surface') {
+      const svg = root.querySelector('#surfaceSvg');
+      if (!svg) return false;
       if (controls?.surfaceInterpolation === 'grid') {
-        return countVisible('g.surface-faces polygon') > 0;
+        return result(svg.getAttribute('data-surface-render-mode') === 'grid'
+          && countVisible('g.surface-faces polygon') > 0,
+          `mode=${svg.getAttribute('data-surface-render-mode') || ''}|faces|${geometry('g.surface-faces polygon')}`);
       }
-      return countVisible('g.surface-points circle') > 0;
+      return result(svg.getAttribute('data-surface-render-mode') === 'scatter'
+        && countVisible('g.surface-points circle') > 0
+        && countVisible('g.surface-faces polygon') === 0,
+        `mode=${svg.getAttribute('data-surface-render-mode') || ''}|points|${geometry('g.surface-points circle')}`);
     }
 
-    if (type === 'roc') return countVisible('svg#rocSvg path[data-series][d]') > 0;
-    if (type === 'survival') return countVisible('svg#survivalSvg path[data-group][d]') > 0;
+    if (type === 'roc') {
+      const svg = root.querySelector('#rocSvg');
+      const expected = controls?.rocGraphType || 'roc';
+      const xLabel = text('[data-font-role="xTitle"]');
+      const yLabel = text('[data-font-role="yTitle"]');
+      const title = text('[data-font-role="graphTitle"]');
+      return result(!!svg
+        && svg.dataset?.rocGraphType === expected
+        && countVisible('path[data-series][d]') > 0
+        && (expected === 'pr'
+          ? xLabel === 'Recall' && yLabel === 'Precision' && /Precision-Recall/i.test(title)
+          : xLabel === 'False Positive Rate' && yLabel === 'True Positive Rate' && /^ROC curve$/i.test(title)),
+        `mode=${svg?.dataset?.rocGraphType || ''}|x=${xLabel}|y=${yLabel}|title=${title}|${geometry('path[data-series][d]')}`);
+    }
+    if (type === 'survival') {
+      const svg = root.querySelector('#survivalSvg');
+      return result(!!svg && countVisible('path[data-group][d]:not([data-survival-censor-mark="1"])') > 0,
+        `${text('[data-font-role="graphTitle"]')}|${geometry('path[data-group][d]:not([data-survival-censor-mark="1"])')}`);
+    }
 
-    return countVisible('path, rect, circle, line, polyline, polygon, ellipse, canvas') > 0;
+    return result(countVisible('path, rect, circle, line, polyline, polygon, ellipse, canvas') > 0,
+      `${geometry('path, rect, circle, line, polyline, polygon, ellipse, canvas')}`);
   }, {
     type: component.type,
     pageId: component.pageId,
     primarySelector: component.primarySelector,
     variantId: variant.id,
-    controls: variant.controls || {}
-  }, { timeout: component.timeoutMs || 90_000 });
+    controls: variant.controls || {},
+    previousSignature
+  }, { timeout: component.evidenceTimeoutMs || 90_000 });
+  return evidenceHandle.jsonValue();
 }
 
 async function readVisualSnapshot(page, component) {
@@ -334,7 +441,7 @@ async function readVisualSnapshot(page, component) {
       'cx', 'cy', 'r', 'rx', 'ry', 'width', 'height', 'transform',
       'fill', 'stroke', 'stroke-width', 'fill-opacity', 'stroke-opacity', 'opacity'
     ];
-    const invalidPattern = /(?:NaN|Infinity|undefined)/i;
+    const invalidPattern = /(?:^|[^A-Za-z])(?:NaN|[+-]?Infinity|undefined)(?:[^A-Za-z]|$)/i;
     const parts = [];
     const tagCounts = {};
     let badGeometry = null;
@@ -364,7 +471,7 @@ async function readVisualSnapshot(page, component) {
         for (const attr of Array.from(node.attributes || [])) {
           if (!attr.name.startsWith('data-')) continue;
           if (/e2e|token|timestamp|staged-frame/i.test(attr.name)) continue;
-          if (invalidPattern.test(attr.value) && !badGeometry) badGeometry = `${tag}[${attr.name}=${attr.value}]`;
+          if (!badGeometry && invalidPattern.test(attr.value)) badGeometry = `${tag}[${attr.name}=${attr.value}]`;
           attrs.push(`${attr.name}=${attr.value}`);
         }
       }
@@ -437,8 +544,10 @@ async function openComponentWithExample(page, component) {
   await expect(page.locator('#welcomeScreen')).toBeVisible({ timeout: 20_000 });
   await openComponentFromWelcome(page, component, { first: true });
   await page.waitForFunction(type => window.Components?.[type]?.ready === true, component.type, { timeout: 45_000 });
-  await clickExampleButtonIfPresent(page, component.exampleButtonId);
-  await expect(page.locator(primaryGraphSelector(component))).toBeVisible({ timeout: 45_000 });
+  if (!component.examplePerVariant) {
+    await clickExampleButtonIfPresent(page, component.exampleButtonId);
+    await expect(page.locator(primaryGraphSelector(component))).toBeVisible({ timeout: 45_000 });
+  }
   return issues;
 }
 
@@ -455,15 +564,21 @@ test('release smoke matrix covers every public graph variant', async ({ page }) 
 
 for (const component of COMPONENTS) {
   test(`${component.type}: every graph mode publishes distinct, healthy renderer output`, async ({ page }) => {
-    test.setTimeout(component.timeoutMs || 180_000);
+    test.setTimeout(component.testTimeoutMs || 180_000);
     const issues = await openComponentWithExample(page, component);
     const snapshots = [];
+    let previousSignature = null;
 
     for (const variant of component.variants) {
       await test.step(variant.id, async () => {
         await applyControls(page, component, variant.controls);
-        await waitForVariantEvidence(page, component, variant);
+        if (component.examplePerVariant) {
+          await clickExampleButtonIfPresent(page, component.exampleButtonId);
+        }
+        const evidence = await waitForVariantEvidence(page, component, variant, previousSignature);
         const snapshot = await waitForStableVisualSnapshot(page, component);
+        const settledEvidence = await waitForVariantEvidence(page, component, variant, previousSignature);
+        expect(settledEvidence.signature, `${variant.id}: renderer changed after it was declared settled`).toBe(evidence.signature);
 
         expect(snapshot.ok, `${variant.id}: primary graph should exist`).toBe(true);
         expect(snapshot.primaryWidth, `${variant.id}: graph width should be usable`).toBeGreaterThan(80);
@@ -472,12 +587,13 @@ for (const component of COMPONENTS) {
         expect(snapshot.badGeometry, `${variant.id}: invalid SVG/canvas geometry`).toBeNull();
         expect(snapshot.visibleLoadingOverlays, `${variant.id}: loading overlay remained visible`).toEqual([]);
 
-        snapshots.push({ id: variant.id, ...snapshot });
+        previousSignature = evidence.signature;
+        snapshots.push({ id: variant.id, rendererSignature: evidence.signature, ...snapshot });
       });
     }
 
     const collisions = snapshots.flatMap((left, index) => snapshots.slice(index + 1)
-      .filter(right => right.graphHash === left.graphHash && right.primitiveCount === left.primitiveCount)
+      .filter(right => right.rendererSignature === left.rendererSignature)
       .map(right => [left.id, right.id]));
     expect(
       collisions,

@@ -32,6 +32,17 @@ const CASES = [
         select.value = value;
         select.dispatchEvent(new Event('change', { bubbles: true }));
       }, variant === 'A' ? 'parametric' : 'nonparametric');
+      await page.waitForTimeout(50);
+      await page.evaluate((shouldOpen) => {
+        const state = window.Main?.session?.workspaceState;
+        const active = state?.tabs?.find(tab => tab?.id === state.activeTabId) || null;
+        const root = window.Shared?.workspaceTabs?.getMountedRoot?.(active?.id || null, 'box') || document;
+        const advisor = root.querySelector('#statsControls .stats-advisor');
+        const toggle = root.querySelector('#statsControls .stats-advisor__toggle');
+        if (!advisor || !toggle) throw new Error('Box Statistics advisor unavailable');
+        const open = advisor.dataset.open === '1';
+        if (open !== shouldOpen) toggle.click();
+      }, variant === 'A');
     },
     capture: async page => page.evaluate(() => {
       const state = window.Main?.session?.workspaceState;
@@ -42,8 +53,12 @@ const CASES = [
       const controlsText = String(root.querySelector('#statsControls')?.textContent || '').trim();
       const status = String(root.querySelector('#boxStatsStatus')?.textContent || '').trim();
       const results = String(root.querySelector('#statsResults')?.textContent || '').replace(/\s+/g, ' ').trim();
+      const session = window.Components?.box?.__testHooks?.getSession?.(active?.id || null) || null;
+      const advisorOpen = session?.state?.stats?.statsAdvisor?.open === true;
       return {
-        option: stats.test || null,
+        option: `${stats.test || ''}|advisor=${advisorOpen}`,
+        statsTest: stats.test || null,
+        advisorOpen,
         tabOption: active?.payload?.config?.stats?.test || null,
         status,
         results,
@@ -77,6 +92,17 @@ const CASES = [
         select.value = value;
         select.dispatchEvent(new Event('change', { bubbles: true }));
       }, variant === 'A' ? 'linear' : 'exponential');
+      await page.waitForTimeout(50);
+      await page.evaluate((shouldOpen) => {
+        const state = window.Main?.session?.workspaceState;
+        const active = state?.tabs?.find(tab => tab?.id === state.activeTabId) || null;
+        const root = window.Shared?.workspaceTabs?.getMountedRoot?.(active?.id || null, 'scatter') || document;
+        const advisor = root.querySelector('#scatterStatsAdvisor .stats-advisor');
+        const toggle = root.querySelector('#scatterStatsAdvisor .stats-advisor__toggle');
+        if (!advisor || !toggle) throw new Error('Scatter Statistics advisor unavailable');
+        const open = advisor.dataset.open === '1';
+        if (open !== shouldOpen) toggle.click();
+      }, variant === 'A');
     },
     capture: async page => page.evaluate(() => {
       const state = window.Main?.session?.workspaceState;
@@ -89,8 +115,11 @@ const CASES = [
       const status = String(root.querySelector('#scatterStatsStatus')?.textContent || '').trim();
       const results = String(statsResults?.textContent || '').replace(/\s+/g, ' ').trim();
       const regressionMode = root.querySelector('#scatterRegressionMode')?.value || stats.regressionMode || null;
+      const advisorOpen = session?.advisor?.open === true;
       return {
-        option: regressionMode,
+        option: `${regressionMode}|advisor=${advisorOpen}`,
+        regressionMode,
+        advisorOpen,
         status,
         results,
         hasResultsModel: !!stats.resultsModel,
@@ -118,18 +147,44 @@ const CASES = [
     statusSelector: '#pieStatsStatus',
     resultsSelector: '#pieStatsResults',
     configure: async (page, variant) => {
-      await page.evaluate((value) => {
+      await page.evaluate((variantName) => {
         const state = window.Main?.session?.workspaceState;
         const active = state?.tabs?.find(tab => tab?.id === state.activeTabId) || null;
         const root = window.Shared?.workspaceTabs?.getMountedRoot?.(active?.id || null, 'pie') || document;
         const controls = root.querySelector('#pieStatsControls');
-        const testRow = Array.from(controls?.querySelectorAll?.('.box-stats-options__row') || [])
-          .find(row => /Choose test:/i.test(String(row.textContent || '')));
+        const desired = variantName === 'A'
+          ? { test: 'chi-square', sparseThreshold: 4, yates: true, advancedOpen: true, advisorOpen: true }
+          : { test: 'g-test', sparseThreshold: 11, yates: false, advancedOpen: false, advisorOpen: false };
+        const rows = Array.from(controls?.querySelectorAll?.('.box-stats-options__row') || []);
+        const testRow = rows.find(row => /Choose test:/i.test(String(row.textContent || '')));
         const select = testRow?.querySelector?.('select') || null;
         if (!select) throw new Error('Pie test select not found');
-        select.value = value;
+        select.value = desired.test;
         select.dispatchEvent(new Event('change', { bubbles: true }));
-      }, variant === 'A' ? 'chi-square' : 'g-test');
+
+        const refreshedControls = root.querySelector('#pieStatsControls');
+        const refreshedRows = Array.from(refreshedControls?.querySelectorAll?.('.box-stats-options__row') || []);
+        const sparseRow = refreshedRows.find(row => /Sparse threshold:/i.test(String(row.textContent || '')));
+        const sparseInput = sparseRow?.querySelector?.('input[type="number"]') || null;
+        if (!sparseInput) throw new Error('Pie sparse threshold input not found');
+        sparseInput.value = String(desired.sparseThreshold);
+        sparseInput.dispatchEvent(new Event('change', { bubbles: true }));
+
+        const yatesRow = refreshedRows.find(row => /Use Yates/i.test(String(row.textContent || '')));
+        const yatesInput = yatesRow?.querySelector?.('input[type="checkbox"]') || null;
+        if (!yatesInput) throw new Error('Pie Yates checkbox not found');
+        yatesInput.checked = desired.yates;
+        yatesInput.dispatchEvent(new Event('change', { bubbles: true }));
+
+        const advanced = refreshedControls?.querySelector?.('details.box-stats-advanced') || null;
+        const summary = advanced?.querySelector?.('summary') || null;
+        if (!advanced || !summary) throw new Error('Pie Advanced parameters control not found');
+        if (!!advanced.open !== desired.advancedOpen) summary.click();
+
+        const advisorToggle = root.querySelector('#pieStatsControls .stats-advisor__toggle');
+        const advisorOpen = root.querySelector('#pieStatsControls .stats-advisor')?.dataset?.open === '1';
+        if (advisorToggle && advisorOpen !== desired.advisorOpen) advisorToggle.click();
+      }, variant);
     },
     capture: async page => page.evaluate(() => {
       const state = window.Main?.session?.workspaceState;
@@ -145,12 +200,24 @@ const CASES = [
       const domScope = scopeRow?.querySelector?.('select')?.value || stats.scope || '';
       const status = String(root.querySelector('#pieStatsStatus')?.textContent || '').trim();
       const results = String(root.querySelector('#pieStatsResults')?.textContent || '').replace(/\s+/g, ' ').trim();
+      const session = window.Components?.pie?.__testHooks?.getSession?.(active?.id || null) || null;
+      const ownedStats = session?.state?.stats || {};
+      const ownedAdvisor = session?.advisor || {};
+      const sparseThreshold = Number(ownedStats.sparseThreshold ?? stats.sparseThreshold);
+      const yatesCorrection = (ownedStats.yatesCorrection ?? stats.yatesCorrection) === true;
+      const advancedOpen = (ownedStats.advancedOpen ?? stats.advancedOpen) === true;
+      const advisorOpen = ownedAdvisor.open === true;
       return {
-        option: `${domScope}:${domTest}`,
+        option: `${domScope}:${domTest}|sparse=${sparseThreshold}|yates=${yatesCorrection}|advanced=${advancedOpen}|advisor=${advisorOpen}`,
         payloadOption: `${stats.scope || ''}:${stats.test || ''}`,
         selectedColumns: Array.isArray(stats.selectedColumns) ? stats.selectedColumns.slice() : [],
         valueColumn: stats.valueColumn ?? null,
         expectedColumn: stats.expectedColumn ?? null,
+        sparseThreshold,
+        yatesCorrection,
+        advancedOpen,
+        advisorOpen,
+        canonicalSplit: !!(session?.state?.stats && session?.advisor && session?.results && !Object.prototype.hasOwnProperty.call(session.state, 'statsDataModel')),
         status,
         results,
         hasResultsModel: !!stats.resultsModel,
@@ -161,6 +228,7 @@ const CASES = [
       expect(snapshot.status).toMatch(/Statistics up to date/i);
       expect(snapshot.hasResultsModel || snapshot.hasReportModel).toBe(true);
       expect(snapshot.selectedColumns.length).toBeGreaterThan(0);
+      expect(snapshot.canonicalSplit).toBe(true);
     }
   },
   {
@@ -357,10 +425,10 @@ async function captureActivePValueFormat(page, componentCase) {
     const active = state?.tabs?.find(tab => tab?.id === state.activeTabId) || null;
     const root = window.Shared?.workspaceTabs?.getMountedRoot?.(active?.id || null, type) || document;
     const panel = root.querySelector(resultsSelector);
-    const button = panel?.querySelector?.('.stats-pvalue-format-toggle') || null;
+    const select = panel?.querySelector?.('.stats-pvalue-format-select') || null;
     return {
       tabId: active?.id || null,
-      buttonText: String(button?.textContent || '').trim(),
+      selectValue: String(select?.value || '').trim(),
       payload: active?.payload?.meta?.statsReporting?.pValueScientific,
       reporting: window.Shared?.statsReporting?.getPValueFormatScientific?.({
         target: panel,
@@ -375,14 +443,36 @@ async function setActivePValueScientific(page, componentCase) {
     const state = window.Main?.session?.workspaceState;
     const active = state?.tabs?.find(tab => tab?.id === state.activeTabId) || null;
     const root = window.Shared?.workspaceTabs?.getMountedRoot?.(active?.id || null, type) || document;
-    const button = root.querySelector(`${resultsSelector} .stats-pvalue-format-toggle`);
-    if(!button) throw new Error(`${type} p-value format control not found`);
-    if(String(button.textContent || '').trim() === 'Scientific') button.click();
+    const select = root.querySelector(`${resultsSelector} .stats-pvalue-format-select`);
+    if(!select) throw new Error(`${type} p-value format control not found`);
+    if(select.value !== 'scientific') {
+      select.value = 'scientific';
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    }
   }, { type: componentCase.key, resultsSelector: componentCase.resultsSelector });
   await page.waitForFunction(id => {
     const tab = (window.Main?.session?.workspaceState?.tabs || []).find(item => item?.id === id);
     return tab?.payload?.meta?.statsReporting?.pValueScientific === true;
   }, (await captureActivePValueFormat(page, componentCase)).tabId, { timeout: 20_000 });
+}
+
+async function changeActivePValueFormat(page, componentCase) {
+  const before = await captureActivePValueFormat(page, componentCase);
+  await page.evaluate(({ type, resultsSelector }) => {
+    const state = window.Main?.session?.workspaceState;
+    const active = state?.tabs?.find(tab => tab?.id === state.activeTabId) || null;
+    const root = window.Shared?.workspaceTabs?.getMountedRoot?.(active?.id || null, type) || document;
+    const select = root.querySelector(`${resultsSelector} .stats-pvalue-format-select`);
+    if(!select) throw new Error(`${type} p-value format control not found`);
+    select.value = select.value === 'scientific' ? 'decimal' : 'scientific';
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+  }, { type: componentCase.key, resultsSelector: componentCase.resultsSelector });
+  const expected = before.reporting !== true;
+  await page.waitForFunction(({ id, expectedValue }) => {
+    const tab = (window.Main?.session?.workspaceState?.tabs || []).find(item => item?.id === id);
+    return (tab?.payload?.meta?.statsReporting?.pValueScientific === true) === expectedValue;
+  }, { id: before.tabId, expectedValue: expected }, { timeout: 20_000 });
+  return { before, after: await captureActivePValueFormat(page, componentCase) };
 }
 
 async function captureArchive(page, key) {
@@ -438,7 +528,7 @@ for (const componentCase of CASES) {
     const snapshotA = await prepareVariant(page, componentCase, 'A');
     expect(await captureActivePValueFormat(page, componentCase)).toMatchObject({
       tabId: tabA,
-      buttonText: 'Scientific',
+      selectValue: 'decimal',
       reporting: false
     });
 
@@ -452,7 +542,7 @@ for (const componentCase of CASES) {
     await setActivePValueScientific(page, componentCase);
     expect(await captureActivePValueFormat(page, componentCase)).toMatchObject({
       tabId: tabB,
-      buttonText: 'Decimal',
+      selectValue: 'scientific',
       payload: true,
       reporting: true
     });
@@ -464,7 +554,7 @@ for (const componentCase of CASES) {
     expect(switchedA.results.length).toBeGreaterThan(20);
     const switchedAPFormat = await captureActivePValueFormat(page, componentCase);
     expect(switchedAPFormat).toMatchObject({
-      buttonText: 'Scientific',
+      selectValue: 'decimal',
       reporting: false
     });
     expect(switchedAPFormat.payload).not.toBe(true);
@@ -474,7 +564,7 @@ for (const componentCase of CASES) {
     componentCase.assertVariant(switchedB);
     expect(switchedB.option).toBe(snapshotB.option);
     expect(await captureActivePValueFormat(page, componentCase)).toMatchObject({
-      buttonText: 'Decimal',
+      selectValue: 'scientific',
       payload: true,
       reporting: true
     });
@@ -584,6 +674,27 @@ for (const componentCase of CASES) {
       reopenedFirstPFormat.payload === true,
       reopenedSecondPFormat.payload === true
     ])).toEqual(new Set([false, true]));
+
+    // The first user interaction after reopen must mutate only the owner that
+    // contains the clicked statistics control. Do not redraw to make this pass.
+    await activateTab(page, reopenedIds[0], componentCase);
+    const siblingBeforeInteraction = await page.evaluate(id => {
+      const tab = (window.Main?.session?.workspaceState?.tabs || []).find(item => item?.id === id);
+      return tab?.payload?.meta?.statsReporting?.pValueScientific === true;
+    }, reopenedIds[1]);
+    const interaction = await changeActivePValueFormat(page, componentCase);
+    expect(interaction.after.reporting).toBe(!interaction.before.reporting);
+    const postInteractionOwners = await page.evaluate(({ ownerId, siblingId }) => {
+      const tabs = window.Main?.session?.workspaceState?.tabs || [];
+      const owner = tabs.find(item => item?.id === ownerId) || null;
+      const sibling = tabs.find(item => item?.id === siblingId) || null;
+      return {
+        owner: owner?.payload?.meta?.statsReporting?.pValueScientific === true,
+        sibling: sibling?.payload?.meta?.statsReporting?.pValueScientific === true
+      };
+    }, { ownerId: reopenedIds[0], siblingId: reopenedIds[1] });
+    expect(postInteractionOwners.owner).toBe(interaction.after.reporting);
+    expect(postInteractionOwners.sibling).toBe(siblingBeforeInteraction);
 
     expect(issues.critical).toEqual([]);
   });

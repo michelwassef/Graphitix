@@ -208,7 +208,7 @@ test('venn list edits, parsed caches, selected region, and significance stay tab
   expect(firstAfterReturn.significanceText).toContain('Alpha');
   expect(firstAfterReturn.significanceText).not.toContain('Delta');
   expect(secondAfterReturn.significanceText).toContain('Delta');
-  expect(secondAfterReturn.significanceText).not.toContain('Alpha');
+  expect(secondAfterReturn.significanceText).not.toContain('AB_SHARED_1');
   expect(firstAfterReturn.analysis.significanceTotal).toBe(120);
   expect(secondAfterReturn.analysis.significanceTotal).toBe(240);
   expect(firstAfterReturn.analysis.hasParsedLists).toBe(true);

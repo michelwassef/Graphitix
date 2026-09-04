@@ -9,7 +9,10 @@
   const PT_TO_PX = 96 / 72;
   const BASE_FONT_SIZE_PX = 16;
   const BASE_FONT_SIZE_PT = Number((BASE_FONT_SIZE_PX / PT_TO_PX).toFixed(2));
-  const MIN_DEFAULT_SIZE = 320;
+  // New graphs use an 80% frame relative to the established one-third viewport
+  // baseline. Content such as legends remains an outward viewport extension.
+  const DEFAULT_GRAPH_SIZE_SCALE = 0.8;
+  const MIN_DEFAULT_SIZE = 256;
   const FALLBACK_VIEWPORT_WIDTH = 960;
   const COLOR_SWATCH_SIZE = 20;
   // Canonical horizontal whitespace between the SVG viewport edge and the
@@ -114,13 +117,17 @@
     if(!Number.isFinite(reference) || reference <= 0){
       reference = FALLBACK_VIEWPORT_WIDTH;
     }
-    const normalized = Math.max(MIN_DEFAULT_SIZE, Math.round(reference / 3));
+    const normalized = Math.max(
+      MIN_DEFAULT_SIZE,
+      Math.round((reference / 3) * DEFAULT_GRAPH_SIZE_SCALE)
+    );
     const payload = {
       reason: reason || 'initial',
       winWidth,
       docElWidth,
       bodyWidth,
       reference,
+      scale: DEFAULT_GRAPH_SIZE_SCALE,
       normalized
     };
     console.debug('Debug: chartStyle.computeDefaultGraphSize', payload); // Debug: default graph dimension computation
@@ -376,6 +383,7 @@
   chartStyle.PT_TO_PX = PT_TO_PX;
   chartStyle.BASE_FONT_SIZE_PT = BASE_FONT_SIZE_PT;
   chartStyle.BASE_FONT_SIZE_PX = BASE_FONT_SIZE_PX;
+  chartStyle.DEFAULT_GRAPH_SIZE_SCALE = DEFAULT_GRAPH_SIZE_SCALE;
   chartStyle.DEFAULT_WIDTH = DEFAULT_WIDTH;
   chartStyle.DEFAULT_HEIGHT = DEFAULT_HEIGHT;
   chartStyle.RESIZE_MIN_SCALE = RESIZE_MIN_SCALE;
@@ -1636,13 +1644,13 @@
     const adjustedLabelOffset = baseLabelOffset + tickLabelFontSize;
     const includeAxisTitleReserve = options?.includeAxisTitleReserve !== false;
     const axisTitleReserve = includeAxisTitleReserve ? axisTitleGap + fontSize : 0;
-    const titleOffset = adjustedLabelOffset + axisTitleReserve;
+    const nominalTitleOffset = adjustedLabelOffset + axisTitleReserve;
     const labelReserveMarginRaw = Number(options?.labelReserveMarginPx);
     const labelReserveMarginPx = Number.isFinite(labelReserveMarginRaw) && labelReserveMarginRaw >= 0
       ? labelReserveMarginRaw
       : outerPadding;
     const baseBottom = options?.baseBottom || Math.max(
-      titleOffset + labelReserveMarginPx,
+      nominalTitleOffset + labelReserveMarginPx,
       Math.round(fontSize * BASE_BOTTOM_FACTOR) + tickLabelFontSize + 8
     );
     const widths = labels.map(label => chartStyle.measureText(label || '', labelMeasureFont));
@@ -1690,8 +1698,15 @@
     if(exitRatio >= enterRatio){
       exitRatio = Math.max(0.1, enterRatio - 0.01);
     }
-    const reserveRotatedLabelSpace = options?.reserveRotatedLabelSpace === true;
-    const projectedTickLabelReserve = options?.bottomReserveMode === 'projected-tick-label';
+    // Cartesian transaction users reserve the possible rotated projection from
+    // the first render. Rotation may still switch later, but that switch must
+    // not make the SVG envelope jump. Legacy callers keep their opt-in policy.
+    const preservePlotRail = options?.preservePlotRail === true;
+    const reserveRotatedLabelSpace = typeof options?.reserveRotatedLabelSpace === 'boolean'
+      ? options.reserveRotatedLabelSpace
+      : preservePlotRail;
+    const projectedTickLabelReserve = options?.bottomReserveMode === 'projected-tick-label'
+      || preservePlotRail;
     const shouldRotateRaw = labels.length > 1 && maxAdjacentOverlapRatio > baseRotateRatio;
     const shouldRotate = labels.length > 1
       ? (
@@ -1714,10 +1729,27 @@
     const rotatedExtra = projectedTickLabelReserve
       ? Math.max(0, projectedRotatedLabelHeight - tickLabelFontSize)
       : Math.min(220, Math.max(tickLabelFontSize * 1.8, Math.ceil(Math.SQRT1_2 * maxLabelWidth) + tickLabelFontSize));
-    const extra = (shouldRotate || reserveRotatedLabelSpace) ? rotatedExtra : 0;
-    const bottom = projectedTickLabelReserve
-      ? Math.max(baseBottom, adjustedLabelOffset + axisTitleReserve + labelReserveMarginPx + extra)
-      : Math.max(baseBottom, titleOffset + outerPadding + extra);
+    const activeExtra = shouldRotate ? rotatedExtra : 0;
+    const reservedExtra = (shouldRotate || reserveRotatedLabelSpace) ? rotatedExtra : 0;
+    const requiredBottom = preservePlotRail
+      // baseBottom is the complete nominal tick/title rail. Keep the entire
+      // possible rotation displacement outside that rail so pre-existing slack
+      // cannot consume the proactive reserve and make the envelope jump later.
+      ? baseBottom + reservedExtra
+      : (
+          projectedTickLabelReserve
+            ? Math.max(baseBottom, adjustedLabelOffset + axisTitleReserve + labelReserveMarginPx + reservedExtra)
+            : Math.max(baseBottom, nominalTitleOffset + outerPadding + reservedExtra)
+        );
+    // Cartesian transaction users keep the nominal plot rail fixed and render
+    // the measured excess outside the canonical user frame. Legacy/excluded
+    // layouts retain the historical content-dependent bottom margin.
+    const bottom = preservePlotRail ? baseBottom : requiredBottom;
+    // Keep the title at its normal position until labels actually rotate. The
+    // proactive reserve is an outward envelope allowance, not an active gap.
+    const titleOffset = preservePlotRail
+      ? adjustedLabelOffset + activeExtra + axisTitleReserve
+      : nominalTitleOffset;
     console.debug('Debug: chartStyle.computeBottomLayout', {
       labelCount: labels.length,
       fontSize,
@@ -1735,16 +1767,19 @@
       labelMeasureFont,
       tickLabelFontSize,
       labelReserveMarginPx,
-      extra,
+      activeExtra,
+      reservedExtra,
       rotatedExtra,
       projectedRotatedLabelHeight,
       rotatedLabelHorizontalProjections,
       bottom,
+      requiredBottom,
+      preservePlotRail,
       labelOffset: adjustedLabelOffset,
       titleOffset,
       tickLength
     }); // Debug: bottom layout computation
-    return {bottom, shouldRotate, shouldRotateRaw, widths, bandWidth, maxLabelWidth, maxLabelWidthRatio, maxAdjacentOverlapRatio, rotatedLabelHorizontalProjections, labelOffset: adjustedLabelOffset, titleOffset, tickLength, tickLabelGap, axisTitleGap, outerPadding, labelMeasureFont, tickLabelFontSize};
+    return {bottom, requiredBottom, contentReserveBottom: Math.max(0, requiredBottom - baseBottom), shouldRotate, shouldRotateRaw, widths, bandWidth, maxLabelWidth, maxLabelWidthRatio, maxAdjacentOverlapRatio, projectedRotatedLabelHeight, rotatedExtra, activeExtra, reservedExtra, rotatedLabelHorizontalProjections, labelOffset: adjustedLabelOffset, titleOffset, nominalTitleOffset, tickLength, tickLabelGap, axisTitleGap, outerPadding, labelMeasureFont, tickLabelFontSize};
   };
 
   chartStyle.resolveRotatedXAxisLeadingInset = function resolveRotatedXAxisLeadingInset(bottomLayout, marginLeft){
@@ -2502,6 +2537,32 @@
     return chartStyle.stabilizeAxisResizeMargins({top, right, bottom, left}, options);
   };
 
+  chartStyle.computeCartesianMarginRequirements = function computeCartesianMarginRequirements(options){
+    const opts = options && typeof options === 'object' ? options : {};
+    const measurementOptions = {
+      ...opts,
+      legendWidth: 0,
+      svgBox: null,
+      container: null,
+      resizeTarget: null
+    };
+    const baselineMargins = chartStyle.computeBaseMargins({
+      ...measurementOptions,
+      maxYLabelWidth: 0,
+      xTickLabels: []
+    });
+    const requiredMargins = chartStyle.computeBaseMargins(measurementOptions);
+    return {
+      baselineMargins: { ...baselineMargins },
+      requiredMargins: {
+        top: Math.max(baselineMargins.top, requiredMargins.top),
+        right: Math.max(baselineMargins.right, requiredMargins.right),
+        bottom: Math.max(baselineMargins.bottom, requiredMargins.bottom),
+        left: Math.max(baselineMargins.left, requiredMargins.left)
+      }
+    };
+  };
+
   const axisResizeMarginLocks = typeof WeakMap !== 'undefined' ? new WeakMap() : null;
 
   function normalizeMarginLock(margin){
@@ -3189,23 +3250,49 @@
     const rawBaseHeight = Number(opts.baseHeight);
     const rawRightWidth = Number(opts.rightWidth ?? opts.legendWidth);
     const rawBottomHeight = Number(opts.bottomHeight);
+    const rawLeftWidth = Number(opts.leftWidth);
+    const rawTopHeight = Number(opts.topHeight);
     const rawMinimumWidth = Number(opts.minimumWidth);
     const baseWidth = Number.isFinite(rawBaseWidth) && rawBaseWidth > 0 ? rawBaseWidth : 1;
     const baseHeight = Number.isFinite(rawBaseHeight) && rawBaseHeight > 0 ? rawBaseHeight : 1;
-    const rightWidth = Number.isFinite(rawRightWidth) && rawRightWidth > 0 ? rawRightWidth : 0;
-    const bottomHeight = Number.isFinite(rawBottomHeight) && rawBottomHeight > 0 ? rawBottomHeight : 0;
+    const requestedRightWidth = Number.isFinite(rawRightWidth) && rawRightWidth > 0 ? rawRightWidth : 0;
+    const requestedBottomHeight = Number.isFinite(rawBottomHeight) && rawBottomHeight > 0 ? rawBottomHeight : 0;
+    const requestedLeftWidth = Number.isFinite(rawLeftWidth) && rawLeftWidth > 0 ? rawLeftWidth : 0;
+    const requestedTopHeight = Number.isFinite(rawTopHeight) && rawTopHeight > 0 ? rawTopHeight : 0;
     const minimumWidth = Number.isFinite(rawMinimumWidth) && rawMinimumWidth > 0 ? rawMinimumWidth : 0;
-    const width = Math.max(baseWidth + rightWidth, minimumWidth);
+    const contentBounds = opts.contentBounds && typeof opts.contentBounds === 'object' ? opts.contentBounds : {};
+    const suppliedMinX = Number(contentBounds.minX);
+    const suppliedMinY = Number(contentBounds.minY);
+    const suppliedMaxX = Number(contentBounds.maxX);
+    const suppliedMaxY = Number(contentBounds.maxY);
+    const minX = Math.min(0, -requestedLeftWidth, Number.isFinite(suppliedMinX) ? suppliedMinX : 0);
+    const minY = Math.min(0, -requestedTopHeight, Number.isFinite(suppliedMinY) ? suppliedMinY : 0);
+    const maxX = Math.max(baseWidth + requestedRightWidth, minimumWidth, Number.isFinite(suppliedMaxX) ? suppliedMaxX : baseWidth);
+    const maxY = Math.max(baseHeight + requestedBottomHeight, Number.isFinite(suppliedMaxY) ? suppliedMaxY : baseHeight);
+    const width = maxX - minX;
+    const height = maxY - minY;
+    const leftWidth = Math.max(0, -minX);
+    const topHeight = Math.max(0, -minY);
+    const rightWidth = Math.max(0, maxX - baseWidth);
+    const bottomHeight = Math.max(0, maxY - baseHeight);
     return {
       baseWidth,
       baseHeight,
+      minX,
+      minY,
+      maxX,
+      maxY,
       rightWidth,
       bottomHeight,
-      legendWidth: rightWidth,
-      extensionWidth: Math.max(0, width - baseWidth),
-      extensionHeight: bottomHeight,
+      leftWidth,
+      topHeight,
+      legendWidth: requestedRightWidth,
+      extensionWidth: leftWidth + rightWidth,
+      extensionHeight: topHeight + bottomHeight,
       width,
-      height: baseHeight + bottomHeight
+      height,
+      baseOffsetX: leftWidth,
+      baseOffsetY: topHeight
     };
   };
 
@@ -3225,36 +3312,30 @@
     let legendReserveWidth = hasExplicitLegendWidth && Number.isFinite(requestedLegendWidth) && requestedLegendWidth >= 0
       ? requestedLegendWidth
       : 0;
-    const resolveRenderedViewportMetrics = () => {
-      const zoomCandidate = Number(svgBox?.dataset?.resizerZoomLevel || svgBox?.dataset?.resizerZoom);
-      const zoomScale = Number.isFinite(zoomCandidate) && zoomCandidate > 0 ? zoomCandidate : 1;
-      const renderedWidth = viewport.width * zoomScale;
-      const renderedHeight = viewport.height * zoomScale;
-      return {
-        renderedWidth,
-        renderedHeight,
-        extensionWidth: viewport.extensionWidth * zoomScale,
-        extensionHeight: viewport.extensionHeight * zoomScale
-      };
-    };
     const applyViewportSlot = target => {
       if(!target?.dataset || !target?.style) return;
-      const hasRightExtension = viewport.extensionWidth > 0;
-      const hasBottomExtension = viewport.extensionHeight > 0;
-      const hasExtension = hasRightExtension || hasBottomExtension;
+      const hasHorizontalExtension = viewport.extensionWidth > 0;
+      const hasVerticalExtension = viewport.extensionHeight > 0;
+      const hasExtension = hasHorizontalExtension || hasVerticalExtension;
       if(hasExtension){
         target.dataset.graphContentViewport = 'true';
-        const rendered = resolveRenderedViewportMetrics();
-        if(hasRightExtension){
-          target.style.setProperty('--graph-content-viewport-width', `${format(viewport.width)}px`);
-          target.style.setProperty('--graph-content-rendered-width', `${format(rendered.renderedWidth)}px`);
+        const zoomCandidate = Number(svgBox?.dataset?.resizerZoomLevel || svgBox?.dataset?.resizerZoom);
+        const zoomScale = Number.isFinite(zoomCandidate) && zoomCandidate > 0 ? zoomCandidate : 1;
+        // The SVG itself spans the complete logical envelope. Its containing plot
+        // only needs the canonical frame plus right/bottom outward growth because
+        // left/top growth is translated outward and must not move the base frame.
+        const slotWidth = target === svg ? viewport.width : (viewport.baseWidth + viewport.rightWidth);
+        const slotHeight = target === svg ? viewport.height : (viewport.baseHeight + viewport.bottomHeight);
+        if(hasHorizontalExtension){
+          target.style.setProperty('--graph-content-viewport-width', `${format(slotWidth)}px`);
+          target.style.setProperty('--graph-content-rendered-width', `${format(slotWidth * zoomScale)}px`);
         }else{
           target.style.removeProperty('--graph-content-viewport-width');
           target.style.removeProperty('--graph-content-rendered-width');
         }
-        if(hasBottomExtension){
-          target.style.setProperty('--graph-content-viewport-height', `${format(viewport.height)}px`);
-          target.style.setProperty('--graph-content-rendered-height', `${format(rendered.renderedHeight)}px`);
+        if(hasVerticalExtension){
+          target.style.setProperty('--graph-content-viewport-height', `${format(slotHeight)}px`);
+          target.style.setProperty('--graph-content-rendered-height', `${format(slotHeight * zoomScale)}px`);
         }else{
           target.style.removeProperty('--graph-content-viewport-height');
           target.style.removeProperty('--graph-content-rendered-height');
@@ -3266,14 +3347,34 @@
         target.style.removeProperty('--graph-content-viewport-height');
         target.style.removeProperty('--graph-content-rendered-height');
       }
+      if(target === svg){
+        if(viewport.leftWidth > 0){
+          target.style.setProperty('--graph-content-origin-left', `${format(viewport.leftWidth)}px`);
+        }else{
+          target.style.removeProperty('--graph-content-origin-left');
+        }
+        if(viewport.topHeight > 0){
+          target.style.setProperty('--graph-content-origin-top', `${format(viewport.topHeight)}px`);
+        }else{
+          target.style.removeProperty('--graph-content-origin-top');
+        }
+      }
     };
     const syncSvgViewportDatasets = () => {
       if(!svg?.dataset) return;
       svg.dataset.legendBaseWidth = format(viewport.baseWidth);
       svg.dataset.legendBaseHeight = format(viewport.baseHeight);
       svg.dataset.legendReserveWidth = format(legendReserveWidth);
-      svg.dataset.graphContentReserveRight = format(viewport.extensionWidth);
-      svg.dataset.graphContentReserveBottom = format(viewport.extensionHeight);
+      svg.dataset.graphContentBaseWidth = format(viewport.baseWidth);
+      svg.dataset.graphContentBaseHeight = format(viewport.baseHeight);
+      svg.dataset.graphContentEnvelopeMinX = format(viewport.minX);
+      svg.dataset.graphContentEnvelopeMinY = format(viewport.minY);
+      svg.dataset.graphContentEnvelopeMaxX = format(viewport.maxX);
+      svg.dataset.graphContentEnvelopeMaxY = format(viewport.maxY);
+      svg.dataset.graphContentReserveRight = format(viewport.rightWidth);
+      svg.dataset.graphContentReserveBottom = format(viewport.bottomHeight);
+      svg.dataset.graphContentReserveLeft = format(viewport.leftWidth);
+      svg.dataset.graphContentReserveTop = format(viewport.topHeight);
     };
     const readLegendTranslateX = legendNode => {
       try{
@@ -3313,7 +3414,7 @@
       if(!Number.isFinite(rightEdge)){
         return false;
       }
-      const nonLegendRightReserve = Math.max(0, viewport.extensionWidth - legendReserveWidth);
+      const nonLegendRightReserve = Math.max(0, viewport.rightWidth - legendReserveWidth);
       const horizontalEdgePadding = chartStyle.resolveGraphHorizontalEdgePadding(opts.horizontalEdgePadding);
       const desiredTotalExtension = Math.max(
         nonLegendRightReserve,
@@ -3334,7 +3435,7 @@
         // autoResizeSvg appends legend width after fitting the non-legend viewport.
         // Apply the same scale when replacing the pre-draw estimate with the
         // measured legend width so the base plot keeps exactly the same scale.
-        const contentHeight = Math.max(1, viewport.baseHeight + viewport.extensionHeight);
+        const contentHeight = Math.max(1, viewport.height);
         const legendScale = viewBox[3] / contentHeight;
         const nextViewWidth = Math.max(1, viewBox[2] + deltaLegendReserve * legendScale);
         svg.setAttribute('viewBox', `${format(viewBox[0])} ${format(viewBox[1])} ${format(nextViewWidth)} ${format(viewBox[3])}`);
@@ -3346,7 +3447,15 @@
         baseWidth: viewport.baseWidth,
         baseHeight: viewport.baseHeight,
         rightWidth: desiredTotalExtension,
-        bottomHeight: viewport.extensionHeight
+        bottomHeight: viewport.bottomHeight,
+        leftWidth: viewport.leftWidth,
+        topHeight: viewport.topHeight,
+        contentBounds: {
+          minX: viewport.minX,
+          minY: viewport.minY,
+          maxX: viewport.baseWidth + desiredTotalExtension,
+          maxY: viewport.maxY
+        }
       });
       const numericSvgWidth = Number(svg.getAttribute?.('width'));
       if(Number.isFinite(numericSvgWidth) && Math.abs(numericSvgWidth - previousViewportWidth) <= 0.5){
@@ -3370,7 +3479,7 @@
       if(opts.applySvgViewport !== false){
         svg.setAttribute('width', format(viewport.width));
         svg.setAttribute('height', format(viewport.height));
-        svg.setAttribute('viewBox', `0 0 ${format(viewport.width)} ${format(viewport.height)}`);
+        svg.setAttribute('viewBox', `${format(viewport.minX)} ${format(viewport.minY)} ${format(viewport.width)} ${format(viewport.height)}`);
         syncSvgViewportDatasets();
       }
       if(svg.style && (viewport.extensionWidth > 0 || viewport.extensionHeight > 0)){
@@ -3380,23 +3489,80 @@
       }
       applyViewportSlot(svg);
     }
+    const refineContentBoundsFromRenderedSvg = () => {
+      if(opts.refineContentBounds === false || !svg || typeof svg.getBBox !== 'function') return false;
+      let bounds = null;
+      try{ bounds = svg.getBBox(); }catch(_err){ return false; }
+      const x = Number(bounds?.x);
+      const y = Number(bounds?.y);
+      const width = Number(bounds?.width);
+      const height = Number(bounds?.height);
+      if(!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(width) || !Number.isFinite(height) || width < 0 || height < 0) return false;
+      const next = chartStyle.computeGraphContentViewport({
+        baseWidth: viewport.baseWidth,
+        baseHeight: viewport.baseHeight,
+        rightWidth: viewport.rightWidth,
+        bottomHeight: viewport.bottomHeight,
+        leftWidth: viewport.leftWidth,
+        topHeight: viewport.topHeight,
+        contentBounds: {
+          minX: Math.min(viewport.minX, x),
+          minY: Math.min(viewport.minY, y),
+          maxX: Math.max(viewport.maxX, x + width),
+          maxY: Math.max(viewport.maxY, y + height)
+        }
+      });
+      if(Math.abs(next.minX - viewport.minX) <= 0.25
+        && Math.abs(next.minY - viewport.minY) <= 0.25
+        && Math.abs(next.maxX - viewport.maxX) <= 0.25
+        && Math.abs(next.maxY - viewport.maxY) <= 0.25){
+        return false;
+      }
+      viewport = next;
+      syncSvgViewportDatasets();
+      return true;
+    };
+    const applySvgViewport = () => {
+      if(!svg || opts.applySvgViewport === false) return;
+      svg.setAttribute('width', format(viewport.width));
+      svg.setAttribute('height', format(viewport.height));
+      svg.setAttribute('viewBox', `${format(viewport.minX)} ${format(viewport.minY)} ${format(viewport.width)} ${format(viewport.height)}`);
+      syncSvgViewportDatasets();
+    };
+    let measured = false;
     let committed = false;
+    const measure = () => {
+      if(!measured){
+        refineLegendReserveFromRenderedContent();
+        refineContentBoundsFromRenderedSvg();
+        measured = true;
+      }
+      return { ...viewport, legendWidth: legendReserveWidth };
+    };
     return Object.assign({}, viewport, {
+      getViewport(){ return { ...viewport, legendWidth: legendReserveWidth }; },
+      measure,
       commit(){
         if(committed) return true;
         committed = true;
-        refineLegendReserveFromRenderedContent();
+        measure();
+        applySvgViewport();
         applyViewportSlot(svg);
         applyViewportSlot(plot);
         if(svgBox?.dataset && svgBox?.style){
           const hasExtension = viewport.extensionWidth > 0 || viewport.extensionHeight > 0;
           if(hasExtension){
-            const rendered = resolveRenderedViewportMetrics();
-            svgBox.style.setProperty('--graph-content-extra-right', `${format(rendered.extensionWidth)}px`);
-            svgBox.style.setProperty('--graph-content-extra-bottom', `${format(rendered.extensionHeight)}px`);
+            const zoomCandidate = Number(svgBox?.dataset?.resizerZoomLevel || svgBox?.dataset?.resizerZoom);
+            const zoomScale = Number.isFinite(zoomCandidate) && zoomCandidate > 0 ? zoomCandidate : 1;
+            svgBox.style.setProperty('--graph-content-extra-left', `${format(viewport.leftWidth * zoomScale)}px`);
+            svgBox.style.setProperty('--graph-content-extra-top', `${format(viewport.topHeight * zoomScale)}px`);
+            svgBox.style.setProperty('--graph-content-extra-right', `${format(viewport.rightWidth * zoomScale)}px`);
+            svgBox.style.setProperty('--graph-content-extra-bottom', `${format(viewport.bottomHeight * zoomScale)}px`);
             svgBox.dataset.graphContentEnvelope = 'true';
           }else{
             delete svgBox.dataset.graphContentEnvelope;
+            svgBox.style.removeProperty('--graph-content-extra-left');
+            svgBox.style.removeProperty('--graph-content-extra-top');
             svgBox.style.removeProperty('--graph-content-extra-right');
             svgBox.style.removeProperty('--graph-content-extra-bottom');
           }
@@ -3407,30 +3573,44 @@
   };
 
   chartStyle.stageLegendViewport = function stageLegendViewport(options){
-    return chartStyle.stageGraphContentViewport(options);
+    const opts = options && typeof options === 'object' ? options : {};
+    // The legend compatibility path already has an explicit right-side
+    // reserve.  Do not fit the whole SVG here: rotated axis labels and other
+    // graph content can legitimately have negative local bounds, and that
+    // would turn into a left margin on the canonical frame.
+    return chartStyle.stageGraphContentViewport({
+      ...opts,
+      refineContentBounds: false
+    });
   };
 
-  chartStyle.rehydrateLegendViewports = function rehydrateLegendViewports(root){
+  chartStyle.rehydrateGraphContentViewports = function rehydrateGraphContentViewports(root){
     if(!root){
       return 0;
     }
     const svgs = [];
-    if(root.matches?.('svg[data-legend-base-width][data-legend-reserve-width]')){
+    if(root.matches?.('svg[data-graph-content-base-width], svg[data-legend-base-width][data-legend-reserve-width]')){
       svgs.push(root);
     }
-    root.querySelectorAll?.('svg[data-legend-base-width][data-legend-reserve-width]').forEach(svg => svgs.push(svg));
+    root.querySelectorAll?.('svg[data-graph-content-base-width], svg[data-legend-base-width][data-legend-reserve-width]').forEach(svg => svgs.push(svg));
     let restored = 0;
     svgs.forEach(svg => {
-      const baseWidth = Number(svg.dataset?.legendBaseWidth);
+      const baseWidth = Number(svg.dataset?.graphContentBaseWidth ?? svg.dataset?.legendBaseWidth);
       const reserveWidth = Number(svg.dataset?.legendReserveWidth);
       const contentReserveWidth = Number(svg.dataset?.graphContentReserveRight);
-      if(!Number.isFinite(baseWidth) || baseWidth <= 0 || !Number.isFinite(reserveWidth) || reserveWidth < 0){
+      if(!Number.isFinite(baseWidth) || baseWidth <= 0){
         return;
       }
       const viewBoxValues = String(svg.getAttribute?.('viewBox') || '').trim().split(/[\s,]+/).map(Number);
       const fallbackHeight = Number.isFinite(viewBoxValues[3]) && viewBoxValues[3] > 0 ? viewBoxValues[3] : 1;
-      const baseHeight = Number(svg.dataset?.legendBaseHeight);
+      const baseHeight = Number(svg.dataset?.graphContentBaseHeight ?? svg.dataset?.legendBaseHeight);
       const bottomHeight = Number(svg.dataset?.graphContentReserveBottom);
+      const leftWidth = Number(svg.dataset?.graphContentReserveLeft);
+      const topHeight = Number(svg.dataset?.graphContentReserveTop);
+      const minX = Number(svg.dataset?.graphContentEnvelopeMinX);
+      const minY = Number(svg.dataset?.graphContentEnvelopeMinY);
+      const maxX = Number(svg.dataset?.graphContentEnvelopeMaxX);
+      const maxY = Number(svg.dataset?.graphContentEnvelopeMaxY);
       const plot = root !== svg && root.contains?.(svg)
         ? root
         : (svg.parentElement || null);
@@ -3440,9 +3620,17 @@
         svgBox: svg.closest?.('.svgbox') || null,
         baseWidth,
         baseHeight: Number.isFinite(baseHeight) && baseHeight > 0 ? baseHeight : fallbackHeight,
-        rightWidth: Number.isFinite(contentReserveWidth) && contentReserveWidth >= 0 ? contentReserveWidth : reserveWidth,
-        legendWidth: reserveWidth,
+        rightWidth: Number.isFinite(contentReserveWidth) && contentReserveWidth >= 0 ? contentReserveWidth : (Number.isFinite(reserveWidth) ? reserveWidth : 0),
+        legendWidth: Number.isFinite(reserveWidth) && reserveWidth >= 0 ? reserveWidth : 0,
         bottomHeight: Number.isFinite(bottomHeight) && bottomHeight > 0 ? bottomHeight : 0,
+        leftWidth: Number.isFinite(leftWidth) && leftWidth > 0 ? leftWidth : 0,
+        topHeight: Number.isFinite(topHeight) && topHeight > 0 ? topHeight : 0,
+        contentBounds: {
+          minX: Number.isFinite(minX) ? minX : 0,
+          minY: Number.isFinite(minY) ? minY : 0,
+          maxX: Number.isFinite(maxX) ? maxX : baseWidth,
+          maxY: Number.isFinite(maxY) ? maxY : (Number.isFinite(baseHeight) && baseHeight > 0 ? baseHeight : fallbackHeight)
+        },
         applySvgViewport: false,
         allowLegendReserveShrink: false
       }).commit();
@@ -3450,6 +3638,10 @@
     });
     return restored;
   };
+
+  // Compatibility name retained because component restore hooks predate the
+  // generalized content-envelope contract.
+  chartStyle.rehydrateLegendViewports = chartStyle.rehydrateGraphContentViewports;
 
   chartStyle.hasCurrentLegendViewportContract = function hasCurrentLegendViewportContract(root){
     if(!root){
@@ -4319,7 +4511,13 @@
         cy,
         text,
         stableKey: `${entry?.pointId ?? ''}|${cx.toFixed(6)}|${cy.toFixed(6)}|${text}`,
-        textWidth: estimateWidth(text, fontSpec, fontSize),
+        // Keep a layout candidate available when a compact exported/test SVG is
+        // narrower than the label itself. The rendered text may extend beyond
+        // this planning box, but the point-label leader still has valid geometry.
+        textWidth: Math.min(
+          estimateWidth(text, fontSpec, fontSize),
+          Math.max(1, containerRight - containerLeft - 4)
+        ),
         fontSize,
         fontSpec,
         labelHeight: modelLabelHeight,
@@ -4656,6 +4854,49 @@
       y,
       relX: (x - originX) / width,
       relY: (y - originY) / height
+    };
+  };
+
+  // Legends live in the outward right reserve, not on the plot's right rail.
+  // New positions are relative to that stable reserve origin. Positions without
+  // the anchor marker remain on the old plot-relative contract for compatibility.
+  chartStyle.LEGEND_POSITION_ANCHOR = 'right-reserve';
+  chartStyle.resolveLegendPosition = function resolveLegendPosition(stored, options = {}){
+    const defaultX = toFiniteChartNumber(options.defaultX) ?? 0;
+    const defaultY = toFiniteChartNumber(options.defaultY) ?? 0;
+    const reserveOriginX = toFiniteChartNumber(options.reserveOriginX) ?? defaultX;
+    const reserveOriginY = toFiniteChartNumber(options.reserveOriginY) ?? defaultY;
+    const reserveScaleX = Math.max(1, toFiniteChartNumber(options.reserveScaleX) ?? 1);
+    const reserveScaleY = Math.max(1, toFiniteChartNumber(options.reserveScaleY) ?? 1);
+    const legacyOriginX = toFiniteChartNumber(options.legacyOriginX) ?? reserveOriginX;
+    const legacyOriginY = toFiniteChartNumber(options.legacyOriginY) ?? reserveOriginY;
+    const legacyScaleX = Math.max(1, toFiniteChartNumber(options.legacyScaleX) ?? reserveScaleX);
+    const legacyScaleY = Math.max(1, toFiniteChartNumber(options.legacyScaleY) ?? reserveScaleY);
+    const useReserveAnchor = String(stored?.anchor || '') === chartStyle.LEGEND_POSITION_ANCHOR;
+    const relX = toFiniteChartNumber(stored?.relX);
+    const relY = toFiniteChartNumber(stored?.relY);
+    const absoluteX = toFiniteChartNumber(stored?.x);
+    const absoluteY = toFiniteChartNumber(stored?.y);
+    const x = useReserveAnchor && relX !== null
+      ? reserveOriginX + relX * reserveScaleX
+      : (!useReserveAnchor && relX !== null
+        ? legacyOriginX + relX * legacyScaleX
+        : (absoluteX ?? defaultX));
+    const y = useReserveAnchor && relY !== null
+      ? reserveOriginY + relY * reserveScaleY
+      : (!useReserveAnchor && relY !== null
+        ? legacyOriginY + relY * legacyScaleY
+        : (absoluteY ?? defaultY));
+    return {
+      x,
+      y,
+      canonicalX: defaultX,
+      canonicalY: defaultY,
+      originX: reserveOriginX,
+      originY: reserveOriginY,
+      scaleX: reserveScaleX,
+      scaleY: reserveScaleY,
+      positionAnchor: chartStyle.LEGEND_POSITION_ANCHOR
     };
   };
 

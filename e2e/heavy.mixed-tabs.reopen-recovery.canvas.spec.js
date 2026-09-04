@@ -266,8 +266,12 @@ async function waitForScatterHot(page) {
   }, null, { timeout: 60_000 });
 }
 
-async function waitForScatterCanvas(page) {
-  await page.waitForFunction(() => {
+async function waitForScatterCanvas(page, expected = {}) {
+  await page.waitForFunction(({ tabId, firstLabel }) => {
+    const workspaceState = window.Main?.session?.workspaceState || {};
+    if (tabId && String(workspaceState.activeTabId || '') !== String(tabId)) {
+      return false;
+    }
     const hasPaintedCanvas = (canvas) => {
       if (!canvas || !canvas.width || !canvas.height) return false;
       const rect = canvas.getBoundingClientRect?.();
@@ -295,6 +299,11 @@ async function waitForScatterCanvas(page) {
     if (!layer) {
       return false;
     }
+    const hot = window.Components?.scatter?.__ensureHotForActiveTab?.();
+    const data = typeof hot?.getData === 'function' ? hot.getData() : [];
+    if (firstLabel && String(data?.[1]?.[0] || '') !== String(firstLabel)) {
+      return false;
+    }
     const mode = layer.getAttribute('data-render-mode');
     if (mode !== 'canvas' && mode !== 'canvas-resize-reused') {
       return false;
@@ -302,7 +311,10 @@ async function waitForScatterCanvas(page) {
     const canvas = layer.querySelector('foreignObject[data-point-renderer] canvas');
     const bitmap = layer.querySelector('foreignObject[data-point-renderer] img[data-graphitix-render-cache-canvas-bitmap="true"]');
     return hasPaintedCanvas(canvas) || hasDecodedBitmapImage(bitmap);
-  }, null, { timeout: 120_000 });
+  }, {
+    tabId: expected?.tabId || null,
+    firstLabel: expected?.firstLabel || null
+  }, { timeout: 120_000 });
 }
 
 
@@ -526,9 +538,9 @@ async function expectRestoredCacheClearedByUserInput(page, testInfo, tabId, type
   };
 }
 
-async function collectScatterTabState(page, tabId) {
+async function collectScatterTabState(page, tabId, expected = {}) {
   await activateTab(page, tabId);
-  await waitForScatterCanvas(page);
+  await waitForScatterCanvas(page, { tabId, ...expected });
   return page.evaluate((id) => {
     const state = window.Main?.session?.workspaceState;
     const tab = state?.tabs?.find(item => item?.id === id) || null;
@@ -537,14 +549,6 @@ async function collectScatterTabState(page, tabId) {
     const data = typeof hot?.getData === 'function' ? hot.getData() : [];
     const rowCount = Array.isArray(data) ? Math.max(0, data.length - 1) : 0;
     const firstLabel = rowCount > 0 ? String(data[1]?.[0] || '') : '';
-    const previewApi = window.Main?.previews;
-    const config = window.Main?.components?.registry?.scatter;
-    if (previewApi && config && typeof previewApi.updateTabPreviewFromWorkspace === 'function') {
-      previewApi.updateTabPreviewFromWorkspace(tab, config, {
-        forceCapture: true,
-        reason: 'e2e-heavy-mixed-preview-capture'
-      });
-    }
     const canvases = Array.from(layer?.querySelectorAll?.('foreignObject[data-point-renderer] canvas') || []);
     const bitmapImages = Array.from(layer?.querySelectorAll?.('foreignObject[data-point-renderer] img[data-graphitix-render-cache-canvas-bitmap="true"]') || []);
     const hasPaintedCanvas = (canvas) => {
@@ -698,11 +702,14 @@ async function loadWorkspaceArchiveFromPath(page, archivePath) {
 async function seedRecoverySnapshot(page) {
   return page.evaluate(async () => {
     const openWebDb = () => new Promise((resolve, reject) => {
-      const request = window.indexedDB.open('graphitix-document-state', 1);
+      const request = window.indexedDB.open('graphitix-document-state', 2);
       request.onupgradeneeded = () => {
         const db = request.result;
         if (!db.objectStoreNames.contains('snapshots')) {
           db.createObjectStore('snapshots');
+        }
+        if (!db.objectStoreNames.contains('canonical-journal')) {
+          db.createObjectStore('canonical-journal');
         }
       };
       request.onsuccess = () => resolve(request.result);
@@ -712,7 +719,8 @@ async function seedRecoverySnapshot(page) {
     const putRecoverySnapshot = async (record) => {
       const db = await openWebDb();
       return new Promise((resolve, reject) => {
-        const tx = db.transaction('snapshots', 'readwrite');
+        const tx = db.transaction(['snapshots', 'canonical-journal'], 'readwrite');
+        tx.objectStore('canonical-journal').clear();
         tx.objectStore('snapshots').put(record, 'active-recovery');
         tx.oncomplete = () => resolve(true);
         tx.onerror = () => reject(tx.error || new Error('IndexedDB snapshot write failed.'));
@@ -792,6 +800,7 @@ async function seedRecoverySnapshot(page) {
         app: 'Graphitix',
         kind: 'recovery',
         version: 1,
+        revision: Number(workspaceState.sessionRevision) || 0,
         savedAt: new Date().toISOString(),
         updatedAt: Date.now(),
         reason: 'recovery-interval',
@@ -905,8 +914,11 @@ async function verifyMixedTabsAfterRestore(page, workspace, testInfo, scenarioLa
   expect(scatterSaved.map(tab => tab.payloadSignature).filter(Boolean).length).toBe(2);
 
   const scatterStates = [];
-  for (const tab of scatterSaved) {
-    scatterStates.push(await collectScatterTabState(page, tab.id));
+  for (const [index, tab] of scatterSaved.entries()) {
+    const expectedFirstLabel = index === 0
+      ? baseline.scatterA?.firstLabel
+      : baseline.scatterB?.firstLabel;
+    scatterStates.push(await collectScatterTabState(page, tab.id, { firstLabel: expectedFirstLabel }));
   }
   const baselineAFirstLabel = String(baseline.scatterA?.firstLabel || '').trim();
   const baselineBFirstLabel = String(baseline.scatterB?.firstLabel || '').trim();
@@ -1009,7 +1021,7 @@ async function verifyMixedTabsAfterRestore(page, workspace, testInfo, scenarioLa
   ).toEqual([]);
 }
 
-test.fixme('mixed heavy scatter tabs + heavy box tab survive archive reopen with tab isolation and previews', async ({ page }, testInfo) => {
+test('mixed heavy scatter tabs + heavy box tab survive archive reopen with tab isolation and previews', async ({ page }, testInfo) => {
   test.setTimeout(300_000);
   const issues = registerIssueCollectors(page);
   await installLocalCdnOverrides(page);
@@ -1030,7 +1042,7 @@ test.fixme('mixed heavy scatter tabs + heavy box tab survive archive reopen with
   expect(issues.critical).toEqual([]);
 });
 
-test.fixme('mixed heavy scatter tabs + heavy box tab survive crash-recovery restore with tab isolation and previews', async ({ page }, testInfo) => {
+test('mixed heavy scatter tabs + heavy box tab survive crash-recovery restore with tab isolation and previews', async ({ page }, testInfo) => {
   test.setTimeout(300_000);
   const issues = registerIssueCollectors(page);
   await installLocalCdnOverrides(page);

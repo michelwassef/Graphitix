@@ -402,7 +402,7 @@
       && existing.rasterScale === request.rasterScale) {
       return true;
     }
-    request.promise = new Promise(resolve => setTimeout(resolve, 0))
+    request.promise = new Promise(resolve => { setTimeout(resolve, 0); })
       .then(async () => {
         if (!previewRequestStillMatches(tab, request)) {
           return null;

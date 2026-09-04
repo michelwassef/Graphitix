@@ -274,6 +274,10 @@
       : String(Math.round(numeric));
   }
 
+  function formatPxDisplayValue(value, step){
+    return formatNumericValue(value, step, { maxPrecision: 2 });
+  }
+
   function fallbackNumericWheelStep(input){
     const explicit = Number(input?.dataset?.wheelStep);
     if(Number.isFinite(explicit) && explicit > 0){
@@ -1133,7 +1137,9 @@
     input.min = canonicalInput.min || String(config.min ?? '0');
     input.max = canonicalInput.max || String(config.max ?? '10');
     input.step = canonicalInput.step || String(config.step ?? '0.25');
-    input.value = canonicalInput.value || String(config.value ?? '0');
+    const rawValue = canonicalInput.value || String(config.value ?? '0');
+    const formattedValue = formatPxDisplayValue(rawValue, input.step);
+    input.value = formattedValue || String(rawValue);
     input.setAttribute('aria-label', String(config.ariaLabel || config.title || 'Line width'));
 
     const mirrorCleanup = bindNumericInputMirror(input, canonicalInput);
@@ -2708,6 +2714,7 @@
   workspaceToolbar.getNumericWheelPhase = getNumericWheelPhase;
   workspaceToolbar.getNumericWheelStep = fallbackNumericWheelStep;
   workspaceToolbar.formatNumericValue = formatNumericValue;
+  workspaceToolbar.formatPxDisplayValue = formatPxDisplayValue;
   workspaceToolbar.numericWheelCommitDelayMs = TOOLBAR_NUMERIC_WHEEL_COMMIT_DELAY_MS;
   workspaceToolbar.numericWheelEndEventName = TOOLBAR_NUMERIC_WHEEL_END_EVENT;
   workspaceToolbar.activateSectionById = function activateSectionById(toolbarOrKey, sectionId, options){

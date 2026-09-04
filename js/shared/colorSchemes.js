@@ -701,7 +701,10 @@
 
   function requestPaletteSelection(type, schemeId, select){
     const scheme = getScheme(schemeId);
-    const sourcePayload = getComparisonPayload(type, { preferWorkspace: true });
+    // Palette changes start from the active owner's current session. The tab
+    // payload can lag a just-committed style edit until the normal persistence
+    // boundary runs, which would incorrectly hide the custom-color choice.
+    const sourcePayload = getComparisonPayload(type);
     const hasCustomDatasetColors = sourcePayload
       ? collectCustomDatasetColorSlots(type, sourcePayload).length > 0
       : false;
@@ -1408,6 +1411,10 @@
     const boxes = getPrimarySvgBoxes(root);
     boxes.forEach(box => {
       if(!box || !box.style) return;
+      const graphStack = box.parentElement;
+      if(graphStack?.style){
+        graphStack.style.setProperty('--graph-export-seam-color', tokens.background || '#ffffff');
+      }
       box.setAttribute('data-color-scheme', scheme.id);
       if(scheme.id === 'dark'){
         box.style.backgroundColor = tokens.background || '#000000';
@@ -1551,7 +1558,7 @@
       cfg.labelColors = buildColorMap(pcaLabelKeys, categorical);
       cfg.labelPointStyles = recolorStyleMap(
         cfg.labelPointStyles,
-        Object.keys(ensureObject(cfg.labelPointStyles)),
+        pcaLabelKeys,
         categorical,
         {
           force: false,
@@ -2113,14 +2120,6 @@
     return session.getActiveTab();
   }
 
-  function getWorkspace(type){
-    const components = global.Main?.components;
-    if(components && typeof components.get === 'function'){
-      return components.get(type) || null;
-    }
-    return global.Components?.[type] || null;
-  }
-
   function normalizeColorSignatureLeaf(value){
     if(value === null || value === undefined) return null;
     if(typeof value === 'string'){
@@ -2395,7 +2394,16 @@
     if(!active || active.type !== type){
       return null;
     }
-    return createColorComparisonPayload(type, active.payload);
+    const workspace = options?.captureLive === true
+      ? global.Main?.components?.get?.(type)
+      : null;
+    const livePayload = typeof workspace?.getPayload === 'function'
+      ? workspace.getPayload({
+          tabId: active.id,
+          reason: 'color-scheme-owner-payload'
+        })
+      : null;
+    return createColorComparisonPayload(type, livePayload || active.payload);
   }
 
   function payloadMatchesPreset(type, payload, schemeId){
@@ -2557,22 +2565,8 @@
       return false;
     }
 
-    // A palette action is style-only, but it must start from the live owner
-    // session. tab.payload can lag a just-committed control edit; reusing it
-    // would turn a stale graph type or other control into a style side effect.
-    if(typeof session.persistActiveTabState === 'function'){
-      session.persistActiveTabState(tab, {
-        reason: `color-scheme-source-${type}`,
-        origin: 'user',
-        snapshotIntent: {
-          captureLivePayload: true,
-          allowSkipLivePayloadCapture: false
-        }
-      });
-    }
-
     const undoManager = Shared.undoManager || null;
-    let payloadBeforeScheme = tab.payload;
+    let payloadBeforeScheme = tab.payload || null;
     if(!payloadBeforeScheme){
       payloadBeforeScheme = typeof workspace.createEmptyPayload === 'function'
         ? workspace.createEmptyPayload()

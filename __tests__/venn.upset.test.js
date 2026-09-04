@@ -492,6 +492,38 @@ describe('Venn UpSet integration', () => {
     });
   });
 
+  test('UpSet numeric axis ticks use constant intervals', async () => {
+    await activateWorkspace('venn');
+    const plotType = document.getElementById('vennPlotType');
+    const venn = window.Components?.venn;
+    const hooks = venn?.__testHooks;
+    expect(plotType).toBeTruthy();
+    expect(hooks?.state?.ui?.hot).toBeTruthy();
+
+    plotType.value = 'upset';
+    dispatchChange(plotType);
+    hooks.state.ui.hot.loadData([
+      ['SetA', 'SetB', 'SetC'],
+      ['A', 'A', 'A'],
+      ['B', 'B', 'B'],
+      ['C', 'C', 'C'],
+      ['D', 'D', 'D'],
+      ['E', 'E', 'E'],
+      ['F', 'F', 'F']
+    ]);
+    hooks.state.ui.syncInputsFromTable?.({ scheduleDraw: false, scheduleSpecies: false });
+    venn.refreshDiagram();
+
+    const labels = Array.from(document.querySelectorAll('[data-upset-axis-tick-label="intersection-y"]'));
+    const values = labels.map(label => Number(label.textContent));
+    const positions = labels.map(label => Number(label.getAttribute('y')));
+    expect(values).toEqual([0, 2, 4, 6]);
+    const spacing = positions[1] - positions[0];
+    positions.slice(2).forEach((position, index) => {
+      expect(position - positions[index + 1]).toBeCloseTo(spacing, 8);
+    });
+  });
+
   test('UpSet x/y axes render in foreground above intersection bars', async () => {
     await activateWorkspace('venn');
     const plotType = document.getElementById('vennPlotType');

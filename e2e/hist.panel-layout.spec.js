@@ -2,7 +2,8 @@ const { test, expect } = require('@playwright/test');
 const {
   COMPONENT_MATRIX,
   installLocalCdnOverrides,
-  openComponentFromWelcome
+  openComponentFromWelcome,
+  waitForDocumentOpenComplete
 } = require('./helpers/workspaceHarness');
 
 const HISTOGRAM = COMPONENT_MATRIX.find(component => component.type === 'hist');
@@ -53,14 +54,15 @@ async function loadPanelHistogram(page, seriesLayout, plotMode = 'histogram') {
   }, { data: PANEL_DATA, layout: seriesLayout, mode: plotMode });
 }
 
-async function waitForPanelGrid(page, rows, cols) {
-  await page.waitForFunction(({ expectedRows, expectedCols }) => {
+async function waitForPanelGrid(page, rows, cols, plotMode = null) {
+  await page.waitForFunction(({ expectedRows, expectedCols, expectedPlotMode }) => {
     const svg = document.querySelector('#histPage:not([hidden]) #histSvg');
     return svg?.getAttribute('data-hist-series-display') === 'panels'
       && Number(svg.getAttribute('data-hist-panel-rows')) === expectedRows
       && Number(svg.getAttribute('data-hist-panel-cols')) === expectedCols
-      && svg.querySelectorAll('[data-hist-panel-index]').length === 4;
-  }, { expectedRows: rows, expectedCols: cols }, { timeout: 30_000 });
+      && svg.querySelectorAll('[data-hist-panel-index]').length === 4
+      && (!expectedPlotMode || svg.getAttribute('data-hist-plot-mode') === expectedPlotMode);
+  }, { expectedRows: rows, expectedCols: cols, expectedPlotMode: plotMode }, { timeout: 30_000 });
 }
 
 async function snapshotPanelLayout(page) {
@@ -100,8 +102,9 @@ async function snapshotPanelLayout(page) {
         .map(node => Number(node.getAttribute('data-hist-major-tick-value')))
         .filter(Number.isFinite)),
       panelTitles: panels.map(panel => panel.getAttribute('data-hist-panel-series') || ''),
-      legendEnvelope: root?.querySelector?.('#histGraphPanel .svgbox')?.dataset?.graphContentEnvelope || '',
-      legendExtraRight: root?.querySelector?.('#histGraphPanel .svgbox')?.style?.getPropertyValue('--graph-content-extra-right') || '',
+      contentEnvelope: root?.querySelector?.('#histGraphPanel .svgbox')?.dataset?.graphContentEnvelope || '',
+      contentExtraRight: Number.parseFloat(root?.querySelector?.('#histGraphPanel .svgbox')?.style?.getPropertyValue('--graph-content-extra-right')) || 0,
+      legendCount: svg?.querySelectorAll?.('[data-legend-key]')?.length || 0,
       payloadLayout: payload?.config?.seriesLayout || null,
       tabPayloadLayout: window.Main?.tabs?.getActiveTab?.()?.payload?.config?.seriesLayout || null,
       panelLayoutRowHidden: !!root?.querySelector?.('#histPanelLayoutRow')?.hidden,
@@ -112,9 +115,34 @@ async function snapshotPanelLayout(page) {
       displayDisabled: !!root?.querySelector?.('#histSeriesDisplay')?.disabled,
       arrangementValue: root?.querySelector?.('#histPanelArrangement')?.value || '',
       sharedYChecked: !!root?.querySelector?.('#histSharedYScale')?.checked,
-      legendDisabled: !!root?.querySelector?.('#histShowLegend')?.disabled
+      legendDisabled: !!root?.querySelector?.('#histShowLegend')?.disabled,
+      frameWidth: Number(root?.querySelector?.('#histGraphPanel .svgbox')?.getBoundingClientRect?.().width || 0),
+      frameHeight: Number(root?.querySelector?.('#histGraphPanel .svgbox')?.getBoundingClientRect?.().height || 0),
+      aspectLocked: root?.querySelector?.('#histGraphPanel .svgbox')?.dataset?.resizerAspectLocked === 'true'
     };
   });
+}
+
+async function captureHistogramArchive(page) {
+  const base64 = await page.evaluate(async () => {
+    const context = window.Main?.tabs?.getSessionActionsContext?.();
+    const blob = await window.Main?.sessionActions?.buildWorkspaceArchiveBlob?.(context, {
+      scope: 'workspace',
+      snapshotKind: 'document-snapshot',
+      compression: 'STORE',
+      reason: 'e2e-hist-panel-lock-reopen'
+    });
+    if (!blob) {
+      throw new Error('Histogram archive was not created');
+    }
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    let binary = '';
+    for (let offset = 0; offset < bytes.length; offset += 0x8000) {
+      binary += String.fromCharCode.apply(null, bytes.subarray(offset, offset + 0x8000));
+    }
+    return btoa(binary);
+  });
+  return Buffer.from(base64, 'base64');
 }
 
 test('Histogram separate panels share one SVG, common bins, and comparison scales', async ({ page }) => {
@@ -128,7 +156,7 @@ test('Histogram separate panels share one SVG, common bins, and comparison scale
     arrangement: 'grid',
     sharedY: true
   });
-  await waitForPanelGrid(page, 2, 2);
+  await waitForPanelGrid(page, 2, 2, 'histogram');
 
   const grid = await snapshotPanelLayout(page);
   expect(grid.svgCount).toBe(1);
@@ -139,8 +167,8 @@ test('Histogram separate panels share one SVG, common bins, and comparison scale
   expect(new Set(grid.plotRects.map(rect => rect.width.toFixed(6))).size).toBe(1);
   expect(new Set(grid.plotRects.map(rect => rect.height.toFixed(6))).size).toBe(1);
   expect(grid.plotRects.every(rect => Object.values(rect).every(Number.isFinite))).toBe(true);
-  expect(grid.legendEnvelope).toBe('');
-  expect(grid.legendExtraRight).toBe('');
+  expect(grid.contentEnvelope).toBe('true');
+  expect(grid.legendCount).toBe(0);
   expect(grid.panelTitles).toEqual(PANEL_DATA[0]);
   expect(grid.payloadLayout).toEqual({ display: 'panels', arrangement: 'grid', sharedY: true });
   expect(grid.tabPayloadLayout).toEqual({ display: 'panels', arrangement: 'grid', sharedY: true });
@@ -169,6 +197,18 @@ test('Histogram separate panels share one SVG, common bins, and comparison scale
   const vertical = await snapshotPanelLayout(page);
   expect(vertical.svgCount).toBe(1);
   expect(vertical.payloadLayout.arrangement).toBe('vertical');
+});
+
+test('Histogram stats overlay option is labeled and placed on the second Graph row', async ({ page }) => {
+  test.setTimeout(90_000);
+  await installLocalCdnOverrides(page);
+  await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
+  await openComponentFromWelcome(page, HISTOGRAM, { first: true });
+
+  const graph = page.locator('#histPage:not([hidden]) fieldset[data-graph-selection-fieldset="1"]');
+  await expect(graph.locator('#histGraphPrimaryRow #histShowStatsSummary')).toHaveCount(0);
+  await expect(graph.locator('#histGraphStatsRow #histShowStatsSummary')).toHaveCount(1);
+  await expect(graph.locator('#histGraphStatsRow label')).toHaveText('Show stats on plot');
 });
 
 test('Histogram panel controls flush a complete payload for a new workspace', async ({ page }) => {
@@ -214,7 +254,7 @@ test('A stale Histogram runtime snapshot cannot overwrite the canonical panel la
     arrangement: 'grid',
     sharedY: false
   }, 'density');
-  await waitForPanelGrid(page, 2, 2);
+  await waitForPanelGrid(page, 2, 2, 'density');
   const staleRuntime = await page.evaluate(() => {
     const tab = window.Main?.tabs?.getActiveTab?.();
     return window.Components?.hist?.captureRuntimeState?.({
@@ -293,14 +333,18 @@ test('Separate panels release the overlay legend viewport before measuring the g
     return box?.dataset?.graphContentEnvelope === 'true'
       && parseFloat(box.style.getPropertyValue('--graph-content-extra-right')) > 0;
   });
+  const overlay = await snapshotPanelLayout(page);
+  expect(overlay.legendCount).toBeGreaterThan(0);
+  expect(overlay.contentExtraRight).toBeGreaterThan(0);
 
   await page.locator('#histPage:not([hidden]) #histSeriesDisplay').selectOption('panels');
   await page.locator('#histPage:not([hidden]) #histPanelArrangement').selectOption('grid');
   await waitForPanelGrid(page, 2, 2);
 
   const panels = await snapshotPanelLayout(page);
-  expect(panels.legendEnvelope).toBe('');
-  expect(panels.legendExtraRight).toBe('');
+  expect(panels.contentEnvelope).toBe('true');
+  expect(panels.legendCount).toBe(0);
+  expect(panels.contentExtraRight).toBeLessThan(overlay.contentExtraRight);
   expect(new Set(panels.plotRects.map(rect => rect.width.toFixed(6))).size).toBe(1);
   expect(new Set(panels.plotRects.map(rect => rect.height.toFixed(6))).size).toBe(1);
 });
@@ -330,8 +374,8 @@ test('Density plots expose the same separate-panel layouts as histograms', async
   expect(new Set(density.yDomains.map(domain => JSON.stringify(domain))).size).toBeGreaterThan(1);
   expect(new Set(density.plotRects.map(rect => rect.width.toFixed(6))).size).toBe(1);
   expect(new Set(density.plotRects.map(rect => rect.height.toFixed(6))).size).toBe(1);
-  expect(density.legendEnvelope).toBe('');
-  expect(density.legendExtraRight).toBe('');
+  expect(density.contentEnvelope).toBe('true');
+  expect(density.legendCount).toBe(0);
 
   await page.locator('#histPage:not([hidden]) #histSharedYScale').check();
   await page.waitForFunction(() => document.querySelector('#histPage:not([hidden]) #histSvg')?.getAttribute('data-hist-shared-y-scale') === 'true');
@@ -359,7 +403,7 @@ test('Density plots expose the same separate-panel layouts as histograms', async
   await page.locator('#histPage:not([hidden]) #histPanelArrangement').selectOption('grid');
   await waitForPanelGrid(page, 2, 2);
   await page.locator('#histPage:not([hidden]) #histPlotMode').selectOption('histogram');
-  await waitForPanelGrid(page, 2, 2);
+  await waitForPanelGrid(page, 2, 2, 'histogram');
   const histogram = await snapshotPanelLayout(page);
   expect(histogram.plotMode).toBe('histogram');
   expect(histogram.histogramFillCount).toBe(4);
@@ -367,7 +411,7 @@ test('Density plots expose the same separate-panel layouts as histograms', async
   expect(histogram.payloadLayout).toEqual(layout);
 
   await page.locator('#histPage:not([hidden]) #histPlotMode').selectOption('density');
-  await waitForPanelGrid(page, 2, 2);
+  await waitForPanelGrid(page, 2, 2, 'density');
   const restored = await snapshotPanelLayout(page);
   expect(restored.plotMode).toBe('density');
   expect(restored.densityAreaCount).toBe(4);
@@ -423,8 +467,8 @@ test('Histogram and density panels redraw without SVG aspect distortion after re
     expect(resized.yDomains.every(domain => domain.every(Number.isFinite))).toBe(true);
     expect(new Set(resized.plotRects.map(rect => rect.width.toFixed(6))).size).toBe(1);
     expect(new Set(resized.plotRects.map(rect => rect.height.toFixed(6))).size).toBe(1);
-    expect(resized.legendEnvelope).toBe('');
-    expect(resized.legendExtraRight).toBe('');
+    expect(resized.contentEnvelope).toBe('true');
+    expect(resized.legendCount).toBe(0);
     if (mode === 'density') {
       expect(resized.densityAreaCount).toBe(4);
       expect(resized.densityLineCount).toBe(4);
@@ -432,6 +476,83 @@ test('Histogram and density panels redraw without SVG aspect distortion after re
       expect(resized.histogramFillCount).toBe(4);
     }
   }
+});
+
+test('Histogram separate panels preserve Lock ratio through resize and archive reopen', async ({ page }) => {
+  test.setTimeout(120_000);
+  await installLocalCdnOverrides(page);
+  await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
+  await openComponentFromWelcome(page, HISTOGRAM, { first: true });
+
+  const layout = { display: 'panels', arrangement: 'grid', sharedY: true };
+  await loadPanelHistogram(page, layout, 'histogram');
+  await waitForPanelGrid(page, 2, 2, 'histogram');
+
+  const lockToggle = page.locator('#histPage:not([hidden]) #histGraphPanel .resizer-aspect-checkbox').first();
+  await expect(lockToggle).toHaveCount(1, { timeout: 20_000 });
+  await page.evaluate(() => {
+    const input = document.querySelector('#histPage:not([hidden]) #histGraphPanel .resizer-aspect-checkbox');
+    if (!input) {
+      throw new Error('Histogram Lock ratio control is unavailable');
+    }
+    input.checked = true;
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  await expect(lockToggle).toBeChecked();
+
+  const initial = await snapshotPanelLayout(page);
+  await page.evaluate(() => {
+    const svgBox = document.querySelector('#histPage:not([hidden]) #histGraphPanel .svgbox');
+    const api = svgBox?.__sharedResizableBoxApi;
+    const rect = svgBox?.getBoundingClientRect?.();
+    if (!api || typeof api.applySize !== 'function' || !rect) {
+      throw new Error('Histogram resizer API is unavailable');
+    }
+    api.applySize({
+      width: Math.round(rect.width + 141),
+      height: Math.round(rect.height + 83),
+      axis: 'both',
+      authorityMode: 'authoritative',
+      forceExact: true,
+      preserveAspectLock: true,
+      reason: 'e2e-hist-panel-lock-resize'
+    });
+  });
+  await page.waitForFunction(() => {
+    const box = document.querySelector('#histPage:not([hidden]) #histGraphPanel .svgbox');
+    return box?.dataset?.resizerAspectLocked === 'true'
+      && Number(box.getBoundingClientRect().width) > 0
+      && Number(box.getBoundingClientRect().height) > 0;
+  }, null, { timeout: 30_000 });
+  await waitForPanelGrid(page, 2, 2, 'histogram');
+
+  const resized = await snapshotPanelLayout(page);
+  expect(resized.aspectLocked).toBe(true);
+  expect(resized.frameWidth).not.toBeCloseTo(initial.frameWidth, 0);
+  expect(resized.frameHeight).not.toBeCloseTo(initial.frameHeight, 0);
+  expect(resized.payloadLayout).toEqual(layout);
+  expect(resized.plotRects.every(rect => Object.values(rect).every(Number.isFinite))).toBe(true);
+
+  const archiveBuffer = await captureHistogramArchive(page);
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await expect(page.locator('#welcomeScreen')).toBeVisible({ timeout: 20_000 });
+  await page.locator('#workspaceSessionInput').setInputFiles({
+    name: 'hist-panel-lock-reopen.graph',
+    mimeType: 'application/octet-stream',
+    buffer: archiveBuffer
+  });
+  await waitForDocumentOpenComplete(page);
+  await waitForPanelGrid(page, 2, 2, 'histogram');
+
+  const reopened = await snapshotPanelLayout(page);
+  expect(reopened.aspectLocked).toBe(true);
+  expect(reopened.payloadLayout).toEqual(layout);
+  expect(reopened.tabPayloadLayout).toEqual(layout);
+  expect(reopened.frameWidth).toBeCloseTo(resized.frameWidth, 0);
+  expect(reopened.frameHeight).toBeCloseTo(resized.frameHeight, 0);
+  expect(reopened.plotRects.every(rect => Object.values(rect).every(Number.isFinite))).toBe(true);
+  expect(new Set(reopened.plotRects.map(rect => rect.width.toFixed(6))).size).toBe(1);
+  expect(new Set(reopened.plotRects.map(rect => rect.height.toFixed(6))).size).toBe(1);
 });
 
 test('Density panel state remains owner-isolated across same-component tabs', async ({ page }) => {

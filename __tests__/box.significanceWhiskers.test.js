@@ -135,12 +135,6 @@ describe('Box significance whisker modes', () => {
     expect(hooks.formatSignificanceLabel(0.0001, 'p', { scientific: true, decimals: 2 })).toBe('1 × 10⁻⁴');
   });
 
-  test('star labels are optically centered against the ns glyph', () => {
-    expect(typeof hooks.resolveSignificanceStarOpticalShiftPx).toBe('function');
-    expect(hooks.resolveSignificanceStarOpticalShiftPx(20)).toBeCloseTo(5.5, 6);
-    expect(hooks.resolveSignificanceStarOpticalShiftPx(12)).toBeCloseTo(3.3, 6);
-  });
-
   test('significance label-to-line spacing is reduced by half', () => {
     expect(typeof hooks.resolveSignificanceLabelGapPx).toBe('function');
     expect(hooks.resolveSignificanceLabelGapPx(20)).toBeCloseTo(6.5, 6);

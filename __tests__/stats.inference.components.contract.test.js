@@ -130,12 +130,13 @@ describe('Cross-component inference UI contract', () => {
     expect(html).toContain('Decision marker');
   });
 
-  test('Box graph annotations use decision mode rather than legacy multi-star semantics', () => {
+  test('Box graph annotations default to P-value while retaining decision mode', () => {
     const box = read('js/components/box.js');
     const html = read('index.html');
-    expect(box).toContain("significanceLabelMode: 'decision'");
+    expect(box).toContain("DEFAULT_SIGNIFICANCE_LABEL_MODE = 'p'");
+    expect(box).toContain("return value === 'decision' ? 'decision' : DEFAULT_SIGNIFICANCE_LABEL_MODE;");
     expect(box).not.toContain("significanceLabelMode: 'stars'");
-    expect(html).toContain('<option value="decision" selected>Decision (* / NS; D / ND for FDR)</option>');
+    expect(html).toContain('<option value="p" selected>P-value</option>');
   });
 
   test('Scatter keeps alpha available for model-only fits because regression coefficients still have inferential p-values', () => {

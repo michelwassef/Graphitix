@@ -63,6 +63,7 @@ function readBoxLayoutInvariantMetrics() {
   };
 
   const svgBoxRect = svgBox.getBoundingClientRect();
+  const svgRect = svg.getBoundingClientRect();
   const visibleNodes = Array.from(svg.querySelectorAll('text,path,line,rect,circle,ellipse,polyline,polygon,foreignObject'));
   let overflowMaxPx = 0;
   let overflowNodeCount = 0;
@@ -82,10 +83,12 @@ function readBoxLayoutInvariantMetrics() {
     if (!Number.isFinite(width) || !Number.isFinite(height) || (width < 0.5 && height < 0.5)) {
       return;
     }
-    const leftOverflow = Math.max(0, svgBoxRect.left - rect.left);
-    const rightOverflow = Math.max(0, rect.right - svgBoxRect.right);
-    const topOverflow = Math.max(0, svgBoxRect.top - rect.top);
-    const bottomOverflow = Math.max(0, rect.bottom - svgBoxRect.bottom);
+    // Derived reserves extend the complete SVG envelope outside the canonical
+    // resizable frame. Clipping must therefore be checked against that envelope.
+    const leftOverflow = Math.max(0, svgRect.left - rect.left);
+    const rightOverflow = Math.max(0, rect.right - svgRect.right);
+    const topOverflow = Math.max(0, svgRect.top - rect.top);
+    const bottomOverflow = Math.max(0, rect.bottom - svgRect.bottom);
     const localMax = Math.max(leftOverflow, rightOverflow, topOverflow, bottomOverflow);
     if (localMax > toleranceGate) {
       overflowNodeCount += 1;
@@ -105,10 +108,11 @@ function readBoxLayoutInvariantMetrics() {
     plotWidthPx: Number(graphGeometry?.plot?.widthPx) || null,
     xLabelLeadingInsetPx: Number(graphGeometry?.xTicks?.leadingInsetPx) || 0,
     significancePathCount: svg.querySelectorAll('path.box-significance-annotation').length,
-    significanceViewportExtensionPx: Number(state.significanceViewportExtensionPx) || 0,
-    bottomViewportExtensionPx: Number(state.bottomViewportExtensionPx) || 0,
-    leftViewportExtensionPx: Number(state.leftViewportExtensionPx) || 0,
-    appliedVerticalFrameReservePx: Number(svgBox.dataset.boxSignificanceFrameReservePx) || 0,
+    significanceViewportExtensionPx: Number(graphGeometry?.reserves?.significancePx) || 0,
+    bottomViewportExtensionPx: Number(graphGeometry?.reserves?.xLabelPx) || 0,
+    leftViewportExtensionPx: Number(graphGeometry?.reserves?.leftPx) || 0,
+    appliedVerticalFrameReservePx: (Number(svgBox.__cartesianLayoutPlan?.contentEnvelope?.extensionTop) || 0)
+      + (Number(svgBox.__cartesianLayoutPlan?.contentEnvelope?.extensionBottom) || 0),
     svgBoxWidthPx: Number(svgBoxRect.width) || null,
     svgBoxHeightPx: Number(svgBoxRect.height) || null,
     overflowNodeCount,
@@ -180,7 +184,7 @@ async function ensureStatsAndSignificance(page) {
   }
   await page.waitForFunction(
     () => document.querySelectorAll('#boxPlot path.box-significance-annotation').length > 0
-      && Number(window.Components?.box?.__getState?.()?.significanceViewportExtensionPx || 0) > 0,
+      && Number(window.Components?.box?.__getState?.()?.graphGeometry?.reserves?.significancePx || 0) > 0,
     null,
     { timeout: 25_000 }
   );
@@ -263,11 +267,11 @@ function assertStableShrinkInvariants(before, after, withSignificance) {
   expect(after.xAxisSpan).toBeLessThan(before.xAxisSpan * 0.8);
   expect(Math.abs(after.yAxisSpan - before.yAxisSpan)).toBeLessThanOrEqual(3);
   expect(after.leftViewportExtensionPx).toBe(0);
-  expect(after.xLabelLeadingInsetPx).toBeGreaterThan(0);
+  expect(after.xLabelLeadingInsetPx).toBe(0);
   expect(after.yAxisSvgX - before.yAxisSvgX).toBeCloseTo(after.xLabelLeadingInsetPx, 0);
   expect(Math.abs(after.plotHeightPx - before.plotHeightPx)).toBeLessThanOrEqual(3);
-  expect(after.bottomViewportExtensionPx).toBeGreaterThanOrEqual(before.bottomViewportExtensionPx);
-  expect(after.appliedVerticalFrameReservePx).toBe(
+  expect(Math.abs(after.bottomViewportExtensionPx - before.bottomViewportExtensionPx)).toBeLessThanOrEqual(2);
+  expect(after.appliedVerticalFrameReservePx).toBeGreaterThanOrEqual(
     after.significanceViewportExtensionPx + after.bottomViewportExtensionPx
   );
 
@@ -356,7 +360,7 @@ test.describe('Box horizontal shrink layout invariants', () => {
     expect(issues.critical).toEqual([]);
   });
 
-  test('lengthening labels grows and then releases the bottom frame reserve without shrinking the plot', async ({ page }) => {
+  test('lengthening labels grows and then releases the bottom content reserve without shrinking the plot', async ({ page }) => {
     const issues = registerIssueCollectors(page);
     await installLocalCdnOverrides(page);
     await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
@@ -378,14 +382,11 @@ test.describe('Box horizontal shrink layout invariants', () => {
     expect(longLabels).not.toBeNull();
     expect(longLabels.rotated).toBe(true);
     expect(longLabels.bottomViewportExtensionPx).toBeGreaterThan(shortLabels.bottomViewportExtensionPx + 20);
-    expect(longLabels.svgBoxHeightPx - shortLabels.svgBoxHeightPx).toBeCloseTo(
-      longLabels.bottomViewportExtensionPx - shortLabels.bottomViewportExtensionPx,
-      0
-    );
+    expect(Math.abs(longLabels.svgBoxHeightPx - shortLabels.svgBoxHeightPx)).toBeLessThanOrEqual(2);
     expect(Math.abs(longLabels.svgBoxWidthPx - shortLabels.svgBoxWidthPx)).toBeLessThanOrEqual(2);
     expect(Math.abs(longLabels.yAxisSpan - shortLabels.yAxisSpan)).toBeLessThanOrEqual(2);
     expect(Math.abs(longLabels.plotHeightPx - shortLabels.plotHeightPx)).toBeLessThanOrEqual(2);
-    expect(longLabels.appliedVerticalFrameReservePx).toBe(longLabels.bottomViewportExtensionPx);
+    expect(longLabels.appliedVerticalFrameReservePx).toBeGreaterThanOrEqual(longLabels.bottomViewportExtensionPx);
     expect(longLabels.overflowMaxPx).toBeLessThanOrEqual(2.5);
 
     await setBoxLabelsFromList(page, ['A', 'B', 'C']);
@@ -393,7 +394,7 @@ test.describe('Box horizontal shrink layout invariants', () => {
     expect(Math.abs(shortenedAgain.svgBoxHeightPx - shortLabels.svgBoxHeightPx)).toBeLessThanOrEqual(2);
     expect(Math.abs(shortenedAgain.yAxisSpan - shortLabels.yAxisSpan)).toBeLessThanOrEqual(2);
     expect(Math.abs(shortenedAgain.plotHeightPx - shortLabels.plotHeightPx)).toBeLessThanOrEqual(2);
-    expect(shortenedAgain.appliedVerticalFrameReservePx).toBe(shortenedAgain.bottomViewportExtensionPx);
+    expect(shortenedAgain.appliedVerticalFrameReservePx).toBeGreaterThanOrEqual(shortenedAgain.bottomViewportExtensionPx);
     expect(issues.critical).toEqual([]);
   });
 });

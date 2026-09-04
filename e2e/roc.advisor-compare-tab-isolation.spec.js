@@ -56,14 +56,16 @@ async function waitForRocComparison(page, expected) {
       const root = document.querySelector('#rocPage:not([hidden])');
       const payload = window.Components?.roc?.getPayload?.() || {};
       const selects = Array.from(root?.querySelectorAll?.('#rocStatsControls select') || []);
-      const compareText = root?.querySelector?.('#rocStatsControls span')?.textContent || '';
+      const compareText = root?.querySelector?.('#rocStatsResults .roc-curve-comparison-card')?.textContent || '';
       const advisorText = root?.querySelector?.('#rocStatsAdvisor')?.textContent || '';
+      const persistedCompareText = payload?.stats?.compareResult?.displayText || '';
       return root?.querySelector?.('#rocGraphType')?.value === graphType
         && payload?.config?.graphType === graphType
         && payload?.stats?.diffMethod === diffMethod
         && selects[0]?.value === diffMethod
         && new RegExp(metric, 'i').test(compareText)
-        && /p\s*=/.test(compareText)
+        && /p\s*=/.test(persistedCompareText)
+        && /p-value/i.test(compareText)
         && /Use |Recommendation/i.test(advisorText);
     }, expected, { timeout: 60_000 });
   } catch (err) {
@@ -130,7 +132,7 @@ async function snapshotRoc(page) {
       payloadCompareText: payload?.stats?.compareResult?.displayText || '',
       checkedAdvisorMethod: checked?.value || null,
       advisorText: root?.querySelector?.('#rocStatsAdvisor')?.textContent || '',
-      compareText: root?.querySelector?.('#rocStatsControls span')?.textContent || '',
+      compareText: root?.querySelector?.('#rocStatsResults .roc-curve-comparison-card')?.textContent || '',
       reportGraphType: payload?.stats?.reportModel?.analysisSpec?.graphType || null,
       reportDiffMethod: payload?.stats?.reportModel?.analysisSpec?.diffMethod || null,
       reportCompareSelection: payload?.stats?.reportModel?.analysisSpec?.compareSelection || null
@@ -181,8 +183,9 @@ function expectRocSnapshot(snapshot, expected) {
   expect(snapshot.compareSelection).toBeTruthy();
   expect(snapshot.payloadCompareSelection).toBe(snapshot.compareSelection);
   expect(snapshot.compareText).toMatch(new RegExp(expected.metric, 'i'));
-  expect(snapshot.compareText).toMatch(/p\s*=/);
-  expect(snapshot.payloadCompareText).toBe(snapshot.compareText);
+  expect(snapshot.compareText).toMatch(/p-value/i);
+  expect(snapshot.payloadCompareText).toMatch(new RegExp(expected.metric, 'i'));
+  expect(snapshot.payloadCompareText).toMatch(/p\s*=/);
   if (expected.compareText) {
     expect(snapshot.compareText).toBe(expected.compareText);
   }

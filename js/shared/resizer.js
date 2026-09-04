@@ -181,12 +181,40 @@
       if(!tab || typeof session?.markTabUserModified !== 'function'){
         return false;
       }
-      return session.markTabUserModified(tab, reason, {
+      const marked = session.markTabUserModified(tab, reason, {
         origin: 'user',
         affectsPayload: false
       });
+      if(marked && typeof session.captureUserModifiedTabLayout === 'function'){
+        session.captureUserModifiedTabLayout(tab, { reason });
+      }
+      return marked;
     }catch(err){
       console.error('Shared.resizer mark tab modified error', err);
+      return false;
+    }
+  }
+
+  function commitResizerPanelLayout(container, opts = {}, reason = 'panel-resizer-change'){
+    try{
+      const tab = resolveResizerTab(container, opts);
+      const session = global.Main?.session || null;
+      if(!tab || tab.isWelcome || !tab.type || !session){
+        return false;
+      }
+      if(typeof session.markTabUserModified === 'function'){
+        session.markTabUserModified(tab, reason, {
+          origin: 'user',
+          affectsPayload: false,
+          captureCanonical: false
+        });
+      }
+      if(typeof session.captureUserModifiedTabLayout !== 'function'){
+        return false;
+      }
+      return session.captureUserModifiedTabLayout(tab, { reason }) === true;
+    }catch(err){
+      console.error('Shared.resizer commit panel layout error', err);
       return false;
     }
   }
@@ -335,15 +363,34 @@
       'resizerLockedGeometryRatio',
       'resizerLockedConstraintRatio',
       'resizerLockedGeometryInsetX',
-      'resizerLockedGeometryInsetY'
+      'resizerLockedGeometryInsetY',
+      'resizerCartesianUserWidth',
+      'resizerCartesianUserHeight',
+      'resizerCartesianAxisXCount',
+      'resizerCartesianAxisXFixed',
+      'resizerCartesianAxisXMinimum',
+      'resizerCartesianAxisYCount',
+      'resizerCartesianAxisYFixed',
+      'resizerCartesianAxisYMinimum',
+      'resizerCartesianInsetLeft',
+      'resizerCartesianInsetTop',
+      'resizerCartesianInsetRight',
+      'resizerCartesianInsetBottom'
     ];
-    tab.layoutState = tab.layoutState && typeof tab.layoutState === 'object' ? tab.layoutState : {};
-    tab.layoutState.svgBox = tab.layoutState.svgBox && typeof tab.layoutState.svgBox === 'object'
-      ? tab.layoutState.svgBox
-      : {};
-    tab.layoutState.svgBox.dataset = tab.layoutState.svgBox.dataset && typeof tab.layoutState.svgBox.dataset === 'object'
-      ? tab.layoutState.svgBox.dataset
-      : {};
+    // A layoutState is a complete, authoritative layout snapshot. Locked
+    // geometry may patch an existing snapshot, but must not create a partial
+    // one: workspace hydration would otherwise reset the resizer defaults and
+    // reinterpret the graph as an auto-filled panel.
+    let layoutDataset = null;
+    if(tab.layoutState && typeof tab.layoutState === 'object'){
+      tab.layoutState.svgBox = tab.layoutState.svgBox && typeof tab.layoutState.svgBox === 'object'
+        ? tab.layoutState.svgBox
+        : {};
+      tab.layoutState.svgBox.dataset = tab.layoutState.svgBox.dataset && typeof tab.layoutState.svgBox.dataset === 'object'
+        ? tab.layoutState.svgBox.dataset
+        : {};
+      layoutDataset = tab.layoutState.svgBox.dataset;
+    }
     tab.sharedState = tab.sharedState && typeof tab.sharedState === 'object' ? tab.sharedState : {};
     tab.sharedState.layout = tab.sharedState.layout && typeof tab.sharedState.layout === 'object' ? tab.sharedState.layout : {};
     tab.sharedState.layout.resizer = tab.sharedState.layout.resizer && typeof tab.sharedState.layout.resizer === 'object'
@@ -352,10 +399,14 @@
     keys.forEach(key => {
       const value = geometry ? container?.dataset?.[key] : null;
       if(value !== undefined && value !== null && value !== ''){
-        tab.layoutState.svgBox.dataset[key] = String(value);
+        if(layoutDataset){
+          layoutDataset[key] = String(value);
+        }
         tab.sharedState.layout.resizer[key] = String(value);
       }else{
-        delete tab.layoutState.svgBox.dataset[key];
+        if(layoutDataset){
+          delete layoutDataset[key];
+        }
         delete tab.sharedState.layout.resizer[key];
       }
     });
@@ -615,7 +666,15 @@
         }
         if(typeof syncPanels === 'function'){
           try{
-            syncPanels({ phase: 'drag', minSvgWidth, newTable, newGraph, minTable });
+            syncPanels({
+              phase: 'drag',
+              source: 'panel-drag',
+              reason: `${label}-panel-drag`,
+              minSvgWidth,
+              newTable,
+              newGraph,
+              minTable
+            });
           }catch(err){
             console.error('Shared.resizer.attachPanelDragResizer syncPanels error', err);
           }
@@ -636,11 +695,21 @@
         doc.removeEventListener('pointerup', onUp);
         if(typeof syncPanels === 'function'){
           try{
-            syncPanels({ phase: 'end', minSvgWidth });
+            syncPanels({
+              phase: 'end',
+              source: 'panel-drag',
+              reason: `${label}-panel-drag-end`,
+              minSvgWidth
+            });
           }catch(err){
             console.error('Shared.resizer.attachPanelDragResizer syncPanels end error', err);
           }
         }
+        const layoutCommitted = commitResizerPanelLayout(
+          graphPanel || panelResizer || tablePanel,
+          opts,
+          `${label}-panel-drag`
+        );
         if(undoManager && typeof undoManager.captureTabState === 'function' && typeof undoManager.recordTabStateChange === 'function' && activeTabId && beforeTabState){
           const afterTabState = undoManager.captureTabState(activeTabId, {
             reason: `${label}-panel-drag-post`,
@@ -659,7 +728,11 @@
             });
           }
         }
-        console.debug('Debug: Shared.resizer.attachPanelDragResizer drag end', { label, tabId: activeTabId || null });
+        console.debug('Debug: Shared.resizer.attachPanelDragResizer drag end', {
+          label,
+          tabId: activeTabId || null,
+          layoutCommitted
+        });
       };
       doc.addEventListener('pointermove', onMove);
       doc.addEventListener('pointerup', onUp);
@@ -1068,7 +1141,7 @@
     if(!Number.isFinite(reference) || reference <= 0){
       reference = 960;
     }
-    const normalized = Math.max(320, Math.round(reference / 3));
+    const normalized = Math.max(256, Math.round((reference / 3) * 0.8));
     console.debug('Debug: resizer resolveSquareSize fallback', { label, reference, normalized }); // Debug: fallback width calc
     return normalized;
   }
@@ -1217,10 +1290,6 @@
       || classList.contains('resizer-zoom-control')
       || classList.contains('resizer-zoom-viewport')
     )){
-      return true;
-    }
-    const id = typeof element.id === 'string' ? element.id : '';
-    if(id && /ExportControls$/i.test(id)){
       return true;
     }
     return false;
@@ -1492,6 +1561,10 @@
       if(typeof opts.onResize !== 'function'){
         return;
       }
+      if(activeCartesianResizeTransaction){
+        activeCartesianResizeTransaction.phase = typeof phase === 'string' ? phase : '';
+        activeCartesianResizeTransaction.awaitingCommit = phase === 'end';
+      }
       try{
         opts.onResize(phase);
       }catch(err){
@@ -1591,6 +1664,223 @@
       aspectLocked = false;
     }
     applyAspectLockState(data, aspectLocked, { syncGraph: false });
+
+    let committedCartesianPlan = null;
+    let activeCartesianResizeTransaction = null;
+    let refreshCartesianRatioOnCommit = false;
+    const persistedCartesianKeys = [
+      'resizerCartesianUserWidth', 'resizerCartesianUserHeight',
+      'resizerCartesianAxisXCount', 'resizerCartesianAxisXFixed', 'resizerCartesianAxisXMinimum',
+      'resizerCartesianAxisYCount', 'resizerCartesianAxisYFixed', 'resizerCartesianAxisYMinimum',
+      'resizerCartesianInsetLeft', 'resizerCartesianInsetTop',
+      'resizerCartesianInsetRight', 'resizerCartesianInsetBottom'
+    ];
+
+    function clearPersistedCartesianFrame(){
+      persistedCartesianKeys.forEach(key => { delete data[key]; });
+    }
+
+    function isCartesianLayoutTransactionEnabled(){
+      const configured = opts.cartesianLayoutTransactionEnabled;
+      if(typeof configured === 'function'){
+        try{
+          return configured({
+            container,
+            tabId: normalizeTabId(opts.tabId),
+            componentName: opts.componentName || null
+          }) === true;
+        }catch(err){
+          console.error('Shared.attachResizableBox Cartesian transaction capability error', err);
+          return false;
+        }
+      }
+      return configured === true;
+    }
+
+    function readCartesianPlotRatio(plan = committedCartesianPlan){
+      const stored = parsePositive(data.resizerCartesianPlotRatio);
+      if(Number.isFinite(stored) && stored > 0){
+        return stored;
+      }
+      const width = Number(plan?.axisLengths?.x ?? plan?.plotRect?.width);
+      const height = Number(plan?.axisLengths?.y ?? plan?.plotRect?.height);
+      return Number.isFinite(width) && width > 0 && Number.isFinite(height) && height > 0
+        ? width / height
+        : NaN;
+    }
+
+    function readPersistedCartesianTransaction(){
+      if(!aspectLocked) return null;
+      const targetRatio = parsePositive(data.resizerCartesianPlotRatio);
+      const userWidth = parsePositive(data.resizerCartesianUserWidth);
+      const userHeight = parsePositive(data.resizerCartesianUserHeight);
+      const axisXCount = parsePositive(data.resizerCartesianAxisXCount);
+      const axisXFixed = Number(data.resizerCartesianAxisXFixed);
+      const axisXMinimum = parsePositive(data.resizerCartesianAxisXMinimum);
+      const axisYCount = parsePositive(data.resizerCartesianAxisYCount);
+      const axisYFixed = Number(data.resizerCartesianAxisYFixed);
+      const axisYMinimum = parsePositive(data.resizerCartesianAxisYMinimum);
+      const insetLeft = Number(data.resizerCartesianInsetLeft);
+      const insetTop = Number(data.resizerCartesianInsetTop);
+      const insetRight = Number(data.resizerCartesianInsetRight);
+      const insetBottom = Number(data.resizerCartesianInsetBottom);
+      if(![targetRatio, userWidth, userHeight, axisXCount, axisXFixed, axisXMinimum, axisYCount, axisYFixed, axisYMinimum, insetLeft, insetTop, insetRight, insetBottom]
+        .every(Number.isFinite)
+        || targetRatio <= 0 || userWidth <= 0 || userHeight <= 0
+        || axisXCount <= 0 || axisYCount <= 0
+        || axisXFixed < 0 || axisYFixed < 0
+        || axisXMinimum <= 0 || axisYMinimum <= 0
+        || insetLeft < 0 || insetTop < 0 || insetRight < 0 || insetBottom < 0){
+        return null;
+      }
+      return {
+        plan: {
+          userFrame: { width: userWidth, height: userHeight },
+          plotRect: {
+            x: insetLeft,
+            y: insetTop,
+            width: Math.max(1, userWidth - axisXFixed),
+            height: Math.max(1, userHeight - axisYFixed)
+          },
+          axisFrameModel: {
+            x: { count: axisXCount, fixed: axisXFixed, minimum: axisXMinimum },
+            y: { count: axisYCount, fixed: axisYFixed, minimum: axisYMinimum }
+          },
+          minimumPlot: { width: axisXMinimum, height: axisYMinimum },
+          lock: {
+            enabled: true,
+            targetRatio,
+            frameInsets: {
+              horizontal: axisXFixed,
+              vertical: axisYFixed,
+              left: insetLeft,
+              top: insetTop,
+              right: insetRight,
+              bottom: insetBottom
+            }
+          }
+        },
+        plotRatio: targetRatio,
+        persisted: true
+      };
+    }
+
+    function resolveCartesianFrameChrome(plan, rect = container.getBoundingClientRect()){
+      const zoomScale = Number.isFinite(zoomLevel) && zoomLevel > 0 ? zoomLevel : 1;
+      const borderWidth = parsePositive(rect?.width) / zoomScale;
+      const borderHeight = parsePositive(rect?.height) / zoomScale;
+      const userWidth = Number(plan?.userFrame?.width);
+      const userHeight = Number(plan?.userFrame?.height);
+      return {
+        width: Number.isFinite(borderWidth) && Number.isFinite(userWidth)
+          ? Math.max(0, borderWidth - userWidth)
+          : 0,
+        height: Number.isFinite(borderHeight) && Number.isFinite(userHeight)
+          ? Math.max(0, borderHeight - userHeight)
+          : 0
+      };
+    }
+
+    function setCartesianPlotRatio(nextRatio){
+      if(!Number.isFinite(nextRatio) || nextRatio <= 0){
+        delete data.resizerCartesianPlotRatio;
+        return false;
+      }
+      data.resizerCartesianPlotRatio = String(nextRatio);
+      return true;
+    }
+
+    function canCommitCartesianLayout(plan, ownerContext = {}){
+      if(!isCartesianLayoutTransactionEnabled() || !plan || typeof plan !== 'object'){
+        return false;
+      }
+      const expectedTabId = normalizeTabId(opts.tabId);
+      const expectedComponent = String(opts.componentName || '').trim().toLowerCase() || null;
+      const actualTabId = normalizeTabId(ownerContext.tabId || plan?.publication?.owner?.tabId);
+      const actualComponent = String(ownerContext.componentName || ownerContext.component || plan?.publication?.owner?.component || '').trim().toLowerCase() || null;
+      if((expectedTabId && actualTabId !== expectedTabId)
+        || (expectedComponent && actualComponent !== expectedComponent)){
+        return false;
+      }
+      const userWidth = Number(plan?.userFrame?.width);
+      const userHeight = Number(plan?.userFrame?.height);
+      const plotWidth = Number(plan?.axisLengths?.x ?? plan?.plotRect?.width);
+      const plotHeight = Number(plan?.axisLengths?.y ?? plan?.plotRect?.height);
+      const insets = plan?.lock?.frameInsets;
+      return [userWidth, userHeight, plotWidth, plotHeight].every(value => Number.isFinite(value) && value > 0)
+        && !!insets
+        && Number.isFinite(Number(insets.horizontal))
+        && Number.isFinite(Number(insets.vertical));
+    }
+
+    function commitCartesianLayout(plan, ownerContext = {}){
+      const preflightApproved = ownerContext?.__cartesianPreflightPlan === plan;
+      if(!preflightApproved && !canCommitCartesianLayout(plan, ownerContext)){
+        console.warn('Shared.attachResizableBox rejected Cartesian layout publication for a different owner or invalid plan', {
+          expectedTabId: normalizeTabId(opts.tabId) || null,
+          actualTabId: normalizeTabId(ownerContext.tabId || plan?.publication?.owner?.tabId) || null,
+          expectedComponent: String(opts.componentName || '').trim().toLowerCase() || null,
+          actualComponent: String(ownerContext.componentName || ownerContext.component || plan?.publication?.owner?.component || '').trim().toLowerCase() || null
+        });
+        return false;
+      }
+      const plotWidth = Number(plan?.axisLengths?.x ?? plan?.plotRect?.width);
+      const plotHeight = Number(plan?.axisLengths?.y ?? plan?.plotRect?.height);
+      committedCartesianPlan = plan;
+      if(aspectLocked){
+        const plannedTarget = Number(plan?.lock?.targetRatio);
+        const renderedRatio = plotWidth / plotHeight;
+        const planRatio = Number.isFinite(plannedTarget) && plannedTarget > 0 ? plannedTarget : renderedRatio;
+        if(refreshCartesianRatioOnCommit || !parsePositive(data.resizerCartesianPlotRatio)){
+          setCartesianPlotRatio(planRatio);
+          refreshCartesianRatioOnCommit = false;
+        }
+        const axisModel = plan?.axisFrameModel || {};
+        const frameInsets = plan?.lock?.frameInsets || {};
+        const persisted = {
+          resizerCartesianUserWidth: plan?.userFrame?.width,
+          resizerCartesianUserHeight: plan?.userFrame?.height,
+          resizerCartesianAxisXCount: axisModel.x?.count,
+          resizerCartesianAxisXFixed: axisModel.x?.fixed,
+          resizerCartesianAxisXMinimum: axisModel.x?.minimum,
+          resizerCartesianAxisYCount: axisModel.y?.count,
+          resizerCartesianAxisYFixed: axisModel.y?.fixed,
+          resizerCartesianAxisYMinimum: axisModel.y?.minimum,
+          resizerCartesianInsetLeft: frameInsets.left,
+          resizerCartesianInsetTop: frameInsets.top,
+          resizerCartesianInsetRight: frameInsets.right,
+          resizerCartesianInsetBottom: frameInsets.bottom
+        };
+        Object.entries(persisted).forEach(([key, value]) => {
+          if(Number.isFinite(Number(value))) data[key] = String(value);
+        });
+        persistLockedGeometryToTab(container, opts, true);
+      }
+      if(activeCartesianResizeTransaction?.awaitingCommit === true
+        && String(ownerContext.resizePhase || '').toLowerCase() === 'end'){
+        activeCartesianResizeTransaction = null;
+      }
+      return true;
+    }
+
+    function clearCartesianLayout(ownerContext = {}){
+      const expectedTabId = normalizeTabId(opts.tabId);
+      const expectedComponent = String(opts.componentName || '').trim().toLowerCase() || null;
+      const actualTabId = normalizeTabId(ownerContext.tabId);
+      const actualComponent = String(ownerContext.componentName || ownerContext.component || '').trim().toLowerCase() || null;
+      if((expectedTabId && actualTabId && actualTabId !== expectedTabId)
+        || (expectedComponent && actualComponent && actualComponent !== expectedComponent)){
+        return false;
+      }
+      committedCartesianPlan = null;
+      activeCartesianResizeTransaction = null;
+      refreshCartesianRatioOnCommit = false;
+      delete data.resizerCartesianPlotRatio;
+      clearPersistedCartesianFrame();
+      persistLockedGeometryToTab(container, opts, null);
+      return true;
+    }
+
     function setAspectRatio(nextRatio){
       if(!Number.isFinite(nextRatio) || nextRatio <= 0) return;
       aspectRatio = nextRatio;
@@ -1675,6 +1965,9 @@
     }
 
     function calibrateLockedGeometryConstraint(){
+      if(isCartesianLayoutTransactionEnabled()){
+        return false;
+      }
       if(!aspectLocked){
         return false;
       }
@@ -1747,7 +2040,62 @@
       const effectiveAspectLocked = typeof aspectLockedOverride === 'boolean'
         ? aspectLockedOverride
         : aspectLocked;
-      if(effectiveAspectLocked){
+      const usesCartesianLayout = isCartesianLayoutTransactionEnabled();
+      if(effectiveAspectLocked && usesCartesianLayout){
+        const cartesianLayout = Shared.cartesianLayout;
+        const transaction = activeCartesianResizeTransaction;
+        const cartesianPlan = transaction?.plan || committedCartesianPlan || readPersistedCartesianTransaction()?.plan;
+        const plotRatio = Number.isFinite(transaction?.plotRatio) && transaction.plotRatio > 0
+          ? transaction.plotRatio
+          : readCartesianPlotRatio(cartesianPlan);
+        if(cartesianPlan
+          && cartesianLayout
+          && typeof cartesianLayout.solveLockedUserFrame === 'function'
+          && Number.isFinite(plotRatio)
+          && plotRatio > 0){
+          // Resizer dimensions are the .svgbox border box; Cartesian plans use
+          // the canonical drawable/content box. Solve in one coordinate system
+          // and add the current box chrome back exactly once afterwards.
+          const liveFrameChrome = transaction ? null : resolveCartesianFrameChrome(cartesianPlan);
+          const frameChromeWidth = transaction ? transaction.frameChromeWidth : liveFrameChrome.width;
+          const frameChromeHeight = transaction ? transaction.frameChromeHeight : liveFrameChrome.height;
+          const toUserWidth = value => Number.isFinite(value) ? Math.max(1, value - frameChromeWidth) : NaN;
+          const toUserHeight = value => Number.isFinite(value) ? Math.max(1, value - frameChromeHeight) : NaN;
+          const solved = cartesianLayout.solveLockedUserFrame({
+            userFrame: cartesianPlan.userFrame,
+            proposal: {
+              width: toUserWidth(Number.isFinite(requestedBaseWidth) ? requestedBaseWidth : fallbackBaseWidth),
+              height: toUserHeight(Number.isFinite(requestedBaseHeight) ? requestedBaseHeight : fallbackBaseHeight)
+            },
+            frameInsets: cartesianPlan.lock?.frameInsets,
+            axisFrameModel: cartesianPlan.axisFrameModel,
+            targetRatio: plotRatio,
+            drive: axis === 'x' ? 'width' : (axis === 'y' ? 'height' : 'both'),
+            bounds: { minWidth: Math.max(1, MIN_W - frameChromeWidth), minHeight: Math.max(1, MIN_H - frameChromeHeight), maxWidth: Math.max(1, MAX_W - frameChromeWidth), maxHeight: Math.max(1, MAX_H - frameChromeHeight) },
+            minimumPlot: cartesianPlan.minimumPlot
+          });
+          if(solved?.valid !== false
+            && Number.isFinite(Number(solved?.userFrame?.width))
+            && Number.isFinite(Number(solved?.userFrame?.height))){
+            finalBaseWidth = Number(solved.userFrame.width) + frameChromeWidth;
+            finalBaseHeight = Number(solved.userFrame.height) + frameChromeHeight;
+          }
+        }
+        if(!Number.isFinite(finalBaseWidth) || !Number.isFinite(finalBaseHeight)){
+          // A migrated locked chart must never reinterpret a pointer move with
+          // the legacy frame ratio or stale measured insets. Until its owner has
+          // committed a current plan, hold the existing canonical user frame.
+          const currentRect = container.getBoundingClientRect();
+          finalBaseWidth = parsePositive(currentRect.width) / zoomScale;
+          finalBaseHeight = parsePositive(currentRect.height) / zoomScale;
+          if(!Number.isFinite(finalBaseWidth)){
+            finalBaseWidth = Number(cartesianPlan?.userFrame?.width) || defaultWidth;
+          }
+          if(!Number.isFinite(finalBaseHeight)){
+            finalBaseHeight = Number(cartesianPlan?.userFrame?.height) || defaultHeight;
+          }
+        }
+      }else if(effectiveAspectLocked){
         const geometryRatio = parsePositive(data.resizerLockedConstraintRatio)
           || parsePositive(data.resizerLockedGeometryRatio);
         const geometryInsetX = Number(data.resizerLockedGeometryInsetX);
@@ -1821,20 +2169,27 @@
         }
       }
       if(effectiveAspectLocked && Number.isFinite(finalBaseWidth) && Number.isFinite(finalBaseHeight) && finalBaseHeight > 0){
+        // resizerAspectRatio remains the historical frame-ratio mirror. Migrated
+        // Cartesian charts keep their rendered-axis target separately.
         setAspectRatio(finalBaseWidth / finalBaseHeight);
       }
       const normalizedAxis = (axis === 'x' || axis === 'y') ? axis : 'both';
       container.dataset.resizerLastAxis = normalizedAxis;
-      markOrthogonalViewportLock(normalizedAxis, reason || 'resize-apply', { capture: false });
-      if(shouldApplyLiveViewportLock(normalizedAxis)
-        && Shared.graphViewport && typeof Shared.graphViewport.applyLiveResizeLock === 'function'){
-        try{
-          Shared.graphViewport.applyLiveResizeLock(container, {
-            axis: normalizedAxis,
-            reason: reason || 'resize-apply'
-          });
-        }catch(err){
-          console.error('resizer graph viewport live lock error', err);
+      if(usesCartesianLayout){
+        delete data.resizerAxisViewportLockAxis;
+        delete data.resizerAxisViewportLockUntil;
+      }else{
+        markOrthogonalViewportLock(normalizedAxis, reason || 'resize-apply', { capture: false });
+        if(shouldApplyLiveViewportLock(normalizedAxis)
+          && Shared.graphViewport && typeof Shared.graphViewport.applyLiveResizeLock === 'function'){
+          try{
+            Shared.graphViewport.applyLiveResizeLock(container, {
+              axis: normalizedAxis,
+              reason: reason || 'resize-apply'
+            });
+          }catch(err){
+            console.error('resizer graph viewport live lock error', err);
+          }
         }
       }
       // Aspect-lock flows can temporarily impose tight max-size constraints.
@@ -2367,7 +2722,23 @@
       }
       persistAspectLockToTab(container, opts, next, options.reason || 'sync-change');
       if(next){
-        if(options.preserveGeometry === true){
+        if(isCartesianLayoutTransactionEnabled()){
+          delete data.resizerAxisViewportLockAxis;
+          delete data.resizerAxisViewportLockUntil;
+          delete data.resizerLockedGeometryRatio;
+          delete data.resizerLockedConstraintRatio;
+          delete data.resizerLockedGeometryInsetX;
+          delete data.resizerLockedGeometryInsetY;
+          clearPersistedCartesianFrame();
+          const planRatio = readCartesianPlotRatio(committedCartesianPlan);
+          if((changed || options.resetAxisRatio === true) && Number.isFinite(planRatio) && planRatio > 0){
+            setCartesianPlotRatio(planRatio);
+          }else if(!Number.isFinite(planRatio)){
+            refreshCartesianRatioOnCommit = true;
+          }
+          persistLockedGeometryToTab(container, opts, null);
+          syncLockedStyleScaleBase(options.reason || 'aspect-lock');
+        }else if(options.preserveGeometry === true){
           syncLockedStyleScaleBase(options.reason || 'aspect-lock-restore');
         }else if(changed || options.resetAxisRatio === true){
           delete data.resizerAxisViewportLockAxis;
@@ -2378,11 +2749,15 @@
         }else if(!parsePositive(data.resizerLockedGeometryRatio)){
           captureLockedGeometry({ resetRatio: true });
         }
-      }else if(changed || data.resizerLockedGeometryRatio || data.resizerLockedConstraintRatio){
+      }else if(changed || data.resizerLockedGeometryRatio || data.resizerLockedConstraintRatio || data.resizerCartesianPlotRatio || persistedCartesianKeys.some(key => data[key] != null)){
+        activeCartesianResizeTransaction = null;
         delete data.resizerLockedGeometryRatio;
         delete data.resizerLockedConstraintRatio;
         delete data.resizerLockedGeometryInsetX;
         delete data.resizerLockedGeometryInsetY;
+        delete data.resizerCartesianPlotRatio;
+        clearPersistedCartesianFrame();
+        refreshCartesianRatioOnCommit = false;
         persistLockedGeometryToTab(container, opts, null);
         syncUnlockedStyleScaleBase(options.reason || 'aspect-unlock');
         delete data.resizerLockedStyleScaleBase;
@@ -2501,6 +2876,26 @@
         zoomLevel
       }),
       calibrateLockedGeometryConstraint,
+      canCommitCartesianLayout,
+      commitCartesianLayout,
+      clearCartesianLayout,
+      getCartesianLayoutPlan: () => committedCartesianPlan || readPersistedCartesianTransaction()?.plan || null,
+      getCartesianLayoutTransaction: (options = {}) => {
+        const transaction = activeCartesianResizeTransaction || readPersistedCartesianTransaction();
+        if(!transaction) return null;
+        const requestedPhase = String(options.phase || options.resizePhase || '').trim().toLowerCase();
+        if(transaction.awaitingCommit === true && requestedPhase !== 'end') return null;
+        if(requestedPhase && String(transaction.phase || '').toLowerCase() !== requestedPhase) return null;
+        return {
+          plan: transaction.plan,
+          plotRatio: transaction.plotRatio,
+          frameChromeWidth: transaction.frameChromeWidth,
+          frameChromeHeight: transaction.frameChromeHeight,
+          phase: transaction.phase || null,
+          awaitingCommit: transaction.awaitingCommit === true
+        };
+      },
+      isCartesianLayoutTransactionEnabled,
       destroy(options = {}){
         if(resizeObserver){
           try{
@@ -2510,6 +2905,9 @@
           }
           resizeObserver = null;
         }
+        committedCartesianPlan = null;
+        activeCartesianResizeTransaction = null;
+        refreshCartesianRatioOnCommit = false;
         if(container.__sharedResizableBoxApi === this){
           delete container.__sharedResizableBoxApi;
         }
@@ -2885,6 +3283,19 @@
       'resizerBaseHeight',
       'resizerAspectLocked',
       'resizerAspectRatio',
+      'resizerCartesianPlotRatio',
+      'resizerCartesianUserWidth',
+      'resizerCartesianUserHeight',
+      'resizerCartesianAxisXCount',
+      'resizerCartesianAxisXFixed',
+      'resizerCartesianAxisXMinimum',
+      'resizerCartesianAxisYCount',
+      'resizerCartesianAxisYFixed',
+      'resizerCartesianAxisYMinimum',
+      'resizerCartesianInsetLeft',
+      'resizerCartesianInsetTop',
+      'resizerCartesianInsetRight',
+      'resizerCartesianInsetBottom',
       'resizerLockedGeometryRatio',
       'resizerLockedConstraintRatio',
       'resizerLockedGeometryInsetX',
@@ -3161,7 +3572,22 @@
           pointerResizeStarted = true;
           invalidateResizerTabRenderCaches(container, opts, `resizer-start-${axis}`);
           if(aspectLocked){
-            captureLockedGeometry({ resetRatio: true });
+            // Keep the user's established lock target across successive drags.
+            // Re-measuring here would promote any prior resize drift to the new
+            // target before the drag has even started.
+            captureLockedGeometry({ resetRatio: false });
+          }
+          if(aspectLocked && isCartesianLayoutTransactionEnabled() && (committedCartesianPlan || readPersistedCartesianTransaction())){
+            const transactionPlan = committedCartesianPlan || readPersistedCartesianTransaction()?.plan;
+            const frameChrome = resolveCartesianFrameChrome(transactionPlan, rect);
+            activeCartesianResizeTransaction = {
+              plan: transactionPlan,
+              plotRatio: readCartesianPlotRatio(transactionPlan),
+              frameChromeWidth: frameChrome.width,
+              frameChromeHeight: frameChrome.height
+            };
+          }else{
+            activeCartesianResizeTransaction = null;
           }
           manualResizeActive = true;
           suppressObserverResize(220);
@@ -3236,6 +3662,7 @@
           document.removeEventListener('pointerup', onPointerUp);
           document.removeEventListener('pointercancel', onPointerCancel);
           if(!pointerResizeStarted){
+            activeCartesianResizeTransaction = null;
             startSnapshot = null;
             return;
           }
@@ -3273,7 +3700,8 @@
         container.style.flex = '0 0 auto';
         container.dataset.resizerResized = 'true';
         const zoomScale = Number.isFinite(zoomLevel) && zoomLevel > 0 ? zoomLevel : 1;
-        const automaticFrameReserves = typeof opts.resolveAutomaticFrameReserves === 'function'
+        const usesCartesianLayout = isCartesianLayoutTransactionEnabled();
+        const automaticFrameReserves = !usesCartesianLayout && typeof opts.resolveAutomaticFrameReserves === 'function'
           ? opts.resolveAutomaticFrameReserves({
               container,
               tabId: normalizeTabId(opts.tabId),
@@ -3299,20 +3727,24 @@
         const resolvedDefaultHeight = parsePositive(resetFrameSize?.heightPx) || defaultHeight;
         const reserveWidth = Number(automaticFrameReserves?.widthPx);
         const reserveHeight = Number(automaticFrameReserves?.heightPx);
-        const resetBaseWidth = resolvedDefaultWidth + (Number.isFinite(reserveWidth) ? Math.max(0, reserveWidth) : 0);
-        const resetBaseHeight = resolvedDefaultHeight + (Number.isFinite(reserveHeight) ? Math.max(0, reserveHeight) : 0);
+        const resetBaseWidth = resolvedDefaultWidth + (usesCartesianLayout ? 0 : (Number.isFinite(reserveWidth) ? Math.max(0, reserveWidth) : 0));
+        const resetBaseHeight = resolvedDefaultHeight + (usesCartesianLayout ? 0 : (Number.isFinite(reserveHeight) ? Math.max(0, reserveHeight) : 0));
         const resetWidth = resetBaseWidth * zoomScale;
         const resetHeight = resetBaseHeight * zoomScale;
+        if(usesCartesianLayout && aspectLocked){
+          refreshCartesianRatioOnCommit = true;
+        }
         const applied = applyResize({
           axis: 'both',
           width: resetWidth,
           height: resetHeight,
           fallbackWidth: resetWidth,
           fallbackHeight: resetHeight,
-          reason: 'dblclick-reset'
+          reason: 'dblclick-reset',
+          aspectLockedOverride: usesCartesianLayout ? false : null
         });
         applyZoomBoundsStyles();
-        if(aspectLocked){
+        if(aspectLocked && !usesCartesianLayout){
           readRectRatio();
         }
         const afterReset = makeResizeSnapshot('dblclick-after');
@@ -3441,6 +3873,8 @@
       }
     }
     const svgBox = opts.svgBox || graphPanel.querySelector(opts.svgSelector || '.svgbox');
+    const usesCartesianLayoutTransaction = svgBox?.__sharedResizableBoxApi
+      ?.isCartesianLayoutTransactionEnabled?.() === true;
     const diagramSelector = opts.diagramSelector || '.diagram-area';
     const diagramArea = graphPanel.querySelector(diagramSelector);
     const isElementHidden = (el) => {
@@ -3752,7 +4186,7 @@
       let widthToApply = Math.round(appliedWidth);
       let heightToApply = NaN;
       let activeRatio = storedAspectRatio;
-      if(aspectLocked){
+      if(aspectLocked && !usesCartesianLayoutTransaction){
         const ratioFromDefaults = (Number.isFinite(datasetDefaultWidth) && Number.isFinite(datasetDefaultHeight) && datasetDefaultHeight > 0)
           ? (datasetDefaultWidth / datasetDefaultHeight)
           : NaN;
@@ -3801,7 +4235,7 @@
       if(svgDataset){
         svgDataset.resizerWidth = svgBox.style.width;
       }
-      if(aspectLocked){
+      if(aspectLocked && !usesCartesianLayoutTransaction){
         let ratioForHeight = Number.isFinite(activeRatio) && activeRatio > 0 ? activeRatio : NaN;
         if(!Number.isFinite(ratioForHeight) || ratioForHeight <= 0){
           ratioForHeight = Number.isFinite(storedAspectRatio) && storedAspectRatio > 0 ? storedAspectRatio : NaN;

@@ -2,6 +2,7 @@
   'use strict';
 
   const NS = 'http://www.w3.org/2000/svg';
+  const VENN_DEFAULT_ROWS = 100;
   const DEFAULT_VENN_TABLE_HEADERS = ['Set 1', 'Set 2', 'Set 3'];
   const LEGACY_VENN_TABLE_HEADERS = ['A', 'B', 'C'];
   const DEFAULT_VENN_LABEL_MAP = {
@@ -275,6 +276,18 @@
     return numeric >= 0 && numeric <= 0.0001 ? '<0.0001' : numeric.toFixed(4).replace(/0+$/, '').replace(/\.$/, '');
   };
 
+  function formatVennBorderWidthDisplay(value){
+    const numeric = Number(value);
+    if(!Number.isFinite(numeric)){
+      return '0';
+    }
+    const toolbarApi = Shared.getWorkspaceToolbarApi?.() || Shared.workspaceToolbar || null;
+    const formatted = toolbarApi?.formatPxDisplayValue?.(numeric, 0.1)
+      || toolbarApi?.formatNumericValue?.(numeric, 0.1, { maxPrecision: 2 })
+      || String(Math.round(numeric * 100) / 100);
+    return formatted;
+  }
+
   const formatSharedPExpression = value => {
     const reporting = Shared.statsReporting;
     if(reporting && typeof reporting.formatPValueExpression === 'function'){
@@ -419,6 +432,37 @@
       }
     }
     return normalizePlotType(state.ui?.plotType?.value || DEFAULT_PLOT_TYPE);
+  }
+
+  function commitVennPlotTypeToOwner(nextType, reason = 'venn-plot-type-change') {
+    const normalized = normalizePlotType(nextType);
+    const owner = ensureVennSessionOwnershipShape(getActiveVennSessionForState());
+    const storedPayload = owner?.state?.snapshot?.payload
+      || getVennWorkspaceTab(owner?.tabId || null)?.payload
+      || null;
+    if (!owner || !storedPayload) {
+      return normalized;
+    }
+    const snapshot = cloneVennSessionSnapshot(owner.state.snapshot) || {};
+    const payload = cloneVennPayload(storedPayload);
+    payload.style = {
+      ...(payload.style || {}),
+      plotType: normalized
+    };
+    owner.state = createDefaultVennDurableState({
+      ...owner.state,
+      snapshot: {
+        ...snapshot,
+        payload
+      }
+    });
+    owner.updatedAt = Date.now();
+    debugLog('plot type committed to owner session', {
+      tabId: owner.tabId || null,
+      plot: normalized,
+      reason
+    });
+    return normalized;
   }
 
   function getVennLockRatioCheckbox() {
@@ -575,7 +619,7 @@
     if (state.ui?.plotType && state.ui.plotType.value !== normalized) {
       state.ui.plotType.value = normalized;
     }
-    syncVennSetLimitWarning();
+    syncVennSetLimitWarning(null, normalized);
     if (options.updateTitle !== false) {
       const swapped = maybeSwapDefaultTitle(normalized);
       if (swapped) {
@@ -898,6 +942,32 @@
     hasGraphViewport: typeof Shared.graphViewport?.ensure === 'function',
     usesFactory: typeof Shared.graphViewport?.createEnsurer === 'function'
   });
+
+  function enforceVennLockedViewportRatio(stage, svgBox, reason){
+    if(stage?.tagName?.toLowerCase?.() !== 'svg'
+      || svgBox?.dataset?.resizerAspectLocked !== 'true'
+      || typeof Shared.graphViewport?.enforceLockedAxisRatio !== 'function'){
+      return false;
+    }
+    const viewBox = stage.viewBox?.baseVal;
+    if(!viewBox || ![viewBox.x, viewBox.y, viewBox.width, viewBox.height].every(Number.isFinite)
+      || viewBox.width <= 0 || viewBox.height <= 0){
+      return false;
+    }
+    const next = Shared.graphViewport.enforceLockedAxisRatio(stage, svgBox, {
+      minX: viewBox.x,
+      minY: viewBox.y,
+      viewW: viewBox.width,
+      viewH: viewBox.height
+    }, reason || 'venn-locked-axis-ratio');
+    if(!next || ![next.minX, next.minY, next.viewW, next.viewH].every(Number.isFinite)
+      || next.viewW <= 0 || next.viewH <= 0){
+      return false;
+    }
+    stage.setAttribute('viewBox', `${next.minX} ${next.minY} ${next.viewW} ${next.viewH}`);
+    stage.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+    return true;
+  }
 
   /**
    * Resolves an event binding target into an array of DOM nodes.
@@ -1422,7 +1492,7 @@
 
   function resolveVennResultsForCapture(session = null){
     const stored = createDefaultVennResultsState(session?.results || {});
-    const active = captureVennResultsStateFromActive();
+    const active = captureVennResultsStateFromActive(session);
     const useActiveGo = hasVennGoResultsState(active) || !hasVennGoResultsState(stored);
     const useActiveString = hasVennStringResultsState(active) || !hasVennStringResultsState(stored);
     const useActiveSignificance = hasVennSignificanceResultsState(active) || !hasVennSignificanceResultsState(stored);
@@ -1807,7 +1877,20 @@
 
   function getVennCallbackOwner(meta = {}){
     const target = meta?.target || meta?.event?.currentTarget || meta?.event?.target || null;
-    const tabId = String(meta?.tabId || getVennTabIdFromTarget(target) || getVennActiveTabId() || '').trim();
+    const targetSessionTabId = target
+      ? Array.from(vennSessionsByTabId.values()).find(session => {
+          const root = session?.root || session?.refs?.root || null;
+          return !!root && (target === root || root.contains?.(target));
+        })?.tabId || ''
+      : '';
+    const tabId = String(
+      meta?.tabId
+      || getVennTabIdFromTarget(target)
+      || targetSessionTabId
+      || getVennWorkspaceActiveTabId()
+      || getVennActiveTabId()
+      || ''
+    ).trim();
     const session = tabId
       ? getVennSession(tabId, { ...(meta || {}), tabId, reason: meta?.reason || 'venn-callback-owner' }, { create: true })
       : getActiveVennSessionForState();
@@ -1869,7 +1952,13 @@
     const resolvedOwner = owner?.session || owner?.tabId
       ? owner
       : getVennCallbackOwner(meta);
-    if(!isVennCallbackOwnerActive(resolvedOwner)){
+    const target = meta?.event?.currentTarget || meta?.event?.target || null;
+    const projectedEventOwner = meta?.allowProjectedOwner === true
+      && resolvedOwner?.session === projectedVennSession
+      && state.ui.root
+      && target
+      && (target === state.ui.root || state.ui.root.contains?.(target));
+    if(!isVennCallbackOwnerActive(resolvedOwner) && !projectedEventOwner){
       debugLog('venn callback skipped for inactive owner', {
         ownerTabId: resolvedOwner?.tabId || resolvedOwner?.session?.tabId || null,
         activeTabId: getVennActiveTabId() || null,
@@ -1882,7 +1971,7 @@
 
   function runVennEventOwnerCallback(event, reason, callback){
     const owner = getVennCallbackOwner({ event, target: event?.currentTarget || event?.target || null, reason });
-    return runVennOwnedCallback(owner, callback, { event, reason });
+    return runVennOwnedCallback(owner, callback, { event, reason, allowProjectedOwner: true });
   }
 
   function isVennSessionActiveForModuleState(session){
@@ -2019,14 +2108,38 @@
     return shaped;
   }
 
+  const vennHotBelongsToSession = (hotInstance, session = null) => (
+    Shared.componentLifecycle?.ownedHotBelongsToSession?.(hotInstance, session, 'venn', {
+      ensureSession: ensureVennSessionOwnershipShape
+    }) === true
+  );
+
+  function bindVennLayoutManagerForSession(session){
+    const shaped = ensureVennSessionOwnershipShape(session);
+    if(!shaped){ return null; }
+    const ownedLayout = Shared.componentLayout?.getOwnedLayoutFor?.('venn', { tabId: shaped.tabId }) || null;
+    shaped.managers.layout = ownedLayout;
+    if(!shaped.tabId || isVennSessionActiveForModuleState(shaped)){
+      state.ui.layout = ownedLayout;
+    }
+    return ownedLayout;
+  }
+
   function syncVennSessionManagersFromActive(session = null){
     const shaped = ensureVennSessionOwnershipShape(session || projectedVennSession || getActiveVennSessionForState());
     if(!shaped){ return null; }
-    shaped.managers.hot = state.ui.hot || shaped.managers.hot || null;
-    shaped.managers.layout = state.ui.layout || shaped.managers.layout || null;
-    shaped.managers.fileHandle = state.persistence.fileHandle ?? null;
-    shaped.timers.scheduleDraw = state.ui.scheduleDraw || shaped.timers.scheduleDraw || null;
-    shaped.timers.pendingSpeciesDetection = state.analysis.speciesDetection?.pendingTimeoutId || null;
+    const sessionIsActive = !shaped.tabId || isVennSessionActiveForModuleState(shaped);
+    if(vennHotBelongsToSession(state.ui.hot, shaped)){
+      shaped.managers.hot = state.ui.hot;
+    }else if(shaped.managers.hot && !vennHotBelongsToSession(shaped.managers.hot, shaped)){
+      shaped.managers.hot = null;
+    }
+    if(sessionIsActive){
+      bindVennLayoutManagerForSession(shaped);
+      shaped.managers.fileHandle = state.persistence.fileHandle ?? null;
+      shaped.timers.scheduleDraw = state.ui.scheduleDraw || shaped.timers.scheduleDraw || null;
+      shaped.timers.pendingSpeciesDetection = state.analysis.speciesDetection?.pendingTimeoutId || null;
+    }
     shaped.updatedAt = Date.now();
     return shaped;
   }
@@ -2200,7 +2313,11 @@
     return patchVennVisualState(owner, { labelPositions: nextPositions }, meta);
   }
 
-  function captureVennResultsStateFromActive(){
+  function captureVennResultsStateFromActive(session = null){
+    const owner = ensureVennSessionOwnershipShape(session);
+    if(owner?.tabId && !isVennSessionActiveForModuleState(owner)){
+      return createDefaultVennResultsState(owner.results || {});
+    }
     return createDefaultVennResultsState({
       lastGOResult: state.analysis.lastGOResult,
       lastGOFormatted: state.analysis.lastGOFormatted,
@@ -2212,7 +2329,7 @@
       stringPerformed: state.analysis.stringPerformed,
       activeResultsTab: state.analysis.activeResultsTab,
       lastSignificance: state.analysis.lastSignificance,
-      significancePanelModel: captureVennSignificancePanelModel()
+      significancePanelModel: captureVennSignificancePanelModel(null, session)
     });
   }
 
@@ -2242,7 +2359,7 @@
       tabId: shaped.tabId,
       skipDomRebind: true
     });
-    const runtime = captureVennRuntimeStateSnapshot();
+    const runtime = captureVennRuntimeStateSnapshot(shaped);
     const notes = captureVennNotesMirror();
     shaped.state = createDefaultVennDurableState({
       snapshot,
@@ -2263,7 +2380,7 @@
     return shaped;
   }
 
-  function applyVennResultsStateToActive(results = {}){
+  function applyVennResultsStateToActive(results = {}, session = null){
     const normalized = createDefaultVennResultsState(results || {});
     state.analysis.lastGOResult = normalized.lastGOResult;
     state.analysis.lastGOFormatted = normalized.lastGOFormatted.slice();
@@ -2280,7 +2397,7 @@
     if(hasRestoredSignificance){
       state.analysis.lastSignificance = normalized.lastSignificance;
       state.analysis.significancePanelModel = normalizeVennSignificancePanelModel(normalized.significancePanelModel || {});
-      restoreVennSignificancePanelModel(state.analysis.significancePanelModel);
+      restoreVennSignificancePanelModel(state.analysis.significancePanelModel, session);
     }
     if(Array.isArray(state.analysis.lastGOResult) && state.analysis.lastGOResult.length){
       renderGOResults(Math.min(5, state.analysis.lastGOResult.length));
@@ -2325,7 +2442,7 @@
       }else if(durable.runtime){
         applyVennRuntimeStateSnapshot(durable.runtime, shaped);
       }
-      applyVennResultsStateToActive(shaped.results || {});
+      applyVennResultsStateToActive(shaped.results || {}, shaped);
     });
     state.persistence.fileName = durable.fileName || durable.snapshot?.fileName || state.persistence.fileName || 'venn.graph';
     state.persistence.fileHandle = Object.prototype.hasOwnProperty.call(shaped.managers || {}, 'fileHandle')
@@ -2361,6 +2478,7 @@
     if(options.passiveBound !== false){
       venn.__boundTabId = session.tabId;
     }
+    bindVennLayoutManagerForSession(session);
 
     const activeWorkspaceTabId = String(global.Main?.session?.workspaceState?.activeTabId || '').trim();
     if(options.apply === true && activeWorkspaceTabId === tabId && session.cache.ownerPayloadHydrated !== true){
@@ -2932,6 +3050,10 @@
       || resolveActiveVennTabId()
       || getVennProjectionTabId()
       || '';
+    const snapshotSession = getVennSession(tabId || getVennProjectionTabId() || null, {
+      tabId: tabId || getVennProjectionTabId() || null,
+      reason: options?.reason || 'venn-snapshot-capture'
+    }, { create: false });
     const snapshot = {
       payload: enrichVennPayloadForOwnerStorage(payload, tabId, options || {}),
       lastDrawMode: state.analysis.lastDrawMode || null,
@@ -2939,7 +3061,7 @@
       speciesIndicator: state.ui.speciesSelect ? state.ui.speciesSelect.style?.backgroundColor || '' : '',
       totalGenes: state.ui.totalGenesInput ? state.ui.totalGenesInput.value || '' : '',
       significanceHtml: state.ui.significanceResults ? state.ui.significanceResults.innerHTML || '' : '',
-      significanceModel: captureVennSignificancePanelModel(),
+      significanceModel: captureVennSignificancePanelModel(null, snapshotSession),
       lastSignificance: state.analysis.lastSignificance ? { ...state.analysis.lastSignificance } : null,
       regionSelectValue: state.ui.regionSelect ? state.ui.regionSelect.value || '' : '',
       fileName: state.persistence.fileName || 'venn.graph',
@@ -2949,6 +3071,7 @@
   }
 
   function applyVennSnapshot(snapshot){
+    const snapshotSession = getActiveVennSessionForState();
     const inputs = state.ui.inputs;
     if(!inputs || !snapshot || !snapshot.payload){
       return false;
@@ -2984,7 +3107,7 @@
     if(inputs.opacityVal){ inputs.opacityVal.textContent = inputs.opacity.value; }
     if(style.borderColor != null && inputs.borderColor){ inputs.borderColor.value = style.borderColor; }
     if(style.borderWidth != null && inputs.borderWidth){ inputs.borderWidth.value = style.borderWidth; }
-    if(inputs.borderWidthVal){ inputs.borderWidthVal.textContent = inputs.borderWidth.value; }
+    if(inputs.borderWidthVal){ inputs.borderWidthVal.textContent = formatVennBorderWidthDisplay(inputs.borderWidth.value); }
     const fontBase = (style.fontsize !== undefined && style.fontsize !== null)
       ? style.fontsize
       : inputs.fontsize?.dataset?.fontBasePt || inputs.fontsize?.value;
@@ -2999,7 +3122,7 @@
     state.analysis.lastDrawMode = snapshot.lastDrawMode || null;
     state.analysis.lastSignificance = snapshot.lastSignificance ? { ...snapshot.lastSignificance } : null;
     state.analysis.significancePanelModel = normalizeVennSignificancePanelModel(snapshot.significanceModel || {});
-    if(!restoreVennSignificancePanelModel(state.analysis.significancePanelModel) && state.ui.significanceResults){
+    if(!restoreVennSignificancePanelModel(state.analysis.significancePanelModel, snapshotSession) && state.ui.significanceResults){
       state.ui.significanceResults.innerHTML = snapshot.significanceHtml || '';
     }
     if(state.ui.speciesSelect){
@@ -3028,7 +3151,7 @@
       }
     }
     state.analysis.significancePanelModel = normalizeVennSignificancePanelModel(snapshot.significanceModel || state.analysis.significancePanelModel || {});
-    if(!restoreVennSignificancePanelModel(state.analysis.significancePanelModel) && state.ui.significanceResults){
+    if(!restoreVennSignificancePanelModel(state.analysis.significancePanelModel, snapshotSession) && state.ui.significanceResults){
       state.ui.significanceResults.innerHTML = snapshot.significanceHtml || '';
     }
     state.analysis.lastSignificance = snapshot.lastSignificance ? { ...snapshot.lastSignificance } : null;
@@ -3093,7 +3216,7 @@
     }
   }
 
-  function captureVennRuntimeStateSnapshot(){
+  function captureVennRuntimeStateSnapshot(session = null){
     const detection = getSpeciesDetectionState();
     return {
       persistence: {
@@ -3103,7 +3226,7 @@
       analysis: {
         significanceCache: cloneSimple(state.analysis.significanceCache),
         lastSignificance: cloneSimple(state.analysis.lastSignificance),
-        significancePanelModel: captureVennSignificancePanelModel(),
+        significancePanelModel: captureVennSignificancePanelModel(null, session),
         speciesDetection: {
           cacheEntries: cloneMapEntries(detection.cache),
           delayMs: Number.isFinite(detection.delayMs) ? detection.delayMs : 1200
@@ -3160,7 +3283,7 @@
       ...analysis,
       ...ui
     }, 'venn-runtime-apply');
-    restoreVennSignificancePanelModel(state.analysis.significancePanelModel);
+    restoreVennSignificancePanelModel(state.analysis.significancePanelModel, session || getActiveVennSessionForState());
     return true;
   }
 
@@ -3174,33 +3297,80 @@
       };
   }
 
-  function captureVennSignificancePanelModel(fallback = null){
-    const previous = normalizeVennSignificancePanelModel(fallback || state.analysis.significancePanelModel || {});
-    if(!state.ui.significanceResults || !Shared.statsReporting || typeof Shared.statsReporting.capturePanelModel !== 'function'){
-      state.analysis.significancePanelModel = previous;
-      return state.analysis.significancePanelModel;
+  function resolveVennSignificancePanelContext(session = null){
+    const owner = ensureVennSessionOwnershipShape(session || getActiveVennSessionForState());
+    const canUseLiveProjection = !owner || isVennSessionActiveForModuleState(owner);
+    const root = owner?.root || null;
+    const belongsToOwner = node => !!node && (!root || node === root || root.contains?.(node));
+    let target = null;
+    if(canUseLiveProjection){
+      const ownedRef = owner?.refs?.significanceResults || null;
+      if(belongsToOwner(ownedRef)){
+        target = ownedRef;
+      }else{
+        const resolved = getVennNodeById('significanceResults', owner?.tabId || null) || state.ui.significanceResults;
+        target = belongsToOwner(resolved) ? resolved : null;
+      }
     }
-    state.analysis.significancePanelModel = normalizeVennSignificancePanelModel(Shared.statsReporting.capturePanelModel(state.ui.significanceResults) || previous);
-    return state.analysis.significancePanelModel;
+    return { owner, canUseLiveProjection, target };
+  }
+
+  function captureVennSignificancePanelModel(fallback = null, session = null){
+    const context = resolveVennSignificancePanelContext(session);
+    const previous = normalizeVennSignificancePanelModel(
+      fallback
+      || context.owner?.results?.significancePanelModel
+      || context.owner?.state?.snapshot?.analysis?.significancePanelModel
+      || (context.canUseLiveProjection ? state.analysis.significancePanelModel : null)
+      || {}
+    );
+    let normalized = previous;
+    if(context.target && Shared.statsReporting && typeof Shared.statsReporting.capturePanelModel === 'function'){
+      const captured = normalizeVennSignificancePanelModel(Shared.statsReporting.capturePanelModel(context.target) || {});
+      normalized = vennSignificancePanelModelHasContent(captured) ? captured : previous;
+    }
+    if(context.owner?.results){
+      context.owner.results.significancePanelModel = normalizeVennSignificancePanelModel(normalized);
+      context.owner.updatedAt = Date.now();
+    }
+    if(context.canUseLiveProjection){
+      state.analysis.significancePanelModel = normalizeVennSignificancePanelModel(normalized);
+    }
+    return normalized;
+  }
+
+  function vennSignificancePanelNodeHasStatContent(node){
+    if(!node || typeof node !== 'object'){ return false; }
+    if(node.kind === 'stats-report' || node.type === 'stats-table'){ return true; }
+    const className = typeof node.className === 'string' ? node.className : '';
+    if(/(?:^|\s)(?:stats-table-card|stats-report-panel|stats-assumption-container)(?:\s|$)/.test(className)){ return true; }
+    if(node.type === 'element' && String(node.tag || '').toLowerCase() === 'table'){ return true; }
+    return Array.isArray(node.children) && node.children.some(vennSignificancePanelNodeHasStatContent);
   }
 
   function vennSignificancePanelModelHasContent(model){
     const normalized = normalizeVennSignificancePanelModel(model);
-    return !!(normalized.resultsModel || normalized.reportModel);
+    return vennSignificancePanelNodeHasStatContent(normalized.resultsModel)
+      || vennSignificancePanelNodeHasStatContent(normalized.reportModel);
   }
 
-  function restoreVennSignificancePanelModel(model){
+  function restoreVennSignificancePanelModel(model, session = null){
+    const context = resolveVennSignificancePanelContext(session);
     const normalized = normalizeVennSignificancePanelModel(model);
-    if(!state.ui.significanceResults || !vennSignificancePanelModelHasContent(normalized)){
+    if(context.owner?.results){
+      context.owner.results.significancePanelModel = normalizeVennSignificancePanelModel(normalized);
+      context.owner.updatedAt = Date.now();
+    }
+    if(!context.canUseLiveProjection){
       return false;
     }
-    if(Shared.statsReporting && typeof Shared.statsReporting.restorePanelModel === 'function'){
-      Shared.statsReporting.restorePanelModel(state.ui.significanceResults, normalized, { clearMainWhenMissing: false });
-      state.analysis.significancePanelModel = normalized;
-      Shared.statsTable?.rehydrateExportControls?.(state.ui.significanceResults);
-      return true;
+    if(!context.target || !vennSignificancePanelModelHasContent(normalized) || !Shared.statsReporting || typeof Shared.statsReporting.restorePanelModel !== 'function'){
+      return false;
     }
-    return false;
+    const restored = Shared.statsReporting.restorePanelModel(context.target, normalized, { clearMainWhenMissing: false });
+    state.analysis.significancePanelModel = normalizeVennSignificancePanelModel(normalized);
+    Shared.statsTable?.rehydrateExportControls?.(context.target);
+    return !!(restored?.restoredMain || restored?.restoredReport || context.target.querySelector?.('.stats-table-card, .stats-report-panel, table'));
   }
 
   function normalizeValue(value){
@@ -3575,13 +3745,14 @@
     return false;
   }
 
-  function syncVennSetLimitWarning(matrix = null) {
+  function syncVennSetLimitWarning(matrix = null, plotType = null) {
     const warning = state.ui?.setLimitWarning || null;
     if (!warning) {
       return false;
     }
     const table = Array.isArray(matrix) ? matrix : (getLiveVennTableMatrix() || []);
-    const shouldShow = getActivePlotType() === 'venn' && hasIgnoredVennTableData(table);
+    const effectivePlotType = plotType == null ? getActivePlotType() : normalizePlotType(plotType);
+    const shouldShow = effectivePlotType === 'venn' && hasIgnoredVennTableData(table);
     warning.hidden = !shouldShow;
     return shouldShow;
   }
@@ -4967,7 +5138,7 @@
       if(Object.prototype.hasOwnProperty.call(normalizedPatch, 'borderWidth') && inputs.borderWidth){
         inputs.borderWidth.value = String(normalizedPatch.borderWidth);
         if(inputs.borderWidthVal){
-          inputs.borderWidthVal.textContent = inputs.borderWidth.value;
+          inputs.borderWidthVal.textContent = formatVennBorderWidthDisplay(inputs.borderWidth.value);
         }
       }
       if(Object.prototype.hasOwnProperty.call(normalizedPatch, 'opacity') && inputs.opacity){
@@ -6088,6 +6259,18 @@
     }
     // Mirror the just-restored table into the text inputs before parsing.
     syncVennInputsFromTable({ scheduleDraw: false, scheduleSpecies: false });
+    const inputs = ensureInputs();
+    if (hasNumericContent(inputs) && !hasListContent(inputs)) {
+      const numericCounts = getNumericVennCountsFromInputs(inputs);
+      state.analysis.lastRegions = {
+        A: new Set(), B: new Set(), C: new Set(), Aonly: new Set(), Bonly: new Set(), Conly: new Set(),
+        AB: new Set(), AC: new Set(), BC: new Set(), ABC: new Set()
+      };
+      state.analysis.lastDrawMode = 'numeric';
+      state.analysis.lastCounts = numericCounts;
+      debugLog('venn numeric analysis state rebuilt from controls', { reason: reason || null });
+      return true;
+    }
     const parsed = ensureParsedLists({ includeRegions: true, reason: reason || 'venn-analysis-rebuild' });
     const regions = parsed && parsed.regions ? parsed.regions : null;
     if (!regions) {
@@ -6795,8 +6978,10 @@
       || (ownerTabId ? getVennSession(ownerTabId, { tabId: ownerTabId, reason: options.reason || 'venn-analysis-tab-owner' }, { create: true }) : null)
       || getActiveVennSessionForState()
     );
+    const projectProjectedOwner = options.allowProjectedOwner === true
+      && owner?.session === projectedVennSession;
     const shouldProjectOwner = options.projectResults !== false
-      && (!owner || isVennSessionActiveForModuleState(owner));
+      && (isVennSessionActiveForModuleState(owner) || projectProjectedOwner);
     if(owner?.results){
       owner.results = createDefaultVennResultsState({
         ...owner.results,
@@ -7904,7 +8089,7 @@
     }); // Debug: ensure network svg stays responsive and scoped
   }
 
-  function applyAnalysisPayload(analysis) {
+  function applyAnalysisPayload(analysis, session = null) {
     clearAnalysis();
     if (!analysis || typeof analysis !== 'object') {
       setActiveAnalysisResultsTab(state.analysis.activeResultsTab || 'go', { syncPayload: false });
@@ -7945,7 +8130,7 @@
       state.ui.speciesSelect.value = analysis.speciesValue || '';
       state.ui.speciesSelect.style.backgroundColor = analysis.speciesIndicator || '';
     }
-    restoreVennSignificancePanelModel(state.analysis.significancePanelModel);
+    restoreVennSignificancePanelModel(state.analysis.significancePanelModel, session || getActiveVennSessionForState());
     setActiveAnalysisResultsTab(analysis.activeResultsTab || state.analysis.activeResultsTab || 'go', { syncPayload: false });
     if (state.ui.regionSelect) {
       const hasRegion = Object.prototype.hasOwnProperty.call(analysis, 'regionSelectValue');
@@ -8554,8 +8739,9 @@
         significant: entry.significant
       }))
     };
-    captureVennSignificancePanelModel();
-    captureVennSessionStateFromActive(projectedVennSession, { reason: 'venn-significance-calculated' });
+    const significanceSession = ensureVennSessionOwnershipShape(projectedVennSession || getActiveVennSessionForState());
+    captureVennSignificancePanelModel(null, significanceSession);
+    captureVennSessionStateFromActive(significanceSession, { reason: 'venn-significance-calculated' });
     debugLog('calculateSignificance complete', { total, overlaps: results.length, countsSignature });
   }
 
@@ -8756,6 +8942,67 @@
     };
   }
 
+  function getVennOwnerPayload(owner = null){
+    const ownerSession = owner?.session || null;
+    return ownerSession?.state?.snapshot?.payload
+      || getStoredVennPayloadForTab(owner?.tabId || ownerSession?.tabId || null)
+      || null;
+  }
+
+  function getVennOwnerControlConfig(owner = null){
+    if(isVennCallbackOwnerActive(owner)){
+      return captureVennControlConfig();
+    }
+    const payload = getVennOwnerPayload(owner);
+    const source = payload?.config && typeof payload.config === 'object' ? payload.config : {};
+    const defaults = createDefaultVennControlConfig();
+    return {
+      ...defaults,
+      ...cloneSimple(source),
+      goCategories: { ...defaults.goCategories, ...(source.goCategories || {}) },
+      stringSources: { ...defaults.stringSources, ...(source.stringSources || {}) }
+    };
+  }
+
+  function captureVennGoAnalysisOptionsForOwner(owner = null){
+    if(isVennCallbackOwnerActive(owner)){
+      return captureVennGoAnalysisOptions();
+    }
+    const config = getVennOwnerControlConfig(owner);
+    const sources = [];
+    if(config.goCategories?.biologicalProcess){ sources.push('GO:BP'); }
+    if(config.goCategories?.molecularFunction){ sources.push('GO:MF'); }
+    if(config.goCategories?.cellularComponent){ sources.push('GO:CC'); }
+    let background;
+    let domainScope;
+    if(config.goUseAllBackground){
+      const genes = collectVennPayloadGenes(getVennOwnerPayload(owner))
+        .map(gene => String(gene || '').trim().toUpperCase())
+        .filter(Boolean);
+      if(genes.length){
+        background = Array.from(new Set(genes));
+        domainScope = 'custom';
+      }
+    }
+    return { sources, background, domainScope };
+  }
+
+  function captureVennStringAnalysisOptionsForOwner(owner = null){
+    if(isVennCallbackOwnerActive(owner)){
+      return captureVennStringAnalysisOptions();
+    }
+    const config = getVennOwnerControlConfig(owner);
+    const sources = Object.entries(config.stringSources || {})
+      .filter(([, enabled]) => !!enabled)
+      .map(([key]) => key);
+    return {
+      networkType: config.stringNetworkType || 'functional',
+      edgeMeaning: config.stringEdgeMeaning || 'evidence',
+      sources,
+      fallbackCode: ''
+    };
+  }
+
   function createDefaultVennControlConfig(){
     return {
       caseSensitive: false,
@@ -8820,7 +9067,7 @@
           background: Array.isArray(options.requestConfig.background) ? options.requestConfig.background.slice() : undefined,
           domainScope: options.requestConfig.domainScope || undefined
         }
-      : (isVennCallbackOwnerActive(callbackOwner) ? captureVennGoAnalysisOptions() : null);
+      : captureVennGoAnalysisOptionsForOwner(callbackOwner);
     const owner = beginVennAnalysisRequest('go', { owner: callbackOwner, reason: 'venn-go-analysis-start' });
     if(!owner?.token){
       return;
@@ -8940,7 +9187,7 @@
           sources: Array.isArray(options.requestConfig.sources) ? options.requestConfig.sources.slice() : [],
           fallbackCode: options.requestConfig.fallbackCode || ''
         }
-      : (isVennCallbackOwnerActive(callbackOwner) ? captureVennStringAnalysisOptions() : null);
+      : captureVennStringAnalysisOptionsForOwner(callbackOwner);
     const owner = beginVennAnalysisRequest('string', { owner: callbackOwner, reason: 'venn-string-analysis-start' });
     if(!owner?.token){
       return;
@@ -9602,6 +9849,7 @@
       });
       ensureGraphViewport(stage, viewportOptions);
     }
+    enforceVennLockedViewportRatio(stage, svgBox, 'venn-locked-axis-ratio');
   }
 
   function formatCount(value) {
@@ -10078,12 +10326,13 @@
     const buildIntegerTicks = (maximum, desiredIntervalCount) => {
       const limit = Math.max(0, Math.round(maximum));
       if (!limit) return [0];
-      const intervalCount = Math.max(1, Math.min(limit, Math.floor(desiredIntervalCount) || 1));
-      return Array.from(
-        new Set(Array.from({ length: intervalCount + 1 }, (_, index) => (
-          Math.round(limit * index / intervalCount)
-        )))
-      );
+      const desired = Math.max(1, Math.min(limit, Math.floor(desiredIntervalCount) || 1));
+      let intervalCount = 1;
+      for (let candidate = 2; candidate <= desired; candidate += 1) {
+        if (limit % candidate === 0) intervalCount = candidate;
+      }
+      const interval = limit / intervalCount;
+      return Array.from({ length: intervalCount + 1 }, (_, index) => index * interval);
     };
     const maxLabelWidth = Math.max(...sets.map(set => measure(set.label, labelFont)), 0);
     const maxSetSize = Math.max(...sets.map(set => set.size), 0);
@@ -10225,7 +10474,7 @@
 
     const intersectionTickIntervals = Math.max(
       1,
-      Math.min(4, Math.floor(barChartHeight / Math.max(axisTickFontSize * 2.2, 20)))
+      Math.min(4, Math.round(maxIntersection))
     );
     const tickValues = buildIntegerTicks(maxIntersection, intersectionTickIntervals);
     const tickLabels = tickValues.map(v => formatCount(v));
@@ -10273,7 +10522,8 @@
         x2: axisX - yMajorTickLength,
         y2: y,
         stroke: axisColor,
-        'stroke-width': axisWidth
+        'stroke-width': axisWidth,
+        'data-upset-axis-tick': 'intersection-y'
       });
       const drawHorizontalGridLine = settings.showGrid
         && settings.gridColor
@@ -10347,7 +10597,8 @@
         'text-anchor': 'end',
         'dominant-baseline': 'middle',
         'font-size': axisTickFontSize,
-        fill: textColor
+        fill: textColor,
+        'data-upset-axis-tick-label': 'intersection-y'
       });
       tickText.textContent = tickLabels[idx];
     });
@@ -10663,7 +10914,8 @@
         x2: x,
         y2: axisY + xMajorTickLength,
         stroke: axisColor,
-        'stroke-width': axisWidth
+        'stroke-width': axisWidth,
+        'data-upset-axis-tick': 'set-x'
       });
       const tickText = makeEl('text', {
         x,
@@ -10671,7 +10923,8 @@
         'text-anchor': 'middle',
         dy: setTickBaselineDy,
         'font-size': setTickFontSize,
-        fill: textColor
+        fill: textColor,
+        'data-upset-axis-tick-label': 'set-x'
       });
       tickText.textContent = formatCount(value);
     });
@@ -10729,6 +10982,7 @@
       });
       ensureGraphViewport(stage, viewportOptions);
     }
+    enforceVennLockedViewportRatio(stage, svgBox, 'upset-locked-axis-ratio');
     debugLog('drawUpSet complete', {
       intersections: intersections.length,
       sets: sets.length,
@@ -10836,18 +11090,32 @@
     debugLog('drawFromLists complete', { mode, caseSensitive: cs, counts, cacheSignature: parsed.signature });
   }
 
+  function getNumericVennCountsFromInputs(inputs) {
+    const source = inputs || ensureInputs();
+    const nA = +source.counts.nA.value || 0;
+    const nB = +source.counts.nB.value || 0;
+    const nC = +source.counts.nC.value || 0;
+    const nAB = +source.counts.nAB.value || 0;
+    const nAC = +source.counts.nAC.value || 0;
+    const nBC = +source.counts.nBC.value || 0;
+    const nABC = +source.counts.nABC.value || 0;
+    return {
+      nA, nB, nC, nAB, nAC, nBC,
+      Aonly: Math.max(0, nA - (nAB + nAC - nABC)),
+      Bonly: Math.max(0, nB - (nAB + nBC - nABC)),
+      Conly: Math.max(0, nC - (nAC + nBC - nABC)),
+      AB: Math.max(0, nAB - nABC),
+      AC: Math.max(0, nAC - nABC),
+      BC: Math.max(0, nBC - nABC),
+      ABC: nABC
+    };
+  }
+
   function drawFromNumeric(drawOptions = {}) {
     const resizePreview = drawOptions?.resizePhase === 'move';
     const inputs = ensureInputs();
-    const nA = +inputs.counts.nA.value || 0, nB = +inputs.counts.nB.value || 0, nC = +inputs.counts.nC.value || 0;
-    const nAB = +inputs.counts.nAB.value || 0, nAC = +inputs.counts.nAC.value || 0, nBC = +inputs.counts.nBC.value || 0, nABC = +inputs.counts.nABC.value || 0;
-    const Aonly = Math.max(0, nA - (nAB + nAC - nABC));
-    const Bonly = Math.max(0, nB - (nAB + nBC - nABC));
-    const Conly = Math.max(0, nC - (nAC + nBC - nABC));
-    const counts = {
-      nA, nB, nC, Aonly, Bonly, Conly,
-      AB: Math.max(0, nAB - nABC), AC: Math.max(0, nAC - nABC), BC: Math.max(0, nBC - nABC), ABC: nABC
-    };
+    const counts = getNumericVennCountsFromInputs(inputs);
+    const { nA, nB, nC, nAB, nAC, nBC } = counts;
     state.analysis.lastRegions = {
       A: new Set(), B: new Set(), C: new Set(), Aonly: new Set(), Bonly: new Set(), Conly: new Set(),
       AB: new Set(), AC: new Set(), BC: new Set(), ABC: new Set()
@@ -11628,7 +11896,7 @@
     if (inputs.borderWidth) {
       inputs.borderWidth.value = String(clampNumber(s.borderWidth, Number(defaultStyle.borderWidth), 0));
       if (inputs.borderWidthVal) {
-        inputs.borderWidthVal.textContent = inputs.borderWidth.value;
+        inputs.borderWidthVal.textContent = formatVennBorderWidthDisplay(inputs.borderWidth.value);
       }
     }
     if (inputs.fontsize) {
@@ -11693,7 +11961,7 @@
           state.ui.speciesSelect.value = normalizedPayload.analysis.speciesValue || '';
           state.ui.speciesSelect.style.backgroundColor = normalizedPayload.analysis.speciesIndicator || '';
         }
-        restoreVennSignificancePanelModel(state.analysis.significancePanelModel);
+        restoreVennSignificancePanelModel(state.analysis.significancePanelModel, hydratedSession || projectedVennSession);
         state.analysis.lastStringSVG = normalizedPayload.analysis.stringSvg || '';
         state.analysis.lastStringEnrichment = normalizedPayload.analysis.stringEnrichment ? cloneSimple(normalizedPayload.analysis.stringEnrichment) : null;
         state.analysis.stringOverlay = normalizeStringOverlayModel(normalizedPayload.analysis.stringOverlay);
@@ -11719,7 +11987,7 @@
     }else{
       withVennSessionProjection(() => {
         refreshDiagram();
-        applyAnalysisPayload(normalizedPayload.analysis);
+        applyAnalysisPayload(normalizedPayload.analysis, hydratedSession || projectedVennSession);
       });
     }
     setActiveAnalysisResultsTab(state.analysis.activeResultsTab || 'go', { syncPayload: false });
@@ -11851,7 +12119,7 @@
 
   function handleBorderWidthInput(event) {
     const target = event?.currentTarget || state.ui.inputs.borderWidth;
-    state.ui.inputs.borderWidthVal.textContent = state.ui.inputs.borderWidth.value;
+    state.ui.inputs.borderWidthVal.textContent = formatVennBorderWidthDisplay(state.ui.inputs.borderWidth.value);
     refreshDiagram();
     persistActiveVennUserChange('venn-border-width-change');
     debug('Debug: venn handleBorderWidthInput', { value: state.ui.inputs.borderWidth.value }); // Debug: border width change
@@ -11899,9 +12167,13 @@
         setVennLockRatioPrevious(!!lockRatioCheckbox.checked);
       }
     }
+    // The owner session is canonical during live use. Commit the selection
+    // before aspect synchronization, payload capture, or scheduled rendering
+    // reads it; otherwise all three resolve the previous graph type.
+    commitVennPlotTypeToOwner(nextType, 'venn-plot-type-change');
     syncPlotMode(nextType, { updateTitle: true, syncPanels: true });
-    requestScheduledDraw('plot-type-change', null, Shared.componentLifecycle.createStructuralDrawOptions('plot-type-change'));
     persistActiveVennUserChange('venn-plot-type-change');
+    requestScheduledDraw('plot-type-change', null, Shared.componentLifecycle.createStructuralDrawOptions('plot-type-change'));
     debug('Debug: venn handlePlotTypeChange', { plot: nextType });
     commitVennUndo(target, 'venn:plot-type');
   }
@@ -11970,6 +12242,9 @@
 
   function createListInputHandler(key) {
     return function listInputHandler(event) {
+      // The table is the canonical analysis source. Keep it aligned before
+      // scheduling redraw/species work, just as sample and payload loads do.
+      syncVennTableFromInputs({ refresh: false, skipPayloadSync: true });
       if (state.ui.speciesSelect) { state.ui.speciesSelect.value = ''; }
       setSpeciesIndicator(null);
       requestScheduledDraw(`list-input-${key}`, 'lists');
@@ -12152,7 +12427,8 @@
     setActiveAnalysisResultsTab(button.id === 'analysisTabString' ? 'string' : 'go', {
       reason: 'venn-analysis-tab-click',
       owner,
-      tabId: owner?.tabId || null
+      tabId: owner?.tabId || null,
+      allowProjectedOwner: true
     });
   }
 
@@ -12313,7 +12589,8 @@
       return;
     }
     Shared.ensureHotWrapperStyles?.(wrapper);
-    const data = Shared.createEmptyData?.(20, 3) || Array.from({ length: 20 }, () => ['', '', '']);
+    const data = Shared.createEmptyData?.(VENN_DEFAULT_ROWS, 3)
+      || Array.from({ length: VENN_DEFAULT_ROWS }, () => ['', '', '']);
     if (!Array.isArray(data[0])) {
       data[0] = ['', '', ''];
     }
@@ -12328,7 +12605,7 @@
       }
       syncVennInputsFromTable({ scheduleDraw: true, scheduleSpecies: true });
     };
-    const createVennTableInstance = targetContainer => Shared.hot.createStandardTable(targetContainer, { rows: 20, cols: 3 }, scheduleVennTableDraw, {
+    const createVennTableInstance = targetContainer => Shared.hot.createStandardTable(targetContainer, { rows: VENN_DEFAULT_ROWS, cols: 3 }, scheduleVennTableDraw, {
       debugLabel: 'venn',
       data,
       pinFirstRow: true
@@ -12703,7 +12980,7 @@
       const svgBox = diagramArea.querySelector('.svgbox');
       if(svgBox){
         stack = documentRef.createElement('div');
-        stack.className = 'venn-plot-stack';
+        stack.className = 'venn-plot-stack graph-plot-stack';
         const configOptions = diagramArea.querySelector('.config-panel');
         if(configOptions){
           diagramArea.insertBefore(stack, configOptions);
@@ -12959,7 +13236,7 @@
       return null;
     }
     const session = bindVennSessionForTab(requestedTabId || meta?.tab || meta?.tabId || getVennProjectionTabId() || null, { ...(meta || {}), reason: meta.reason || 'venn-runtime-capture-bind' }, { apply: false });
-    const snapshot = captureVennRuntimeStateSnapshot();
+    const snapshot = captureVennRuntimeStateSnapshot(session);
     if(session){
       session.state = createDefaultVennDurableState({ ...(session.state || {}), runtime: snapshot });
       session.results = resolveVennResultsForCapture(session);
@@ -13152,6 +13429,15 @@
     getUpSetTableColumns,
     resolveUpSetTableData,
     getSession: tabId => getVennSession(tabId, { tabId, reason: 'test-get-session' }, { create: false }),
+    captureStatsPanelForOwner: tabId => {
+      const session = getVennSession(tabId, { tabId, reason: 'venn-test-stats-capture' }, { create: false });
+      return session ? cloneSimple(captureVennSignificancePanelModel(null, session)) : null;
+    },
+    restoreStatsPanelForOwner: tabId => {
+      const session = getVennSession(tabId, { tabId, reason: 'venn-test-stats-restore' }, { create: false });
+      const model = session?.results?.significancePanelModel || null;
+      return session ? restoreVennSignificancePanelModel(model, session) : false;
+    },
     scheduleDrawForSession: (session, options) => scheduleVennDrawForSession(session, options),
     captureRuntimeState: meta => venn.captureRuntimeState(meta),
     applyRuntimeState: (snapshot, meta) => venn.applyRuntimeState(snapshot, meta)

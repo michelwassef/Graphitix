@@ -42,7 +42,7 @@ async function readGridSnapshot(page, pageId, componentType) {
     const pageRoot = activeWorkspaceTab?.type === type
       ? (window.Shared?.workspaceTabs?.getMountedRoot?.(activeWorkspaceTab.id, type) || document.querySelector(`#${id}:not([hidden])`))
       : null;
-    const activeTab = document.querySelector('#workspaceTabsList .workspace-tab.workspace-tab--active');
+    const renderedActiveTab = document.querySelector('#workspaceTabsList .workspace-tab[aria-selected="true"]');
     const allIds = Array.from(pageRoot?.querySelectorAll?.('[id]') || []).map(node => node.id);
     const wrapperId = allIds.find(value => /hotwrapper$/i.test(value)) || null;
     const hotId = allIds.find(value => /hot$/i.test(value) && !/wrapper$/i.test(value))
@@ -92,8 +92,30 @@ async function readGridSnapshot(page, pageId, componentType) {
         firstDisplayedRow: Number.isFinite(activeHot?.gridApi?.getFirstDisplayedRow?.()) ? activeHot.gridApi.getFirstDisplayedRow() : null
       };
     }
+    let layoutOwnership = null;
+    const hooks = window.Components?.[type]?.__testHooks || null;
+    const getSession = hooks?.getSession || hooks?.getSessionForTab || null;
+    if (typeof getSession === 'function' && activeWorkspaceTab?.id) {
+      const activeSession = getSession(activeWorkspaceTab.id);
+      const layout = activeSession?.managers?.layout || null;
+      const layoutElements = layout?.elements && typeof layout.elements === 'object'
+        ? Object.values(layout.elements).filter(node => node && typeof node === 'object' && typeof node.nodeType === 'number')
+        : [];
+      const sameTypeTabs = Array.from(state?.tabs || []).filter(tab => tab?.type === type && tab?.id !== activeWorkspaceTab.id);
+      const foreignLayouts = sameTypeTabs
+        .map(tab => getSession(tab.id)?.managers?.layout || null)
+        .filter(Boolean);
+      layoutOwnership = {
+        layoutTabId: layout?.tabId || null,
+        hasLayoutElements: layoutElements.length > 0,
+        belongsToActiveRoot: !!layout && layoutElements.length > 0
+          && layoutElements.every(node => node === pageRoot || !!pageRoot?.contains?.(node)),
+        sharesForeignManager: !!layout && foreignLayouts.some(candidate => candidate === layout)
+      };
+    }
     return {
-      activeTabId: activeTab?.getAttribute('data-tab-id') || null,
+      activeTabId: renderedActiveTab?.getAttribute('data-tab-id') || null,
+      workspaceActiveTabId: activeWorkspaceTab?.id || null,
       resolvedActiveTabId,
       hasPageRoot: !!pageRoot,
       hasAgRoot: !!agRoot,
@@ -104,7 +126,8 @@ async function readGridSnapshot(page, pageId, componentType) {
       firstVisibleRow,
       topDelta: wrapperRect && hotRect ? Number((hotRect.top - wrapperRect.top).toFixed(2)) : null,
       hotApiState,
-      hotPoolState
+      hotPoolState,
+      layoutOwnership
     };
   }, { id: pageId, type: componentType });
 }
@@ -172,7 +195,10 @@ async function openComponentTab(page, component, { first = false } = {}) {
 
 for (const component of COMPONENT_MATRIX) {
   test(`same-component tab switching stays isolated for ${component.type}`, async ({ page }, testInfo) => {
-    test.setTimeout(180_000);
+    // This matrix deliberately exercises every persisted control through
+    // switch, archive, and reopen. Some components need several minutes when
+    // the full parameter batch is run serially.
+    test.setTimeout(10 * 60_000);
     const issues = registerIssueCollectors(page);
     await installLocalCdnOverrides(page);
     await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
@@ -224,6 +250,12 @@ for (const component of COMPONENT_MATRIX) {
     for (const snap of snapshots) {
       expect(snap.hasPageRoot).toBeTruthy();
       expect(snap.hasAgRoot).toBeTruthy();
+      expect(snap.layoutOwnership).toBeTruthy();
+      expect(snap.activeTabId).toBe(snap.workspaceActiveTabId);
+      expect(snap.layoutOwnership.layoutTabId).toBe(snap.workspaceActiveTabId);
+      expect(snap.layoutOwnership.hasLayoutElements).toBeTruthy();
+      expect(snap.layoutOwnership.belongsToActiveRoot).toBeTruthy();
+      expect(snap.layoutOwnership.sharesForeignManager).toBeFalsy();
     }
     const first = snapshots.find(s => s.stepLabel === 'first-active');
     const second = snapshots.find(s => s.stepLabel === 'second-active');

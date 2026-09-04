@@ -875,6 +875,15 @@
     const renderPayloadSignature = renderCache?.payloadSignature ?? tab.renderCacheSignature ?? tab.archiveRenderCacheSignature ?? null;
     const renderLayoutSignature = renderCache?.layoutSignature ?? tab.renderCacheLayoutSignature ?? tab.archiveRenderCacheLayoutSignature ?? null;
     const renderCacheOwnerTabId = renderCache?.tabId ?? tab.renderCacheTabId ?? null;
+    const cartesianCacheProvenance = renderCache?.cache?.__graphitixRenderCache?.cartesianLayout || null;
+    const cartesianCacheProvenanceValid = !cartesianCacheProvenance || (
+      cartesianCacheProvenance.complete === true
+      && String(cartesianCacheProvenance.owner?.tabId || '') === String(tab.id)
+      && String(cartesianCacheProvenance.owner?.component || '') === String(tab.type)
+      && Number(cartesianCacheProvenance.publicationGeneration) > 0
+      && cartesianCacheProvenance.payloadSignature === targetPayloadSignature
+      && cartesianCacheProvenance.layoutSignature === targetLayoutSignature
+    );
     const isSameComponentTabSwitch = !!(renderedTabForType && renderedTabForType !== tab.id);
     const hasRenderCacheValidator = typeof config.canRestoreRenderCache === 'function';
     const hasRenderCacheRestoreHook = typeof config.restoreRenderCache === 'function';
@@ -886,6 +895,7 @@
     if (renderPayloadSignature !== targetPayloadSignature) { renderCacheUnavailableReasons.push('payload-signature-mismatch'); }
     const layoutSignatureMatches = renderLayoutSignature === targetLayoutSignature;
     if (!layoutSignatureMatches) { renderCacheUnavailableReasons.push('layout-signature-mismatch'); }
+    if (!cartesianCacheProvenanceValid) { renderCacheUnavailableReasons.push('cartesian-publication-provenance-mismatch'); }
     if (!hasRenderCacheRestoreHook) { renderCacheUnavailableReasons.push('missing-restore-hook'); }
     const hasBasicRestorableRenderCache = !!(!options.forceReload
       && renderCache
@@ -893,6 +903,7 @@
       && (!renderCacheOwnerTabId || String(renderCacheOwnerTabId) === String(tab.id))
       && renderPayloadSignature === targetPayloadSignature
       && layoutSignatureMatches
+      && cartesianCacheProvenanceValid
       && hasRenderCacheRestoreHook);
     if (renderCache && !hasBasicRestorableRenderCache) {
       console.debug('Debug: workspace render cache basic validation failed', {
@@ -2011,6 +2022,55 @@
                 phase: 'visual-validation',
                 outcome: 'rejected',
                 reason: 'published-frame-empty',
+                source: renderCacheIsArchiveBacked ? 'archive' : 'runtime',
+                cacheOwnerTabId: renderCacheOwnerTabId,
+                payloadSignature: renderPayloadSignature,
+                layoutSignature: renderLayoutSignature
+              });
+              restored = false;
+            }
+          }
+          if(restored && cartesianCacheProvenance){
+            const restoredRoot = Shared.workspaceTabs?.getMountedRoot?.(tab, tab.type) || activeWorkspaceElement || null;
+            const restoredSvgBox = restoredRoot?.querySelector?.('.svgbox') || null;
+            const cartesianRehydrated = !!(restoredSvgBox
+              && Shared.cartesianLayout?.rehydratePublishedLayout?.(restoredSvgBox, restoredRoot, {
+                tabId: tab.id,
+                component: tab.type,
+                generation: sessionGeneration,
+                payloadSignature: targetPayloadSignature,
+                layoutSignature: targetLayoutSignature,
+                canCommit: () => guardWorkspaceMutation('rehydrate-cartesian-layout')
+              }));
+            const componentGeometryRehydrated = !cartesianRehydrated
+              ? false
+              : (typeof config.rehydrateCartesianLayoutState !== 'function'
+                ? true
+                : guardWorkspaceMutation('rehydrate-component-cartesian-state')
+                  && config.rehydrateCartesianLayoutState({
+                    tab,
+                    tabId: tab.id,
+                    type: tab.type,
+                    root: restoredRoot,
+                    svgBox: restoredSvgBox,
+                    cartesianPlan: restoredSvgBox?.__cartesianLayoutPlan || null,
+                    reason: 'workspace-cartesian-layout-rehydrate',
+                    sessionGeneration
+                  }) !== false);
+            if(!cartesianRehydrated || !componentGeometryRehydrated){
+              console.warn('workspace render cache Cartesian publication rejected; falling back to draw', {
+                tabId: tab.id,
+                type: tab.type,
+                publicationGeneration: cartesianCacheProvenance.publicationGeneration || null,
+                cartesianRehydrated,
+                componentGeometryRehydrated
+              });
+              emitRenderCacheEvent({
+                tabId: tab.id,
+                component: tab.type,
+                phase: 'cartesian-layout-rehydrate',
+                outcome: 'rejected',
+                reason: 'cartesian-publication-rehydrate-failed',
                 source: renderCacheIsArchiveBacked ? 'archive' : 'runtime',
                 cacheOwnerTabId: renderCacheOwnerTabId,
                 payloadSignature: renderPayloadSignature,

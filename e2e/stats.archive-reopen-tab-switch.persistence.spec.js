@@ -293,7 +293,7 @@ async function seedRecoverySnapshotFromWorkspace(page) {
         reject(new Error('IndexedDB unavailable.'));
         return;
       }
-      const request = window.indexedDB.open('graphitix-document-state', 1);
+      const request = window.indexedDB.open('graphitix-document-state', 2);
       request.onupgradeneeded = () => {
         const db = request.result;
         if (!db.objectStoreNames.contains('snapshots')) {

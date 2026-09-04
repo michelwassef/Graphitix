@@ -728,7 +728,6 @@
     barBorder: HIST_DEFAULT_BORDER,
     barBorderWidth: HIST_DEFAULT_BORDER_WIDTH,
     svgBox: null,
-    resizeMarginLock: null,
     layout: null,
     minSvgWidth: 0,
     autoDrawEnabled: true,
@@ -902,57 +901,6 @@
     };
   }
 
-  function normalizeHistResizeMarginLock(value){
-    if(!value || typeof value !== 'object'){
-      return null;
-    }
-    return {
-      top: Number(value.top) || 0,
-      right: Number(value.right) || 0,
-      bottom: Number(value.bottom) || 0,
-      left: Number(value.left) || 0
-    };
-  }
-
-  function createDefaultHistLayoutRuntime(source = {}){
-    const src = source && typeof source === 'object' ? source : {};
-    return {
-      resizeMarginLock: normalizeHistResizeMarginLock(src.resizeMarginLock)
-    };
-  }
-
-  function syncHistLayoutRuntimeMirror(runtime, session = null){
-    const normalized = createDefaultHistLayoutRuntime(runtime || {});
-    const shouldMirror = !session || isHistSessionActiveForModuleState(session);
-    if(shouldMirror){
-      state.resizeMarginLock = normalizeHistResizeMarginLock(normalized.resizeMarginLock);
-    }
-    return normalized;
-  }
-
-  function getHistLayoutRuntime(session = null){
-    const shaped = ensureHistSessionOwnershipShape(session || getActiveHistSessionForState());
-    if(shaped?.cache){
-      shaped.cache.layoutRuntime = createDefaultHistLayoutRuntime(shaped.cache.layoutRuntime || { resizeMarginLock: state.resizeMarginLock });
-      return shaped.cache.layoutRuntime;
-    }
-    return createDefaultHistLayoutRuntime({ resizeMarginLock: state.resizeMarginLock });
-  }
-
-  function updateHistLayoutRuntime(updater, session = null){
-    const shaped = ensureHistSessionOwnershipShape(session || getActiveHistSessionForState());
-    const runtime = createDefaultHistLayoutRuntime(shaped?.cache?.layoutRuntime || { resizeMarginLock: state.resizeMarginLock });
-    if(typeof updater === 'function'){
-      updater(runtime);
-    }
-    const normalized = createDefaultHistLayoutRuntime(runtime);
-    if(shaped?.cache){
-      shaped.cache.layoutRuntime = normalized;
-      shaped.updatedAt = Date.now();
-    }
-    return syncHistLayoutRuntimeMirror(normalized, shaped);
-  }
-
   function normalizeHistLabelPositions(value){
     const source = value && typeof value === 'object' ? (cloneSimple(value) || {}) : {};
     return { title: null, xLabel: null, yLabel: null, legend: null, stats: null, ...source };
@@ -1071,6 +1019,7 @@
       originY: metrics.marginTop,
       scaleX: metrics.legendGapPx,
       scaleY: metrics.plotHeight,
+      positionAnchor: chartStyle.LEGEND_POSITION_ANCHOR,
       undoLabel: 'hist-legend-position',
       onCommit: (position, dragOwner) => {
         patchHistLabelPosition(dragOwner, 'legend', position, { reason: 'hist-legend-position' });
@@ -1126,8 +1075,7 @@
       }),
       refs: createDefaultHistRefs(root || null),
       cache: {
-        emptyPayloadTemplate: cloneSimple(emptyPayloadTemplate) || null,
-        layoutRuntime: createDefaultHistLayoutRuntime({ resizeMarginLock: state.resizeMarginLock })
+        emptyPayloadTemplate: cloneSimple(emptyPayloadTemplate) || null
       },
       listeners: new Map(),
       timers: {
@@ -1161,7 +1109,6 @@
     session.refs.root = session.refs.root || session.root || null;
     session.cache = session.cache && typeof session.cache === 'object' ? session.cache : {};
     if(!Object.prototype.hasOwnProperty.call(session.cache, 'emptyPayloadTemplate')){ session.cache.emptyPayloadTemplate = null; }
-    session.cache.layoutRuntime = createDefaultHistLayoutRuntime(session.cache.layoutRuntime || { resizeMarginLock: state.resizeMarginLock });
     session.listeners = session.listeners instanceof Map ? session.listeners : new Map();
     session.timers = session.timers && typeof session.timers === 'object' ? session.timers : {};
     if(!Object.prototype.hasOwnProperty.call(session.timers, 'scheduleDraw')){ session.timers.scheduleDraw = null; }
@@ -1189,10 +1136,6 @@
       histSessionsByTabId.set(tabId, session);
     }
     return ensureHistSessionOwnershipShape(session);
-  }
-
-  function getHistWorkspaceActiveTabId(){
-    return String(Shared.componentLifecycle?.resolveWorkspaceActiveTabId?.('hist') || '').trim();
   }
 
   function getActiveHistSessionForState(){
@@ -1579,6 +1522,17 @@
     return shaped;
   }
 
+  function bindHistLayoutManagerForSession(session){
+    const shaped = ensureHistSessionOwnershipShape(session);
+    if(!shaped){ return null; }
+    const ownedLayout = Shared.componentLayout?.getOwnedLayoutFor?.('hist', { tabId: shaped.tabId }) || null;
+    shaped.managers.layout = ownedLayout;
+    if(!shaped.tabId || isHistSessionActiveForModuleState(shaped)){
+      state.layout = ownedLayout;
+    }
+    return ownedLayout;
+  }
+
   function syncHistSessionManagersFromActive(session = null){
     const shaped = ensureHistSessionOwnershipShape(session || projectedHistSession || getActiveHistSessionForState());
     if(!shaped){ return null; }
@@ -1596,7 +1550,7 @@
       shaped.managers.dataViews = histDataViewsManagerBelongsToSession(manager, shaped) ? manager : shaped.managers.dataViews || null;
     }
     if(sessionIsActive){
-      shaped.managers.layout = state.layout || shaped.managers.layout || null;
+      bindHistLayoutManagerForSession(shaped);
       shaped.managers.fileHandle = state.fileHandle || shaped.managers.fileHandle || null;
       shaped.timers.scheduleDraw = state.scheduleDraw || shaped.timers.scheduleDraw || null;
     }
@@ -1673,7 +1627,7 @@
     }
     const statsPanelModel = meta.captureStatsPanel === false
       ? createDefaultHistStatsPanelModel(state.lastStatsPanelModel || {})
-      : createDefaultHistStatsPanelModel(captureHistStatsPanelModel(state.lastStatsPanelModel || {}));
+      : createDefaultHistStatsPanelModel(captureHistStatsPanelModel(state.lastStatsPanelModel || {}, shaped));
     const labels = createDefaultHistLabelsState({
       title: state.titleText,
       titleAuto: state.titleAuto,
@@ -1721,7 +1675,6 @@
     shaped.notes = captureHistNotesMirror();
     syncHistSessionRefsFromActive(shaped);
     syncHistSessionManagersFromActive(shaped);
-    shaped.cache.layoutRuntime = createDefaultHistLayoutRuntime({ resizeMarginLock: state.resizeMarginLock });
     shaped.updatedAt = Date.now();
     return shaped;
   }
@@ -1775,7 +1728,6 @@
     state.fileName = durable.fileName || state.fileName || 'histogram.graph';
     state.minSvgWidth = Number.isFinite(Number(durable.minSvgWidth)) ? Number(durable.minSvgWidth) : 0;
     state.fileHandle = shaped.managers.fileHandle || state.fileHandle || null;
-    syncHistLayoutRuntimeMirror(shaped.cache?.layoutRuntime, shaped);
     if(options.restoreEmptyPayload !== false && shaped.cache?.emptyPayloadTemplate){
       emptyPayloadTemplate = cloneSimple(shaped.cache.emptyPayloadTemplate) || emptyPayloadTemplate;
     }
@@ -1794,7 +1746,7 @@
       syncHistFrequencyControls();
       projectHistDistributionControlsFromState({ rebuild: false });
       syncHistStatsControls();
-      restoreHistStatsPanelModel(state.lastStatsPanelModel);
+      restoreHistStatsPanelModel(state.lastStatsPanelModel, shaped);
     }
     shaped.updatedAt = Date.now();
     return true;
@@ -1819,6 +1771,7 @@
     if(options.passiveBound !== false){
       hist.__boundTabId = session.tabId;
     }
+    bindHistLayoutManagerForSession(session);
     if(options.apply !== false){
       applyHistSessionStateToActive(session, { syncUi: options.syncUi !== false });
     }
@@ -1857,39 +1810,6 @@
     session.notes = createDefaultHistNotesState(record.notes || record.state?.notes || {});
     session.updatedAt = Date.now();
     return session;
-  }
-
-  function stabilizeHistMarginForAxisResize(margin){
-    if(!margin || typeof margin !== 'object'){
-      return margin;
-    }
-    const locked = {
-      top: Number(margin.top) || 0,
-      right: Number(margin.right) || 0,
-      bottom: Number(margin.bottom) || 0,
-      left: Number(margin.left) || 0
-    };
-    const dataset = state.svgBox?.dataset || null;
-    if(!dataset || dataset.resizerAspectLocked === 'true'){
-      updateHistLayoutRuntime(runtime => { runtime.resizeMarginLock = locked; });
-      return locked;
-    }
-    const axis = dataset.resizerLastAxis === 'x' || dataset.resizerLastAxis === 'y'
-      ? dataset.resizerLastAxis
-      : 'both';
-    const runtime = getHistLayoutRuntime();
-    const previousLock = normalizeHistResizeMarginLock(runtime.resizeMarginLock);
-    if(previousLock){
-      if(axis === 'y'){
-        locked.left = previousLock.left;
-        locked.right = previousLock.right;
-      }else if(axis === 'x'){
-        locked.top = previousLock.top;
-        locked.bottom = previousLock.bottom;
-      }
-    }
-    updateHistLayoutRuntime(next => { next.resizeMarginLock = locked; });
-    return locked;
   }
 
   function resolveHistRoot(tabLike = null){
@@ -2065,34 +1985,85 @@
     return { resultsModel: cloneSimple(src.resultsModel) || null, reportModel: cloneSimple(src.reportModel) || null };
   }
 
-  function captureHistStatsPanelModel(fallback = null){
-    const target = getHistNodeById('histStatsResults');
-    const previous = normalizeHistStatsPanelModel(fallback || state.lastStatsPanelModel || {});
-    if(!target || !Shared.statsReporting || typeof Shared.statsReporting.capturePanelModel !== 'function'){
+  function resolveHistStatsPanelContext(session = null){
+    const owner = ensureHistSessionOwnershipShape(session || getActiveHistSessionForState());
+    const canUseLiveProjection = !owner || isHistSessionActiveForModuleState(owner);
+    const root = owner?.root || null;
+    const belongsToOwner = node => !!node && (!root || node === root || root.contains?.(node));
+    let target = null;
+    if(canUseLiveProjection){
+      const ownedRef = owner?.refs?.statsResults || null;
+      if(belongsToOwner(ownedRef)){
+        target = ownedRef;
+      }else{
+        const resolved = getHistNodeById('histStatsResults', owner?.tabId || null);
+        target = belongsToOwner(resolved) ? resolved : null;
+      }
+    }
+    return { owner, canUseLiveProjection, target };
+  }
+
+  function captureHistStatsPanelModel(fallback = null, session = null){
+    const context = resolveHistStatsPanelContext(session);
+    const previous = normalizeHistStatsPanelModel(
+      fallback
+      || context.owner?.results?.statsPanelModel
+      || context.owner?.state?.statsPanelModel
+      || (context.canUseLiveProjection ? state.lastStatsPanelModel : null)
+      || {}
+    );
+    if(!context.target || !Shared.statsReporting || typeof Shared.statsReporting.capturePanelModel !== 'function'){
       return previous;
     }
-    state.lastStatsPanelModel = normalizeHistStatsPanelModel(Shared.statsReporting.capturePanelModel(target) || previous);
-    return state.lastStatsPanelModel;
+    const captured = normalizeHistStatsPanelModel(Shared.statsReporting.capturePanelModel(context.target) || {});
+    const normalized = histStatsPanelModelHasContent(captured) ? captured : previous;
+    if(context.owner){
+      context.owner.results = createDefaultHistResultsState({ statsPanelModel: normalized });
+      context.owner.state.statsPanelModel = createDefaultHistStatsPanelModel(normalized);
+      context.owner.updatedAt = Date.now();
+    }
+    if(context.canUseLiveProjection){
+      state.lastStatsPanelModel = createDefaultHistStatsPanelModel(normalized);
+    }
+    return normalized;
+  }
+
+  function histStatsPanelNodeHasStatContent(node){
+    if(!node || typeof node !== 'object'){ return false; }
+    if(node.kind === 'stats-report' || node.type === 'stats-table'){ return true; }
+    const className = typeof node.className === 'string' ? node.className : '';
+    if(/(?:^|\s)(?:stats-table-card|stats-report-panel|stats-assumption-container)(?:\s|$)/.test(className)){ return true; }
+    if(node.type === 'element' && String(node.tag || '').toLowerCase() === 'table'){ return true; }
+    return Array.isArray(node.children) && node.children.some(histStatsPanelNodeHasStatContent);
   }
 
   function histStatsPanelModelHasContent(model){
     const normalized = normalizeHistStatsPanelModel(model);
-    return !!(normalized.resultsModel || normalized.reportModel);
+    return histStatsPanelNodeHasStatContent(normalized.resultsModel)
+      || histStatsPanelNodeHasStatContent(normalized.reportModel);
   }
 
-  function restoreHistStatsPanelModel(model){
-    const target = getHistNodeById('histStatsResults');
+  function restoreHistStatsPanelModel(model, session = null){
+    const context = resolveHistStatsPanelContext(session);
     const normalized = normalizeHistStatsPanelModel(model);
-    if(!target || !histStatsPanelModelHasContent(normalized) || !Shared.statsReporting || typeof Shared.statsReporting.restorePanelModel !== 'function'){
+    if(context.owner){
+      context.owner.results = createDefaultHistResultsState({ statsPanelModel: normalized });
+      context.owner.state.statsPanelModel = createDefaultHistStatsPanelModel(normalized);
+      context.owner.updatedAt = Date.now();
+    }
+    if(!context.canUseLiveProjection){
       return false;
     }
-    const reportHost = ensureHistStatsReportHost(target);
-    Shared.statsReporting.restorePanelModel(target, normalized, {
+    if(!context.target || !histStatsPanelModelHasContent(normalized) || !Shared.statsReporting || typeof Shared.statsReporting.restorePanelModel !== 'function'){
+      return false;
+    }
+    const reportHost = ensureHistStatsReportHost(context.target);
+    const restored = Shared.statsReporting.restorePanelModel(context.target, normalized, {
       ensureReportHost: reportHost ? () => reportHost : undefined,
       clearMainWhenMissing: false
     });
-    state.lastStatsPanelModel = normalized;
-    return true;
+    state.lastStatsPanelModel = createDefaultHistStatsPanelModel(normalized);
+    return !!(restored?.restoredMain || restored?.restoredReport || context.target.querySelector?.('.stats-table-card, .stats-report-panel, table'));
   }
   let histDataToolbarBound = false;
   const histDataToolbarLastActivationByTabId = new Map();
@@ -2813,11 +2784,14 @@
             exclusionSource: loadSource,
             filterReason: loadSource
           });
-          commitHistOwnerHotRuntime(viewOwner, {
+          const committedSession = commitHistOwnerHotRuntime(viewOwner, {
             reason: isFrequencyView ? 'hist-frequency-dataview-switch' : 'hist-dataview-switch',
             refreshDataViews: true,
             drawPending: !isFrequencyView
           });
+          persistHistOwnerState(viewOwner, committedSession, isFrequencyView
+            ? 'hist-frequency-dataview-switch'
+            : 'hist-dataview-switch');
           if(!isFrequencyView){
             markHistOverlayPending('data-view-switch');
             scheduleHistOwnerDraw(viewOwner, {
@@ -5410,8 +5384,8 @@
       const axisSettings = ensureAxisSettings();
       const axisLimits = readHistAxisLimitsFromInputs();
       const plotMode = normalizeHistPlotMode(state.plotMode);
-      const statsPanelModel = captureHistStatsPanelModel();
       const activeSession = getActiveHistSessionForState();
+      const statsPanelModel = captureHistStatsPanelModel(null, activeSession);
       if(activeSession){
         activeSession.results = createDefaultHistResultsState({ statsPanelModel });
         activeSession.updatedAt = Date.now();
@@ -5660,7 +5634,7 @@
       state.lastStatsPanelModel = normalizeHistStatsPanelModel(config.stats || {});
       syncHistStatsControls();
       if(histStatsPanelModelHasContent(state.lastStatsPanelModel)){
-        restoreHistStatsPanelModel(state.lastStatsPanelModel);
+        restoreHistStatsPanelModel(state.lastStatsPanelModel, scheduleTargetSession);
       }
       if(config.notes && typeof config.notes === 'object'){
         state.notes.text = config.notes.text == null ? '' : String(config.notes.text);
@@ -6709,8 +6683,8 @@
         }
       }, { title: 'Reporting and reproducibility' });
     }
-    captureHistStatsPanelModel();
     const statsSession = getActiveHistSessionForState();
+    captureHistStatsPanelModel(null, statsSession);
     if(statsSession){
       statsSession.results = createDefaultHistResultsState({ statsPanelModel: state.lastStatsPanelModel });
       statsSession.state.statsPanelModel = createDefaultHistStatsPanelModel(state.lastStatsPanelModel);
@@ -7190,9 +7164,22 @@
     const sharedY = options.sharedY !== false;
     const minPlotWidth = Math.max(1, Number(options.minPlotWidth) || 10);
     const minPlotHeight = Math.max(1, Number(options.minPlotHeight) || 10);
+    const preservePlotTracks = options.preservePlotTracks === true;
+    const baselineFullLeftInset = Math.max(0, Number(options.baselineFullLeftInset ?? fullLeftInset) || 0);
+    const requiredFullLeftInset = Math.max(baselineFullLeftInset, Number(options.requiredFullLeftInset ?? fullLeftInset) || 0);
+    const baselineFullBottomInset = Math.max(0, Number(options.baselineFullBottomInset ?? fullBottomInset) || 0);
+    const requiredFullBottomInset = Math.max(baselineFullBottomInset, Number(options.requiredFullBottomInset ?? fullBottomInset) || 0);
 
+    // Panel mode owns one whole-SVG repeated-axis layout. The baseline rails are
+    // the canonical geometry used to solve equal plot tracks. Measured label
+    // growth is then inserted around those tracks without reducing their width
+    // or height. This is deliberately different from several independent
+    // Cartesian frames: shared-Y gets one outer rail, while non-shared Y gets
+    // one measured rail per visible column.
+    const canonicalFullLeftInset = preservePlotTracks ? baselineFullLeftInset : fullLeftInset;
+    const canonicalFullBottomInset = preservePlotTracks ? baselineFullBottomInset : fullBottomInset;
     const rawColumns = Array.from({ length: cols }, (_, col) => ({
-      leftInset: sharedY && col > 0 ? compactLeftInset : fullLeftInset,
+      leftInset: sharedY && col > 0 ? compactLeftInset : canonicalFullLeftInset,
       rightInset
     }));
     const availableColumnWidth = Math.max(1, contentWidth - (gapX * (cols - 1)));
@@ -7206,18 +7193,33 @@
     }));
     const scaledHorizontalInsets = columns.reduce((sum, column) => sum + column.leftInset + column.rightInset, 0);
     const plotWidth = Math.max(1, (availableColumnWidth - scaledHorizontalInsets) / cols);
+    const measuredLeftExtra = preservePlotTracks
+      ? Math.max(0, requiredFullLeftInset - baselineFullLeftInset)
+      : 0;
     let nextX = originX;
-    columns.forEach(column => {
+    let interiorLeftExtension = 0;
+    columns.forEach((column, col) => {
+      const hasVisibleYRail = !sharedY || col === 0;
+      const measuredRailExtra = hasVisibleYRail ? measuredLeftExtra : 0;
+      // The first visible Y rail grows outward to the left. Subsequent
+      // non-shared rails are interior and therefore shift this and following
+      // columns to the right while leaving every plot track the same size.
+      if(preservePlotTracks && col > 0 && measuredRailExtra > 0){
+        nextX += measuredRailExtra;
+        interiorLeftExtension += measuredRailExtra;
+      }
       column.x = nextX;
       column.plotX = nextX + column.leftInset;
       column.plotWidth = plotWidth;
+      column.measuredLeftExtra = measuredRailExtra;
+      column.requiredLeftInset = column.leftInset + measuredRailExtra;
       column.width = column.leftInset + plotWidth + column.rightInset;
       nextX += column.width + gapX;
     });
 
     const rawRows = Array.from({ length: rows }, (_, row) => ({
       topInset,
-      bottomInset: row === rows - 1 ? fullBottomInset : compactBottomInset
+      bottomInset: row === rows - 1 ? canonicalFullBottomInset : compactBottomInset
     }));
     const availableRowHeight = Math.max(1, contentHeight - (gapY * (rows - 1)));
     const rawVerticalInsets = rawRows.reduce((sum, row) => sum + row.topInset + row.bottomInset, 0);
@@ -7230,11 +7232,16 @@
     }));
     const scaledVerticalInsets = rowTracks.reduce((sum, row) => sum + row.topInset + row.bottomInset, 0);
     const plotHeight = Math.max(1, (availableRowHeight - scaledVerticalInsets) / rows);
+    const measuredBottomExtra = preservePlotTracks
+      ? Math.max(0, requiredFullBottomInset - baselineFullBottomInset)
+      : 0;
     let nextY = originY;
-    rowTracks.forEach(row => {
+    rowTracks.forEach((row, rowIndex) => {
       row.y = nextY;
       row.plotY = nextY + row.topInset;
       row.plotHeight = plotHeight;
+      row.measuredBottomExtra = rowIndex === rows - 1 ? measuredBottomExtra : 0;
+      row.requiredBottomInset = row.bottomInset + row.measuredBottomExtra;
       row.height = row.topInset + plotHeight + row.bottomInset;
       nextY += row.height + gapY;
     });
@@ -7245,7 +7252,24 @@
       columns,
       rows: rowTracks,
       horizontalInsetScale,
-      verticalInsetScale
+      verticalInsetScale,
+      envelopeExtensions: {
+        left: preservePlotTracks && (!sharedY || cols > 0) ? measuredLeftExtra : 0,
+        right: preservePlotTracks ? interiorLeftExtension : 0,
+        top: 0,
+        bottom: measuredBottomExtra
+      },
+      measuredReserves: {
+        yOuterRail: preservePlotTracks ? measuredLeftExtra : 0,
+        yInteriorRails: preservePlotTracks ? interiorLeftExtension : 0,
+        xLastRow: measuredBottomExtra
+      },
+      // Canonical fixed rails/gaps are independent of any temporary inset
+      // compression needed by an already-too-small frame. Lock solving uses
+      // these values so live resize and the final panel solver share the same
+      // repeated-track equation rather than freezing a compressed snapshot.
+      canonicalContentFixedWidth: (gapX * (cols - 1)) + rawHorizontalInsets,
+      canonicalContentFixedHeight: (gapY * (rows - 1)) + rawVerticalInsets
     };
   }
 
@@ -7479,6 +7503,7 @@
 
   async function drawHistPanelLayout(context = {}){
     const {
+      drawOptions,
       plotEl,
       drawSession,
       seriesEntries,
@@ -7694,26 +7719,31 @@
       max,
       ...model.yTickLabels.map(label => chartStyle.measureText(label, yTickMeasureFont))
     ), 0);
-    const fullLeftInset = maxYLabelWidth + yMajorTickLength + tickGap + 8;
+    const baselineFullLeftInset = yMajorTickLength + tickGap + 8;
+    const requiredFullLeftInset = baselineFullLeftInset + maxYLabelWidth;
     const compactLeftInset = Math.max(5, axisStrokeWidth * 2);
     const rightInset = Math.max(6, axisStrokeWidth * 2);
     const provisionalColumnInsets = Array.from({ length: grid.cols }, (_, col) => (
-      layoutSettings.sharedY && col > 0 ? compactLeftInset : fullLeftInset
+      layoutSettings.sharedY && col > 0 ? compactLeftInset : baselineFullLeftInset
     ));
     const provisionalPlotWidth = Math.max(10, (
       contentWidth
       - (gapX * (grid.cols - 1))
       - provisionalColumnInsets.reduce((sum, leftInset) => sum + leftInset + rightInset, 0)
     ) / grid.cols);
+    const panelBottomBase = Math.max(8, xMajorTickLength + tickGap + fs * 1.15);
     const bottomLayout = chartStyle.computeBottomLayout({
       labels: xTickLabels,
       fontSize: fs,
       labelMeasureFont: xTickMeasureFont,
       plotWidth: provisionalPlotWidth,
-      baseBottom: Math.max(8, xMajorTickLength + tickGap + fs * 1.15),
-      axisMetrics
+      baseBottom: panelBottomBase,
+      axisMetrics,
+      preservePlotRail: true,
+      bottomReserveMode: 'projected-tick-label'
     });
-    const fullBottomInset = Math.max(bottomLayout.bottom, xMajorTickLength + tickGap + fs * 1.2);
+    const baselineFullBottomInset = Math.max(bottomLayout.bottom, xMajorTickLength + tickGap + fs * 1.2);
+    const requiredFullBottomInset = Math.max(bottomLayout.requiredBottom || baselineFullBottomInset, baselineFullBottomInset);
     const compactBottomInset = Math.max(5, xMajorTickLength + 2);
     const panelTracks = resolveHistPanelTrackLayout({
       rows: grid.rows,
@@ -7724,15 +7754,20 @@
       gapY,
       originX: outer.left,
       originY: outer.top,
-      fullLeftInset,
+      fullLeftInset: requiredFullLeftInset,
+      baselineFullLeftInset,
+      requiredFullLeftInset,
       compactLeftInset,
       rightInset,
       topInset: titleReserve,
-      fullBottomInset,
+      fullBottomInset: requiredFullBottomInset,
+      baselineFullBottomInset,
+      requiredFullBottomInset,
       compactBottomInset,
       sharedY: layoutSettings.sharedY,
       minPlotWidth: 10,
-      minPlotHeight: 10
+      minPlotHeight: 10,
+      preservePlotTracks: true
     });
     const rotatePanelXLabels = xRenderTicks.length > 2 && !!bottomLayout.shouldRotate;
     panelModels.forEach(model => {
@@ -7754,6 +7789,47 @@
       model.showYLabels = !layoutSettings.sharedY || model.col === 0;
       model.rotateXLabels = rotatePanelXLabels;
     });
+    const histPanelLayoutOwner = {
+      tabId: drawSession?.tabId || drawOptions?.tabId || null,
+      component: 'hist',
+      generation: Number(execution?.owner?.sessionGeneration) || null
+    };
+    const histPanelAspectData = state.svgBox?.dataset || {};
+    const panelReserves = panelTracks.measuredReserves || {};
+    const panelAuxiliaryReserves = [
+      { name: 'panel-y-outer-rail', side: 'left', amount: panelReserves.yOuterRail || 0, behavior: 'external' },
+      { name: 'panel-y-interior-rails', side: 'right', amount: panelReserves.yInteriorRails || 0, behavior: 'external' },
+      { name: 'panel-x-last-row', side: 'bottom', amount: panelReserves.xLastRow || 0, behavior: 'external' }
+    ];
+    let histPanelCartesianPlan = Shared.cartesianLayout?.planCartesianLayout?.({
+      owner: histPanelLayoutOwner,
+      userFrame: { width: W, height: H },
+      baselineMargins: outer,
+      requiredMargins: outer,
+      auxiliaryReserves: panelAuxiliaryReserves,
+      externalExtensions: {},
+      orientation: 'normal',
+      axisLengths: { x: panelTracks.plotWidth, y: panelTracks.plotHeight },
+      axisFrameModel: {
+        x: {
+          count: grid.cols,
+          fixed: Math.max(0, (W - contentWidth) + panelTracks.canonicalContentFixedWidth),
+          minimum: 10
+        },
+        y: {
+          count: grid.rows,
+          fixed: Math.max(0, (H - contentHeight) + panelTracks.canonicalContentFixedHeight),
+          minimum: 10
+        }
+      },
+      lock: {
+        enabled: histPanelAspectData.resizerAspectLocked === 'true',
+        targetRatio: Number(histPanelAspectData.resizerCartesianPlotRatio) || null,
+        drive: histPanelAspectData.resizerLastAxis === 'x' ? 'width' : (histPanelAspectData.resizerLastAxis === 'y' ? 'height' : 'both')
+      },
+      minimumPlot: { width: 10, height: 10 },
+      rounding: { mode: 'none', precision: 6 }
+    }) || null;
     const svg = document.createElementNS(NS, 'svg');
     svg.setAttribute('width', String(W));
     svg.setAttribute('height', String(H));
@@ -7768,7 +7844,24 @@
       ? String(panelModels.reduce((max, model) => Math.max(max, model.densitySeries?.positions?.length || 0), 0))
       : '0');
     svg.setAttribute('data-hist-shared-y-scale', layoutSettings.sharedY ? 'true' : 'false');
+    svg.setAttribute('data-hist-panel-plot-width', String(panelTracks.plotWidth));
+    svg.setAttribute('data-hist-panel-plot-height', String(panelTracks.plotHeight));
+    svg.setAttribute('data-hist-panel-reserve-left', String(panelTracks.envelopeExtensions?.left || 0));
+    svg.setAttribute('data-hist-panel-reserve-right', String(panelTracks.envelopeExtensions?.right || 0));
+    svg.setAttribute('data-hist-panel-reserve-bottom', String(panelTracks.envelopeExtensions?.bottom || 0));
     chartStyle.prepareSvg(svg, { scopeId: 'hist' });
+    const histPanelContentViewport = chartStyle.stageGraphContentViewport({
+      svgBox: state.svgBox,
+      plot: plotEl,
+      svg,
+      baseWidth: W,
+      baseHeight: H,
+      leftWidth: histPanelCartesianPlan?.contentEnvelope?.extensionLeft || panelTracks.envelopeExtensions?.left || 0,
+      rightWidth: histPanelCartesianPlan?.contentEnvelope?.extensionRight || panelTracks.envelopeExtensions?.right || 0,
+      topHeight: histPanelCartesianPlan?.contentEnvelope?.extensionTop || 0,
+      bottomHeight: histPanelCartesianPlan?.contentEnvelope?.extensionBottom || panelTracks.envelopeExtensions?.bottom || 0,
+      legendWidth: 0
+    });
     let framePublication = null;
     try{
       framePublication = Shared.framePublication.stage({
@@ -7776,7 +7869,7 @@
         frame: svg,
         publishedId: 'histSvg',
         component: 'hist',
-        tabId: drawSession?.tabId || getHistProjectionTabId() || null,
+        tabId: execution?.tabId || drawSession?.tabId || drawOptions?.tabId || null,
         canCommit: () => execution?.isCurrent?.() !== false
           && (!drawSession || isHistSessionActiveForModuleState(drawSession))
       });
@@ -8213,15 +8306,16 @@
         });
       }
     }
+    const panelEnvelope = panelTracks.envelopeExtensions || { left: 0, right: 0, top: 0, bottom: 0 };
     const globalPlotLeft = outer.left;
     const globalPlotTop = outer.top;
-    const globalPlotWidth = contentWidth;
+    const globalPlotWidth = contentWidth + Math.max(0, Number(panelEnvelope.right) || 0);
     const globalPlotHeight = contentHeight;
     const xLabelDefault = {
       x: globalPlotLeft + (globalPlotWidth / 2),
-      y: H - Math.max(5, fs * 0.35),
+      y: H + Math.max(0, Number(panelEnvelope.bottom) || 0) - Math.max(5, fs * 0.35),
       originX: globalPlotLeft,
-      originY: outer.top + contentHeight
+      originY: outer.top + contentHeight + Math.max(0, Number(panelEnvelope.bottom) || 0)
     };
     const xLabelPos = resolveHistPanelLabelPosition(state.labelPositions?.xLabel, xLabelDefault, globalPlotWidth, outer.bottom);
     const xLabel = add('text', {
@@ -8243,9 +8337,9 @@
       }, { reason: 'hist-x-label-position' })
     });
     const yLabelDefault = {
-      x: horizontalEdgePadding + (fs * 0.5),
+      x: horizontalEdgePadding + (fs * 0.5) - Math.max(0, Number(panelEnvelope.left) || 0),
       y: globalPlotTop + (globalPlotHeight / 2),
-      originX: 0,
+      originX: -Math.max(0, Number(panelEnvelope.left) || 0),
       originY: globalPlotTop
     };
     const yLabelPos = resolveHistPanelLabelPosition(state.labelPositions?.yLabel, yLabelDefault, outer.left, globalPlotHeight);
@@ -8328,17 +8422,62 @@
     });
     registerHistGridControlTarget(svg, { fallbackThickness: axisStrokeWidthBase });
     chartStyle.renderFontSizeLabel({ element: getHistNodeById('histFontSizeVal', drawSession?.tabId), fontInfo, input: getHistNodeById('histFontSize', drawSession?.tabId) });
+    const histPanelRenderWidth = Math.max(W, histPanelCartesianPlan?.contentEnvelope?.maxX || W);
+    const histPanelRenderHeight = Math.max(H, histPanelCartesianPlan?.contentEnvelope?.maxY || H);
     ensureGraphViewport(svg, {
       padding: Math.max(fs, 14),
       debugLabel: 'hist-panel-graph',
-      baseViewport: { width: W, height: H },
+      baseViewport: { width: histPanelRenderWidth, height: histPanelRenderHeight },
       preserveAspectRatio: 'xMidYMid meet',
       fitContent: false
     });
-    if(!(await checkpoint()) || !framePublication.commit()){
+    if(!(await checkpoint())){
       return { ok: false, frequencyModel };
     }
-    return { ok: true, frequencyModel, grid };
+    const measuredPanelViewport = histPanelContentViewport.measure?.() || histPanelContentViewport.getViewport?.() || null;
+    if(histPanelCartesianPlan && measuredPanelViewport){
+      histPanelCartesianPlan = Shared.cartesianLayout.planCartesianLayout({
+        owner: histPanelLayoutOwner,
+        userFrame: histPanelCartesianPlan.userFrame,
+        baselineMargins: histPanelCartesianPlan.baselineMargins,
+        requiredMargins: histPanelCartesianPlan.requiredMargins,
+        auxiliaryReserves: panelAuxiliaryReserves,
+        externalExtensions: {},
+        orientation: 'normal',
+        axisLengths: histPanelCartesianPlan.axisLengths,
+        axisFrameModel: histPanelCartesianPlan.axisFrameModel,
+        lock: histPanelCartesianPlan.lock,
+        minimumPlot: histPanelCartesianPlan.minimumPlot,
+        contentBounds: {
+          minX: measuredPanelViewport.minX,
+          minY: measuredPanelViewport.minY,
+          maxX: measuredPanelViewport.maxX,
+          maxY: measuredPanelViewport.maxY
+        },
+        rounding: { mode: 'none', precision: 6 }
+      });
+    }
+    const panelLayoutPublished = histPanelCartesianPlan
+      ? Shared.cartesianLayout?.publishCartesianLayout?.(state.svgBox, histPanelCartesianPlan, {
+           tabId: histPanelLayoutOwner.tabId,
+           component: 'hist',
+           generation: histPanelLayoutOwner.generation,
+           resizePhase: drawOptions?.resizePhase || null,
+           canCommit: () => execution?.isCurrent?.() !== false
+            && (!drawSession || isHistSessionActiveForModuleState(drawSession)),
+          projectionTarget: svg,
+          commitFrame: () => framePublication.commit(),
+          commitPresentation: () => histPanelContentViewport.commit()
+        })
+      : false;
+    if(histPanelCartesianPlan && !panelLayoutPublished){
+      return { ok: false, frequencyModel };
+    }
+    if(!histPanelCartesianPlan){
+      if(!framePublication.commit()) return { ok: false, frequencyModel };
+      histPanelContentViewport.commit();
+    }
+    return { ok: true, frequencyModel, grid, panelTracks };
     }finally{
       framePublication?.cleanup?.();
     }
@@ -8452,7 +8591,7 @@
     const viewContext = resolveHistViewContext();
     const execution = Shared.jobs?.createExecutionContext?.({
       component: 'hist',
-      tabId: drawSession?.tabId || getHistProjectionTabId() || null,
+      tabId: drawSession?.tabId || options?.tabId || null,
       kind: 'graph',
       budgetMs: 10,
       drawOptions: options
@@ -8660,6 +8799,7 @@
     }
     if(panelDisplayActive){
       const panelResult = await drawHistPanelLayout({
+        drawOptions: options,
         plotEl,
         drawSession,
         seriesEntries,
@@ -8733,7 +8873,7 @@
       frame: svg,
       publishedId: 'histSvg',
       component: 'hist',
-      tabId: drawSession?.tabId || getHistProjectionTabId() || null,
+      tabId: execution?.tabId || drawSession?.tabId || options?.tabId || null,
       canCommit: () => execution?.isCurrent?.() !== false
         && (!drawSession || isHistSessionActiveForModuleState(drawSession))
     });
@@ -8792,25 +8932,29 @@
     const legendRenderer = legendVisible && legendLayout?.renderer
       ? legendLayout.renderer
       : { entries: [], width: 0, height: 0, draw(){ return null; } };
-    const legendViewport = chartStyle.stageLegendViewport({
-      svgBox: state.svgBox,
-      plot: plotEl,
-      svg,
-      baseWidth,
-      baseHeight: H,
-      legendWidth
+    let cartesianMarginRequirements = chartStyle.computeCartesianMarginRequirements({
+      fontSize: fs,
+      legendWidth: 0,
+      maxYLabelWidth: 0,
+      hasYTitle,
+      axisMetrics,
+      xTickLabels: [],
+      xTickMeasureFont
     });
-    W = legendViewport.width;
-    let margin=stabilizeHistMarginForAxisResize(
-      chartStyle.computeBaseMargins({fontSize:fs,legendWidth,maxYLabelWidth:0,hasYTitle,axisMetrics})
-    );
+    let margin = { ...cartesianMarginRequirements.baselineMargins };
+    let requiredMargins = { ...cartesianMarginRequirements.requiredMargins };
     let plotW=Math.max(20,W-margin.left-margin.right);
     let plotH=Math.max(20,H-margin.top-margin.bottom);
-    let bottomLayout=chartStyle.computeBottomLayout({labels:[],fontSize:fs,labelMeasureFont:xTickMeasureFont,plotWidth:plotW,baseBottom:margin.bottom,axisMetrics});
-    margin.bottom=bottomLayout.bottom;
-    margin=stabilizeHistMarginForAxisResize(margin);
-    plotW=Math.max(20,W-margin.left-margin.right);
-    plotH=Math.max(20,H-margin.top-margin.bottom);
+    let bottomLayout=chartStyle.computeBottomLayout({
+      labels:[],
+      fontSize:fs,
+      labelMeasureFont:xTickMeasureFont,
+      plotWidth:plotW,
+      baseBottom:margin.bottom,
+      axisMetrics,
+      preservePlotRail:true
+    });
+    requiredMargins.bottom = Math.max(requiredMargins.bottom, bottomLayout.requiredBottom || margin.bottom);
     const buildXAxisScale = () => buildAxisScale({
       dataMin: xMin,
       dataMax: xMax,
@@ -8987,16 +9131,29 @@
       yTickLabels=yScale.ticks.map(t=>formatTickY(logY?Math.pow(10,t):t));
       const yLabelWidths=yTickLabels.map(lbl=>chartStyle.measureText(lbl,tickFont));
       maxYLabelWidth=Math.max(...yLabelWidths,0);
-      margin=stabilizeHistMarginForAxisResize(
-        chartStyle.computeBaseMargins({fontSize:fs,legendWidth,maxYLabelWidth,hasYTitle,axisMetrics,xTickLabels,xTickMeasureFont})
-      );
+      cartesianMarginRequirements=chartStyle.computeCartesianMarginRequirements({
+        fontSize:fs,
+        legendWidth:0,
+        maxYLabelWidth,
+        hasYTitle,
+        axisMetrics,
+        xTickLabels,
+        xTickMeasureFont
+      });
+      margin={ ...cartesianMarginRequirements.baselineMargins };
+      requiredMargins={ ...cartesianMarginRequirements.requiredMargins };
       plotW=Math.max(20,W-margin.left-margin.right);
       plotH=Math.max(20,H-margin.top-margin.bottom);
-      bottomLayout=chartStyle.computeBottomLayout({labels:xTickLabels,fontSize:fs,labelMeasureFont:xTickMeasureFont,plotWidth:plotW,baseBottom:margin.bottom,axisMetrics});
-      margin.bottom=bottomLayout.bottom;
-      margin=stabilizeHistMarginForAxisResize(margin);
-      plotW=Math.max(20,W-margin.left-margin.right);
-      plotH=Math.max(20,H-margin.top-margin.bottom);
+      bottomLayout=chartStyle.computeBottomLayout({
+        labels:xTickLabels,
+        fontSize:fs,
+        labelMeasureFont:xTickMeasureFont,
+        plotWidth:plotW,
+        baseBottom:margin.bottom,
+        axisMetrics,
+        preservePlotRail:true
+      });
+      requiredMargins.bottom=Math.max(requiredMargins.bottom,bottomLayout.requiredBottom || margin.bottom);
       const refinedX=chartStyle.estimateTickCount(plotW,{axis:'x',fallback:xTickTarget});
       const refinedY=chartStyle.estimateTickCount(plotH,{axis:'y',fallback:yTickTarget});
       histDebug('Debug: hist tick target evaluation',{pass,plotW,plotH,xTickTarget,refinedX,yTickTarget,refinedY,maxYLabelWidth,bins,binWidth});
@@ -9007,7 +9164,65 @@
       xTickTarget=refinedX;
       yTickTarget=refinedY;
     }
-    histDebug('Debug: hist layout',{margin,plotW,plotH,rotate:bottomLayout.shouldRotate,xTickTarget,yTickTarget,binWidth});
+    const histLayoutOwner = {
+      tabId: execution?.tabId || drawSession?.tabId || options?.tabId || null,
+      component: 'hist',
+      generation: Number(execution?.owner?.sessionGeneration) || null
+    };
+    const histAspectData = state.svgBox?.dataset || {};
+    const histCartesianTransaction = histAspectData.resizerAspectLocked === 'true'
+      ? state.svgBox?.__sharedResizableBoxApi?.getCartesianLayoutTransaction?.({ resizePhase: options?.resizePhase })
+      : null;
+    const lockedHistGeometry = histAspectData.resizerAspectLocked === 'true'
+      ? Shared.cartesianLayout?.resolveLockedRenderGeometry?.({
+          userFrame: { width: W, height: H },
+          transaction: histCartesianTransaction
+        })
+      : null;
+    if(lockedHistGeometry?.valid === true){
+      margin = { ...lockedHistGeometry.margins };
+      plotW = lockedHistGeometry.plotRect.width;
+      plotH = lockedHistGeometry.plotRect.height;
+    }
+    let histCartesianPlan = Shared.cartesianLayout?.planCartesianLayout?.({
+      owner: histLayoutOwner,
+      userFrame: { width: W, height: H },
+      baselineMargins: margin,
+      requiredMargins,
+      auxiliaryReserves: [],
+      externalExtensions: { right: legendWidth },
+      orientation: 'normal',
+      lock: {
+        enabled: histAspectData.resizerAspectLocked === 'true',
+        targetRatio: Number(histAspectData.resizerCartesianPlotRatio) || null,
+        drive: histAspectData.resizerLastAxis === 'x' ? 'width' : (histAspectData.resizerLastAxis === 'y' ? 'height' : 'both')
+      },
+      minimumPlot: { width: 20, height: 20 },
+      rounding: { mode: 'none', precision: 6 }
+    }) || null;
+    if(histCartesianPlan){
+      margin = {
+        left: histCartesianPlan.plotRect.x,
+        top: histCartesianPlan.plotRect.y,
+        right: W - histCartesianPlan.plotRect.x - histCartesianPlan.plotRect.width,
+        bottom: H - histCartesianPlan.plotRect.y - histCartesianPlan.plotRect.height
+      };
+      plotW = histCartesianPlan.plotRect.width;
+      plotH = histCartesianPlan.plotRect.height;
+    }
+    const histContentViewport = chartStyle.stageGraphContentViewport({
+      svgBox: state.svgBox,
+      plot: plotEl,
+      svg,
+      baseWidth: W,
+      baseHeight: H,
+      rightWidth: histCartesianPlan?.contentEnvelope?.extensionRight || legendWidth,
+      leftWidth: histCartesianPlan?.contentEnvelope?.extensionLeft || 0,
+      topHeight: histCartesianPlan?.contentEnvelope?.extensionTop || 0,
+      bottomHeight: histCartesianPlan?.contentEnvelope?.extensionBottom || 0,
+      legendWidth
+    });
+    histDebug('Debug: hist layout',{margin,requiredMargins,plotW,plotH,rotate:bottomLayout.shouldRotate,xTickTarget,yTickTarget,binWidth,envelope:histCartesianPlan?.contentEnvelope || null});
     const showGrid=!!controls.showGrid;
     const showFrame=!!controls.showFrame;
     histDebug('Debug: hist showFrame state',{showFrame});
@@ -9489,13 +9704,23 @@
     if(legendVisible && legendRenderer.entries.length){
       const plotRight = margin.left + plotW;
       const legendPos = state.labelPositions?.legend;
-      const resolvedLegendPos = legendPos?.relX !== undefined && legendPos?.relY !== undefined
-        ? { x: plotRight + legendPos.relX * Math.max(legendGapPx, 1), y: margin.top + legendPos.relY * plotH }
-        : (legendPos?.x !== undefined && legendPos?.y !== undefined ? { x: legendPos.x, y: legendPos.y } : { x: plotRight + legendGapPx, y: margin.top });
+      const legendPosition = chartStyle.resolveLegendPosition(legendPos, {
+        defaultX: W + legendGapPx,
+        defaultY: margin.top,
+        reserveOriginX: W,
+        reserveOriginY: margin.top,
+        reserveScaleX: Math.max(legendGapPx, 1),
+        reserveScaleY: plotH,
+        legacyOriginX: plotRight,
+        legacyOriginY: margin.top,
+        legacyScaleX: Math.max(legendGapPx, 1),
+        legacyScaleY: plotH
+      });
       const legendGroup = legendRenderer.draw(svg, {
-        ...resolvedLegendPos,
-        canonicalX: plotRight + legendGapPx,
-        canonicalY: margin.top
+        x: legendPosition.x,
+        y: legendPosition.y,
+        canonicalX: legendPosition.canonicalX,
+        canonicalY: legendPosition.canonicalY
       });
       if(legendGroup){
         legendGroup.querySelectorAll('[data-legend-key]').forEach(node => {
@@ -9507,10 +9732,10 @@
         });
         Array.from(legendGroup.querySelectorAll('text')).forEach((node, index) => markFontEditable(node, 'legend', `legend-${index}`));
         bindHistLegendInteractions(legendGroup, svg, drawSession, {
-          plotRight,
-          marginTop: margin.top,
-          legendGapPx: Math.max(legendGapPx, 1),
-          plotHeight: Math.max(plotH, 1)
+          plotRight: legendPosition.originX,
+          marginTop: legendPosition.originY,
+          legendGapPx: legendPosition.scaleX,
+          plotHeight: legendPosition.scaleY
         });
       }
     }
@@ -9555,17 +9780,59 @@
       renderedStrokeWidth: minorTickStyle.strokeWidth
     });
     registerHistGridControlTarget(svg, { fallbackThickness: axisStrokeWidthBase });
+    const histRenderWidth = Math.max(W, histCartesianPlan?.contentEnvelope?.maxX || W);
+    const histRenderHeight = Math.max(H, histCartesianPlan?.contentEnvelope?.maxY || H);
     ensureGraphViewport(svg, {
       padding: Math.max(fs, 14),
       debugLabel: 'hist-graph',
-      baseViewport: { width: W, height: H },
+      baseViewport: { width: histRenderWidth, height: histRenderHeight },
       preserveAspectRatio: 'xMidYMid meet',
       fitContent: false
     });
-    if(!(await checkpoint()) || !framePublication.commit()){
+    if(!(await checkpoint())){
       return false;
     }
-    legendViewport.commit();
+    const measuredHistViewport = histContentViewport.measure?.() || histContentViewport.getViewport?.() || null;
+    if(histCartesianPlan && measuredHistViewport){
+      histCartesianPlan = Shared.cartesianLayout.planCartesianLayout({
+        owner: histLayoutOwner,
+        userFrame: histCartesianPlan.userFrame,
+        baselineMargins: histCartesianPlan.baselineMargins,
+        requiredMargins: histCartesianPlan.requiredMargins,
+        auxiliaryReserves: [],
+        externalExtensions: { right: legendWidth },
+        orientation: 'normal',
+        lock: histCartesianPlan.lock,
+        minimumPlot: histCartesianPlan.minimumPlot,
+        contentBounds: {
+          minX: measuredHistViewport.minX,
+          minY: measuredHistViewport.minY,
+          maxX: measuredHistViewport.maxX,
+          maxY: measuredHistViewport.maxY
+        },
+        rounding: { mode: 'none', precision: 6 }
+      });
+    }
+    const histLayoutPublished = histCartesianPlan
+      ? Shared.cartesianLayout?.publishCartesianLayout?.(state.svgBox, histCartesianPlan, {
+           tabId: histLayoutOwner.tabId,
+           component: 'hist',
+           generation: histLayoutOwner.generation,
+           resizePhase: options?.resizePhase || null,
+           canCommit: () => execution?.isCurrent?.() !== false
+            && (!drawSession || isHistSessionActiveForModuleState(drawSession)),
+          projectionTarget: svg,
+          commitFrame: () => framePublication.commit(),
+          commitPresentation: () => histContentViewport.commit()
+        })
+      : false;
+    if(histCartesianPlan && !histLayoutPublished){
+      return false;
+    }
+    if(!histCartesianPlan){
+      if(!framePublication.commit()) return false;
+      histContentViewport.commit();
+    }
     state.layout?.syncPanels?.({ skipSchedule: true });
     syncHistAutoDrawNoticeWidth('draw');
     publishHistAnalysisResults(fitSets, frequencyModel, frequencySettings, alpha, viewContext, densityMode);
@@ -9692,6 +9959,7 @@
         histDebug('Debug: hist layout min width update', { value: state.minSvgWidth });
       },
       resizableBoxOptions: {
+        cartesianLayoutTransactionEnabled: true,
         onResize: phase => {
           const resizePhase = typeof phase === 'string' ? phase : '';
           histDebug('Debug: hist layout onResize schedule trigger', { phase: resizePhase || null });
@@ -9943,8 +10211,9 @@
   hist.captureRenderCache = function captureRenderCache(meta = {}){
     const owner = getHistRenderCacheOwner(meta, 'hist-render-cache-capture');
     if(!owner){ return null; }
-    const plot = getHistNodeById('histPlot');
-    const stats = getHistNodeById('histStatsResults');
+    const plot = getHistNodeById('histPlot', owner.tabId);
+    const stats = getHistNodeById('histStatsResults', owner.tabId);
+    captureHistStatsPanelModel(owner.results?.statsPanelModel || owner.state?.statsPanelModel || {}, owner);
     const plotCache = detachChildren(plot);
     const statsCache = detachChildren(stats);
     if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
@@ -10033,10 +10302,16 @@
     const owner = getHistRenderCacheOwner(meta, 'hist-render-cache-restore');
     if(!owner){ return false; }
     const graphCachePayload = cache?.[cache?.__graphitixRenderCache?.graphicKey] || cache?.plot || cache?.preview || cache?.graph || cache?.svg || cache?.stage;
-    const plot = getHistNodeById('histPlot');
-    const stats = getHistNodeById('histStatsResults');
+    const plot = getHistNodeById('histPlot', owner.tabId);
+    const stats = getHistNodeById('histStatsResults', owner.tabId);
     const restoredPlot = restoreChildren(plot, graphCachePayload);
-    const restoredStats = restoreChildren(stats, cache.stats);
+    const durableStatsModel = normalizeHistStatsPanelModel(owner.results?.statsPanelModel || owner.state?.statsPanelModel || {});
+    let restoredStats = true;
+    if(histStatsPanelModelHasContent(durableStatsModel)){
+      restoredStats = restoreHistStatsPanelModel(durableStatsModel, owner);
+    }else if(cache.stats){
+      restoredStats = restoreChildren(stats, cache.stats);
+    }
     if(restoredPlot){
       chartStyle.rehydrateLegendViewports?.(plot);
       const svg = plot?.querySelector?.('#histSvg') || null;
@@ -10063,6 +10338,16 @@
   };
 
   hist.__testHooks = Object.assign({}, hist.__testHooks, {
+    getSession: tabLike => getHistSession(tabLike || getHistProjectionTabId() || null, { reason: 'hist-test-session' }, { create: false }),
+    captureStatsPanelForOwner: tabLike => {
+      const session = getHistSession(tabLike || getHistProjectionTabId() || null, { reason: 'hist-test-stats-capture' }, { create: false });
+      return session ? cloneSimple(captureHistStatsPanelModel(null, session)) : null;
+    },
+    restoreStatsPanelForOwner: tabLike => {
+      const session = getHistSession(tabLike || getHistProjectionTabId() || null, { reason: 'hist-test-stats-restore' }, { create: false });
+      const model = session?.results?.statsPanelModel || session?.state?.statsPanelModel || null;
+      return session ? restoreHistStatsPanelModel(model, session) : false;
+    },
     computeSummary: values => computeHistSummary(values),
     computeNormalFitDiagnostic: (values, options = {}) => computeHistNormalFitDiagnostic(values, options || {}),
     computeLognormalComparison: values => computeHistLognormalComparison(values),

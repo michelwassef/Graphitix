@@ -73,6 +73,7 @@ test('toolbar overflow keeps General and Data controls in one scrollable owner r
   const generalSectionId = initial.sectionId;
   await next.click();
   await expect.poll(async () => (await activeRailState(page)).scrollLeft).toBeGreaterThan(0);
+  await expect.poll(async () => (await activeRailState(page)).previousVisible).toBe(true);
   const scrolledGeneral = await activeRailState(page);
   expect(scrolledGeneral.sectionId).toBe(generalSectionId);
   expect(scrolledGeneral.previousVisible).toBe(true);

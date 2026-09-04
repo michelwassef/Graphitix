@@ -63,7 +63,7 @@ async function runScenario(page, type) {
     // Clear any auto-written snapshot and force a fresh dirty revision so the explicit write
     // exercises the real gate.
     await new Promise((resolve) => {
-      const req = window.indexedDB.open('graphitix-document-state', 1);
+      const req = window.indexedDB.open('graphitix-document-state', 2);
       req.onupgradeneeded = () => { const db = req.result; if (!db.objectStoreNames.contains('snapshots')) db.createObjectStore('snapshots'); };
       req.onsuccess = () => { try { const tx = req.result.transaction('snapshots', 'readwrite'); tx.objectStore('snapshots').delete('active-recovery'); tx.oncomplete = () => resolve(); tx.onerror = () => resolve(); } catch (e) { resolve(); } };
       req.onerror = () => resolve();
@@ -73,7 +73,7 @@ async function runScenario(page, type) {
     const writeResult = await window.Main.documentState.writeRecoverySnapshot('recovery-interval');
 
     const snapMeta = await new Promise((resolve) => {
-      const req = window.indexedDB.open('graphitix-document-state', 1);
+      const req = window.indexedDB.open('graphitix-document-state', 2);
       req.onsuccess = () => { try { const tx = req.result.transaction('snapshots', 'readonly'); const g = tx.objectStore('snapshots').get('active-recovery'); g.onsuccess = () => resolve(g.result ? g.result.meta : null); g.onerror = () => resolve(null); } catch (e) { resolve(null); } };
       req.onerror = () => resolve(null);
     });

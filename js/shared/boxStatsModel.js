@@ -2877,7 +2877,7 @@
     return clamped;
   }
   function logGammaLanczos(value){
-    const coefficients=[676.5203681218851,-1259.1392167224028,771.32342877765313,-176.61502916214059,12.507343278686905,-0.13857109526572012,9.984369578019571e-6,1.5056327351493116e-7];
+    const coefficients=[676.5203681218851,-1259.1392167224028,771.323428777653,-176.61502916214059,12.507343278686905,-0.13857109526572012,9.98436957801957e-6,1.5056327351493116e-7];
     if(value<0.5){
       return Math.log(Math.PI)-Math.log(Math.sin(Math.PI*value))-logGammaLanczos(1-value);
     }
@@ -5482,7 +5482,6 @@
           effectNonParametric: formattedNonParamEffect
         });
       });
-      const m = pairs.length;
       const comparisonCorrection = resolveEffectiveComparisonCorrection(pairs.map(pr => pr.p), payload.statsCorrection);
       comparisonCorrection.adjustedValues.forEach((adj, idx) => {
         if(pairs[idx]){

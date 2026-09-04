@@ -292,6 +292,32 @@ describe('Heatmap dendrogram and dense projection geometry', () => {
     expect(preview.firstElementChild?.getAttribute('transform')).toBe('matrix(4,0,0,2,0,0)');
   });
 
+  test('tab preview normalizes meet-aligned data coordinates to the rendered panel', () => {
+    const svgBox = document.createElement('div');
+    svgBox.className = 'svgbox';
+    svgBox.dataset.resizerWidth = '400';
+    svgBox.dataset.resizerHeight = '200';
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('viewBox', '-10 -20 100 100');
+    svg.setAttribute('preserveAspectRatio', 'xMinYMid meet');
+    const dendrogram = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    dendrogram.setAttribute('class', 'heatmap-dendrogram');
+    dendrogram.setAttribute('stroke-width', '2');
+    dendrogram.setAttribute('vector-effect', 'non-scaling-stroke');
+    dendrogram.appendChild(document.createElementNS('http://www.w3.org/2000/svg', 'path'));
+    svg.appendChild(dendrogram);
+    svgBox.appendChild(svg);
+    document.body.appendChild(svgBox);
+
+    const preview = window.Components.heatmap.__testHooks.buildPreviewSvgFromSource(svg, {
+      ownerTabId: 'heatmap-meet-preview-owner'
+    });
+
+    expect(preview.getAttribute('viewBox')).toBe('0 0 400 200');
+    expect(preview.getAttribute('preserveAspectRatio')).toBe('none');
+    expect(preview.firstElementChild?.getAttribute('transform')).toBe('matrix(2,0,0,2,20,40)');
+  });
+
 
   test('heavy export restores every sampled label with the live aspect projection', () => {
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');

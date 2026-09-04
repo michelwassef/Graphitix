@@ -725,6 +725,7 @@
       originY: Number.isFinite(Number(options.originY)) ? options.originY : Number(legend.dataset.lineLegendOriginY),
       scaleX: Number.isFinite(Number(options.scaleX)) ? options.scaleX : Number(legend.dataset.lineLegendScaleX),
       scaleY: Number.isFinite(Number(options.scaleY)) ? options.scaleY : Number(legend.dataset.lineLegendScaleY),
+      positionAnchor: chartStyle.LEGEND_POSITION_ANCHOR,
       undoLabel: `line-legend-${legend.dataset.lineLegendMode}`,
       onCommit: (position, boundOwner) => {
         const dragOwner = resolveLineStateSession(boundOwner || getLineActiveSessionForState());
@@ -4556,15 +4557,25 @@
     return null;
   }
 
-  function setActiveLineLayoutManager(layout){
+  function setLineSessionLayoutManager(session = null, layout = null){
     const nextLayout = layout || null;
-    const session = getLineActiveSessionForState();
     const shaped = ensureLineSessionOwnershipShape(session);
     if(shaped){
       shaped.managers.layout = nextLayout;
       shaped.updatedAt = Date.now();
     }
     return nextLayout;
+  }
+
+  function bindLineLayoutManagerForSession(session){
+    const shaped = ensureLineSessionOwnershipShape(session);
+    if(!shaped){ return null; }
+    const ownedLayout = Shared.componentLayout?.getOwnedLayoutFor?.('line', { tabId: shaped.tabId }) || null;
+    return setLineSessionLayoutManager(shaped, ownedLayout);
+  }
+
+  function setActiveLineLayoutManager(layout){
+    return setLineSessionLayoutManager(getLineActiveSessionForState(), layout);
   }
 
   function getLineSessionHotManager(session = null, options = {}){
@@ -4647,7 +4658,12 @@
     if(!session || typeof session !== 'object' || !String(session.tabId || '').trim()){
       return false;
     }
-    return Shared.componentLifecycle?.canOwnerUseLiveProjection?.('line', session, {
+    const canUseLiveProjection = Shared.componentLifecycle?.canOwnerUseLiveProjection;
+    if(typeof canUseLiveProjection !== 'function'){
+      return projectedLineSession === session
+        && (!line.__boundTabId || String(line.__boundTabId) === String(session.tabId));
+    }
+    return canUseLiveProjection('line', session, {
       component: line,
       projectedSession: projectedLineSession,
       session,
@@ -5493,13 +5509,13 @@
     if(!session){
       return null;
     }
+    bindLineLayoutManagerForSession(session);
     const sessionIsActive = isLineSessionActive(session);
     if(sessionIsActive){
       setLineSessionRefs(session, refs, { applyActive: false });
       session.managers.hot = getActiveLineHotManager() || session.managers.hot || null;
       session.managers.dataViews = getActiveLineDataViewsManager() || session.managers.dataViews || null;
       session.managers.autoDraw = getActiveLineAutoDrawManager() || session.managers.autoDraw || null;
-      session.managers.layout = getActiveLineLayoutManager() || session.managers.layout || null;
       setLineSessionDrawSchedulers(session, {
         drawScheduler: getLineSessionDrawScheduler(session, { allowFallback: false }) || getLineFallbackDrawScheduler(),
         rawDrawScheduler: getLineSessionDrawScheduler(session, { raw: true, allowFallback: false }) || getLineFallbackDrawScheduler({ raw: true })
@@ -5515,14 +5531,16 @@
     if(!session){
       return false;
     }
+    bindLineLayoutManagerForSession(session);
     const managers = session.managers;
-    setActiveLineHotManager(managers.hot || null);
-    setActiveLineDataViewsManager(managers.dataViews || null);
-    const autoDrawManager = setActiveLineAutoDrawManager(managers.autoDraw || null);
-    if(autoDrawManager && autoDrawManager.state !== getLineAutoDrawState()){
-      autoDrawManager.state = getLineAutoDrawState();
+    setLineSessionHotManager(session, managers.hot || null, { applyActive: true });
+    setLineSessionDataViewsManager(session, managers.dataViews || null);
+    const autoDrawManager = setLineSessionAutoDrawManager(session, managers.autoDraw || null);
+    const ownerAutoDrawState = getLineAutoDrawState(session);
+    if(autoDrawManager && autoDrawManager.state !== ownerAutoDrawState){
+      autoDrawManager.state = ownerAutoDrawState;
     }
-    setActiveLineLayoutManager(managers.layout || null);
+    setLineSessionLayoutManager(session, managers.layout || null);
     const timers = session.timers && typeof session.timers === 'object' ? session.timers : {};
     const canMirrorSchedulerFallback = !line.__boundTabId;
     if(canMirrorSchedulerFallback && typeof timers.rawDrawScheduler === 'function' && !isLineDrawSchedulerWrapper(timers.rawDrawScheduler)){
@@ -5557,7 +5575,7 @@
     const autoDrawSnapshot = cloneLineRuntimeValue(getLineAutoDrawState(canonicalSession), createDefaultLineAutoDrawState()) || createDefaultLineAutoDrawState();
     autoDrawSnapshot.drawPending = false;
     const panelModelSnapshot = canReadActiveControls
-      ? captureLineStatsPanelModel(getLineStatsState(canonicalSession)?.panelModel || null)
+      ? captureLineStatsPanelModel(getLineStatsState(canonicalSession)?.panelModel || null, { session: canonicalSession })
       : normalizeLineStatsPanelModel(getLineStatsState(canonicalSession)?.panelModel || null);
     const statsStateSnapshot = normalizeLineOwnedStatsState({
       ...getLineStatsState(canonicalSession),
@@ -5813,6 +5831,7 @@
     }
     projectedLineSession = session;
     line.__lineSessionTabId = targetTabId;
+    bindLineLayoutManagerForSession(session);
     applyLineSessionEphemera(session);
     applyLineCanonicalStateToGlobals(session.state, { ...(meta || {}), tabId: targetTabId }, { syncControls: options.syncControls === true && line.ready === true });
     return session;
@@ -7767,7 +7786,10 @@
             const color = toColorInputValue(colorInput.value);
             const thickness = Math.max(0, Number(thicknessInput.value) || 0);
             styleChipPreview.style.background = color;
-            styleChipValue.textContent = `${Math.round(thickness * 10) / 10}px`;
+            const formatted = toolbarApi?.formatPxDisplayValue?.(thickness, thicknessInput.step)
+              || toolbarApi?.formatNumericValue?.(thickness, thicknessInput.step, { maxPrecision: 2 })
+              || String(Math.round(thickness * 100) / 100);
+            styleChipValue.textContent = `${formatted}px`;
           };
           const syncOverlayInputs = () => {
             const normalizedScope = normalizeLineOverlayToolbarScope(scopeSelect.value || lineOverlayToolbarScope);
@@ -14133,7 +14155,7 @@
           frame: svg3,
           publishedId: 'lineSvg',
           component: 'line',
-          tabId: invocation.session?.tabId || getLineProjectionTabId() || null,
+          tabId: execution?.tabId || invocation.session?.tabId || drawOpts?.tabId || null,
           canCommit: () => execution?.isCurrent?.() !== false
             && (!invocation.session || isLineSessionActive(invocation.session))
         });
@@ -14568,40 +14590,37 @@
 
       const legendRenderer = legendLayout.renderer;
       if(showLegend && legendRenderer.entries.length){
-        const defaultLegendX = margin3.left + plotW3 + legendGapFor3d + appliedLegendAxisGap;
         const defaultLegendY = margin3.top + legendRenderer.baselineOffset;
         const legendPos = lineLabelsState.positions?.legend;
-
-        // Convert relative positions to absolute if needed for 3D legend
-        let absoluteLegendX = defaultLegendX;
-        let absoluteLegendY = defaultLegendY;
-        if (legendPos) {
-          if (legendPos.relX !== undefined && legendPos.relY !== undefined) {
-            // Use relative positioning
-            absoluteLegendX = margin3.left + plotW3 + legendPos.relX * legendGapFor3d;
-            absoluteLegendY = margin3.top + legendPos.relY * plotH3;
-          } else if (legendPos.x !== undefined && legendPos.y !== undefined) {
-            // Use saved absolute positioning when no relative anchor is present
-            absoluteLegendX = legendPos.x;
-            absoluteLegendY = legendPos.y;
-          }
-        }
+        const legacyLegendOriginX = margin3.left + plotW3;
+        const legendPosition = chartStyle.resolveLegendPosition(legendPos, {
+          defaultX: baseW3 + appliedLegendAxisGap + legendGapFor3d,
+          defaultY: defaultLegendY,
+          reserveOriginX: baseW3 + appliedLegendAxisGap,
+          reserveOriginY: margin3.top,
+          reserveScaleX: legendGapFor3d,
+          reserveScaleY: plotH3,
+          legacyOriginX: legacyLegendOriginX,
+          legacyOriginY: margin3.top,
+          legacyScaleX: legendGapFor3d,
+          legacyScaleY: plotH3
+        });
 
         const legendGroup = legendRenderer.draw(svg3,{
-          x: absoluteLegendX,
-          y: absoluteLegendY,
-          canonicalX: defaultLegendX,
-          canonicalY: defaultLegendY
+          x: legendPosition.x,
+          y: legendPosition.y,
+          canonicalX: legendPosition.canonicalX,
+          canonicalY: legendPosition.canonicalY
         });
         if(legendGroup){
           legendGroup.setAttribute('data-layer', 'line-3d-legend');
           plot3d.applyLegendPointerGuards(legendGroup, { label: 'line-legend-3d' });
           bindLineLegendInteractions(legendGroup, svg3, invocation.session, {
             mode: '3d',
-            originX: margin3.left + plotW3,
-            originY: margin3.top,
-            scaleX: legendGapFor3d,
-            scaleY: plotH3
+            originX: legendPosition.originX,
+            originY: legendPosition.originY,
+            scaleX: legendPosition.scaleX,
+            scaleY: legendPosition.scaleY
           });
           const textNodes = legendGroup.querySelectorAll('text');
           legendRenderer.entries.forEach((legendEntry, idx) => {
@@ -14819,6 +14838,11 @@
       const lineThemeState = getLineThemeState(invocation.session);
       const lineStylesState = getLineStylesState(invocation.session);
       if(controls.viewMode === '3d' || controls.tableFormat === '3d'){
+        Shared.cartesianLayout?.clearPublishedLayout?.(refs.svgBox, {
+          tabId: execution?.tabId || invocation.session?.tabId || drawOpts?.tabId || null,
+          component: 'line',
+          generation: Number(execution?.owner?.sessionGeneration) || null
+        });
         return await drawLine3d(invocation.session, drawOpts);
       }
       clearLine3dRotationRenderer(invocation.session, { clearModel: true });
@@ -15280,8 +15304,7 @@
       plotEl.style.display='block';
       const baseWidth=Math.max(50,Math.floor(drawableFrame.width||50));
       const H=Math.max(40,Math.floor(drawableFrame.height||40));
-      const legendViewport=chartStyle.computeLegendViewport({ baseWidth, baseHeight:H, legendWidth });
-      const W=legendViewport.width;
+      const W=baseWidth;
       plotEl.style.position='relative';
       const svg=document.createElementNS(NS,'svg');
       svg.setAttribute('width',String(W));
@@ -15310,7 +15333,7 @@
         frame: svg,
         publishedId: 'lineSvg',
         component: 'line',
-        tabId: invocation.session?.tabId || getLineProjectionTabId() || null,
+        tabId: execution?.tabId || invocation.session?.tabId || drawOpts?.tabId || null,
         canCommit: () => execution?.isCurrent?.() !== false
           && (!invocation.session || isLineSessionActive(invocation.session))
       });
@@ -15362,18 +15385,32 @@
       const xMajorTickLength = getLineAxisMajorTickLength('x') ?? tickLen;
       const yMajorTickLength = getLineAxisMajorTickLength('y') ?? tickLen;
       const tickGap=axisMetrics.tickLabelGap;
-      let margin=stabilizeLineMarginForAxisResize(
-        chartStyle.computeBaseMargins({fontSize:fs,legendWidth,maxYLabelWidth:0,hasYTitle,axisMetrics}),
-        { commitBaseline: false }
-      );
+      let cartesianMarginRequirements=chartStyle.computeCartesianMarginRequirements({
+        fontSize:fs,
+        maxYLabelWidth:0,
+        hasYTitle,
+        axisMetrics,
+        xTickLabels:[],
+        xTickMeasureFont
+      });
+      let margin={ ...cartesianMarginRequirements.baselineMargins };
       margin.left=Math.max(margin.left,fs*0.5);
       let plotW=Math.max(20,W-margin.left-margin.right);
       let plotH=Math.max(20,H-margin.top-margin.bottom);
-      let bottomLayout=chartStyle.computeBottomLayout({labels:[],fontSize:fs,labelMeasureFont:xTickMeasureFont,plotWidth:plotW,baseBottom:margin.bottom,axisMetrics});
-      margin.bottom=bottomLayout.bottom;
-      margin=stabilizeLineMarginForAxisResize(margin, { commitBaseline: false });
-      plotW=Math.max(20,W-margin.left-margin.right);
-      plotH=Math.max(20,H-margin.top-margin.bottom);
+      let bottomLayout=chartStyle.computeBottomLayout({
+        labels:[],
+        fontSize:fs,
+        labelMeasureFont:xTickMeasureFont,
+        plotWidth:plotW,
+        baseBottom:margin.bottom,
+        axisMetrics,
+        preservePlotRail:true
+      });
+      let requiredMargins={
+        ...cartesianMarginRequirements.requiredMargins,
+        left: Math.max(cartesianMarginRequirements.requiredMargins.left, margin.left),
+        bottom: Math.max(cartesianMarginRequirements.requiredMargins.bottom, bottomLayout.requiredBottom || margin.bottom)
+      };
       let manualXMinValue = Number.isFinite(xMinManual) && (!logX || xMinManual > 0) ? (logX ? Math.log10(xMinManual) : xMinManual) : null;
       let manualXMaxValue = Number.isFinite(xMaxManual) && (!logX || xMaxManual > 0) ? (logX ? Math.log10(xMaxManual) : xMaxManual) : null;
       let manualYMinValue = Number.isFinite(yMinManual) && (!logY || yMinManual > 0) ? (logY ? Math.log10(yMinManual) : yMinManual) : null;
@@ -15465,18 +15502,32 @@
         maxYLabelWidth=Math.max(...yLabelWidths,0);
         const xLabelWidths=xTickLabels.map(lbl=>chartStyle.measureText(lbl,xTickMeasureFont));
         maxXLabelWidth=Math.max(...xLabelWidths,0);
-        margin=stabilizeLineMarginForAxisResize(
-          chartStyle.computeBaseMargins({fontSize:fs,legendWidth,maxYLabelWidth,hasYTitle,axisMetrics,xTickLabels,xTickMeasureFont}),
-          { commitBaseline: false }
-        );
-        margin.left=Math.max(margin.left,maxYLabelWidth+yMajorTickLength+tickGap+fs*0.5);
+        cartesianMarginRequirements=chartStyle.computeCartesianMarginRequirements({
+          fontSize:fs,
+          maxYLabelWidth,
+          hasYTitle,
+          axisMetrics,
+          xTickLabels,
+          xTickMeasureFont
+        });
+        margin={ ...cartesianMarginRequirements.baselineMargins };
+        margin.left=Math.max(margin.left,fs*0.5);
         plotW=Math.max(20,W-margin.left-margin.right);
         plotH=Math.max(20,H-margin.top-margin.bottom);
-        bottomLayout=chartStyle.computeBottomLayout({labels:xTickLabels,fontSize:fs,labelMeasureFont:xTickMeasureFont,plotWidth:plotW,baseBottom:margin.bottom,axisMetrics});
-        margin.bottom=bottomLayout.bottom;
-        margin=stabilizeLineMarginForAxisResize(margin, { commitBaseline: false });
-        plotW=Math.max(20,W-margin.left-margin.right);
-        plotH=Math.max(20,H-margin.top-margin.bottom);
+        bottomLayout=chartStyle.computeBottomLayout({
+          labels:xTickLabels,
+          fontSize:fs,
+          labelMeasureFont:xTickMeasureFont,
+          plotWidth:plotW,
+          baseBottom:margin.bottom,
+          axisMetrics,
+          preservePlotRail:true
+        });
+        requiredMargins={
+          ...cartesianMarginRequirements.requiredMargins,
+          left: Math.max(cartesianMarginRequirements.requiredMargins.left, maxYLabelWidth+yMajorTickLength+tickGap+fs*0.5),
+          bottom: Math.max(cartesianMarginRequirements.requiredMargins.bottom, bottomLayout.requiredBottom || margin.bottom)
+        };
         const refinedX=chartStyle.estimateTickCount(plotW,{axis:'x',fallback:xTickTarget});
         const refinedY=chartStyle.estimateTickCount(plotH,{axis:'y',fallback:yTickTarget});
         console.debug('Debug: line tick target evaluation',{pass,plotW,plotH,xTickTarget,refinedX,yTickTarget,refinedY,maxXLabelWidth,maxYLabelWidth});
@@ -15486,73 +15537,95 @@
         xTickTarget=refinedX;
         yTickTarget=refinedY;
       }
-      margin=stabilizeLineMarginForAxisResize(margin);
       plotW=Math.max(20,W-margin.left-margin.right);
       plotH=Math.max(20,H-margin.top-margin.bottom);
       console.debug('Debug: line layout',{margin,plotW,plotH,rotate:bottomLayout.shouldRotate,xTickTarget,yTickTarget,maxXLabelWidth,maxYLabelWidth});
 
-      let aspectRightExtension = 0;
       const aspectData = (lineSvgBoxRef || refs.svgBox)?.dataset;
       const shouldLockAspect = aspectData?.resizerAspectLocked === 'true';
-      lineDebug('Debug: line aspect ratio decision',{
-        shouldEqualAxes,
-        shouldEqualScale,
-        varianceAxesEnabled: !!getLineViewState().axesVarianceScaled,
-        lockRatioEnabled: shouldLockAspect,
-        storedRatio: aspectData?.resizerAspectRatio
-      });
-      let varianceAspectApplied = false;
+      const cartesianTransaction = shouldLockAspect
+        ? (lineSvgBoxRef || refs.svgBox)?.__sharedResizableBoxApi?.getCartesianLayoutTransaction?.({
+            resizePhase: drawOpts?.resizePhase
+          })
+        : null;
+      const lockedCartesianGeometry = shouldLockAspect
+        ? Shared.cartesianLayout?.resolveLockedRenderGeometry?.({
+            userFrame: { width: W, height: H },
+            transaction: cartesianTransaction
+          })
+        : null;
+      if(lockedCartesianGeometry?.valid === true){
+        margin = { ...lockedCartesianGeometry.margins };
+        plotW = lockedCartesianGeometry.plotRect.width;
+        plotH = lockedCartesianGeometry.plotRect.height;
+      }
+      let plotConstraint = null;
       if(getLineViewState().axesVarianceScaled){
         const weightX = axisVarianceInfo?.weights?.x;
         const weightY = axisVarianceInfo?.weights?.y;
         if(Number.isFinite(weightX) && weightX > 0 && Number.isFinite(weightY) && weightY > 0){
-          const desiredAspect = weightX / weightY;
-          const baseInnerW = Math.max(20, W - margin.left - margin.right);
-          const baseInnerH = Math.max(20, H - margin.top - margin.bottom);
-          const baseSquareSize = Math.min(baseInnerW, baseInnerH);
-          const enforced = chartStyle.fitPlotAspectPreservingHeight(W, H, margin, desiredAspect);
-          margin = enforced.margin;
-          plotW = enforced.plotW;
-          plotH = enforced.plotH;
-          aspectRightExtension = enforced.rightExtension;
-          varianceAspectApplied = true;
-          lineDebug('Debug: line layout (variance-enforced)',{
-            desiredAspect,
-            appliedAspect: plotH > 0 ? plotW / plotH : null,
-            squareSize: baseSquareSize,
-            margin,
-            plotW,
-            plotH,
-            weights: axisVarianceInfo.weights
-          });
-        }else{
-          lineDebug('Debug: line variance aspect skipped',{ reason: 'insufficient-weights', weights: axisVarianceInfo?.weights });
+          plotConstraint = { type: 'ratio', ratio: weightX / weightY, fit: 'height-extend', anchor: 'left' };
         }
       }
-      if(!varianceAspectApplied){
-        if(shouldEqualAxes || shouldEqualScale){
-          const square=chartStyle.fitPlotAspectPreservingHeight(W,H,margin,1);
-          margin=square.margin;
-          plotW=square.plotW;
-          plotH=square.plotH;
-          aspectRightExtension=square.rightExtension;
-          lineDebug('Debug: line layout (equal-length)',{margin,plotW,plotH,rotate:bottomLayout.shouldRotate});
-        }else{
-          lineDebug('Debug: line layout (unlocked)',{margin,plotW,plotH,rotate:bottomLayout.shouldRotate});
-        }
+      if(!plotConstraint && (shouldEqualAxes || shouldEqualScale)){
+        plotConstraint = { type: 'ratio', ratio: 1, fit: 'height-extend', anchor: 'left' };
       }
-
-      const renderW = W + aspectRightExtension;
-      const renderH = H;
+      const lineOwnerGeneration = Number(execution?.owner?.sessionGeneration) || null;
+      const lineLayoutOwner = {
+        tabId: execution?.tabId || invocation.session?.tabId || drawOpts?.tabId || null,
+        component: 'line',
+        generation: lineOwnerGeneration
+      };
+      let lineCartesianPlan = Shared.cartesianLayout?.planCartesianLayout?.({
+        owner: lineLayoutOwner,
+        userFrame: { width: W, height: H },
+        baselineMargins: margin,
+        requiredMargins,
+        auxiliaryReserves: [],
+        externalExtensions: { right: legendWidth },
+        orientation: 'normal',
+        lock: {
+          enabled: shouldLockAspect,
+          targetRatio: Number(aspectData?.resizerCartesianPlotRatio) || null,
+          drive: aspectData?.resizerLastAxis === 'x' ? 'width' : (aspectData?.resizerLastAxis === 'y' ? 'height' : 'both')
+        },
+        plotConstraint,
+        minimumPlot: { width: 20, height: 20 },
+        rounding: { mode: 'none', precision: 6 }
+      }) || null;
+      if(lineCartesianPlan){
+        margin={
+          left: lineCartesianPlan.plotRect.x,
+          top: lineCartesianPlan.plotRect.y,
+          right: W-lineCartesianPlan.plotRect.x-lineCartesianPlan.plotRect.width,
+          bottom: H-lineCartesianPlan.plotRect.y-lineCartesianPlan.plotRect.height
+        };
+        plotW=lineCartesianPlan.plotRect.width;
+        plotH=lineCartesianPlan.plotRect.height;
+      }
+      lineDebug('Debug: line Cartesian layout',{
+        owner: lineLayoutOwner,
+        margin,
+        requiredMargins,
+        plotW,
+        plotH,
+        lockRatioEnabled: shouldLockAspect,
+        plotConstraint,
+        envelope: lineCartesianPlan?.contentEnvelope || null
+      });
+      const renderW = Math.max(W, lineCartesianPlan?.contentEnvelope?.maxX || W);
+      const renderH = Math.max(H, lineCartesianPlan?.contentEnvelope?.maxY || H);
       const legendProjection = chartStyle.stageGraphContentViewport({
         svgBox: refs.svgBox,
         plot: plotEl,
         svg,
-        baseWidth,
+        baseWidth: W,
         baseHeight: H,
-        rightWidth: legendWidth + aspectRightExtension,
-        legendWidth,
-        bottomHeight: 0
+        rightWidth: lineCartesianPlan?.contentEnvelope?.extensionRight || legendWidth,
+        leftWidth: lineCartesianPlan?.contentEnvelope?.extensionLeft || 0,
+        topHeight: lineCartesianPlan?.contentEnvelope?.extensionTop || 0,
+        bottomHeight: lineCartesianPlan?.contentEnvelope?.extensionBottom || 0,
+        legendWidth
       });
 
 
@@ -16689,38 +16762,35 @@
       }
       const legendRenderer=legendLayout.renderer;
       if(showLegend && legendRenderer.entries.length){
-        const defaultLegendX=margin.left+plotW+legendLayout.legendGapPx;
         const defaultLegendY=margin.top+legendRenderer.baselineOffset;
         const legendPos=lineLabelsState.positions?.legend;
-
-        // Convert relative positions to absolute if needed for legend
-        let absoluteLegendX = defaultLegendX;
-        let absoluteLegendY = defaultLegendY;
-        if (legendPos) {
-          if (legendPos.relX !== undefined && legendPos.relY !== undefined) {
-            // Use relative positioning
-            absoluteLegendX = margin.left + plotW + legendPos.relX * legendLayout.legendGapPx;
-            absoluteLegendY = margin.top + legendPos.relY * plotH;
-          } else if (legendPos.x !== undefined && legendPos.y !== undefined) {
-            // Use saved absolute positioning when no relative anchor is present
-            absoluteLegendX = legendPos.x;
-            absoluteLegendY = legendPos.y;
-          }
-        }
+        const plotRight = margin.left + plotW;
+        const legendPosition = chartStyle.resolveLegendPosition(legendPos, {
+          defaultX: W + legendLayout.legendGapPx,
+          defaultY: defaultLegendY,
+          reserveOriginX: W,
+          reserveOriginY: margin.top,
+          reserveScaleX: legendLayout.legendGapPx,
+          reserveScaleY: plotH,
+          legacyOriginX: plotRight,
+          legacyOriginY: margin.top,
+          legacyScaleX: legendLayout.legendGapPx,
+          legacyScaleY: plotH
+        });
 
         const legendGroup=legendRenderer.draw(svg,{
-          x: absoluteLegendX,
-          y: absoluteLegendY,
-          canonicalX: defaultLegendX,
-          canonicalY: defaultLegendY
+          x: legendPosition.x,
+          y: legendPosition.y,
+          canonicalX: legendPosition.canonicalX,
+          canonicalY: legendPosition.canonicalY
         });
         if(legendGroup){
           bindLineLegendInteractions(legendGroup, svg, invocation.session, {
             mode: '2d',
-            originX: margin.left + plotW,
-            originY: margin.top,
-            scaleX: legendLayout.legendGapPx,
-            scaleY: plotH
+            originX: legendPosition.originX,
+            originY: legendPosition.originY,
+            scaleX: legendPosition.scaleX,
+            scaleY: legendPosition.scaleY
           });
           const textNodes=legendGroup.querySelectorAll('text');
           legendRenderer.entries.forEach((entry,index)=>{
@@ -16878,26 +16948,58 @@
         renderedStrokeWidth: minorTickStyle.strokeWidth
       });
       registerLineGridControlTarget(svg, { fallbackThickness: axisStrokeWidthBase });
-      const lineResizeLockActive = (() => {
-        const data = (lineSvgBoxRef || refs.svgBox)?.dataset || null;
-        const axis = data?.resizerAxisViewportLockAxis;
-        const until = Number(data?.resizerAxisViewportLockUntil);
-        return (axis === 'x' || axis === 'y') && Number.isFinite(until) && Date.now() <= until;
-      })();
       ensureGraphViewport(svg, {
         padding: Math.max(fs, 16),
         debugLabel: 'line-graph',
         baseViewport: { width: renderW, height: renderH },
         fitContent: false,
-        remeasure: !lineResizeLockActive
+        remeasure: true
       });
       if(!(await checkpoint()) || (invocation.session && !isLineSessionActive(invocation.session))){
         return false;
       }
-      if(!svgPublication.commit()){
+      const measuredLineViewport = legendProjection.measure?.() || legendProjection.getViewport?.() || null;
+      if(lineCartesianPlan && measuredLineViewport){
+        lineCartesianPlan = Shared.cartesianLayout.planCartesianLayout({
+          owner: lineLayoutOwner,
+          userFrame: lineCartesianPlan.userFrame,
+          baselineMargins: lineCartesianPlan.baselineMargins,
+          requiredMargins: lineCartesianPlan.requiredMargins,
+          auxiliaryReserves: [],
+          externalExtensions: { right: legendWidth },
+          orientation: 'normal',
+          lock: lineCartesianPlan.lock,
+          plotConstraint,
+          minimumPlot: lineCartesianPlan.minimumPlot,
+          contentBounds: {
+            minX: measuredLineViewport.minX,
+            minY: measuredLineViewport.minY,
+            maxX: measuredLineViewport.maxX,
+            maxY: measuredLineViewport.maxY
+          },
+          rounding: { mode: 'none', precision: 6 }
+        });
+      }
+      const lineLayoutPublished = lineCartesianPlan
+        ? Shared.cartesianLayout?.publishCartesianLayout?.(refs.svgBox, lineCartesianPlan, {
+            tabId: lineLayoutOwner.tabId,
+            component: 'line',
+            generation: lineLayoutOwner.generation,
+            resizePhase: drawOpts?.resizePhase || null,
+            canCommit: () => execution?.isCurrent?.() !== false
+              && (!invocation.session || isLineSessionActive(invocation.session)),
+            projectionTarget: svg,
+            commitFrame: () => svgPublication.commit(),
+            commitPresentation: () => legendProjection.commit()
+          })
+        : false;
+      if(lineCartesianPlan && !lineLayoutPublished){
         return false;
       }
-      legendProjection.commit();
+      if(!lineCartesianPlan){
+        if(!svgPublication.commit()) return false;
+        legendProjection.commit();
+      }
       getActiveLineLayoutManager()?.syncPanels?.({ skipSchedule: true });
       scheduleLineNoticeWidth('draw');
       console.debug('Debug: drawLine complete',{debugStamp}); // Debug: draw exit
@@ -17425,6 +17527,14 @@
         console.debug('Debug: line layout min width update', { value: lineMinSvgWidth });
       },
         resizableBoxOptions: {
+          cartesianLayoutTransactionEnabled: () => {
+            const owner = getLineSession(targetTabId || null, {
+              tabId: targetTabId || null,
+              reason: 'line-cartesian-resizer-capability'
+            }, { create: false });
+            const ownerControls = owner ? getLineRuntimeControlsForSession(owner, lineFallbackRuntimeControls) : null;
+            return !!owner && ownerControls?.viewMode !== '3d' && ownerControls?.tableFormat !== '3d';
+          },
           onResize: (phase) => {
             const resizePhase = typeof phase === 'string' ? phase : '';
             const aspectLocked = refs.svgBox?.dataset?.resizerAspectLocked === 'true';

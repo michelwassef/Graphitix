@@ -132,7 +132,7 @@ describe('live projection ownership normalization', () => {
 
   test.each(componentFiles)('%s routes live module/DOM authority through the shared exact-projection gate', component => {
     const source = read(`js/components/${component}.js`);
-    expect(source).toContain(`canOwnerUseLiveProjection?.('${component}'`);
+    expect(source).toMatch(new RegExp(`(?:canOwnerUseLiveProjection\\?\\.\\('${component}'|canUseLiveProjection\\('${component}')`));
   });
 
   test('legacy active-or-activating predicates are removed from production components', () => {

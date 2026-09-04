@@ -152,8 +152,13 @@ describe('Surface render cache redraw', () => {
     expect(Number(frontFrameEdge.getAttribute('stroke-width'))).toBeCloseTo(1);
 
     const activeTabId = Main.session.workspaceState.activeTabId;
+    const statsBeforeCache = document.getElementById('surfaceStatsSummary')?.textContent || '';
+    expect(statsBeforeCache.length).toBeGreaterThan(0);
     const cache = surface.captureRenderCache({ tabId: activeTabId });
     expect(cache).toBeTruthy();
+    // Durable stats are owner state; cached stats DOM is only an optimization.
+    // Deliberately remove that cache section before restore.
+    cache.stats = null;
     expect(cache.rotationModel).toEqual(expect.objectContaining({
       version: 1,
       points: expect.any(Array),
@@ -207,6 +212,7 @@ describe('Surface render cache redraw', () => {
 
     const restored = surface.restoreRenderCache(cache, { tabId: activeTabId });
     expect(restored).toBe(true);
+    expect(document.getElementById('surfaceStatsSummary')?.textContent || '').toContain(statsBeforeCache.slice(0, Math.min(24, statsBeforeCache.length)));
     expect(svg.dataset.rotationControlsAttached).toBe('true');
     expect(svg.__plot3dRotationControl).toBeTruthy();
     expect(svg.__plot3dRotationControl.state).toBe(state.rotation);

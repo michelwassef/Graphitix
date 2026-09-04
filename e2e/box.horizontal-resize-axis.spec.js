@@ -72,8 +72,8 @@ function readBoxAxisMetrics() {
     yAxisPageX: yAxisScreenX == null ? null : yAxisScreenX + window.scrollX,
     yTitlePageX: titleRect ? ((titleRect.left + titleRect.right) / 2) + window.scrollX : null,
     plotHeight: Number(svg.dataset.boxPlotH),
-    bottomViewportExtensionPx: Number(boxState?.bottomViewportExtensionPx) || 0,
-    significanceViewportExtensionPx: Number(boxState?.significanceViewportExtensionPx) || 0,
+    bottomViewportExtensionPx: Number(boxState?.graphGeometry?.reserves?.xLabelPx) || 0,
+    significanceViewportExtensionPx: Number(boxState?.graphGeometry?.reserves?.significancePx) || 0,
     marginLeft: Number(yAxis?.x1)
   };
 }
@@ -94,14 +94,14 @@ async function prepareBox(page) {
   await page.waitForFunction(() => {
     const state = window.Components?.box?.__getState?.() || null;
     return !!document.querySelector('#boxPlot svg')
-      && Number(state?.bottomViewportExtensionPx || 0) > 0;
+      && Number(state?.graphGeometry?.reserves?.xLabelPx || 0) > 0;
   }, null, { timeout: 20_000 });
   await page.waitForTimeout(600);
 }
 
 async function seedRichBoxRecoverySnapshot(page) {
   return page.evaluate(async () => {
-    const request = window.indexedDB.open('graphitix-document-state', 1);
+    const request = window.indexedDB.open('graphitix-document-state', 2);
     const db = await new Promise((resolve, reject) => {
       request.onupgradeneeded = () => {
         const opened = request.result;
@@ -141,6 +141,7 @@ async function seedRichBoxRecoverySnapshot(page) {
           dirty: true,
           hasData: true,
           tabCount: graphTabs.length,
+          revision: Number(workspaceState.sessionRevision) || 0,
           fileName: workspaceState.sessionFileName || 'recovered.graph',
           filePath: workspaceState.sessionFilePath || '',
           fileScope: workspaceState.sessionFileScope || 'workspace'
@@ -178,15 +179,22 @@ async function captureBoxWorkspaceArchive(page) {
     return {
       base64: btoa(binary),
       size: blob.size,
-      payloadBottomViewportExtensionPx: Number(viewport?.bottomViewportExtensionPx) || 0,
-      payloadSignificanceViewportExtensionPx: Number(viewport?.significanceViewportExtensionPx) || 0
+      payloadHasDerivedReserveAuthority: !!(viewport && (
+        Object.prototype.hasOwnProperty.call(viewport, 'bottomViewportExtensionPx')
+        || Object.prototype.hasOwnProperty.call(viewport, 'significanceViewportExtensionPx')
+        || Object.prototype.hasOwnProperty.call(viewport, 'leftViewportExtensionPx')
+        || Object.prototype.hasOwnProperty.call(viewport, 'rightViewportExtensionPx')
+      )),
+      payloadUserFrameWidthPx: Number(viewport?.userFrameWidthPx) || 0,
+      payloadUserFrameHeightPx: Number(viewport?.userFrameHeightPx) || 0
     };
   });
   return {
     buffer: Buffer.from(archive.base64, 'base64'),
     size: archive.size,
-    payloadBottomViewportExtensionPx: archive.payloadBottomViewportExtensionPx,
-    payloadSignificanceViewportExtensionPx: archive.payloadSignificanceViewportExtensionPx
+    payloadHasDerivedReserveAuthority: archive.payloadHasDerivedReserveAuthority,
+    payloadUserFrameWidthPx: archive.payloadUserFrameWidthPx,
+    payloadUserFrameHeightPx: archive.payloadUserFrameHeightPx
   };
 }
 
@@ -352,7 +360,7 @@ test('box crash recovery preserves the horizontal-resize y-axis anchor and x-lab
   await reloadAndAcceptBoxRecovery(page);
   await page.waitForFunction(expectedReserve => {
     const state = window.Components?.box?.__getState?.() || null;
-    return Number(state?.bottomViewportExtensionPx || 0) === Number(expectedReserve || 0);
+    return Number(state?.graphGeometry?.reserves?.xLabelPx || 0) === Number(expectedReserve || 0);
   }, beforeRecovery.bottomViewportExtensionPx, { timeout: 20_000 });
 
   const recoveredBeforeDrag = await page.evaluate(readBoxAxisMetrics);
@@ -394,8 +402,9 @@ test('box manual reopen preserves the first horizontal-resize y-axis anchor', as
 
   const archive = await captureBoxWorkspaceArchive(page);
   expect(archive.size).toBeGreaterThan(0);
-  expect(archive.payloadBottomViewportExtensionPx).toBe(beforeReopen.bottomViewportExtensionPx);
-  expect(archive.payloadSignificanceViewportExtensionPx).toBe(beforeReopen.significanceViewportExtensionPx);
+  expect(archive.payloadHasDerivedReserveAuthority).toBe(false);
+  expect(archive.payloadUserFrameWidthPx).toBeGreaterThan(0);
+  expect(archive.payloadUserFrameHeightPx).toBeGreaterThan(0);
   await reopenBoxWorkspaceArchive(page, archive.buffer);
   await page.waitForFunction(() => {
     const svg = document.querySelector('#boxPage:not([hidden]) #boxSvg');

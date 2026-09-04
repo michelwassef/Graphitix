@@ -100,6 +100,25 @@ describe('Shared.enableLegendDrag viewport bounds', () => {
     expect(window.Shared.undoManager.recordStateChange).not.toHaveBeenCalled();
   });
 
+  test('keeps a reserve-anchored default until the expanded viewport is published', () => {
+    const { svg, legend } = createLegend({ x: 260, y: 80 });
+    const owner = { tabId: 'tab-a' };
+    const onCommit = jest.fn();
+
+    window.Shared.bindLegendDragInteraction(legend, svg, {
+      owner,
+      positionAnchor: 'right-reserve',
+      originX: 300,
+      originY: 40,
+      scaleX: 20,
+      scaleY: 40,
+      onCommit
+    });
+
+    expect(legend.getAttribute('transform')).toBe('translate(260,80)');
+    expect(onCommit).not.toHaveBeenCalled();
+  });
+
   test('marks only a live bound legend as a managed graph drag target', () => {
     const { svg, legend } = createLegend();
     const child = document.createElementNS(NS, 'rect');

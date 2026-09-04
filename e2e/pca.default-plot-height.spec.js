@@ -35,6 +35,7 @@ async function readPcaGeometry(page) {
       x: readAxis('x'),
       y: readAxis('y'),
       baseHeight: Number(svg?.dataset?.legendBaseHeight || 0),
+      legendReserve: Number(svg?.dataset?.legendReserveWidth || 0),
       envelopeBottom: Number.parseFloat(svgBox?.style?.getPropertyValue('--graph-content-extra-bottom') || '0') || 0
     };
   });
@@ -57,8 +58,7 @@ test('PCA equal-axis-length default keeps standard graph height and metric geome
   expect(geometry.equalAxisLengthsChecked).toBe(true);
   expect(geometry.invalidAxisLengthControls).toBe(0);
   expect(geometry.aspectLocked).toBe('true');
-  expect(geometry.bottomReserve).toBe(0);
-  expect(geometry.envelopeBottom).toBe(0);
+  expect(geometry.bottomReserve).toBeCloseTo(geometry.envelopeBottom, 0);
   expect(geometry.x?.span).toBeGreaterThan(0);
   expect(geometry.y?.span).toBeGreaterThan(0);
   expect(Math.abs(geometry.x.span - geometry.y.span)).toBeLessThan(1e-9);
@@ -115,6 +115,7 @@ test('PCA 3D uses its renderer-owned canvas without a second content fit', async
       modelHeight: Number(model?.height || 0),
       viewBoxWidth: viewBox.width,
       viewBoxHeight: viewBox.height,
+      legendReserve: Number(svg?.dataset?.legendReserveWidth || 0),
       dynamicWidth: Number(dynamicBounds?.width || 0),
       dynamicHeight: Number(dynamicBounds?.height || 0)
     };
@@ -122,7 +123,8 @@ test('PCA 3D uses its renderer-owned canvas without a second content fit', async
 
   expect(geometry.modelWidth).toBeGreaterThan(0);
   expect(geometry.modelHeight).toBeGreaterThan(0);
-  expect(geometry.viewBoxWidth).toBeLessThanOrEqual(geometry.modelWidth + 1);
+  expect(geometry.viewBoxWidth).toBeGreaterThanOrEqual(geometry.modelWidth - 1);
+  expect(geometry.viewBoxWidth).toBeLessThanOrEqual(geometry.modelWidth + geometry.legendReserve + 1);
   expect(Math.abs(geometry.viewBoxHeight - geometry.modelHeight)).toBeLessThanOrEqual(1);
   // Projected 3D occupancy is data- and rotation-dependent. The renderer-owned
   // canvas contract is the model/viewBox agreement above; only require the

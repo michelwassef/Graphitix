@@ -61,7 +61,7 @@ async function prepareHistogram(page) {
 
 async function seedHistogramRecoverySnapshot(page) {
   return page.evaluate(async () => {
-    const request = window.indexedDB.open('graphitix-document-state', 1);
+    const request = window.indexedDB.open('graphitix-document-state', 2);
     const db = await new Promise((resolve, reject) => {
       request.onupgradeneeded = () => {
         const opened = request.result;

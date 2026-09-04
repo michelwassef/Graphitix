@@ -787,38 +787,30 @@ describe('Box swarm offset constraints', () => {
     });
   });
 
-  test('missing runtime snapshots do not erase payload-hydrated Box viewport reserves', () => {
-    expect(typeof hooks.applyBoxRuntimeSnapshotForTest).toBe('function');
-    const state = window.Components.box.__getState();
-    const previous = {
-      bottomViewportExtensionPx: state.bottomViewportExtensionPx,
-      significanceViewportExtensionPx: state.significanceViewportExtensionPx,
-      leftViewportExtensionPx: state.leftViewportExtensionPx,
-      rightViewportExtensionPx: state.rightViewportExtensionPx
-    };
-    try{
-      state.bottomViewportExtensionPx = 49;
-      state.significanceViewportExtensionPx = 7;
-      state.leftViewportExtensionPx = 3;
-      state.rightViewportExtensionPx = 5;
+  test('payload layout normalization never persists derived Box reserve authority', () => {
+    expect(typeof hooks.normalizeBoxPayloadLayoutGeometry).toBe('function');
+    const normalized = hooks.normalizeBoxPayloadLayoutGeometry({
+      userFrameWidthPx: 420,
+      userFrameHeightPx: 380,
+      bottomViewportExtensionPx: 49,
+      significanceViewportExtensionPx: 7,
+      leftViewportExtensionPx: 3,
+      rightViewportExtensionPx: 5
+    }, {
+      frame: { widthPx: 420, heightPx: 380 },
+      reserves: { xLabelPx: 49, significancePx: 7, leftPx: 3, rightPx: 5 }
+    });
 
-      hooks.applyBoxRuntimeSnapshotForTest(null, { reason: 'test-manual-reopen-missing-runtime' });
-      expect(state.bottomViewportExtensionPx).toBe(49);
-      expect(state.significanceViewportExtensionPx).toBe(7);
-      expect(state.leftViewportExtensionPx).toBe(3);
-      expect(state.rightViewportExtensionPx).toBe(5);
-
-      hooks.applyBoxRuntimeSnapshotForTest({ dataDirty: true }, { reason: 'test-sparse-runtime' });
-      expect(state.bottomViewportExtensionPx).toBe(49);
-      expect(state.significanceViewportExtensionPx).toBe(7);
-      expect(state.leftViewportExtensionPx).toBe(3);
-      expect(state.rightViewportExtensionPx).toBe(5);
-    }finally{
-      state.bottomViewportExtensionPx = previous.bottomViewportExtensionPx;
-      state.significanceViewportExtensionPx = previous.significanceViewportExtensionPx;
-      state.leftViewportExtensionPx = previous.leftViewportExtensionPx;
-      state.rightViewportExtensionPx = previous.rightViewportExtensionPx;
-    }
+    expect(normalized.viewportGeometry).toEqual(expect.objectContaining({
+      authorityVersion: 2,
+      userFrameWidthPx: 420,
+      userFrameHeightPx: 380
+    }));
+    expect(normalized.viewportGeometry).not.toHaveProperty('bottomViewportExtensionPx');
+    expect(normalized.viewportGeometry).not.toHaveProperty('significanceViewportExtensionPx');
+    expect(normalized.viewportGeometry).not.toHaveProperty('leftViewportExtensionPx');
+    expect(normalized.viewportGeometry).not.toHaveProperty('rightViewportExtensionPx');
+    expect(normalized.graphGeometry).not.toHaveProperty('reserves');
   });
 
   test('box point toolbar border width enables the selected default stroke color', () => {

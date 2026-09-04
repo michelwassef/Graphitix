@@ -1165,56 +1165,6 @@
     });
   }
 
-  function prismDataIncludes(data, token){
-    if(!data || !token){
-      return false;
-    }
-    let pattern = null;
-    if(typeof token === 'string'){
-      const text = token;
-      if(!text){
-        return false;
-      }
-      const encoder = global.TextEncoder ? new global.TextEncoder() : null;
-      if(!encoder){
-        return false;
-      }
-      pattern = encoder.encode(text);
-    }else if(token instanceof Uint8Array){
-      pattern = token;
-    }else if(ArrayBuffer.isView(token)){
-      pattern = new Uint8Array(token.buffer, token.byteOffset, token.byteLength);
-    }else if(token instanceof ArrayBuffer){
-      pattern = new Uint8Array(token);
-    }else{
-      const text = String(token || '');
-      if(!text){
-        return false;
-      }
-      const encoder = global.TextEncoder ? new global.TextEncoder() : null;
-      if(!encoder){
-        return false;
-      }
-      pattern = encoder.encode(text);
-    }
-    if(!pattern.length || pattern.length > data.length){
-      return false;
-    }
-    outer: for(let i = 0; i <= data.length - pattern.length; i += 1){
-      for(let j = 0; j < pattern.length; j += 1){
-        if(data[i + j] !== pattern[j]){
-          continue outer;
-        }
-      }
-      return true;
-    }
-    return false;
-  }
-
-
-
-
-
   function prismReadUInt16LE(data, offset){
     if(!data || offset < 0 || offset + 1 >= data.length){
       return null;
@@ -1699,7 +1649,7 @@
     return prismSummarySubcolumnCount(dataFormat) > 1;
   }
 
-  function canonicalizePzfxDataFormat(yFormat){
+  function canonicalizePzfxDataFormat(yFormat, model = null){
     const key = normalizePzfxFormat(yFormat || '').toLowerCase();
     const mapping = {
       replicates: 'y_replicates',
@@ -1714,6 +1664,12 @@
       'upper-lower-limits': 'y_high_low',
       error: 'y_error'
     };
+    if(key === 'replicates'){
+      const hasMultipleReplicates = (model?.yColumns || []).some(column => (
+        Array.isArray(column?.subcolumns) && column.subcolumns.length > 1
+      ));
+      return hasMultipleReplicates ? 'y_replicates' : 'y_single';
+    }
     return mapping[key] || (key ? `y_${key}` : 'y_single');
   }
 
@@ -2246,7 +2202,7 @@
       title: model?.title || '',
       tableClass: 'PZFXTable',
       tableType,
-      dataFormat: canonicalizePzfxDataFormat(yFormatKey),
+      dataFormat: canonicalizePzfxDataFormat(yFormatKey, model),
       xFormat: normalizePzfxFormat(model?.xFormat || '').toLowerCase(),
       summaryFormat: isPzfxSummaryFormat(yFormatKey),
       rowTitles: toSeries(model?.rowTitleColumn),
@@ -2285,7 +2241,7 @@
     const yStart = (hasRowTitles ? 1 : 0) + xColumnCount;
     const columnValues = colIndex => rows.map(row => (Array.isArray(row) ? (row[colIndex] ?? '') : ''));
     const rowTitles = hasRowTitles
-      ? prismCanonicalSeries(options.rowTitleLabel || 'Labels', [prismCanonicalSubcolumn(columnValues(rowTitleIndex))])
+      ? prismCanonicalSeries(options.rowTitleLabel || 'Category', [prismCanonicalSubcolumn(columnValues(rowTitleIndex))])
       : null;
     const x = hasX
       ? prismCanonicalSeries(options.xTitle || 'X', Array.from({ length: xColumnCount }, (_, subcolumnIndex) => (
@@ -3249,9 +3205,7 @@
         const rows = parseDelimitedText(dataCsv, delimiter);
         const filtered = filterRows(rows);
         const tableInfo = sheet?.table || {};
-        const tableClass = typeof tableInfo?.['@class'] === 'string' ? tableInfo['@class'] : '';
         const tableFormat = typeof tableInfo?.format === 'string' ? tableInfo.format : '';
-        const dataFormat = typeof tableInfo?.dataFormat === 'string' ? tableInfo.dataFormat : '';
         const rowTitlesId = tableInfo?.rowTitlesDataSet || '';
         const xDataSetId = tableInfo?.xDataSet || '';
         const dataSetIds = Array.isArray(tableInfo?.dataSets) ? tableInfo.dataSets : [];

@@ -2,7 +2,8 @@ const { test, expect } = require('@playwright/test');
 const {
   installLocalCdnOverrides,
   registerIssueCollectors,
-  openComponentFromWelcome
+  openComponentFromWelcome,
+  waitForDocumentOpenComplete
 } = require('./helpers/workspaceHarness');
 
 function readBoxPointSnapshot(traceKey = null) {
@@ -25,7 +26,7 @@ function readBoxPointSnapshot(traceKey = null) {
   if (group.hasAttribute('data-point-size')) {
     pointNodes.push(group);
   }
-  pointNodes.push(...group.querySelectorAll('[data-point-size]'));
+  pointNodes.push(...group.querySelectorAll('[data-point-size]:not([data-point-proxy="1"]):not([data-box-point-hit-mask="1"])'));
   const radii = pointNodes
     .map(node => Number(node.getAttribute('data-point-size')) / 2)
     .filter(radius => Number.isFinite(radius) && radius > 0)
@@ -123,15 +124,38 @@ async function shrinkBoxWidth(page, ratio = 0.42) {
   await waitForBoxDrawIdle(page, 'width-shrink');
 }
 
+async function captureBoxArchive(page) {
+  const archive = await page.evaluate(async () => {
+    const context = window.Main?.tabs?.getSessionActionsContext?.();
+    const blob = await window.Main?.sessionActions?.buildWorkspaceArchiveBlob?.(context, {
+      scope: 'workspace',
+      snapshotKind: 'document-snapshot',
+      compression: 'STORE',
+      reason: 'e2e-box-point-size-reopen'
+    });
+    if (!blob) {
+      throw new Error('Box point-size archive was not created.');
+    }
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    const chunkSize = 0x8000;
+    let binary = '';
+    for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+      binary += String.fromCharCode.apply(null, bytes.subarray(offset, offset + chunkSize));
+    }
+    return btoa(binary);
+  });
+  return Buffer.from(archive, 'base64');
+}
+
 async function openPointSizeEditor(page, trace) {
-  const point = page.locator(`#boxPlot g[data-export-layer="box-points"][data-trace="${trace}"] [data-point-size]`).first();
+  const point = page.locator(`#boxPlot g[data-export-layer="box-points"][data-trace="${trace}"] [data-point-size]:not([data-point-proxy="1"]):not([data-box-point-hit-mask="1"])`).first();
   await expect(point).toBeVisible({ timeout: 20_000 });
-  await point.click({ force: true });
+  await point.dispatchEvent('click');
 
   const activePage = page.locator('#boxPage:not([hidden])');
-  const toolbarHost = activePage.locator('.font-toolbar-host[data-font-toolbar-scope="box"]').first();
+  const toolbarHost = activePage.locator('.font-toolbar-host[data-font-toolbar-scope="box"].font-toolbar-host--visible').first();
   await expect(toolbarHost).toHaveClass(/font-toolbar-host--visible/, { timeout: 20_000 });
-  const sizeChip = toolbarHost.locator('.shared-fill-style-chip').first();
+  const sizeChip = activePage.locator('.font-toolbar-host.font-toolbar-host--visible .shared-fill-style-chip').first();
   await expect(sizeChip).toBeVisible({ timeout: 20_000 });
   const sizeText = String(await sizeChip.getAttribute('data-size-text') || '').trim();
   const displayedSize = Number.parseFloat(sizeText.replace(/px$/i, ''));
@@ -207,5 +231,45 @@ test.describe('Box single-values point sizing', () => {
       contentType: 'application/json'
     });
     expect(issues.critical).toEqual([]);
+  });
+
+  test('preserves auto point size after resize, save, and archive reopen', async ({ page, browserName }) => {
+    test.skip(browserName !== 'chromium', 'Graph resize and SVG size projection are validated on Chromium.');
+    test.setTimeout(180_000);
+
+    await installLocalCdnOverrides(page);
+    await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
+    await openComponentFromWelcome(
+      page,
+      { type: 'box', pageId: 'boxPage', exampleButtonId: 'boxLoadExample' },
+      { first: true, loadExample: true }
+    );
+    await page.locator('#boxGraphType').selectOption('strip');
+    await waitForBoxDrawIdle(page, 'archive-initial-strip');
+
+    const initial = await page.evaluate(readBoxPointSnapshot);
+    await shrinkBoxWidth(page);
+    const resized = await page.evaluate(readBoxPointSnapshot, initial.trace);
+    expect(resized).toBeTruthy();
+    expect(resized.radius).toBeLessThan(initial.radius - 0.2);
+
+    const archiveBuffer = await captureBoxArchive(page);
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await expect(page.locator('#welcomeScreen')).toBeVisible({ timeout: 20_000 });
+    await page.locator('#workspaceSessionInput').setInputFiles({
+      name: 'box-point-size-reopen.graph',
+      mimeType: 'application/octet-stream',
+      buffer: archiveBuffer
+    });
+    await waitForDocumentOpenComplete(page);
+    await page.waitForFunction(() => !!document.querySelector('#boxPage:not([hidden]) #boxPlot svg'), null, { timeout: 30_000 });
+    await waitForBoxDrawIdle(page, 'archive-reopen');
+
+    const reopened = await page.evaluate(readBoxPointSnapshot, resized.trace);
+    expect(reopened).toBeTruthy();
+    expect(reopened.flipAxes).toBe(resized.flipAxes);
+    expect(reopened.radius).toBeCloseTo(resized.radius, 1);
+    expect(reopened.pointSizing.baseCategorySpanPx).toBeCloseTo(resized.pointSizing.baseCategorySpanPx, 1);
+    expect(reopened.pointSizing.baseValueSpanPx).toBeCloseTo(resized.pointSizing.baseValueSpanPx, 1);
   });
 });

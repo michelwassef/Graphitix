@@ -215,41 +215,30 @@
     };
   }
 
-  function resolveDeclaredContentExtension(sourceSvg, frame, logicalViewBox){
+  function resolveDeclaredContentExtension(sourceSvg, logicalViewBox){
     const dataset = sourceSvg?.dataset || {};
-    const baseWidth = positiveNumber(dataset.legendBaseWidth);
-    const baseHeight = positiveNumber(dataset.legendBaseHeight);
-    const reserveRight = nonNegativeNumber(dataset.graphContentReserveRight);
-    const reserveBottom = nonNegativeNumber(dataset.graphContentReserveBottom);
-    const sourceRight = Number.isFinite(reserveRight) ? reserveRight : 0;
-    const sourceBottom = Number.isFinite(reserveBottom) ? reserveBottom : 0;
-    const declaredWidth = (baseWidth > 0 ? baseWidth : 0) + sourceRight;
-    const declaredHeight = (baseHeight > 0 ? baseHeight : 0) + sourceBottom;
-    const baseLogicalWidth = logicalViewBox && baseWidth > 0 && declaredWidth > 0
-      ? logicalViewBox.width * (baseWidth / declaredWidth)
-      : logicalViewBox?.width;
-    const baseLogicalHeight = logicalViewBox && baseHeight > 0 && declaredHeight > 0
-      ? logicalViewBox.height * (baseHeight / declaredHeight)
-      : logicalViewBox?.height;
-    const right = sourceRight > 0
-      ? sourceRight * ((baseWidth > 0 ? frame.width / baseWidth : 1))
-      : 0;
-    const bottom = sourceBottom > 0
-      ? sourceBottom * ((baseHeight > 0 ? frame.height / baseHeight : 1))
-      : 0;
+    const baseWidth = positiveNumber(dataset.graphContentBaseWidth ?? dataset.legendBaseWidth);
+    const baseHeight = positiveNumber(dataset.graphContentBaseHeight ?? dataset.legendBaseHeight);
+    const sourceLeft = nonNegativeNumber(dataset.graphContentReserveLeft) || 0;
+    const sourceTop = nonNegativeNumber(dataset.graphContentReserveTop) || 0;
+    const sourceRight = nonNegativeNumber(dataset.graphContentReserveRight) || 0;
+    const sourceBottom = nonNegativeNumber(dataset.graphContentReserveBottom) || 0;
+    const hasGraphContentContract = baseWidth > 0 && baseHeight > 0;
+    const baseLogicalViewBox = hasGraphContentContract
+      ? { minX: 0, minY: 0, width: baseWidth, height: baseHeight }
+      : logicalViewBox;
     return {
-      right,
-      bottom,
+      left: 0,
+      top: 0,
+      right: 0,
+      bottom: 0,
+      sourceLeft,
+      sourceTop,
       sourceRight,
       sourceBottom,
       baseWidth: baseWidth > 0 ? baseWidth : null,
       baseHeight: baseHeight > 0 ? baseHeight : null,
-      baseLogicalViewBox: logicalViewBox ? {
-        minX: logicalViewBox.minX,
-        minY: logicalViewBox.minY,
-        width: baseLogicalWidth,
-        height: baseLogicalHeight
-      } : null
+      baseLogicalViewBox
     };
   }
 
@@ -277,13 +266,19 @@
       return null;
     }
     const preserveAspectRatio = resolvePreserveAspectRatio(logicalSvg);
-    const declaredExtension = resolveDeclaredContentExtension(sourceSvg, ownerFrame, logicalViewBox);
+    const declaredExtension = resolveDeclaredContentExtension(sourceSvg, logicalViewBox);
     const baseLogicalViewBox = declaredExtension.baseLogicalViewBox || logicalViewBox;
     const logicalToPhysical = computeLogicalScale(baseLogicalViewBox, ownerFrame, preserveAspectRatio);
+    const scaleX = Math.abs(logicalToPhysical.x || 1);
+    const scaleY = Math.abs(logicalToPhysical.y || 1);
+    declaredExtension.left = declaredExtension.sourceLeft * scaleX;
+    declaredExtension.top = declaredExtension.sourceTop * scaleY;
+    declaredExtension.right = declaredExtension.sourceRight * scaleX;
+    declaredExtension.bottom = declaredExtension.sourceBottom * scaleY;
     const physicalBase = { width: ownerFrame.width, height: ownerFrame.height };
     const physical = {
-      width: ownerFrame.width + declaredExtension.right,
-      height: ownerFrame.height + declaredExtension.bottom
+      width: ownerFrame.width + declaredExtension.left + declaredExtension.right,
+      height: ownerFrame.height + declaredExtension.top + declaredExtension.bottom
     };
     return {
       sourceSvg,

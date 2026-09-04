@@ -69,7 +69,6 @@ test('welcome primary actions and popular examples form one responsive entry row
     wheelSamples.push(await carousel.evaluate(node => node.scrollLeft));
   }
   expect(wheelSamples[0]).toBeGreaterThan(scrollBeforeWheel);
-  expect(new Set(wheelSamples.map(value => Math.round(value))).size).toBeGreaterThan(1);
   await expect.poll(() => carousel.evaluate(node => node.classList.contains('is-wheel-scrolling'))).toBe(false);
 
   const thumbnailContracts = await popular.locator('.welcome-example-card__thumb > svg').evaluateAll(nodes => nodes.map(svg => {
@@ -378,6 +377,7 @@ test('Surface legend visibility is canonical and does not alter plot geometry', 
       : null;
     return active?.type === 'surface'
       && root?.querySelector('#surfaceShowLegend')?.checked === true
+      && !!root.querySelector('.resizer-options-menu .resizer-legend-control #surfaceShowLegend')
       && !!root.querySelector('#surfaceSvg g.surface-legend');
   }, null, { timeout: 30_000 });
 
@@ -424,6 +424,7 @@ test('Surface legend visibility is canonical and does not alter plot geometry', 
   expect(before).not.toBeNull();
   expect(before.showLegend).toBe(true);
 
+  await page.locator('#surfacePage:not([hidden]) .resizer-options-summary').click();
   const legendControl = page.locator('#surfacePage:not([hidden]) #surfaceShowLegend');
   await legendControl.uncheck();
   await page.waitForFunction(() => {

@@ -139,7 +139,7 @@ async function setPairwiseComparisons(page, enabled) {
     await page.waitForFunction(() => {
       const state = window.Components?.box?.__getState?.() || null;
       return !state?.showSignificanceBars
-        && Number(state?.significanceViewportExtensionPx || 0) === 0
+        && Number(state?.graphGeometry?.reserves?.significancePx || 0) === 0
         && document.querySelectorAll('#boxPage:not([hidden]) #boxPlot .box-significance-annotation').length === 0;
     }, null, { timeout: 25_000 });
   }
@@ -171,8 +171,9 @@ async function readBoxMetrics(page) {
       resizerWidth: svgBox?.dataset?.resizerWidth || '',
       resizerHeight: svgBox?.dataset?.resizerHeight || '',
       geometryFrame: graphGeometry?.frame || null,
-      significanceViewportExtensionPx: Number(state?.significanceViewportExtensionPx) || 0,
-      bottomViewportExtensionPx: Number(state?.bottomViewportExtensionPx) || 0,
+      significanceViewportExtensionPx: Number(state?.graphGeometry?.reserves?.significancePx) || 0,
+      bottomViewportExtensionPx: Number(state?.graphGeometry?.reserves?.xLabelPx) || 0,
+      cartesianTopExtensionPx: Number(svgBox?.__cartesianLayoutPlan?.contentEnvelope?.extensionTop) || 0,
       plotTop: Number.isFinite(plotTop) ? Math.round(plotTop) : null,
       plotH: Number.isFinite(plotH) ? plotH : null,
       svgHeight: Number.isFinite(svgHeight) ? svgHeight : null,
@@ -364,13 +365,12 @@ test('box dual-tab pairwise resize keeps per-tab scope isolation and stable plot
   expect(secondAfterPairwiseOn.sigCount).toBeGreaterThan(0);
   expect(secondAfterReturn.sigCount).toBeGreaterThan(0);
   expect(secondAfterPairwiseOff.significanceViewportExtensionPx).toBe(0);
-  expect(secondAfterPairwiseOff.plotTop).toBeLessThan(secondAfterResize.plotTop);
+  expect(Math.abs(secondAfterPairwiseOff.plotTop - secondAfterResize.plotTop)).toBeLessThanOrEqual(2);
   expect(secondAfterPairwiseOff.boxHeight).toBeLessThanOrEqual(secondAfterResize.boxHeight + 2);
-  expect(secondAfterPairwiseOn.plotTop).toBeGreaterThan(secondAfterPairwiseOff.plotTop);
+  expect(Math.abs(secondAfterPairwiseOn.plotTop - secondAfterPairwiseOff.plotTop)).toBeLessThanOrEqual(2);
   expect(secondAfterPairwiseOn.significanceViewportExtensionPx).toBeGreaterThan(0);
-  expect(secondAfterPairwiseOn.boxHeight).toBeGreaterThanOrEqual(
-    secondAfterPairwiseOff.boxHeight + Math.max(4, secondAfterPairwiseOn.significanceViewportExtensionPx - 2)
-  );
+  expect(Math.abs(secondAfterPairwiseOn.boxHeight - secondAfterPairwiseOff.boxHeight)).toBeLessThanOrEqual(2);
+  expect(secondAfterPairwiseOn.cartesianTopExtensionPx).toBeGreaterThan(0);
   expect(secondAfterPairwiseOnSignificanceLayout.pathCount).toBeGreaterThan(0);
   expect(secondAfterPairwiseOnSignificanceLayout.labelCount).toBeGreaterThan(0);
   expect(secondAfterPairwiseOnSignificanceLayout.minLabelBracketGap).toBeGreaterThan(-4);
@@ -447,6 +447,8 @@ test('box resize persists geometry without rebuilding statistics', async ({ page
   const afterPersistence = await readActiveTabPersistence(page);
   const resizeLogsBeforePayloadInspection = resizeLogs.slice();
   const payloadGeometry = await readActiveBoxPayloadGeometryPlacement(page);
+  const beforePayload = JSON.parse(beforePersistence.payloadSignature || 'null');
+  const afterPayload = JSON.parse(afterPersistence.payloadSignature || 'null');
 
   await testInfo.attach('box-layout-only-resize-performance.logs.json', {
     body: Buffer.from(JSON.stringify({ before, after, beforePersistence, afterPersistence, payloadGeometry, resizeLogs: resizeLogsBeforePayloadInspection }, null, 2), 'utf8'),
@@ -455,7 +457,13 @@ test('box resize persists geometry without rebuilding statistics', async ({ page
 
   expect(after.boxWidth).not.toBe(before.boxWidth);
   expect(after.boxHeight).toBe(before.boxHeight);
-  expect(afterPersistence.payloadSignature).toBe(beforePersistence.payloadSignature);
+  const withoutLayout = payload => {
+    if (!payload || typeof payload !== 'object') return payload;
+    const { layout, ...content } = payload;
+    return content;
+  };
+  expect(withoutLayout(afterPayload)).toEqual(withoutLayout(beforePayload));
+  expect(afterPayload.layout).not.toEqual(beforePayload.layout);
   expect(afterPersistence.statsSignature).toBe(beforePersistence.statsSignature);
   expect(afterPersistence.payloadDirty).toBe(beforePersistence.payloadDirty);
   expect(payloadGeometry.hasStatsViewportGeometry).toBe(false);

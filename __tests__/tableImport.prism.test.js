@@ -268,9 +268,9 @@ describe('tableImport Prism import mappings', () => {
     });
     expect(result.importedRows).toEqual([
       ['Labels', 'XX', 'Ya Rep 1', 'Yb Rep 1', 'Yc Rep 1'],
-      ['', '1', '100', '1', '5'],
-      ['', '2', '90', '2', '5'],
-      ['', '3', '80', '3', '5']
+      ['A', '1', '100', '1', '5'],
+      ['B', '2', '90', '2', '5'],
+      ['C', '3', '80', '3', '5']
     ]);
   });
 
@@ -391,28 +391,6 @@ describe('tableImport Prism import mappings', () => {
     ]);
     expect(summary.prismMeta).toMatchObject({ kind: 'unsupported', supported: false, tableType: 'xy' });
     expect(survival).toMatchObject({ prismTableId: 'Table14', prismTableTitle: 'Survival: Two groups', prismMeta: { kind: 'survival', component: 'survival' } });
-  });
-
-  test('maps the repository HEK grouped Prism table into Box grouped-table rows', async () => {
-    const fixturePath = path.join(__dirname, '..', 'HEK_RNA_ses_KD_tpm.prism');
-    const result = await importPrismBuffer(fs.readFileSync(fixturePath), 'HEK_RNA_ses_KD_tpm.prism');
-
-    expect(result).toMatchObject({
-      prismTableTitle: 'STAG1_RNA_seq2',
-      prismMeta: {
-        kind: 'column',
-        component: 'box',
-        adapter: 'box-grouped',
-        tableType: 'grouped',
-        tableFormat: 'grouped',
-        groupedReplicatesPerGroup: 1
-      }
-    });
-    expect(result.importedRows.slice(0, 3)).toEqual([
-      ['HEK_WT_NT_R1_JB', 'HEK_WT _NT_R2_JB', 'HEK_WT_STAG1_R1', 'HEK_WT_STAG1_R2', 'HEK_tKO_NT_R1', 'HEK_tKO_NT_R2', 'HEK_tKO_STAG1_R1', 'HEK_tKO_STAG1_R2'],
-      ['STAG1', 'STAG1', 'STAG1', 'STAG1', 'STAG1', 'STAG1', 'STAG1', 'STAG1'],
-      ['49.99', '44.22', '0.47', '0.19', '52.57', '34.9', '3.27', '4.46']
-    ]);
   });
 
   test('preserves PZFX excluded values as Graphitix cell exclusions instead of erasing them', async () => {

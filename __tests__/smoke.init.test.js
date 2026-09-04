@@ -33,6 +33,7 @@ describe('App initialization', () => {
       require('../js/shared/dom.js');
       require('../js/shared/exporter.js');
       require('../js/shared/chartStyle.js');
+      require('../js/shared/cartesianLayout.js');
       require('../js/shared/graphSizing.js');
       require('../js/shared/regression.js');
       require('../js/shared/stats.js');

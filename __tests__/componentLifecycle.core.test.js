@@ -2517,11 +2517,20 @@ describe('session teardown contract', () => {
       tabId: 'workspace-99',
       graphFrame: { tabId: 'workspace-99', width: 640, height: 480 }
     };
+    const sourcePayloadSignature = session.serializePayloadSignature(sourcePayload);
+    const sourceLayoutSignature = session.serializePayloadSignature(sourceLayout);
     const sourceCache = {
       __graphitixRenderCache: {
         complete: true,
         type: 'box',
-        tabId: 'workspace-99'
+        tabId: 'workspace-99',
+        cartesianLayout: {
+          complete: true,
+          owner: { tabId: 'workspace-99', component: 'box', generation: 12 },
+          publicationGeneration: 12,
+          payloadSignature: sourcePayloadSignature,
+          layoutSignature: sourceLayoutSignature
+        }
       },
       plot: { markup: '<svg data-workspace-tab-id="workspace-99"></svg>' }
     };
@@ -2535,8 +2544,8 @@ describe('session teardown contract', () => {
         payload: sourcePayload,
         layout: sourceLayout,
         archiveRenderCache: sourceCache,
-        archiveRenderCacheSignature: session.serializePayloadSignature(sourcePayload),
-        archiveRenderCacheLayoutSignature: session.serializePayloadSignature(sourceLayout)
+        archiveRenderCacheSignature: sourcePayloadSignature,
+        archiveRenderCacheLayoutSignature: sourceLayoutSignature
       }]
     }, {
       reason: 'unit-cache-signature-rehome',
@@ -2550,7 +2559,57 @@ describe('session teardown contract', () => {
     expect(restored.archiveRenderCache.__graphitixRenderCache.tabId).toBe(restored.id);
     expect(restored.archiveRenderCacheSignature).toBe(restored.payloadSignature);
     expect(restored.archiveRenderCacheLayoutSignature).toBe(restored.layoutSignature);
-    expect(restored.archiveRenderCacheLayoutSignature).not.toBe(session.serializePayloadSignature(sourceLayout));
+    expect(restored.archiveRenderCacheLayoutSignature).not.toBe(sourceLayoutSignature);
+    expect(restored.archiveRenderCache.__graphitixRenderCache.cartesianLayout).toEqual(expect.objectContaining({
+      complete: true,
+      owner: expect.objectContaining({ tabId: restored.id, component: 'box', generation: 12 }),
+      publicationGeneration: 12,
+      payloadSignature: restored.payloadSignature,
+      layoutSignature: restored.layoutSignature
+    }));
+  });
+
+  test('applySessionData rejects stale nested Cartesian archive provenance even when outer signatures match', async () => {
+    const sourcePayload = { type: 'box', data: [['A'], [1]] };
+    const sourceLayout = { component: 'box', tabId: 'workspace-76', width: 640, height: 480 };
+    const payloadSignature = session.serializePayloadSignature(sourcePayload);
+    const layoutSignature = session.serializePayloadSignature(sourceLayout);
+
+    const result = await session.applySessionData({
+      activeIndex: 0,
+      tabs: [{
+        title: 'Box',
+        type: 'box',
+        archiveRuntimeTabId: 'workspace-76',
+        payload: sourcePayload,
+        layout: sourceLayout,
+        archiveRenderCache: {
+          __graphitixRenderCache: {
+            tabId: 'workspace-76',
+            type: 'box',
+            complete: true,
+            cartesianLayout: {
+              complete: true,
+              owner: { tabId: 'workspace-76', component: 'box', generation: 9 },
+              publicationGeneration: 9,
+              payloadSignature: 'stale-cartesian-payload',
+              layoutSignature
+            }
+          },
+          plot: { markup: '<svg></svg>' }
+        },
+        archiveRenderCacheSignature: payloadSignature,
+        archiveRenderCacheLayoutSignature: layoutSignature
+      }]
+    }, {
+      reason: 'unit-cartesian-cache-provenance-reject',
+      activateTab: jest.fn(() => true)
+    });
+
+    const restored = session.workspaceState.tabs.find(tab => tab.id === result.targetTabId);
+    expect(restored.archiveRenderCache).toBeNull();
+    expect(restored.archiveRenderCacheSignature).toBeNull();
+    expect(restored.archiveRenderCacheLayoutSignature).toBeNull();
   });
 
   test('applySessionData rejects stale archive cache signature provenance', async () => {

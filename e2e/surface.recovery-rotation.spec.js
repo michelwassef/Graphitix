@@ -44,7 +44,7 @@ async function waitForSurfaceRenderCache(page) {
 
 async function clearRecoverySnapshot(page) {
   await page.evaluate(async () => {
-    const request = window.indexedDB.open('graphitix-document-state', 1);
+    const request = window.indexedDB.open('graphitix-document-state', 2);
     const db = await new Promise((resolve, reject) => {
       request.onupgradeneeded = () => {
         const opened = request.result;
@@ -67,7 +67,7 @@ async function clearRecoverySnapshot(page) {
 
 async function seedRecoverySnapshot(page) {
   await page.evaluate(async () => {
-    const request = window.indexedDB.open('graphitix-document-state', 1);
+    const request = window.indexedDB.open('graphitix-document-state', 2);
     const db = await new Promise((resolve, reject) => {
       request.onupgradeneeded = () => {
         const opened = request.result;
@@ -103,6 +103,7 @@ async function seedRecoverySnapshot(page) {
           dirty: true,
           hasData: true,
           tabCount: graphTabs.length,
+          revision: Number(window.Main?.session?.workspaceState?.sessionRevision) || 0,
           fileName: workspaceState.sessionFileName || 'workspace.graph',
           fileScope: workspaceState.sessionFileScope || 'workspace'
         },
@@ -116,12 +117,25 @@ async function seedRecoverySnapshot(page) {
 }
 
 async function reloadAndAcceptRecovery(page) {
-  page.on('dialog', async dialog => {
+  let recoveryAccepted = false;
+  const handler = async dialog => {
+    if (/recover|restore/i.test(dialog.message())) {
+      recoveryAccepted = true;
+    }
     await dialog.accept();
-  });
-  await page.reload({ waitUntil: 'domcontentloaded' });
-  await page.waitForSelector('#surfacePage:not([hidden])', { timeout: 30_000 });
-  await waitForSurfaceDraw(page);
+  };
+  page.on('dialog', handler);
+  try {
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await expect.poll(() => recoveryAccepted, {
+      timeout: 20_000,
+      message: 'Surface crash-recovery prompt should be accepted'
+    }).toBe(true);
+    await page.waitForSelector('#surfacePage:not([hidden])', { timeout: 30_000 });
+    await waitForSurfaceDraw(page);
+  } finally {
+    page.off('dialog', handler);
+  }
 }
 
 async function dragSurface(page) {

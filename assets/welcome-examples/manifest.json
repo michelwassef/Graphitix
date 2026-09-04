@@ -5,10 +5,10 @@
   "previewSource": "Graphitix owner-scoped SVG projection",
   "width": 320,
   "height": 220,
-  "sourceFingerprint": "a8f03211bbfffbfece2fd06c242f97b8ee9ece14e2c3227d711a12b3fefc6e1d",
+  "sourceFingerprint": "fe871cfb92883a36527810fc3705b375b762f4b0e9ebb7a9cdddee64e54f5d75",
   "registry": {
     "file": "thumbnails.js",
-    "sha256": "cb2eb999e592c14ef0ce7def8c3c634f72bb96f6c1e70db8025090a426a29136",
+    "sha256": "36531039e623860f62c1c242dc6ff3492b646d77d5b28e15ef68396ca2182932",
     "inline": true
   },
   "examples": [
@@ -20,13 +20,13 @@
       "source": "Graphitix owner-scoped SVG projection",
       "captureMode": "canonical-export",
       "sourceFormat": "svg",
-      "sourceWidth": 452,
-      "sourceHeight": 392,
+      "sourceWidth": 385.615966,
+      "sourceHeight": 377,
       "sourceViewBox": {
         "x": 0,
         "y": 0,
-        "width": 452,
-        "height": 392
+        "width": 385.615966,
+        "height": 377
       },
       "sourcePreserveAspectRatio": "none",
       "exportProjection": "svg",
@@ -47,10 +47,10 @@
         "verified": true
       },
       "proportionalStrokeContract": "source-viewport-baked-strokes-v1",
-      "visualScale": 0.510204081633,
+      "visualScale": 0.53050397878,
       "nonScalingStrokeCount": 0,
-      "sourceFingerprint": "68dcd8b7ff78765ac92ea3557869b8110f55ddd6bd16e07a54544b8e329d5717",
-      "sha256": "6de92894633772f802a39b04acde09047ec77bea4f20e8bd420695c57a683220"
+      "sourceFingerprint": "dfbf5c9f29854f38e2730c57988870279ad81ada186f04706ac427bf08eae070",
+      "sha256": "adc84be5b065ac82759d984a8051dc65eed3587e0d43556957c41ba6417c5521"
     },
     {
       "type": "scatter",
@@ -60,13 +60,13 @@
       "source": "Graphitix owner-scoped SVG projection",
       "captureMode": "canonical-export",
       "sourceFormat": "svg",
-      "sourceWidth": 452,
-      "sourceHeight": 392,
+      "sourceWidth": 391.592878,
+      "sourceHeight": 336,
       "sourceViewBox": {
         "x": 0,
         "y": 0,
-        "width": 452,
-        "height": 392
+        "width": 391.592878,
+        "height": 336
       },
       "sourcePreserveAspectRatio": "xMidYMid meet",
       "exportProjection": "svg",
@@ -87,10 +87,10 @@
         "verified": true
       },
       "proportionalStrokeContract": "source-viewport-baked-strokes-v1",
-      "visualScale": 0.510204081633,
+      "visualScale": 0.595238095238,
       "nonScalingStrokeCount": 0,
-      "sourceFingerprint": "76ac9dc41bd7f5fe815ce63408077915c98afe30514ec4704732add238586de8",
-      "sha256": "d16592f7cf69ac3ed39efc9fedbc6a3966b54d5d92224b7224742da42d1a20b7"
+      "sourceFingerprint": "e5f729bc66ac765419d0fe9292403df216416d68e453ceabc3f338e71ea9701f",
+      "sha256": "c0b89366d4c0a0d64aebe3d1c2bb9d1198b033541d287c168d6376ee8027e4dd"
     },
     {
       "type": "line",
@@ -100,13 +100,13 @@
       "source": "Graphitix owner-scoped SVG projection",
       "captureMode": "canonical-export",
       "sourceFormat": "svg",
-      "sourceWidth": 482.133333,
-      "sourceHeight": 480,
+      "sourceWidth": 391.595784,
+      "sourceHeight": 340,
       "sourceViewBox": {
         "x": 0,
         "y": 0,
-        "width": 482.133333,
-        "height": 480
+        "width": 391.595784,
+        "height": 340
       },
       "sourcePreserveAspectRatio": "xMidYMid meet",
       "exportProjection": "svg",
@@ -127,10 +127,10 @@
         "verified": true
       },
       "proportionalStrokeContract": "source-viewport-baked-strokes-v1",
-      "visualScale": 0.416666666667,
+      "visualScale": 0.588235294118,
       "nonScalingStrokeCount": 0,
-      "sourceFingerprint": "467db4973774e960e37bcf11dfb1a79a7e5da0b92bbaab5e2d9f22d7658a3520",
-      "sha256": "9518dae8ac3568f8683a3dfe898cf57ccf3477cc75cff3c7207b858fd2eb01a6"
+      "sourceFingerprint": "0ca9a9bf6d73345cad8690d70e7816172393dbd3d493e8dc954a31025d468a64",
+      "sha256": "8d3d4f5c22131974a825234de9ba19d7239721fcb43091133857ed2621bb1dc8"
     },
     {
       "type": "hist",
@@ -140,13 +140,13 @@
       "source": "Graphitix owner-scoped SVG projection",
       "captureMode": "canonical-export",
       "sourceFormat": "svg",
-      "sourceWidth": 450,
-      "sourceHeight": 392,
+      "sourceWidth": 394.043,
+      "sourceHeight": 343,
       "sourceViewBox": {
         "x": 0,
         "y": 0,
-        "width": 450,
-        "height": 392
+        "width": 394.043,
+        "height": 343
       },
       "sourcePreserveAspectRatio": "xMidYMid meet",
       "exportProjection": "svg",
@@ -167,10 +167,10 @@
         "verified": true
       },
       "proportionalStrokeContract": "source-viewport-baked-strokes-v1",
-      "visualScale": 0.510204081633,
+      "visualScale": 0.583090379009,
       "nonScalingStrokeCount": 0,
-      "sourceFingerprint": "c3e48eeb6a5abec4e94d799fd2f988070fd3cd6faf9ee1cff51fdbfd89036230",
-      "sha256": "4cd1e2857856f145640d564dff0b7586b2c99f36b4608ef4a5a0b5e635377f4a"
+      "sourceFingerprint": "954e039850b986b774f934dc4d081fd33f4748f00354fc77f614eb6eb12bef10",
+      "sha256": "9634b3f93f9d594b058d8d54598caa0ab07a18912944a21f6ab26e91dcbfa3f3"
     },
     {
       "type": "heatmap",
@@ -180,13 +180,13 @@
       "source": "Graphitix owner-scoped SVG projection",
       "captureMode": "canonical-export",
       "sourceFormat": "svg",
-      "sourceWidth": 3864.650001551766,
-      "sourceHeight": 3392.7543685705546,
+      "sourceWidth": 4146.631050255934,
+      "sourceHeight": 3418.8342126359544,
       "sourceViewBox": {
         "x": 0,
         "y": 0,
-        "width": 450,
-        "height": 392.861608
+        "width": 354,
+        "height": 328.341311
       },
       "sourcePreserveAspectRatio": "xMinYMid meet",
       "exportProjection": "svg",
@@ -205,10 +205,10 @@
         "verified": true
       },
       "proportionalStrokeContract": "source-viewport-baked-strokes-v1",
-      "visualScale": 0.058949154072,
+      "visualScale": 0.058499473084,
       "nonScalingStrokeCount": 10,
-      "sourceFingerprint": "02219d70b24196ef8012b22c7c9a01bd22dc4261debecff5a35f6188abfc96c9",
-      "sha256": "a809e6dbb5f13daa1917d2bf21f5b6412c937283cb7f2b295a82dbab50e05d50"
+      "sourceFingerprint": "cda638865d933433c7def60fd0cb66ee5c66fbe4732ec826775d97b28547f564",
+      "sha256": "e24fcfa9482d74aedfd7df5022cba55de7f1e56e0a1003046c0c84104acdb779"
     },
     {
       "type": "pca",
@@ -218,13 +218,13 @@
       "source": "Graphitix owner-scoped SVG projection",
       "captureMode": "canonical-export",
       "sourceFormat": "svg",
-      "sourceWidth": 452,
-      "sourceHeight": 392,
+      "sourceWidth": 388.018771,
+      "sourceHeight": 334,
       "sourceViewBox": {
         "x": 0,
         "y": 0,
-        "width": 452,
-        "height": 392
+        "width": 388.018771,
+        "height": 334
       },
       "sourcePreserveAspectRatio": "xMidYMid meet",
       "exportProjection": "svg",
@@ -245,10 +245,10 @@
         "verified": true
       },
       "proportionalStrokeContract": "source-viewport-baked-strokes-v1",
-      "visualScale": 0.510204081633,
+      "visualScale": 0.59880239521,
       "nonScalingStrokeCount": 0,
-      "sourceFingerprint": "0158b22dc41c7bbb7f9c1af8eed1ed7a54994f3b40fb9c79c8bb327a857b6585",
-      "sha256": "25822ce5d16f4239005c7d9c8a8674fe6f22ab200c816890351f12fb41d1ddc1"
+      "sourceFingerprint": "28f75a9af2b68e47fd081e735bb48b09c8f613384462b2806feb484773b0a7ff",
+      "sha256": "b5a4e49451fbb73edaa553994f14cb025a58174d97e7b18f059691c134a2945e"
     },
     {
       "type": "pie",
@@ -258,13 +258,13 @@
       "source": "Graphitix owner-scoped SVG projection",
       "captureMode": "canonical-export",
       "sourceFormat": "svg",
-      "sourceWidth": 450,
-      "sourceHeight": 392,
+      "sourceWidth": 354,
+      "sourceHeight": 328,
       "sourceViewBox": {
         "x": 0,
         "y": 0,
-        "width": 450,
-        "height": 392
+        "width": 354,
+        "height": 328
       },
       "sourcePreserveAspectRatio": "xMidYMid meet",
       "exportProjection": "svg",
@@ -285,10 +285,10 @@
         "verified": true
       },
       "proportionalStrokeContract": "source-viewport-baked-strokes-v1",
-      "visualScale": 0.510204081633,
+      "visualScale": 0.609756097561,
       "nonScalingStrokeCount": 0,
-      "sourceFingerprint": "17bad48a73b418d73b0e1cd03471810f8edef559a21f2c2d300a7ba9ce421637",
-      "sha256": "c5cacc3faa59d30e7ed4ceb7d47be19ce13f967b8bb29d9b845ddbe3848d2db9"
+      "sourceFingerprint": "f5be7933b7f23fb411615d3e99a4f84a89b589c45f693cff34c255e75c5bdcc4",
+      "sha256": "5c3a05287418981f8df5444cb117c43eb1d689ea2264ab832000df62cd5b77e5"
     },
     {
       "type": "roc",
@@ -298,13 +298,13 @@
       "source": "Graphitix owner-scoped SVG projection",
       "captureMode": "canonical-export",
       "sourceFormat": "svg",
-      "sourceWidth": 452,
-      "sourceHeight": 392,
+      "sourceWidth": 382.691208,
+      "sourceHeight": 340,
       "sourceViewBox": {
         "x": 0,
         "y": 0,
-        "width": 452,
-        "height": 392
+        "width": 382.691208,
+        "height": 340
       },
       "sourcePreserveAspectRatio": "xMidYMid meet",
       "exportProjection": "svg",
@@ -325,10 +325,10 @@
         "verified": true
       },
       "proportionalStrokeContract": "source-viewport-baked-strokes-v1",
-      "visualScale": 0.510204081633,
+      "visualScale": 0.588235294118,
       "nonScalingStrokeCount": 0,
-      "sourceFingerprint": "7fe16b74a69195b1da994f11270ac5a4434fa2a08e87e3aeac54136e6e741748",
-      "sha256": "5216f758df0a919492ca1411086996a77740fc3689cf745e2e6e8b8944573da8"
+      "sourceFingerprint": "1cf588d532dfe40371836a2e0322ccf1d0f67305839aef6f8d36102e9ed9a4c7",
+      "sha256": "5ea420eff468c2fa06f21c979606b629f862dfb98c02cc6c7c9c8a737a1c8116"
     },
     {
       "type": "survival",
@@ -338,13 +338,13 @@
       "source": "Graphitix owner-scoped SVG projection",
       "captureMode": "canonical-export",
       "sourceFormat": "svg",
-      "sourceWidth": 452,
-      "sourceHeight": 392,
+      "sourceWidth": 400.488167,
+      "sourceHeight": 343,
       "sourceViewBox": {
         "x": 0,
         "y": 0,
-        "width": 452,
-        "height": 392
+        "width": 400.488167,
+        "height": 343
       },
       "sourcePreserveAspectRatio": "xMidYMid meet",
       "exportProjection": "svg",
@@ -365,10 +365,10 @@
         "verified": true
       },
       "proportionalStrokeContract": "source-viewport-baked-strokes-v1",
-      "visualScale": 0.510204081633,
+      "visualScale": 0.583090379009,
       "nonScalingStrokeCount": 0,
-      "sourceFingerprint": "5ec8745ac9b3ebb98cc650a9c9fa955f05d688c93b94f2a41a897fa20d291258",
-      "sha256": "ee307f544fef3b624fe9fa1be652ac6690ef3972bf7d589f46d27c3bfbb66aa1"
+      "sourceFingerprint": "1e033ecddd6afa6b9fba6a12ecbca82471717ff8de564a5c7fd5cceb3484528e",
+      "sha256": "86097e4f6b2aa54e35cf53d133ceae361850d6446d308fe9bcb15b7effe23178"
     },
     {
       "type": "venn",
@@ -378,13 +378,13 @@
       "source": "Graphitix owner-scoped SVG projection",
       "captureMode": "canonical-export",
       "sourceFormat": "svg",
-      "sourceWidth": 450,
-      "sourceHeight": 392,
+      "sourceWidth": 354,
+      "sourceHeight": 328,
       "sourceViewBox": {
         "x": 0,
         "y": 0,
-        "width": 450,
-        "height": 392
+        "width": 354,
+        "height": 328
       },
       "sourcePreserveAspectRatio": "xMidYMid meet",
       "exportProjection": "svg",
@@ -403,10 +403,10 @@
         "verified": true
       },
       "proportionalStrokeContract": "source-viewport-baked-strokes-v1",
-      "visualScale": 0.510204081633,
+      "visualScale": 0.609756097561,
       "nonScalingStrokeCount": 0,
-      "sourceFingerprint": "565d7ef31e2254ee8e626fbfc442c70765ee5afc71fb5934446d658285df15ea",
-      "sha256": "fbe30d61de1bffa959d7f7edfb3b0f9bbde53c1bf0a11454ce2deefcf5b46877"
+      "sourceFingerprint": "59c99d9c662681631c6ba7f1cdd99be7fe7abbe2ad47f36572b7cec56da0d599",
+      "sha256": "0592513cbc0d49c4b6e2f1dfd3449f68cba1c7223c85fd57a85f012673ff7171"
     },
     {
       "type": "surface",
@@ -416,13 +416,13 @@
       "source": "Graphitix owner-scoped SVG projection",
       "captureMode": "canonical-export",
       "sourceFormat": "svg",
-      "sourceWidth": 458,
-      "sourceHeight": 400,
+      "sourceWidth": 362,
+      "sourceHeight": 336,
       "sourceViewBox": {
         "x": 0,
         "y": 0,
-        "width": 458,
-        "height": 400
+        "width": 362,
+        "height": 336
       },
       "sourcePreserveAspectRatio": "xMidYMid meet",
       "exportProjection": "svg",
@@ -443,10 +443,10 @@
         "verified": true
       },
       "proportionalStrokeContract": "source-viewport-baked-strokes-v1",
-      "visualScale": 0.5,
+      "visualScale": 0.595238095238,
       "nonScalingStrokeCount": 0,
-      "sourceFingerprint": "d994b6e5692574b9a93c29c4fa72a4190e20c93f717de421a111fbffaf6283b5",
-      "sha256": "fa93dec8ef661e5c780a547b19988f8dad8b5d2387d62c4b78627860c809fd8f"
+      "sourceFingerprint": "8e4a519488b638ffbdcec9e1da0d7eb43f736ec08a4ebf43da9d96575540146d",
+      "sha256": "0f73fc4395fa348c602103cecab9430d9f79f139fcfcec0d55af3c338f416a7e"
     }
   ]
 }

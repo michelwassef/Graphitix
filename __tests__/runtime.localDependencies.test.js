@@ -50,4 +50,13 @@ describe('static runtime dependency delivery', () => {
     expect(hotScript).toBeGreaterThan(-1);
     expect(agGridScript).toBeLessThan(hotScript);
   });
+
+  test('index loads the Cartesian transaction before runtime session consumers', () => {
+    const html = read('index.html');
+    const cartesianScript = html.indexOf('js/shared/cartesianLayout.js');
+    const sessionScript = html.indexOf('js/main/session.js');
+    expect(cartesianScript).toBeGreaterThan(-1);
+    expect(sessionScript).toBeGreaterThan(-1);
+    expect(cartesianScript).toBeLessThan(sessionScript);
+  });
 });

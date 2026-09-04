@@ -1016,6 +1016,64 @@ describe('PCA view controls', () => {
     expect(state.rotationPending).toBe(false);
   });
 
+  test('MDS caches three coordinates so 2D and 3D switches reuse one analysis', async () => {
+    const exampleBtn = document.getElementById('pcaLoadExample');
+    const methodSelect = document.getElementById('pcaMethod');
+    const viewSelect = document.getElementById('pcaViewMode');
+    const state = window.Components?.pca?.__state;
+    expect(exampleBtn).toBeTruthy();
+    expect(methodSelect).toBeTruthy();
+    expect(viewSelect).toBeTruthy();
+    expect(state).toBeTruthy();
+
+    exampleBtn.click();
+    await flushUntil(() => !!state.cachedRender, { limit: 80, step: 2 });
+
+    viewSelect.value = '2d';
+    methodSelect.value = 'mds';
+    methodSelect.dispatchEvent(new Event('change', { bubbles: true }));
+    await flushUntil(() => {
+      const svg = document.querySelector('#pcaPlot #pcaSvg');
+      return state.cachedRender?.method === 'mds'
+        && state.cachedRender?.points3d?.length > 0
+        && state.cachedRender?.dimensionMeta?.length >= 3
+        && svg?.dataset?.viewMode === '2d';
+    }, { limit: 120, step: 2 });
+
+    const mdsCache = state.cachedRender;
+    const mdsSvdCalls = global.__svdCallCount;
+    expect(mdsSvdCalls).toBeGreaterThan(0);
+    expect(mdsCache.statsSnapshot?.dimensions).toBeGreaterThanOrEqual(3);
+
+    let lastDrawTimestamp = state.performance?.draw?.timestamp || 0;
+    viewSelect.value = '3d';
+    viewSelect.dispatchEvent(new Event('change', { bubbles: true }));
+    await flushUntil(() => {
+      const svg = document.querySelector('#pcaPlot #pcaSvg');
+      return (state.performance?.draw?.timestamp || 0) > lastDrawTimestamp
+        && svg?.dataset?.viewMode === '3d';
+    }, { limit: 120, step: 2 });
+
+    expect(global.__svdCallCount).toBe(mdsSvdCalls);
+    expect(state.cachedRender).toBe(mdsCache);
+    expect(state.performance?.draw?.viewOnly).toBe(true);
+    expect(state.performance?.draw?.cacheReused).toBe(true);
+    expect(state.performance?.draw?.reason).toBe('view-mode-change');
+
+    lastDrawTimestamp = state.performance?.draw?.timestamp || 0;
+    viewSelect.value = '2d';
+    viewSelect.dispatchEvent(new Event('change', { bubbles: true }));
+    await flushUntil(() => {
+      const svg = document.querySelector('#pcaPlot #pcaSvg');
+      return (state.performance?.draw?.timestamp || 0) > lastDrawTimestamp
+        && svg?.dataset?.viewMode === '2d';
+    }, { limit: 120, step: 2 });
+
+    expect(global.__svdCallCount).toBe(mdsSvdCalls);
+    expect(state.cachedRender).toBe(mdsCache);
+    expect(state.performance?.draw?.viewOnly).toBe(true);
+    expect(state.performance?.draw?.cacheReused).toBe(true);
+  });
   test('3D render cache restore rebuilds the owner renderer before controls', async () => {
     const exampleBtn = document.getElementById('pcaLoadExample');
     expect(exampleBtn).toBeTruthy();

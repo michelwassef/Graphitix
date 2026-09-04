@@ -69,7 +69,9 @@ test.describe('PCA owner-scoped large import transaction', () => {
         rows: tab.payload.data.length,
         payloadDirty: tab.payloadDirty === true,
         points: document.querySelectorAll('#pcaPage:not([hidden]) #pcaSvg [data-plot-point="1"]').length,
-        gridText: document.querySelector('#pcaPage:not([hidden]) .ag-center-cols-container')?.textContent || ''
+        gridText: document.querySelector('#pcaPage:not([hidden]) .ag-center-cols-container')?.textContent || '',
+        gridHeaderLabels: Array.from(document.querySelectorAll('#pcaPage:not([hidden]) [role="gridcell"]'))
+          .map(node => node.getAttribute('aria-label') || node.textContent || '')
       };
     }, tabId);
     const recovery = await page.evaluate(async id => {
@@ -101,7 +103,8 @@ test.describe('PCA owner-scoped large import transaction', () => {
 
     expect(result.rows).toBe(75442);
     expect(result.points).toBe(20);
-    expect(result.gridText).toContain('Condition 1');
+    // AG Grid keeps headers outside the virtualized body container.
+    expect(result.gridHeaderLabels).toContain('Condition 1');
     expect(result.gridText).toContain('180');
     expect(result.transaction).toEqual(expect.objectContaining({
       projected: true,

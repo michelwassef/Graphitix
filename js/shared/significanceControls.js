@@ -19,6 +19,9 @@
   let whiskerToggleInput = null;
   let whiskerModeField = null;
   let whiskerModeSelect = null;
+  let labelModeField = null;
+  let labelModeSelect = null;
+  let pScientificField = null;
   let pScientificToggleInput = null;
   let pDecimalsField = null;
   let pDecimalsInput = null;
@@ -180,6 +183,14 @@
       whiskerModeField.style.display = 'none';
     }
 
+    const hasLabelMode = !!(labelModeField && labelModeSelect && config.getLabelMode);
+    if(hasLabelMode){
+      labelModeField.style.display = '';
+      labelModeSelect.value = config.getLabelMode() === 'decision' ? 'decision' : 'p';
+    }else if(labelModeField){
+      labelModeField.style.display = 'none';
+    }
+
     const hasPScientificMode = !!(pScientificToggleInput && (config.getPScientific || config.onPScientificChange));
     if(hasPScientificMode){
       const pScientificRaw = config.getPScientific ? config.getPScientific() : false;
@@ -212,7 +223,9 @@
       return '0px';
     }
     const toolbarApi = Shared.getWorkspaceToolbarApi?.() || Shared.workspaceToolbar || null;
-    const formatted = toolbarApi?.formatNumericValue?.(numeric, thicknessInput?.step || 0.25)
+    const step = thicknessInput?.step || 0.25;
+    const formatted = toolbarApi?.formatPxDisplayValue?.(numeric, step)
+      || toolbarApi?.formatNumericValue?.(numeric, step, { maxPrecision: 2 })
       || String(Math.round(numeric * 100) / 100);
     return `${formatted}px`;
   }
@@ -258,9 +271,12 @@
     input.min = thicknessInput?.min || '0.25';
     input.max = thicknessInput?.max || '10';
     input.step = thicknessInput?.step || '0.25';
-    input.value = thicknessInput?.value || '1';
-    input.setAttribute('aria-label', 'Line thickness');
     const toolbarApi = Shared.getWorkspaceToolbarApi?.() || Shared.workspaceToolbar || null;
+    const rawValue = thicknessInput?.value || '1';
+    input.value = toolbarApi?.formatPxDisplayValue?.(rawValue, input.step)
+      || toolbarApi?.formatNumericValue?.(rawValue, input.step, { maxPrecision: 2 })
+      || rawValue;
+    input.setAttribute('aria-label', 'Line thickness');
     const mirrorCleanup = typeof toolbarApi?.bindNumericInputMirror === 'function'
       ? toolbarApi.bindNumericInputMirror(input, thicknessInput)
       : (() => {
@@ -646,7 +662,13 @@
     whiskerModeField.style.display = 'none';
     row.appendChild(whiskerModeField);
 
-    const pScientificField = doc.createElement('label');
+    // Box supplies the existing Label control so its owner-scoped event and
+    // persistence wiring remain authoritative. It is inserted before the
+    // scientific-format field when the toolbar opens.
+    labelModeField = null;
+    labelModeSelect = null;
+
+    pScientificField = doc.createElement('label');
     pScientificField.className = 'additional-line-controls-panel__field significance-controls-panel__field significance-controls-panel__field--toggle';
     const pScientificLabel = doc.createElement('span');
     pScientificLabel.className = 'additional-line-controls-panel__field-label significance-controls-panel__field-label';
@@ -1036,6 +1058,20 @@
       logDebug('dendrogram close failed',{ error: err?.message || String(err) });
     }
     activeConfig = config;
+    const labelControl = config?.labelControl;
+    const panelRow = pScientificField?.parentNode;
+    if(labelControl && labelControl.nodeType === 1 && panelRow){
+      if(labelControl.parentNode !== panelRow || labelControl.nextElementSibling !== pScientificField){
+        panelRow.insertBefore(labelControl, pScientificField);
+      }
+      labelControl.hidden = false;
+      labelControl.removeAttribute?.('aria-hidden');
+      labelModeField = labelControl;
+      labelModeSelect = labelControl.querySelector?.('[data-significance-label-mode], #boxSignificanceLabelMode, select') || null;
+    }else if(labelModeField){
+      labelModeField.style.display = 'none';
+      labelModeSelect = null;
+    }
     const host = resolveToolbarHost(config.scopeId);
     if(host){
       try{
@@ -1093,6 +1129,8 @@
         getColor: config.getColor,
         getWhiskers: config.getWhiskers,
         getWhiskerMode: config.getWhiskerMode,
+        getLabelMode: config.getLabelMode,
+        labelControl: config.labelControl,
         getPScientific: config.getPScientific,
         getPDecimals: config.getPDecimals,
         getFontTarget: config.getFontTarget,

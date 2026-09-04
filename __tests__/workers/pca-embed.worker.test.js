@@ -46,24 +46,25 @@ describe('pca-embed.worker — MDS', () => {
   });
 
   test('empty matrix returns empty coords', async () => {
-    const msg = await send(ctx, '1', 'mds', { matrix: [], requestedDims: 2 });
+    const msg = await send(ctx, '1', 'mds', { matrix: [] });
     expect(msg.ok).toBe(true);
     expect(msg.result.coords).toEqual([]);
   });
 
-  test('returns n coord rows for n samples', async () => {
-    const matrix = makeMatrix(5, 4);
-    const msg = await send(ctx, '2', 'mds', { matrix, requestedDims: 2 });
+  test('returns reusable 3D coordinates when three positive dimensions exist', async () => {
+    const matrix = makeMatrix(6, 4);
+    const msg = await send(ctx, '2', 'mds', { matrix });
     expect(msg.ok).toBe(true);
-    expect(msg.result.coords).toHaveLength(5);
+    expect(msg.result.dimsToUse).toBe(3);
+    expect(msg.result.coords).toHaveLength(6);
     msg.result.coords.forEach(row => {
-      expect(row.length).toBeGreaterThanOrEqual(2);
+      expect(row).toHaveLength(3);
     });
   });
 
   test('eigenSummary cumulative variance ratio reaches 1 for last entry', async () => {
     const matrix = makeMatrix(6, 4);
-    const msg = await send(ctx, '3', 'mds', { matrix, requestedDims: 2 });
+    const msg = await send(ctx, '3', 'mds', { matrix });
     expect(msg.ok).toBe(true);
     const summary = msg.result.eigenSummary;
     expect(summary.length).toBeGreaterThan(0);
@@ -75,7 +76,7 @@ describe('pca-embed.worker — MDS', () => {
 
   test('stress is non-negative', async () => {
     const matrix = makeMatrix(4, 3);
-    const msg = await send(ctx, '4', 'mds', { matrix, requestedDims: 2 });
+    const msg = await send(ctx, '4', 'mds', { matrix });
     expect(msg.result.stress).toBeGreaterThanOrEqual(0);
   });
 });

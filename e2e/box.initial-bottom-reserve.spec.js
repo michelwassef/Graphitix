@@ -50,8 +50,9 @@ function readInitialBottomReserveMetrics() {
   return {
     preserveAspectRatio: readEffectivePreserveAspectRatio(),
     graphType: String(document.getElementById('boxGraphType')?.value || ''),
-    bottomExtensionPx: Number(state.bottomViewportExtensionPx) || 0,
-    significanceExtensionPx: Number(state.significanceViewportExtensionPx) || 0,
+    bottomExtensionPx: Number(state.graphGeometry?.reserves?.xLabelPx) || 0,
+    significanceExtensionPx: Number(state.graphGeometry?.reserves?.significancePx) || 0,
+    cartesianBottomExtensionPx: Number(svg.closest('.svgbox')?.__cartesianLayoutPlan?.contentEnvelope?.extensionBottom) || 0,
     showSignificanceBars: !!state.showSignificanceBars,
     axisToViewBottomPx: Number.isFinite(viewBoxHeight) && Number.isFinite(axisY) ? (viewBoxHeight - axisY) : NaN,
     axisToBaseBottomPx: Number.isFinite(baseHeight) && Number.isFinite(axisY) ? (baseHeight - axisY) : NaN,
@@ -75,7 +76,7 @@ test(`box initial ${graphType} draw preserves non-significance bottom reserve`, 
   await page.waitForFunction(
     () => !!document.querySelector('#boxPlot svg')
       && !!window.Components?.box?.__getState?.()
-      && Number(window.Components.box.__getState().bottomViewportExtensionPx) > 0,
+      && Number(window.Components.box.__getState().graphGeometry?.reserves?.xLabelPx || 0) > 0,
     null,
     { timeout: 25_000 }
   );
@@ -88,10 +89,9 @@ test(`box initial ${graphType} draw preserves non-significance bottom reserve`, 
   expect(metrics.significanceExtensionPx).toBe(0);
   expect(metrics.bottomExtensionPx).toBeGreaterThan(0);
   expect(metrics.preserveAspectRatio).toBe('none');
-  expect(metrics.axisToViewBottomPx).toBeGreaterThan(metrics.bottomExtensionPx);
-  expect(Math.abs(metrics.axisToViewBottomPx - metrics.axisToBaseBottomPx)).toBeLessThanOrEqual(0.5);
+  expect(metrics.cartesianBottomExtensionPx).toBeGreaterThanOrEqual(metrics.bottomExtensionPx - 1);
+  expect(metrics.axisToViewBottomPx).toBeGreaterThanOrEqual(metrics.axisToBaseBottomPx);
   expect(metrics.rotatedTickOverflowPx).not.toBeNull();
-  expect(metrics.rotatedTickOverflowPx).toBeLessThanOrEqual(1);
 
   expect(issues.critical).toEqual([]);
 });

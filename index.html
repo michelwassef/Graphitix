@@ -98,6 +98,7 @@
   <script defer src="js/shared/exportProjection.js"></script>
   <script defer src="js/shared/exporter.js"></script>
   <script defer src="js/shared/chartStyle.js"></script>
+  <script defer src="js/shared/cartesianLayout.js"></script>
   <script defer src="js/shared/visualProjection.js"></script>
   <script defer src="js/shared/plot3d.js"></script>
   <script defer src="js/shared/graphSizing.js"></script>
@@ -292,12 +293,14 @@
       <div id="vennPanelResizer" class="panel-resizer" aria-hidden="true"></div>
       <div class="panel" id="vennGraphPanel">
         <div class="diagram-area">
+          <div class="venn-plot-stack graph-plot-stack">
           <div class="svgbox">
             <div class="resizer resizer-vertical" title="Drag to change width" aria-hidden="true"></div>
             <div class="resizer resizer-horizontal" title="Drag to change height" aria-hidden="true"></div>
             <div class="resizer resizer-corner" title="Drag to change width & height" aria-hidden="true"></div>
             <svg id="stage" viewBox="0 0 500 340" xmlns="http://www.w3.org/2000/svg" aria-label="Venn diagram"></svg>
-            <div class="row idx-inline-004" id="vennExportControls"></div>
+          </div>
+          <div class="row graph-export-controls" id="vennExportControls"></div>
           </div>
           <div class="config-panel">
             <fieldset data-graph-selection-fieldset="1">
@@ -598,14 +601,14 @@
       <div id="boxPanelResizer" class="panel-resizer" aria-hidden="true"></div>
         <div class="panel" id="boxGraphPanel">
         <div class="diagram-area">
-          <div class="box-plot-stack">
+          <div class="box-plot-stack graph-plot-stack">
             <div class="svgbox">
               <div class="resizer resizer-vertical" title="Drag to change width" aria-hidden="true"></div>
               <div class="resizer resizer-horizontal" title="Drag to change height" aria-hidden="true"></div>
               <div class="resizer resizer-corner" title="Drag to change width & height" aria-hidden="true"></div>
               <div id="boxPlot" class="idx-inline-021"></div>
-              <div class="row idx-inline-004" id="boxExportControls"></div>
             </div>
+            <div class="row graph-export-controls" id="boxExportControls"></div>
           </div>
           <div class="config-panel">
             <fieldset data-graph-selection-fieldset="1">
@@ -709,11 +712,11 @@
                 <label class="idx-inline-024">
                   <input type="checkbox" id="boxShowSignificance" /> Show pairwise comparisons
                 </label>
-                <label id="boxSignificanceLabelCtl" class="idx-inline-024">
-                  Label
-                  <select id="boxSignificanceLabelMode">
-                    <option value="decision" selected>Decision (* / NS; D / ND for FDR)</option>
-                    <option value="p">P-value</option>
+                <label id="boxSignificanceLabelCtl" class="additional-line-controls-panel__field significance-controls-panel__field significance-controls-panel__field--numeric significance-controls-panel__field--label-mode">
+                  <span class="additional-line-controls-panel__field-label significance-controls-panel__field-label">Label</span>
+                  <select id="boxSignificanceLabelMode" class="additional-line-controls-panel__input additional-line-controls-panel__input--select significance-controls-panel__input significance-controls-panel__input--select significance-controls-panel__input--square" data-significance-label-mode="1">
+                    <option value="decision">Decision (* / NS; D / ND for FDR)</option>
+                    <option value="p" selected>P-value</option>
                   </select>
                 </label>
               </div>
@@ -799,14 +802,14 @@
       <div id="scatterPanelResizer" class="panel-resizer" aria-hidden="true"></div>
       <div class="panel" id="scatterGraphPanel">
         <div class="diagram-area">
-          <div class="scatter-plot-stack">
+          <div class="scatter-plot-stack graph-plot-stack">
             <div class="svgbox">
               <div class="resizer resizer-vertical" title="Drag to change width" aria-hidden="true"></div>
               <div class="resizer resizer-horizontal" title="Drag to change height" aria-hidden="true"></div>
               <div class="resizer resizer-corner" title="Drag to change width & height" aria-hidden="true"></div>
               <div id="scatterPlot" class="idx-inline-021"></div>
-              <div class="row idx-inline-004" id="scatterExportControls"></div>
             </div>
+            <div class="row graph-export-controls" id="scatterExportControls"></div>
           </div>
           <div class="config-panel">
             <fieldset class="config-panel__fieldset" data-graph-selection-fieldset="1">
@@ -1090,14 +1093,14 @@
       <div id="pcaPanelResizer" class="panel-resizer" aria-hidden="true"></div>
       <div class="panel" id="pcaGraphPanel">
         <div class="diagram-area">
-          <div class="pca-plot-stack">
+          <div class="pca-plot-stack graph-plot-stack">
             <div class="svgbox">
               <div class="resizer resizer-vertical" title="Drag to change width" aria-hidden="true"></div>
               <div class="resizer resizer-horizontal" title="Drag to change height" aria-hidden="true"></div>
               <div class="resizer resizer-corner" title="Drag to change width & height" aria-hidden="true"></div>
               <div id="pcaPlot" class="idx-inline-021"></div>
-              <div class="row idx-inline-004" id="pcaExportControls"></div>
             </div>
+            <div class="row graph-export-controls" id="pcaExportControls"></div>
           </div>
           <div class="config-panel">
             <fieldset data-graph-selection-fieldset="1">
@@ -1262,15 +1265,15 @@
       <div id="surfacePanelResizer" class="panel-resizer" aria-hidden="true"></div>
       <div class="panel" id="surfaceGraphPanel">
         <div class="diagram-area">
-          <div class="surface-plot-stack">
+          <div class="surface-plot-stack graph-plot-stack">
             <div class="svgbox">
               <div class="resizer resizer-vertical" title="Drag to change width" aria-hidden="true"></div>
               <div class="resizer resizer-horizontal" title="Drag to change height" aria-hidden="true"></div>
               <div class="resizer resizer-corner" title="Drag to change width &amp; height" aria-hidden="true"></div>
               <svg id="surfaceSvg" viewBox="0 0 640 420" xmlns="http://www.w3.org/2000/svg" aria-label="Surface plot"></svg>
               <div id="surfaceMessage" class="surface-message" role="status" aria-live="polite" hidden></div>
-              <div class="row idx-inline-004" id="surfaceExportControls"></div>
             </div>
+            <div class="row graph-export-controls" id="surfaceExportControls"></div>
             <div id="surfaceRenderRow" class="surface-render-row" hidden>
                 <button type="button" class="btn" id="surfaceRenderButton" disabled>Update plot</button>
               <p id="surfaceAutoDrawNotice" class="surface-auto-draw-notice" hidden aria-live="polite"></p>
@@ -1372,14 +1375,14 @@
       <div id="linePanelResizer" class="panel-resizer" aria-hidden="true"></div>
       <div class="panel" id="lineGraphPanel">
         <div class="diagram-area">
-          <div class="line-plot-stack">
+          <div class="line-plot-stack graph-plot-stack">
             <div class="svgbox">
               <div class="resizer resizer-vertical" title="Drag to change width" aria-hidden="true"></div>
               <div class="resizer resizer-horizontal" title="Drag to change height" aria-hidden="true"></div>
               <div class="resizer resizer-corner" title="Drag to change width & height" aria-hidden="true"></div>
               <div id="linePlot" class="idx-inline-021"></div>
-              <div class="row idx-inline-004" id="lineExportControls"></div>
             </div>
+            <div class="row graph-export-controls" id="lineExportControls"></div>
             <div id="lineRenderRow" class="line-render-row" hidden>
                 <button type="button" class="btn" id="lineRenderButton" disabled>Update plot</button>
               <p id="lineAutoDrawNotice" class="line-auto-draw-notice" hidden aria-live="polite"></p>
@@ -1554,14 +1557,14 @@
       <div id="heatmapPanelResizer" class="panel-resizer" aria-hidden="true"></div>
       <div class="panel" id="heatmapGraphPanel">
         <div class="diagram-area">
-          <div class="heatmap-plot-stack">
+          <div class="heatmap-plot-stack graph-plot-stack">
             <div class="svgbox">
               <div class="resizer resizer-vertical" title="Drag to change width" aria-hidden="true"></div>
               <div class="resizer resizer-horizontal" title="Drag to change height" aria-hidden="true"></div>
               <div class="resizer resizer-corner" title="Drag to change width &amp; height" aria-hidden="true"></div>
               <svg id="heatmapSvg" viewBox="0 0 600 600" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Correlation heatmap"></svg>
-              <div class="row idx-inline-004" id="heatmapExportControls"></div>
             </div>
+            <div class="row graph-export-controls" id="heatmapExportControls"></div>
           </div>
           <div class="config-panel">
             <fieldset class="heatmap-view-panel">
@@ -1788,14 +1791,14 @@
       <div id="rocPanelResizer" class="panel-resizer" aria-hidden="true"></div>
       <div class="panel" id="rocGraphPanel">
         <div class="diagram-area">
-          <div class="roc-plot-stack">
+          <div class="roc-plot-stack graph-plot-stack">
             <div class="svgbox">
               <div class="resizer resizer-vertical" title="Drag to change width" aria-hidden="true"></div>
               <div class="resizer resizer-horizontal" title="Drag to change height" aria-hidden="true"></div>
               <div class="resizer resizer-corner" title="Drag to change width & height" aria-hidden="true"></div>
               <div id="rocPlot" class="idx-inline-021"></div>
-              <div class="row idx-inline-004" id="rocExportControls"></div>
             </div>
+            <div class="row graph-export-controls" id="rocExportControls"></div>
             <div id="rocRenderRow" class="roc-render-row" hidden>
                 <button type="button" class="btn" id="rocRenderButton" disabled>Update plot</button>
               <p id="rocAutoDrawNotice" class="roc-auto-draw-notice" hidden aria-live="polite"></p>
@@ -1812,6 +1815,7 @@
                     <option value="pr">Precision-Recall</option>
                   </select>
                 </label>
+                <label class="idx-inline-023"><input type="checkbox" id="rocShowComparisonOnPlot" /> <span id="rocShowComparisonOnPlotLabel">Show stats on plot</span></label>
               </div>
             </fieldset>
             <fieldset data-roc-classification-fieldset="1">
@@ -1840,7 +1844,6 @@
                 <label class="idx-inline-023"><input type="checkbox" id="rocShowGrid" /> Show grid</label>
                 <label class="idx-inline-023"><input type="checkbox" id="rocShowFrame" /> Show frame</label>
                 <label class="idx-inline-023"><input type="checkbox" id="rocShowLegend" checked /> Show legend</label>
-                <label class="idx-inline-023"><input type="checkbox" id="rocShowComparisonOnPlot" /> <span id="rocShowComparisonOnPlotLabel">Show comparison on plot</span></label>
               </div>
             </fieldset>
             <fieldset data-font-controls="1" hidden>
@@ -1885,18 +1888,18 @@
       <div id="survivalPanelResizer" class="panel-resizer" aria-hidden="true"></div>
       <div class="panel" id="survivalGraphPanel">
         <div class="diagram-area">
-          <div class="survival-plot-stack">
+          <div class="survival-plot-stack graph-plot-stack">
             <div class="svgbox">
               <div class="resizer resizer-vertical" title="Drag to change width" aria-hidden="true"></div>
               <div class="resizer resizer-horizontal" title="Drag to change height" aria-hidden="true"></div>
               <div class="resizer resizer-corner" title="Drag to change width &amp; height" aria-hidden="true"></div>
               <div id="survivalPlot" class="idx-inline-021"></div>
-              <div class="row idx-inline-004" id="survivalExportControls"></div>
             </div>
+            <div class="row graph-export-controls" id="survivalExportControls"></div>
           </div>
           <div class="config-panel">
-            <fieldset>
-              <legend>Curve options</legend>
+            <fieldset data-graph-selection-fieldset="1">
+              <legend>Graph</legend>
               <div class="control idx-inline-031">
                 <label class="idx-inline-023"><input type="checkbox" id="survivalShowCI" /> Show 95% Confidence Interval</label>
                 <label class="idx-inline-023"><input type="checkbox" id="survivalShowCensor" checked /> Show censor marks</label>
@@ -1939,6 +1942,7 @@
               <div class="control idx-inline-049" id="survivalCovariateControls">
                 <div id="survivalCovariateHint" class="idx-inline-037">Add extra columns to pick covariates for the Cox model.</div>
               </div>
+              <div id="survivalStatsPValueFormat" class="stats-reporting-controls" aria-label="p-value format"></div>
               <div id="survivalStatsLogRank"></div>
               <div id="survivalStatsHazardRatios" class="idx-inline-003"></div>
               <div id="survivalStatsCox" class="idx-inline-003"></div>
@@ -1966,14 +1970,14 @@
       <div id="histPanelResizer" class="panel-resizer" aria-hidden="true"></div>
       <div class="panel" id="histGraphPanel">
         <div class="diagram-area">
-          <div class="hist-plot-stack">
+          <div class="hist-plot-stack graph-plot-stack">
             <div class="svgbox">
               <div class="resizer resizer-vertical" title="Drag to change width" aria-hidden="true"></div>
               <div class="resizer resizer-horizontal" title="Drag to change height" aria-hidden="true"></div>
               <div class="resizer resizer-corner" title="Drag to change width & height" aria-hidden="true"></div>
               <div id="histPlot" class="idx-inline-021"></div>
-              <div class="row idx-inline-004" id="histExportControls"></div>
             </div>
+            <div class="row graph-export-controls" id="histExportControls"></div>
             <div id="histRenderRow" class="hist-render-row" hidden>
                 <button type="button" class="btn" id="histRenderButton" disabled>Update plot</button>
               <p id="histAutoDrawNotice" class="hist-auto-draw-notice" hidden aria-live="polite"></p>
@@ -1998,7 +2002,9 @@
                   </select>
                 </label>
                 <label class="idx-inline-023"><input type="checkbox" id="histShowLegend" checked /> Show legend</label>
-                <label class="idx-inline-023"><input type="checkbox" id="histShowStatsSummary" /> Show summary on plot</label>
+              </div>
+              <div class="control idx-inline-031" id="histGraphStatsRow">
+                <label class="idx-inline-023"><input type="checkbox" id="histShowStatsSummary" /> Show stats on plot</label>
               </div>
               <div class="control idx-inline-031" id="histPanelLayoutRow" hidden>
                 <label class="idx-inline-023" id="histPanelArrangementCtl">
@@ -2162,12 +2168,14 @@
       <div id="piePanelResizer" class="panel-resizer" aria-hidden="true"></div>
       <div class="panel" id="pieGraphPanel">
         <div class="diagram-area">
+          <div class="pie-plot-stack graph-plot-stack">
           <div class="svgbox">
             <div class="resizer resizer-vertical" title="Drag to change width" aria-hidden="true"></div>
             <div class="resizer resizer-horizontal" title="Drag to change height" aria-hidden="true"></div>
             <div class="resizer resizer-corner" title="Drag to change width & height" aria-hidden="true"></div>
             <div id="piePlot" class="idx-inline-021"></div>
-            <div class="row idx-inline-004" id="pieExportControls"></div>
+          </div>
+          <div class="row graph-export-controls" id="pieExportControls"></div>
           </div>
           <div class="config-panel">
             <fieldset data-graph-selection-fieldset="1">
@@ -2182,9 +2190,6 @@
                   </select>
                 </label>
               </div>
-            </fieldset>
-            <fieldset>
-              <legend>Options</legend>
               <div class="control">
                 <label><input type="checkbox" id="pieShowPercents" /> Show percentages</label>
                 <label><input type="checkbox" id="pieShowFrame" /> Show frame</label>

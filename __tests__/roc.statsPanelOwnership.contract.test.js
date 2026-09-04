@@ -158,6 +158,48 @@ describe('ROC stats panel owner contract', () => {
     expect(block).not.toContain('setRocSessionRefs(drawSession, drawRefs, { applyActive: true })');
   });
 
+  test('publishes the matching base frame and statistics before cooperative PR comparison work', () => {
+    const source = rocSource();
+    const draw = sourceBlock(source, '  async function drawRoc(meta = {}, session = null)', '  // PART: PERSISTENCE');
+    const publication = draw.indexOf('publishCartesianLayout');
+    const comparison = draw.indexOf('bootstrapCurveDiffCooperative');
+    expect(publication).toBeGreaterThanOrEqual(0);
+    expect(comparison).toBeGreaterThanOrEqual(0);
+    expect(publication).toBeLessThan(comparison);
+    expect(draw.indexOf('commitFrame: () => commitRocFrame()')).toBeLessThan(comparison);
+    expect(draw.indexOf('renderRocStatsSummary(stats, graphType')).toBeLessThan(comparison);
+    expect(draw.indexOf('captureRocStatsPanelModel(null, { session: drawSession')).toBeLessThan(comparison);
+    expect(draw.indexOf('drawSession.state.statsPanelSignature = state.statsPanelSignature')).toBeLessThan(comparison);
+    expect(draw).toContain('drawGeneration: meta?.drawGeneration');
+  });
+
+  test('renders one owner-scoped comparison card for valid multi-curve ROC and PR results', () => {
+    const source = rocSource();
+    const comparison = functionBlock(source, 'renderRocComparisonStatsPanel(stats, graphType, diffResult, options = {})', 'appendRocReportPanel');
+    expect(comparison).toContain('stats.length < 2');
+    expect(comparison).toContain('isRocStatsPublicationCurrent(session, normalizedGraphType, options)');
+    expect(comparison).toContain("section: 'comparisons'");
+    expect(comparison).toContain("className: 'roc-curve-comparison-card'");
+    expect(comparison).toContain("const metricLabel = normalizedGraphType === 'roc' ? 'ΔAUC' : 'ΔAP';");
+    expect(comparison).toContain("caption: 'Curve comparison'");
+    expect(comparison).toContain('statsResults.insertBefore(rendered.wrapper, statsResults.firstChild || null)');
+    expect(source).toContain('populateRocCompareOptions(seriesNames, ownerSession = null)');
+    expect(source).toContain('commitRocCompareStateToSession(session, {');
+    expect(source).not.toContain("state.compareResult.textContent");
+  });
+
+  test('does not retain a comparison result when the loaded curves or selected pair are not comparable', () => {
+    const source = rocSource();
+    const options = functionBlock(source, 'populateRocCompareOptions(seriesNames, ownerSession = null)', 'ensureLabelColors');
+    expect(options).toContain('const hasLoadedSeries = names.length > 0;');
+    expect(options).toContain('const selectionChanged = hasLoadedSeries');
+    expect(options).toContain('const compareResult = !hasLoadedSeries');
+    const clear = functionBlock(source, 'clearPlotArea(reason, options = {})', 'updateFontSizeLabel');
+    expect(clear).toContain('state.compareResultModel = null;');
+    expect(clear).toContain('session.results = createDefaultRocResultsState({');
+    expect(clear).toContain('compareResult: null');
+  });
+
   test('render cache restore requires durable stats restoration when a stats model exists', () => {
     const source = rocSource();
     const start = source.indexOf('  roc.restoreRenderCache = function restoreRenderCache');

@@ -74,7 +74,7 @@ async function dragLegendFromChild(page, { svgId, startFromChild = true, deltaX 
 async function replaceRecoverySnapshot(page, reason) {
   await page.evaluate(async snapshotReason => {
     const openDb = () => new Promise((resolve, reject) => {
-      const request = indexedDB.open('graphitix-document-state', 1);
+      const request = indexedDB.open('graphitix-document-state', 2);
       request.onupgradeneeded = () => {
         if (!request.result.objectStoreNames.contains('snapshots')) request.result.createObjectStore('snapshots');
       };

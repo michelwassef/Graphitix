@@ -35,7 +35,7 @@ test('Standard PCA example uses six Indomethacin subjects in 2D and 3D', async (
   expect(snapshot.columns).toBe(7);
   expect(snapshot.labelFlags).toEqual([false, false, false, false, false, false]);
   expect(snapshot.labels).toEqual(['Subject 1', 'Subject 4', 'Subject 5', 'Subject 2', 'Subject 3', 'Subject 6']);
-  expect(snapshot.variance[0]).toBeCloseTo(61.49, 1);
+  expect(snapshot.variance[0]).toBeCloseTo(73.43, 1);
   expect(snapshot.variance.slice(0, 3).reduce((sum, value) => sum + value, 0)).toBeGreaterThan(96);
   await expect(page.locator('#pcaPlot svg')).toHaveAttribute('data-view-mode', '2d');
   await expect(page.locator("#pcaSvg [data-layer='point-labels'] text")).toHaveCount(0);

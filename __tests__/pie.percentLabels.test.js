@@ -50,6 +50,12 @@ describe('Pie percentage labels', () => {
 
   beforeEach(() => {
     jest.resetModules();
+    delete window.Main;
+    delete window.Components;
+    delete window.Shared;
+    delete global.Main;
+    delete global.Components;
+    delete global.Shared;
     if(typeof global.__restoreTestDebugLogs === 'function'){
       global.__restoreTestDebugLogs();
     }

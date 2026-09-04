@@ -4,6 +4,7 @@
 
   const ctx = typeof self !== 'undefined' ? self : this;
   const SVD_URL = '../../libs/svd-js.min.js';
+  const MDS_CACHED_DIMENSIONS = 3;
 
   function ensureSvd(){
     if(ctx.SVDJS && typeof ctx.SVDJS.SVD === 'function'){
@@ -420,7 +421,7 @@
     };
   }
 
-  function computeMdsEmbedding(matrix, requestedDims){
+  function computeMdsEmbedding(matrix){
     const nSamples = Array.isArray(matrix) ? matrix.length : 0;
     const nFeatures = nSamples ? (matrix[0]?.length || 0) : 0;
     if(!nSamples || !nFeatures){
@@ -472,8 +473,10 @@
       .map((val, idx) => ({ val, idx }))
       .filter(({ val }) => val > 1e-9);
     const dimsAvailable = positiveEigen.length;
-    const requested = Math.max(2, Number(requestedDims) || 2);
-    const dimsToUse = Math.min(Math.max(requested, 2), dimsAvailable);
+    // Keep the first three classical-MDS coordinates regardless of the current
+    // view. The expensive eigendecomposition above is already complete, so this
+    // makes later 2D <-> 3D switches projection-only rather than analytical.
+    const dimsToUse = Math.min(MDS_CACHED_DIMENSIONS, dimsAvailable);
     if(dimsToUse === 0){
       return { coords: [], eigenSummary: [], dimsToUse: 0, totalPositive: 0, stress: 0 };
     }
@@ -531,7 +534,7 @@
     try{
       if(action === 'mds'){
         const payload = data.payload || {};
-        const result = computeMdsEmbedding(payload.matrix || [], payload.requestedDims || 2);
+        const result = computeMdsEmbedding(payload.matrix || []);
         ctx.postMessage({ id, ok: true, result });
         return;
       }

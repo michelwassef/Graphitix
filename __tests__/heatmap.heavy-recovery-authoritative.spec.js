@@ -98,7 +98,7 @@ async function editHeatmapTitle(page, value) {
 async function seedRecoverySnapshot(page) {
   await page.evaluate(async () => {
     const openDb = () => new Promise((resolve, reject) => {
-      const request = indexedDB.open('graphitix-document-state', 1);
+      const request = indexedDB.open('graphitix-document-state', 2);
       request.onupgradeneeded = () => {
         if (!request.result.objectStoreNames.contains('snapshots')) {
           request.result.createObjectStore('snapshots');

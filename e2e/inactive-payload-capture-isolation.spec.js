@@ -43,31 +43,18 @@ for (const component of CASES) {
     await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
 
     const firstTabId = await openExample(page, component, true);
-    const expectedSignature = await page.evaluate(async ({ type, tabId }) => {
+    const ownerMarker = `Owner marker ${component.type}`;
+    await page.evaluate(async ({ type, tabId, marker }) => {
       const session = window.Main.session;
       const tab = session.workspaceState.tabs.find(item => item.id === tabId);
       const config = window.Main.components.registry[type];
       const clone = value => session.clonePayload ? session.clonePayload(value) : structuredClone(value);
       const payload = clone(tab.payload);
-      const mutateFirstNumericLeaf = value => {
-        if (!value || typeof value !== 'object') return false;
-        const keys = Array.isArray(value) ? value.keys() : Object.keys(value);
-        for (const key of keys) {
-          const current = value[key];
-          if (typeof current === 'number' && Number.isFinite(current)) {
-            value[key] = current + 0.125;
-            return true;
-          }
-          if (typeof current === 'string' && /^-?\d+(?:\.\d+)?$/.test(current.trim())) {
-            value[key] = String(Number(current) + 0.125);
-            return true;
-          }
-          if (current && typeof current === 'object' && mutateFirstNumericLeaf(current)) return true;
-        }
-        return false;
-      };
-      if (!mutateFirstNumericLeaf(payload.data)) {
-        throw new Error(`Unable to create an owner-specific ${type} payload`);
+      payload.config = { ...(payload.config || {}) };
+      if (payload.config.labels && typeof payload.config.labels === 'object') {
+        payload.config.labels = { ...payload.config.labels, title: marker };
+      } else {
+        payload.config.title = marker;
       }
       session.assignTabPayload(tab, payload, { reason: `e2e-${type}-inactive-owner-marker` });
       const loaded = config.loadFromPayload?.(clone(payload), {
@@ -77,8 +64,7 @@ for (const component of CASES) {
         reason: `e2e-${type}-inactive-owner-marker`
       });
       if (loaded?.then) await loaded;
-      return session.serializePayloadSignature(tab.payload);
-    }, { type: component.type, tabId: firstTabId });
+    }, { type: component.type, tabId: firstTabId, marker: ownerMarker });
 
     const secondTabId = await openExample(page, component, false);
     expect(secondTabId).not.toBe(firstTabId);
@@ -93,16 +79,23 @@ for (const component of CASES) {
         type,
         reason: `e2e-${type}-inactive-capture`
       });
+      const secondTab = session.workspaceState.tabs.find(item => item.id === secondId);
+      const markerFrom = payload => payload?.config?.labels?.title || payload?.config?.title || null;
       return {
         activeTabId: session.workspaceState.activeTabId,
         capturedSignature: session.serializePayloadSignature(captured),
         canonicalSignature: session.serializePayloadSignature(firstTab.payload),
+        capturedMarker: markerFrom(captured),
+        canonicalMarker: markerFrom(firstTab?.payload),
+        secondMarker: markerFrom(secondTab?.payload),
         secondTabId: secondId
       };
     }, { type: component.type, firstId: firstTabId, secondId: secondTabId });
 
     expect(result.activeTabId).toBe(secondTabId);
-    expect(result.capturedSignature).toBe(expectedSignature);
+    expect(result.capturedMarker).toBe(ownerMarker);
+    expect(result.canonicalMarker).toBe(ownerMarker);
+    expect(result.secondMarker).not.toBe(ownerMarker);
     expect(result.capturedSignature).toBe(result.canonicalSignature);
   });
 }

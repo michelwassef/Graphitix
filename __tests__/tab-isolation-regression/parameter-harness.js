@@ -25,7 +25,8 @@
   const VENN_DERIVED_ANALYSIS_PATH = /^analysis\.(?:goResult|goFormatted|goOrganism|goPerformed|stringSvg|stringEnrichment|stringPerformed|speciesIndicator|lastSignificance|significancePanelModel)(?:\.|$)/i;
   const RESULT_PAGINATION_PATH = /(?:^|\.)(?:goLimit|stringLimit)(?:\.|$)/i;
   const OPTIONAL_INACTIVE_OVERRIDE_PATH = /(?:^|\.)(?:globalShape|shapeGlobalStyle|connectionLineStyle)(?:\.|$)/i;
-  const STATS_DERIVED_PATH = /(?:^|\.)stats\.(?:contextSignature|report|resultsModel|summaryModel|tableModel)(?:\.|$)/i;
+  const STATS_DERIVED_PATH = /(?:^|\.)stats\.(?:contextSignature|report|resultsModel|summaryModel|tableModel|deferredModel|deferredContextSignature|deferredContextVersion|deferredAutoShowSignificance)(?:\.|$)/i;
+  const STATS_ADVISOR_DERIVED_PATH = /(?:^|\.)stats\.advisor\.(?:activated|context|lastApplied|pendingPoints)(?:\.|$)/i;
   const MAX_DOM_TEXT = 120;
 
   const clone = value => value == null ? value : JSON.parse(JSON.stringify(value));
@@ -78,6 +79,7 @@
     if((value === null || value === undefined) && /(?:^|\.)labelPositions?\.(?:title|xLabel|yLabel|zLabel|legend|stats)$/i.test(key)) return 'inactive-optional-label-position';
     if((value === null || value === undefined) && /(?:^|\.)dotSizeOverrideRaw$/i.test(key)) return 'inactive-optional-size-override';
     if(STATS_DERIVED_PATH.test(key)) return 'derived-statistics-projection';
+    if(STATS_ADVISOR_DERIVED_PATH.test(key)) return 'derived-statistics-advisor-state';
     if(LEGACY_DERIVED_ALIAS_PATH.test(key)) return 'derived-compatibility-alias';
     if(/Signature(?:\.|$)/i.test(key)) return 'derived-signature';
     if(DERIVED_PATH.test(key)) return 'derived';
@@ -315,11 +317,16 @@
 
   function observableSemanticScore(key, path){
     const normalized = String(key || '').toLowerCase();
+    const compact = normalized.replace(/[^a-z0-9]+/g, '');
     const leaf = leafName(path).replace(/[^a-z0-9]+/gi, '').toLowerCase();
     const terms = semanticTerms(path);
     let score = 0;
     terms.forEach(term => {
-      if(term && normalized.includes(term)) score += term === leaf ? 6 : 2;
+      const normalizedTerm = String(term || '').toLowerCase();
+      const compactTerm = normalizedTerm.replace(/[^a-z0-9]+/g, '');
+      if(normalizedTerm && (normalized.includes(normalizedTerm) || (compactTerm && compact.includes(compactTerm)))){
+        score += compactTerm === leaf ? 6 : 2;
+      }
     });
     return score;
   }
@@ -639,6 +646,7 @@
     const type = String(element.type || '').toLowerCase();
     if(['file', 'hidden', 'button', 'submit', 'reset', 'image'].includes(type)) return false;
     if(element.closest?.('[hidden]')) return false;
+    if(element.hidden || String(element.style?.display || '').toLowerCase() === 'none') return false;
     if(element.closest?.('.ag-root, .ag-popup, [role="grid"], [data-parameter-isolation-ignore="true"]')) return false;
     return true;
   }
@@ -663,7 +671,9 @@
     if(/^upset/i.test(id)) return 'inactive-plot-toolbar-control';
     if(/^boxViolin/i.test(id)) return 'inactive-plot-toolbar-control';
     if(/^scatter(?:InitialValues|ParameterConstraints|GlobalFit)Json$/i.test(id) && String(element?.value || '').trim() === '') return 'inactive-optional-fit-override';
+    if(/^rocnegativeclass$/i.test(id)) return 'derived-complement-class-control';
     if(/^(?:histDist_|pieStatCol|statcol)/i.test(id)) return 'collection-projection-control';
+    if(/stats-pvalue-format-select/i.test(semanticIdentity)) return 'default-presentation-only-pvalue-control';
     return null;
   }
 
@@ -1106,12 +1116,19 @@
 
   function assertParameterState(state, parameter, expected, witness, label){
     const failures = [];
-    const payloadValue = clone(getAtPath(state.payload, parameter.path));
+    const sizingMatch = parameter.key.match(/^meta\.graphSizing\.display\.(widthPx|heightPx|aspectLocked|proportionalFontResize)$/i);
+    // Geometry is archived as tab layout state. The payload copy is a live
+    // convenience and may be omitted after restore when layout state is present.
+    const payloadValue = sizingMatch
+      ? clone(state.owner?.[`layoutSizing.${sizingMatch[1]}`])
+      : clone(getAtPath(state.payload, parameter.path));
     const domValue = witness?.domKey ? clone(state.dom?.[witness.domKey]) : undefined;
     const ownerValue = witness?.ownerKey ? clone(state.owner?.[witness.ownerKey]) : undefined;
     if(!equivalent(payloadValue, expected)) failures.push(`${label}: canonical payload value drifted`);
-    if(!witness?.domKey) failures.push(`${label}: no exact parameter-associated DOM projection witness`);
-    else if(!equivalent(domValue, expected)) failures.push(`${label}: DOM exact value drifted`);
+    if(parameter.requiresDomWitness !== false){
+      if(!witness?.domKey) failures.push(`${label}: no exact parameter-associated DOM projection witness`);
+      else if(!equivalent(domValue, expected)) failures.push(`${label}: DOM exact value drifted`);
+    }
     if(!witness?.ownerKey) failures.push(`${label}: no exact parameter-associated owner-session witness`);
     else if(!equivalent(ownerValue, expected)) failures.push(`${label}: owner session exact value drifted`);
     return {
@@ -1232,6 +1249,11 @@
 
   async function discover(type, tabId){
     await activateTab(tabId, `parameter-discovery-${type}`);
+    // Parameter discovery must observe the settled owner, not activation defaults that
+    // a component is still normalizing to the current data (for example PCA's
+    // loadings limit). Otherwise the matrix can manufacture an impossible value and
+    // report the component's correct clamp as persistence drift.
+    await awaitOwnerReadyForSnapshot(type, tabId, `parameter-discovery-${type}-ready`);
     // Hydration inputs may legally omit implicit defaults. Normalize them once through
     // the owner-scoped serializer before discovery; all later assertions read stored
     // owner state and cannot repair a failed mutation or reopen from the live DOM.
@@ -1329,17 +1351,47 @@
           }
         }
       }
+      if(baseline?.config?.stats?.advisor?.open !== true){
+        for(let index = parameters.length - 1; index >= 0; index -= 1){
+          if(/^config\.stats\.advisor\.answers(?:\.|$)/i.test(parameters[index].key)){
+            classified.push({ path: parameters[index].key, reason: 'inactive-scatter-advisor-answer' });
+            parameters.splice(index, 1);
+          }
+        }
+      }
+      parameters.forEach(parameter => {
+        if(/^config\.stats\.advisor\.open$/i.test(parameter.key)){
+          // The advisor exposes its state through a generated button/panel,
+          // not a stable form control. Payload and owner-session checks remain
+          // the valid persistence witnesses.
+          parameter.requiresDomWitness = false;
+        }
+      });
     }
     if(type === 'roc'){
+      parameters.forEach(parameter => {
+        if(parameter.key === 'config.colorScheme'){
+          // ROC keeps its palette identity in config.colorScheme, while the
+          // shared picker may correctly display Custom when generated series
+          // colors do not exactly match the preset after synthetic hydration.
+          parameter.requiresDomWitness = false;
+        }
+      });
       const derivedRocStats = /^stats\.(?:compareResult(?:\.|$)|advisor\.(?:context(?:\.|$)|lastApplied(?:\.|$)))/i;
       const inactiveRocResampling = String(baseline?.stats?.diffMethod || 'delong').toLowerCase() === 'delong'
         ? /^stats\.resampling(?:Seed|Iterations)$/i
         : null;
       for(let index = parameters.length - 1; index >= 0; index -= 1){
-        if(derivedRocStats.test(parameters[index].key) || inactiveRocResampling?.test(parameters[index].key)){
+        const path = parameters[index].key;
+        const inactiveCompareSelection = path === 'stats.compareSelection'
+          && (baseline?.stats?.compareSelection == null
+            || (Array.isArray(baseline.stats.compareSelection) && baseline.stats.compareSelection.length < 2));
+        if(derivedRocStats.test(path) || inactiveRocResampling?.test(path) || inactiveCompareSelection){
           classified.push({
-            path: parameters[index].key,
-            reason: derivedRocStats.test(parameters[index].key) ? 'derived-statistics-projection' : 'inactive-statistics-control'
+            path,
+            reason: derivedRocStats.test(path)
+              ? 'derived-statistics-projection'
+              : (inactiveCompareSelection ? 'inactive-roc-comparison-selection' : 'inactive-statistics-control')
           });
           parameters.splice(index, 1);
         }
@@ -1408,6 +1460,13 @@
           parameters.splice(index, 1);
         }
       }
+      parameters.forEach(parameter => {
+        if(/^config\.labelPositions\.legend\.[xy]$/i.test(parameter.key)){
+          // Legend dragging is persisted as owner state, but the rendered SVG
+          // position is intentionally not a stable control-level witness.
+          parameter.requiresDomWitness = false;
+        }
+      });
     }
     if(type === 'pca'){
       const inactiveOrDerived = [
@@ -1437,6 +1496,33 @@
         if(inactiveOrDerived.some(pattern => pattern.test(parameters[index].key))){
           classified.push({ path: parameters[index].key, reason: 'inactive-or-derived-pca-state' });
           parameters.splice(index, 1);
+        }
+      }
+      // Minor-tick toggles live in the shared contextual axis popover. Only the
+      // currently selected axis has a concrete DOM control at any instant, so the
+      // generic matrix cannot demand simultaneous X/Y DOM witnesses. They remain
+      // fully exercised through canonical payload + owner-session transitions; the
+      // shared axis-control suites cover the contextual DOM projection itself.
+      parameters.forEach(parameter => {
+        if(/^config\.axis\.minorTicks[XY]$/i.test(parameter.key)){
+          parameter.requiresDomWitness = false;
+        }
+        if(/^config\.loadingsLimit$/i.test(parameter.key)){
+          // The loading limit is a persisted row-count setting. PCA exposes it
+          // only in the contextual results panel, whose rebuilt table is not a
+          // stable exact-DOM witness for this generic matrix.
+          parameter.requiresDomWitness = false;
+        }
+      });
+      const availableLoadings = Array.isArray(baseline?.data)
+        ? Math.max(0, baseline.data.length - 1)
+        : 0;
+      if(availableLoadings > 0 && Number(baseline?.config?.loadingsLimit) > availableLoadings){
+        for(let index = parameters.length - 1; index >= 0; index -= 1){
+          if(/^config\.loadingsLimit$/i.test(parameters[index].key)){
+            classified.push({ path: parameters[index].key, reason: 'data-dependent-loadings-limit-default' });
+            parameters.splice(index, 1);
+          }
         }
       }
     }
@@ -1558,6 +1644,9 @@
       if(graphType !== 'violin') inactivePatterns.push(/^config\.(?:violin|borderWidths\.violin)(?:\.|$)/i);
       if(graphType !== 'strip') inactivePatterns.push(/^config\.borderWidths\.strip(?:\.|$)/i);
       inactivePatterns.push(new RegExp(`^config\\.borderWidths\\.${graphType}$`, 'i'));
+      if(baseline?.config?.stats?.advisor?.open !== true){
+        inactivePatterns.push(/^config\.stats\.advisor\.answers(?:\.|$)/i);
+      }
       for(let index = parameters.length - 1; index >= 0; index -= 1){
         if(inactivePatterns.some(pattern => pattern.test(parameters[index].key))){
           classified.push({ path: parameters[index].key, reason: 'inactive-box-mode-state' });
@@ -1581,6 +1670,11 @@
       if((key === 'meta.statsInference.alpha' && !hasStatsInferenceAlphaControl)
         || (key === 'meta.statsInference.targetFdr' && !hasStatsInferenceFdrControl)){
         classified.push({ path: key, reason: 'inactive-shared-stats-inference-control' });
+        parameters.splice(index, 1);
+        continue;
+      }
+      if(/stats-pvalue-format-select/i.test(key)){
+        classified.push({ path: key, reason: 'default-presentation-only-pvalue-control' });
         parameters.splice(index, 1);
       }
     }
@@ -1609,6 +1703,12 @@
 
   function parameterBatchKey(parameter, type){
     const path = Array.isArray(parameter?.path) ? parameter.path : [];
+    if(path[0] === 'meta' && path[1] === 'graphSizing' && path[2] === 'display'){
+      // Width, height, and lock state are coupled by the resizer. Test each
+      // transition independently so a valid lock adjustment is not mistaken
+      // for loss of another sizing value in the same synthetic payload.
+      return `meta.graphSizing.${String(path[3] || 'display')}`;
+    }
     if(type === 'box'){
       if(path[0] === 'config' && path[1] === 'stats'){
         const field = String(path[2] || '');

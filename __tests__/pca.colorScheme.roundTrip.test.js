@@ -280,7 +280,8 @@ describe('PCA color scheme survives a tab round-trip (regression)', () => {
     await flushAll(20);
     const grayBefore = readColorState(workspace);
     expect(grayBefore.fill).toBe('#000000');
-    const snapshot = component.captureRuntimeState({ reason: 'test-capture-runtime' });
+    const activeTabId = Main.tabs.getActiveTab()?.id;
+    const snapshot = component.captureRuntimeState({ tabId: activeTabId, reason: 'test-capture-runtime' });
     expect(snapshot).toBeTruthy();
 
     // Simulate a sibling default-tab render clobbering the shared singleton colors.

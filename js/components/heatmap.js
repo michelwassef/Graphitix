@@ -1301,6 +1301,17 @@
       },
       onInput: value => applyTitle(value, 'heatmap-title-input'),
       onEditEnd: () => {
+        // makeEditable reports the initial value when Escape cancels. Input is
+        // mirrored to the owner session for live state, so restore that owner
+        // value before ending the edit instead of leaving a hidden mutation.
+        if(initialValue != null){
+          const restoredValue = String(initialValue);
+          patchHeatmapVisualState(owner, { titleText: restoredValue }, { reason: 'heatmap-title-cancel' });
+          if(title.isConnected && title.textContent !== restoredValue){
+            title.textContent = restoredValue;
+          }
+        }
+        initialValue = null;
         updateHeatmapDrawRuntime(owner, runtime => { runtime.inlineTextEditing = false; }, { seedFromActive: true });
       }
     });
@@ -3082,6 +3093,8 @@
       return;
     }
     const pendingLoadSource = String(hot.__heatmapPendingProgrammaticLoadSource || '').trim();
+    const ownerSession = getHeatmapSessionForHot(hot, { reason: 'heatmap-active-dataview-sync' }, { create: false, fallbackActive: false })
+      || getActiveHeatmapSessionForState();
     if((reason === 'afterChange' || reason === 'afterLoadData') && shouldSkipHeatmapDataViewSyncForLoadSource(pendingLoadSource)){
       debugLog('Debug: heatmap active data view sync skipped for programmatic load', {
         reason,
@@ -3090,10 +3103,9 @@
       if(reason === 'afterLoadData'){
         hot.__heatmapPendingProgrammaticLoadSource = '';
       }
-      captureHeatmapStatsPanelModel();
+      captureHeatmapStatsPanelModel(null, ownerSession);
       return;
     }
-    const ownerSession = getHeatmapSessionForHot(hot, { reason: 'heatmap-active-dataview-sync' }, { create: false, fallbackActive: false });
     const manager = Shared.componentLifecycle?.refreshOwnedDataViewsManagerFromHot?.({
       hotInstance: hot,
       componentKey: 'heatmap',
@@ -3638,22 +3650,43 @@
     return true;
   }
 
-  function ensureHeatmapStatsReportHost(){
-    const reporting = Shared.statsReporting;
-    if(!state.statsEl || !reporting || typeof reporting.ensureReportHost !== 'function'){
-      return state.statsEl?.__statsReportHost || null;
+  function resolveHeatmapStatsPanelContext(session = null){
+    const owner = ensureHeatmapSessionOwnershipShape(session || getActiveHeatmapSessionForState());
+    const canUseLiveProjection = !owner || isHeatmapSessionActiveForModuleState(owner);
+    const root = owner?.root || null;
+    const ownedRef = owner?.refs?.statsEl || null;
+    const belongsToOwner = node => !!node && (!root || node === root || root.contains?.(node));
+    let target = null;
+    if(canUseLiveProjection){
+      if(belongsToOwner(ownedRef)){
+        target = ownedRef;
+      }else{
+        const resolved = getHeatmapNodeById('heatmapStatsContent', owner?.tabId || null)
+          || state.statsEl;
+        target = belongsToOwner(resolved) ? resolved : null;
+      }
     }
-    return reporting.ensureReportHost(state.statsEl, {
+    return { owner, canUseLiveProjection, target };
+  }
+
+  function ensureHeatmapStatsReportHost(session = null){
+    const { target } = resolveHeatmapStatsPanelContext(session);
+    const reporting = Shared.statsReporting;
+    if(!target || !reporting || typeof reporting.ensureReportHost !== 'function'){
+      return target?.__statsReportHost || null;
+    }
+    return reporting.ensureReportHost(target, {
       id: 'heatmapStatsReportHost',
       className: 'stats-report-host',
       attachToTarget: true,
       position: 'last'
     });
   }
-  function clearHeatmapStatsReportHost(){
+  function clearHeatmapStatsReportHost(session = null){
+    const { target } = resolveHeatmapStatsPanelContext(session);
     const reporting = Shared.statsReporting;
-    if(reporting && typeof reporting.clearReportHost === 'function'){
-      reporting.clearReportHost(state.statsEl);
+    if(target && reporting && typeof reporting.clearReportHost === 'function'){
+      reporting.clearReportHost(target);
     }
   }
 
@@ -3665,41 +3698,75 @@
     return { resultsModel: cloneSimple(src.resultsModel) || null, reportModel: cloneSimple(src.reportModel) || null };
   }
 
-  function captureHeatmapStatsPanelModel(fallback = null, session = null){
-    const shaped = ensureHeatmapSessionOwnershipShape(session || getActiveHeatmapSessionForState());
-    const previous = normalizeHeatmapStatsPanelModel(fallback || shaped?.results?.statsPanelModel || state.statsPanelModel || {});
-    let normalized = previous;
-    if(state.statsEl && Shared.statsReporting && typeof Shared.statsReporting.capturePanelModel === 'function'){
-      normalized = normalizeHeatmapStatsPanelModel(Shared.statsReporting.capturePanelModel(state.statsEl) || previous);
-    }
-    syncHeatmapResultsMirror({
-      stats: shaped?.results?.stats || state.lastStats || null,
-      statsPanelModel: normalized
-    }, shaped || null);
-    return normalized;
+  function heatmapStatsPanelNodeHasStatContent(node){
+    if(!node || typeof node !== 'object'){ return false; }
+    if(node.kind === 'stats-report' || node.type === 'stats-table'){ return true; }
+    const className = typeof node.className === 'string' ? node.className : '';
+    if(/(?:^|\s)(?:stats-table-card|stats-report-panel|stats-assumption-container)(?:\s|$)/.test(className)){ return true; }
+    if(node.type === 'element' && String(node.tag || '').toLowerCase() === 'strong'){ return true; }
+    return Array.isArray(node.children) && node.children.some(heatmapStatsPanelNodeHasStatContent);
   }
 
   function heatmapStatsPanelModelHasContent(model){
     const normalized = normalizeHeatmapStatsPanelModel(model);
-    return !!(normalized.resultsModel || normalized.reportModel);
+    return heatmapStatsPanelNodeHasStatContent(normalized.resultsModel)
+      || heatmapStatsPanelNodeHasStatContent(normalized.reportModel);
+  }
+
+  function captureHeatmapStatsPanelModel(fallback = null, session = null){
+    const context = resolveHeatmapStatsPanelContext(session);
+    const shaped = context.owner;
+    const previous = normalizeHeatmapStatsPanelModel(
+      fallback
+      || shaped?.results?.statsPanelModel
+      || shaped?.state?.statsPanelModel
+      || (context.canUseLiveProjection ? state.statsPanelModel : null)
+      || {}
+    );
+    let normalized = previous;
+    if(context.target && Shared.statsReporting && typeof Shared.statsReporting.capturePanelModel === 'function'){
+      const captured = normalizeHeatmapStatsPanelModel(Shared.statsReporting.capturePanelModel(context.target) || {});
+      normalized = heatmapStatsPanelModelHasContent(captured) ? captured : previous;
+    }
+    if(shaped){
+      syncHeatmapResultsMirror({
+        stats: shaped.results?.stats || (context.canUseLiveProjection ? state.lastStats : shaped.state?.lastStats) || null,
+        statsPanelModel: normalized
+      }, shaped);
+      shaped.state.statsPanelModel = normalizeHeatmapStatsPanelModel(normalized);
+      shaped.updatedAt = Date.now();
+    }
+    if(context.canUseLiveProjection){
+      state.statsPanelModel = normalizeHeatmapStatsPanelModel(normalized);
+    }
+    return normalized;
   }
 
   function restoreHeatmapStatsPanelModel(model, session = null){
-    const shaped = ensureHeatmapSessionOwnershipShape(session || getActiveHeatmapSessionForState());
+    const context = resolveHeatmapStatsPanelContext(session);
+    const shaped = context.owner;
     const normalized = normalizeHeatmapStatsPanelModel(model);
-    syncHeatmapResultsMirror({
-      stats: shaped?.results?.stats || state.lastStats || null,
-      statsPanelModel: normalized
-    }, shaped || null);
-    if(!state.statsEl || !heatmapStatsPanelModelHasContent(normalized) || !Shared.statsReporting || typeof Shared.statsReporting.restorePanelModel !== 'function'){
+    if(shaped){
+      syncHeatmapResultsMirror({
+        stats: shaped.results?.stats || (context.canUseLiveProjection ? state.lastStats : shaped.state?.lastStats) || null,
+        statsPanelModel: normalized
+      }, shaped);
+      shaped.state.statsPanelModel = normalizeHeatmapStatsPanelModel(normalized);
+      shaped.updatedAt = Date.now();
+    }
+    if(!context.canUseLiveProjection){
       return false;
     }
-    const reportHost = ensureHeatmapStatsReportHost();
-    Shared.statsReporting.restorePanelModel(state.statsEl, normalized, {
+    if(!context.target || !heatmapStatsPanelModelHasContent(normalized) || !Shared.statsReporting || typeof Shared.statsReporting.restorePanelModel !== 'function'){
+      return false;
+    }
+    state.statsPanelModel = normalizeHeatmapStatsPanelModel(normalized);
+    const reportHost = ensureHeatmapStatsReportHost(shaped);
+    const restored = Shared.statsReporting.restorePanelModel(context.target, normalized, {
       ensureReportHost: reportHost ? () => reportHost : undefined,
       clearMainWhenMissing: false
     });
-    return true;
+    return !!(restored?.restoredMain || restored?.restoredReport || context.target.querySelector?.('.stats-table-card, .stats-report-panel, table'));
   }
 
   let scheduleDrawHeatmapRaw = () => {};
@@ -3785,7 +3852,7 @@
       lastViewOptions: cloneSimple(renderRuntime.lastViewOptions),
       lastStats: cloneSimple(shaped?.results?.stats || null),
       statsPanelModel: normalizeHeatmapStatsPanelModel(
-        shaped?.results?.statsPanelModel || (activeOwner ? captureHeatmapStatsPanelModel() : {})
+        shaped?.results?.statsPanelModel || (activeOwner ? captureHeatmapStatsPanelModel(null, shaped) : {})
       ),
       textAspectMetrics: cloneSimple(renderRuntime.textAspectMetrics),
       labelProjection: cloneSimple(renderRuntime.labelProjection),
@@ -5110,7 +5177,7 @@
       });
     });
     [refs.absValues, refs.maskLower, refs.showValues, refs.showSignificance, refs.significanceCorrection].forEach(el => {
-      bindHeatmapControlHandler(el, 'change', `view-toggle-${el?.id || 'unknown'}`, () => {
+    bindHeatmapControlHandler(el, 'change', `view-toggle-${el?.id || 'unknown'}`, () => {
         if(el === refs.showValues && !state.suspendControlSchedule){
           const owner = getHeatmapProjectionSession({ reason: 'heatmap-show-values-user-toggle' });
           const controls = getHeatmapControlState(owner);
@@ -8533,7 +8600,6 @@
     }
     const {
       labelColumnWidth,
-      labelPaddingX,
       scaleWidth,
       scalePadding,
       scaleTickLength,
@@ -8559,7 +8625,7 @@
       labelMatrixGapDisplayPx,
       scaleGapDisplayPx: horizontal.scaleGapDisplayPx,
       labelRowHeight,
-      labelPaddingX,
+      labelPaddingX: columnLabelPadding,
       labelPaddingY: columnLabelPadding,
       labelDescenderPadY: columnLabelDescenderPad,
       rowDendroWidth,
@@ -9504,9 +9570,6 @@
         : 'none';
       const correctionLabel = correctionLookup[significanceCorrection];
       const isFdrCorrection = ['bh', 'by'].includes(significanceCorrection);
-      const significanceLabel = isFdrCorrection
-        ? `${significanceCorrection.toUpperCase()}-adjusted p`
-        : (significanceCorrection === 'none' ? 'p' : 'Holm-adjusted p');
       const criterionLabel = isFdrCorrection ? 'target FDR' : 'α';
       appendStatRow('Items analysed', String(stats.itemCount || 0));
       appendStatRow('Pairs evaluated', String(stats.pairCount || 0));
@@ -9599,8 +9662,9 @@
           }
         }, { title: 'Reporting and reproducibility' });
       }
-      const panelModel = captureHeatmapStatsPanelModel();
-      updateHeatmapResultsState(getHeatmapProjectionSession({ reason: 'heatmap-projection-mutation' }), results => {
+      const statsSession = getActiveHeatmapSessionForState();
+      const panelModel = captureHeatmapStatsPanelModel(null, statsSession);
+      updateHeatmapResultsState(statsSession, results => {
         results.stats = cloneSimple(state.lastStats) || null;
         results.statsPanelModel = normalizeHeatmapStatsPanelModel(panelModel);
       });
@@ -9672,8 +9736,9 @@
           }
         }, { title: 'Reporting and reproducibility' });
       }
-      const panelModel = captureHeatmapStatsPanelModel();
-      updateHeatmapResultsState(getHeatmapProjectionSession({ reason: 'heatmap-projection-mutation' }), results => {
+      const statsSession = getActiveHeatmapSessionForState();
+      const panelModel = captureHeatmapStatsPanelModel(null, statsSession);
+      updateHeatmapResultsState(statsSession, results => {
         results.stats = cloneSimple(state.lastStats) || null;
         results.statsPanelModel = normalizeHeatmapStatsPanelModel(panelModel);
       });
@@ -10702,6 +10767,7 @@
     colorScale,
     legendHeightMode,
     correlationMethod = null,
+    view = null,
     layoutAdjust,
     modelType = null,
     drawSession = null
@@ -10773,6 +10839,7 @@
     const rendererAspectLocked = shouldHeatmapRendererPreserveAspect(modelType, svgBox);
     if(state.svg.dataset){
       state.svg.dataset.heatmapModelType = modelType || '';
+      state.svg.dataset.heatmapView = view || '';
     }
     // Data-values heatmaps have no axes. Lock ratio constrains only their outer
     // resize frame; changing SVG projection would mutate the rendered geometry.
@@ -11610,6 +11677,7 @@
           colorScale,
           legendHeightMode,
           correlationMethod,
+          view,
           modelType,
           drawSession: ownerSession,
           layoutAdjust: {
@@ -12237,7 +12305,8 @@
         decimals: viewOptions.decimals,
         colorScale: createCorrelationColorScale(viewOptions),
         legendHeightMode: viewOptions.legendHeightMode,
-        correlationMethod: viewOptions.correlationMethod
+        correlationMethod: viewOptions.correlationMethod,
+        view: viewOptions.view
       };
     }
     if(model.type === 'values'){
@@ -12272,7 +12341,8 @@
         decimals: viewOptions.decimals,
         colorScale: createValueColorScale(scaleStats, viewOptions.palette, viewOptions.decimals),
         legendHeightMode: viewOptions.legendHeightMode,
-        resolvedValueScale: scaleStats
+        resolvedValueScale: scaleStats,
+        view: viewOptions.view
       };
     }
     return null;
@@ -12358,6 +12428,11 @@
     stats.decimals = viewOptions?.decimals ?? stats.decimals;
     if(stats.type === 'correlation'){
       stats.useAbs = !!viewOptions?.useAbsolute;
+      stats.showSignificance = !!viewOptions?.showSignificance;
+      stats.significanceCorrection = ['bh', 'by', 'holm', 'none'].includes(String(viewOptions?.significanceCorrection || '').toLowerCase())
+        ? String(viewOptions.significanceCorrection).toLowerCase()
+        : 'bh';
+      stats.inferenceLevel = viewOptions?.inferenceLevel;
       state.lastResolvedValueScale = null;
       updateHeatmapRenderRuntime(targetSession, runtime => {
         runtime.lastResolvedValueScale = null;
@@ -12590,8 +12665,7 @@
       const cachedRenderModel = renderRuntime?.lastRenderModel || getHeatmapActiveRenderModel(drawSession);
       const viewMatches = (cachedRenderModel?.type === 'values' && settings.view === 'values')
         || (cachedRenderModel?.type === 'correlation' && settings.view.startsWith('corr'));
-      if(drawOpts.viewOnly){
-        if(cachedRenderModel && viewMatches){
+      if(drawOpts.viewOnly && cachedRenderModel && viewMatches){
           const viewOptions = extractViewOptions(settings);
           const applied = renderModelWithView(cachedRenderModel, viewOptions, drawSession, {
             settingsSignature: createHeatmapSettingsSignature(settings)
@@ -12615,19 +12689,13 @@
               cols: state.lastDataShape?.cols
             });
             return;
-          }
-          debugLog('Debug: heatmap view-only redraw fallback triggered');
-        }else{
-          debugLog('Debug: heatmap view-only redraw skipped - no cached render');
         }
-        prepareEnd = nowMs();
-        finalizeDrawPerformance({
-          status: 'skipped',
-          view: settings.view,
-          rows: state.lastDataShape?.rows,
-          cols: state.lastDataShape?.cols
+      }
+      if(drawOpts.viewOnly){
+        debugLog('Debug: heatmap view-only redraw fallback triggered', {
+          hasCachedRenderModel: !!cachedRenderModel,
+          viewMatches
         });
-        return;
       }
       const processed = prepareProcessedData(settings);
       const dataSignature = createHeatmapDataSignatureFromProcessed(processed);
@@ -12900,7 +12968,7 @@
     const liveTableData = activeHot ? activeHot.getData() : [];
     const payloadSourceData = Shared.dataViews?.resolveRawDataForPersistence?.(dataViewsPayload, liveTableData)
       || liveTableData;
-    const statsPanelModel = captureHeatmapStatsPanelModel();
+    const statsPanelModel = captureHeatmapStatsPanelModel(null, payloadSession);
     const resultState = updateHeatmapResultsState(payloadSession, results => {
       results.statsPanelModel = normalizeHeatmapStatsPanelModel(statsPanelModel || {});
     });
@@ -13153,7 +13221,7 @@
         if(state.lastStats){
           updateStats(state.lastStats);
         }else{
-          restoreHeatmapStatsPanelModel(state.statsPanelModel);
+          restoreHeatmapStatsPanelModel(state.statsPanelModel, payloadSession);
         }
         scheduleActiveHeatmapDraw({ reason: `heatmap-payload-${meta?.source || 'unknown'}` });
       }
@@ -14398,9 +14466,23 @@
     const stretched = preserveAspect === 'none';
     const dimensionsDiffer = Math.abs(panelWidth - viewBox.width) > 0.5
       || Math.abs(panelHeight - viewBox.height) > 0.5;
-    if(stretched && dimensionsDiffer && viewBox.width > 0 && viewBox.height > 0){
-      const scaleX = panelWidth / viewBox.width;
-      const scaleY = panelHeight / viewBox.height;
+    if(dimensionsDiffer && viewBox.width > 0 && viewBox.height > 0){
+      let scaleX = panelWidth / viewBox.width;
+      let scaleY = panelHeight / viewBox.height;
+      let offsetX = 0;
+      let offsetY = 0;
+      if(!stretched){
+        const scale = Math.min(scaleX, scaleY);
+        scaleX = scale;
+        scaleY = scale;
+        const alignment = preserveAspect.match(/x(min|mid|max)y(min|mid|max)/i);
+        const alignX = alignment?.[1]?.toLowerCase() || 'mid';
+        const alignY = alignment?.[2]?.toLowerCase() || 'mid';
+        const remainingX = panelWidth - viewBox.width * scale;
+        const remainingY = panelHeight - viewBox.height * scale;
+        offsetX = alignX === 'min' ? 0 : alignX === 'max' ? remainingX : remainingX / 2;
+        offsetY = alignY === 'min' ? 0 : alignY === 'max' ? remainingY : remainingY / 2;
+      }
       const doc = sourceSvg.ownerDocument || global.document;
       const wrapper = doc?.createElementNS?.(NS, 'g') || null;
       if(!wrapper){
@@ -14408,13 +14490,14 @@
       }
       wrapper.setAttribute(
         'transform',
-        `matrix(${formatHeatmapExportNumber(scaleX)},0,0,${formatHeatmapExportNumber(scaleY)},${formatHeatmapExportNumber(-viewBox.x * scaleX)},${formatHeatmapExportNumber(-viewBox.y * scaleY)})`
+        `matrix(${formatHeatmapExportNumber(scaleX)},0,0,${formatHeatmapExportNumber(scaleY)},${formatHeatmapExportNumber(offsetX - viewBox.x * scaleX)},${formatHeatmapExportNumber(offsetY - viewBox.y * scaleY)})`
       );
       while(clone.firstChild){
         wrapper.appendChild(clone.firstChild);
       }
       clone.appendChild(wrapper);
       clone.setAttribute('viewBox', `0 0 ${formatHeatmapExportNumber(panelWidth)} ${formatHeatmapExportNumber(panelHeight)}`);
+      clone.setAttribute('preserveAspectRatio', 'none');
     }
     clone.setAttribute('width', String(Math.round(panelWidth)));
     clone.setAttribute('height', String(Math.round(panelHeight)));
@@ -14601,6 +14684,7 @@
       });
       return null;
     }
+    captureHeatmapStatsPanelModel(requestedSession.results?.statsPanelModel || requestedSession.state?.statsPanelModel || {}, requestedSession);
     const svgCache = detachChildren(svg);
     const statsCache = detachChildren(stats);
     const renderState = captureHeatmapRenderStateSnapshot(requestedSession);
@@ -14952,7 +15036,15 @@
       : true;
     restoreHeatmapSvgRootState(svg, cache.svgRootState);
     const restoredSvg = restoreChildren(svg, graphCachePayload);
-    const restoredStats = cache.stats ? restoreChildren(stats, cache.stats) : true;
+    const durableStatsModel = normalizeHeatmapStatsPanelModel(
+      restoreSession.results?.statsPanelModel || restoreSession.state?.statsPanelModel || {}
+    );
+    let restoredStats = true;
+    if(heatmapStatsPanelModelHasContent(durableStatsModel)){
+      restoredStats = restoreHeatmapStatsPanelModel(durableStatsModel, restoreSession);
+    }else if(cache.stats){
+      restoredStats = restoreChildren(stats, cache.stats);
+    }
     const hydratedBitmaps = restoredSvg ? rehydrateHeatmapCanvasBitmapImages(svg) : 0;
 
     const restoreRuntime = getHeatmapRenderRuntime(restoreSession, { seedFromActive: true });
@@ -15096,6 +15188,15 @@
       return session;
     },
     getSession: tabId => getHeatmapSession(tabId, { tabId, reason: 'heatmap-test-session' }, { create: false }),
+    captureStatsPanelForOwner: tabId => {
+      const session = getHeatmapSession(tabId, { tabId, reason: 'heatmap-test-stats-capture' }, { create: false });
+      return session ? cloneSimple(captureHeatmapStatsPanelModel(null, session)) : null;
+    },
+    restoreStatsPanelForOwner: tabId => {
+      const session = getHeatmapSession(tabId, { tabId, reason: 'heatmap-test-stats-restore' }, { create: false });
+      const model = session?.results?.statsPanelModel || session?.state?.statsPanelModel || null;
+      return session ? restoreHeatmapStatsPanelModel(model, session) : false;
+    },
     createDrawRuntime: source => createDefaultHeatmapDrawRuntime(source),
     getDrawRuntime: tabId => {
       const session = getHeatmapSession(tabId, { tabId, reason: 'heatmap-test-draw-runtime' }, { create: false });

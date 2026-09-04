@@ -47,10 +47,19 @@ function loadComponent({ key, modulePath, plotId, pageId, panelId, tag = 'div' }
 }
 
 describe('component drawable frame authority', () => {
-  test.each(COMPONENTS)('$key uses the shared zoom viewport as drawable authority', componentConfig => {
+  test.each(COMPONENTS)('$key uses the canonical svgbox as drawable authority', componentConfig => {
     const { hook, plot, viewport } = loadComponent(componentConfig);
+    const svgBox = document.querySelector('.svgbox');
     Object.defineProperty(plot, 'clientWidth', { configurable: true, get: () => 900 });
     Object.defineProperty(plot, 'clientHeight', { configurable: true, get: () => 680 });
+    svgBox.getBoundingClientRect = () => ({
+      width: 510,
+      height: 340,
+      top: 0,
+      left: 0,
+      right: 510,
+      bottom: 340
+    });
     viewport.getBoundingClientRect = () => ({
       width: 540,
       height: 360,
@@ -62,9 +71,9 @@ describe('component drawable frame authority', () => {
 
     const frame = hook(plot);
 
-    expect(frame.source).toBe('zoom-viewport');
-    expect(frame.width).toBe(540);
-    expect(frame.height).toBe(360);
+    expect(frame.source).toBe('svgbox');
+    expect(frame.width).toBe(510);
+    expect(frame.height).toBe(340);
     expect(frame.rawWidth).toBe(900);
     expect(frame.rawHeight).toBe(680);
     expect(frame.constrained).toBe(true);

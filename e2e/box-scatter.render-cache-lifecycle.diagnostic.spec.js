@@ -80,7 +80,7 @@ function installLifecycleConsoleCapture(page) {
 async function clearRecoverySnapshot(page) {
   await page.evaluate(async () => {
     const openDb = () => new Promise((resolve) => {
-      const request = window.indexedDB.open('graphitix-document-state', 1);
+      const request = window.indexedDB.open('graphitix-document-state', 2);
       request.onupgradeneeded = () => {
         const db = request.result;
         if (!db.objectStoreNames.contains('snapshots')) {
@@ -293,6 +293,17 @@ async function waitForComponentRenderer(page, type, size) {
     const visiblePoint = root.querySelector('circle, path, rect, line, polyline, polygon, foreignObject, foreignobject');
     return !!visiblePoint;
   }, { componentType: type, expectedSize: size }, { timeout: size === 'heavy' ? 120_000 : 60_000 });
+  const ownerTabId = await activeTabId(page);
+  await page.evaluate(async ({ componentType, tabId }) => {
+    const config = window.Main?.components?.registry?.[componentType] || null;
+    if (!config?.awaitReadyForSnapshot || !tabId) return;
+    await config.awaitReadyForSnapshot({
+      tabId,
+      reason: 'e2e-render-cache-lifecycle-ready',
+      settleFrames: 2,
+      timeoutMs: 120_000
+    });
+  }, { componentType: type, tabId: ownerTabId });
 }
 
 async function loadComponentData(page, type, size, marker) {
@@ -504,7 +515,7 @@ async function seedRecoverySnapshot(page, archive, scenarioLabel) {
     const blob = new Blob([bytes], { type: 'application/zip' });
     const workspaceState = window.Main?.session?.workspaceState || {};
     const openDb = () => new Promise((resolve, reject) => {
-      const request = window.indexedDB.open('graphitix-document-state', 1);
+      const request = window.indexedDB.open('graphitix-document-state', 2);
       request.onupgradeneeded = () => {
         const db = request.result;
         if (!db.objectStoreNames.contains('snapshots')) db.createObjectStore('snapshots');

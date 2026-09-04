@@ -2560,7 +2560,13 @@
       }
       return { position: bounded, changed };
     };
-    const initialConstraint = constrainCurrentPosition();
+    // Reserve-anchored legends are rendered before the shared viewport
+    // publication commits their outward extension. Constraining them against
+    // that pre-publication base viewport would turn the default reserve
+    // position into a false saved user position.
+    const initialConstraint = options.positionAnchor || options.deferInitialConstraint === true
+      ? { position: normalizePoint(getPosition()), changed: false }
+      : constrainCurrentPosition();
     if(initialConstraint.changed){
       safeCall(options.onPositionConstrained, [initialConstraint.position], 'enableLegendDrag onPositionConstrained error');
     }
@@ -2720,7 +2726,8 @@
     group.dataset.legendDragContract = '1';
     group.__graphitixLegendDragBinding = {
       owner: options.owner || null,
-      onCommit: options.onCommit
+      onCommit: options.onCommit,
+      positionAnchor: options.positionAnchor || null
     };
     const commitPosition = pos => {
       const binding = group.__graphitixLegendDragBinding;
@@ -2738,6 +2745,9 @@
       if (Number.isFinite(originY) && Number.isFinite(scaleY) && Math.abs(scaleY) > 1e-9) {
         position.relY = (pos.y - originY) / scaleY;
       }
+      if (binding.positionAnchor) {
+        position.anchor = binding.positionAnchor;
+      }
       safeCall(binding.onCommit, [position, binding.owner], 'bindLegendDragInteraction onCommit error');
     };
     if (group.__graphitixLegendDragControl?.svg === svg) {
@@ -2749,6 +2759,7 @@
     }
     enableLegendDrag(group, svg, {
       undoLabel: options.undoLabel || 'legend-position',
+      positionAnchor: options.positionAnchor || null,
       onPositionConstrained: commitPosition,
       onDragEnd: commitPosition
     });

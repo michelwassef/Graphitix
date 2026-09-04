@@ -244,6 +244,18 @@ async function reopenedSurvivalTabIds(page) {
   });
 }
 
+test('survival configuration starts with Graph followed by Color scheme', async ({ page }) => {
+  test.setTimeout(60_000);
+  await installLocalCdnOverrides(page);
+  await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
+  await expect(page.locator('#welcomeScreen')).toBeVisible({ timeout: 20_000 });
+
+  await openComponentFromWelcome(page, { type: 'survival', pageId: 'survivalPage' }, { first: true });
+
+  await expect.poll(async () => page.locator('#survivalGraphPanel .config-panel > fieldset legend').allTextContents())
+    .toEqual(['Graph', 'Color scheme', 'Grid & axis', 'Font', 'Publication style']);
+});
+
 test('survival same-type controls and stats stay isolated across tab switch and reopen', async ({ page }) => {
   test.setTimeout(240_000);
   const issues = registerIssueCollectors(page);

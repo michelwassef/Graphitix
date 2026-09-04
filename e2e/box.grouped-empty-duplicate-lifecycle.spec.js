@@ -8,7 +8,6 @@ const {
 function isLifecycleRegression(entry) {
   const text = String(entry?.text || '');
   return /Grid API function .* cannot be called as the grid has been destroyed/i.test(text)
-    || /workspace graph missing after restore; forcing payload redraw/i.test(text)
     || /workspace-post-restore-fallback-failed/i.test(text);
 }
 

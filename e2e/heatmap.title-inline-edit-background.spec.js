@@ -29,7 +29,10 @@ test('Heatmap replacement title stays hidden during inline editing', async ({ pa
   await editor.fill('Heatmap revised');
   await expect.poll(() => svgBox.evaluate(node => {
     const current = node.querySelector('text[data-font-role="graphTitle"]');
-    return !!current && current !== window.__heatmapInlineEditOriginalTitle;
+    return !!current
+      && current === window.__heatmapInlineEditOriginalTitle
+      && current.textContent === 'Heatmap revised'
+      && (getComputedStyle(current).visibility === 'hidden' || getComputedStyle(current).opacity === '0');
   })).toBe(true);
 
   const titleVisibility = await svgBox.evaluate(node => (
@@ -43,6 +46,10 @@ test('Heatmap replacement title stays hidden during inline editing', async ({ pa
 
   await editor.press('Escape');
   await expect.poll(() => svgBox.locator('text[data-font-role="graphTitle"]').first().evaluate(
-    node => getComputedStyle(node).visibility !== 'hidden' && getComputedStyle(node).opacity !== '0'
+    node => node.textContent === 'Heatmap'
+      && getComputedStyle(node).visibility !== 'hidden'
+      && getComputedStyle(node).opacity !== '0'
   )).toBe(true);
+  await expect.poll(() => page.evaluate(() => window.Components?.heatmap?.__getState?.()?.titleText))
+    .toBe('Heatmap');
 });

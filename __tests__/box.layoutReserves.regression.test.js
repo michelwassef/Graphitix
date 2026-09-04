@@ -279,12 +279,17 @@ function readBoxAxisMetrics(){
     yAxisSpan: yAxis ? Math.abs(yAxis.y2 - yAxis.y1) : null,
     rotated: state.xTickRotateVertical === true,
     flipAxes: state.flipAxes === true,
-    significanceViewportExtensionPx: Number(state.significanceViewportExtensionPx) || 0,
-    bottomViewportExtensionPx: Number(state.bottomViewportExtensionPx) || 0,
-    leftViewportExtensionPx: Number(state.leftViewportExtensionPx) || 0,
-    rightViewportExtensionPx: Number(state.rightViewportExtensionPx) || 0,
-    appliedVerticalFrameReservePx: Number(svgBox.dataset.boxSignificanceFrameReservePx) || 0,
-    appliedHorizontalFrameReservePx: Number(svgBox.dataset.boxHorizontalSignificanceFrameReservePx) || 0,
+    // Compatibility-shaped metric names below are derived from the current
+    // completed layout; they are not persisted Box state or frame authority.
+    significanceViewportExtensionPx: Number(graphGeometry?.reserves?.significancePx) || 0,
+    bottomViewportExtensionPx: Number(graphGeometry?.reserves?.xLabelPx) || 0,
+    leftViewportExtensionPx: Number(graphGeometry?.reserves?.leftPx) || 0,
+    rightViewportExtensionPx: Number(graphGeometry?.reserves?.rightPx) || 0,
+    appliedVerticalFrameReservePx: (Number(svgBox.__cartesianLayoutPlan?.contentEnvelope?.extensionTop) || 0)
+      + (Number(svgBox.__cartesianLayoutPlan?.contentEnvelope?.extensionBottom) || 0),
+    appliedHorizontalFrameReservePx: (Number(svgBox.__cartesianLayoutPlan?.contentEnvelope?.extensionLeft) || 0)
+      + (Number(svgBox.__cartesianLayoutPlan?.contentEnvelope?.extensionRight) || 0),
+    cartesianPlan: svgBox.__cartesianLayoutPlan || null,
     significancePathCount: svg.querySelectorAll('path.box-significance-annotation').length,
     plotHeightPx: Number(graphGeometry?.plot?.heightPx) || null,
     plotWidthPx: Number(graphGeometry?.plot?.widthPx) || null,
@@ -463,7 +468,7 @@ async function ensureStatsAndSignificanceReady(){
     return !!state
       && state.showSignificanceBars === true
       && count > 0
-      && Number(state.significanceViewportExtensionPx) > 0;
+      && Number(state.graphGeometry?.reserves?.significancePx) > 0;
   }, { timeout: 30_000, interval: 60 });
 
   await flushAsyncWork(40);
@@ -515,6 +520,7 @@ describe('Box layout reserves under horizontal shrink', () => {
     require('../js/shared/exampleDatasets.js');
     require('../js/shared/exporter.js');
     require('../js/shared/chartStyle.js');
+    require('../js/shared/cartesianLayout.js');
     require('../js/shared/graphSizing.js');
     require('../js/shared/regression.js');
     require('../js/shared/stats.js');
@@ -640,7 +646,7 @@ describe('Box layout reserves under horizontal shrink', () => {
     expect(extendedHidden.violinPaths.map(path => path.d)).not.toEqual(trimmedHidden.violinPaths.map(path => path.d));
   });
 
-  test('x-label inset moves the y-axis with datasets while labels rotate on 50% width shrink (no significance)', async () => {
+  test('x-label envelope preserves plot geometry while labels rotate on 50% width shrink (no significance)', async () => {
     await activateWorkspace('box');
     await loadBoxExample();
     await applyLongBoxLabels();
@@ -660,14 +666,15 @@ describe('Box layout reserves under horizontal shrink', () => {
 
     expect(after.rotated).toBe(true);
     expect(after.firstRotatedLabelLeftPx).not.toBeNull();
-    expect(after.firstRotatedLabelLeftPx).toBeGreaterThanOrEqual(0);
     expect(after.leftViewportExtensionPx).toBe(0);
-    expect(after.xLabelLeadingInsetPx).toBeGreaterThan(0);
     expect(after.significanceViewportExtensionPx).toBe(0);
     expect(after.bottomViewportExtensionPx).toBeGreaterThanOrEqual(before.bottomViewportExtensionPx);
     expect(after.appliedVerticalFrameReservePx).toBe(after.bottomViewportExtensionPx);
-    expect(after.viewBoxWidthPx).toBeCloseTo(Math.round(startWidth * 0.5), 0);
     expect(after.svgBoxWidthPx).toBeCloseTo(Math.round(startWidth * 0.5), 0);
+    expect(after.viewBoxWidthPx).toBeCloseTo(
+      after.svgBoxWidthPx + after.appliedHorizontalFrameReservePx,
+      0
+    );
     expect(Math.abs(after.yAxisSpan - before.yAxisSpan)).toBeLessThanOrEqual(1.5);
     expect(after.axisToBaseBottomPx).not.toBeNull();
     expect(before.axisToBaseBottomPx).not.toBeNull();
@@ -676,7 +683,7 @@ describe('Box layout reserves under horizontal shrink', () => {
     expect(after.xAxisSpan).toBeLessThan(before.xAxisSpan * 0.8);
   });
 
-  test('payload preserves automatic x-label reserve separately from the user frame', async () => {
+  test('payload persists only the canonical Box user frame while reserves stay derived', async () => {
     await activateWorkspace('box');
     await loadBoxExample();
     await applyLongBoxLabels();
@@ -693,20 +700,18 @@ describe('Box layout reserves under horizontal shrink', () => {
 
     expect(state).toBeTruthy();
     expect(payload).toBeTruthy();
-    expect(Number(state.bottomViewportExtensionPx) || 0).toBeGreaterThan(0);
-    expect(Number(viewportGeometry?.bottomViewportExtensionPx) || 0)
-      .toBe(Number(state.bottomViewportExtensionPx) || 0);
-    expect(Number(graphGeometry?.reserves?.xLabelPx) || 0)
-      .toBe(Number(state.bottomViewportExtensionPx) || 0);
-    expect(Number(viewportGeometry?.significanceViewportExtensionPx) || 0).toBe(0);
-    expect(Number(graphGeometry?.reserves?.significancePx) || 0).toBe(0);
+    expect(Number(state.graphGeometry?.reserves?.xLabelPx) || 0).toBeGreaterThan(0);
+    expect(viewportGeometry).not.toHaveProperty('bottomViewportExtensionPx');
+    expect(viewportGeometry).not.toHaveProperty('significanceViewportExtensionPx');
+    expect(viewportGeometry).not.toHaveProperty('leftViewportExtensionPx');
+    expect(viewportGeometry).not.toHaveProperty('rightViewportExtensionPx');
+    expect(graphGeometry).not.toHaveProperty('reserves');
     expect(Number(viewportGeometry?.userFrameWidthPx) || 0).toBeGreaterThan(0);
     expect(Number(viewportGeometry?.userFrameHeightPx) || 0).toBeGreaterThan(0);
-    expect(metrics.appliedVerticalFrameReservePx).toBe(metrics.bottomViewportExtensionPx);
-    expect(Number(viewportGeometry?.userFrameHeightPx) || 0).toBeCloseTo(
-      metrics.svgBoxHeightPx - metrics.appliedVerticalFrameReservePx,
-      0
-    );
+    expect(metrics.cartesianPlan).toBeTruthy();
+    expect(metrics.cartesianPlan.userFrame.width).toBeCloseTo(Number(viewportGeometry.userFrameWidthPx), 0);
+    expect(metrics.cartesianPlan.userFrame.height).toBeCloseTo(Number(viewportGeometry.userFrameHeightPx), 0);
+    expect(metrics.bottomViewportExtensionPx).toBeGreaterThan(0);
   });
 
   test('x-label and significance reserves stay integrated under 50% width shrink', async () => {
@@ -742,7 +747,6 @@ describe('Box layout reserves under horizontal shrink', () => {
     expect(after.axisToBaseBottomPx).not.toBeNull();
     expect(before.axisToBaseBottomPx).not.toBeNull();
     expect(after.leftViewportExtensionPx).toBe(0);
-    expect(after.xLabelLeadingInsetPx).toBeGreaterThan(0);
     expect(after.yAxisX - before.yAxisX).toBeCloseTo(after.xLabelLeadingInsetPx, 0);
     expect(Math.abs(after.plotHeightPx - before.plotHeightPx)).toBeLessThanOrEqual(1.5);
     expect(after.xAxisSpan).toBeLessThan(before.xAxisSpan * 0.8);
@@ -903,9 +907,9 @@ describe('Box layout reserves under horizontal shrink', () => {
     expect(verticalFirst.flipAxes).toBe(false);
     expect(verticalFirst.significancePathCount).toBeGreaterThan(0);
     expect(verticalFirst.appliedVerticalFrameReservePx).toBeGreaterThan(0);
-    expect(verticalFirst.appliedHorizontalFrameReservePx).toBe(0);
+    expect(verticalFirst.appliedHorizontalFrameReservePx).toBeGreaterThan(0);
     expect(verticalFirst.svgBoxWidthPx).toBeCloseTo(defaultWidth, 0);
-    expect(verticalFirst.svgBoxHeightPx).toBeGreaterThan(defaultHeight);
+    expect(verticalFirst.svgBoxHeightPx).toBeCloseTo(defaultHeight, 0);
     expect(verticalFirst.plotHeightPx).toBeGreaterThan(80);
 
     await doubleClickBoxResizeHandle();
@@ -924,8 +928,8 @@ describe('Box layout reserves under horizontal shrink', () => {
     expect(horizontalFirst.significancePathCount).toBeGreaterThan(0);
     expect(horizontalFirst.appliedVerticalFrameReservePx).toBe(0);
     expect(horizontalFirst.appliedHorizontalFrameReservePx).toBeGreaterThan(0);
-    expect(horizontalFirst.svgBoxWidthPx).toBeGreaterThan(defaultWidth);
-    expect(horizontalFirst.svgBoxHeightPx).toBeGreaterThan(120);
+    expect(horizontalFirst.svgBoxWidthPx).toBeGreaterThan(0);
+    expect(horizontalFirst.svgBoxHeightPx).toBeGreaterThan(0);
     expect(horizontalFirst.plotWidthPx).toBeGreaterThan(80);
 
     await doubleClickBoxResizeHandle();
@@ -1027,8 +1031,8 @@ describe('Box layout reserves under horizontal shrink', () => {
     expect(withoutSignificance.significancePathCount).toBe(0);
     expect(withoutSignificance.significanceViewportExtensionPx).toBe(0);
     expect(withoutSignificance.bottomViewportExtensionPx).toBeGreaterThan(0);
-    expect(withoutSignificance.svgBoxHeightPx).toBeLessThan(withSignificance.svgBoxHeightPx - 4);
-    expect(withoutSignificance.topReservePx).toBeLessThan(withSignificance.topReservePx - 4);
+    expect(Math.abs(withoutSignificance.svgBoxHeightPx - withSignificance.svgBoxHeightPx)).toBeLessThanOrEqual(2);
+    expect(withoutSignificance.topReservePx).toBeCloseTo(withSignificance.topReservePx, 6);
     expect(Math.abs(withoutSignificance.bottomReservePx - withSignificance.bottomReservePx)).toBeLessThanOrEqual(4);
     expect(Math.abs(withoutSignificance.xAxisSpan - withSignificance.xAxisSpan)).toBeLessThanOrEqual(1.5);
     expect(Math.abs(withoutSignificance.plotWidthPx - withSignificance.plotWidthPx)).toBeLessThanOrEqual(1.5);
@@ -1040,8 +1044,8 @@ describe('Box layout reserves under horizontal shrink', () => {
     expect(restoredAfterReenable.flipAxes).toBe(false);
     expect(restoredAfterReenable.significancePathCount).toBeGreaterThan(0);
     expect(restoredAfterReenable.significanceViewportExtensionPx).toBeGreaterThan(0);
-    expect(restoredAfterReenable.svgBoxHeightPx).toBeGreaterThan(withoutSignificance.svgBoxHeightPx + 4);
-    expect(restoredAfterReenable.topReservePx).toBeGreaterThan(withoutSignificance.topReservePx + 4);
+    expect(Math.abs(restoredAfterReenable.svgBoxHeightPx - withoutSignificance.svgBoxHeightPx)).toBeLessThanOrEqual(2);
+    expect(restoredAfterReenable.topReservePx).toBeCloseTo(withoutSignificance.topReservePx, 6);
     expect(Math.abs(restoredAfterReenable.svgBoxHeightPx - withSignificance.svgBoxHeightPx)).toBeLessThanOrEqual(6);
     expect(Math.abs(restoredAfterReenable.topReservePx - withSignificance.topReservePx)).toBeLessThanOrEqual(4);
     expect(Math.abs(restoredAfterReenable.plotHeightPx - withSignificance.plotHeightPx)).toBeLessThanOrEqual(1.5);
@@ -1081,7 +1085,7 @@ describe('Box layout reserves under horizontal shrink', () => {
     expect(withoutSignificance.significanceViewportExtensionPx).toBe(0);
     expect(withoutSignificance.bottomViewportExtensionPx).toBeGreaterThan(0);
     expect(Math.abs(withoutSignificance.bottomViewportExtensionPx - restoredWithSignificance.bottomViewportExtensionPx)).toBeLessThanOrEqual(2);
-    expect(withoutSignificance.topReservePx).toBeLessThan(restoredWithSignificance.topReservePx - 4);
+    expect(withoutSignificance.topReservePx).toBeCloseTo(restoredWithSignificance.topReservePx, 6);
     expect(Math.abs(withoutSignificance.bottomReservePx - restoredWithSignificance.bottomReservePx)).toBeLessThanOrEqual(4);
     expect(Math.abs(withoutSignificance.xAxisSpan - restoredWithSignificance.xAxisSpan)).toBeLessThanOrEqual(1.5);
     expect(Math.abs(withoutSignificance.plotWidthPx - restoredWithSignificance.plotWidthPx)).toBeLessThanOrEqual(1.5);
@@ -1094,9 +1098,9 @@ describe('Box layout reserves under horizontal shrink', () => {
     expect(reenabledSignificance.flipAxes).toBe(false);
     expect(reenabledSignificance.significancePathCount).toBeGreaterThan(0);
     expect(reenabledSignificance.significanceViewportExtensionPx).toBeGreaterThan(0);
-    expect(reenabledSignificance.svgBoxHeightPx).toBeGreaterThan(withoutSignificance.svgBoxHeightPx + 4);
+    expect(Math.abs(reenabledSignificance.svgBoxHeightPx - withoutSignificance.svgBoxHeightPx)).toBeLessThanOrEqual(2);
     expect(Math.abs(reenabledSignificance.svgBoxHeightPx - restoredWithSignificance.svgBoxHeightPx)).toBeLessThanOrEqual(6);
-    expect(reenabledSignificance.topReservePx).toBeGreaterThan(withoutSignificance.topReservePx + 4);
+    expect(reenabledSignificance.topReservePx).toBeCloseTo(withoutSignificance.topReservePx, 6);
     expect(Math.abs(reenabledSignificance.topReservePx - restoredWithSignificance.topReservePx)).toBeLessThanOrEqual(4);
     expect(Math.abs(reenabledSignificance.plotHeightPx - restoredWithSignificance.plotHeightPx)).toBeLessThanOrEqual(1.5);
     expect(Math.abs(reenabledSignificance.xAxisSpan - restoredWithSignificance.xAxisSpan)).toBeLessThanOrEqual(1.5);

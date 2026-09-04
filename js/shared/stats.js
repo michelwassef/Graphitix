@@ -670,7 +670,6 @@
       return String(value);
     }
     const digits = clampSignificantDigits(options?.significantDigits);
-    const fractionalDigits = Math.max(0, digits - 1);
     const decimals = Number.isInteger(options?.decimals) && options.decimals >= 0
       ? options.decimals
       : DEFAULT_REPORT_PVALUE_DECIMALS;
@@ -2308,10 +2307,6 @@
               ? payload.meta.statsReporting
               : {})
           };
-          const sharedState = getTabStatsReportingControlState(key, {
-            create: false,
-            reason: 'stats-reporting-state-persist-read'
-          });
           if(hasStoredPValueScientificForTab(key)){
             nextStatsReporting.pValueScientific = readStoredPValueScientificForTab(key);
           }
@@ -2336,14 +2331,6 @@
       });
     }
     return false;
-  }
-
-  function getPValueFormatLabel(scientific){
-    return scientific ? 'Scientific' : 'Decimal';
-  }
-
-  function getPValueFormatButtonLabel(scientific){
-    return scientific ? 'Decimal' : 'Scientific';
   }
 
   function normalizePValueOperator(operator){
@@ -2452,35 +2439,54 @@
     );
   }
 
-  function createDefaultPValueFormatControl(documentRef, target){
+  function createDefaultPValueFormatControl(documentRef, target, options = {}){
     if(!documentRef || !documentRef.createElement){
       return null;
     }
-    const scientific = getPanelPValueScientific(target);
+    const scientific = getPanelPValueScientific(target, options);
     const wrap = documentRef.createElement('span');
     wrap.className = 'stats-pvalue-format-inline';
     const label = documentRef.createElement('span');
     label.className = 'stats-pvalue-format-inline__label';
-    label.textContent = `p-value format: ${getPValueFormatLabel(scientific)}`;
+    label.textContent = 'p-value format:';
     wrap.appendChild(label);
-    const button = documentRef.createElement('button');
-    button.type = 'button';
-    button.className = 'stats-pvalue-format-toggle';
-    button.textContent = getPValueFormatButtonLabel(scientific);
-    button.setAttribute('data-parameter-p-value-scientific', scientific ? 'true' : 'false');
-    button.setAttribute('data-undo-ignore', '1');
-    button.addEventListener('click', event => {
-      event.preventDefault();
+    const select = documentRef.createElement('select');
+    select.className = 'stats-pvalue-format-select';
+    select.setAttribute('aria-label', 'p-value format');
+    select.setAttribute('data-parameter-p-value-scientific', scientific ? 'true' : 'false');
+    select.setAttribute('data-undo-ignore', '1');
+    [['decimal', 'Decimal'], ['scientific', 'Scientific']].forEach(([value, text]) => {
+      const option = documentRef.createElement('option');
+      option.value = value;
+      option.textContent = text;
+      select.appendChild(option);
+    });
+    select.value = scientific ? 'scientific' : 'decimal';
+    select.addEventListener('change', event => {
       event.stopPropagation();
-      reporting.setPValueFormatScientific(!getPanelPValueScientific(target), {
+      const nextScientific = select.value === 'scientific';
+      select.setAttribute('data-parameter-p-value-scientific', nextScientific ? 'true' : 'false');
+      const ownerTabId = options.tabId || resolveTargetStatsTabId(target, options) || null;
+      if(typeof options.onChange === 'function'){
+        options.onChange(nextScientific, event, { tabId: ownerTabId });
+        return;
+      }
+      reporting.setPValueFormatScientific(nextScientific, {
         target,
+        tabId: ownerTabId,
         source: target?.id || null,
         persist: true
       });
     });
-    wrap.appendChild(button);
+    wrap.appendChild(select);
     return wrap;
   }
+
+  reporting.createPValueFormatControl = function createPValueFormatControl(target, options = {}){
+    const documentRef = options.document || target?.ownerDocument || global.document;
+    const tabId = options.tabId || resolveTargetStatsTabId(target, options) || null;
+    return createDefaultPValueFormatControl(documentRef, target, { ...options, tabId });
+  };
 
   function setReportBlockCopyText(panel, blockName, text){
     if(!panel || typeof panel.querySelector !== 'function'){
@@ -3361,7 +3367,8 @@
       || targetId === 'pcaStatsResults'
       || targetId === 'survivalStatsLogRank'
       || targetId === 'survivalStatsHazardRatios'
-      || targetId === 'survivalStatsCox';
+      || targetId === 'survivalStatsCox'
+      || targetId === 'survivalStatsSummary';
   }
 
   function ensurePanelScaffold(target, state){

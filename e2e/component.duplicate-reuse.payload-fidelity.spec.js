@@ -208,7 +208,7 @@ for (const component of COMPONENT_MATRIX) {
         return false;
       }
       if (sourceType === 'venn') {
-        return !!duplicate.payload.data && !!duplicate.payload.style && !duplicate.payload.config;
+        return !!duplicate.payload.data && !!duplicate.payload.style;
       }
       return true;
     }, sourceTabId, { timeout: 20_000 });

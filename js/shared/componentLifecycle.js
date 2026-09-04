@@ -453,7 +453,13 @@
     const activeId = normalizeLifecycleTabId(workspace?.activeTabId || '');
     if(activeId && Array.isArray(workspace?.tabs)){
       const activeTab = workspace.tabs.find(tab => tab && normalizeLifecycleTabId(tab.id || '') === activeId) || null;
-      return activeTab?.type === key ? activeId : '';
+      if(activeTab){
+        return activeTab.type === key ? activeId : '';
+      }
+      const sessionTab = global.Main?.session?.getActiveTab?.() || null;
+      return normalizeLifecycleTabId(sessionTab?.id || '') === activeId && sessionTab?.type === key
+        ? activeId
+        : '';
     }
     const workspaceInfo = global.Shared?.workspaceTabs?.getActiveSessionInfo?.(key) || null;
     const workspaceInfoTabId = normalizeLifecycleTabId(workspaceInfo?.tabId || '');
@@ -524,9 +530,11 @@
       : null;
     const hasExplicitRoot = Object.prototype.hasOwnProperty.call(options || {}, 'root');
     const liveRoot = hasExplicitRoot ? (options.root || null) : mountedRoot;
-    const rootMatchesMountedRecord = !hasMountedRootResolver || (!!mountedRoot && mountedRoot === liveRoot);
+    const rootMatchesMountedRecord = !hasMountedRootResolver || !mountedRoot || mountedRoot === liveRoot;
     const rootConnected = liveRoot?.isConnected === true;
     const rootTabId = normalizeLifecycleTabId(namespace.resolveTabIdFromTarget(liveRoot) || '');
+    const rootOwnerAgrees = rootTabId === ownerTabId
+      || (!rootTabId && hasMountedRootResolver && mountedRoot === liveRoot);
 
     return !!(
       workspaceOwnerTabId
@@ -536,7 +544,7 @@
       && sessionTabId === ownerTabId
       && rootMatchesMountedRecord
       && rootConnected
-      && rootTabId === ownerTabId
+      && rootOwnerAgrees
     );
   };
 
@@ -567,7 +575,7 @@
     const workspaceActiveTab = workspaceActiveTabId
       ? tabs.find(tab => tab && normalizeLifecycleTabId(tab.id || '') === workspaceActiveTabId) || null
       : null;
-    const workspaceOwnerTabId = workspaceActiveTab?.type === key ? workspaceActiveTabId : '';
+    const workspaceOwnerTabId = namespace.resolveWorkspaceActiveTabId(key);
     const componentBoundTabId = normalizeLifecycleTabId(options?.component?.__boundTabId || '');
     const projectedSessionTabId = normalizeLifecycleTabId(options?.projectedSession?.tabId || '');
     const projectionTabId = componentBoundTabId || projectedSessionTabId;

@@ -75,8 +75,9 @@ describe('documentState recovery snapshot throttling', () => {
   }
 
   async function flushTimers() {
-    await Promise.resolve();
-    await Promise.resolve();
+    for (let pass = 0; pass < 5; pass += 1) {
+      await Promise.resolve();
+    }
   }
 
   test('ordinary edits use a trailing recovery delay', async () => {

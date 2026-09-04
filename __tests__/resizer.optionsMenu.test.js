@@ -3,6 +3,7 @@ describe('Shared resizer graph options menu', () => {
     jest.resetModules();
     document.body.innerHTML = '';
     window.Shared = {};
+    require('../js/shared/cartesianLayout.js');
     require('../js/shared/resizer.js');
   });
 
@@ -325,6 +326,218 @@ describe('Shared resizer graph options menu', () => {
     expect((nextWidth - 200) / (nextHeight - 160)).toBeCloseTo(1.5, 6);
     expect(onResize).toHaveBeenCalledTimes(1);
     expect(onResize).toHaveBeenCalledWith('programmatic');
+  });
+
+  test.each([
+    ['x', { width: 720 }, 'width'],
+    ['y', { height: 610 }, 'height'],
+    ['both', { width: 760, height: 540 }, 'both']
+  ])('Cartesian locked resize uses the committed rendered-axis transaction for %s-driven proposals', (axis, proposal, drive) => {
+    const box = createSvgBox();
+    box.style.width = '500px';
+    box.style.height = '400px';
+    const onResize = jest.fn();
+
+    window.Shared.attachResizableBox(box, {
+      componentName: 'line',
+      tabId: 'tab-a',
+      defaultWidth: 500,
+      defaultHeight: 400,
+      minWidth: 180,
+      minHeight: 160,
+      maxWidth: 1200,
+      maxHeight: 1000,
+      aspectLocked: true,
+      cartesianLayoutTransactionEnabled: true,
+      onResize
+    });
+    const plan = window.Shared.cartesianLayout.planCartesianLayout({
+      owner: { tabId: 'tab-a', component: 'line', generation: 3 },
+      userFrame: { width: 500, height: 400 },
+      baselineMargins: { top: 30, right: 20, bottom: 60, left: 70 },
+      requiredMargins: { top: 30, right: 20, bottom: 110, left: 120 },
+      lock: { enabled: true, targetRatio: 1.5, drive },
+      minimumPlot: { width: 20, height: 20 }
+    });
+    expect(window.Shared.cartesianLayout.publishCartesianLayout(box, plan, {
+      tabId: 'tab-a', component: 'line', generation: 3
+    })).toBe(true);
+
+    window.Shared.applyResizableBoxSize(box, {
+      axis,
+      ...proposal,
+      forceExact: false,
+      updateAspectRatio: false
+    });
+
+    const committed = box.__sharedResizableBoxApi.getCartesianLayoutPlan();
+    const width = Number.parseFloat(box.style.width);
+    const height = Number.parseFloat(box.style.height);
+    const solvedAxisX = (width - committed.axisFrameModel.x.fixed) / committed.axisFrameModel.x.count;
+    const solvedAxisY = (height - committed.axisFrameModel.y.fixed) / committed.axisFrameModel.y.count;
+    expect(Math.abs((solvedAxisX / solvedAxisY) - 1.5) / 1.5).toBeLessThan(0.01);
+    expect(onResize).toHaveBeenCalledWith('programmatic');
+  });
+
+  test('Cartesian live drag keeps its starting layout transaction across redraw publications', () => {
+    const box = createSvgBox();
+    box.style.width = '500px';
+    box.style.height = '400px';
+    let replacementPlan = null;
+    const onResize = jest.fn(phase => {
+      if(phase === 'move' && replacementPlan){
+        window.Shared.cartesianLayout.publishCartesianLayout(box, replacementPlan, {
+          tabId: 'tab-a', component: 'box', generation: 2
+        });
+      }
+    });
+
+    window.Shared.attachResizableBox(box, {
+      componentName: 'box', tabId: 'tab-a',
+      defaultWidth: 500, defaultHeight: 400,
+      minWidth: 120, minHeight: 90,
+      maxWidth: 1200, maxHeight: 1000,
+      aspectLocked: true,
+      cartesianLayoutTransactionEnabled: true,
+      onResize
+    });
+    const startingPlan = window.Shared.cartesianLayout.planCartesianLayout({
+      owner: { tabId: 'tab-a', component: 'box', generation: 1 },
+      userFrame: { width: 500, height: 400 },
+      baselineMargins: { top: 30, right: 20, bottom: 60, left: 70 },
+      requiredMargins: { top: 30, right: 20, bottom: 110, left: 120 },
+      lock: { enabled: true, targetRatio: 1.5, drive: 'width' },
+      minimumPlot: { width: 20, height: 20 }
+    });
+    replacementPlan = window.Shared.cartesianLayout.planCartesianLayout({
+      owner: { tabId: 'tab-a', component: 'box', generation: 2 },
+      userFrame: { width: 460, height: 360 },
+      baselineMargins: { top: 90, right: 70, bottom: 150, left: 160 },
+      requiredMargins: { top: 90, right: 70, bottom: 150, left: 160 },
+      lock: { enabled: true, targetRatio: 0.75, drive: 'width' },
+      minimumPlot: { width: 20, height: 20 }
+    });
+    expect(window.Shared.cartesianLayout.publishCartesianLayout(box, startingPlan, {
+      tabId: 'tab-a', component: 'box', generation: 1
+    })).toBe(true);
+
+    const vertical = box.querySelector('.resizer-vertical');
+    vertical.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, clientX: 500, clientY: 200 }));
+    document.dispatchEvent(new MouseEvent('pointermove', { bubbles: true, clientX: 460, clientY: 200 }));
+    document.dispatchEvent(new MouseEvent('pointermove', { bubbles: true, clientX: 430, clientY: 200 }));
+
+    const expected = window.Shared.cartesianLayout.solveLockedUserFrame({
+      userFrame: startingPlan.userFrame,
+      proposal: { width: 430, height: 400 },
+      frameInsets: startingPlan.lock.frameInsets,
+      axisFrameModel: startingPlan.axisFrameModel,
+      targetRatio: startingPlan.lock.targetRatio,
+      drive: 'width',
+      bounds: { minWidth: 120, minHeight: 90, maxWidth: 1200, maxHeight: 1000 },
+      minimumPlot: startingPlan.minimumPlot
+    });
+    expect(Number.parseFloat(box.style.width)).toBe(Math.round(expected.userFrame.width));
+    expect(Number.parseFloat(box.style.height)).toBe(Math.round(expected.userFrame.height));
+
+    document.dispatchEvent(new MouseEvent('pointerup', { bubbles: true, clientX: 430, clientY: 200 }));
+  });
+
+  test('migrated locked resize holds the canonical frame until an owner-scoped plan is published', () => {
+    const box = createSvgBox();
+    box.style.width = '500px';
+    box.style.height = '400px';
+    window.Shared.axisControls = { measureRenderedAxes: jest.fn(() => ({ x: 300, y: 150 })) };
+
+    window.Shared.attachResizableBox(box, {
+      componentName: 'line',
+      tabId: 'tab-a',
+      defaultWidth: 500,
+      defaultHeight: 400,
+      minWidth: 180,
+      minHeight: 160,
+      aspectLocked: true,
+      cartesianLayoutTransactionEnabled: true
+    });
+
+    window.Shared.applyResizableBoxSize(box, { axis: 'x', width: 750, forceExact: false });
+    expect(box.style.width).toBe('500px');
+    expect(box.style.height).toBe('400px');
+    expect(window.Shared.axisControls.measureRenderedAxes).not.toHaveBeenCalled();
+    expect(box.__sharedResizableBoxApi.calibrateLockedGeometryConstraint()).toBe(false);
+  });
+
+  test('Cartesian lock toggle captures the published rendered-axis ratio without changing geometry', () => {
+    const box = createSvgBox();
+    box.style.width = '500px';
+    box.style.height = '400px';
+    const onResize = jest.fn();
+    window.Shared.attachResizableBox(box, {
+      componentName: 'line', tabId: 'tab-a',
+      defaultWidth: 500, defaultHeight: 400, minWidth: 180, minHeight: 160,
+      aspectLocked: false, cartesianLayoutTransactionEnabled: true, onResize
+    });
+    const plan = window.Shared.cartesianLayout.planCartesianLayout({
+      owner: { tabId: 'tab-a', component: 'line', generation: 4 },
+      userFrame: { width: 500, height: 400 },
+      baselineMargins: { top: 30, right: 20, bottom: 60, left: 70 },
+      axisLengths: { x: 360, y: 240 },
+      minimumPlot: { width: 20, height: 20 }
+    });
+    expect(window.Shared.cartesianLayout.publishCartesianLayout(box, plan, {
+      tabId: 'tab-a', component: 'line', generation: 4
+    })).toBe(true);
+    const before = { width: box.style.width, height: box.style.height };
+    const checkbox = box.querySelector('.resizer-aspect-checkbox');
+    checkbox.checked = true;
+    checkbox.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(box.style.width).toBe(before.width);
+    expect(box.style.height).toBe(before.height);
+    expect(Number(box.dataset.resizerCartesianPlotRatio)).toBeCloseTo(1.5, 9);
+    expect(onResize).not.toHaveBeenCalled();
+  });
+
+  test('Cartesian reset uses only the orientation-specific user frame and never adds legacy automatic reserves', () => {
+    const box = createSvgBox();
+    box.style.width = '700px';
+    box.style.height = '500px';
+    const resolveResetFrameSize = jest.fn(() => ({ widthPx: 310, heightPx: 470 }));
+    const resolveAutomaticFrameReserves = jest.fn(() => ({ widthPx: 90, heightPx: 60 }));
+
+    window.Shared.attachResizableBox(box, {
+      componentName: 'box', tabId: 'tab-a',
+      defaultWidth: 420, defaultHeight: 320, minWidth: 120, minHeight: 90,
+      cartesianLayoutTransactionEnabled: true,
+      resolveResetFrameSize,
+      resolveAutomaticFrameReserves
+    });
+
+    box.querySelector('.resizer-corner').dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+    expect(box.style.width).toBe('310px');
+    expect(box.style.height).toBe('470px');
+    expect(resolveResetFrameSize).toHaveBeenCalledTimes(1);
+    expect(resolveAutomaticFrameReserves).not.toHaveBeenCalled();
+  });
+
+  test('clearing a Cartesian publication clears the resizer-owned plan and lock target', () => {
+    const box = createSvgBox();
+    window.Shared.attachResizableBox(box, {
+      componentName: 'line', tabId: 'tab-a',
+      defaultWidth: 500, defaultHeight: 400, minWidth: 180, minHeight: 160,
+      aspectLocked: true, cartesianLayoutTransactionEnabled: true
+    });
+    const plan = window.Shared.cartesianLayout.planCartesianLayout({
+      owner: { tabId: 'tab-a', component: 'line', generation: 5 },
+      userFrame: { width: 500, height: 400 },
+      baselineMargins: { top: 30, right: 20, bottom: 60, left: 70 },
+      minimumPlot: { width: 20, height: 20 }
+    });
+    expect(window.Shared.cartesianLayout.publishCartesianLayout(box, plan, {
+      tabId: 'tab-a', component: 'line', generation: 5
+    })).toBe(true);
+    expect(box.__sharedResizableBoxApi.getCartesianLayoutPlan()).toBe(plan);
+    expect(window.Shared.cartesianLayout.clearPublishedLayout(box, { tabId: 'tab-a', component: 'line' })).toBe(true);
+    expect(box.__sharedResizableBoxApi.getCartesianLayoutPlan()).toBeNull();
+    expect(box.dataset.resizerCartesianPlotRatio).toBeUndefined();
   });
 
   test('locked resize accepts component-owned non-axis geometry', () => {

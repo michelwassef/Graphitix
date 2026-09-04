@@ -275,7 +275,7 @@ test.describe('Lock ratio subtype enforcement', () => {
     await page.waitForTimeout(500);
     await expect(page.locator('#pcaPage:not([hidden]) .resizer-aspect-checkbox')).toHaveCount(0);
     await expect(page.locator('#pcaPage:not([hidden]) .resizer-axeslength-control')).toHaveCount(1);
-    await expect(page.locator('#pcaPage:not([hidden]) .resizer-axeslength-checkbox--equal-scale')).not.toBeChecked();
+    await expect(page.locator('#pcaPage:not([hidden]) .resizer-axeslength-checkbox--equal-scale')).toBeChecked();
     await expect(page.locator('#pcaPage:not([hidden]) .resizer-axeslength-item--equal-scale'))
       .toHaveAttribute('title', /square in 2D \(cubic in 3D\).*same physical size.*not rescaled/i);
     await expect(page.locator('#pcaPage:not([hidden]) .resizer-axeslength-checkbox--equal-length')).toHaveCount(0);

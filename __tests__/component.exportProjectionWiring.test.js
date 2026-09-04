@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const { expectSource } = require('./helpers/sourceContract');
 
 const COMPONENTS = [
   'venn',
@@ -22,8 +23,8 @@ function readComponent(name) {
 describe('component export projection wiring', () => {
   test.each(COMPONENTS)('%s declares its component identity on shared SVG export controls', component => {
     const source = readComponent(component);
-    expect(source).toContain('mountSvgControls');
-    expect(source).toMatch(/componentName:\s*['"][^'"]+['"]/);
+    expectSource(source, `${component}.js`).toContain('mountSvgControls');
+    expectSource(source, `${component}.js`).toMatch(/componentName:\s*['"][^'"]+['"]/);
   });
 
   test.each(['box', 'scatter', 'pca', 'line', 'heatmap', 'surface', 'roc', 'survival', 'hist', 'pie'])(
@@ -39,11 +40,11 @@ describe('component export projection wiring', () => {
 
   test('Venn covers main, GO and STRING auxiliary export targets with the shared projection contract', () => {
     const source = readComponent('venn');
-    expect(source).toContain("componentName: 'venn'");
-    expect(source).toContain("componentName: 'venn-go'");
-    expect(source).toContain("componentName: 'venn-string'");
-    expect(source).toContain('getSourceSvg:');
-    expect(source).toContain('Shared.exportProjection');
+    expectSource(source, 'venn.js').toContain("componentName: 'venn'");
+    expectSource(source, 'venn.js').toContain("componentName: 'venn-go'");
+    expectSource(source, 'venn.js').toContain("componentName: 'venn-string'");
+    expectSource(source, 'venn.js').toContain('getSourceSvg:');
+    expectSource(source, 'venn.js').toContain('Shared.exportProjection');
   });
 
   test('Line, Scatter and Heatmap no longer choose export root physical dimensions independently', () => {
@@ -52,28 +53,28 @@ describe('component export projection wiring', () => {
     const heatmap = readComponent('heatmap');
 
     const lineExportStart = line.indexOf('function buildLineExportSvg');
-    const lineExportEnd = line.indexOf('\n  function ', lineExportStart + 1);
+    const lineExportEnd = line.indexOf('\n  // PART: DRAW', lineExportStart + 1);
     const lineExport = line.slice(lineExportStart, lineExportEnd > lineExportStart ? lineExportEnd : lineExportStart + 2000);
-    expect(lineExport).toContain('exportProjection');
-    expect(lineExport).not.toMatch(/setAttribute\(['"](?:width|height)['"]/);
+    expectSource(lineExport, 'line export').toContain('exportProjection');
+    expectSource(lineExport, 'line export').not.toMatch(/setAttribute\(['"](?:width|height)['"]/);
 
     const scatterExportStart = scatter.indexOf('function buildScatterExportSvgFromSource');
     const scatterExportEnd = scatter.indexOf('\n  function ', scatterExportStart + 1);
     const scatterExport = scatter.slice(scatterExportStart, scatterExportEnd > scatterExportStart ? scatterExportEnd : scatterExportStart + 2400);
-    expect(scatterExport).toContain('exportProjection');
-    expect(scatterExport).not.toMatch(/setAttribute\(['"](?:width|height)['"]/);
+    expectSource(scatterExport, 'scatter export').toContain('exportProjection');
+    expectSource(scatterExport, 'scatter export').not.toMatch(/setAttribute\(['"](?:width|height)['"]/);
 
     const heatmapExportStart = heatmap.indexOf('function buildHeatmapExportSvgFromSource');
     const heatmapPreviewStart = heatmap.indexOf('function buildHeatmapPreviewSvgFromSource', heatmapExportStart);
     const heatmapExport = heatmap.slice(heatmapExportStart, heatmapPreviewStart);
-    expect(heatmapExport).toContain('exportProjection');
-    expect(heatmapExport).not.toMatch(/setAttribute\(['"](?:width|height)['"]/);
+    expectSource(heatmapExport, 'heatmap export').toContain('exportProjection');
+    expectSource(heatmapExport, 'heatmap export').not.toMatch(/setAttribute\(['"](?:width|height)['"]/);
 
     const heatmapPreviewProjection = heatmap.slice(
       heatmap.indexOf('function cloneHeatmapPreviewProjection'),
       heatmap.indexOf('function buildHeatmapExportSvgFromSource')
     );
-    expect(heatmapPreviewProjection).toMatch(/setAttribute\(['"]width['"]/);
-    expect(heatmapPreviewProjection).toMatch(/setAttribute\(['"]height['"]/);
+    expectSource(heatmapPreviewProjection, 'heatmap preview projection').toMatch(/setAttribute\(['"]width['"]/);
+    expectSource(heatmapPreviewProjection, 'heatmap preview projection').toMatch(/setAttribute\(['"]height['"]/);
   });
 });

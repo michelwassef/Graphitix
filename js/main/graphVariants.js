@@ -208,6 +208,8 @@
       groupLabel: 'Dimensionality Reduction',
       keywords: ['mds', '3d']
     }),
+    // PCA currently supports 3D only for PCA and MDS. Keep the public graph
+    // finder aligned with the component UI, which intentionally forces t-SNE/UMAP to 2D.
     createVariant({
       id: 'pca:tsne-2d',
       type: 'pca',
@@ -217,28 +219,12 @@
       keywords: ['tsne', 'nonlinear']
     }),
     createVariant({
-      id: 'pca:tsne-3d',
-      type: 'pca',
-      label: 't-SNE (3D)',
-      description: 'Three-dimensional t-SNE layout.',
-      groupLabel: 'Dimensionality Reduction',
-      keywords: ['tsne', '3d']
-    }),
-    createVariant({
       id: 'pca:umap-2d',
       type: 'pca',
       label: 'UMAP (2D)',
       description: 'Uniform Manifold Approximation projection.',
       groupLabel: 'Dimensionality Reduction',
       keywords: ['umap', 'manifold']
-    }),
-    createVariant({
-      id: 'pca:umap-3d',
-      type: 'pca',
-      label: 'UMAP (3D)',
-      description: 'Three-axis UMAP scatter.',
-      groupLabel: 'Dimensionality Reduction',
-      keywords: ['umap', '3d']
     }),
     createVariant({
       id: 'surface:grid',
@@ -380,9 +366,7 @@
     'pca:mds-2d': () => applyPcaVariant('mds', '2d'),
     'pca:mds-3d': () => applyPcaVariant('mds', '3d'),
     'pca:tsne-2d': () => applyPcaVariant('tsne', '2d'),
-    'pca:tsne-3d': () => applyPcaVariant('tsne', '3d'),
     'pca:umap-2d': () => applyPcaVariant('umap', '2d'),
-    'pca:umap-3d': () => applyPcaVariant('umap', '3d'),
     'surface:grid': () => applySurfaceVariant('grid'),
     'surface:points': () => applySurfaceVariant('scatter'),
     'line:line': () => applyLineVariant('line'),

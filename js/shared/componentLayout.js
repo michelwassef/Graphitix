@@ -388,8 +388,12 @@
     const rawHeight = Math.max(0, Number(plot?.clientHeight) || 0);
     const zoomCandidate = Number(svgBox?.dataset?.resizerZoomLevel || svgBox?.dataset?.resizerZoom);
     const zoomScale = Number.isFinite(zoomCandidate) && zoomCandidate > 0 ? zoomCandidate : 1;
-    const frame = measureContentBox(viewport, { source: 'zoom-viewport', subtractInsets: options.subtractInsets })
-      || measureContentBox(svgBox, { source: 'svgbox', subtractInsets: options.subtractInsets });
+    // The unzoomed .svgbox is the canonical user-frame authority.  The zoom
+    // viewport may be deliberately enlarged by derived presentation reserves
+    // (labels, legends, annotations), so reading it first would feed those
+    // reserves back into the next layout transaction.
+    const frame = measureContentBox(svgBox, { source: 'svgbox', subtractInsets: options.subtractInsets })
+      || measureContentBox(viewport, { source: 'zoom-viewport', subtractInsets: options.subtractInsets });
     const availableWidth = Number.isFinite(frame?.width) && frame.width > 0 ? frame.width / zoomScale : NaN;
     const availableHeight = Number.isFinite(frame?.height) && frame.height > 0 ? frame.height / zoomScale : NaN;
     const width = Number.isFinite(availableWidth) && availableWidth > 0 ? availableWidth : rawWidth;
@@ -1736,6 +1740,12 @@
       if(!entries.length){ return null; }
       const clone = {};
       entries.forEach(([key, value]) => {
+        // Derived presentation geometry is intentionally excluded from the
+        // canonical component-layout snapshot.  Rehydrating it as layout
+        // authority would let content-envelope state overwrite the user frame.
+        if(/^graphContent|^graphPresentation|^cartesianLayout/.test(key)){
+          return;
+        }
         clone[key] = value;
       });
       return clone;
@@ -2224,6 +2234,25 @@
     console.debug('Debug: componentLayout registry updated', { component: componentName, tabId: layoutTabId || null, hasCapture: true, hasApply: true });
 
     return layoutApi;
+  };
+
+  componentLayout.getOwnedLayoutFor = function getOwnedLayoutFor(componentName, options = {}){
+    const normalizedComponent = String(componentName || '').trim();
+    const tabId = normalizeTabId(options.tabId || options.workspaceTabId || options.activeTabId);
+    if(!normalizedComponent || !tabId){ return null; }
+    const entry = resolveRegistryEntry(normalizedComponent, { ...options, tabId, exact: true });
+    if(!entry){ return null; }
+    if(String(entry.componentName || '').trim() !== normalizedComponent){
+      return null;
+    }
+    if(normalizeTabId(entry.tabId) !== tabId){
+      return null;
+    }
+    const elementOwnerTabId = entry.elements ? resolveElementsOwnerTabId(entry.elements) : '';
+    if(!elementOwnerTabId || elementOwnerTabId !== tabId){
+      return null;
+    }
+    return entry;
   };
 
   componentLayout.captureStateFor = function captureStateFor(componentName, options = {}){

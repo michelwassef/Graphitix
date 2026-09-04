@@ -32,6 +32,11 @@ async function flushAsyncWork(iterations = 25){
   }
 }
 
+function setVennListValue(input, value){
+  input.value = value;
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
 describe('UI events and example loaders', () => {
 
   beforeEach(() => {
@@ -1750,9 +1755,9 @@ describe('UI events and example loaders', () => {
     const detectBtn = document.getElementById('detectSpeciesBtn');
     expect(listA && listB && listC && detectBtn).toBeTruthy();
 
-    listA.value = 'BRCA1\nTP53';
-    listB.value = 'ATM';
-    listC.value = '';
+    setVennListValue(listA, 'BRCA1\nTP53');
+    setVennListValue(listB, 'ATM');
+    setVennListValue(listC, '');
 
     const originalFetch = global.fetch;
     const fetchMock = jest.fn((url) => {
@@ -1785,9 +1790,9 @@ describe('UI events and example loaders', () => {
     const listA = document.getElementById('listA');
     const listB = document.getElementById('listB');
     const listC = document.getElementById('listC');
-    listA.value = 'BRCA1';
-    listB.value = '';
-    listC.value = '';
+    setVennListValue(listA, 'BRCA1');
+    setVennListValue(listB, '');
+    setVennListValue(listC, '');
 
     const originalFetch = global.fetch;
     const fetchMock = jest.fn(() => Promise.resolve({
@@ -1816,9 +1821,9 @@ describe('UI events and example loaders', () => {
     const listA = document.getElementById('listA');
     const listB = document.getElementById('listB');
     const listC = document.getElementById('listC');
-    listA.value = 'BRCA1';
-    listB.value = '';
-    listC.value = '';
+    setVennListValue(listA, 'BRCA1');
+    setVennListValue(listB, '');
+    setVennListValue(listC, '');
 
     const originalFetch = global.fetch;
     const pendingResolvers = [];

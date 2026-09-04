@@ -174,6 +174,8 @@ function toMarkdown(entries) {
   lines.push('- `Main` expects each workspace entry to provide `ensure`, `draw`, `getPayload`, `loadFromPayload`, and `createEmptyPayload`.');
   lines.push('- Every component implements `rehydrateGraphInteractions` so restored graph DOM is interactive before it is published. Workspace wrappers also expose pure `hasRenderablePayload` checks so structural/persisted table state is not confused with data that must publish a graph. Other optional hooks (`activateTab`, `captureRuntimeState`, `applyRuntimeState`, `captureRenderCache`, `restoreRenderCache`, `canRestoreRenderCache`, `hasRenderedGraph`, layout helpers) are consumed when present.');
   lines.push('- Payload objects must stay JSON-serializable so session/archive persistence remains stable.');
+  lines.push('- Migrated 2D axis modes use `Shared.cartesianLayout` as their single geometry transaction: `userFrame` is canonical sizing authority, `plotRect` is rendered data geometry, and `contentEnvelope` is derived visibility/export geometry. Line/Scatter 2D, ROC/PR, Survival, Histogram overlay/panels, stacked Pie, Box, and PCA 2D publish owner/generation-scoped plans; 3D modes, Heatmap, Venn/UpSet, and radial Pie/Donut modes remain explicitly outside that generic adapter.');
+  lines.push('- Download/Copy footers and resizer controls are external UI chrome. They are attached around the graph container and are never another layout rectangle or an input to `userFrame`, `plotRect`, or `contentEnvelope`.');
   lines.push('');
   lines.push('## Registry Coverage');
   lines.push('');

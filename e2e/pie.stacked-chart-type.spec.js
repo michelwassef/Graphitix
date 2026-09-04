@@ -17,6 +17,13 @@ test.describe('Pie chart type controls', () => {
     await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
 
     await openComponentFromWelcome(page, PIE, { first: true });
+    const graphFieldset = page.locator('#pieGraphPanel fieldset[data-graph-selection-fieldset="1"]');
+    await expect(graphFieldset.locator('#pieShowPercents')).toHaveCount(1);
+    await expect(graphFieldset.locator('#pieShowFrame')).toHaveCount(1);
+    await expect(graphFieldset.locator('#pieShowStatsSummary')).toHaveCount(1);
+    await expect(graphFieldset.locator('[data-pie-radial-options="1"]')).toHaveCount(1);
+    await expect(page.locator('.resizer-options-menu #pieShowLegend')).toHaveCount(1);
+    await expect(page.locator('#pieGraphPanel .config-panel > fieldset').filter({ hasText: 'Options' })).toHaveCount(0);
     await clickExampleButtonIfPresent(page, PIE.exampleButtonId);
     const waitForTraceMode = mode => page.waitForFunction(expectedMode => {
       const traces = Array.from(document.querySelectorAll('#piePage:not([hidden]) #piePlot svg [data-pie-trace-mode]'));
@@ -76,6 +83,14 @@ test.describe('Pie chart type controls', () => {
     await waitForTraceMode('pie');
     await expect(lockRatio).toBeChecked();
     await expect(lockRatio).toBeDisabled();
+    const forcedRadialPreference = await page.evaluate(() => ({
+      payload: window.Components?.pie?.getPayload?.()?.config?.stackedAspectLocked ?? null,
+      runtime: window.Components?.pie?.captureRuntimeState?.({
+        tabId: window.Main?.session?.workspaceState?.activeTabId || null,
+        reason: 'pie-stacked-lock-preference-test'
+      })?.state?.lockRatioEnforcePrevious ?? null
+    }));
+    expect(forcedRadialPreference).toEqual({ payload: true, runtime: true });
     await expect(radialOptions).toBeVisible();
     const restoredRadialLayout = await radialOptions.evaluate(node => Array.from(node.children).map(child => ({
       left: child.offsetLeft,

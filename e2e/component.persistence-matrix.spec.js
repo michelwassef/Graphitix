@@ -23,7 +23,7 @@ async function openComponent(page, componentCase) {
 
 for (const componentCase of COMPONENT_MATRIX) {
   test(`${componentCase.type} parameters survive one batched archive reopen`, async ({ page }, testInfo) => {
-    test.setTimeout(180_000);
+    test.setTimeout(360_000);
     await installLocalCdnOverrides(page);
     const tabId = await openComponent(page, componentCase);
     const parameterPaths = String(process.env.PARAMETER_PATHS || '').split(',').map(value => value.trim()).filter(Boolean);

@@ -5,7 +5,7 @@ const {
   openComponentFromWelcome
 } = require('./helpers/workspaceHarness');
 
-test.skip('box immediate undo after column drag restores the original header row', async ({ page }) => {
+test('box immediate undo after column drag restores the original header row', async ({ page }) => {
   test.setTimeout(120_000);
   const issues = registerIssueCollectors(page);
   await installLocalCdnOverrides(page);

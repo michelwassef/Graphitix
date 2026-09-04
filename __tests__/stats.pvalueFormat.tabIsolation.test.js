@@ -101,20 +101,39 @@ describe('Shared p-value format tab isolation', () => {
     expect(tabs[1].payload.meta?.statsReporting?.pValueScientific).toBe(true);
     expect(tabs[0].payload.meta?.statsReporting?.pValueScientific).toBeUndefined();
     expect(reporting.getPValueFormatScientific({ target: panel, tabId: 'tab-b' })).toBe(true);
-    expect(panel.querySelector('.stats-pvalue-format-inline__label')?.textContent).toContain('Scientific');
+    expect(panel.querySelector('.stats-pvalue-format-select')?.value).toBe('scientific');
 
     applyTab(tabs[0]);
     reporting.restorePanelModel(panel, staleDecimalModel);
     reporting.enhancePanelNow(panel, 'unit-tab-a-return');
     expect(reporting.getPValueFormatScientific({ target: panel, tabId: 'tab-a' })).toBe(false);
-    expect(panel.querySelector('.stats-pvalue-format-inline__label')?.textContent).toContain('Decimal');
+    expect(panel.querySelector('.stats-pvalue-format-select')?.value).toBe('decimal');
 
     applyTab(tabs[1]);
     reporting.restorePanelModel(panel, staleDecimalModel);
     reporting.enhancePanelNow(panel, 'unit-tab-b-return');
     expect(reporting.getPValueFormatScientific({ target: panel, tabId: 'tab-b' })).toBe(true);
-    expect(panel.querySelector('.stats-pvalue-format-inline__label')?.textContent).toContain('Scientific');
+    expect(panel.querySelector('.stats-pvalue-format-select')?.value).toBe('scientific');
     expect(tabs[1].payload.meta?.statsReporting?.pValueScientific).toBe(true);
+  });
+
+  test('the shared control is a dropdown with its current value selected', () => {
+    const reporting = window.Shared.statsReporting;
+    const panel = createReusedPanel('scatterStatsResults');
+
+    applyTab(tabs[0]);
+    reporting.enhancePanelNow(panel, 'unit-dropdown');
+
+    const select = panel.querySelector('.stats-pvalue-format-select');
+    expect(select).toBeTruthy();
+    expect(select.value).toBe('decimal');
+    expect(Array.from(select.options).map(option => option.value)).toEqual(['decimal', 'scientific']);
+
+    select.value = 'scientific';
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(tabs[0].payload.meta?.statsReporting?.pValueScientific).toBe(true);
+    reporting.enhancePanelNow(panel, 'unit-dropdown-scientific');
+    expect(panel.querySelector('.stats-pvalue-format-select')?.value).toBe('scientific');
   });
 
   test('shared payload capture and reopen preserve independent formats', () => {

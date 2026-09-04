@@ -180,7 +180,7 @@ async function seedRecoveryArchive(page, base64) {
       blob
     };
     await new Promise((resolve, reject) => {
-      const request = window.indexedDB.open('graphitix-document-state', 1);
+      const request = window.indexedDB.open('graphitix-document-state', 2);
       request.onupgradeneeded = () => {
         if (!request.result.objectStoreNames.contains('snapshots')) {
           request.result.createObjectStore('snapshots');

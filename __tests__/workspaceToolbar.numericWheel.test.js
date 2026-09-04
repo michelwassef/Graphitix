@@ -25,6 +25,38 @@ describe('workspace toolbar numeric wheel editing', () => {
     return window.Shared.workspaceToolbar;
   }
 
+  test.each([
+    [1.8391, 0.5, '1.84'],
+    [1.236789, 0.5, '1.24'],
+    [0.25, 0.5, '0.25'],
+    [1.2, 0.1, '1.2']
+  ])('formats px display values to at most two decimals (%s)', (value, step, expected) => {
+    expect(toolbarApi().formatPxDisplayValue(value, step)).toBe(expected);
+    expect(toolbarApi().formatNumericValue(value, step)).toBe(String(value));
+  });
+
+  test('rounds a numeric popup projection without changing its canonical input', () => {
+    const canonicalInput = document.createElement('input');
+    canonicalInput.type = 'number';
+    canonicalInput.min = '0';
+    canonicalInput.max = '10';
+    canonicalInput.step = '0.5';
+    canonicalInput.value = '1.8391';
+    const overlay = document.createElement('div');
+    document.body.appendChild(overlay);
+
+    const cleanup = toolbarApi().attachColorPickerNumericSection(overlay, {
+      canonicalInput,
+      title: 'Line width'
+    });
+    const mirrorInput = overlay.querySelector('input[type="number"]');
+
+    expect(mirrorInput.value).toBe('1.84');
+    expect(canonicalInput.value).toBe('1.8391');
+
+    cleanup();
+  });
+
   function flushLiveFrame() {
     jest.advanceTimersByTime(0);
   }

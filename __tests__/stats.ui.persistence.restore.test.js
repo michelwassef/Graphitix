@@ -395,6 +395,9 @@ describe('UI stats persistence and restore', () => {
     const hist = await prepareHistStats();
     const histBefore = document.getElementById('histStatsResults')?.textContent || '';
     const histCache = hist.captureRenderCache();
+    // Stats DOM cache is optional. Durable owner stats must restore even when the
+    // optimization is deliberately unavailable.
+    histCache.stats = null;
     document.getElementById('histStatsResults').innerHTML = '';
     expect(hist.restoreRenderCache(histCache)).toBe(true);
     await flushAsyncWork(20);
@@ -453,6 +456,9 @@ describe('UI stats persistence and restore', () => {
 
     const heatmap = await prepareHeatmapStats('values');
     const heatmapCache = heatmap.captureRenderCache();
+    // As for Histogram, prove the durable statistics model is authoritative rather
+    // than relying on replay of cached stats DOM.
+    heatmapCache.stats = null;
     document.getElementById('heatmapStatsContent').innerHTML = '';
     expect(heatmap.restoreRenderCache(heatmapCache)).toBe(true);
     await flushAsyncWork(20);

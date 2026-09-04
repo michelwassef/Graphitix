@@ -3594,7 +3594,9 @@
   function formatLegendBorderWidth(value){
     const numeric = sanitizeLegendBorderWidth(value);
     const toolbarApi = Shared.getWorkspaceToolbarApi?.() || Shared.workspaceToolbar || null;
-    const formatted = toolbarApi?.formatNumericValue?.(numeric, legendBorderWidthInput?.step || 0.25)
+    const step = legendBorderWidthInput?.step || 0.25;
+    const formatted = toolbarApi?.formatPxDisplayValue?.(numeric, step)
+      || toolbarApi?.formatNumericValue?.(numeric, step, { maxPrecision: 2 })
       || String(Math.round(numeric * 100) / 100);
     return `${formatted}px`;
   }

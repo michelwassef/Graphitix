@@ -6,7 +6,7 @@ const boxSource = () => fs.readFileSync(path.join(__dirname, '../js/components/b
 describe('box frame/layout commit contract', () => {
   test('logical graph geometry updates do not write physical frame state directly', () => {
     const source = boxSource();
-    const match = source.match(/function updateBoxGraphGeometry\(partial = \{\}, options = \{\}\)\{([\s\S]*?)\n  \}\n\n  function setBoxIntrinsicContentSizeFromGeometry/);
+    const match = source.match(/function updateBoxGraphGeometry\(partial = \{\}, options = \{\}\)\{([\s\S]*?)\n  \}\n\n  function parseBoxPositivePx/);
     expect(match).toBeTruthy();
     expect(match[1]).not.toMatch(/commitBoxGraphFrame|applyBoxGraphFrameAuthority|setBoxGraphDatasetFrameAuthority|applyResizableBoxSize/);
   });
@@ -30,9 +30,9 @@ describe('box frame/layout commit contract', () => {
     expect(strictHelperMatch).toBeTruthy();
     expect(strictHelperMatch[1]).not.toMatch(/getActiveBoxWorkspaceTabId|getActiveBoxSessionInfo/);
 
-    const intrinsicMatch = source.match(/function setBoxIntrinsicContentSizeFromGeometry\(geometry, options = \{\}\)\{([\s\S]*?)\n  \}\n\n  function parseBoxPositivePx/);
-    expect(intrinsicMatch).toBeTruthy();
-    expect(intrinsicMatch[1]).not.toMatch(/getActiveBoxWorkspaceTabId|getActiveBoxSessionInfo/);
+    const commitMatch = source.match(/function commitBoxGraphFrame\(frame = \{\}, options = \{\}\)\{([\s\S]*?)\n  \}\n\n  function synchronizeBoxFlipFrameToLayout/);
+    expect(commitMatch).toBeTruthy();
+    expect(commitMatch[1]).not.toMatch(/getActiveBoxWorkspaceTabId|getActiveBoxSessionInfo/);
   });
   test('published-graph validation accepts semantic Box marks and rejects pending frames', () => {
     const source = boxSource();

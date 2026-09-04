@@ -68,7 +68,7 @@ describe('ROC statistical standardization', () => {
       graphType: 'roc',
       compareResultModel: { displayText: 'ΔAUC = 0.120; p = 0.031' }
     });
-    expect(comparison.label).toBe('Show comparison on plot');
+    expect(comparison.label).toBe('Show stats on plot');
     expect(comparison.lines).toEqual(['ΔAUC = 0.120; p = 0.031']);
   });
 

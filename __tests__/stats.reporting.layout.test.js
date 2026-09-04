@@ -45,6 +45,7 @@ describe('Shared stats reporting layout', () => {
     expect(advancedPanel).toBeTruthy();
     expect(advancedPanel.hidden).toBe(true);
     expect(target.querySelector('.stats-results-advanced-panel .stats-report-panel')).toBeNull();
+    expect(target.querySelector('.stats-pvalue-format-select')?.value).toBe('decimal');
   });
 
   test('appending a report installs presentation-only p-value formatting on its tracked panel', () => {
@@ -82,6 +83,7 @@ describe('Shared stats reporting layout', () => {
     expect(target.querySelector(':scope > .stats-significance-controls')).toBeNull();
     expect(reportHost.querySelector(':scope > .stats-significance-controls')).toBeNull();
     expect(target.querySelector('.stats-pvalue-format-inline')).toBeTruthy();
+    expect(target.querySelector('.stats-pvalue-format-select')?.value).toBe('decimal');
   });
 
   test('explicit diagnostics stay collapsed while reporting remains a separate bottom section', async () => {

@@ -327,9 +327,9 @@ describe('componentLayout zoom behavior contract', () => {
     expect(lastSyncCall[4]?.skipSchedule).toBe(true);
   });
 
-  test('drawable frame resolves the zoom viewport before stale plot dimensions', () => {
+  test('drawable frame ignores a presentation-expanded zoom viewport when svgbox owns the user frame', () => {
     document.body.innerHTML = `
-      <div class="svgbox" data-resizer-zoom-level="1">
+      <div class="svgbox" data-resizer-zoom-level="1" data-graph-content-envelope="true">
         <div class="resizer-zoom-viewport">
           <div class="resizer-zoom-content">
             <div id="boxPlot"></div>
@@ -340,9 +340,10 @@ describe('componentLayout zoom behavior contract', () => {
     const svgBox = document.querySelector('.svgbox');
     const viewport = document.querySelector('.resizer-zoom-viewport');
     const plot = document.getElementById('boxPlot');
-    viewport.getBoundingClientRect = () => ({ width: 472, height: 383, top: 0, left: 0, right: 472, bottom: 383 });
-    Object.defineProperty(plot, 'clientWidth', { configurable: true, get: () => 472 });
-    Object.defineProperty(plot, 'clientHeight', { configurable: true, get: () => 263 });
+    svgBox.getBoundingClientRect = () => ({ width: 472, height: 320, top: 0, left: 0, right: 472, bottom: 320 });
+    viewport.getBoundingClientRect = () => ({ width: 542, height: 403, top: 0, left: 0, right: 542, bottom: 403 });
+    Object.defineProperty(plot, 'clientWidth', { configurable: true, get: () => 542 });
+    Object.defineProperty(plot, 'clientHeight', { configurable: true, get: () => 403 });
 
     const frame = window.Shared.componentLayout.resolveDrawableFrame({
       componentName: 'box',
@@ -350,10 +351,11 @@ describe('componentLayout zoom behavior contract', () => {
       plot
     });
 
-    expect(frame.source).toBe('zoom-viewport');
+    expect(frame.source).toBe('svgbox');
     expect(frame.width).toBe(472);
-    expect(frame.height).toBe(383);
-    expect(frame.rawHeight).toBe(263);
+    expect(frame.height).toBe(320);
+    expect(frame.rawHeight).toBe(403);
+    expect(frame.constrained).toBe(true);
   });
 
   test('drawable frame falls back to svgbox instead of promoting plot output to authority', () => {

@@ -186,7 +186,7 @@ async function captureWorkspaceArchive(page, fileStem) {
 async function seedRecoverySnapshot(page) {
   await page.evaluate(async () => {
     const openWebDb = () => new Promise((resolve, reject) => {
-      const request = window.indexedDB.open('graphitix-document-state', 1);
+      const request = window.indexedDB.open('graphitix-document-state', 2);
       request.onupgradeneeded = () => { const db = request.result; if (!db.objectStoreNames.contains('snapshots')) { db.createObjectStore('snapshots'); } };
       request.onsuccess = () => resolve(request.result);
       request.onerror = () => reject(request.error);

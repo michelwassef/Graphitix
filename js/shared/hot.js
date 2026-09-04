@@ -7818,10 +7818,6 @@
       && physicalRow >= 0
       && physicalRow < pinRowCount
     );
-    const isPinnedTopRow = (physicalRow)=>(
-      usePinnedRows
-      && isPinnedPhysicalRow(physicalRow)
-    );
     const isPinnedOrHeaderRow = (physicalRow)=>(
       isHeaderRow(physicalRow)
       || isPinnedPhysicalRow(physicalRow)

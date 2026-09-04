@@ -149,6 +149,31 @@ async function expectMultipleComparisonsTabLive(page, label) {
   expect(snapshot.pValues.length, `${label}: comparisons p-value metadata`).toBeGreaterThan(0);
 }
 
+test('box reference selector follows comparison scope', async ({ page }) => {
+  test.setTimeout(60_000);
+  await installLocalCdnOverrides(page);
+  await openBoxWorkspace(page);
+  await loadBoxExample(page);
+
+  await page.evaluate(() => {
+    const scope = document.querySelector('#boxStatsScope');
+    if (!scope) throw new Error('Comparison scope select not found');
+    scope.value = 'reference';
+    scope.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  await page.waitForFunction(
+    () => Array.from(document.querySelectorAll('#statsControls .box-stats-options__column--primary .box-stats-options__row'))
+      .some(row => /Reference:/i.test(row.textContent || '')),
+    null,
+    { timeout: 20_000 }
+  );
+
+  const rows = await page.locator('#statsControls .box-stats-options__column--primary .box-stats-options__row')
+    .evaluateAll(nodes => nodes.map(node => node.textContent.replace(/\s+/g, ' ').trim()));
+  const rowIndex = label => rows.findIndex(row => row.startsWith(label));
+  expect(rowIndex('Reference:')).toBe(rowIndex('Comparison scope:') + 1);
+});
+
 test('box significance bars render after saved payload is restored', async ({ page }) => {
   test.setTimeout(120_000);
   const issues = registerIssueCollectors(page);

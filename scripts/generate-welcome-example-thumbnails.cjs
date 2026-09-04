@@ -1197,7 +1197,9 @@ async function validateSvgRendering(page, type, svgText) {
     host.style.cssText = `position:absolute;left:-10000px;top:-10000px;width:${width}px;height:${height}px;`;
     host.appendChild(svg);
     document.body.appendChild(host);
-    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    await new Promise(resolve => {
+      requestAnimationFrame(() => requestAnimationFrame(resolve));
+    });
     const inlineRect = svg.getBoundingClientRect();
     const drawableCount = svg.querySelectorAll('path, rect, circle, ellipse, line, polyline, polygon, text').length;
     host.remove();
@@ -1444,7 +1446,9 @@ async function generateAssets(selectedTypes = TYPES) {
         await browser.close();
       }
       if (server) {
-        await new Promise(resolve => server.close(resolve));
+        await new Promise(resolve => {
+          server.close(resolve);
+        });
       }
     }
   });

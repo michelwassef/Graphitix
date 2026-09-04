@@ -63,7 +63,7 @@ const CASES = [
 
 async function clearRecoverySnapshot(page) {
   await page.evaluate(async () => {
-    const request = window.indexedDB.open('graphitix-document-state', 1);
+    const request = window.indexedDB.open('graphitix-document-state', 2);
     const db = await new Promise((resolve, reject) => {
       request.onupgradeneeded = () => {
         const opened = request.result;
@@ -86,7 +86,7 @@ async function clearRecoverySnapshot(page) {
 
 async function seedLeanRecoverySnapshot(page) {
   await page.evaluate(async () => {
-    const request = window.indexedDB.open('graphitix-document-state', 1);
+    const request = window.indexedDB.open('graphitix-document-state', 2);
     const db = await new Promise((resolve, reject) => {
       request.onupgradeneeded = () => {
         const opened = request.result;

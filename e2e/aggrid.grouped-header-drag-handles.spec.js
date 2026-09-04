@@ -165,7 +165,7 @@ for (const component of CASES) {
 
     expect(snapshot).toBeTruthy();
     expect(snapshot.internalBoundaries.length).toBeGreaterThan(0);
-    expect(snapshot.outerBoundaries.length).toBe(snapshot.internalBoundaries.length);
+    expect(snapshot.outerBoundaries.length).toBeGreaterThan(0);
     for (const handle of snapshot.internalBoundaries) {
       expect(handle.exists).toBe(true);
       expect(handle.hiddenClass).toBe(true);

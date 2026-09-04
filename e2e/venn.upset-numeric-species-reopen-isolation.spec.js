@@ -45,6 +45,13 @@ async function activateTabById(page, tabId) {
     const session = window.Components?.venn?.__testHooks?.getSession?.(id) || null;
     return activeId === id && !!root && !!root.querySelector?.('#stage') && !!session;
   }, tabId, { timeout: 60_000 });
+  await page.evaluate(async id => {
+    await window.Components?.venn?.awaitReadyForSnapshot?.({
+      tabId: id,
+      componentKey: 'venn',
+      reason: 'e2e-venn-upset-numeric-activation-ready'
+    });
+  }, tabId);
 }
 
 

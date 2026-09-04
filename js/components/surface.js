@@ -235,6 +235,7 @@
   let surfaceFontEventBound = false;
   let surfaceLockRatioInput = null;
   let surfaceAspectSyncing = false;
+  let surfaceLegendControl = null;
 
 
   const surfaceSessionsByTabId = new Map();
@@ -343,6 +344,7 @@
       showFrame: null,
       showPoints: null,
       showLegend: null,
+      legendControl: null,
       loadExample: null,
       importButton: null,
       fileInput: null,
@@ -410,6 +412,7 @@
     });
     session.refs = session.refs && typeof session.refs === 'object' ? session.refs : createDefaultSurfaceRefs(session.root || null);
     session.refs.root = session.refs.root || session.root || null;
+    if(!Object.prototype.hasOwnProperty.call(session.refs, 'legendControl')){ session.refs.legendControl = null; }
     session.cache = session.cache && typeof session.cache === 'object' ? session.cache : {};
     if(!Object.prototype.hasOwnProperty.call(session.cache, 'emptyPayloadTemplate')){ session.cache.emptyPayloadTemplate = null; }
     if(!Object.prototype.hasOwnProperty.call(session.cache, 'rotationModel')){ session.cache.rotationModel = null; }
@@ -638,6 +641,9 @@
     const relY = Number(source.relY);
     if(Number.isFinite(relX)){ out.relX = relX; }
     if(Number.isFinite(relY)){ out.relY = relY; }
+    if(source.anchor === chartStyle.LEGEND_POSITION_ANCHOR){
+      out.anchor = source.anchor;
+    }
     return out;
   }
 
@@ -773,10 +779,22 @@
       saveButton: getSurfaceNodeById('saveSurfaceGraph'),
       saveAsButton: getSurfaceNodeById('saveAsSurface'),
       graphFileInput: state.controls?.graphFileInput || getSurfaceNodeById('surfaceGraphFile'),
-      notesControl: canUseSurfaceNotesControl(notesState.control) ? notesState.control : null
+      notesControl: canUseSurfaceNotesControl(notesState.control) ? notesState.control : null,
+      legendControl: surfaceLegendControl || null
     });
     shaped.updatedAt = Date.now();
     return shaped;
+  }
+
+  function bindSurfaceLayoutManagerForSession(session){
+    const shaped = ensureSurfaceSessionOwnershipShape(session);
+    if(!shaped){ return null; }
+    const ownedLayout = Shared.componentLayout?.getOwnedLayoutFor?.('surface', { tabId: shaped.tabId }) || null;
+    shaped.managers.layout = ownedLayout;
+    if(!shaped.tabId || isSurfaceSessionActive(shaped)){
+      state.layout = ownedLayout;
+    }
+    return ownedLayout;
   }
 
   function syncSurfaceSessionManagersFromActive(session = null){
@@ -797,7 +815,7 @@
       shaped.managers.dataViews = surfaceDataViewsManagerBelongsToSession(manager, shaped) ? manager : shaped.managers.dataViews || null;
     }
     if(sessionIsActive){
-      shaped.managers.layout = state.layout || shaped.managers.layout || null;
+      bindSurfaceLayoutManagerForSession(shaped);
       shaped.managers.fileHandle = state.fileHandle || shaped.managers.fileHandle || null;
       shaped.managers.autoDraw = surfaceAutoDrawManager || shaped.managers.autoDraw || null;
       shaped.timers.scheduleDraw = state.scheduleDraw || shaped.timers.scheduleDraw || null;
@@ -836,7 +854,7 @@
       shaped.updatedAt = Date.now();
       return shaped;
     }
-    const context = buildSurfaceTabContextSnapshotFromState();
+    const context = buildSurfaceTabContextSnapshotFromState(shaped);
     shaped.state = createDefaultSurfaceDurableState(context);
     shaped.results = createDefaultSurfaceResultsState({
       lastStats: context.lastStats,
@@ -890,6 +908,7 @@
     projectedSurfaceSession = session;
     surface.__surfaceSessionTabId = session.tabId;
     surface.__boundTabId = session.tabId;
+    bindSurfaceLayoutManagerForSession(session);
     if(options.apply === true){
       applySurfaceSessionStateToActive(session, options);
     }
@@ -1112,6 +1131,49 @@
     }
   }
 
+  function refreshSurfaceLegendControlBinding(session = null){
+    const owner = ensureSurfaceSessionOwnershipShape(session || getActiveSurfaceSessionForState());
+    if(owner?.tabId && !isSurfaceSessionActive(owner)){
+      return { owner, input: null, control: null };
+    }
+    const tabId = owner?.tabId || getSurfaceProjectionTabId() || null;
+    const input = getSurfaceNodeById('surfaceShowLegend', tabId)
+      || (state.controls.showLegend?.isConnected && (!state.root || state.root.contains?.(state.controls.showLegend))
+        ? state.controls.showLegend
+        : null);
+    const control = input?.closest?.('label') || null;
+    surfaceLegendControl = control;
+    if(input){
+      state.controls.showLegend = input;
+    }
+    return { owner, input, control };
+  }
+
+  function ensureSurfaceLegendControlPlacement(session = null){
+    const binding = refreshSurfaceLegendControlBinding(session);
+    const owner = binding.owner;
+    if(owner?.tabId && !isSurfaceSessionActive(owner)){
+      return null;
+    }
+    const svgBox = state.svgBox
+      || state.layout?.elements?.svgBox
+      || binding.control?.closest?.('.svgbox')
+      || querySurfaceRoot('#surfaceGraphPanel .svgbox', owner?.tabId || null);
+    if(!svgBox || !binding.control || typeof Shared.resizer?.ensureLegendControlPlacement !== 'function'){
+      return null;
+    }
+    const menu = Shared.resizer.ensureLegendControlPlacement({
+      svgBox,
+      control: binding.control,
+      debugLabel: 'surface-legend'
+    });
+    if(owner?.refs){
+      owner.refs.showLegend = binding.input;
+      owner.refs.legendControl = binding.control;
+    }
+    return menu;
+  }
+
   function createDefaultSurfaceSettings(){
     return { ...DEFAULT_SURFACE_SETTINGS };
   }
@@ -1257,7 +1319,7 @@
     return handle || null;
   }
 
-  function buildSurfaceTabContextSnapshotFromState(){
+  function buildSurfaceTabContextSnapshotFromState(session = null){
     const defaults = createDefaultSurfaceTabContext();
     return {
       autoDrawEnabled: !!state.autoDrawEnabled,
@@ -1267,7 +1329,7 @@
       lastDataShape: cloneSimple(state.lastDataShape) || { ...defaults.lastDataShape },
       lastAutoDrawEvaluation: cloneSimple(state.lastAutoDrawEvaluation),
       lastStats: cloneSimple(state.lastStats),
-      statsPanelModel: captureSurfaceStatsPanelModel(),
+      statsPanelModel: captureSurfaceStatsPanelModel(null, session),
       axisMap: cloneSimple(state.axisMap) || { ...defaults.axisMap },
       labelPositions: normalizeSurfaceLabelPositions(state.labelPositions),
       settings: Object.assign(createDefaultSurfaceSettings(), cloneSimple(state.settings) || {}),
@@ -1310,7 +1372,7 @@
       if(state.lastStats){
         updateStats(state.lastStats);
       }else{
-        restoreSurfaceStatsPanelModel(state.statsPanelModel);
+        restoreSurfaceStatsPanelModel(state.statsPanelModel, ownerSession);
       }
       if(canUseSurfaceNotesControl(notesState.control)){
         notesState.control.setValue(notesState.text);
@@ -3216,8 +3278,8 @@
         }
       }, { title: 'Reporting and reproducibility' });
     }
-    captureSurfaceStatsPanelModel();
     const session = getActiveSurfaceSessionForState();
+    captureSurfaceStatsPanelModel(null, session);
     if(session){
       session.state.lastStats = cloneSimple(state.lastStats) || null;
       session.results.lastStats = cloneSimple(state.lastStats) || null;
@@ -3237,44 +3299,96 @@
       };
   }
 
-  function captureSurfaceStatsPanelModel(fallback = null){
-    const previous = normalizeSurfaceStatsPanelModel(fallback || state.statsPanelModel || {});
-    if(!state.statsEl || !Shared.statsReporting || typeof Shared.statsReporting.capturePanelModel !== 'function'){
-      state.statsPanelModel = previous;
-      return state.statsPanelModel;
+  function resolveSurfaceStatsPanelContext(session = null){
+    const owner = ensureSurfaceSessionOwnershipShape(session || getActiveSurfaceSessionForState());
+    const canUseLiveProjection = !owner || isSurfaceSessionActive(owner);
+    const root = owner?.root || null;
+    const belongsToOwner = node => !!node && (!root || node === root || root.contains?.(node));
+    let target = null;
+    if(canUseLiveProjection){
+      const ownedRef = owner?.refs?.statsEl || null;
+      if(belongsToOwner(ownedRef)){
+        target = ownedRef;
+      }else{
+        const resolved = getSurfaceNodeById('surfaceStatsSummary', owner?.tabId || null) || state.statsEl;
+        target = belongsToOwner(resolved) ? resolved : null;
+      }
     }
-    state.statsPanelModel = normalizeSurfaceStatsPanelModel(Shared.statsReporting.capturePanelModel(state.statsEl) || previous);
-    const session = getActiveSurfaceSessionForState();
-    if(session){
-      session.state.statsPanelModel = normalizeSurfaceStatsPanelModel(state.statsPanelModel || {});
-      session.results.statsPanelModel = normalizeSurfaceStatsPanelModel(state.statsPanelModel || {});
-      session.updatedAt = Date.now();
+    return { owner, canUseLiveProjection, target };
+  }
+
+  function captureSurfaceStatsPanelModel(fallback = null, session = null){
+    const context = resolveSurfaceStatsPanelContext(session);
+    const previous = normalizeSurfaceStatsPanelModel(
+      fallback
+      || context.owner?.results?.statsPanelModel
+      || context.owner?.state?.statsPanelModel
+      || (context.canUseLiveProjection ? state.statsPanelModel : null)
+      || {}
+    );
+    let normalized = previous;
+    if(context.target && Shared.statsReporting && typeof Shared.statsReporting.capturePanelModel === 'function'){
+      const captured = normalizeSurfaceStatsPanelModel(Shared.statsReporting.capturePanelModel(context.target) || {});
+      normalized = surfaceStatsPanelModelHasContent(captured) ? captured : previous;
     }
-    return state.statsPanelModel;
+    if(context.owner){
+      context.owner.results = context.owner.results && typeof context.owner.results === 'object'
+        ? context.owner.results
+        : createDefaultSurfaceResultsState({});
+      context.owner.state.statsPanelModel = normalizeSurfaceStatsPanelModel(normalized);
+      context.owner.results.statsPanelModel = normalizeSurfaceStatsPanelModel(normalized);
+      context.owner.updatedAt = Date.now();
+    }
+    if(context.canUseLiveProjection){
+      state.statsPanelModel = normalizeSurfaceStatsPanelModel(normalized);
+    }
+    return normalized;
+  }
+
+  function surfaceStatsPanelNodeText(node){
+    if(!node || typeof node !== 'object'){ return ''; }
+    const own = node.type === 'text' ? String(node.text || '') : '';
+    const children = Array.isArray(node.children) ? node.children.map(surfaceStatsPanelNodeText).join(' ') : '';
+    return `${own} ${children}`.trim();
+  }
+
+  function surfaceStatsPanelNodeHasStatContent(node){
+    if(!node || typeof node !== 'object'){ return false; }
+    if(node.kind === 'stats-report' || node.type === 'stats-table'){ return true; }
+    const className = typeof node.className === 'string' ? node.className : '';
+    if(/(?:^|\s)(?:stats-table-card|stats-report-panel|stats-assumption-container)(?:\s|$)/.test(className)){ return true; }
+    if(node.type === 'element' && String(node.tag || '').toLowerCase() === 'strong'){ return true; }
+    return Array.isArray(node.children) && node.children.some(surfaceStatsPanelNodeHasStatContent);
   }
 
   function surfaceStatsPanelModelHasContent(model){
     const normalized = normalizeSurfaceStatsPanelModel(model);
-    return !!(normalized.resultsModel || normalized.reportModel);
+    if(surfaceStatsPanelNodeHasStatContent(normalized.reportModel)){ return true; }
+    const resultsText = surfaceStatsPanelNodeText(normalized.resultsModel);
+    if(/enter numeric x,? y,? z columns to generate the surface/i.test(resultsText)){ return false; }
+    return surfaceStatsPanelNodeHasStatContent(normalized.resultsModel);
   }
 
-  function restoreSurfaceStatsPanelModel(model){
+  function restoreSurfaceStatsPanelModel(model, session = null){
+    const context = resolveSurfaceStatsPanelContext(session);
     const normalized = normalizeSurfaceStatsPanelModel(model);
-    if(!state.statsEl || !surfaceStatsPanelModelHasContent(normalized)){
+    if(context.owner){
+      context.owner.results = context.owner.results && typeof context.owner.results === 'object'
+        ? context.owner.results
+        : createDefaultSurfaceResultsState({});
+      context.owner.state.statsPanelModel = normalizeSurfaceStatsPanelModel(normalized);
+      context.owner.results.statsPanelModel = normalizeSurfaceStatsPanelModel(normalized);
+      context.owner.updatedAt = Date.now();
+    }
+    if(!context.canUseLiveProjection){
       return false;
     }
-    if(Shared.statsReporting && typeof Shared.statsReporting.restorePanelModel === 'function'){
-      Shared.statsReporting.restorePanelModel(state.statsEl, normalized, { clearMainWhenMissing: false });
-      state.statsPanelModel = normalized;
-      const session = getActiveSurfaceSessionForState();
-      if(session){
-        session.state.statsPanelModel = normalizeSurfaceStatsPanelModel(normalized);
-        session.results.statsPanelModel = normalizeSurfaceStatsPanelModel(normalized);
-        session.updatedAt = Date.now();
-      }
-      return true;
+    if(!context.target || !surfaceStatsPanelModelHasContent(normalized) || !Shared.statsReporting || typeof Shared.statsReporting.restorePanelModel !== 'function'){
+      return false;
     }
-    return false;
+    const restored = Shared.statsReporting.restorePanelModel(context.target, normalized, { clearMainWhenMissing: false });
+    state.statsPanelModel = normalizeSurfaceStatsPanelModel(normalized);
+    return !!(restored?.restoredMain || restored?.restoredReport || context.target.querySelector?.('.stats-table-card, .stats-report-panel, table, span'));
   }
 
   function ensureAxisRange(range){
@@ -4132,6 +4246,7 @@
     const effectiveMode = (state.settings.interpolation === 'grid' && parsed.faces.length)
       ? 'grid'
       : (parsed.faces.length ? state.settings.interpolation : 'scatter');
+    svg.setAttribute('data-surface-render-mode', effectiveMode);
     const shouldRenderFaces = parsed.faces.length && effectiveMode === 'grid';
     const shouldRenderPoints = state.settings.showPoints || effectiveMode !== 'grid';
     const rotationSession = drawSession;
@@ -4665,6 +4780,7 @@
     scheduleSurfaceNoticeWidth('init');
     initHot();
     initControls();
+    ensureSurfaceLegendControlPlacement(projectedSurfaceSession);
     initNotes();
     applySurfaceSessionStateToActive(projectedSurfaceSession, { syncUi: true, restoreEmptyPayload: false });
     if(!surfaceAutoDrawManager && Shared.hot?.createAutoDrawManager){
@@ -4855,6 +4971,7 @@
       }
     }
     cacheDom();
+    ensureSurfaceLegendControlPlacement(getActiveSurfaceSessionForState());
     rehydrateActiveSurface3dInteraction(getActiveSurfaceSessionForState(), 'surface-activate');
     syncSurfaceSessionRefsFromActive();
     syncSurfaceSessionManagersFromActive();
@@ -5183,7 +5300,7 @@
       if(state.lastStats){
         updateStats(state.lastStats);
       }else{
-        restoreSurfaceStatsPanelModel(state.statsPanelModel);
+        restoreSurfaceStatsPanelModel(state.statsPanelModel, scheduleTargetSession || projectedSurfaceSession);
       }
       scheduleActiveSurfaceDraw({ reason: 'surface-payload-applied' });
     }
@@ -5204,7 +5321,7 @@
     const notesSnapshot = captureSurfaceNotesSnapshot();
     const notesText = notesSnapshot.text || '';
     const notesOpen = !!notesSnapshot.open;
-    const statsPanelModel = captureSurfaceStatsPanelModel();
+    const statsPanelModel = captureSurfaceStatsPanelModel(null, getActiveSurfaceSessionForState());
     const savedStats = state.lastStats ? (cloneSimple(state.lastStats) || state.lastStats) : null;
     if(savedStats && typeof savedStats === 'object'){
       savedStats.statsPanelModel = statsPanelModel;
@@ -5669,7 +5786,7 @@
 
   surface.canRestoreRenderCache = function canRestoreRenderCache(cache, meta = {}){
     const cacheSession = resolveSurfaceRenderCacheSession(meta, { create: false });
-    if(cacheSession && !isSurfaceSessionActive(cacheSession)){
+    if(cacheSession && !isSurfaceSessionActive(cacheSession) && !isSurfaceSessionActivationTarget(cacheSession)){
       debugLog('Debug: surface render cache restore rejected for inactive session', {
         tabId: cacheSession.tabId || null,
         reason: meta?.reason || null
@@ -5726,7 +5843,7 @@
   surface.restoreRenderCache = function restoreRenderCache(cache, _meta = {}){
     if(!cache){ return false; }
     const cacheSession = resolveSurfaceRenderCacheSession(_meta, { create: false });
-    if(cacheSession && !isSurfaceSessionActive(cacheSession)){
+    if(cacheSession && !isSurfaceSessionActive(cacheSession) && !isSurfaceSessionActivationTarget(cacheSession)){
       debugLog('Debug: surface render cache restore skipped for inactive session', {
         tabId: cacheSession.tabId || null,
         reason: _meta?.reason || null
@@ -5737,13 +5854,17 @@
     cacheDom();
     restoreSurfaceSvgRootState(state.svg, cache.svgRootState);
     const restoredSvg = restoreChildren(state.svg, graphCachePayload);
-    const restoredStats = restoreChildren(state.statsEl, cache.stats);
-    const restoredMessage = restoreChildren(state.messageEl, cache.message);
-    if(restoredStats){
-      // The replayed stats DOM carries dead Download/Copy controls (listeners cannot
-      // survive serialization); re-mount them from the restored tables.
-      Shared.statsTable?.rehydrateExportControls?.(state.statsEl);
+    const durableStatsModel = normalizeSurfaceStatsPanelModel(cacheSession?.results?.statsPanelModel || cacheSession?.state?.statsPanelModel || {});
+    let restoredStats = true;
+    if(surfaceStatsPanelModelHasContent(durableStatsModel)){
+      restoredStats = restoreSurfaceStatsPanelModel(durableStatsModel, cacheSession);
+    }else if(cache.stats){
+      restoredStats = restoreChildren(state.statsEl, cache.stats);
+      if(restoredStats){
+        Shared.statsTable?.rehydrateExportControls?.(state.statsEl);
+      }
     }
+    const restoredMessage = restoreChildren(state.messageEl, cache.message);
     if(restoredSvg){
       if(cacheSession?.refs){
         cacheSession.refs.svg = state.svg;
@@ -5783,7 +5904,16 @@
     normalizeRotationModel: model => normalizeSurfaceRotationModel(model),
     bindRotationRenderer: (session, svg, model) => bindSurfaceRotationRenderer(session, svg, model),
     syncGeometryPoolsFromDom: (reason, session, svg) => syncSurfaceGeometryPoolsFromDom(reason, session, svg),
-    getSession: tabLike => getSurfaceSession(tabLike || getSurfaceProjectionTabId() || null, { reason: 'surface-test-session' }, { create: false })
+    getSession: tabLike => getSurfaceSession(tabLike || getSurfaceProjectionTabId() || null, { reason: 'surface-test-session' }, { create: false }),
+    captureStatsPanelForOwner: tabLike => {
+      const session = getSurfaceSession(tabLike || getSurfaceProjectionTabId() || null, { reason: 'surface-test-stats-capture' }, { create: false });
+      return session ? cloneSimple(captureSurfaceStatsPanelModel(null, session)) : null;
+    },
+    restoreStatsPanelForOwner: tabLike => {
+      const session = getSurfaceSession(tabLike || getSurfaceProjectionTabId() || null, { reason: 'surface-test-stats-restore' }, { create: false });
+      const model = session?.results?.statsPanelModel || session?.state?.statsPanelModel || null;
+      return session ? restoreSurfaceStatsPanelModel(model, session) : false;
+    }
   });
 
   surface.destroy = function destroy(){

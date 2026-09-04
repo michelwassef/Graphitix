@@ -29,7 +29,7 @@ test('Scatter 3D example load does not rewrite its table schema', async ({ page 
   await clickExampleButtonIfPresent(page, 'scatterLoadExample');
 
   await expect.poll(async () => (await captureScatterTable(page)).header, { timeout: 15_000 }).toEqual([
-    'Sample', 'PSD95_N', 'SYP_N', 'CaNA_N', ''
+    'Sample', 'PSD95_N', 'SYP_N', 'CaNA_N'
   ]);
   const settled = await captureScatterTable(page);
   await page.waitForTimeout(1000);

@@ -1286,7 +1286,9 @@
       return '0px';
     }
     const toolbarApi = Shared.getWorkspaceToolbarApi?.() || Shared.workspaceToolbar || null;
-    const formatted = toolbarApi?.formatNumericValue?.(numeric, thicknessInput?.step || 0.25)
+    const step = thicknessInput?.step || 0.25;
+    const formatted = toolbarApi?.formatPxDisplayValue?.(numeric, step)
+      || toolbarApi?.formatNumericValue?.(numeric, step, { maxPrecision: 2 })
       || String(Math.round(numeric * 100) / 100);
     return `${formatted}px`;
   }
@@ -1332,9 +1334,12 @@
     input.min = thicknessInput?.min || '0.25';
     input.max = thicknessInput?.max || '10';
     input.step = thicknessInput?.step || '0.25';
-    input.value = thicknessInput?.value || '1';
-    input.setAttribute('aria-label', 'Line width');
     const toolbarApi = Shared.getWorkspaceToolbarApi?.() || Shared.workspaceToolbar || null;
+    const rawValue = thicknessInput?.value || '1';
+    input.value = toolbarApi?.formatPxDisplayValue?.(rawValue, input.step)
+      || toolbarApi?.formatNumericValue?.(rawValue, input.step, { maxPrecision: 2 })
+      || rawValue;
+    input.setAttribute('aria-label', 'Line width');
     const mirrorCleanup = typeof toolbarApi?.bindNumericInputMirror === 'function'
       ? toolbarApi.bindNumericInputMirror(input, thicknessInput)
       : (() => {

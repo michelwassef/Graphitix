@@ -15,12 +15,6 @@ test('Survival risk table widens its viewport and keeps uniform font scaling', a
     loadExample: true
   });
 
-  await page.waitForFunction(() =>
-    document.querySelectorAll('#survivalPage:not([hidden]) #survivalSvg [data-survival-risk-table="count"]').length > 2
-  );
-  await expect(page.locator('#survivalShowLegend')).not.toBeChecked();
-  await expect(page.locator('#survivalSvg [data-legend-key]')).toHaveCount(0);
-
   const setLegendChecked = checked => page.evaluate(value => {
     const input = document.querySelector('#survivalPage:not([hidden]) #survivalShowLegend');
     if(!input){
@@ -29,6 +23,15 @@ test('Survival risk table widens its viewport and keeps uniform font scaling', a
     input.checked = value;
     input.dispatchEvent(new Event('change', { bubbles: true }));
   }, checked);
+
+  await page.locator('#survivalShowRiskTable').check();
+  await page.waitForFunction(() =>
+    document.querySelectorAll('#survivalPage:not([hidden]) #survivalSvg [data-survival-risk-table="count"]').length > 2
+  );
+  const legendToggle = page.locator('#survivalPage:not([hidden]) #survivalShowLegend');
+  await setLegendChecked(false);
+  await expect(legendToggle).not.toBeChecked();
+  await expect(page.locator('#survivalSvg [data-legend-key]')).toHaveCount(0);
 
   const readLayout = () => page.evaluate(() => {
     const svg = document.querySelector('#survivalPage:not([hidden]) #survivalSvg');
@@ -47,6 +50,7 @@ test('Survival risk table widens its viewport and keeps uniform font scaling', a
     const svgBox = svg.closest('.svgbox');
     const svgBoxRect = svgBox.getBoundingClientRect();
     const extraBottom = Number.parseFloat(getComputedStyle(svgBox).getPropertyValue('--graph-content-extra-bottom')) || 0;
+    const extraRight = Number.parseFloat(getComputedStyle(svgBox).getPropertyValue('--graph-content-extra-right')) || 0;
     const graphLines = Array.from(svg.querySelectorAll('line:not([data-survival-risk-table])'));
     const horizontal = graphLines.map(line => ({
       x1: Number(line.getAttribute('x1')),
@@ -71,14 +75,14 @@ test('Survival risk table widens its viewport and keeps uniform font scaling', a
       tableContained: riskBottom <= svgRect.bottom + 1,
       tableWithinEnvelope: riskBottom <= svgBoxRect.bottom + extraBottom + 1,
       exportsBelowTable: !exportRect || exportRect.top >= riskBottom + 1,
-      exportsWithinEnvelope: !exportRect || exportRect.bottom <= svgBoxRect.bottom + extraBottom + 1,
+      exportsOutsideEnvelope: !exportRect || exportRect.top >= svgBoxRect.bottom + extraBottom - 1,
       cornerHandleBackground: cornerStyle?.backgroundImage || 'none',
       preserveAspectRatio: svg.getAttribute('preserveAspectRatio'),
       baseWidth: Number(svg.dataset.legendBaseWidth),
       baseHeight: Number(svg.dataset.legendBaseHeight),
       legendReserveWidth: Number(svg.dataset.legendReserveWidth) || 0,
       contentReserveRight: Number(svg.dataset.graphContentReserveRight) || 0,
-      extraRight: Number.parseFloat(getComputedStyle(svgBox).getPropertyValue('--graph-content-extra-right')) || 0,
+      extraRight,
       viewBoxWidth: svg.viewBox.baseVal.width,
       viewBoxHeight: svg.viewBox.baseVal.height,
       viewBoxRatio: svg.viewBox.baseVal.width / svg.viewBox.baseVal.height,
@@ -89,8 +93,8 @@ test('Survival risk table widens its viewport and keeps uniform font scaling', a
       plotHeightPx: Math.max(0, ...vertical.map(line => Math.abs(line.y2 - line.y1) * Math.hypot(matrix.c, matrix.d))),
       boxWidth: svgBoxRect.width,
       boxHeight: svgBoxRect.height,
-      extendsRight: svgRect.right > svgBoxRect.right + 1,
-      extendsBottom: svgRect.bottom > svgBoxRect.bottom + 1
+      extendsRight: extraRight > 0,
+      extendsBottom: extraBottom > 0
     };
   });
 
@@ -99,7 +103,7 @@ test('Survival risk table widens its viewport and keeps uniform font scaling', a
   expect(initial.tableContained).toBe(true);
   expect(initial.tableWithinEnvelope).toBe(true);
   expect(initial.exportsBelowTable).toBe(true);
-  expect(initial.exportsWithinEnvelope).toBe(true);
+  expect(initial.exportsOutsideEnvelope).toBe(true);
   expect(initial.cornerHandleBackground).toBe('none');
   expect(initial.viewBoxWidth).toBeGreaterThan(initial.baseWidth);
   expect(initial.viewBoxHeight).toBeGreaterThan(initial.baseHeight);
@@ -125,9 +129,9 @@ test('Survival risk table widens its viewport and keeps uniform font scaling', a
   expect(withLegendAndRisk.boxHeight).toBeCloseTo(initial.boxHeight, 0);
   expect(withLegendAndRisk.viewBoxWidth).toBeGreaterThan(initial.viewBoxWidth);
   expect(withLegendAndRisk.legendReserveWidth).toBeGreaterThan(0);
-  expect(withLegendAndRisk.contentReserveRight - initial.contentReserveRight)
+  expect(withLegendAndRisk.contentReserveRight)
     .toBeCloseTo(withLegendAndRisk.legendReserveWidth, 0);
-  expect(withLegendAndRisk.extraRight - initial.extraRight)
+  expect(withLegendAndRisk.extraRight)
     .toBeCloseTo(withLegendAndRisk.legendReserveWidth, 0);
 
   await setLegendChecked(false);
@@ -232,7 +236,7 @@ test('Survival risk table widens its viewport and keeps uniform font scaling', a
   expect(widened.tableContained).toBe(true);
   expect(widened.tableWithinEnvelope).toBe(true);
   expect(widened.exportsBelowTable).toBe(true);
-  expect(widened.exportsWithinEnvelope).toBe(true);
+  expect(widened.exportsOutsideEnvelope).toBe(true);
   expect(widened.preserveAspectRatio).toBe('xMidYMid meet');
   expect(Math.abs(widened.viewBoxRatio - widened.renderedRatio)).toBeLessThan(0.08);
   expect(Math.abs(widened.scaleX - widened.scaleY)).toBeLessThan(0.01);
@@ -249,6 +253,8 @@ test('Survival curve color immediately reaches every series-owned element and ru
     first: true,
     loadExample: true
   });
+  await page.locator('#survivalPage:not([hidden]) #survivalShowRiskTable').check();
+  await expect(page.locator('#survivalSvg [data-survival-risk-table="count"]')).not.toHaveCount(0);
 
   const curve = page.locator('#survivalPage:not([hidden]) #survivalSvg path[data-group]').first();
   await expect(curve).toBeVisible();

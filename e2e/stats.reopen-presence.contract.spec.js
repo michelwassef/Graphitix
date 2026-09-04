@@ -34,7 +34,7 @@ const CASES = [
   { key: 'pie', pageId: 'piePage', exampleButtonId: 'pieLoadExample', compute: 'pieComputeStats', containers: ['pieStatsResults'] },
   { key: 'hist', pageId: 'histPage', exampleButtonId: 'histLoadExample', compute: null, containers: ['histStatsResults'] },
   { key: 'roc', pageId: 'rocPage', exampleButtonId: 'rocLoadExample', compute: 'rocComputeStats', recovery: true, containers: ['rocStatsResults'] },
-  { key: 'survival', pageId: 'survivalPage', exampleButtonId: 'survivalLoadExample', compute: null, containers: ['survivalStatsSummary', 'survivalStatsLogRank', 'survivalStatsHazardRatios', 'survivalStatsCox'] },
+  { key: 'survival', pageId: 'survivalPage', exampleButtonId: 'survivalLoadExample', compute: null, containers: ['survivalStatsPValueFormat', 'survivalStatsSummary', 'survivalStatsLogRank', 'survivalStatsHazardRatios', 'survivalStatsCox'] },
   { key: 'heatmap', pageId: 'heatmapPage', exampleButtonId: 'heatmapLoadExample', compute: null, containers: ['heatmapStatsContent'] },
   { key: 'surface', pageId: 'surfacePage', exampleButtonId: 'surfaceLoadExample', compute: null, containers: ['surfaceStatsSummary'] }
 ];
@@ -108,8 +108,6 @@ async function captureRocStatsPersistenceState(page) {
     const stats = payload.stats || {};
     return JSON.parse(JSON.stringify({
       graphType: payload.config?.graphType || null,
-      analysisSignature: stats.analysisSignature || '',
-      statsPanelSignature: stats.statsPanelSignature || '',
       analysisSpec: stats.reportModel?.analysisSpec || null,
       resultsText: String(stats.reportModel?.resultsText || '').toLowerCase().replace(/\s+/g, ' ').trim()
     }));
@@ -136,23 +134,38 @@ function pValueFormatStateInPage(containerIds) {
   const state = window.Main?.session?.workspaceState;
   const active = state?.tabs?.find(tab => tab?.id === state.activeTabId) || null;
   let panel = null;
-  let button = null;
+  let select = null;
   for (const id of containerIds) {
     const candidate = document.getElementById(id);
-    const candidateButton = candidate?.querySelector?.('.stats-pvalue-format-toggle') || null;
-    if (candidateButton) {
+    const candidateSelect = candidate?.querySelector?.('.stats-pvalue-format-select') || null;
+    if (candidateSelect) {
       panel = candidate;
-      button = candidateButton;
+      select = candidateSelect;
       break;
     }
   }
   return {
-    available: !!button,
-    buttonText: String(button?.textContent || '').trim(),
+    available: !!select,
+    selectValue: String(select?.value || '').trim(),
     reporting: panel
       ? window.Shared?.statsReporting?.getPValueFormatScientific?.({ target: panel, tabId: active?.id || null }) === true
       : false,
     payload: active?.payload?.meta?.statsReporting?.pValueScientific
+  };
+}
+
+function survivalPValueFormatPlacementInPage() {
+  const stats = document.getElementById('survivalStats');
+  const host = document.getElementById('survivalStatsPValueFormat');
+  const logRank = document.getElementById('survivalStatsLogRank');
+  const summary = document.getElementById('survivalStatsSummary');
+  const fieldset = stats?.querySelector('fieldset');
+  const children = fieldset ? Array.from(fieldset.children) : [];
+  return {
+    hostVisible: !!host && !host.hidden,
+    beforeLogRank: children.indexOf(host) >= 0 && children.indexOf(logRank) >= 0 && children.indexOf(host) < children.indexOf(logRank),
+    nestedControls: summary?.querySelectorAll?.('.stats-pvalue-format-select').length || 0,
+    topLevelControls: host?.querySelectorAll?.('.stats-pvalue-format-select').length || 0
   };
 }
 
@@ -162,16 +175,17 @@ async function enableScientificPValueFormat(page, containerIds) {
   if (!before.reporting) {
     await page.evaluate(ids => {
       for (const id of ids) {
-        const button = document.getElementById(id)?.querySelector?.('.stats-pvalue-format-toggle');
-        if (button) {
-          button.click();
+        const select = document.getElementById(id)?.querySelector?.('.stats-pvalue-format-select');
+        if (select) {
+          select.value = 'scientific';
+          select.dispatchEvent(new Event('change', { bubbles: true }));
           return;
         }
       }
     }, containerIds);
   }
   await expect.poll(() => page.evaluate(pValueFormatStateInPage, containerIds), { timeout: 25_000 })
-    .toMatchObject({ available: true, buttonText: 'Decimal', reporting: true, payload: true });
+    .toMatchObject({ available: true, selectValue: 'scientific', reporting: true, payload: true });
   return page.evaluate(pValueFormatStateInPage, containerIds);
 }
 
@@ -253,7 +267,7 @@ async function expectExportControlsLive(page, containers, label) {
 async function seedRecoverySnapshot(page) {
   await page.evaluate(async () => {
     const openWebDb = () => new Promise((resolve, reject) => {
-      const request = window.indexedDB.open('graphitix-document-state', 1);
+      const request = window.indexedDB.open('graphitix-document-state', 2);
       request.onupgradeneeded = () => { const db = request.result; if (!db.objectStoreNames.contains('snapshots')) { db.createObjectStore('snapshots'); } };
       request.onsuccess = () => resolve(request.result);
       request.onerror = () => reject(request.error);
@@ -282,6 +296,10 @@ for (const c of CASES) {
     await installLocalCdnOverrides(page);
 
     await buildAndCompute(page, c);
+    if (c.key === 'survival') {
+      await expect.poll(() => page.evaluate(survivalPValueFormatPlacementInPage), { timeout: 20_000 })
+        .toMatchObject({ hostVisible: true, beforeLogRank: true, nestedControls: 0, topLevelControls: 1 });
+    }
     const pValueFormatBefore = await enableScientificPValueFormat(page, c.containers);
     const before = await page.evaluate(statsRichnessInPage, c.containers);
     const rocBefore = c.key === 'roc' ? await captureRocStatsPersistenceState(page) : null;
@@ -297,9 +315,13 @@ for (const c of CASES) {
 
     const after = await page.evaluate(statsRichnessInPage, c.containers);
     expectNoStatsLoss(before, after, `${c.key} reopen`);
+    if (c.key === 'survival') {
+      await expect.poll(() => page.evaluate(survivalPValueFormatPlacementInPage), { timeout: 20_000 })
+        .toMatchObject({ hostVisible: true, beforeLogRank: true, nestedControls: 0, topLevelControls: 1 });
+    }
     if (pValueFormatBefore.available) {
       await expect.poll(() => page.evaluate(pValueFormatStateInPage, c.containers), { timeout: 25_000 })
-        .toMatchObject({ available: true, buttonText: 'Decimal', reporting: true, payload: true });
+        .toMatchObject({ available: true, selectValue: 'scientific', reporting: true, payload: true });
     }
     if (c.key === 'roc') {
       expect(await captureRocStatsPersistenceState(page)).toStrictEqual(rocBefore);

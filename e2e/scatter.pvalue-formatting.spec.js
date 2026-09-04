@@ -45,7 +45,7 @@ async function activateTab(page, tabId) {
   await page.waitForFunction(id => (
     String(window.Main?.session?.workspaceState?.activeTabId || '') === String(id)
   ), tabId, { timeout: 20_000 });
-  await expect(page.locator('#scatterPage:not([hidden]) #scatterStatsResults .stats-pvalue-format-toggle'))
+  await expect(page.locator('#scatterPage:not([hidden]) #scatterStatsResults .stats-pvalue-format-select'))
     .toBeVisible({ timeout: 25_000 });
 }
 
@@ -76,20 +76,20 @@ test('Scatter example preserves underflow p-values across decimal/scientific swi
     { term: 'Slope', valueText: '<0.0001', raw: '0', operator: '=' }
   ]);
 
-  const formatToggle = page.locator(
-    '#scatterPage:not([hidden]) #scatterStatsResults .stats-pvalue-format-toggle'
+  const formatSelect = page.locator(
+    '#scatterPage:not([hidden]) #scatterStatsResults .stats-pvalue-format-select'
   );
-  await expect(formatToggle).toHaveText('Scientific');
-  await formatToggle.click();
-  await expect(formatToggle).toHaveText('Decimal');
+  await expect(formatSelect).toHaveValue('decimal');
+  await formatSelect.selectOption('scientific');
+  await expect(formatSelect).toHaveValue('scientific');
 
   await expect.poll(() => readCoefficientPValues(page), { timeout: 20_000 }).toEqual([
     { term: 'Intercept', valueText: '1.87499 × 10⁻⁶²', raw: expect.any(String), operator: '=' },
     { term: 'Slope', valueText: '<1 × 10⁻⁴', raw: '0', operator: '=' }
   ]);
 
-  await formatToggle.click();
-  await expect(formatToggle).toHaveText('Scientific');
+  await formatSelect.selectOption('decimal');
+  await expect(formatSelect).toHaveValue('decimal');
   await expect.poll(() => readCoefficientPValues(page), { timeout: 20_000 }).toEqual([
     { term: 'Intercept', valueText: '<0.0001', raw: expect.any(String), operator: '=' },
     { term: 'Slope', valueText: '<0.0001', raw: '0', operator: '=' }
@@ -115,8 +115,8 @@ test('two Scatter tabs retain independent p-value formats through repeated switc
   const tabA = (await getScatterTabIds(page)).find(id => !beforeA.has(id));
   expect(tabA).toBeTruthy();
   await calculateScatterStatistics(page);
-  await expect(page.locator('#scatterPage:not([hidden]) #scatterStatsResults .stats-pvalue-format-toggle'))
-    .toHaveText('Scientific');
+  await expect(page.locator('#scatterPage:not([hidden]) #scatterStatsResults .stats-pvalue-format-select'))
+    .toHaveValue('decimal');
 
   const beforeB = new Set(await getScatterTabIds(page));
   await openComponentFromWelcome(
@@ -129,10 +129,10 @@ test('two Scatter tabs retain independent p-value formats through repeated switc
   expect(tabB).not.toBe(tabA);
   await calculateScatterStatistics(page);
 
-  const toggle = page.locator('#scatterPage:not([hidden]) #scatterStatsResults .stats-pvalue-format-toggle');
-  await expect(toggle).toHaveText('Scientific');
-  await toggle.click();
-  await expect(toggle).toHaveText('Decimal');
+  const formatSelect = page.locator('#scatterPage:not([hidden]) #scatterStatsResults .stats-pvalue-format-select');
+  await expect(formatSelect).toHaveValue('decimal');
+  await formatSelect.selectOption('scientific');
+  await expect(formatSelect).toHaveValue('scientific');
   await page.waitForFunction(id => {
     const tab = (window.Main?.session?.workspaceState?.tabs || []).find(item => item?.id === id);
     return tab?.payload?.meta?.statsReporting?.pValueScientific === true;
@@ -140,20 +140,20 @@ test('two Scatter tabs retain independent p-value formats through repeated switc
 
   for(let cycle = 0; cycle < 2; cycle += 1){
     await activateTab(page, tabA);
-    await expect(page.locator('#scatterPage:not([hidden]) #scatterStatsResults .stats-pvalue-format-toggle'))
-      .toHaveText('Scientific');
+    await expect(page.locator('#scatterPage:not([hidden]) #scatterStatsResults .stats-pvalue-format-select'))
+      .toHaveValue('decimal');
     expect((await readCoefficientPValues(page)).every(row => !row.valueText.includes('× 10'))).toBe(true);
 
     await activateTab(page, tabB);
-    await expect(page.locator('#scatterPage:not([hidden]) #scatterStatsResults .stats-pvalue-format-toggle'))
-      .toHaveText('Decimal');
+    await expect(page.locator('#scatterPage:not([hidden]) #scatterStatsResults .stats-pvalue-format-select'))
+      .toHaveValue('scientific');
     expect((await readCoefficientPValues(page)).some(row => row.valueText.includes('× 10'))).toBe(true);
   }
 
   const persisted = await page.evaluate(({ a, b }) => {
     const tabs = window.Main?.session?.workspaceState?.tabs || [];
     const read = id => tabs.find(tab => tab?.id === id)?.payload?.meta?.statsReporting?.pValueScientific;
-    return { a: read(a), b: read(b) };
+    return { a: read(a) === true, b: read(b) === true };
   }, { a: tabA, b: tabB });
   expect(persisted).toEqual({ a: false, b: true });
   expect(issues.critical).toEqual([]);

@@ -88,6 +88,42 @@ describe('chartStyle legend viewport', () => {
     expect(plot.style.getPropertyValue('--graph-content-viewport-height')).toBe('484px');
   });
 
+  test('content envelope can extend on every side without changing the canonical base frame', () => {
+    const { chartStyle } = window.Shared;
+    const svgBox = document.createElement('div');
+    const plot = document.createElement('div');
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svgBox.appendChild(plot);
+    plot.appendChild(svg);
+
+    const projection = chartStyle.stageGraphContentViewport({
+      svgBox, plot, svg,
+      baseWidth: 640,
+      baseHeight: 400,
+      leftWidth: 45,
+      topHeight: 28,
+      rightWidth: 90,
+      bottomHeight: 72
+    });
+    expect(projection.commit()).toBe(true);
+
+    expect(svg.dataset.graphContentBaseWidth).toBe('640');
+    expect(svg.dataset.graphContentBaseHeight).toBe('400');
+    expect(svg.dataset.graphContentReserveLeft).toBe('45');
+    expect(svg.dataset.graphContentReserveTop).toBe('28');
+    expect(svg.dataset.graphContentReserveRight).toBe('90');
+    expect(svg.dataset.graphContentReserveBottom).toBe('72');
+    expect(svg.getAttribute('viewBox')).toBe('-45 -28 775 500');
+    expect(svgBox.style.getPropertyValue('--graph-content-extra-left')).toBe('45px');
+    expect(svgBox.style.getPropertyValue('--graph-content-extra-top')).toBe('28px');
+    expect(svgBox.style.getPropertyValue('--graph-content-extra-right')).toBe('90px');
+    expect(svgBox.style.getPropertyValue('--graph-content-extra-bottom')).toBe('72px');
+    expect(svg.style.getPropertyValue('--graph-content-origin-left')).toBe('45px');
+    expect(svg.style.getPropertyValue('--graph-content-origin-top')).toBe('28px');
+    expect(plot.style.getPropertyValue('--graph-content-viewport-width')).toBe('730px');
+    expect(plot.style.getPropertyValue('--graph-content-viewport-height')).toBe('472px');
+  });
+
   test('removes the transient envelope when the legend is hidden', () => {
     const { chartStyle } = window.Shared;
     const svgBox = document.createElement('div');
@@ -170,6 +206,42 @@ describe('chartStyle legend viewport', () => {
     };
 
     expect(render(200)).toEqual(render(650));
+  });
+
+  test('anchors new legend positions to the stable right reserve and keeps legacy positions readable', () => {
+    const { chartStyle } = window.Shared;
+    const frame = {
+      defaultX: 652,
+      defaultY: 40,
+      reserveOriginX: 640,
+      reserveOriginY: 32,
+      reserveScaleX: 12,
+      reserveScaleY: 300,
+      legacyOriginX: 500,
+      legacyOriginY: 32,
+      legacyScaleX: 12,
+      legacyScaleY: 300
+    };
+
+    expect(chartStyle.resolveLegendPosition(null, frame)).toMatchObject({
+      x: 652,
+      y: 40,
+      originX: 640,
+      positionAnchor: 'right-reserve'
+    });
+    const moved = chartStyle.resolveLegendPosition({
+      x: 680,
+      y: 92,
+      relX: 3.333,
+      relY: 0.2,
+      anchor: 'right-reserve'
+    }, { ...frame, reserveOriginX: 700 });
+    expect(moved.x).toBeCloseTo(739.996, 3);
+    expect(moved.y).toBe(92);
+    expect(chartStyle.resolveLegendPosition({ relX: 2, relY: 0.2 }, frame)).toMatchObject({
+      x: 524,
+      y: 92
+    });
   });
 
   test('identifies legacy legend caches without canonical viewport metadata', () => {

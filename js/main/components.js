@@ -1013,6 +1013,7 @@
       captureRenderCache: meta => window.Components?.box?.captureRenderCache?.(meta),
       canRestoreRenderCache: (cache, meta) => window.Components?.box?.canRestoreRenderCache?.(cache, meta),
       restoreRenderCache: (cache, meta) => window.Components?.box?.restoreRenderCache?.(cache, meta),
+      rehydrateCartesianLayoutState: meta => window.Components?.box?.rehydrateCartesianLayoutState?.(meta),
       hasRenderedGraph: meta => window.Components?.box?.hasRenderedGraph?.(meta),
       captureUiState: (meta) => window.Components?.box?.captureUiState?.(meta || {}) || null,
       applyUiState: (state, meta) => window.Components?.box?.applyUiState?.(state, meta || {}),

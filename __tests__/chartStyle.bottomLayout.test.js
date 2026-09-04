@@ -82,6 +82,28 @@ describe('chartStyle.computeBottomLayout reserve rotated space', () => {
     expect(fromHorizontal.shouldRotate).toBe(false);
   });
 
+  test('Cartesian plot rails reserve the full future rotation displacement before labels rotate', () => {
+    const { chartStyle } = window.Shared;
+    const labels = ['Longest numeric tick 1000', '500', '0'];
+    const options = {
+      labels,
+      fontSize: 16,
+      baseBottom: 80,
+      preservePlotRail: true
+    };
+    const wide = chartStyle.computeBottomLayout({ ...options, plotWidth: 1200 });
+    const narrow = chartStyle.computeBottomLayout({ ...options, plotWidth: 120 });
+
+    expect(wide.shouldRotate).toBe(false);
+    expect(narrow.shouldRotate).toBe(true);
+    expect(wide.bottom).toBe(80);
+    expect(narrow.bottom).toBe(80);
+    expect(wide.requiredBottom).toBe(80 + wide.rotatedExtra);
+    expect(narrow.requiredBottom).toBe(wide.requiredBottom);
+    expect(wide.titleOffset).toBe(wide.nominalTitleOffset);
+    expect(narrow.titleOffset).toBe(narrow.nominalTitleOffset + narrow.rotatedExtra);
+  });
+
   test('explicit band width triggers rotation when categorical spacing is compressed', () => {
     const { chartStyle } = window.Shared;
     const fontSize = 12;

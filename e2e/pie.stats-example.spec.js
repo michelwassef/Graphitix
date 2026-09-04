@@ -28,6 +28,7 @@ test('Pie biomedical example calculates its two-cohort comparison', async ({ pag
   await expect(results).toContainText('Reporting and reproducibility');
   await expect(results.locator(':scope > .stats-significance-controls')).toHaveCount(0);
   await expect(results.locator('.stats-pvalue-format-inline')).toBeVisible();
+  await expect(results.locator('.stats-pvalue-format-select')).toHaveValue('decimal');
   await expect(results.locator('.stats-results-main .stats-significance-badge').first()).toHaveText('*');
 
   const tabs = await page.evaluate(() => {

@@ -242,7 +242,8 @@ async function waitForHistFrequencyControls(page) {
       payloadTabulateMode: snapshot.payloadFrequency?.tabulateMode || null,
       binningMode: snapshot.binningMode,
       payloadBinningMode: snapshot.payloadFrequency?.binningMode || null,
-      hasFrequencyView: snapshot.hasFrequencyView
+      hasFrequencyView: snapshot.hasFrequencyView,
+      activeFrequencyView: snapshot.hasFrequencyView && /frequency table/i.test(snapshot.activeViewTitle)
     };
   }, { timeout: 60_000 }).toEqual({
     plotMode: 'histogram',
@@ -253,7 +254,8 @@ async function waitForHistFrequencyControls(page) {
     payloadTabulateMode: 'percent',
     binningMode: 'width',
     payloadBinningMode: 'width',
-    hasFrequencyView: true
+    hasFrequencyView: true,
+    activeFrequencyView: true
   });
 }
 

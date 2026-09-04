@@ -196,7 +196,7 @@ describe('Scatter internal architecture contract', () => {
     const remember = functionSource(scatter, 'rememberScatterOwnedRuntimeRecord');
     const statsCapture = functionSource(scatter, 'captureScatterSessionStatsState');
     const runtimeCapture = functionSource(scatter, 'captureRuntimeState');
-    expect(activeCheck).toContain("canOwnerUseLiveProjection?.('scatter'");
+    expect(activeCheck).toContain("canUseLiveProjection('scatter'");
     expect(activeCheck).toContain('projectedSession: projectedScatterSession');
     expect(activeCheck).toContain('root: scatterRoot || null');
     expect(activeCheck).not.toContain('resolvePayloadCaptureContext');

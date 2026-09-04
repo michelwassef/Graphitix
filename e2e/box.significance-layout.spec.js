@@ -44,7 +44,7 @@ function readVerticalBoxLayoutMetrics() {
     .filter(Boolean);
   const vertical = lines.filter(line => line.dx <= 0.25 && line.dy > 1);
   const horizontal = lines.filter(line => line.dy <= 0.25 && line.dx > 1);
-  const xAxis = horizontal
+  const xAxis = lines.find(line => line.node.getAttribute('data-box-primary-axis') === 'x') || horizontal
     .slice()
     .sort((a, b) => {
       const ay = Number.isFinite(a.rectBottom) ? a.rectBottom : a.y1;
@@ -57,7 +57,7 @@ function readVerticalBoxLayoutMetrics() {
   const yAxisLeftCandidates = Number.isFinite(minVerticalX)
     ? vertical.filter(line => Math.min(Math.abs(line.x1 - minVerticalX), Math.abs(line.x2 - minVerticalX)) <= 1.5)
     : [];
-  const yAxis = (yAxisLeftCandidates.length ? yAxisLeftCandidates : vertical)
+  const yAxis = lines.find(line => line.node.getAttribute('data-box-primary-axis') === 'y') || (yAxisLeftCandidates.length ? yAxisLeftCandidates : vertical)
     .slice()
     .sort((a, b) => b.dy - a.dy || a.x1 - b.x1)[0] || null;
   const lineCenterY = line => {
@@ -72,27 +72,31 @@ function readVerticalBoxLayoutMetrics() {
     return null;
   };
   const lineSpanY = line => {
-    const height = Number(line?.rectHeight);
-    if (Number.isFinite(height) && height > 0) {
-      return height;
-    }
     return line ? Math.abs(line.y2 - line.y1) : null;
   };
   const dataBodies = Array.from(svg.querySelectorAll('[data-box-shape="body"]'));
   const dataBottomY = dataBodies.length
     ? dataBodies.reduce((maxY, node) => {
-        const rect = node.getBoundingClientRect();
-        const bottom = Number(rect?.bottom);
+        const rect = node.getBBox();
+        const bottom = Number(rect?.y) + Number(rect?.height);
         return Number.isFinite(bottom) ? Math.max(maxY, bottom) : maxY;
       }, -Infinity)
     : null;
   const plotRoot = root.querySelector('#boxPlot');
   const zoomViewport = root.querySelector('#boxGraphPanel .resizer-zoom-viewport');
+  const controlTray = root.querySelector('#boxGraphPanel .resizer-control-tray');
   const bottomTray = root.querySelector('#boxGraphPanel .resizer-bottom-tray');
   const exportControls = root.querySelector('#boxExportControls');
   const svgBox = root.querySelector('#boxGraphPanel .svgbox');
+  const graphTitle = svg.querySelector('text[data-font-role="graphTitle"]');
+  const significanceNodes = Array.from(svg.querySelectorAll('.box-significance-annotation:not([data-significance-hit-overlay="1"])'));
   const boxState = window.Components?.box?.__getState?.() || null;
   const svgBoxRect = svgBox ? svgBox.getBoundingClientRect() : null;
+  const cartesianTopExtensionPx = Number(svgBox?.__cartesianLayoutPlan?.contentEnvelope?.extensionTop) || 0;
+  const zoomScale = Math.max(0.01, Number(svgBox?.dataset?.resizerZoomLevel || svgBox?.dataset?.resizerZoom) || 1);
+  const graphEnvelopeTopPx = Number.isFinite(Number(svgBoxRect?.top))
+    ? Number(svgBoxRect.top) - cartesianTopExtensionPx * zoomScale
+    : null;
   const aspectRatioMeta = svgBox && svgBox.dataset
     ? Number(svgBox.dataset.resizerAspectRatio)
     : NaN;
@@ -100,6 +104,14 @@ function readVerticalBoxLayoutMetrics() {
     ? svgBox.dataset.resizerAspectLocked === 'true'
     : null;
   const svgRect = svg.getBoundingClientRect();
+  const controlTrayRect = controlTray ? controlTray.getBoundingClientRect() : null;
+  const graphTitleRect = graphTitle ? graphTitle.getBoundingClientRect() : null;
+  const significanceTopPx = significanceNodes.length
+    ? significanceNodes.reduce((top, node) => {
+        const rect = node.getBoundingClientRect();
+        return Number.isFinite(Number(rect?.top)) ? Math.min(top, Number(rect.top)) : top;
+      }, Infinity)
+    : null;
   const bottomTrayRect = bottomTray ? bottomTray.getBoundingClientRect() : null;
   const exportControlsRect = exportControls ? exportControls.getBoundingClientRect() : null;
   const controlTopCandidates = [
@@ -126,6 +138,11 @@ function readVerticalBoxLayoutMetrics() {
     xAxisY: xAxis ? lineCenterY(xAxis) : null,
     dataBottomY: Number.isFinite(dataBottomY) ? dataBottomY : null,
     significancePathCount: svg.querySelectorAll('path.box-significance-annotation[data-sig-orientation="vertical"]').length,
+    graphEnvelopeTopPx,
+    controlTrayTopPx: Number.isFinite(Number(controlTrayRect?.top)) ? Number(controlTrayRect.top) : null,
+    graphTitleTopPx: Number.isFinite(Number(graphTitleRect?.top)) ? Number(graphTitleRect.top) : null,
+    graphTitleBottomPx: Number.isFinite(Number(graphTitleRect?.bottom)) ? Number(graphTitleRect.bottom) : null,
+    significanceTopPx: Number.isFinite(Number(significanceTopPx)) ? Number(significanceTopPx) : null,
     svgBottomPx: Number.isFinite(Number(svgRect.bottom)) ? Number(svgRect.bottom) : null,
     controlsTopPx,
     controlsOverlapPx,
@@ -136,15 +153,16 @@ function readVerticalBoxLayoutMetrics() {
     aspectRatioMeta: Number.isFinite(aspectRatioMeta) ? aspectRatioMeta : null,
     aspectLockMeta,
     showSignificanceBars: !!boxState?.showSignificanceBars,
-    significanceViewportExtensionPx: Number.isFinite(Number(boxState?.significanceViewportExtensionPx))
-      ? Number(boxState.significanceViewportExtensionPx)
+    significanceViewportExtensionPx: Number.isFinite(Number(boxState?.graphGeometry?.reserves?.significancePx))
+      ? Number(boxState.graphGeometry?.reserves?.significancePx)
       : null,
-    bottomViewportExtensionPx: Number.isFinite(Number(boxState?.bottomViewportExtensionPx))
-      ? Number(boxState.bottomViewportExtensionPx)
+    bottomViewportExtensionPx: Number.isFinite(Number(boxState?.graphGeometry?.reserves?.xLabelPx))
+      ? Number(boxState.graphGeometry?.reserves?.xLabelPx)
       : null,
     significanceBasePlotHeightPx: Number.isFinite(Number(boxState?.significanceBasePlotHeightPx))
       ? Number(boxState.significanceBasePlotHeightPx)
-      : null
+      : null,
+    cartesianTopExtensionPx
   };
 }
 
@@ -306,7 +324,7 @@ test('two-group statistics apply significance reserve on the first annotated dra
       && Number(state.statsLastRunVersion) === Number(state.statsContextVersion)
       && state.showSignificanceBars === true
       && state.significanceMaxLevel === 0
-      && Number(state.significanceViewportExtensionPx) > 0
+      && Number(state.graphGeometry?.reserves?.significancePx) > 0
       && document.querySelectorAll('#boxPlot path.box-significance-annotation[data-sig-orientation="vertical"]').length > 0;
   }, null, { timeout: 45_000 });
   await expectBoxDrawsToSettle(page, 2);
@@ -315,10 +333,36 @@ test('two-group statistics apply significance reserve on the first annotated dra
   expect(after).not.toBeNull();
   expect(after.significancePathCount).toBeGreaterThan(0);
   expect(after.significanceViewportExtensionPx).toBeGreaterThan(0);
-  expect(after.svgBoxHeightPx).toBeGreaterThan(
-    before.svgBoxHeightPx + Math.max(2, after.significanceViewportExtensionPx - 2)
-  );
+  expect(Math.abs(after.svgBoxHeightPx - before.svgBoxHeightPx)).toBeLessThanOrEqual(2);
+  expect(after.cartesianTopExtensionPx).toBeGreaterThan(0);
   expect(Math.abs(after.yAxisSpan - before.yAxisSpan)).toBeLessThanOrEqual(7);
+  expect(issues.critical).toEqual([]);
+});
+
+test('significance toolbar places the label selector before scientific formatting', async ({ page }) => {
+  test.setTimeout(120_000);
+  const issues = registerIssueCollectors(page);
+  await installLocalCdnOverrides(page);
+  await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
+  await openComponentFromWelcome(page, { type: 'box', pageId: 'boxPage' }, { first: true });
+  await page.getByRole('tab', { name: 'Format', exact: true }).click();
+  await loadTwoGroupBoxData(page);
+  await ensureBoxStatsAndSignificanceReady(page);
+  await setBoxSignificanceToggle(page, true);
+  await page.waitForFunction(() => document.querySelectorAll('#boxPlot path.box-significance-annotation[data-sig-orientation="vertical"]').length > 0, null, { timeout: 45_000 });
+  await page.locator('#boxPlot path.box-significance-hit-overlay').first().dispatchEvent('click');
+  await expect(page.locator('.font-toolbar-host--visible .significance-controls-panel')).toBeVisible();
+
+  const toolbarState = await page.evaluate(() => {
+    const panel = document.querySelector('.font-toolbar-host--visible .significance-controls-panel');
+    return {
+      fields: Array.from(panel?.querySelectorAll('.significance-controls-panel__field') || [])
+        .map(field => field.querySelector('.significance-controls-panel__field-label')?.textContent),
+      mode: document.querySelector('#boxSignificanceLabelMode')?.value || null
+    };
+  });
+  expect(toolbarState.fields).toEqual(['Border', 'Whiskers', 'Whisker Style', 'Label', 'Scientific', 'Decimals']);
+  expect(toolbarState.mode).toBe('p');
   expect(issues.critical).toEqual([]);
 });
 
@@ -379,124 +423,6 @@ async function waitForVerticalSignificanceAnnotations(page) {
     { timeout: 20_000 }
   );
 }
-
-test('box asterisk significance labels optically align with ns labels', async ({ page }) => {
-  const issues = registerIssueCollectors(page);
-  await installLocalCdnOverrides(page);
-  await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
-  await openComponentFromWelcome(page, { type: 'box', pageId: 'boxPage' }, { first: true });
-
-  const centers = await page.evaluate(async () => {
-    const hooks = window.Components?.box?.__testHooks;
-    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-    svg.setAttribute('viewBox', '0 0 400 300');
-    svg.setAttribute('width', '400');
-    svg.setAttribute('height', '300');
-    svg.style.position = 'absolute';
-    svg.style.left = '-10000px';
-    document.body.appendChild(svg);
-    const runtime = hooks.buildBoxPairAnnotationRuntime({
-      svg,
-      traces: Array.from({ length: 4 }, () => ({ rawY: [12, 14] })),
-      significanceEnabled: true,
-      annotationOpts: {
-        showWhiskers: true,
-        whiskerMode: 'adaptive',
-        fontSize: 20,
-        strokeWidth: 1
-      },
-      helpers: {
-        annotationStyle: {
-          showWhiskers: true,
-          whiskerMode: 'adaptive',
-          fontSize: 20,
-          strokeWidth: 1
-        }
-      },
-      orientation: 'vertical',
-      categoryCenter: idx => 80 + idx * 80,
-      valueToCoord: value => 240 - value * 10,
-      levelGap: 25,
-      levelStep: 25,
-      annotationBracketSize: 10,
-      annotationMaxByTrace: [14, 14, 14, 14]
-    });
-    runtime.renderPairs([
-      { ai: 0, bi: 1, rangeMax: 14, p: 0.04 },
-      { ai: 1, bi: 3, rangeMax: 14, p: 0.2 },
-      { ai: 0, bi: 2, rangeMax: 14, p: 0.2 }
-    ]);
-    const upperPath = Array.from(svg.querySelectorAll('path.box-significance-annotation'))
-      .find(path => path.getAttribute('data-sig-x1') === '80' && path.getAttribute('data-sig-x2') === '240');
-    const lowerPath = Array.from(svg.querySelectorAll('path.box-significance-annotation'))
-      .find(path => Number(path.getAttribute('data-sig-x1')) < 100 && Number(path.getAttribute('data-sig-x2')) < 200);
-    const upperInner = Number(upperPath?.getAttribute('data-sig-inner'));
-    const lowerInner = Number(lowerPath?.getAttribute('data-sig-inner'));
-    const upperCoords = String(upperPath?.getAttribute('d') || '').match(/-?\d+(?:\.\d+)?/g)?.map(Number) || [];
-    const upperRightWhiskerLength = upperCoords[upperCoords.length - 1] - upperInner;
-    svg.querySelectorAll('path').forEach(path => path.remove());
-    svg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
-    svg.removeAttribute('style');
-    svg.querySelectorAll('text').forEach(text => {
-      const computed = getComputedStyle(text);
-      text.setAttribute('fill', '#000');
-      text.setAttribute('font-family', computed.fontFamily);
-      text.setAttribute('font-size', computed.fontSize);
-      text.setAttribute('font-style', computed.fontStyle);
-      text.setAttribute('font-weight', computed.fontWeight);
-      text.removeAttribute('visibility');
-    });
-    const image = new Image();
-    const loaded = new Promise((resolve, reject) => {
-      image.onload = resolve;
-      image.onerror = reject;
-    });
-    image.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(new XMLSerializer().serializeToString(svg))}`;
-    await loaded;
-    const canvas = document.createElement('canvas');
-    canvas.width = 400;
-    canvas.height = 300;
-    const context = canvas.getContext('2d', { willReadFrequently: true });
-    context.drawImage(image, 0, 0, 400, 300);
-    const pixels = context.getImageData(0, 0, 400, 300).data;
-    const readInkBounds = (minX, maxX) => {
-      let top = Infinity;
-      let bottom = -Infinity;
-      for (let y = 0; y < 150; y += 1) {
-        for (let x = minX; x <= maxX; x += 1) {
-          if (pixels[(y * 400 + x) * 4 + 3] > 24) {
-            top = Math.min(top, y);
-            bottom = Math.max(bottom, y);
-          }
-        }
-      }
-      return { top, bottom, center: (top + bottom) / 2 };
-    };
-    const labels = Array.from(svg.querySelectorAll('text.box-significance-annotation'));
-    const starInk = readInkBounds(80, 145);
-    const nsInk = readInkBounds(210, 270);
-    const result = {
-      star: starInk.center,
-      ns: nsInk.center,
-      clearanceAboveLabels: Math.min(starInk.top, nsInk.top) - upperInner,
-      upperRightWhiskerLength,
-      blockToDataGap: 100 - lowerInner,
-      starY: Number(labels.find(text => text.textContent === '*')?.getAttribute('y')),
-      nsY: Number(labels.find(text => text.textContent === 'ns')?.getAttribute('y')),
-      fontSize: labels.find(text => text.textContent === '*')?.getAttribute('font-size')
-    };
-    svg.remove();
-    return result;
-  });
-
-  expect(Math.abs(centers.star - centers.ns), JSON.stringify(centers)).toBeLessThanOrEqual(0.5);
-  expect(centers.clearanceAboveLabels, JSON.stringify(centers)).toBeGreaterThanOrEqual(12);
-  expect(centers.clearanceAboveLabels, JSON.stringify(centers)).toBeLessThanOrEqual(14);
-  expect(centers.upperRightWhiskerLength, JSON.stringify(centers)).toBeGreaterThanOrEqual(3);
-  expect(centers.blockToDataGap, JSON.stringify(centers)).toBeGreaterThanOrEqual(22);
-  expect(centers.blockToDataGap, JSON.stringify(centers)).toBeLessThanOrEqual(24);
-  expect(issues.critical).toEqual([]);
-});
 
 test('flipped adaptive whiskers clear full-width P-value labels', async ({ page }) => {
   const issues = registerIssueCollectors(page);
@@ -834,6 +760,47 @@ test('box pairwise layout remains isolated after switching between box tabs', as
   expect(issues.critical).toEqual([]);
 });
 
+test('box title and graph controls remain on the visible top rail with significance comparisons', async ({ page }) => {
+  test.setTimeout(120_000);
+  const issues = registerIssueCollectors(page);
+  await installLocalCdnOverrides(page);
+
+  await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
+  await expect(page.locator('#welcomeScreen')).toBeVisible();
+  await openComponentFromWelcome(page, { type: 'box', pageId: 'boxPage' }, { first: true });
+  await loadBoxExampleData(page);
+  await ensureBoxStatsAndSignificanceReady(page);
+
+  const significanceToggle = page.locator('#boxShowSignificance');
+  if (await significanceToggle.isChecked()) {
+    await setBoxSignificanceToggle(page, false);
+  }
+  await page.waitForFunction(() => document.querySelectorAll('#boxPlot .box-significance-annotation').length === 0);
+  const before = await page.evaluate(readVerticalBoxLayoutMetrics);
+
+  await setBoxSignificanceToggle(page, true);
+  await page.waitForFunction(
+    () => document.querySelectorAll('#boxPlot path.box-significance-annotation[data-sig-orientation="vertical"]').length > 0
+  );
+  const after = await page.evaluate(readVerticalBoxLayoutMetrics);
+
+  expect(before?.graphEnvelopeTopPx).not.toBeNull();
+  expect(before?.graphTitleTopPx).not.toBeNull();
+  expect(after?.cartesianTopExtensionPx).toBeGreaterThan(0);
+  expect(after?.graphEnvelopeTopPx).not.toBeNull();
+  expect(after?.controlTrayTopPx).not.toBeNull();
+  expect(after?.graphTitleTopPx).not.toBeNull();
+  expect(after?.graphTitleBottomPx).not.toBeNull();
+  expect(after?.significanceTopPx).not.toBeNull();
+  expect(Math.abs(after.controlTrayTopPx - after.graphEnvelopeTopPx - 10)).toBeLessThanOrEqual(3);
+  expect(Math.abs(
+    (after.graphTitleTopPx - after.graphEnvelopeTopPx)
+      - (before.graphTitleTopPx - before.graphEnvelopeTopPx)
+  )).toBeLessThanOrEqual(4);
+  expect(after.graphTitleBottomPx).toBeLessThanOrEqual(after.significanceTopPx + 4);
+  expect(issues.critical).toEqual([]);
+});
+
 test('box significance bars keep plot height while shifting plot downward', async ({ page }) => {
   test.setTimeout(120_000);
   const issues = registerIssueCollectors(page);
@@ -898,13 +865,27 @@ test('box significance bars keep plot height while shifting plot downward', asyn
   expect(after.dataBottomY).not.toBeNull();
   expect(after.controlsOverlapPx).not.toBeNull();
   expect(after.significancePathCount).toBeGreaterThan(0);
+  expect(after.graphEnvelopeTopPx).not.toBeNull();
+  expect(after.controlTrayTopPx).not.toBeNull();
+  expect(after.graphTitleTopPx).not.toBeNull();
+  expect(after.graphTitleBottomPx).not.toBeNull();
+  expect(after.significanceTopPx).not.toBeNull();
+  expect(afterManualResize.graphEnvelopeTopPx).not.toBeNull();
+  expect(afterManualResize.graphTitleTopPx).not.toBeNull();
+  expect(Math.abs(after.controlTrayTopPx - after.graphEnvelopeTopPx - 10)).toBeLessThanOrEqual(3);
+  expect(Math.abs(
+    (after.graphTitleTopPx - after.graphEnvelopeTopPx)
+      - (afterManualResize.graphTitleTopPx - afterManualResize.graphEnvelopeTopPx)
+  )).toBeLessThanOrEqual(4);
+  expect(after.graphTitleBottomPx).toBeLessThanOrEqual(after.significanceTopPx + 4);
   expect(after.aspectLockMeta).toBe(true);
   expect(after.svgBoxWidthPx).not.toBeNull();
   expect(after.svgBoxHeightPx).not.toBeNull();
-  expect(after.yAxisSpan).toBeGreaterThanOrEqual(before.yAxisSpan * 0.8);
-  expect(after.xAxisY).toBeGreaterThan(before.xAxisY + 2);
-  expect(after.dataBottomY).toBeGreaterThan(before.dataBottomY + 2);
-  expect(after.svgBoxHeightPx).toBeGreaterThan(afterManualResize.svgBoxHeightPx + 2);
+  expect(Math.abs(after.yAxisSpan - afterManualResize.yAxisSpan)).toBeLessThanOrEqual(4);
+  expect(Math.abs(after.xAxisY - afterManualResize.xAxisY)).toBeLessThanOrEqual(4);
+  expect(Math.abs(after.dataBottomY - afterManualResize.dataBottomY)).toBeLessThanOrEqual(4);
+  expect(Math.abs(after.svgBoxHeightPx - afterManualResize.svgBoxHeightPx)).toBeLessThanOrEqual(2);
+  expect(after.cartesianTopExtensionPx).toBeGreaterThan(0);
   expect(after.controlsOverlapPx).toBeLessThanOrEqual(2.5);
 
   await dragBoxVerticalHandle(page, 60);

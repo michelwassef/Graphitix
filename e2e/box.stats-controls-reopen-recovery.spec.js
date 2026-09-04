@@ -122,7 +122,7 @@ async function loadWorkspaceArchive(page, archivePath) {
 async function seedRecoverySnapshot(page) {
   return page.evaluate(async () => {
     const openWebDb = () => new Promise((resolve, reject) => {
-      const request = window.indexedDB.open('graphitix-document-state', 1);
+      const request = window.indexedDB.open('graphitix-document-state', 2);
       request.onupgradeneeded = () => {
         const db = request.result;
         if (!db.objectStoreNames.contains('snapshots')) {
