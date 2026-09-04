@@ -17,7 +17,7 @@ concurrency:
 
 jobs:
   build:
-    name: Test and build
+    name: Release smoke and build
     runs-on: ubuntu-latest
     timeout-minutes: 90
 
@@ -34,17 +34,17 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Keep Pages publication focused on release-specific checks. The complete
+      # Jest suite already runs independently in unit-jest.yml on every main push;
+      # duplicating it here made Pages deployments unnecessarily long and prone to
+      # cancellation/timeouts before the site could be published.
+      - name: Validate and build static site
+        run: npm run pages:check
+
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium
 
-      # ----------------------------------------------------------
-      # PUBLICATION GATE
-      # Nothing below this point is deployed if one of these fails.
-      # ----------------------------------------------------------
-
-      - name: Run Jest tests
-        run: npm test -- --runInBand
-
+      # PUBLICATION GATE: exercise every user-facing graph variant in a real browser.
       - name: Run release rendering smoke tests
         run: npx playwright test e2e/release-rendering-smoke.spec.js --project=chromium --workers=1
 
@@ -58,10 +58,7 @@ jobs:
             test-results
           if-no-files-found: ignore
 
-      - name: Validate and build static site
-        run: npm run pages:check
-
-      # This is only reached if ALL checks above succeeded.
+      # This is only reached if the Pages checks and release smoke gate succeeded.
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v5
         with:
