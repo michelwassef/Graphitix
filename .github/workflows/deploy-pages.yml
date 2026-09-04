@@ -23,10 +23,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 20
           cache: npm
@@ -34,23 +34,23 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # Keep Pages publication focused on release-specific checks. The complete
-      # Jest suite already runs independently in unit-jest.yml on every main push;
-      # duplicating it here made Pages deployments unnecessarily long and prone to
-      # cancellation/timeouts before the site could be published.
-      - name: Validate and build static site
-        run: npm run pages:check
-
+      # Both the Pages build and the release smoke suite launch Playwright.
+      # Install Chromium before either step so thumbnail regeneration during
+      # pages:check can run on a clean GitHub Actions runner.
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium
 
+      - name: Validate and build static site
+        run: npm run pages:check
+
       # PUBLICATION GATE: exercise every user-facing graph variant in a real browser.
+      # The Pages artifact is not uploaded and the site is not published if this fails.
       - name: Run release rendering smoke tests
         run: npx playwright test e2e/release-rendering-smoke.spec.js --project=chromium --workers=1
 
       - name: Upload Playwright failure artifacts
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: release-rendering-smoke-failure
           path: |
@@ -76,4 +76,4 @@ jobs:
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
