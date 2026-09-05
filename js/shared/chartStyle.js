@@ -8,6 +8,7 @@
   const BASE_BOTTOM_FACTOR = 2.4;
   const PT_TO_PX = 96 / 72;
   const BASE_FONT_SIZE_PX = 16;
+  const X_AXIS_ROTATION_OPTICAL_PADDING_EM = 1 / 3;
   const BASE_FONT_SIZE_PT = Number((BASE_FONT_SIZE_PX / PT_TO_PX).toFixed(2));
   // New graphs use an 80% frame relative to the established one-third viewport
   // baseline. Content such as legends remains an outward viewport extension.
@@ -1584,6 +1585,67 @@
     return Number.isFinite(numeric) && numeric >= 0 && numeric <= 100 ? numeric : null;
   };
 
+  chartStyle.normalizeOptionalXAxisLabelAngle = function normalizeOptionalXAxisLabelAngle(value){
+    if(value === null || value === undefined || value === ''){
+      return null;
+    }
+    const numeric = Number(value);
+    if(!Number.isFinite(numeric)){
+      return null;
+    }
+    return Math.max(-90, Math.min(90, numeric));
+  };
+
+  chartStyle.resolveXAxisRotationOpticalPadding = function resolveXAxisRotationOpticalPadding(options = {}){
+    const angleRaw = Number(options.angleDeg);
+    if(!Number.isFinite(angleRaw) || Math.abs(angleRaw) <= 1e-9){
+      return 0;
+    }
+    const safeAngle = Math.min(90, Math.abs(angleRaw));
+    const fontSizeRaw = Number(options.fontSize);
+    const safeFontSize = Number.isFinite(fontSizeRaw) && fontSizeRaw > 0
+      ? fontSizeRaw
+      : BASE_FONT_SIZE_PX;
+    const tickLabelGapRaw = Number(options.tickLabelGap);
+    const safeTickLabelGap = Number.isFinite(tickLabelGapRaw) && tickLabelGapRaw >= 0
+      ? tickLabelGapRaw
+      : chartStyle.resolveTickLabelGap(safeFontSize);
+    // A rotated label presents its side-bearing/cap edge to the tick rather than
+    // the same horizontal glyph edge. Equal bounding-box clearance therefore
+    // looks cramped as the label approaches vertical. Add a smooth optical
+    // allowance that reaches one third of the label font at 90 degrees, never
+    // less than the canonical tick-label gap. sin(angle) keeps the transition
+    // continuous from horizontal through fully vertical labels.
+    const fullVerticalPadding = Math.max(
+      safeTickLabelGap,
+      safeFontSize * X_AXIS_ROTATION_OPTICAL_PADDING_EM
+    );
+    return fullVerticalPadding * Math.sin(safeAngle * Math.PI / 180);
+  };
+
+  chartStyle.resolveXAxisLabelOrientation = function resolveXAxisLabelOrientation(bottomLayout, manualAngle){
+    const normalized = chartStyle.normalizeOptionalXAxisLabelAngle(manualAngle);
+    const opticalPaddingPx = Math.max(0, Number(bottomLayout?.rotationOpticalPaddingPx) || 0);
+    if(normalized !== null){
+      return {
+        angle: normalized,
+        anchor: normalized < 0 ? 'end' : (normalized > 0 ? 'start' : 'middle'),
+        dy: '0.35em',
+        opticalPaddingPx,
+        force: Math.abs(normalized) > 1e-9,
+        disableAuto: true
+      };
+    }
+    return {
+      angle: -45,
+      anchor: 'end',
+      dy: '0.35em',
+      opticalPaddingPx,
+      force: bottomLayout?.shouldRotate === true,
+      disableAuto: false
+    };
+  };
+
   chartStyle.resolveTickLabelGap = function resolveTickLabelGap(fontSize){
     const safeFont = Number(fontSize) || BASE_FONT_SIZE_PX;
     return Math.max(2, Math.round(safeFont * 0.2));
@@ -1707,15 +1769,25 @@
       : preservePlotRail;
     const projectedTickLabelReserve = options?.bottomReserveMode === 'projected-tick-label'
       || preservePlotRail;
-    const shouldRotateRaw = labels.length > 1 && maxAdjacentOverlapRatio > baseRotateRatio;
-    const shouldRotate = labels.length > 1
+    const manualLabelRotationAngleDeg = chartStyle.normalizeOptionalXAxisLabelAngle(options?.manualLabelRotationAngleDeg);
+    const hasManualLabelRotation = manualLabelRotationAngleDeg !== null;
+    const automaticShouldRotateRaw = labels.length > 1 && maxAdjacentOverlapRatio > baseRotateRatio;
+    const automaticShouldRotate = labels.length > 1
       ? (
           previousRotate === true
             ? (maxAdjacentOverlapRatio > exitRatio)
             : (maxAdjacentOverlapRatio > enterRatio)
         )
       : false;
-    const rotationAngleDegRaw = Number(options?.labelRotationAngleDeg);
+    const shouldRotateRaw = hasManualLabelRotation
+      ? Math.abs(manualLabelRotationAngleDeg) > 1e-9
+      : automaticShouldRotateRaw;
+    const shouldRotate = hasManualLabelRotation
+      ? Math.abs(manualLabelRotationAngleDeg) > 1e-9
+      : automaticShouldRotate;
+    const rotationAngleDegRaw = hasManualLabelRotation
+      ? manualLabelRotationAngleDeg
+      : Number(options?.labelRotationAngleDeg);
     const rotationAngleDeg = Number.isFinite(rotationAngleDegRaw) ? Math.abs(rotationAngleDegRaw) : 45;
     const rotationAngleRad = rotationAngleDeg * Math.PI / 180;
     const projectedRotatedLabelHeight = Math.ceil(
@@ -1729,8 +1801,19 @@
     const rotatedExtra = projectedTickLabelReserve
       ? Math.max(0, projectedRotatedLabelHeight - tickLabelFontSize)
       : Math.min(220, Math.max(tickLabelFontSize * 1.8, Math.ceil(Math.SQRT1_2 * maxLabelWidth) + tickLabelFontSize));
-    const activeExtra = shouldRotate ? rotatedExtra : 0;
-    const reservedExtra = (shouldRotate || reserveRotatedLabelSpace) ? rotatedExtra : 0;
+    const rotationOpticalPaddingPx = chartStyle.resolveXAxisRotationOpticalPadding({
+      angleDeg: rotationAngleDeg,
+      fontSize: tickLabelFontSize,
+      tickLabelGap
+    });
+    const rotatedReserveExtra = rotatedExtra + rotationOpticalPaddingPx;
+    const activeExtra = shouldRotate ? rotatedReserveExtra : 0;
+    // A manual angle disables collision-based rotation, so reserve exactly the
+    // selected projection (including zero). Automatic mode keeps its proactive
+    // 45-degree reserve to avoid a viewport jump when labels start colliding.
+    const reservedExtra = hasManualLabelRotation
+      ? activeExtra
+      : ((shouldRotate || reserveRotatedLabelSpace) ? rotatedReserveExtra : 0);
     const requiredBottom = preservePlotRail
       // baseBottom is the complete nominal tick/title rail. Keep the entire
       // possible rotation displacement outside that rail so pre-existing slack
@@ -1756,6 +1839,8 @@
       plotWidth,
       shouldRotate,
       shouldRotateRaw,
+      hasManualLabelRotation,
+      manualLabelRotationAngleDeg,
       maxLabelWidthRatio,
       maxAdjacentOverlapRatio,
       previousRotate,
@@ -1770,6 +1855,7 @@
       activeExtra,
       reservedExtra,
       rotatedExtra,
+      rotationOpticalPaddingPx,
       projectedRotatedLabelHeight,
       rotatedLabelHorizontalProjections,
       bottom,
@@ -1779,71 +1865,61 @@
       titleOffset,
       tickLength
     }); // Debug: bottom layout computation
-    return {bottom, requiredBottom, contentReserveBottom: Math.max(0, requiredBottom - baseBottom), shouldRotate, shouldRotateRaw, widths, bandWidth, maxLabelWidth, maxLabelWidthRatio, maxAdjacentOverlapRatio, projectedRotatedLabelHeight, rotatedExtra, activeExtra, reservedExtra, rotatedLabelHorizontalProjections, labelOffset: adjustedLabelOffset, titleOffset, nominalTitleOffset, tickLength, tickLabelGap, axisTitleGap, outerPadding, labelMeasureFont, tickLabelFontSize};
+    return {bottom, requiredBottom, contentReserveBottom: Math.max(0, requiredBottom - baseBottom), shouldRotate, shouldRotateRaw, hasManualLabelRotation, manualLabelRotationAngleDeg, labelRotationAngleDeg: hasManualLabelRotation ? manualLabelRotationAngleDeg : -rotationAngleDeg, widths, bandWidth, maxLabelWidth, maxLabelWidthRatio, maxAdjacentOverlapRatio, projectedRotatedLabelHeight, rotatedExtra, rotationOpticalPaddingPx, activeExtra, reservedExtra, rotatedLabelHorizontalProjections, labelOffset: adjustedLabelOffset, titleOffset, nominalTitleOffset, tickLength, tickLabelGap, axisTitleGap, outerPadding, labelMeasureFont, tickLabelFontSize};
+  };
+
+  chartStyle.resolveRotatedXAxisEndpointInsets = function resolveRotatedXAxisEndpointInsets(bottomLayout, margins = {}){
+    if(bottomLayout?.shouldRotate !== true){
+      return { left: 0, right: 0 };
+    }
+    const angle = Number(bottomLayout?.labelRotationAngleDeg);
+    if(!Number.isFinite(angle) || Math.abs(angle) <= 1e-9){
+      return { left: 0, right: 0 };
+    }
+    const projections = Array.isArray(bottomLayout?.rotatedLabelHorizontalProjections)
+      ? bottomLayout.rotatedLabelHorizontalProjections
+      : [];
+    const outerPadding = Math.max(0, Number(bottomLayout?.outerPadding) || 0);
+    const endpointOffset = Math.max(0, (Number(bottomLayout?.bandWidth) || 0) / 2);
+    const computeInset = (projection, margin) => {
+      const safeProjection = Number(projection);
+      if(!Number.isFinite(safeProjection) || safeProjection <= 0){
+        return 0;
+      }
+      const safeMargin = Math.max(0, Number(margin) || 0);
+      const requiredInset = safeProjection + outerPadding - safeMargin - endpointOffset;
+      return requiredInset > 0 ? Math.ceil(requiredInset) + 4 : 0;
+    };
+    return angle < 0
+      ? { left: computeInset(projections[0], margins.left), right: 0 }
+      : { left: 0, right: computeInset(projections[projections.length - 1], margins.right) };
   };
 
   chartStyle.resolveRotatedXAxisLeadingInset = function resolveRotatedXAxisLeadingInset(bottomLayout, marginLeft){
-    if(bottomLayout?.shouldRotate !== true){
-      return 0;
-    }
-    const firstProjection = Number(bottomLayout?.rotatedLabelHorizontalProjections?.[0]);
-    if(!Number.isFinite(firstProjection) || firstProjection <= 0){
-      return 0;
-    }
-    const safeMarginLeft = Math.max(0, Number(marginLeft) || 0);
-    const firstTickOffset = Math.max(0, (Number(bottomLayout?.bandWidth) || 0) / 2);
-    const outerPadding = Math.max(0, Number(bottomLayout?.outerPadding) || 0);
-    const requiredInset = firstProjection + outerPadding - safeMarginLeft - firstTickOffset;
-    return requiredInset > 0 ? Math.ceil(requiredInset) + 4 : 0;
+    return chartStyle.resolveRotatedXAxisEndpointInsets(bottomLayout, { left: marginLeft }).left;
   };
-
-  function readAxisLabelLengthPx(value, fontSize){
-    const raw = String(value == null ? '' : value).trim();
-    const numeric = Number.parseFloat(raw);
-    if(!Number.isFinite(numeric)){
-      return 0;
+  function computeRotatedBBoxTop(box, pivotX, pivotY, angleDeg){
+    if(!box || !Number.isFinite(box.x) || !Number.isFinite(box.y)
+      || !Number.isFinite(box.width) || !Number.isFinite(box.height)
+      || !Number.isFinite(pivotX) || !Number.isFinite(pivotY)){
+      return null;
     }
-    if(/em$/i.test(raw)){
-      return numeric * fontSize;
-    }
-    if(/rem$/i.test(raw)){
-      return numeric * BASE_FONT_SIZE_PX;
-    }
-    return numeric;
+    const radians = Number(angleDeg) * Math.PI / 180;
+    const sine = Math.sin(radians);
+    const cosine = Math.cos(radians);
+    const xs = [box.x, box.x + box.width];
+    const ys = [box.y, box.y + box.height];
+    let rotatedTop = Infinity;
+    xs.forEach(boxX => {
+      ys.forEach(boxY => {
+        const transformedY = pivotY
+          + ((boxX - pivotX) * sine)
+          + ((boxY - pivotY) * cosine);
+        rotatedTop = Math.min(rotatedTop, transformedY);
+      });
+    });
+    return Number.isFinite(rotatedTop) ? rotatedTop : null;
   }
-
-  function readAxisLabelFontSizePx(node){
-    const candidates = [
-      node?.getAttribute?.('font-size'),
-      node?.style?.fontSize
-    ];
-    if(typeof global.getComputedStyle === 'function' && node){
-      try{
-        candidates.push(global.getComputedStyle(node).fontSize);
-      }catch(_err){
-        // Detached SVG labels retain their explicit font-size fallback.
-      }
-    }
-    for(let index = 0; index < candidates.length; index += 1){
-      const value = Number.parseFloat(candidates[index]);
-      if(Number.isFinite(value) && value > 0){
-        return value;
-      }
-    }
-    return BASE_FONT_SIZE_PX;
-  }
-
-  chartStyle.resolveRotatedTickLabelDy = function resolveRotatedTickLabelDy(options){
-    const angle = Number(options?.angle) || 0;
-    const fontSize = Math.max(1, Number(options?.fontSize) || BASE_FONT_SIZE_PX);
-    const baseDy = readAxisLabelLengthPx(options?.dy, fontSize);
-    const cosine = Math.abs(Math.cos(angle * Math.PI / 180));
-    if(cosine < 0.25 || cosine > 0.9999){
-      return baseDy;
-    }
-    const ascent = fontSize * 0.8;
-    return ascent + ((baseDy - ascent) / cosine);
-  };
 
   chartStyle.applyLabelOrientation = function applyLabelOrientation(nodes, options){
     const list = Array.from(nodes || []);
@@ -1855,6 +1931,7 @@
     const anchor = options?.anchor ?? 'end';
     const dy = options?.dy ?? '0.35em';
     const preserveOpticalGap = options?.preserveOpticalGap !== false;
+    const opticalPaddingPx = Math.max(0, Number(options?.opticalPaddingPx) || 0);
     const force = options?.force ?? false;
     const disableAuto = options?.disableAuto === true;
     let rotate = !!force;
@@ -1880,61 +1957,62 @@
         if(x==null || y==null) return;
         const pivotX = Number(x);
         const pivotY = Number(y);
-        let unrotatedBox = null;
-        if(preserveOpticalGap && typeof node.getBBox === 'function'){
-          try{
-            const measured = node.getBBox();
-            if(measured && Number.isFinite(measured.y) && Number.isFinite(measured.height) && measured.height > 0){
-              unrotatedBox = measured;
-            }
-          }catch(_err){
-            unrotatedBox = null;
-          }
-        }
         node.setAttribute('text-anchor', anchor);
         if(dy !== null){
           node.setAttribute('dy', dy);
         }
-        if(preserveOpticalGap && dy !== null && Number.isFinite(pivotX) && Number.isFinite(pivotY)){
-          const fontSize = readAxisLabelFontSizePx(node);
-          let adjustedDy = chartStyle.resolveRotatedTickLabelDy({ angle, dy, fontSize });
-          if(unrotatedBox && typeof node.getBBox === 'function'){
-            try{
-              const anchoredBox = node.getBBox();
-              const radians = angle * Math.PI / 180;
-              const sine = Math.sin(radians);
-              const cosine = Math.cos(radians);
-              if(anchoredBox && Number.isFinite(anchoredBox.x) && Number.isFinite(anchoredBox.y)
-                && Number.isFinite(anchoredBox.width) && Number.isFinite(anchoredBox.height)
-                && Math.abs(cosine) >= 0.25){
-                const xs = [anchoredBox.x, anchoredBox.x + anchoredBox.width];
-                const ys = [anchoredBox.y, anchoredBox.y + anchoredBox.height];
-                let rotatedTop = Infinity;
-                xs.forEach(boxX => {
-                  ys.forEach(boxY => {
-                    const transformedY = pivotY
-                      + ((boxX - pivotX) * sine)
-                      + ((boxY - pivotY) * cosine);
-                    rotatedTop = Math.min(rotatedTop, transformedY);
-                  });
-                });
-                const currentDy = readAxisLabelLengthPx(dy, fontSize);
-                if(Number.isFinite(rotatedTop)){
-                  adjustedDy = currentDy + ((unrotatedBox.y - rotatedTop) / cosine);
-                }
-              }
-            }catch(_err){
-              // Use the deterministic font-metric fallback above.
+        let verticalShift = 0;
+        if(preserveOpticalGap && Number.isFinite(pivotX) && Number.isFinite(pivotY)
+          && typeof node.getBBox === 'function'){
+          try{
+            // Measure the canonical unrotated label *after* applying the desired
+            // anchor/baseline. Rotation is then corrected relative to that exact
+            // geometry, so callers do not depend on whatever transient text
+            // attributes happened to exist before this helper ran.
+            const unrotatedBox = node.getBBox();
+            const targetTop = unrotatedBox && Number.isFinite(unrotatedBox.y)
+              && Number.isFinite(unrotatedBox.height) && unrotatedBox.height > 0
+              ? unrotatedBox.y
+              : null;
+            const rotatedTop = targetTop !== null
+              ? computeRotatedBBoxTop(unrotatedBox, pivotX, pivotY, angle)
+              : null;
+            if(rotatedTop !== null){
+              // First neutralize the geometric displacement introduced by the
+              // rotation, then add the shared angle-aware optical clearance.
+              // This keeps the label visually separated from the tick without
+              // restoring the excessive baseline-driven gap of the old logic.
+              verticalShift = (targetTop + opticalPaddingPx) - rotatedTop;
             }
-          }
-          if(Number.isFinite(adjustedDy)){
-            node.setAttribute('dy', `${Number(adjustedDy.toFixed(4))}px`);
+          }catch(_err){
+            verticalShift = 0;
           }
         }
-        node.setAttribute('transform', `rotate(${angle} ${x} ${y})`);
+        const roundedShift = Number.isFinite(verticalShift)
+          ? Number(verticalShift.toFixed(4))
+          : 0;
+        const rotation = `rotate(${angle} ${x} ${y})`;
+        node.setAttribute(
+          'transform',
+          Math.abs(roundedShift) > 1e-4
+            ? `translate(0 ${roundedShift}) ${rotation}`
+            : rotation
+        );
+      });
+    }else if(disableAuto){
+      // An explicit zero-degree setting is a real manual orientation, not Auto.
+      // Normalize reused tick nodes as well as newly rendered ones so a previous
+      // rotation cannot survive merely because the renderer retained the node.
+      list.forEach(node => {
+        if(!node) return;
+        node.setAttribute('text-anchor', anchor);
+        if(dy !== null){
+          node.setAttribute('dy', dy);
+        }
+        node.removeAttribute('transform');
       });
     }
-    console.debug('Debug: chartStyle.applyLabelOrientation result', {count: list.length, rotated: rotate, angle, disableAuto}); // Debug: label orientation summary
+    console.debug('Debug: chartStyle.applyLabelOrientation result', {count: list.length, rotated: rotate, angle, disableAuto, opticalPaddingPx}); // Debug: label orientation summary
     return rotate;
   };
 

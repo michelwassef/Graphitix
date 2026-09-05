@@ -10,6 +10,8 @@
   let panelTitleEl = null;
   let tickFieldEl = null;
   let tickInput = null;
+  let tickLabelAngleFieldEl = null;
+  let tickLabelAngleInput = null;
   let majorTickLengthFieldEl = null;
   let majorTickLengthInput = null;
   let axisLengthFieldEl = null;
@@ -360,6 +362,16 @@
     const numeric = Number(value);
     if(!Number.isFinite(numeric) || numeric <= 0){ return null; }
     return numeric;
+  }
+
+  function sanitizeTickLabelAngleValue(value){
+    if(value === null || value === undefined || value === ''){ return null; }
+    if(typeof Shared.chartStyle?.normalizeOptionalXAxisLabelAngle === 'function'){
+      return Shared.chartStyle.normalizeOptionalXAxisLabelAngle(value);
+    }
+    const numeric = Number(value);
+    if(!Number.isFinite(numeric)){ return null; }
+    return Math.max(-90, Math.min(90, numeric));
   }
 
   function resolveDisplayedTickInterval(config){
@@ -1808,6 +1820,25 @@
       logDebug('tick interval disabled',{ axis: config.axis, scopeId: config.scopeId, reason: tickDisabledMessage });
     }
 
+    const tickLabelAngleSupported = axisKey === 'x'
+      && typeof config.getTickLabelAngle === 'function'
+      && typeof config.onTickLabelAngleChange === 'function'
+      && (typeof config.isTickLabelAngleSupported !== 'function' || config.isTickLabelAngleSupported(config.axis) !== false);
+    if(tickLabelAngleFieldEl && tickLabelAngleInput){
+      tickLabelAngleFieldEl.hidden = !tickLabelAngleSupported;
+      tickLabelAngleFieldEl.dataset.disabled = tickLabelAngleSupported ? '0' : '1';
+      tickLabelAngleInput.disabled = !tickLabelAngleSupported;
+      if(tickLabelAngleSupported){
+        const angle = sanitizeTickLabelAngleValue(config.getTickLabelAngle(config.axis));
+        tickLabelAngleInput.value = angle === null ? '' : String(angle);
+        tickLabelAngleInput.placeholder = 'Auto';
+        tickLabelAngleInput.title = 'Leave blank for automatic collision-based rotation.';
+      }else{
+        tickLabelAngleInput.value = '';
+        tickLabelAngleInput.title = '';
+      }
+    }
+
     const majorTickLengthSupported = (
       typeof config.getMajorTickLength === 'function' &&
       typeof config.onMajorTickLengthChange === 'function' &&
@@ -2216,7 +2247,7 @@
 
     const tickField = doc.createElement('label');
     tickField.className = 'axis-controls-panel__field additional-line-controls-panel__field';
-    tickField.classList.add('axis-controls-panel__field--numeric');
+    tickField.classList.add('axis-controls-panel__field--numeric', 'axis-controls-panel__field--tick-interval');
     const tickLabel = doc.createElement('span');
     tickLabel.className = 'axis-controls-panel__field-label additional-line-controls-panel__field-label';
     tickLabel.textContent = 'Tick interval';
@@ -2232,6 +2263,25 @@
     tickField.appendChild(tickInput);
     fieldsRowEl.appendChild(tickField);
     tickFieldEl = tickField;
+
+    const tickLabelAngleField = doc.createElement('label');
+    tickLabelAngleField.className = 'axis-controls-panel__field additional-line-controls-panel__field axis-controls-panel__field--numeric axis-controls-panel__field--tick-label-angle';
+    const tickLabelAngleLabel = doc.createElement('span');
+    tickLabelAngleLabel.className = 'axis-controls-panel__field-label additional-line-controls-panel__field-label';
+    tickLabelAngleLabel.textContent = 'Label angle (°)';
+    tickLabelAngleInput = doc.createElement('input');
+    tickLabelAngleInput.type = 'number';
+    tickLabelAngleInput.min = '-90';
+    tickLabelAngleInput.max = '90';
+    tickLabelAngleInput.step = '5';
+    tickLabelAngleInput.placeholder = 'Auto';
+    tickLabelAngleInput.className = 'axis-controls-panel__input additional-line-controls-panel__input axis-controls-panel__input--small';
+    tickLabelAngleInput.setAttribute('aria-label', 'X-axis tick label angle in degrees');
+    tickLabelAngleInput.setAttribute('data-undo-ignore','1');
+    tickLabelAngleField.appendChild(tickLabelAngleLabel);
+    tickLabelAngleField.appendChild(tickLabelAngleInput);
+    fieldsRowEl.appendChild(tickLabelAngleField);
+    tickLabelAngleFieldEl = tickLabelAngleField;
 
     const majorTickLengthField = doc.createElement('label');
     majorTickLengthField.className = 'axis-controls-panel__field additional-line-controls-panel__field axis-controls-panel__field--numeric axis-controls-panel__field--major-tick-length';
@@ -2729,6 +2779,26 @@
         });
       }
     });
+
+    if(tickLabelAngleInput){
+      bindWheelAwareAxisNumericInput(tickLabelAngleInput, {
+        stateKey: 'tickLabelAngle',
+        isSupported: config => config.axis === 'x' && !tickLabelAngleInput.disabled && typeof config.onTickLabelAngleChange === 'function',
+        read: config => sanitizeTickLabelAngleValue(config.getTickLabelAngle ? config.getTickLabelAngle(config.axis) : null),
+        parse: value => sanitizeTickLabelAngleValue(value),
+        apply: (config, value) => {
+          config.onTickLabelAngleChange(value, config.axis);
+        },
+        log: ({ config, raw, requestedValue, commit }) => {
+          logDebug('tick label angle change', {
+            raw,
+            value: requestedValue,
+            axis: config.axis,
+            phase: commit ? 'commit' : 'live'
+          });
+        }
+      });
+    }
 
     if(majorTickLengthInput){
       bindWheelAwareAxisNumericInput(majorTickLengthInput, {
@@ -3958,6 +4028,9 @@
         getEffectiveTickInterval: config.getEffectiveTickInterval,
         getMajorTickLength: config.getMajorTickLength,
         onMajorTickLengthChange: config.onMajorTickLengthChange,
+        getTickLabelAngle: config.getTickLabelAngle,
+        onTickLabelAngleChange: config.onTickLabelAngleChange,
+        isTickLabelAngleSupported: config.isTickLabelAngleSupported,
         isMajorTickLengthSupported: config.isMajorTickLengthSupported,
         majorTickLengthPlaceholder: config.majorTickLengthPlaceholder,
         getThickness: config.getThickness,

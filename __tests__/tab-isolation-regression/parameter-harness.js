@@ -540,6 +540,10 @@
     if((current === null || current === undefined) && /(?:^|\.)(?:tickinterval|majorticklength)\.[xy]$/i.test(key)){
       return { covered: true, value: 1, source: 'nullable-axis-number', controlIndex: null, controlDomKey: null };
     }
+    if((current === null || current === undefined)
+      && /^(?:config\.axis|style\.upset)\.xlabelangle$/i.test(key)){
+      return { covered: true, value: -35, source: 'nullable-x-axis-label-angle', controlIndex: null, controlDomKey: null };
+    }
     if(key === 'config.traceopacity' && (current === null || current === undefined)){
       return { covered: true, value: 0.65, source: 'hist-valid-trace-opacity', controlIndex: null, controlDomKey: null };
     }
@@ -1286,6 +1290,15 @@
         return;
       }
       collectLeaves(baseline[rootKey], [rootKey], parameters, classified);
+    });
+    parameters.forEach(parameter => {
+      if(/^(?:config\.axis|style\.upset)\.xlabelangle$/i.test(parameter.key)){
+        // The angle editor lives in the shared contextual X-axis toolbar, not in
+        // a permanently mounted component form control. The generic matrix must
+        // therefore use canonical payload/session state as its witness; the
+        // dedicated axis-control tests cover the contextual DOM projection.
+        parameter.requiresDomWitness = false;
+      }
     });
     if(type === 'venn' && baseline?.analysis?.goPerformed !== true && baseline?.analysis?.stringPerformed !== true){
       for(let index = parameters.length - 1; index >= 0; index -= 1){

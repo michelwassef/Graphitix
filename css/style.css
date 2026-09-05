@@ -48,7 +48,7 @@
     --color-swatch-size: 18px;
     --panel-resizer-width: 4px;
     --panel-resizer-gap: 8px;
-    --workspace-tab-row-height: 40px;
+    --workspace-tab-row-height: 36px;
     --workspace-tabs-scrollbar-height: 6px;
     --workspace-tabs-height: var(--workspace-tab-row-height);
 }
@@ -3160,9 +3160,9 @@ select {
     border: 0 solid transparent;
     border-left-width: 1px;
     border-right-width: 1px;
-    border-top: 3px solid transparent;
+    border-bottom: 3px solid transparent;
     color: #475569;
-    padding: 7px 36px 7px 18px;
+    padding: 5px 36px 5px 18px;
     font-size: 13px;
     font-weight: 500;
     cursor: pointer;
@@ -3244,7 +3244,7 @@ select {
 .workspace-tab.is-active {
     background: #ffffff;
     color: #1e293b;
-    border-top-color: #6366f1;
+    border-bottom-color: #6366f1;
     border-left-color: #d6d6d6;
     border-right-color: #d6d6d6;
     box-shadow: none;

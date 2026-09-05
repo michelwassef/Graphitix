@@ -640,7 +640,7 @@
     return {
       strokeWidth: 1,
       color: DEFAULT_AXIS_COLOR,
-      x: { tickInterval: null, majorTickLength: null, minorTicks: false, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS },
+      x: { tickInterval: null, majorTickLength: null, labelAngle: null, minorTicks: false, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS },
       y: { tickInterval: null, majorTickLength: null, minorTicks: false, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS }
     };
   }
@@ -1077,6 +1077,9 @@
       getEffectiveTickInterval: () => axisMeta?.effectiveTickInterval ?? null,
       getMajorTickLength: () => getAxisMajorTickLength(axis),
       onMajorTickLengthChange: value => updateAxisMajorTickLength(axis, value),
+      getTickLabelAngle: () => axis === 'x' ? getXAxisTickLabelAngle(owner) : null,
+      onTickLabelAngleChange: value => { if(axis === 'x'){ updateXAxisTickLabelAngle(value, owner); } },
+      isTickLabelAngleSupported: () => axis === 'x',
       isMajorTickLengthSupported: () => true,
       majorTickLengthPlaceholder: 'Auto',
       getThickness: () => getAxisStrokeWidthBase(),
@@ -1515,7 +1518,7 @@
       state.axisSettings = createDefaultAxisSettings();
     }
     if(!state.axisSettings.x || typeof state.axisSettings.x !== 'object'){
-      state.axisSettings.x = { tickInterval: null, majorTickLength: null, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS };
+      state.axisSettings.x = { tickInterval: null, majorTickLength: null, labelAngle: null, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS };
     }
     if(!state.axisSettings.y || typeof state.axisSettings.y !== 'object'){
       state.axisSettings.y = { tickInterval: null, majorTickLength: null, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS };
@@ -1526,6 +1529,7 @@
     if(typeof state.axisSettings.y.minorTicks !== 'boolean'){
       state.axisSettings.y.minorTicks = false;
     }
+    state.axisSettings.x.labelAngle = chartStyle.normalizeOptionalXAxisLabelAngle(state.axisSettings.x.labelAngle);
     state.axisSettings.x.minorTickSubdivisions = clampMinorTickSubdivisions(state.axisSettings.x.minorTickSubdivisions);
     state.axisSettings.y.minorTickSubdivisions = clampMinorTickSubdivisions(state.axisSettings.y.minorTickSubdivisions);
     const numericStroke = Number(state.axisSettings.strokeWidth);
@@ -1624,6 +1628,29 @@
     logDebug('Debug: survival major tick length updated',{ axis, majorTickLength: nextValue });
     syncSurvivalStateToSession(getSurvivalProjectionSession({ reason: 'survival-projection-mutation' }), { axisSettings: settings });
     scheduleActiveSurvivalDraw({ reason: `axis-${axis}-major-tick-length`, tabId: getSurvivalProjectionTabId() || null });
+  }
+
+  function getXAxisTickLabelAngle(ownerSession = null){
+    const owner = ownerSession || getActiveSurvivalSessionForState();
+    if(owner && !isSurvivalSessionActive(owner)){
+      return chartStyle.normalizeOptionalXAxisLabelAngle(owner.state?.axisSettings?.x?.labelAngle);
+    }
+    return chartStyle.normalizeOptionalXAxisLabelAngle(ensureAxisSettings().x?.labelAngle);
+  }
+
+  function updateXAxisTickLabelAngle(value, ownerSession = null){
+    const owner = ownerSession || getActiveSurvivalSessionForState();
+    if(owner && !isSurvivalSessionActive(owner)){
+      survivalDebug('Debug: survival x tick label angle ignored for inactive owner', { tabId: owner.tabId || null });
+      return;
+    }
+    const settings = ensureAxisSettings();
+    const nextValue = chartStyle.normalizeOptionalXAxisLabelAngle(value);
+    if(settings.x.labelAngle === nextValue){ return; }
+    settings.x.labelAngle = nextValue;
+    syncSurvivalStateToSession(owner, { axisSettings: settings });
+    survivalDebug('Debug: survival x tick label angle updated',{ angle: nextValue, tabId: owner?.tabId || null });
+    scheduleSurvivalViewRefresh('survival-axis-x-label-angle', { tabId: owner?.tabId || null, userInitiated: true });
   }
 
   function getAxisMinorTicksEnabled(axis){
@@ -1762,6 +1789,7 @@
       const xMajorTickLength = settings.majorTickLengthX ?? settings.xMajorTickLength ?? settings?.x?.majorTickLength ?? null;
       const yMajorTickLength = settings.majorTickLengthY ?? settings.yMajorTickLength ?? settings?.y?.majorTickLength ?? null;
       base.x.majorTickLength = chartStyle.normalizeOptionalMajorTickLength(xMajorTickLength);
+      base.x.labelAngle = chartStyle.normalizeOptionalXAxisLabelAngle(settings.xLabelAngle ?? settings.labelAngleX ?? settings?.x?.labelAngle);
       base.y.majorTickLength = chartStyle.normalizeOptionalMajorTickLength(yMajorTickLength);
       base.x.minorTicks = !!(settings.minorTicksX ?? settings.x?.minorTicks ?? false);
       base.y.minorTicks = !!(settings.minorTicksY ?? settings.y?.minorTicks ?? false);
@@ -5632,7 +5660,8 @@
       plotWidth: plotW,
       baseBottom: margin.bottom,
       axisMetrics,
-      preservePlotRail: true
+      preservePlotRail: true,
+      manualLabelRotationAngleDeg: getXAxisTickLabelAngle(drawSession)
     }) : { bottom: margin.bottom, requiredBottom: margin.bottom, shouldRotate: false, titleOffset: fs * 2, labelOffset: fs, tickLength: tickLen, tickLabelGap: tickGap };
     requiredMargins.bottom = Math.max(requiredMargins.bottom, bottomLayout.requiredBottom || margin.bottom);
     let xScale;
@@ -5693,7 +5722,8 @@
         plotWidth: plotW,
         baseBottom: margin.bottom,
         axisMetrics,
-        preservePlotRail: true
+        preservePlotRail: true,
+        manualLabelRotationAngleDeg: getXAxisTickLabelAngle(drawSession)
       }) : bottomLayout;
       requiredMargins = {
         ...cartesianMarginRequirements.requiredMargins,
@@ -5883,7 +5913,7 @@
       markFontEditable(text, 'xTick');
       xTickNodes.push(text);
     });
-    chartStyle.applyLabelOrientation?.(xTickNodes, { angle: -45, anchor: 'end', dy: '0.35em', force: bottomLayout.shouldRotate });
+    chartStyle.applyLabelOrientation?.(xTickNodes, chartStyle.resolveXAxisLabelOrientation(bottomLayout, getXAxisTickLabelAngle(drawSession)));
 
     if(minorTicksY.length){
       minorTicksY.forEach(value => {
@@ -6935,6 +6965,7 @@
           tickIntervalY: axisSettings.y?.tickInterval ?? null,
           majorTickLengthX: axisSettings.x?.majorTickLength ?? null,
           majorTickLengthY: axisSettings.y?.majorTickLength ?? null,
+          xLabelAngle: axisSettings.x?.labelAngle ?? null,
           minorTicksX: axisSettings.x?.minorTicks ?? false,
           minorTicksY: axisSettings.y?.minorTicks ?? false,
           minorTickSubdivisionsX: clampMinorTickSubdivisions(axisSettings.x?.minorTickSubdivisions),

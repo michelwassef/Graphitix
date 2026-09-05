@@ -343,17 +343,17 @@
     return {
       strokeWidth: 1,
       color: DEFAULT_AXIS_COLOR,
-      x: { tickInterval: null, majorTickLength: null, minorTicks: false, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS },
+      x: { tickInterval: null, majorTickLength: null, labelAngle: null, minorTicks: false, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS },
       y: { tickInterval: null, majorTickLength: null, minorTicks: false, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS }
     };
   }
 
   function normalizeOwnedAxisSettings(settings){
     const source = settings && typeof settings === 'object' ? settings : {};
-    const normalizeAxis = value => {
+    const normalizeAxis = (value, options = {}) => {
       const axis = value && typeof value === 'object' ? value : {};
       const tickInterval = Number(axis.tickInterval);
-      return {
+      const normalized = {
         tickInterval: axis.tickInterval === null || axis.tickInterval === undefined || axis.tickInterval === ''
           ? null
           : (Number.isFinite(tickInterval) && tickInterval > 0 ? tickInterval : null),
@@ -361,12 +361,16 @@
         minorTicks: !!axis.minorTicks,
         minorTickSubdivisions: clampMinorTickSubdivisions(axis.minorTickSubdivisions)
       };
+      if(options.includeLabelAngle === true){
+        normalized.labelAngle = chartStyle.normalizeOptionalXAxisLabelAngle(axis.labelAngle);
+      }
+      return normalized;
     };
     const strokeWidth = Number(source.strokeWidth);
     return {
       strokeWidth: Number.isFinite(strokeWidth) && strokeWidth > 0 ? strokeWidth : 1,
       color: typeof source.color === 'string' && source.color.trim() ? source.color : DEFAULT_AXIS_COLOR,
-      x: normalizeAxis(source.x),
+      x: normalizeAxis(source.x, { includeLabelAngle: true }),
       y: normalizeAxis(source.y)
     };
   }
@@ -455,6 +459,23 @@
     });
     pieDebug('Debug: pie major tick length updated',{ axis, majorTickLength: nextValue });
     scheduleAxisSettingsDraw(result, `pie-${axis}-major-tick-length-change`);
+  }
+
+  function getXAxisTickLabelAngle(session = null){
+    return chartStyle.normalizeOptionalXAxisLabelAngle(resolveAxisSettingsForOwner(session).x?.labelAngle);
+  }
+
+  function updateXAxisTickLabelAngle(value, session = null){
+    const owner = session || getActivePieSessionForState();
+    if(owner && !isPieSessionActive(owner)){
+      pieDebug('Debug: pie x tick label angle ignored for inactive owner', { tabId: owner.tabId || null });
+      return;
+    }
+    const result = mutateAxisSettingsForOwner(owner, 'pie-axis-x-label-angle', settings => {
+      settings.x.labelAngle = chartStyle.normalizeOptionalXAxisLabelAngle(value);
+    });
+    pieDebug('Debug: pie x tick label angle updated',{ angle: result.settings.x.labelAngle, tabId: result.owner?.tabId || null });
+    schedulePieViewRefresh('pie-axis-x-label-angle', { tabId: result.owner?.tabId || null, userInitiated: true });
   }
 
   function getAxisMinorTicksEnabled(axis, session = null){
@@ -550,6 +571,9 @@
       getEffectiveTickInterval: () => axisMeta?.effectiveTickInterval ?? null,
       getMajorTickLength: () => getAxisMajorTickLength(axis, owner),
       onMajorTickLengthChange: value => updateAxisMajorTickLength(axis, value, owner),
+      getTickLabelAngle: () => axis === 'x' ? getXAxisTickLabelAngle(owner) : null,
+      onTickLabelAngleChange: value => { if(axis === 'x'){ updateXAxisTickLabelAngle(value, owner); } },
+      isTickLabelAngleSupported: () => axis === 'x',
       isMajorTickLengthSupported: () => true,
       majorTickLengthPlaceholder: 'Auto',
       getThickness: () => getAxisStrokeWidthBase(owner),
@@ -585,6 +609,7 @@
       const xMajorTickLength = settings.majorTickLengthX ?? settings.xMajorTickLength ?? settings?.x?.majorTickLength ?? null;
       const yMajorTickLength = settings.majorTickLengthY ?? settings.yMajorTickLength ?? settings?.y?.majorTickLength ?? null;
       base.x.majorTickLength = chartStyle.normalizeOptionalMajorTickLength(xMajorTickLength);
+      base.x.labelAngle = chartStyle.normalizeOptionalXAxisLabelAngle(settings.xLabelAngle ?? settings.labelAngleX ?? settings?.x?.labelAngle);
       base.y.majorTickLength = chartStyle.normalizeOptionalMajorTickLength(yMajorTickLength);
       base.x.minorTicks = !!(settings.minorTicksX ?? settings.x?.minorTicks ?? false);
       base.y.minorTicks = !!(settings.minorTicksY ?? settings.y?.minorTicks ?? false);
@@ -5935,6 +5960,7 @@ let state = {
           tickIntervalY: axisSettings.y?.tickInterval ?? null,
           majorTickLengthX: axisSettings.x?.majorTickLength ?? null,
           majorTickLengthY: axisSettings.y?.majorTickLength ?? null,
+          xLabelAngle: axisSettings.x?.labelAngle ?? null,
           minorTicksX: axisSettings.x?.minorTicks ?? false,
           minorTicksY: axisSettings.y?.minorTicks ?? false,
           minorTickSubdivisionsX: clampMinorTickSubdivisions(axisSettings.x?.minorTickSubdivisions),
@@ -6564,7 +6590,8 @@ let state = {
         ...yMarginRequirements.requiredMargins,
         bottom: stackedBaseBottom
       };
-      const previousRotate = state.xTickRotateVertical === true;
+      const manualXAxisLabelAngle = getXAxisTickLabelAngle(drawSession);
+      const previousRotate = manualXAxisLabelAngle === null && state.xTickRotateVertical === true;
       const bottomLayout=chartStyle.computeBottomLayout({
         labels:barHeaders,
         fontSize:fs,
@@ -6574,6 +6601,7 @@ let state = {
         baseBottom:stackedBaseBottom,
         axisMetrics,
         preservePlotRail:true,
+        manualLabelRotationAngleDeg:manualXAxisLabelAngle,
         bottomReserveMode:'projected-tick-label',
         includeAxisTitleReserve:false,
         labelRotationAngleDeg:45,
@@ -6583,7 +6611,9 @@ let state = {
           exitRatio:0.96
         }
       });
-      state.xTickRotateVertical = bottomLayout.shouldRotate === true;
+      if(manualXAxisLabelAngle === null){
+        state.xTickRotateVertical = bottomLayout.shouldRotate === true;
+      }
       requiredMargins.bottom = Math.max(stackedBaseBottom, Number(bottomLayout.requiredBottom) || stackedBaseBottom);
       const requiredBottomViewportExtension = Math.max(0, Math.ceil(requiredMargins.bottom - stackedBaseBottom));
       const categoryEndpointLeftReserve = Math.max(
@@ -6594,7 +6624,10 @@ let state = {
         0,
         Number(categoryMarginRequirements.requiredMargins.right || 0) - Number(yMarginRequirements.requiredMargins.right || 0)
       );
-      const rotatedXLabelLeadingInsetPx = chartStyle.resolveRotatedXAxisLeadingInset(bottomLayout, margin.left);
+      const rotatedXLabelEndpointInsets = chartStyle.resolveRotatedXAxisEndpointInsets(bottomLayout, {
+        left: margin.left,
+        right: margin.right
+      });
       const pieLayoutOwner = {
         tabId: execution?.tabId || drawSession?.tabId || drawTabId || drawOptions?.tabId || null,
         component: 'pie',
@@ -6626,14 +6659,14 @@ let state = {
         {
           name: 'category-leading-rotated',
           side: 'left',
-          amount: bottomLayout.shouldRotate ? rotatedXLabelLeadingInsetPx : 0,
+          amount: bottomLayout.shouldRotate ? rotatedXLabelEndpointInsets.left : 0,
           behavior: 'max',
           group: 'category-leading'
         },
         {
           name: 'category-trailing',
           side: 'right',
-          amount: categoryEndpointRightReserve,
+          amount: Math.max(categoryEndpointRightReserve, rotatedXLabelEndpointInsets.right),
           behavior: 'external'
         }
       ];
@@ -6889,7 +6922,7 @@ let state = {
         xLabels.push(lbl);
       }
       pieDebug('Debug: pie stacked font tick binding',{ stackedXTickCount, stackedYTickCount });
-      chartStyle.applyLabelOrientation(xLabels,{angle:-45,anchor:'end',dy:'0.35em',force:bottomLayout.shouldRotate});
+      chartStyle.applyLabelOrientation(xLabels, chartStyle.resolveXAxisLabelOrientation(bottomLayout, manualXAxisLabelAngle));
       // Legend now rendered inside the SVG so it can be repositioned.
       if(stackedLegendVisible){
         const legendRenderer = stackedLegendLayout.renderer;

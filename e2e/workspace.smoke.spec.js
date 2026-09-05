@@ -346,9 +346,9 @@ test('overflowing workspace tabs use a thin scrollbar', async ({ page }) => {
   });
 
   expect(scrollbar.overflows).toBe(true);
-  expect(scrollbar.dockHeight).toBe(46);
+  expect(scrollbar.dockHeight).toBe(42);
   expect(scrollbar.thickness).toBeLessThanOrEqual(8);
-  expect(scrollbar.tabHeight).toBeGreaterThanOrEqual(40);
+  expect(scrollbar.tabHeight).toBeGreaterThanOrEqual(36);
   expect(scrollbar.tabBottom).toBeLessThanOrEqual(scrollbar.visibleBottom);
   expect(scrollbar.labelBottom).toBeLessThanOrEqual(scrollbar.visibleBottom);
 
@@ -357,7 +357,7 @@ test('overflowing workspace tabs use a thin scrollbar', async ({ page }) => {
     session.workspaceState.tabs.splice(1);
     tabs.renderTabs();
   });
-  await expect.poll(() => page.locator('#workspaceTabsDock').evaluate(node => node.getBoundingClientRect().height)).toBe(40);
+  await expect.poll(() => page.locator('#workspaceTabsDock').evaluate(node => node.getBoundingClientRect().height)).toBe(36);
 });
 
 test('Surface legend visibility is canonical and does not alter plot geometry', async ({ page }) => {

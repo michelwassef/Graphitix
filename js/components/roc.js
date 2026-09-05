@@ -655,7 +655,7 @@
     return {
       strokeWidth: 1,
       color: DEFAULT_AXIS_COLOR,
-      x: { tickInterval: null, majorTickLength: null, minorTicks: false, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS },
+      x: { tickInterval: null, majorTickLength: null, labelAngle: null, minorTicks: false, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS },
       y: { tickInterval: null, majorTickLength: null, minorTicks: false, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS }
     };
   }
@@ -3082,7 +3082,7 @@
     }
     const target = owner?.state?.axisSettings || state.axisSettings;
     if(!target.x || typeof target.x !== 'object'){
-      target.x = { tickInterval: null, majorTickLength: null, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS };
+      target.x = { tickInterval: null, majorTickLength: null, labelAngle: null, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS };
     }
     if(!target.y || typeof target.y !== 'object'){
       target.y = { tickInterval: null, majorTickLength: null, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS };
@@ -3093,6 +3093,7 @@
     if(typeof target.y.minorTicks !== 'boolean'){
       target.y.minorTicks = false;
     }
+    target.x.labelAngle = chartStyle.normalizeOptionalXAxisLabelAngle(target.x.labelAngle);
     target.x.minorTickSubdivisions = clampMinorTickSubdivisions(target.x.minorTickSubdivisions);
     target.y.minorTickSubdivisions = clampMinorTickSubdivisions(target.y.minorTickSubdivisions);
     const numericStroke = Number(target.strokeWidth);
@@ -3188,6 +3189,32 @@
     settings[axis].majorTickLength = nextValue;
     console.debug('Debug: roc major tick length updated',{ axis, majorTickLength: nextValue });
     scheduleActiveRocDraw({ reason: `roc-${axis}-major-tick-length-change` });
+  }
+
+  function getXAxisTickLabelAngle(ownerSession = null){
+    const owner = ownerSession || getActiveRocSessionForState();
+    if(owner && !isRocSessionActive(owner)){
+      return chartStyle.normalizeOptionalXAxisLabelAngle(owner.state?.axisSettings?.x?.labelAngle);
+    }
+    return chartStyle.normalizeOptionalXAxisLabelAngle(ensureAxisSettings().x?.labelAngle);
+  }
+
+  function updateXAxisTickLabelAngle(value, ownerSession = null){
+    const owner = ownerSession || getActiveRocSessionForState();
+    if(owner && !isRocSessionActive(owner)){
+      console.debug('Debug: roc x tick label angle ignored for inactive owner', { tabId: owner.tabId || null });
+      return;
+    }
+    const settings = ensureAxisSettings();
+    const nextValue = chartStyle.normalizeOptionalXAxisLabelAngle(value);
+    if(settings.x.labelAngle === nextValue){ return; }
+    settings.x.labelAngle = nextValue;
+    if(owner?.state){
+      owner.state.axisSettings = cloneSimple(settings);
+      owner.updatedAt = Date.now();
+    }
+    console.debug('Debug: roc x tick label angle updated',{ angle: nextValue, tabId: owner?.tabId || null });
+    scheduleRocViewRefresh('roc-axis-x-label-angle', { tabId: owner?.tabId || null, userInitiated: true });
   }
 
   function getAxisMinorTicksEnabled(axis){
@@ -3288,6 +3315,9 @@
       getEffectiveTickInterval: () => axisMeta?.effectiveTickInterval ?? null,
       getMajorTickLength: () => getAxisMajorTickLength(axis),
       onMajorTickLengthChange: value => updateAxisMajorTickLength(axis, value),
+      getTickLabelAngle: () => axis === 'x' ? getXAxisTickLabelAngle(owner) : null,
+      onTickLabelAngleChange: value => { if(axis === 'x'){ updateXAxisTickLabelAngle(value, owner); } },
+      isTickLabelAngleSupported: () => axis === 'x',
       isMajorTickLengthSupported: () => true,
       majorTickLengthPlaceholder: 'Auto',
       getThickness: () => getAxisStrokeWidthBase(),
@@ -3359,6 +3389,7 @@
       const xMajorTickLength = settings.majorTickLengthX ?? settings.xMajorTickLength ?? settings?.x?.majorTickLength ?? null;
       const yMajorTickLength = settings.majorTickLengthY ?? settings.yMajorTickLength ?? settings?.y?.majorTickLength ?? null;
       base.x.majorTickLength = chartStyle.normalizeOptionalMajorTickLength(xMajorTickLength);
+      base.x.labelAngle = chartStyle.normalizeOptionalXAxisLabelAngle(settings.xLabelAngle ?? settings.labelAngleX ?? settings?.x?.labelAngle);
       base.y.majorTickLength = chartStyle.normalizeOptionalMajorTickLength(yMajorTickLength);
       base.x.minorTicks = !!(settings.minorTicksX ?? settings.x?.minorTicks ?? false);
       base.y.minorTicks = !!(settings.minorTicksY ?? settings.y?.minorTicks ?? false);
@@ -5976,7 +6007,8 @@
     let plotHeight = Math.max(20, height - margin.top - margin.bottom);
     let bottomLayout = chartStyle.computeBottomLayout({
       labels: xTickLabels, fontSize, labelMeasureFont: xTickMeasureFont, plotWidth,
-      baseBottom: margin.bottom, axisMetrics, preservePlotRail: true
+      baseBottom: margin.bottom, axisMetrics, preservePlotRail: true,
+      manualLabelRotationAngleDeg: getXAxisTickLabelAngle(drawSession)
     });
     const ungutteredRight = margin.right;
     margin = applyRocDefaultXAxisGutter(margin, plotWidth, plotHeight, drawRefs.svgBox);
@@ -6009,7 +6041,8 @@
       plotHeight = Math.max(20, height - margin.top - margin.bottom);
       bottomLayout = chartStyle.computeBottomLayout({
         labels: xTickLabels, fontSize, labelMeasureFont: xTickMeasureFont, plotWidth,
-        baseBottom: margin.bottom, axisMetrics, preservePlotRail: true
+        baseBottom: margin.bottom, axisMetrics, preservePlotRail: true,
+        manualLabelRotationAngleDeg: getXAxisTickLabelAngle(drawSession)
       });
       const loopUngutteredRight = margin.right;
       margin = applyRocDefaultXAxisGutter(margin, plotWidth, plotHeight, drawRefs.svgBox);
@@ -6219,7 +6252,7 @@
       Shared.applyTextBaseline && Shared.applyTextBaseline(txt, 'hanging', fontSize);
       xTickNodes.push(txt);
     });
-    chartStyle.applyLabelOrientation(xTickNodes,{angle:-45,anchor:'end',dy:'0.35em',force:bottomLayout.shouldRotate});
+    chartStyle.applyLabelOrientation(xTickNodes, chartStyle.resolveXAxisLabelOrientation(bottomLayout, getXAxisTickLabelAngle(drawSession)));
     if(minorTicksY.length){
       minorTicksY.forEach(value => {
         const y = yToPx(value);
@@ -6809,6 +6842,7 @@
       tickIntervalY: axisSettings.y?.tickInterval ?? null,
           majorTickLengthX: axisSettings.x?.majorTickLength ?? null,
           majorTickLengthY: axisSettings.y?.majorTickLength ?? null,
+          xLabelAngle: axisSettings.x?.labelAngle ?? null,
       minorTicksX: axisSettings.x?.minorTicks ?? false,
       minorTicksY: axisSettings.y?.minorTicks ?? false,
       minorTickSubdivisionsX: clampMinorTickSubdivisions(axisSettings.x?.minorTickSubdivisions),

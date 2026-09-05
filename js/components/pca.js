@@ -8297,7 +8297,7 @@
       strokeWidth: 1,
       color: DEFAULT_AXIS_COLOR,
       x: {
-        tickInterval: null, majorTickLength: null,
+        tickInterval: null, majorTickLength: null, labelAngle: null,
         minorTicks: false,
         minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS
       },
@@ -8446,7 +8446,7 @@
     }
     if (!pcaState.axisSettings.x || typeof pcaState.axisSettings.x !== 'object') {
       pcaState.axisSettings.x = {
-        tickInterval: null, majorTickLength: null,
+        tickInterval: null, majorTickLength: null, labelAngle: null,
         minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS
       };
     }
@@ -8462,6 +8462,7 @@
     if (typeof pcaState.axisSettings.y.minorTicks !== 'boolean') {
       pcaState.axisSettings.y.minorTicks = false;
     }
+    pcaState.axisSettings.x.labelAngle = chartStyle.normalizeOptionalXAxisLabelAngle(pcaState.axisSettings.x.labelAngle);
     pcaState.axisSettings.x.minorTickSubdivisions = clampMinorTickSubdivisions(pcaState.axisSettings.x.minorTickSubdivisions);
     pcaState.axisSettings.y.minorTickSubdivisions = clampMinorTickSubdivisions(pcaState.axisSettings.y.minorTickSubdivisions);
     const numericStroke = Number(pcaState.axisSettings.strokeWidth);
@@ -8569,6 +8570,33 @@
     settings[axis].majorTickLength = nextValue;
     debugLog('Debug: pca major tick length updated',{ axis, majorTickLength: nextValue });
     requestPcaViewRefresh(`axis-major-tick-length-${axis}`);
+  }
+
+  function getXAxisTickLabelAngle(ownerSession = null){
+    const owner = ownerSession || pcaControlOwnerContext?.session || getActivePcaSessionForState();
+    if(owner && !isPcaSessionActiveForModuleState(owner)){
+      return chartStyle.normalizeOptionalXAxisLabelAngle(owner.state?.state?.axisSettings?.x?.labelAngle);
+    }
+    return chartStyle.normalizeOptionalXAxisLabelAngle(ensureAxisSettings().x?.labelAngle);
+  }
+
+  function updateXAxisTickLabelAngle(value, ownerSession = null){
+    const owner = ownerSession || pcaControlOwnerContext?.session || getActivePcaSessionForState();
+    if(owner && !isPcaSessionActiveForModuleState(owner)){
+      debugLog('Debug: pca x tick label angle ignored for inactive owner', { tabId: owner.tabId || null });
+      return;
+    }
+    const settings = ensureAxisSettings();
+    const nextValue = chartStyle.normalizeOptionalXAxisLabelAngle(value);
+    if(settings.x.labelAngle === nextValue){ return; }
+    settings.x.labelAngle = nextValue;
+    if(owner?.state?.state){
+      owner.state.state.axisSettings = cloneSimple(settings);
+      owner.updatedAt = Date.now();
+    }
+    markPcaPayloadDirtyForSession(owner, 'pca-axis-x-label-angle');
+    debugLog('Debug: pca x tick label angle updated', { angle: nextValue, tabId: owner?.tabId || null });
+    requestPcaViewRefresh('pca-axis-x-label-angle', { tabId: owner?.tabId || null, userInitiated: true });
   }
 
   function getAxisMinorTicksEnabled(axis) {
@@ -8896,6 +8924,9 @@
       getEffectiveTickInterval: () => axisMeta?.effectiveTickInterval ?? null,
       getMajorTickLength: () => getAxisMajorTickLength(axis),
       onMajorTickLengthChange: value => updateAxisMajorTickLength(axis, value),
+      getTickLabelAngle: () => axis === 'x' ? getXAxisTickLabelAngle(owner) : null,
+      onTickLabelAngleChange: value => { if(axis === 'x'){ updateXAxisTickLabelAngle(value, owner); } },
+      isTickLabelAngleSupported: () => axis === 'x',
       isMajorTickLengthSupported: () => true,
       majorTickLengthPlaceholder: 'Auto',
       getThickness: () => getAxisStrokeWidthBase(),
@@ -8955,6 +8986,7 @@
       const xMajorTickLength = settings.majorTickLengthX ?? settings.xMajorTickLength ?? settings?.x?.majorTickLength ?? null;
       const yMajorTickLength = settings.majorTickLengthY ?? settings.yMajorTickLength ?? settings?.y?.majorTickLength ?? null;
       base.x.majorTickLength = chartStyle.normalizeOptionalMajorTickLength(xMajorTickLength);
+      base.x.labelAngle = chartStyle.normalizeOptionalXAxisLabelAngle(settings.xLabelAngle ?? settings.labelAngleX ?? settings?.x?.labelAngle);
       base.y.majorTickLength = chartStyle.normalizeOptionalMajorTickLength(yMajorTickLength);
       base.x.minorTicks = !!(settings.minorTicksX ?? settings.x?.minorTicks ?? false);
       base.y.minorTicks = !!(settings.minorTicksY ?? settings.y?.minorTicks ?? false);
@@ -15447,7 +15479,8 @@
           plotWidth: metricLayout.plotW,
           baseBottom: candidateMargin.bottom,
           axisMetrics,
-          preservePlotRail: true
+          preservePlotRail: true,
+          manualLabelRotationAngleDeg: getXAxisTickLabelAngle(drawSession)
         });
         candidateRequiredMargins = {
           ...candidateRequiredMargins,
@@ -15884,12 +15917,7 @@
         xTickFontCount += 1;
         xTickNodes.push(txt);
       });
-      chartStyle.applyLabelOrientation(xTickNodes, {
-        angle: -45,
-        anchor: 'end',
-        dy: '0.35em',
-        force: bottomLayout.shouldRotate
-      });
+      chartStyle.applyLabelOrientation(xTickNodes, chartStyle.resolveXAxisLabelOrientation(bottomLayout, getXAxisTickLabelAngle(drawSession)));
 
       const yTickNodes = [];
       let yTickFontCount = 0;
@@ -16857,6 +16885,7 @@
         tickIntervalY: axisSettings?.y?.tickInterval ?? null,
         majorTickLengthX: axisSettings?.x?.majorTickLength ?? null,
         majorTickLengthY: axisSettings?.y?.majorTickLength ?? null,
+        xLabelAngle: axisSettings?.x?.labelAngle ?? null,
         minorTicksX: axisSettings?.x?.minorTicks ?? false,
         minorTicksY: axisSettings?.y?.minorTicks ?? false,
         minorTickSubdivisionsX: clampMinorTickSubdivisions(axisSettings?.x?.minorTickSubdivisions),

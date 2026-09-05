@@ -10859,7 +10859,7 @@
     return {
       strokeWidth: 1,
       color: DEFAULT_AXIS_COLOR,
-      x: { tickInterval: null, majorTickLength: null, minorTicks: false, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'decimal', additionalTicks: [], brokenAxis: { enabled: false, segments: [] } },
+      x: { tickInterval: null, majorTickLength: null, labelAngle: null, minorTicks: false, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'decimal', additionalTicks: [], brokenAxis: { enabled: false, segments: [] } },
       y: { tickInterval: null, majorTickLength: null, minorTicks: false, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'decimal', additionalTicks: [], brokenAxis: { enabled: false, segments: [] } }
     };
   }
@@ -10928,7 +10928,7 @@
       scatterAxisSettings = createScatterAxisSettings();
     }
     if(!scatterAxisSettings.x || typeof scatterAxisSettings.x !== 'object'){
-      scatterAxisSettings.x = { tickInterval: null, majorTickLength: null, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'decimal', additionalTicks: [], brokenAxis: { enabled: false, segments: [] } };
+      scatterAxisSettings.x = { tickInterval: null, majorTickLength: null, labelAngle: null, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'decimal', additionalTicks: [], brokenAxis: { enabled: false, segments: [] } };
     }
     if(!scatterAxisSettings.y || typeof scatterAxisSettings.y !== 'object'){
       scatterAxisSettings.y = { tickInterval: null, majorTickLength: null, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'decimal', additionalTicks: [], brokenAxis: { enabled: false, segments: [] } };
@@ -10957,6 +10957,7 @@
     if(!Array.isArray(scatterAxisSettings.y.brokenAxis.segments)){
       scatterAxisSettings.y.brokenAxis.segments = [];
     }
+    scatterAxisSettings.x.labelAngle = chartStyle.normalizeOptionalXAxisLabelAngle(scatterAxisSettings.x.labelAngle);
     scatterAxisSettings.x.minorTickSubdivisions = clampMinorTickSubdivisions(scatterAxisSettings.x.minorTickSubdivisions);
     scatterAxisSettings.y.minorTickSubdivisions = clampMinorTickSubdivisions(scatterAxisSettings.y.minorTickSubdivisions);
     const strokeNumeric = Number(scatterAxisSettings.strokeWidth);
@@ -11036,6 +11037,32 @@
     settings[axis].majorTickLength = nextValue;
     console.debug('Debug: scatter major tick length updated',{ axis, majorTickLength: nextValue });
     scheduleScatterViewRefresh(`axis-major-tick-length-${axis}`);
+  }
+
+  function getScatterXAxisTickLabelAngle(ownerSession = null){
+    const owner = ownerSession || getActiveScatterSessionForState();
+    if(owner && !isScatterSessionActiveForModuleState(owner)){
+      return chartStyle.normalizeOptionalXAxisLabelAngle(owner.state?.axisSettings?.x?.labelAngle);
+    }
+    return chartStyle.normalizeOptionalXAxisLabelAngle(ensureScatterAxisSettings().x?.labelAngle);
+  }
+
+  function updateScatterXAxisTickLabelAngle(value, ownerSession = null){
+    const owner = ownerSession || getActiveScatterSessionForState();
+    if(owner && !isScatterSessionActiveForModuleState(owner)){
+      scatterDebug('Debug: scatter x tick label angle ignored for inactive owner', { tabId: owner.tabId || null });
+      return;
+    }
+    const settings = ensureScatterAxisSettings();
+    const nextValue = chartStyle.normalizeOptionalXAxisLabelAngle(value);
+    if(settings.x.labelAngle === nextValue){ return; }
+    settings.x.labelAngle = nextValue;
+    if(owner?.state){
+      owner.state.axisSettings = cloneSimple(settings);
+      owner.updatedAt = Date.now();
+    }
+    console.debug('Debug: scatter x tick label angle updated',{ angle: nextValue, tabId: owner?.tabId || null });
+    scheduleScatterViewRefresh('axis-x-label-angle', { tabId: owner?.tabId || null, userInitiated: true });
   }
 
   function getScatterAxisMinorTicksEnabled(axis){
@@ -11226,6 +11253,9 @@
       getEffectiveTickInterval: () => axisMeta?.effectiveTickInterval ?? null,
       getMajorTickLength: () => getScatterAxisMajorTickLength(axis),
       onMajorTickLengthChange: value => updateScatterAxisMajorTickLength(axis, value),
+      getTickLabelAngle: () => axis === 'x' ? getScatterXAxisTickLabelAngle(owner) : null,
+      onTickLabelAngleChange: value => { if(axis === 'x'){ updateScatterXAxisTickLabelAngle(value, owner); } },
+      isTickLabelAngleSupported: () => axis === 'x',
       isMajorTickLengthSupported: () => true,
       majorTickLengthPlaceholder: 'Auto',
       getThickness: () => getScatterAxisStrokeWidth(),
@@ -11359,6 +11389,7 @@
       const xMajorTickLength = settings.majorTickLengthX ?? settings.xMajorTickLength ?? settings?.x?.majorTickLength ?? null;
       const yMajorTickLength = settings.majorTickLengthY ?? settings.yMajorTickLength ?? settings?.y?.majorTickLength ?? null;
       base.x.majorTickLength = chartStyle.normalizeOptionalMajorTickLength(xMajorTickLength);
+      base.x.labelAngle = chartStyle.normalizeOptionalXAxisLabelAngle(settings.xLabelAngle ?? settings.labelAngleX ?? settings?.x?.labelAngle);
       base.y.majorTickLength = chartStyle.normalizeOptionalMajorTickLength(yMajorTickLength);
       base.x.minorTicks = !!(settings.minorTicksX ?? settings.x?.minorTicks ?? false);
       base.y.minorTicks = !!(settings.minorTicksY ?? settings.y?.minorTicks ?? false);
@@ -23673,7 +23704,7 @@ const isXValueVisible = value => {
           });
         }
       }
-      chartStyle.applyLabelOrientation(xTickNodes,{angle:-45,anchor:'end',dy:'0.35em',force:bottomLayout.shouldRotate});
+      chartStyle.applyLabelOrientation(xTickNodes, chartStyle.resolveXAxisLabelOrientation(bottomLayout, getScatterXAxisTickLabelAngle(ownerSession)));
       const yTickNodes=[];
       const yMajorTickLabels=[];
       let yTickFontCount=0;
@@ -26762,7 +26793,8 @@ async function drawScatter(drawOptions = {}){
       let plotH=Math.max(20,H-margin.top-margin.bottom);
       let bottomLayout=chartStyle.computeBottomLayout({
         labels:[],fontSize:fs,labelMeasureFont:xTickMeasureFont,labelFontSizePx:xTickFontSize,
-        plotWidth:plotW,baseBottom:margin.bottom,axisMetrics,preservePlotRail:true
+        plotWidth:plotW,baseBottom:margin.bottom,axisMetrics,preservePlotRail:true,
+        manualLabelRotationAngleDeg:getScatterXAxisTickLabelAngle(drawSession)
       });
       let requiredMargins={
         ...cartesianMarginRequirements.requiredMargins,
@@ -26856,7 +26888,8 @@ async function drawScatter(drawOptions = {}){
         plotH=Math.max(20,H-margin.top-margin.bottom);
         bottomLayout=chartStyle.computeBottomLayout({
           labels:xTickLabels,fontSize:fs,labelMeasureFont:xTickMeasureFont,labelFontSizePx:xTickFontSize,
-          plotWidth:plotW,baseBottom:margin.bottom,axisMetrics,preservePlotRail:true
+          plotWidth:plotW,baseBottom:margin.bottom,axisMetrics,preservePlotRail:true,
+          manualLabelRotationAngleDeg:getScatterXAxisTickLabelAngle(drawSession)
         });
         requiredMargins={
           ...cartesianMarginRequirements.requiredMargins,
@@ -27746,6 +27779,7 @@ async function drawScatter(drawOptions = {}){
           tickIntervalY: axisSettings.y?.tickInterval ?? null,
           majorTickLengthX: axisSettings.x?.majorTickLength ?? null,
           majorTickLengthY: axisSettings.y?.majorTickLength ?? null,
+          xLabelAngle: axisSettings.x?.labelAngle ?? null,
           minorTicksX: axisSettings.x?.minorTicks ?? false,
           minorTicksY: axisSettings.y?.minorTicks ?? false,
           minorTickSubdivisionsX: clampMinorTickSubdivisions(axisSettings.x?.minorTickSubdivisions),

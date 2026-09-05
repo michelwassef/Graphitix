@@ -201,9 +201,12 @@ describe('axisControls — generic numeric wheel editing', () => {
     });
 
     axis.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-    const numericInputs = host.querySelectorAll('.axis-controls-panel input[type="number"]');
-    const intervalInput = numericInputs[0];
-    const tickLengthInput = numericInputs[1];
+    const intervalInput = host.querySelector(
+      '.axis-controls-panel__field--tick-interval input[type="number"]'
+    );
+    const tickLengthInput = host.querySelector(
+      '.axis-controls-panel__field--major-tick-length input[type="number"]'
+    );
     const toolbarApi = window.Shared.workspaceToolbar;
     expect(intervalInput.value).toBe('10');
     expect(tickLengthInput.value).toBe('6');
@@ -234,6 +237,90 @@ describe('axisControls — generic numeric wheel editing', () => {
     expect(recorded[0].to).toBe(12);
     expect(recorded[1].from).toBe(6);
     expect(recorded[1].to).toBe(5);
+  });
+});
+
+
+describe('axisControls — X tick label angle editing', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    document.body.innerHTML = '';
+  });
+
+  afterEach(() => {
+    window.Shared?.workspaceToolbar?.flushNumericWheelGesture?.({ commit: false, reason: 'test-cleanup' });
+    jest.runOnlyPendingTimers();
+    jest.useRealTimers();
+  });
+
+  test('shows the angle control only for supported X axes and records one undoable wheel edit', () => {
+    jest.resetModules();
+    delete window.Shared;
+    require('../js/shared/workspaceToolbarAccess.js');
+    require('../js/shared/workspaceToolbar.js');
+    require('../js/shared/styleUndo.js');
+    require('../js/shared/chartStyle.js');
+
+    const recorded = [];
+    window.Shared.undoManager = {
+      recordStateChange: entry => recorded.push(entry)
+    };
+    require('../js/shared/axisControls.js');
+
+    const host = document.createElement('div');
+    host.className = 'font-toolbar-host';
+    host.dataset.fontToolbarScope = 'test';
+    document.body.appendChild(host);
+
+    const ownerRoot = document.createElement('div');
+    ownerRoot.dataset.workspaceTabId = 'tab-a';
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    const xAxis = document.createElementNS(svg.namespaceURI, 'line');
+    svg.appendChild(xAxis);
+    ownerRoot.appendChild(svg);
+    document.body.appendChild(ownerRoot);
+
+    let labelAngle = null;
+    window.Shared.axisControls.registerAxisElement(xAxis, {
+      axis: 'x',
+      scopeId: 'test',
+      tabId: 'tab-a',
+      getTickInterval: () => null,
+      onTickIntervalChange: () => {},
+      getTickLabelAngle: () => labelAngle,
+      onTickLabelAngleChange: value => { labelAngle = value; },
+      isTickLabelAngleSupported: () => true,
+      getThickness: () => 1,
+      getColor: () => '#000000',
+      onThicknessChange: () => {},
+      onColorChange: () => {}
+    });
+
+    xAxis.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    const angleField = host.querySelector('.axis-controls-panel__field--tick-label-angle');
+    const angleInput = angleField?.querySelector('input[type="number"]');
+    expect(angleField?.hidden).toBe(false);
+    expect(angleInput).toBeTruthy();
+    expect(angleInput.value).toBe('');
+    expect(angleInput.placeholder).toBe('Auto');
+    expect(angleInput.min).toBe('-90');
+    expect(angleInput.max).toBe('90');
+
+    labelAngle = 0;
+    expect(window.Shared.axisControls.refreshActivePanel()).toBe(true);
+    jest.advanceTimersByTime(0);
+    expect(angleInput.value).toBe('0');
+
+    const toolbarApi = window.Shared.workspaceToolbar;
+    toolbarApi.handleNumericWheelEvent({ deltaY: 100, preventDefault: jest.fn() }, angleInput);
+    expect(angleInput.value).toBe('-5');
+    jest.advanceTimersByTime(0);
+    expect(labelAngle).toBe(-5);
+    jest.advanceTimersByTime(toolbarApi.numericWheelCommitDelayMs);
+    expect(recorded).toHaveLength(1);
+    expect(recorded[0].label).toBe('axis:test:x:tickLabelAngle');
+    expect(recorded[0].from).toBe(0);
+    expect(recorded[0].to).toBe(-5);
   });
 });
 

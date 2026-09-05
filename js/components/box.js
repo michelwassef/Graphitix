@@ -6328,7 +6328,7 @@
     return {
       strokeWidth: 1,
       color: DEFAULT_AXIS_COLOR,
-      x: { tickInterval: null, majorTickLength: null, datasetSpacing: DEFAULT_X_DATASET_SPACING, minorTicks: false, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'decimal', additionalTicks: [] },
+      x: { tickInterval: null, majorTickLength: null, labelAngle: null, datasetSpacing: DEFAULT_X_DATASET_SPACING, minorTicks: false, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'decimal', additionalTicks: [] },
       y: { tickInterval: null, majorTickLength: null, datasetSpacing: DEFAULT_X_DATASET_SPACING, minorTicks: false, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'decimal', additionalTicks: [], brokenAxis: { enabled: false, segments: [] } }
     };
   }
@@ -10367,6 +10367,9 @@
       getMajorTickLength: () => getAxisMajorTickLength(axis),
       onMajorTickLengthChange: value => updateAxisMajorTickLength(axis, value),
       isMajorTickLengthSupported: () => true,
+      getTickLabelAngle: () => axis === 'x' ? getXAxisTickLabelAngle(ownerSession) : null,
+      onTickLabelAngleChange: value => { if(axis === 'x'){ updateXAxisTickLabelAngle(value, ownerSession); } },
+      isTickLabelAngleSupported: () => axis === 'x',
       majorTickLengthPlaceholder: 'Auto',
       getThickness: () => getAxisStrokeWidthBase(),
       getColor: () => getAxisColor(),
@@ -13014,10 +13017,11 @@
 
   function ensureAxisSettings(){
     const settings = state.axisSettings && typeof state.axisSettings === 'object' ? state.axisSettings : createDefaultAxisSettings();
-    if(!settings.x || typeof settings.x !== 'object'){ settings.x = { tickInterval: null, majorTickLength: null, datasetSpacing: DEFAULT_X_DATASET_SPACING, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'decimal', additionalTicks: [] }; }
+    if(!settings.x || typeof settings.x !== 'object'){ settings.x = { tickInterval: null, majorTickLength: null, labelAngle: null, datasetSpacing: DEFAULT_X_DATASET_SPACING, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'decimal', additionalTicks: [] }; }
     if(!settings.y || typeof settings.y !== 'object'){ settings.y = { tickInterval: null, majorTickLength: null, datasetSpacing: DEFAULT_X_DATASET_SPACING, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'decimal', additionalTicks: [], brokenAxis: { enabled: false, segments: [] } }; }
     if(settings.x.tickInterval === undefined){ settings.x.tickInterval = null; }
     if(settings.y.tickInterval === undefined){ settings.y.tickInterval = null; }
+    settings.x.labelAngle = chartStyle.normalizeOptionalXAxisLabelAngle(settings.x.labelAngle);
     settings.x.datasetSpacing = sanitizeXAxisDatasetSpacing(settings.x.datasetSpacing);
     settings.y.datasetSpacing = sanitizeXAxisDatasetSpacing(settings.y.datasetSpacing);
     if(typeof settings.x.minorTicks !== 'boolean'){ settings.x.minorTicks = false; }
@@ -13140,6 +13144,29 @@
     persistBoxAxisSettingsToOwnerSession(null, `axis-major-tick-length-${axis}`);
     boxLog('Debug: box major tick length updated',{ axis, majorTickLength: nextValue });
     scheduleBoxViewRefresh(`axis-major-tick-length-${axis}`);
+  }
+
+  function getXAxisTickLabelAngle(ownerSession = null){
+    const owner = ownerSession || getActiveBoxSessionForState();
+    if(owner && !isBoxSessionActiveForModuleState(owner)){
+      return chartStyle.normalizeOptionalXAxisLabelAngle(owner.state?.layout?.axisSettings?.x?.labelAngle);
+    }
+    return chartStyle.normalizeOptionalXAxisLabelAngle(ensureAxisSettings().x?.labelAngle);
+  }
+
+  function updateXAxisTickLabelAngle(value, ownerSession = null){
+    const owner = ownerSession || getActiveBoxSessionForState();
+    if(owner && !isBoxSessionActiveForModuleState(owner)){
+      boxDebug('Debug: box x tick label angle ignored for inactive owner', { tabId: owner.tabId || null });
+      return;
+    }
+    const settings = ensureAxisSettings();
+    const nextValue = chartStyle.normalizeOptionalXAxisLabelAngle(value);
+    if(settings.x.labelAngle === nextValue){ return; }
+    settings.x.labelAngle = nextValue;
+    persistBoxAxisSettingsToOwnerSession(owner, 'box-x-tick-label-angle');
+    boxLog('Debug: box x tick label angle updated',{ angle: nextValue, tabId: owner?.tabId || null });
+    scheduleBoxViewRefresh('axis-x-label-angle', { tabId: owner?.tabId || null, userInitiated: true });
   }
 
   function getAxisMinorTicksEnabled(axis){
@@ -29603,7 +29630,8 @@ Technical analysis record (advanced)
       const compactBaseBottom = Math.ceil(xMajorTickLength + tickGap + xTickFontSize + compactLabelMargin);
       const requestedBaseBottom = Number.isFinite(Number(baseBottom)) ? Number(baseBottom) : compactBaseBottom;
       const safeBaseBottom = Math.min(Math.max(0, requestedBaseBottom), compactBaseBottom);
-      const previousRotate = state.xTickRotateVertical === true;
+      const manualXAxisLabelAngle = getXAxisTickLabelAngle(drawSession);
+      const previousRotate = manualXAxisLabelAngle === null && state.xTickRotateVertical === true;
       const categoricalLabelBandWidth = resolveCategoricalLabelBandWidth(plotWidth, labelTexts.length, 'x');
       const nextBottomLayout = chartStyle.computeBottomLayout({
         labels: labelTexts,
@@ -29619,6 +29647,7 @@ Technical analysis record (advanced)
         preservePlotRail: true,
         includeAxisTitleReserve: false,
         labelRotationAngleDeg: 45,
+        manualLabelRotationAngleDeg: manualXAxisLabelAngle,
         labelReserveMarginPx: compactLabelMargin,
         rotationHysteresis: {
           previousRotate,
@@ -29626,7 +29655,9 @@ Technical analysis record (advanced)
           exitRatio: 1.00
         }
       });
-      state.xTickRotateVertical = nextBottomLayout.shouldRotate === true;
+      if(manualXAxisLabelAngle === null){
+        state.xTickRotateVertical = nextBottomLayout.shouldRotate === true;
+      }
       const xLabelReserve = Math.max(0, Number(nextBottomLayout.requiredBottom ?? nextBottomLayout.bottom) - safeBaseBottom);
       const bottomViewportExtension = Math.ceil(xLabelReserve);
       const appliedDownShift = 0;
@@ -30265,12 +30296,10 @@ Technical analysis record (advanced)
     });
     boxLog('Debug: box font tick binding',{ xTickFontCount, yTickFontCount }); // Debug: tick font binding counts
     boxLog('Debug: box ticks stroke scaled',{ yTickCount: yScale.ticks.length, xTickCount: renderedXTicks, axisStrokeWidth });
-    chartStyle.applyLabelOrientation(xLabels,{
-      angle: -45,
-      anchor: 'end',
-      dy: '0.35em',
-      force: bottomLayout.shouldRotate
-    });
+    chartStyle.applyLabelOrientation(xLabels, chartStyle.resolveXAxisLabelOrientation(
+      bottomLayout,
+      getXAxisTickLabelAngle(drawSession)
+    ));
     if(xInterval && axisLabels.length){
       boxLog('Debug: box x-axis tick filter',{ interval: xInterval, rendered: renderedXTicks, total: axisLabels.length });
     }
@@ -30914,7 +30943,7 @@ Technical analysis record (advanced)
     const horizontalValueTickLabels = yScale.ticks.map(t => formatTick(logScale ? Math.pow(10, t) : t));
     const horizontalEndpointMargins = chartStyle.computeXAxisEndpointLabelMargins({
       labels: horizontalValueTickLabels,
-      labelMeasureFont: xTickMeasureProfile.fontSpec,
+      labelMeasureFont: yTickMeasureProfile.fontSpec,
       fontSize: valueTickFontSize
     });
     requiredMargins = {
@@ -30922,6 +30951,22 @@ Technical analysis record (advanced)
       left: Math.max(requiredMargins.left, horizontalEndpointMargins.left),
       right: Math.max(requiredMargins.right, horizontalEndpointMargins.right)
     };
+    const manualXAxisLabelAngle = getXAxisTickLabelAngle(drawSession);
+    const horizontalBottomLayout = manualXAxisLabelAngle === null ? null : chartStyle.computeBottomLayout({
+      labels: horizontalValueTickLabels,
+      fontSize: valueTitleFontSize,
+      labelMeasureFont: yTickMeasureProfile.fontSpec,
+      labelFontSizePx: valueTickFontSize,
+      plotWidth: plotWLocal,
+      baseBottom: marginLocal.bottom,
+      axisMetrics,
+      preservePlotRail: true,
+      includeAxisTitleReserve: true,
+      manualLabelRotationAngleDeg: manualXAxisLabelAngle
+    });
+    if(horizontalBottomLayout){
+      requiredMargins.bottom = Math.max(requiredMargins.bottom, horizontalBottomLayout.requiredBottom || marginLocal.bottom);
+    }
     const topReservePx = Math.max(0, Number(marginLocal.top) || 0);
     const bottomReservePx = Math.max(0, Number(marginLocal.bottom) || 0);
     const minPlotHeightPx = flipAxisLayout.applied
@@ -31175,6 +31220,7 @@ Technical analysis record (advanced)
       });
     }
     const xMajorTickLabels = [];
+    const xTickNodes = [];
     yScale.ticks.forEach(t => {
       if(!isXValueVisible(t)){
         return;
@@ -31189,6 +31235,7 @@ Technical analysis record (advanced)
       markFontEditable(txt, 'yTick');
       Shared.applyTextBaseline && Shared.applyTextBaseline(txt, 'hanging', valueTickFontSize);
       xMajorTickLabels.push({ pixel: x, node: txt });
+      xTickNodes.push(txt);
     });
     if(additionalXTicks.length){
       const renderExtras = axisExtras && typeof axisExtras.renderLinearExtras === 'function'
@@ -31263,9 +31310,16 @@ Technical analysis record (advanced)
             txt.textContent = label;
             markFontEditable(txt, 'yTick');
             Shared.applyTextBaseline && Shared.applyTextBaseline(txt, 'hanging', valueTickFontSize);
+            xTickNodes.push(txt);
           }
         });
       }
+    }
+    if(manualXAxisLabelAngle !== null){
+      chartStyle.applyLabelOrientation(xTickNodes, chartStyle.resolveXAxisLabelOrientation(
+        horizontalBottomLayout,
+        manualXAxisLabelAngle
+      ));
     }
     if(brokenScaleX && brokenScaleX.isBroken){
       let combinedLeft = Infinity;
@@ -31335,12 +31389,14 @@ Technical analysis record (advanced)
     }
     renderSharedPlotFrame({ margin: marginLocal, plotW: plotWLocal, plotH: plotHLocal, showFrame, sides: ['top', 'right'] });
     const defaultXLabelX = marginLocal.left + plotWLocal / 2;
-    const defaultXLabelY = xAxisBottom
-      + xMajorTickLength
-      + tickGap
-      + valueTickFontSize
-      + axisMetrics.axisTitleGap
-      + valueTitleFontSize;
+    const defaultXLabelY = horizontalBottomLayout
+      ? xAxisBottom + horizontalBottomLayout.titleOffset
+      : xAxisBottom
+        + xMajorTickLength
+        + tickGap
+        + valueTickFontSize
+        + axisMetrics.axisTitleGap
+        + valueTitleFontSize;
     const xLabelPos = state.labelPositions?.xLabel;
 
     // Convert relative positions to absolute if needed for xLabel
@@ -36622,6 +36678,7 @@ Technical analysis record (advanced)
             x: axisSnapshot.x?.majorTickLength ?? null,
             y: axisSnapshot.y?.majorTickLength ?? null
           },
+          xLabelAngle: axisSnapshot.x?.labelAngle ?? null,
           datasetSpacing: {
             x: axisSnapshot.x?.datasetSpacing ?? DEFAULT_X_DATASET_SPACING,
             y: axisSnapshot.y?.datasetSpacing ?? DEFAULT_X_DATASET_SPACING
@@ -37511,6 +37568,9 @@ Technical analysis record (advanced)
       const majorTickLengthY = majorTickLengthCfg.y ?? axisCfg.majorTickLengthY ?? axisCfg.yMajorTickLength;
       axisState.x.majorTickLength = chartStyle.normalizeOptionalMajorTickLength(majorTickLengthX);
       axisState.y.majorTickLength = chartStyle.normalizeOptionalMajorTickLength(majorTickLengthY);
+      axisState.x.labelAngle = chartStyle.normalizeOptionalXAxisLabelAngle(
+        axisCfg.xLabelAngle ?? axisCfg.labelAngleX ?? axisCfg.labelAngle?.x
+      );
       const datasetSpacingCfg = axisCfg.datasetSpacing || {};
       const datasetSpacingX = datasetSpacingCfg.x ?? axisCfg.datasetSpacingX;
       const datasetSpacingY = datasetSpacingCfg.y ?? axisCfg.datasetSpacingY;

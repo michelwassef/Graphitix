@@ -180,7 +180,8 @@
     axisColor: '#000000',
     axisWidth: 1,
     xMajorTickLength: null,
-    yMajorTickLength: null
+    yMajorTickLength: null,
+    xLabelAngle: null
   };
   const DEFAULT_REGION_OPTIONS = [
     { value: 'A', label: `${DEFAULT_VENN_LABEL_MAP.A} only` },
@@ -1291,7 +1292,8 @@
           color: DEFAULT_UPSET_SETTINGS.axisColor,
           width: DEFAULT_UPSET_SETTINGS.axisWidth,
           xMajorTickLength: DEFAULT_UPSET_SETTINGS.xMajorTickLength,
-          yMajorTickLength: DEFAULT_UPSET_SETTINGS.yMajorTickLength
+          yMajorTickLength: DEFAULT_UPSET_SETTINGS.yMajorTickLength,
+          xLabelAngle: DEFAULT_UPSET_SETTINGS.xLabelAngle
         },
         upsetTraceStyles: {
           intersectionBars: { global: {}, traces: {} },
@@ -3097,27 +3099,49 @@
     if(counts.nAC) counts.nAC.value = data.nAC != null ? String(data.nAC) : '';
     if(counts.nBC) counts.nBC.value = data.nBC != null ? String(data.nBC) : '';
     if(counts.nABC) counts.nABC.value = data.nABC != null ? String(data.nABC) : '';
-    const style = snapshot.payload.style || {};
+    const defaultStyle = createDefaultVennStyleState();
+    const rawStyle = snapshot.payload.style && typeof snapshot.payload.style === 'object'
+      ? snapshot.payload.style
+      : {};
+    const style = {
+      ...defaultStyle,
+      ...rawStyle,
+      upset: { ...defaultStyle.upset, ...(rawStyle.upset || {}) }
+    };
+    state.ui.activeColorScheme = String(style.colorScheme || '').trim().toLowerCase() || 'scientific';
+    const plotType = normalizePlotType(style.plotType || DEFAULT_PLOT_TYPE);
+    syncPlotMode(plotType, { updateTitle: false, restoreAspectLock: true });
     importFontStyles('venn', style.fontStyles || null);
     state.analysis.vennTraceStyles = cloneVennTraceStyles(style.vennTraceStyles);
-    if(style.colorA != null && inputs.colorA){ inputs.colorA.value = style.colorA; }
-    if(style.colorB != null && inputs.colorB){ inputs.colorB.value = style.colorB; }
-    if(style.colorC != null && inputs.colorC){ inputs.colorC.value = style.colorC; }
-    if(style.opacity != null && inputs.opacity){ inputs.opacity.value = style.opacity; }
-    if(inputs.opacityVal){ inputs.opacityVal.textContent = inputs.opacity.value; }
-    if(style.borderColor != null && inputs.borderColor){ inputs.borderColor.value = style.borderColor; }
-    if(style.borderWidth != null && inputs.borderWidth){ inputs.borderWidth.value = style.borderWidth; }
-    if(inputs.borderWidthVal){ inputs.borderWidthVal.textContent = formatVennBorderWidthDisplay(inputs.borderWidth.value); }
-    const fontBase = (style.fontsize !== undefined && style.fontsize !== null)
+    state.titleText = style.title !== undefined
+      ? (style.title == null ? '' : String(style.title))
+      : (plotType === 'upset' ? DEFAULT_UPSET_TITLE : DEFAULT_VENN_TITLE);
+    if(inputs.colorA){ inputs.colorA.value = sanitizeColor(style.colorA, defaultStyle.colorA); }
+    if(inputs.colorB){ inputs.colorB.value = sanitizeColor(style.colorB, defaultStyle.colorB); }
+    if(inputs.colorC){ inputs.colorC.value = sanitizeColor(style.colorC, defaultStyle.colorC); }
+    if(inputs.opacity){
+      inputs.opacity.value = String(clampNumber(style.opacity, Number(defaultStyle.opacity), 0, 1));
+    }
+    if(inputs.opacityVal){ inputs.opacityVal.textContent = inputs.opacity?.value || ''; }
+    if(inputs.borderColor){ inputs.borderColor.value = sanitizeColor(style.borderColor, defaultStyle.borderColor); }
+    if(inputs.borderWidth){
+      inputs.borderWidth.value = String(clampNumber(style.borderWidth, Number(defaultStyle.borderWidth), 0));
+    }
+    if(inputs.borderWidthVal){ inputs.borderWidthVal.textContent = formatVennBorderWidthDisplay(inputs.borderWidth?.value); }
+    const fontBase = style.fontsize !== undefined && style.fontsize !== null
       ? style.fontsize
-      : inputs.fontsize?.dataset?.fontBasePt || inputs.fontsize?.value;
+      : defaultStyle.fontsize;
     if(inputs.fontsize){
-      if(inputs.fontsize.dataset && fontBase !== undefined){
+      if(inputs.fontsize.dataset){
         inputs.fontsize.dataset.fontBasePt = String(fontBase);
       }
       const fontInfo = resolveFontInfo(fontBase);
       inputs.fontsize.value = Number.isFinite(fontInfo?.pt) ? fontInfo.pt : inputs.fontsize.value;
       chartStyle.renderFontSizeLabel({ element: inputs.fontsizeVal, fontInfo, input: inputs.fontsize });
+    }
+    applyUpSetStyleToActive(style.upset);
+    if(style.labelPositions){
+      state.labelPositions = normalizeVennLabelPositions(style.labelPositions);
     }
     state.analysis.lastDrawMode = snapshot.lastDrawMode || null;
     state.analysis.lastSignificance = snapshot.lastSignificance ? { ...snapshot.lastSignificance } : null;
@@ -5647,8 +5671,40 @@
       color: sanitizeColor(axis.color ?? axis.axisColor, DEFAULT_UPSET_SETTINGS.axisColor),
       width: clampNumber(axis.width ?? axis.axisWidth, DEFAULT_UPSET_SETTINGS.axisWidth, 0.25, 10),
       xMajorTickLength: chartStyle.normalizeOptionalMajorTickLength(xMajorTickLength),
-      yMajorTickLength: chartStyle.normalizeOptionalMajorTickLength(yMajorTickLength)
+      yMajorTickLength: chartStyle.normalizeOptionalMajorTickLength(yMajorTickLength),
+      xLabelAngle: chartStyle.normalizeOptionalXAxisLabelAngle(axis.xLabelAngle ?? axis.labelAngleX ?? axis.labelAngle)
     };
+  }
+
+  function applyUpSetStyleToActive(upsetSource = {}) {
+    const upset = upsetSource && typeof upsetSource === 'object' ? upsetSource : {};
+    const ui = state.ui?.upset || null;
+    if(ui){
+      if(ui.sort) ui.sort.value = upset.sort || DEFAULT_UPSET_SETTINGS.sort;
+      if(ui.max) ui.max.value = clampNumber(upset.maxIntersections, DEFAULT_UPSET_SETTINGS.maxIntersections, 1, 50);
+      if(ui.showEmpty) ui.showEmpty.checked = !!upset.showEmpty;
+      if(ui.showCounts) ui.showCounts.checked = upset.showCounts !== false;
+      if(ui.showSetCounts) ui.showSetCounts.checked = upset.showSetCounts !== false;
+      if(ui.showGrid){
+        ui.showGrid.checked = Object.prototype.hasOwnProperty.call(upset, 'showGrid')
+          ? !!upset.showGrid
+          : DEFAULT_UPSET_SETTINGS.showGrid;
+      }
+      if(ui.dotSize) ui.dotSize.value = clampNumber(upset.dotSize, DEFAULT_UPSET_SETTINGS.dotSize, 2, 12);
+      updateUpSetDotSizeOutput(ui.dotSize?.value);
+      if(ui.useSetColors){
+        ui.useSetColors.checked = Object.prototype.hasOwnProperty.call(upset, 'useSetColors')
+          ? !!upset.useSetColors
+          : DEFAULT_UPSET_SETTINGS.useSetColors;
+      }
+      if(ui.barColor) ui.barColor.value = sanitizeColor(upset.barColor, DEFAULT_UPSET_SETTINGS.barColor);
+      if(ui.setBarColor) ui.setBarColor.value = sanitizeColor(upset.setBarColor, DEFAULT_UPSET_SETTINGS.setBarColor);
+      if(ui.dotColor) ui.dotColor.value = sanitizeColor(upset.dotColor, DEFAULT_UPSET_SETTINGS.dotColor);
+      if(ui.inactiveDotColor) ui.inactiveDotColor.value = sanitizeColor(upset.inactiveDotColor, DEFAULT_UPSET_SETTINGS.inactiveDotColor);
+      if(ui.gridColor) ui.gridColor.value = sanitizeColor(upset.gridColor, DEFAULT_UPSET_SETTINGS.gridColor);
+    }
+    state.analysis.upsetAxis = normalizeUpSetAxisStyle(upset);
+    state.analysis.upsetTraceStyles = cloneUpSetTraceStyles(upset.traceStyles);
   }
 
   function resolveUpSetSettings() {
@@ -5676,38 +5732,62 @@
       axisWidth: axisState.width,
       xMajorTickLength: axisState.xMajorTickLength,
       yMajorTickLength: axisState.yMajorTickLength,
+      xLabelAngle: axisState.xLabelAngle,
       traceStyles: cloneUpSetTraceStyles(state.analysis?.upsetTraceStyles)
     };
     debug('Debug: venn upset settings resolved', settings);
     return settings;
   }
 
-  function updateUpSetAxisStyle(next = {}) {
+  function getUpSetAxisStyleForOwner(ownerSession = null) {
+    const owner = ownerSession || getActiveVennSessionForState();
+    if(owner && !isVennSessionActiveForModuleState(owner)){
+      return normalizeUpSetAxisStyle(owner.state?.snapshot?.payload?.style?.upset || {});
+    }
+    return normalizeUpSetAxisStyle(state.analysis?.upsetAxis);
+  }
+
+  function updateUpSetAxisStyle(next = {}, ownerSession = null) {
+    const owner = ownerSession || getActiveVennSessionForState();
+    if(owner && !isVennSessionActiveForModuleState(owner)){
+      debugLog('upset axis style ignored for inactive owner', { tabId: owner.tabId || null });
+      return;
+    }
     const current = state.analysis?.upsetAxis || {};
     state.analysis.upsetAxis = normalizeUpSetAxisStyle({ ...current, ...next });
     debug('Debug: venn upset axis style updated', state.analysis.upsetAxis);
-    requestScheduledDraw('upset-axis-style');
     syncActiveVennPayload('venn-upset-axis-style');
+    requestScheduledDraw('upset-axis-style');
   }
 
   function createUpSetAxisControlConfig(axis, ownerSession = null) {
-    const owner = ensureVennSessionOwnershipShape(ownerSession || getActiveVennSessionForState());
+    const owner = ownerSession || getActiveVennSessionForState();
     return {
       axis,
       scopeId: 'venn',
       tabId: owner?.tabId || null,
       getTickInterval: () => null,
       getMajorTickLength: () => {
-        const value = axis === 'x' ? state.analysis?.upsetAxis?.xMajorTickLength : state.analysis?.upsetAxis?.yMajorTickLength;
+        const ownerAxis = getUpSetAxisStyleForOwner(owner);
+        const value = axis === 'x' ? ownerAxis.xMajorTickLength : ownerAxis.yMajorTickLength;
         if(value === null || value === undefined || value === ''){ return null; }
         const numeric = Number(value);
         return Number.isFinite(numeric) && numeric >= 0 ? numeric : null;
       },
-      onMajorTickLengthChange: value => updateUpSetAxisStyle(axis === 'x' ? { xMajorTickLength: value } : { yMajorTickLength: value }),
+      onMajorTickLengthChange: value => updateUpSetAxisStyle(axis === 'x' ? { xMajorTickLength: value } : { yMajorTickLength: value }, owner),
+      getTickLabelAngle: () => axis === 'x'
+        ? getUpSetAxisStyleForOwner(owner).xLabelAngle
+        : null,
+      onTickLabelAngleChange: value => {
+        if(axis === 'x'){
+          updateUpSetAxisStyle({ xLabelAngle: chartStyle.normalizeOptionalXAxisLabelAngle(value) }, owner);
+        }
+      },
+      isTickLabelAngleSupported: () => axis === 'x',
       isMajorTickLengthSupported: () => true,
       majorTickLengthPlaceholder: 'Auto',
-      getThickness: () => clampNumber(state.analysis?.upsetAxis?.width, DEFAULT_UPSET_SETTINGS.axisWidth, 0.25, 10),
-      getColor: () => sanitizeColor(state.analysis?.upsetAxis?.color, DEFAULT_UPSET_SETTINGS.axisColor),
+      getThickness: () => getUpSetAxisStyleForOwner(owner).width,
+      getColor: () => getUpSetAxisStyleForOwner(owner).color,
       isTickIntervalEnabled: () => false,
       getTickIntervalDisabledMessage: () => 'Tick interval is not available for UpSet axes.',
       tickPlaceholder: 'N/A',
@@ -5717,8 +5797,8 @@
       isMinorTicksSupported: () => false,
       getMinorTickSubdivisions: () => 4,
       onMinorTickSubdivisionsChange: () => {},
-      onThicknessChange: value => updateUpSetAxisStyle({ width: value }),
-      onColorChange: value => updateUpSetAxisStyle({ color: value }),
+      onThicknessChange: value => updateUpSetAxisStyle({ width: value }, owner),
+      onColorChange: value => updateUpSetAxisStyle({ color: value }, owner),
       getNotationMode: () => 'auto',
       onNotationChange: () => {},
       isNotationSupported: () => false,
@@ -10431,7 +10511,30 @@
     const setTitleGap = Math.max(2, Math.round((axisTitleGap + 1) * 0.4));
     const setTickTextHeight = Math.max(8, Math.round(setTickFontSize * 0.95));
     const setAxisLabelHeight = Math.max(9, Math.round(setAxisLabelFontSize * 0.95));
-    const requiredSetAxisBottomSpace = xMajorTickLength + setTickOffset + setTickTextHeight + setTitleGap + setAxisLabelHeight + 4;
+    const setXAxisLabelAngle = chartStyle.normalizeOptionalXAxisLabelAngle(settings.xLabelAngle);
+    const setTickMaxLabelWidth = Math.max(
+      measure(formatCount(0), countFont),
+      measure(formatCount(maxSetSize), countFont)
+    );
+    const setXAxisAngleRad = Math.abs(Number(setXAxisLabelAngle) || 0) * Math.PI / 180;
+    const setTickProjectedHeight = setXAxisLabelAngle === null
+      ? setTickTextHeight
+      : Math.ceil(
+          Math.abs(Math.sin(setXAxisAngleRad)) * setTickMaxLabelWidth
+          + Math.abs(Math.cos(setXAxisAngleRad)) * setTickFontSize
+        );
+    const setRotationOpticalPaddingPx = setXAxisLabelAngle === null
+      ? 0
+      : (chartStyle.resolveXAxisRotationOpticalPadding?.({
+          angleDeg: setXAxisLabelAngle,
+          fontSize: setTickFontSize,
+          tickLabelGap
+        }) || 0);
+    const setTickReserveHeight = Math.max(
+      setTickTextHeight,
+      setTickProjectedHeight + setRotationOpticalPaddingPx
+    );
+    const requiredSetAxisBottomSpace = xMajorTickLength + setTickOffset + setTickReserveHeight + setTitleGap + setAxisLabelHeight + 4;
     const axisYPreferred = matrixBottom + setAxisHeight * 0.35;
     const axisYMin = matrixBottom + Math.max(2, Math.round(style.fontSizePx * 0.2));
     const axisYMax = stageHeight - requiredSetAxisBottomSpace;
@@ -10439,7 +10542,7 @@
       ? Math.min(axisYMax, Math.max(axisYMin, axisYPreferred))
       : axisYMin;
     let setTickLabelY = axisY + xMajorTickLength + setTickOffset;
-    let setAxisLabelY = setTickLabelY + setTickTextHeight + setTitleGap;
+    let setAxisLabelY = setTickLabelY + setTickReserveHeight + setTitleGap;
     const maxSetAxisLabelY = stageHeight - setAxisLabelHeight - 2;
     if (setAxisLabelY > maxSetAxisLabelY) {
       setAxisLabelY = maxSetAxisLabelY;
@@ -10904,6 +11007,7 @@
       Math.min(4, Math.floor(barAreaWidth / Math.max(maxSetTickWidth + 12, 28)))
     );
     const setTickValues = buildIntegerTicks(maxSetSize, setTickIntervals);
+    const setTickLabelNodes = [];
     setTickValues.forEach(value => {
       const x = maxSetSize > 0
         ? setBarX + barAreaWidth - (value / maxSetSize) * barAreaWidth
@@ -10927,7 +11031,24 @@
         'data-upset-axis-tick-label': 'set-x'
       });
       tickText.textContent = formatCount(value);
+      setTickLabelNodes.push(tickText);
     });
+    if(setXAxisLabelAngle !== null){
+      chartStyle.applyLabelOrientation?.(
+        setTickLabelNodes,
+        chartStyle.resolveXAxisLabelOrientation?.(
+          { rotationOpticalPaddingPx: setRotationOpticalPaddingPx },
+          setXAxisLabelAngle
+        ) || {
+          angle: setXAxisLabelAngle,
+          anchor: setXAxisLabelAngle < 0 ? 'end' : (setXAxisLabelAngle > 0 ? 'start' : 'middle'),
+          dy: '0.35em',
+          opticalPaddingPx: setRotationOpticalPaddingPx,
+          force: Math.abs(setXAxisLabelAngle) > 1e-9,
+          disableAuto: true
+        }
+      );
+    }
 
     const setAxisLabel = makeEl('text', {
       x: setBarX + barAreaWidth / 2,
@@ -10935,7 +11056,8 @@
       'text-anchor': 'middle',
       dy: setAxisLabelBaselineDy,
       'font-size': setAxisLabelFontSize,
-      fill: textColor
+      fill: textColor,
+      'data-upset-axis-label': 'set-x'
     });
     setAxisLabel.textContent = 'Set Size';
 
@@ -11912,35 +12034,7 @@
         debug('Debug: venn payload font fallback', { fontInfo });
       }
     }
-    if (state.ui.upset) {
-      const upset = s.upset || {};
-      if (state.ui.upset.sort) state.ui.upset.sort.value = upset.sort || DEFAULT_UPSET_SETTINGS.sort;
-      if (state.ui.upset.max) state.ui.upset.max.value = clampNumber(upset.maxIntersections, DEFAULT_UPSET_SETTINGS.maxIntersections, 1, 50);
-      if (state.ui.upset.showEmpty) state.ui.upset.showEmpty.checked = !!upset.showEmpty;
-      if (state.ui.upset.showCounts) state.ui.upset.showCounts.checked = upset.showCounts !== false;
-      if (state.ui.upset.showSetCounts) state.ui.upset.showSetCounts.checked = upset.showSetCounts !== false;
-      if (state.ui.upset.showGrid) {
-        const showGrid = Object.prototype.hasOwnProperty.call(upset, 'showGrid')
-          ? !!upset.showGrid
-          : DEFAULT_UPSET_SETTINGS.showGrid;
-        state.ui.upset.showGrid.checked = showGrid;
-      }
-      if (state.ui.upset.dotSize) state.ui.upset.dotSize.value = clampNumber(upset.dotSize, DEFAULT_UPSET_SETTINGS.dotSize, 2, 12);
-      updateUpSetDotSizeOutput(state.ui.upset.dotSize?.value);
-      if (state.ui.upset.useSetColors) {
-        const useSetColors = Object.prototype.hasOwnProperty.call(upset, 'useSetColors')
-          ? !!upset.useSetColors
-          : DEFAULT_UPSET_SETTINGS.useSetColors;
-        state.ui.upset.useSetColors.checked = useSetColors;
-      }
-      if (state.ui.upset.barColor) state.ui.upset.barColor.value = sanitizeColor(upset.barColor, DEFAULT_UPSET_SETTINGS.barColor);
-      if (state.ui.upset.setBarColor) state.ui.upset.setBarColor.value = sanitizeColor(upset.setBarColor, DEFAULT_UPSET_SETTINGS.setBarColor);
-      if (state.ui.upset.dotColor) state.ui.upset.dotColor.value = sanitizeColor(upset.dotColor, DEFAULT_UPSET_SETTINGS.dotColor);
-      if (state.ui.upset.inactiveDotColor) state.ui.upset.inactiveDotColor.value = sanitizeColor(upset.inactiveDotColor, DEFAULT_UPSET_SETTINGS.inactiveDotColor);
-      if (state.ui.upset.gridColor) state.ui.upset.gridColor.value = sanitizeColor(upset.gridColor, DEFAULT_UPSET_SETTINGS.gridColor);
-      state.analysis.upsetAxis = normalizeUpSetAxisStyle(upset);
-      state.analysis.upsetTraceStyles = cloneUpSetTraceStyles(upset.traceStyles);
-    }
+    applyUpSetStyleToActive(s.upset || {});
     // Restore label positions if saved
     if(s.labelPositions){
       state.labelPositions = normalizeVennLabelPositions(s.labelPositions);

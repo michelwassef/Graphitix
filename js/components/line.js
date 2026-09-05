@@ -599,6 +599,9 @@
       getEffectiveTickInterval: () => axisMeta?.effectiveTickInterval ?? null,
       getMajorTickLength: () => getLineAxisMajorTickLength(axis),
       onMajorTickLengthChange: value => updateLineAxisMajorTickLength(axis, value),
+      getTickLabelAngle: () => axis === 'x' ? getLineXAxisTickLabelAngle(owner) : null,
+      onTickLabelAngleChange: value => { if(axis === 'x'){ updateLineXAxisTickLabelAngle(value, owner); } },
+      isTickLabelAngleSupported: () => axis === 'x',
       isMajorTickLengthSupported: () => true,
       majorTickLengthPlaceholder: 'Auto',
       getThickness: () => getLineAxisStrokeWidth(),
@@ -2283,7 +2286,7 @@
     return {
       strokeWidth: 1,
       color: DEFAULT_AXIS_COLOR,
-      x: { tickInterval: null, majorTickLength: null, minorTicks: false, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'decimal', additionalTicks: [], brokenAxis: { enabled: false, segments: [] } },
+      x: { tickInterval: null, majorTickLength: null, labelAngle: null, minorTicks: false, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'decimal', additionalTicks: [], brokenAxis: { enabled: false, segments: [] } },
       y: { tickInterval: null, majorTickLength: null, minorTicks: false, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'decimal', additionalTicks: [], brokenAxis: { enabled: false, segments: [] } }
     };
   }
@@ -2411,7 +2414,7 @@
       ? (target.state.axisSettings && typeof target.state.axisSettings === 'object' ? target.state.axisSettings : createLineAxisSettings())
       : (lineAxisSettings && typeof lineAxisSettings === 'object' ? lineAxisSettings : createLineAxisSettings());
     if(!settings.x || typeof settings.x !== 'object'){
-      settings.x = { tickInterval: null, majorTickLength: null, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'decimal', additionalTicks: [], brokenAxis: { enabled: false, segments: [] } };
+      settings.x = { tickInterval: null, majorTickLength: null, labelAngle: null, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'decimal', additionalTicks: [], brokenAxis: { enabled: false, segments: [] } };
     }
     if(!settings.y || typeof settings.y !== 'object'){
       settings.y = { tickInterval: null, majorTickLength: null, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'decimal', additionalTicks: [], brokenAxis: { enabled: false, segments: [] } };
@@ -2422,6 +2425,7 @@
     if(typeof settings.y.minorTicks !== 'boolean'){
       settings.y.minorTicks = false;
     }
+    settings.x.labelAngle = chartStyle.normalizeOptionalXAxisLabelAngle(settings.x.labelAngle);
     settings.x.minorTickSubdivisions = clampMinorTickSubdivisions(settings.x.minorTickSubdivisions);
     settings.y.minorTickSubdivisions = clampMinorTickSubdivisions(settings.y.minorTickSubdivisions);
     if(!settings.x.brokenAxis || typeof settings.x.brokenAxis !== 'object'){
@@ -2562,6 +2566,25 @@
     console.debug('Debug: line major tick length updated',{ axis, majorTickLength: nextValue });
     setLineAxisSettingsState(getLineProjectionSession({ reason: 'line-projection-mutation' }), settings, { reason: 'line-axis-major-tick-length' });
     if(canScheduleActiveLineDraw()){ scheduleActiveLineDraw(); }
+  }
+
+  function getLineXAxisTickLabelAngle(session = null){
+    return chartStyle.normalizeOptionalXAxisLabelAngle(ensureLineAxisSettings(session).x?.labelAngle);
+  }
+
+  function updateLineXAxisTickLabelAngle(value, ownerSession = null){
+    const owner = resolveLineStateSession(ownerSession || getLineProjectionSession({ reason: 'line-x-label-angle' }));
+    if(owner && !isLineSessionActive(owner)){
+      lineDebug('Debug: line x tick label angle ignored for inactive owner', { tabId: owner.tabId || null });
+      return;
+    }
+    const settings = ensureLineAxisSettings(owner);
+    const nextValue = chartStyle.normalizeOptionalXAxisLabelAngle(value);
+    if(settings.x.labelAngle === nextValue){ return; }
+    settings.x.labelAngle = nextValue;
+    setLineAxisSettingsState(owner, settings, { reason: 'line-axis-x-label-angle' });
+    lineDebug('Debug: line x tick label angle updated',{ angle: nextValue, tabId: owner?.tabId || null });
+    scheduleLineViewRefresh('line-axis-x-label-angle', { tabId: owner?.tabId || null, userInitiated: true });
   }
 
   function getLineAxisMinorTicksEnabled(axis, session = null){
@@ -4064,6 +4087,7 @@
       const xMajorTickLength = settings.majorTickLengthX ?? settings.xMajorTickLength ?? settings?.x?.majorTickLength ?? null;
       const yMajorTickLength = settings.majorTickLengthY ?? settings.yMajorTickLength ?? settings?.y?.majorTickLength ?? null;
       base.x.majorTickLength = chartStyle.normalizeOptionalMajorTickLength(xMajorTickLength);
+      base.x.labelAngle = chartStyle.normalizeOptionalXAxisLabelAngle(settings.xLabelAngle ?? settings.labelAngleX ?? settings?.x?.labelAngle);
       base.y.majorTickLength = chartStyle.normalizeOptionalMajorTickLength(yMajorTickLength);
       const xMinorTicks = settings.minorTicksX ?? settings.x?.minorTicks ?? false;
       const yMinorTicks = settings.minorTicksY ?? settings.y?.minorTicks ?? false;
@@ -12936,6 +12960,7 @@
           tickIntervalY: axisSettings.y?.tickInterval ?? null,
           majorTickLengthX: axisSettings.x?.majorTickLength ?? null,
           majorTickLengthY: axisSettings.y?.majorTickLength ?? null,
+          xLabelAngle: axisSettings.x?.labelAngle ?? null,
           minorTicksX: axisSettings.x?.minorTicks ?? false,
           minorTicksY: axisSettings.y?.minorTicks ?? false,
           minorTickSubdivisionsX: clampMinorTickSubdivisions(axisSettings.x?.minorTickSubdivisions),
@@ -15404,7 +15429,8 @@
         plotWidth:plotW,
         baseBottom:margin.bottom,
         axisMetrics,
-        preservePlotRail:true
+        preservePlotRail:true,
+        manualLabelRotationAngleDeg:getLineXAxisTickLabelAngle(invocation.session)
       });
       let requiredMargins={
         ...cartesianMarginRequirements.requiredMargins,
@@ -15521,7 +15547,8 @@
           plotWidth:plotW,
           baseBottom:margin.bottom,
           axisMetrics,
-          preservePlotRail:true
+          preservePlotRail:true,
+          manualLabelRotationAngleDeg:getLineXAxisTickLabelAngle(invocation.session)
         });
         requiredMargins={
           ...cartesianMarginRequirements.requiredMargins,
@@ -16160,7 +16187,7 @@
           });
         }
       }
-      chartStyle.applyLabelOrientation(xTickNodes,{angle:-45,anchor:'end',dy:'0.35em',force:bottomLayout.shouldRotate});
+      chartStyle.applyLabelOrientation(xTickNodes, chartStyle.resolveXAxisLabelOrientation(bottomLayout, getLineXAxisTickLabelAngle(invocation.session)));
       const yMajorTickLabels=[];
       let yTickFontCount=0;
       if(minorTicksY.length){
