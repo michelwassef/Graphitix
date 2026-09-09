@@ -1473,6 +1473,9 @@
   }
 
   function isSurvivalFontStyleEvent(detail){
+    if(Shared.statsFigureSummary?.isSummaryStyleEvent?.(detail)){
+      return false;
+    }
     const scopeId = detail?.scopeId || null;
     const storeKey = typeof detail?.storeKey === 'string' ? detail.storeKey : '';
     return scopeId === 'survival' || storeKey.startsWith('survival::');
@@ -6293,6 +6296,169 @@
     }
   }
 
+  function buildSurvivalFigureSummary(summary){
+    const series = Array.isArray(summary?.series) ? summary.series.filter(Boolean) : [];
+    if(!series.length){ return null; }
+    const alpha = getSurvivalStatsAlpha();
+    const analysisRows = [{
+      label:'Analysis',
+      value:`Kaplan–Meier survival analysis · ${series.length} group${series.length === 1 ? '' : 's'} · censoring accounted for`
+    }];
+    if(series.length >= 2){
+      analysisRows.push({ label:'Primary comparison', value:`Overall log-rank test · two-sided · α = ${Shared.statsInference?.formatLevel?.(alpha) || alpha}` });
+    }
+
+    const groupRows = series.map(group => {
+      const parts = [
+        `n = ${Number.isFinite(Number(group.total)) ? Number(group.total) : '—'}`,
+        `events = ${Number.isFinite(Number(group.events)) ? Number(group.events) : '—'}`,
+        `censored = ${Number.isFinite(Number(group.censored)) ? Number(group.censored) : '—'}`
+      ];
+      if(Number.isFinite(Number(group.km?.median))){
+        parts.push(`median survival = ${formatNumber(group.km.median, 3)}`);
+        if(Number.isFinite(Number(group.km?.medianCiLow)) && Number.isFinite(Number(group.km?.medianCiHigh))){
+          parts.push(`95% CI [${formatNumber(group.km.medianCiLow, 3)}, ${formatNumber(group.km.medianCiHigh, 3)}]`);
+        }
+      }else{
+        parts.push('median survival not reached');
+      }
+      return { label:String(group.name || '(unnamed)'), value:parts.join('; ') };
+    });
+
+    const inferentialRows = [];
+    const pushOmnibus = (label, result) => {
+      if(!result?.available || !Number.isFinite(Number(result.chi2))) return;
+      const df = Number.isFinite(Number(result.df)) ? Number(result.df) : '—';
+      inferentialRows.push({
+        label,
+        valueParts:[
+          `χ²(${df}) = ${formatNumber(result.chi2, 3)}`,
+          ...(Number.isFinite(Number(result.p)) ? ['; p = ', pValueToken(result.p, createSurvivalInferenceSpec({ method:'none', valueKind:'raw-p' }))] : [])
+        ]
+      });
+    };
+    pushOmnibus('Log-rank', summary.logRank);
+    pushOmnibus('Gehan–Breslow–Wilcoxon', summary.logRankWilcoxon);
+    pushOmnibus('Log-rank trend', summary.logRankTrend);
+
+    const pairwise = summary?.pairwiseComparisons;
+    if(pairwise?.available && Array.isArray(pairwise.rows) && pairwise.rows.length){
+      const correctionLabel = pairwise.correction?.label || pairwise.correction?.shortLabel || state.pairwiseCorrection || 'selected correction';
+      analysisRows.push({
+        label:'Multiplicity',
+        value: pairwise.rows.length === 1
+          ? 'One pairwise log-rank comparison; no multiplicity adjustment required.'
+          : `${correctionLabel} across ${pairwise.rows.length} pairwise log-rank comparisons.`
+      });
+      pairwise.rows.forEach(row => {
+        const parts = [
+          `χ²(1) = ${formatNumber(row.chi2, 3)}`,
+          ...(Number.isFinite(Number(row.p)) ? ['; raw p = ', pValueToken(row.p, createSurvivalInferenceSpec({ method:'none', valueKind:'raw-p' }))] : [])
+        ];
+        if(Number.isFinite(Number(row.adjustedP))){
+          parts.push('; adjusted p = ', pValueToken(row.adjustedP, getSurvivalPairwiseInferenceSpec()));
+        }
+        inferentialRows.push({ label:`${row.groupB} vs ${row.groupA}`, valueParts:parts });
+      });
+    }
+
+    const estimateRows = [];
+    const hazard = summary?.hazardRatios;
+    if(hazard?.available && Array.isArray(hazard.rows)){
+      hazard.rows.forEach(row => {
+        const parts = [`HR = ${formatNumber(row.hazardRatio, 3)}`];
+        if(Number.isFinite(Number(row.ciLow)) && Number.isFinite(Number(row.ciHigh))){
+          parts.push(`; 95% CI [${formatNumber(row.ciLow, 3)}, ${formatNumber(row.ciHigh, 3)}]`);
+        }
+        if(Number.isFinite(Number(row.z))) parts.push(`; z = ${formatNumber(row.z, 3)}`);
+        if(Number.isFinite(Number(row.p))) parts.push('; p = ', pValueToken(row.p, createSurvivalInferenceSpec({ method:'none', valueKind:'raw-p' })));
+        estimateRows.push({ label:`HR: ${row.groupB} vs ${row.groupA}`, valueParts:parts });
+      });
+      if(hazard.rows.length > 1 && hazard.inferenceAvailable){
+        analysisRows.push({
+          label:'Hazard-ratio multiplicity',
+          value:`${hazard.rows.length} requested hazard-ratio contrasts; their individual Wald p-values are unadjusted across contrasts.`
+        });
+      }
+      if(!hazard.inferenceAvailable){
+        estimateRows.push({ label:'HR inference', value:hazard.inferenceReason || 'Confidence intervals and Wald p-values unavailable for this Cox fit.' });
+      }
+    }
+
+    const cox = summary?.coxModel;
+    const diagnosticRows = [];
+    if(cox?.available && Array.isArray(cox.coefficients) && cox.coefficients.length){
+      const diag = cox.diagnostics || {};
+      const lr = diag.likelihoodRatio || {};
+      const selectedCovariates = getCoxSelectedCovariates(summary);
+      analysisRows.push({
+        label:'Cox model',
+        value:`Partial-likelihood proportional-hazards model · Efron ties · baseline group: ${cox.baselineGroup || 'reference'}${selectedCovariates.length ? ` · ${selectedCovariates.length} selected covariate${selectedCovariates.length === 1 ? '' : 's'}` : ''}`
+      });
+      if(Number.isFinite(Number(lr.statistic))){
+        estimateRows.push({
+          label:'Cox overall model',
+          valueParts:[
+            `likelihood-ratio χ²(${Number.isFinite(Number(lr.df)) ? Number(lr.df) : '—'}) = ${formatNumber(lr.statistic, 3)}`,
+            ...(Number.isFinite(Number(lr.p)) ? ['; p = ', pValueToken(lr.p, createSurvivalInferenceSpec({ method:'none', valueKind:'raw-p' }))] : [])
+          ]
+        });
+      }
+      if(!shouldOmitDuplicateCoxCoefficientTable(summary)){
+        cox.coefficients.forEach(coef => {
+          const parts = [
+            `β = ${formatNumber(coef.beta, 3)}`,
+            `; HR = ${formatNumber(coef.hazardRatio, 3)}`
+          ];
+          if(Number.isFinite(Number(coef.ciLow)) && Number.isFinite(Number(coef.ciHigh))){
+            parts.push(`; 95% CI [${formatNumber(coef.ciLow, 3)}, ${formatNumber(coef.ciHigh, 3)}]`);
+          }
+          if(Number.isFinite(Number(coef.z))) parts.push(`; z = ${formatNumber(coef.z, 3)}`);
+          if(Number.isFinite(Number(coef.p))) parts.push('; p = ', pValueToken(coef.p, createSurvivalInferenceSpec({ method:'none', valueKind:'raw-p' })));
+          estimateRows.push({ label:String(coef.label || coef.group || 'Cox coefficient'), valueParts:parts });
+        });
+        if(cox.coefficients.length > 1){
+          analysisRows.push({ label:'Cox coefficient p-values', value:'Individual Wald p-values are reported without multiplicity adjustment; use the likelihood-ratio test for the overall fitted model.' });
+        }
+      }
+      const concordance = diag.concordance || null;
+      if(Number.isFinite(Number(concordance?.c))){
+        diagnosticRows.push({
+          label:"Harrell's C",
+          value:`${formatNumber(concordance.c, 3)}${Number.isFinite(Number(concordance.comparable)) ? ` · ${Number(concordance.comparable)} comparable pairs` : ''}; no confidence interval is reported by this implementation.`
+        });
+      }
+      if(diag.converged != null){
+        diagnosticRows.push({ label:'Convergence', value:diag.converged ? `Converged${Number.isFinite(Number(diag.iterations)) ? ` in ${Number(diag.iterations)} iterations` : ''}.` : 'Model did not converge; coefficient-level inference should not be interpreted.' });
+      }
+      const schoenfeld = diag.residuals?.schoenfeld;
+      if(Array.isArray(schoenfeld) && schoenfeld.length){
+        schoenfeld.forEach(entry => {
+          diagnosticRows.push({
+            label:`Schoenfeld: ${entry.predictor || 'predictor'}`,
+            value:`exploratory corr(log time) = ${formatNumber(entry.correlation, 3)}${Number.isFinite(Number(entry.meanAbs)) ? `; mean |scaled residual| = ${formatNumber(entry.meanAbs, 3)}` : ''}`
+          });
+        });
+        diagnosticRows.push({ label:'PH diagnostic scope', value:'Schoenfeld residual–time correlations are exploratory only; they are not a formal Grambsch–Therneau proportional-hazards test.' });
+      }
+    }
+
+    const hasInferentialResults = inferentialRows.some(Boolean)
+      || estimateRows.some(row => Array.isArray(row?.valueParts) && row.valueParts.some(part => part && typeof part === 'object' && part.type === 'pValue'));
+    return {
+      schemaVersion:1,
+      kind:hasInferentialResults ? 'inferential' : 'analysis',
+      title:hasInferentialResults ? 'Statistical analysis summary' : 'Analysis summary',
+      sections:[
+        { key:'analysis', label:'', rows:analysisRows },
+        { key:'groups', label:'Groups', rows:groupRows },
+        ...(inferentialRows.length ? [{ key:'tests', label:'Tests', rows:inferentialRows }] : []),
+        ...(estimateRows.length ? [{ key:'estimates', label:'Estimates', rows:estimateRows }] : []),
+        ...(diagnosticRows.length ? [{ key:'diagnostics', label:'Diagnostics', rows:diagnosticRows }] : [])
+      ]
+    };
+  }
+
   function updateStats(summary){
     if(!refs.statsSummary || !refs.statsLogRank){
       return;
@@ -6378,6 +6544,7 @@
           hazardText,
           coxText
         ].filter(Boolean).join(' '),
+        figureSummary: buildSurvivalFigureSummary(summary),
         resultsParts: [
           `${summary.series.length} group(s) contributed survival data. `,
           logRankParts,
@@ -7810,7 +7977,7 @@
   }
 
   function initExampleAndImport(){
-    refs.loadExampleBtn?.addEventListener('click', event => {
+    const loadExampleData = event => {
       runSurvivalControlOwner(event, 'survival-example-load', session => {
       const ownerHot = session?.managers?.hot || state.hot;
       const exampleRecord = Shared.exampleDatasets?.get?.('survival');
@@ -7830,13 +7997,26 @@
       captureSurvivalSessionStateFromActive(session, { reason: 'survival-example-load', captureStatsPanel: false });
       scheduleSurvivalDrawForSession(session, { reason: 'survival-example-load', tabId: session?.tabId || undefined });
       });
-    });
-    bindSurvivalControlHandler(refs.importBtn, 'click', 'import-table', () => {
-      if(refs.fileInput){
-        refs.fileInput.value = '';
-        refs.fileInput.click();
+    };
+    refs.loadExampleBtn?.addEventListener('click', loadExampleData);
+    const openImportPicker = () => {
+      if(!refs.fileInput || typeof refs.fileInput.click !== 'function'){
+        return false;
       }
-    });
+      refs.fileInput.value = '';
+      refs.fileInput.click();
+      return true;
+    };
+    survival.__desktopCommandActions = {
+      loadExampleData: () => {
+        loadExampleData(null);
+        return { status: 'handled' };
+      },
+      importData: () => openImportPicker()
+        ? { status: 'sent' }
+        : { status: 'skipped', reason: 'component-command-unavailable' }
+    };
+    bindSurvivalControlHandler(refs.importBtn, 'click', 'import-table', openImportPicker);
     bindSurvivalControlHandler(refs.fileInput, 'change', 'import-file', (_event, ownerSession) => {
       if(!Shared.tableImport || typeof Shared.tableImport.openFile !== 'function'){
         console.warn('Survival import skipped: Shared.tableImport.openFile unavailable');
@@ -8401,6 +8581,7 @@
     return state;
   };
   survival.__testHooks = Object.assign({}, survival.__testHooks, {
+    buildFigureSummary: summary => buildSurvivalFigureSummary(summary || {}),
     getSession: tabLike => getSurvivalSession(tabLike || getSurvivalProjectionTabId() || null, { reason: 'survival-test-session' }, { create: false }),
     captureStatsPanelForOwner: tabLike => {
       const session = getSurvivalSession(tabLike || getSurvivalProjectionTabId() || null, { reason: 'survival-test-stats-capture' }, { create: false });
@@ -8443,4 +8624,12 @@
       { key: 'notesState', get: () => notesState, excludeKeys: ['control'] }
     ]
   });
+
+  survival.executeDesktopCommand = function executeDesktopCommand(command){
+    const action = survival.__desktopCommandActions?.[command];
+    if (typeof action !== 'function') {
+      return { status: 'skipped', reason: 'component-command-unavailable' };
+    }
+    return action() || { status: 'handled' };
+  };
 })(window);

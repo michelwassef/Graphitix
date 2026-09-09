@@ -556,6 +556,7 @@
       removedRootColor: 0,
       removedDominantBaseline: 0,
       replacedDominantBaselineWithDy: 0,
+      replacedDominantBaselineWithY: 0,
       convertedRgbaFills: 0,
       convertedRgbaStrokes: 0,
       flattenedAttributeFreeGroups: 0,
@@ -581,7 +582,8 @@
       try { arr.push(node.outerHTML); } catch (e) { arr.push(node.tagName || 'node'); }
     };
 
-    // Remove dominant-baseline first: replace with dy on tick labels/centered text when possible
+    // Remove dominant-baseline first. Summary rows use nested tspans, so fold
+    // their top-edge offset into y rather than relying on a parent-level dy.
     try {
       const dbNodes = svgNode.querySelectorAll('[dominant-baseline]');
       for (let i = 0; i < dbNodes.length; i += 1) {
@@ -599,13 +601,32 @@
             || /tick/i.test(id)
             || (n.getAttribute && n.getAttribute('data-axis-tick-label') === '1');
           const isAxisLabel = n.getAttribute && n.getAttribute('data-axis-label') === '1';
+          const summaryRole = n.getAttribute && n.getAttribute('data-stats-summary-role');
+          const isSummaryHanging = baseline === 'hanging' && !!summaryRole;
           const needsCenter = baseline === 'middle' || baseline === 'central' || baseline === 'mathematical';
           const hasDy = n.getAttribute && n.getAttribute('dy');
           // remove attribute
           n.removeAttribute('dominant-baseline');
           stats.removedDominantBaseline += 1;
           recordExample(stats.examples.dominantBaseline, n);
-          if (!hasDy && (isTick || isAxisLabel || needsCenter)) {
+          if (isSummaryHanging) {
+            // Static SVG text defaults to an alphabetic baseline. An explicit
+            // y is honored consistently by browsers and vector importers,
+            // including when the text contains multiple tspans.
+            try {
+              const fontSize = resolveInheritedNumericPresentationValue(n, 'font-size', 16);
+              const y = Number.parseFloat(n.getAttribute('y') || '');
+              const dy = Number.parseFloat(n.getAttribute('dy') || '');
+              if (Number.isFinite(y)) {
+                n.setAttribute('y', formatExportNumber(y + (Number.isFinite(dy) ? dy : 0) + fontSize * 0.8));
+                n.removeAttribute('dy');
+                stats.replacedDominantBaselineWithY += 1;
+              } else if (!hasDy) {
+                n.setAttribute('dy', formatExportNumber(fontSize * 0.8));
+                stats.replacedDominantBaselineWithDy += 1;
+              }
+            } catch (e) {}
+          } else if (!hasDy && (isTick || isAxisLabel || needsCenter)) {
             // set dy to approximate vertical centering
             try { n.setAttribute('dy', '0.35em'); stats.replacedDominantBaselineWithDy += 1; } catch (e) {}
           }

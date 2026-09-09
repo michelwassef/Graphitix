@@ -807,6 +807,58 @@ describe('Line view labels', () => {
     expect(model.xMaxRaw).toBe(2);
   });
 
+  test('grouped uncertainty band reuses the exact mean ± sample-SD bounds used by error bars', () => {
+    const hooks = window.Components?.line?.__testHooks;
+    expect(typeof hooks?.build2dSeriesDataModel).toBe('function');
+    expect(typeof hooks?.buildProjectedUncertaintyBandPath).toBe('function');
+    expect(typeof hooks?.sanitizeUncertaintyDisplay).toBe('function');
+
+    const matrix = [
+      ['Time', 'Group A', 'Group A', 'Group A'],
+      [0, 1, 2, 3],
+      [1, 2, 4, 6],
+      [2, '', '', '']
+    ];
+    const model = hooks.build2dSeriesDataModel(matrix, { replicates: 3 });
+
+    expect(model.ok).toBe(true);
+    expect(model.seriesWithData).toHaveLength(1);
+    const [firstPoint, secondPoint, gapPoint] = model.seriesWithData[0].points;
+    expect(firstPoint).toEqual(expect.objectContaining({
+      x: 0,
+      y: 2,
+      replicateCount: 3,
+      replicates: [1, 2, 3],
+      stdev: 1,
+      lower: 1,
+      upper: 3
+    }));
+    expect(secondPoint).toEqual(expect.objectContaining({
+      x: 1,
+      y: 4,
+      replicateCount: 3,
+      replicates: [2, 4, 6],
+      stdev: 2,
+      lower: 2,
+      upper: 6
+    }));
+    expect(gapPoint).toBeNull();
+
+    expect(hooks.buildProjectedUncertaintyBandPath([
+      { x: 10, upperY: 30, lowerY: 50 },
+      { x: 40, upperY: 20, lowerY: 60 }
+    ])).toBe('M10,30 L40,20 L40,60 L10,50 Z');
+    expect(hooks.buildProjectedUncertaintyBandPath([
+      { x: 10, upperY: 30, lowerY: 50 }
+    ])).toBeNull();
+    expect(hooks.buildProjectedUncertaintyBandPath([
+      { x: 10, upperY: 30, lowerY: 50 },
+      { x: 40, upperY: Number.NaN, lowerY: 60 }
+    ])).toBeNull();
+    expect(hooks.sanitizeUncertaintyDisplay('band')).toBe('band');
+    expect(hooks.sanitizeUncertaintyDisplay('anything-else')).toBe('bars');
+  });
+
   test('render-cache restore rebuilds Line statistics context from owner data without redrawing the graph', async () => {
     const lineComponent = window.Components?.line;
     const hooks = lineComponent?.__testHooks;

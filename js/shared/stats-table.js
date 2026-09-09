@@ -262,6 +262,14 @@
     return header;
   };
 
+  const buildJsonText = model => JSON.stringify({
+    schemaVersion:1,
+    caption:model.caption || '',
+    columns:model.columns.map(column => ({ key:column.key, label:column.label })),
+    rows:model.rows,
+    footnotes:getExportFootnotes(model)
+  }, null, 2);
+
   const buildSheetData = model => {
     const header = model.columns.map(col => col.label);
     const rows = model.rows.map(row => row.map(cell => cell ?? ''));
@@ -388,6 +396,20 @@
             global.alert('Excel copy is not supported here. TSV data was copied instead.');
           }
           log('data excel fallback copy', { mode, copied: ok });
+          return;
+        }
+        if (format === 'json') {
+          const text = buildJsonText(model);
+          if (mode === 'download') {
+            const blob = new Blob([text], { type: 'application/json;charset=utf-8' });
+            downloadBlob(blob, `${fileName}.json`, `${contextLabel}-json`);
+          } else {
+            const ok = await copyTextToClipboard(text);
+            if (!ok && typeof global.alert === 'function') {
+              global.alert('Copying JSON to the clipboard is not supported in this browser.');
+            }
+          }
+          log('data json handled', { mode, length: text.length });
         }
       } catch (err) {
         log('data export error', { mode, format, message: err?.message });
@@ -402,7 +424,8 @@
         label: 'Download',
         formats: [
           { key: 'csv', label: 'CSV', handler: () => handle('download', 'csv') },
-          { key: 'excel', label: 'Excel', handler: () => handle('download', 'excel') }
+          { key: 'excel', label: 'Excel', handler: () => handle('download', 'excel') },
+          { key: 'json', label: 'JSON', handler: () => handle('download', 'json') }
         ]
       },
       {
@@ -410,7 +433,8 @@
         label: 'Copy',
         formats: [
           { key: 'csv', label: 'CSV', handler: () => handle('copy', 'csv') },
-          { key: 'excel', label: 'Excel', handler: () => handle('copy', 'excel') }
+          { key: 'excel', label: 'Excel', handler: () => handle('copy', 'excel') },
+          { key: 'json', label: 'JSON', handler: () => handle('copy', 'json') }
         ]
       }
     ];
@@ -1203,6 +1227,7 @@
     const headRow = doc.createElement('tr');
     model.columns.forEach(col => {
       const th = doc.createElement('th');
+      th.scope = 'col';
       th.className = `stats-table__cell stats-table__header stats-table__cell--${col.align}`;
       th.textContent = col.label;
       if(col.tooltip){
@@ -1218,27 +1243,28 @@
       const tr = doc.createElement('tr');
       row.forEach((value, index) => {
         const col = model.columns[index];
-        const td = doc.createElement('td');
-        td.className = `stats-table__cell stats-table__cell--${col.align}`;
-        td.textContent = value;
+        const cell = index === 0 ? doc.createElement('th') : doc.createElement('td');
+        cell.className = `stats-table__cell stats-table__cell--${col.align}`;
+        if(index === 0) cell.scope = 'row';
+        cell.textContent = value;
         const metadata = model.cellMetaRows?.[rowIndex]?.[index];
         if(metadata && Number.isFinite(Number(metadata.pValueRaw))){
-          td.dataset.statsPvalueRaw = String(Number(metadata.pValueRaw));
-          td.dataset.statsPvalueOperator = typeof metadata.pValueOperator === 'string' && metadata.pValueOperator
+          cell.dataset.statsPvalueRaw = String(Number(metadata.pValueRaw));
+          cell.dataset.statsPvalueOperator = typeof metadata.pValueOperator === 'string' && metadata.pValueOperator
             ? metadata.pValueOperator
             : '=';
           const decisionSpec = normalizeInferenceMetadata(metadata.inference);
           if(decisionSpec){
-            td.dataset.statsInferenceCriterion = decisionSpec.criterion;
-            td.dataset.statsInferenceLevel = String(decisionSpec.level);
-            td.dataset.statsInferenceMethod = decisionSpec.method;
-            td.dataset.statsInferenceErrorControl = decisionSpec.errorControl;
-            td.dataset.statsInferenceValueKind = decisionSpec.valueKind;
-            td.dataset.statsInferenceDecisionLabel = decisionSpec.decisionLabel;
-            td.dataset.statsInferenceNegativeDecisionLabel = decisionSpec.negativeDecisionLabel;
+            cell.dataset.statsInferenceCriterion = decisionSpec.criterion;
+            cell.dataset.statsInferenceLevel = String(decisionSpec.level);
+            cell.dataset.statsInferenceMethod = decisionSpec.method;
+            cell.dataset.statsInferenceErrorControl = decisionSpec.errorControl;
+            cell.dataset.statsInferenceValueKind = decisionSpec.valueKind;
+            cell.dataset.statsInferenceDecisionLabel = decisionSpec.decisionLabel;
+            cell.dataset.statsInferenceNegativeDecisionLabel = decisionSpec.negativeDecisionLabel;
           }
         }
-        tr.appendChild(td);
+        tr.appendChild(cell);
       });
       tbody.appendChild(tr);
     });
@@ -1315,7 +1341,7 @@
     const cellMetaRows = [];
     const rawRows = Array.from(table.querySelectorAll('tbody tr')).map((tr, rowIndex) => {
       const metaRow = [];
-      const values = Array.from(tr.querySelectorAll('td')).map((td, colIndex) => {
+      const values = Array.from(tr.querySelectorAll('th, td')).map((td, colIndex) => {
         const raw = Number(td.dataset?.statsPvalueRaw);
         if(Number.isFinite(raw)){
           const inferenceMetadata = normalizeInferenceMetadata({

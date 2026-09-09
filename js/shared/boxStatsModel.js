@@ -5242,6 +5242,10 @@
       return model;
     }
     const summaries = groups.map(values => computeTraceSummary(values, { requireSorted: false }));
+    model.groupSummaries = labels.map((label, index) => ({
+      label,
+      n: Number.isFinite(Number(summaries[index]?.count)) ? Number(summaries[index].count) : (groups[index]?.length || 0)
+    }));
     const assumptionDiagnostics = computeAssumptionDiagnostics(groups, labels, {
       qqSampleLimit: ASSUMPTION_QQ_SAMPLE_LIMIT,
       summaries,

@@ -49,7 +49,7 @@ test('single ROC curve uses stats overlay and multiple curves keep comparison ov
 
   const root = page.locator('#rocPage:not([hidden])');
   await expect(root.locator('#rocStatsResults .roc-curve-comparison-card')).toHaveCount(0);
-  await expect(root.locator('#rocShowComparisonOnPlotLabel')).toHaveText('Show stats on plot');
+  await expect(root.locator('#rocShowComparisonOnPlotLabel')).toHaveText('Stats on plot');
   await expect(root.locator('[data-graph-selection-fieldset="1"] #rocShowComparisonOnPlot')).toBeVisible();
   await expect(root.locator('fieldset:not([data-graph-selection-fieldset="1"]) #rocShowComparisonOnPlot')).toHaveCount(0);
   await root.locator('#rocShowComparisonOnPlot').check();
@@ -61,7 +61,7 @@ test('single ROC curve uses stats overlay and multiple curves keep comparison ov
   ];
   await loadRocDataAndDraw(page, twoCurveData, 'e2e-roc-comparison-overlay');
 
-  await expect(root.locator('#rocShowComparisonOnPlotLabel')).toHaveText('Show stats on plot');
+  await expect(root.locator('#rocShowComparisonOnPlotLabel')).toHaveText('Stats on plot');
   await expect(root.locator('#rocSvg .roc-plot-stats')).toContainText(/ΔAUC|95% CI|p\s*[<=>≤≥]/, { timeout: 30_000 });
   await expect(root.locator('#rocStatsResults .roc-curve-comparison-card')).toContainText(/ΔAUC/);
   await expect(root.locator('#rocStatsResults .roc-curve-comparison-card')).toContainText(/p-value/i);

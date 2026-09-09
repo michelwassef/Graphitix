@@ -46,6 +46,16 @@ describe('Shared.autoResizeSvg aspect-lock viewport', () => {
     svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
   }
 
+  test('authoritative canvas preserves an explicit negative origin', () => {
+    const { svg } = createSvg();
+    window.Shared.autoResizeSvg(svg, {
+      fitContent: false,
+      remeasure: false,
+      baseViewport: { minX: -36, minY: -24, width: 692, height: 481 }
+    });
+    expect(svg.getAttribute('viewBox')).toBe('-36 -24 692 481');
+  });
+
   function readViewBox(svg) {
     return String(svg.getAttribute('viewBox') || '')
       .trim()
@@ -224,6 +234,26 @@ describe('Shared.autoResizeSvg aspect-lock viewport', () => {
     expect(width).toBeCloseTo(120, 5);
     expect(height).toBeCloseTo(100, 5);
     expect(excluded.style.display).toBe('');
+  });
+
+  test('excludes the statistical figure summary from the fitted graph viewport by default', () => {
+    const { svg } = createSvg({ locked: false });
+    const summary = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    summary.setAttribute('data-stats-figure-summary', '1');
+    svg.appendChild(summary);
+    svg.getBBox = () => ({
+      x: 0,
+      y: 0,
+      width: summary.style.display === 'none' ? 120 : 800,
+      height: 100
+    });
+
+    window.Shared.autoResizeSvg(svg, { padding: 0, remeasure: false });
+
+    const [, , width, height] = readViewBox(svg);
+    expect(width).toBeCloseTo(120, 5);
+    expect(height).toBeCloseTo(100, 5);
+    expect(summary.style.display).toBe('');
   });
 
   test('can disable base aspect normalization while keeping the base viewport reserve', () => {

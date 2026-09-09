@@ -423,6 +423,28 @@
 
   const undoManager = Shared.undoManager;
   const resizerNamespace = Shared.resizer = Shared.resizer || {};
+  const displayOnlyZoomResizeRegistry = new WeakMap();
+  resizerNamespace.consumeDisplayOnlyZoomResize = function consumeDisplayOnlyZoomResize(target, size = {}){
+    const expected = target ? displayOnlyZoomResizeRegistry.get(target) : null;
+    if(!expected){
+      return false;
+    }
+    const expectedWidth = Number(expected.width);
+    const expectedHeight = Number(expected.height);
+    if(!Number.isFinite(expectedWidth) || !Number.isFinite(expectedHeight)){
+      return false;
+    }
+    const width = Number(size.width);
+    const height = Number(size.height);
+    const matches = Number.isFinite(width)
+      && Number.isFinite(height)
+      && Math.abs(width - expectedWidth) <= 0.5
+      && Math.abs(height - expectedHeight) <= 0.5;
+    if(matches){
+      displayOnlyZoomResizeRegistry.delete(target);
+    }
+    return matches;
+  };
 
   function parseLayerMetric(svg, key){
     const value = Number(svg?.dataset?.[key]);
@@ -933,9 +955,58 @@
     };
     ensureControl('resizer-graph-title-control', 'Show graph title', 'graphTitle');
     ensureControl('resizer-axes-title-control', 'Show axes titles', AXIS_TITLE_ROLES);
+    normalizeGraphOptionsMenuOrder(setup);
     setup.control.__resizerTitleVisibilitySync = () => syncTitleVisibilityControls(svgBox, opts);
     ensureAxisTitleApplicabilityObserver(svgBox, setup.control);
     syncTitleVisibilityControls(svgBox, opts);
+  }
+
+  const GRAPH_OPTIONS_ORDER = Object.freeze([
+    ['.resizer-aspect-control', 10],
+    ['.resizer-fontresize-control', 20],
+    ['.resizer-graph-title-control', 30],
+    ['.resizer-axes-title-control', 40],
+    ['.resizer-legend-control', 50],
+    ['.resizer-axeslength-control', 60]
+  ]);
+
+  function getGraphOptionOrderRank(control){
+    if(!control || typeof control.matches !== 'function'){
+      return null;
+    }
+    for(const [selector, rank] of GRAPH_OPTIONS_ORDER){
+      if(control.matches(selector)){
+        return rank;
+      }
+    }
+    return null;
+  }
+
+  function normalizeGraphOptionsMenuOrder(setup){
+    const menu = setup?.menu;
+    if(!menu){
+      return;
+    }
+    const knownControls = Array.from(menu.children)
+      .filter(control => getGraphOptionOrderRank(control) !== null);
+    if(knownControls.length < 2){
+      return;
+    }
+    const orderedControls = knownControls.slice().sort((left, right) => (
+      getGraphOptionOrderRank(left) - getGraphOptionOrderRank(right)
+    ));
+    if(orderedControls.every((control, index) => control === knownControls[index])){
+      return;
+    }
+
+    const document = menu.ownerDocument || global.document;
+    const markers = knownControls.map(() => document.createComment('resizer-graph-option-order'));
+    knownControls.forEach((control, index) => {
+      menu.replaceChild(markers[index], control);
+    });
+    markers.forEach((marker, index) => {
+      marker.parentNode?.replaceChild(orderedControls[index], marker);
+    });
   }
 
   function ensureGraphOptionsMenu(svgBox, doc, opts = {}){
@@ -1029,9 +1100,11 @@
       menu: control.querySelector('.resizer-options-menu')
     };
     moveKnownGraphOptionsIntoMenu(svgBox, setup, opts);
+    normalizeGraphOptionsMenuOrder(setup);
     if(!tray.__resizerOptionsObserver && global.MutationObserver){
       const observer = new global.MutationObserver(() => {
         moveKnownGraphOptionsIntoMenu(svgBox, setup, opts);
+        normalizeGraphOptionsMenuOrder(setup);
       });
       observer.observe(tray, { childList: true });
       tray.__resizerOptionsObserver = observer;
@@ -1059,6 +1132,7 @@
         menuChildren: setup.menu.childElementCount
       });
     }
+    normalizeGraphOptionsMenuOrder(setup);
     return setup;
   }
 
@@ -1071,13 +1145,7 @@
     if(!tray){
       return;
     }
-    [
-      '.resizer-aspect-control',
-      '.resizer-fontresize-control',
-      '.resizer-axeslength-control',
-      '.resizer-legend-control',
-      '.resizer-title-control'
-    ].forEach(selector => {
+    GRAPH_OPTIONS_ORDER.map(([selector]) => selector).forEach(selector => {
       Array.from(tray.querySelectorAll(selector)).forEach(control => {
         if(control.closest('.resizer-options-control') === setup.control){
           return;
@@ -1126,6 +1194,7 @@
     if(!control.title){
       control.title = opts.title || 'Toggle legend visibility';
     }
+    normalizeGraphOptionsMenuOrder(setup);
     const legacyTray = svgBox.querySelector('.resizer-bottom-tray');
     if(legacyTray && legacyTray.childElementCount === 0){
       legacyTray.remove();
@@ -1259,9 +1328,6 @@
 
   function px(n){ return Math.round(n) + 'px'; }
 
-  // Zoom is intentionally "display-only": it scales the svgbox footprint on screen
-  // without entering the manual geometry redraw path. Manual drag handles remain the
-  // only mechanism that changes chart geometry.
   const RESIZER_ZOOM_MIN = 0.5;
   const RESIZER_ZOOM_MAX = 3;
   const RESIZER_ZOOM_STEP = 0.1;
@@ -1568,14 +1634,27 @@
       if(typeof opts.onResize !== 'function'){
         return;
       }
+      const normalizedPhase = typeof phase === 'string' ? phase : '';
       if(activeCartesianResizeTransaction){
-        activeCartesianResizeTransaction.phase = typeof phase === 'string' ? phase : '';
-        activeCartesianResizeTransaction.awaitingCommit = phase === 'end';
+        activeCartesianResizeTransaction.phase = normalizedPhase;
+        activeCartesianResizeTransaction.awaitingCommit = normalizedPhase === 'end';
       }
       try{
         opts.onResize(phase);
       }catch(err){
         console.error(errorLabel, err);
+      }finally{
+        try{
+          Shared.componentLifecycle?.emitLifecycleEvent?.({
+            action: 'resize-phase',
+            componentKey: opts.componentName || container.dataset.workspaceComponent || null,
+            tabId: activeResizerTabId || normalizeTabId(opts.tabId),
+            phase: normalizedPhase,
+            reason: `resizer-${normalizedPhase || 'unknown'}`
+          });
+        }catch(err){
+          console.error('resizer resize-phase lifecycle event error', err);
+        }
       }
       const rect = container.getBoundingClientRect?.();
       if(Number.isFinite(rect?.width) && Number.isFinite(rect?.height)){
@@ -1991,12 +2070,56 @@
       return Math.abs(geometry.measuredRatio / geometry.ratio - 1) > 0.001;
     }
 
-    function syncZoomPresentation(baseWidth, baseHeight){
+    function captureZoomEnvelopeBase(previousZoomScale = 1){
       const zoomSetup = ensureZoomElements();
       if(!zoomSetup){
         return;
       }
-      const zoomScale = Number.isFinite(zoomLevel) && zoomLevel > 0 ? zoomLevel : 1;
+      const svg = zoomSetup.target?.matches?.('svg')
+        ? zoomSetup.target
+        : zoomSetup.target?.querySelector?.('svg');
+      const renderedScaleX = Number(svg?.dataset?.graphContentRenderedScaleX);
+      const renderedScaleY = Number(svg?.dataset?.graphContentRenderedScaleY);
+      const sides = ['left', 'top', 'right', 'bottom'];
+      const values = {};
+      sides.forEach(side => {
+        const property = `--graph-content-extra-${side}`;
+        const current = Number.parseFloat(container.style.getPropertyValue(property));
+        const reserve = Number(svg?.dataset?.[`graphContentReserve${side[0].toUpperCase()}${side.slice(1)}`]);
+        const renderedScale = side === 'left' || side === 'right' ? renderedScaleX : renderedScaleY;
+        const fromPublishedViewport = Number.isFinite(reserve) && reserve >= 0
+          ? reserve * (Number.isFinite(renderedScale) && renderedScale > 0 ? renderedScale : 1)
+          : NaN;
+        values[side] = {
+          present: Number.isFinite(fromPublishedViewport) || Number.isFinite(current),
+          value: Number.isFinite(fromPublishedViewport)
+            ? fromPublishedViewport
+            : (Number.isFinite(current) ? current / Math.max(0.01, previousZoomScale) : 0)
+        };
+      });
+      return values;
+    }
+
+    function syncZoomContentEnvelope(zoomScale, values){
+      if(!values){
+        return;
+      }
+      ['left', 'top', 'right', 'bottom'].forEach(side => {
+        const property = `--graph-content-extra-${side}`;
+        const entry = values[side];
+        if(entry?.present){
+          container.style.setProperty(property, px(entry.value * zoomScale));
+        }else{
+          container.style.removeProperty(property);
+        }
+      });
+    }
+
+    function syncZoomPresentation(){
+      const zoomSetup = ensureZoomElements();
+      if(!zoomSetup){
+        return;
+      }
       if(zoomSetup.viewport){
         zoomSetup.viewport.style.flex = '1 1 auto';
         zoomSetup.viewport.style.width = '100%';
@@ -2010,9 +2133,9 @@
         zoomSetup.content.style.height = '';
         zoomSetup.content.style.minWidth = '';
         zoomSetup.content.style.minHeight = '';
-        // Keep chart geometry anchored at base dimensions; only visual footprint
-        // changes via wrapper transform. This is what keeps zoom independent from
-        // manual geometry resize.
+        // Keep graph geometry at its base dimensions and magnify only its
+        // rendered footprint. The outer frame uses the same zoom scale.
+        const zoomScale = Number.isFinite(zoomLevel) && zoomLevel > 0 ? zoomLevel : 1;
         zoomSetup.content.style.setProperty('--resizer-content-zoom', String(zoomScale));
       }
     }
@@ -2038,6 +2161,9 @@
     function applyResize({ width, height, axis, fallbackWidth, fallbackHeight, reason, aspectLockedOverride, graphAuthority }){
       const zoomScale = Number.isFinite(zoomLevel) && zoomLevel > 0 ? zoomLevel : 1;
       const writesGraphAuthority = graphAuthority !== false && !/^zoom(?:-|$)/.test(String(reason || ''));
+      if(!/^zoom(?:-|$)/.test(String(reason || ''))){
+        displayOnlyZoomResizeRegistry.delete(container);
+      }
       const requestedBaseWidth = Number.isFinite(width) ? (width / zoomScale) : NaN;
       const requestedBaseHeight = Number.isFinite(height) ? (height / zoomScale) : NaN;
       const fallbackBaseWidth = Number.isFinite(fallbackWidth) ? (fallbackWidth / zoomScale) : NaN;
@@ -2206,7 +2332,7 @@
         container.style.maxWidth = Number.isFinite(MAX_W) ? px(MAX_W * zoomScale) : 'none';
         container.style.maxHeight = Number.isFinite(MAX_H) ? px(MAX_H * zoomScale) : 'none';
       }
-      syncZoomPresentation(finalBaseWidth, finalBaseHeight);
+      syncZoomPresentation();
       const changed = (Number.isFinite(finalWidth) && container.style.width !== previousWidth)
         || (Number.isFinite(finalHeight) && container.style.height !== previousHeight);
       console.debug('Debug: resizer applyResize helper', {
@@ -2558,13 +2684,16 @@
       if(!shouldApplySize){
         return null;
       }
-      // Give ResizeObserver enough time to settle after css size updates so zoom does
-      // not bounce into resize redraw callbacks.
+      // Give ResizeObserver enough time to settle after the display-only size update.
       const observerSuppressMs = Number.isFinite(options.suppressObserverMs) ? options.suppressObserverMs : 450;
       suppressObserverResize(observerSuppressMs);
       container.style.flex = '0 0 auto';
       const nextDisplayWidth = toDisplayDimension(baseWidth);
       const nextDisplayHeight = toDisplayDimension(baseHeight);
+      displayOnlyZoomResizeRegistry.set(container, {
+        width: nextDisplayWidth,
+        height: nextDisplayHeight
+      });
       return applyResize({
         axis: 'both',
         width: nextDisplayWidth,
@@ -2588,6 +2717,7 @@
         || parsePositive(data.resizerBaseHeight)
         || toBaseDimension(parsePositive(currentRect.height), previousZoom)
         || defaultHeight;
+      const zoomEnvelopeBase = captureZoomEnvelopeBase(previousZoom);
       const normalized = normalizeZoomLevel(nextLevel, zoomBounds);
       const changed = Math.abs(normalized - zoomLevel) > RESIZER_ZOOM_EPSILON;
       zoomLevel = normalized;
@@ -2599,12 +2729,15 @@
         forceLayout: options.forceLayout === true,
         suppressObserverMs: options.suppressObserverMs
       });
-      syncZoomPresentation(baseWidth, baseHeight);
+      syncZoomPresentation();
+      // Only a zoom change scales the published envelope. Manual resizing
+      // leaves it owned by the renderer until the next frame is committed.
+      syncZoomContentEnvelope(zoomLevel, zoomEnvelopeBase);
       applyZoomBoundsStyles();
       syncZoomControls();
       if(changed || options.forceLayout === true){
-        // This callback is layout-sync only; componentLayout suppresses redraw work
-        // for the "zoom" phase so zoom remains a pure magnifier.
+        // Zoom only changes the display envelope; component draw callbacks are
+        // suppressed by componentLayout for the zoom phase.
         notifyResize('zoom', 'resizer onResize zoom error');
       }
       if(changed || options.logUnchanged){
@@ -2904,6 +3037,7 @@
       },
       isCartesianLayoutTransactionEnabled,
       destroy(options = {}){
+        displayOnlyZoomResizeRegistry.delete(container);
         if(resizeObserver){
           try{
             resizeObserver.disconnect();
@@ -3533,7 +3667,7 @@
         data.resizerZoomLevel = String(zoomLevel);
       }
       data.resizerLastAxis = 'both';
-      syncZoomPresentation(applied.baseWidth, applied.baseHeight);
+      syncZoomPresentation();
       syncZoomControls();
       console.debug('Debug: resizer applySnapshot complete', {
         container: containerLabel,
@@ -3584,7 +3718,8 @@
             // target before the drag has even started.
             captureLockedGeometry({ resetRatio: false });
           }
-          if(aspectLocked && isCartesianLayoutTransactionEnabled() && (committedCartesianPlan || readPersistedCartesianTransaction())){
+          const usesCartesianLayout = isCartesianLayoutTransactionEnabled();
+          if(aspectLocked && usesCartesianLayout && (committedCartesianPlan || readPersistedCartesianTransaction())){
             const transactionPlan = committedCartesianPlan || readPersistedCartesianTransaction()?.plan;
             const frameChrome = resolveCartesianFrameChrome(transactionPlan, rect);
             activeCartesianResizeTransaction = {
@@ -3598,7 +3733,9 @@
           }
           manualResizeActive = true;
           suppressObserverResize(220);
-          markOrthogonalViewportLock(axis, 'pointer-start', { durationMs: 6000 });
+          if(!usesCartesianLayout){
+            markOrthogonalViewportLock(axis, 'pointer-start', { durationMs: 6000 });
+          }
           container.style.boxSizing = 'border-box';
           container.style.width = px(startW);
           container.style.height = px(startH);
@@ -3608,7 +3745,8 @@
           container.dataset.resizerResized = 'true';
           container.dataset.resizerWidth = container.style.width;
           container.dataset.resizerHeight = container.style.height;
-          if(shouldApplyLiveViewportLock(axis)
+          if(!usesCartesianLayout
+            && shouldApplyLiveViewportLock(axis)
             && Shared.graphViewport && typeof Shared.graphViewport.applyLiveResizeLock === 'function'){
             try{
               Shared.graphViewport.applyLiveResizeLock(container, {
@@ -3816,6 +3954,7 @@
   Shared.syncPanelWidths = function syncPanelWidths(tablePanel, graphPanel, configPanel, scheduleDraw, opts={}){
     const debugLabel = opts.debugLabel || 'panel';
     const preserveGraphContent = opts.preserveGraphContent === true;
+    const preserveSvgBoxPresentation = opts.preserveSvgBoxPresentation === true;
     const disableAutoWidthClamp = opts.disableAutoWidthClamp === true;
     const forceDefaultWidth = opts.forceDefaultWidth === true;
     const lockGraphPanelWidth = opts.lockGraphPanelWidth !== false;
@@ -4233,14 +4372,16 @@
       if(!unlimitedWidth && Number.isFinite(maxWidthConstraint)){
         widthToApply = Math.min(widthToApply, Math.round(maxWidthConstraint));
       }
-      setStylePxIfChanged(svgBox.style, 'width', widthToApply);
-      if(allowOverflow){
-        setStyleValueIfChanged(svgBox.style, 'maxWidth', 'none');
-      }else{
-        setStylePxIfChanged(svgBox.style, 'maxWidth', Math.max(widthToApply, Number.isFinite(datasetDefaultWidth) ? datasetDefaultWidth : widthToApply));
-      }
-      if(svgDataset){
-        svgDataset.resizerWidth = svgBox.style.width;
+      if(!preserveSvgBoxPresentation){
+        setStylePxIfChanged(svgBox.style, 'width', widthToApply);
+        if(allowOverflow){
+          setStyleValueIfChanged(svgBox.style, 'maxWidth', 'none');
+        }else{
+          setStylePxIfChanged(svgBox.style, 'maxWidth', Math.max(widthToApply, Number.isFinite(datasetDefaultWidth) ? datasetDefaultWidth : widthToApply));
+        }
+        if(svgDataset){
+          svgDataset.resizerWidth = svgBox.style.width;
+        }
       }
       if(aspectLocked && !usesCartesianLayoutTransaction){
         let ratioForHeight = Number.isFinite(activeRatio) && activeRatio > 0 ? activeRatio : NaN;
@@ -4257,10 +4398,12 @@
           if(Number.isFinite(datasetMaxHeight)){
             heightToApply = Math.min(heightToApply, Math.round(datasetMaxHeight));
           }
-          setStylePxIfChanged(svgBox.style, 'height', heightToApply);
-          setStylePxIfChanged(svgBox.style, 'maxHeight', Math.max(heightToApply, Number.isFinite(datasetDefaultHeight) ? datasetDefaultHeight : heightToApply));
-          if(svgDataset){
-            svgDataset.resizerHeight = svgBox.style.height;
+          if(!preserveSvgBoxPresentation){
+            setStylePxIfChanged(svgBox.style, 'height', heightToApply);
+            setStylePxIfChanged(svgBox.style, 'maxHeight', Math.max(heightToApply, Number.isFinite(datasetDefaultHeight) ? datasetDefaultHeight : heightToApply));
+            if(svgDataset){
+              svgDataset.resizerHeight = svgBox.style.height;
+            }
           }
           console.debug('Debug: Shared.syncPanelWidths aspect enforcement', {
             label: debugLabel,

@@ -3965,6 +3965,9 @@
 
   let scatterFontEventBound = false;
   function isScatterFontStyleEvent(detail){
+    if(Shared.statsFigureSummary?.isSummaryStyleEvent?.(detail)){
+      return false;
+    }
     const scopeId = detail?.scopeId || null;
     const storeKey = typeof detail?.storeKey === 'string' ? detail.storeKey : '';
     return scopeId === 'scatter' || storeKey.startsWith('scatter::');
@@ -18411,6 +18414,328 @@
       };
     }
 
+
+    function buildScatterFigureSummary(context, stats, settings = {}, options = {}){
+      const safeStats = stats && typeof stats === 'object' ? stats : {};
+      const regressionModeValue = String(settings?.regressionModeValue || scatterRegressionMode?.value || 'linear').trim().toLowerCase();
+      const fitMethodValue = normalizeScatterFitMethod(settings?.fitMethodValue || scatterFitMethod?.value || 'ols');
+      const associationSelection = normalizeScatterAssociationSelection(
+        safeStats.associationSelection
+        || settings?.associationSelection
+        || settings?.associationMethod
+        || 'auto'
+      );
+      const associationMethod = resolveScatterAssociationMethod(
+        safeStats.associationMethod || settings?.associationMethod || associationSelection,
+        regressionModeValue
+      );
+      const associationLabel = getScatterAssociationMethodLabel(associationMethod);
+      const associationSymbol = getScatterAssociationSymbol(associationMethod);
+      const regressionLabel = getScatterRegressionModeLabel(regressionModeValue);
+      const fitMethodLabel = getScatterFitMethodLabel(fitMethodValue);
+      const fitSpec = settings?.fitSpec && typeof settings.fitSpec === 'object' ? settings.fitSpec : buildScatterFitSpec();
+      const confidenceLevel = Number.isFinite(Number(fitSpec?.confidenceLevel)) ? Number(fitSpec.confidenceLevel) : 95;
+      const alpha = getScatterStatsAlpha();
+      const alphaLabel = Shared.statsInference?.formatLevel?.(alpha) || formatScatterSummaryNumber(alpha, 3);
+      const groupedReports = Array.isArray(options.groupedReports)
+        ? options.groupedReports.filter(Boolean)
+        : [];
+      const isGrouped = groupedReports.length > 0 || safeStats.grouped === true;
+      const analysisRows = [];
+      const resultRows = [];
+      const comparisonRows = [];
+      const diagnosticRows = [];
+      const pToken = (value, inference = null) => scatterInferencePValue(value, {
+        inference: inference === null
+          ? createScatterInferenceSpec({ method:'none', valueKind:'raw-p', level:alpha })
+          : inference
+      });
+      const finite = value => Number.isFinite(Number(value));
+      const fmt = (value, digits = 4) => formatScatterSummaryNumber(Number(value), digits);
+      const associationPMethods = new Set();
+      const rememberAssociationPMethod = method => {
+        const normalized = String(method || '')
+          .replace(/\s*(?:[;(,]|\band\s+)?\s*two-sided\s*\)?\s*$/i, '')
+          .trim();
+        if(normalized){ associationPMethods.add(normalized); }
+      };
+      const resolveDf = model => {
+        const explicit = Number(model?.intervals?.degreesOfFreedom);
+        if(Number.isFinite(explicit) && explicit > 0){ return explicit; }
+        const n = Number(model?.metrics?.sampleSize);
+        const coefficientCount = Array.isArray(model?.coefficientStats) ? model.coefficientStats.length : NaN;
+        return Number.isFinite(n) && Number.isFinite(coefficientCount) && n > coefficientCount
+          ? n - coefficientCount
+          : NaN;
+      };
+      const pValueFromCell = cell => {
+        if(cell && typeof cell === 'object' && cell.type === 'pValue'){
+          return Number(cell.value);
+        }
+        return Number(cell);
+      };
+      const appendAssociation = (label, detail) => {
+        const detailStats = detail?.stats || {};
+        if(associationMethod === 'none' || !finite(detailStats.r)){ return; }
+        const n = Number(detailStats.pointCount ?? detail?.regressionModel?.metrics?.sampleSize ?? context?.points?.length);
+        const ci = detailStats.correlationCI;
+        const parts = [];
+        if(Number.isFinite(n)){ parts.push(`n = ${Math.round(n)}; `); }
+        parts.push(`${associationSymbol} = ${fmt(detailStats.r, 4)}`);
+        if(ci && finite(ci.low) && finite(ci.high)){
+          parts.push(`; 95% CI [${fmt(ci.low, 4)}, ${fmt(ci.high, 4)}]${detailStats.correlationCiApproximate ? ' (approximate Fisher-z interval)' : ''}`);
+        }
+        if(finite(detailStats.p)){
+          parts.push('; p = ', pToken(detailStats.p));
+        }
+        if(detailStats.pMethod){ rememberAssociationPMethod(detailStats.pMethod); }
+        resultRows.push({ label, valueParts:parts, figureRole:'association', figurePriority:80 });
+      };
+      const appendRegression = (label, detail) => {
+        const model = detail?.regressionModel || null;
+        if(!model || regressionModeValue === 'none'){ return; }
+        if(model.diagnosticOnly === true){
+          const parts = ['Diagnostic fit only'];
+          if(finite(model?.metrics?.rmse)){ parts.push(`; RMSE = ${fmt(model.metrics.rmse, 4)}`); }
+          if(finite(model?.metrics?.logLoss)){ parts.push(`; log loss = ${fmt(model.metrics.logLoss, 4)}`); }
+          parts.push('; ordinary coefficient inference unavailable because the model was separated or did not converge.');
+          resultRows.push({ label, valueParts:parts, figureRole:'diagnostic', figurePriority:45 });
+          return;
+        }
+        const coefficients = Array.isArray(model.coefficientStats) ? model.coefficientStats.filter(Boolean) : [];
+        const primaryLabel = String(model?.summary?.primaryParameter?.label || '').trim().toLowerCase();
+        const primaryStat = coefficients.find(stat => String(stat?.term || '').trim().toLowerCase() === primaryLabel)
+          || coefficients.find(stat => String(stat?.term || '').trim().toLowerCase() === 'slope')
+          || coefficients.find(stat => String(stat?.term || '').trim().toLowerCase() !== 'intercept')
+          || coefficients[0]
+          || null;
+        const parts = [];
+        if(primaryStat && finite(primaryStat.estimate)){
+          const term = String(primaryStat.term || model?.summary?.primaryParameter?.label || 'Primary parameter');
+          parts.push(`${term} = ${fmt(primaryStat.estimate, 4)}`);
+          if(finite(primaryStat.standardError ?? primaryStat.se)){
+            parts.push(`; SE = ${fmt(primaryStat.standardError ?? primaryStat.se, 4)}`);
+          }
+          const statistic = Number(primaryStat.statistic ?? primaryStat.tStatistic ?? primaryStat.zStatistic);
+          const statisticLabel = String(primaryStat.statisticLabel || (finite(primaryStat.zStatistic) ? 'z' : 't')).trim();
+          const df = resolveDf(model);
+          if(Number.isFinite(statistic)){
+            parts.push(`; ${statisticLabel}${statisticLabel.toLowerCase() === 't' && Number.isFinite(df) ? `(${Math.round(df)})` : ''} = ${fmt(statistic, 3)}`);
+          }
+          if(finite(primaryStat.pValue)){
+            parts.push('; p = ', pToken(primaryStat.pValue));
+          }
+          if(finite(primaryStat.ciLow) && finite(primaryStat.ciHigh)){
+            parts.push(`; ${confidenceLevel}% CI [${fmt(primaryStat.ciLow, 4)}, ${fmt(primaryStat.ciHigh, 4)}]`);
+          }
+        }else if(model?.summary?.primaryParameter && finite(model.summary.primaryParameter.value)){
+          parts.push(`${model.summary.primaryParameter.label || 'Primary parameter'} = ${fmt(model.summary.primaryParameter.value, 4)}`);
+        }
+        const metrics = model.metrics || {};
+        if(finite(metrics.r2)){
+          parts.push(`; ${metrics.r2Kind === 'uncentered' ? 'uncentered R²' : 'R²'} = ${fmt(metrics.r2, 4)}`);
+        }
+        if(finite(metrics.rmse)){ parts.push(`; RMSE = ${fmt(metrics.rmse, 4)}`); }
+        if(!parts.length && model?.summary?.equation){ parts.push(`Equation: ${model.summary.equation}`); }
+        if(parts.length){ resultRows.push({ label, valueParts:parts, figureRole:'model', figurePriority:70 }); }
+
+        if(!isGrouped && coefficients.length > 1){
+          coefficients.forEach(stat => {
+            if(stat === primaryStat || !finite(stat?.estimate)){ return; }
+            const coefficientParts = [`Estimate = ${fmt(stat.estimate, 4)}`];
+            if(finite(stat.standardError ?? stat.se)){ coefficientParts.push(`; SE = ${fmt(stat.standardError ?? stat.se, 4)}`); }
+            const statistic = Number(stat.statistic ?? stat.tStatistic ?? stat.zStatistic);
+            const statisticLabel = String(stat.statisticLabel || (finite(stat.zStatistic) ? 'z' : 't')).trim();
+            const df = resolveDf(model);
+            if(Number.isFinite(statistic)){
+              coefficientParts.push(`; ${statisticLabel}${statisticLabel.toLowerCase() === 't' && Number.isFinite(df) ? `(${Math.round(df)})` : ''} = ${fmt(statistic, 3)}`);
+            }
+            if(finite(stat.pValue)){ coefficientParts.push('; p = ', pToken(stat.pValue)); }
+            if(finite(stat.ciLow) && finite(stat.ciHigh)){
+              coefficientParts.push(`; ${confidenceLevel}% CI [${fmt(stat.ciLow, 4)}, ${fmt(stat.ciHigh, 4)}]`);
+            }
+            resultRows.push({ label:`${String(stat.term || 'Coefficient')}`, valueParts:coefficientParts, figureRole:'effect', figurePriority:60 });
+          });
+        }
+      };
+      const appendDiagnostics = (label, detail) => {
+        if(!isScatterDiagnosticsEnabled()){ return; }
+        const diagnostics = detail?.regressionModel?.diagnostics || null;
+        if(!diagnostics){ return; }
+        const parts = [];
+        if(finite(diagnostics.jarqueBera)){
+          parts.push(`Jarque–Bera = ${fmt(diagnostics.jarqueBera, 3)}`);
+          if(finite(diagnostics.jarqueBeraP)){ parts.push(', p = ', pToken(diagnostics.jarqueBeraP, false)); }
+        }
+        const runs = diagnostics.runsTest || null;
+        if(runs?.available && finite(runs.z)){
+          if(parts.length){ parts.push('; '); }
+          parts.push(`runs z = ${fmt(runs.z, 3)}`);
+          if(finite(runs.pValue)){ parts.push(', p = ', pToken(runs.pValue, false)); }
+        }
+        const lack = diagnostics.lackOfFit || null;
+        if(lack?.available && finite(lack.fStatistic)){
+          if(parts.length){ parts.push('; '); }
+          parts.push(`lack-of-fit F${finite(lack.dfLackOfFit) && finite(lack.dfPureError) ? `(${Math.round(lack.dfLackOfFit)}, ${Math.round(lack.dfPureError)})` : ''} = ${fmt(lack.fStatistic, 3)}`);
+          if(finite(lack.pValue)){ parts.push(', p = ', pToken(lack.pValue, false)); }
+        }
+        if(parts.length){ diagnosticRows.push({ label, valueParts:parts, figureRole:'diagnostic', figurePriority:45 }); }
+      };
+
+      const seriesCount = isGrouped
+        ? (groupedReports.length || (Array.isArray(safeStats.groupedSeriesStats) ? safeStats.groupedSeriesStats.length : 0))
+        : 1;
+      analysisRows.push({
+        label:'Analysis',
+        value:`${isGrouped ? `${seriesCount} datasets` : '1 dataset'} · ${associationMethod === 'none' ? 'association not requested' : `${associationLabel} association`} · ${regressionModeValue === 'none' ? 'no regression fit' : `${regressionLabel} (${fitMethodLabel})`}`,
+        figureRole:'analysis',
+        figurePriority:80
+      });
+      analysisRows.push({
+        label:'Inference',
+        value:`Regression coefficient intervals: ${confidenceLevel}%; association intervals: 95%; α = ${alphaLabel}${associationMethod !== 'none' ? '; association tests are two-sided' : ''}${isGrouped ? '; separate per-dataset inferential p-values are not multiplicity-adjusted across datasets' : ''}`,
+        figureRole:'inference',
+        figurePriority:70
+      });
+      if(fitSpec?.range && (finite(fitSpec.range.minX) || finite(fitSpec.range.maxX))){
+        analysisRows.push({
+          label:'Fit range',
+          value:`${finite(fitSpec.range.minX) ? `X ≥ ${fmt(fitSpec.range.minX, 4)}` : 'no lower bound'}; ${finite(fitSpec.range.maxX) ? `X ≤ ${fmt(fitSpec.range.maxX, 4)}` : 'no upper bound'}`
+        });
+      }
+
+      if(isGrouped){
+        groupedReports.forEach((entry, index) => {
+          const label = String(entry?.label || `Dataset ${index + 1}`);
+          appendAssociation(`${label} · association`, entry?.detail || null);
+          appendRegression(`${label} · regression`, entry?.detail || null);
+          appendDiagnostics(label, entry?.detail || null);
+        });
+      }else{
+        const detail = options.detail || buildScatterStatsDetailReport(context || {}, safeStats, settings || {});
+        appendAssociation('Association', detail);
+        appendRegression('Regression', detail);
+        appendDiagnostics('Regression diagnostics', detail);
+      }
+
+      if(associationPMethods.size){
+        const inferenceRow = analysisRows.find(row => row.figureRole === 'inference');
+        if(inferenceRow){
+          inferenceRow.value += `; association p-values use ${Array.from(associationPMethods).join('; ')}`;
+        }
+      }
+
+      const linearComparison = safeStats.groupedLinearComparison || options.groupedLinearComparison || null;
+      if(linearComparison?.overall){
+        const overall = linearComparison.overall;
+        const slopes = overall.slopesTest;
+        const intercepts = overall.interceptTest;
+        analysisRows.push({
+          label:'Grouped comparisons',
+          value:`GraphPad-style hierarchy: equality of slopes is tested first; intercepts are tested only if slopes are not significant. Pairwise slope p-values are Holm-adjusted across all dataset pairs; intercept p-values are Holm-adjusted across the eligible pairs only.`
+        });
+        const addOverallTest = (label, test) => {
+          if(!test || !finite(test.fStatistic) || !finite(test.pValue)){ return; }
+          comparisonRows.push({
+            label,
+            valueParts:[`F(${Math.round(test.df1)}, ${Math.round(test.df2)}) = ${fmt(test.fStatistic, 3)}; p = `, pToken(test.pValue)],
+            figureRole:'comparison',
+            figurePriority:55
+          });
+        };
+        addOverallTest('Equal slopes across datasets', slopes);
+        const slopesDecision = Number(slopes?.pValue);
+        if(!(Number.isFinite(slopesDecision) && slopesDecision <= alpha)){
+          addOverallTest('Equal intercepts given equal slopes', intercepts);
+        }else{
+          comparisonRows.push({ label:'Intercept comparison', value:'Not performed because the overall slope test was significant.', figureRole:'explanatory' });
+        }
+        addOverallTest('One common line for all datasets', overall.commonLineTest);
+        if(linearComparison.overallDecision?.text){
+          comparisonRows.push({ label:'Overall interpretation', value:String(linearComparison.overallDecision.text), figureRole:'explanatory' });
+        }
+        const pairwise = Array.isArray(linearComparison.pairwiseRows) ? linearComparison.pairwiseRows : [];
+        const pairDecisionP = row => {
+          const slope = pValueFromCell(row?.slopesAdjP);
+          const intercept = pValueFromCell(row?.interceptsAdjP);
+          return Number.isFinite(slope) && String(row?.decisionCode || '') === 'different-slopes'
+            ? slope
+            : (Number.isFinite(intercept) ? intercept : slope);
+        };
+        let selectedPairs = pairwise;
+        if(pairwise.length > 8){
+          const ordered = pairwise.slice().sort((a,b) => {
+            const av = pairDecisionP(a); const bv = pairDecisionP(b);
+            if(Number.isFinite(av) && Number.isFinite(bv)) return av - bv;
+            if(Number.isFinite(av)) return -1;
+            if(Number.isFinite(bv)) return 1;
+            return 0;
+          });
+          selectedPairs = ordered.slice(0,8);
+          comparisonRows.push({
+            label:'Pairwise family',
+            value:`${pairwise.length} dataset pairs tested; showing the 8 smallest Holm decision p-values below. The complete pairwise family remains in the canonical statistical results.`,
+            figureRole:'explanatory'
+          });
+        }
+        selectedPairs.forEach(row => {
+          const parts = [];
+          const slopeRaw = pValueFromCell(row?.slopesP);
+          const slopeAdj = pValueFromCell(row?.slopesAdjP);
+          if(Number.isFinite(slopeRaw)){ parts.push('slope raw p = ', pToken(slopeRaw, false)); }
+          if(Number.isFinite(slopeAdj)){ parts.push('; Holm p = ', pToken(slopeAdj, createScatterInferenceSpec({ method:'holm', valueKind:'adjusted-p', level:alpha }))); }
+          const interceptRaw = pValueFromCell(row?.interceptsP);
+          const interceptAdj = pValueFromCell(row?.interceptsAdjP);
+          if(Number.isFinite(interceptRaw)){ parts.push('; intercept raw p = ', pToken(interceptRaw, false)); }
+          if(Number.isFinite(interceptAdj)){ parts.push('; intercept Holm p = ', pToken(interceptAdj, createScatterInferenceSpec({ method:'holm', valueKind:'adjusted-p', level:alpha }))); }
+          if(row?.conclusion){ parts.push(`; ${String(row.conclusion)}`); }
+          comparisonRows.push({ label:String(row?.pair || 'Dataset pair'), valueParts:parts, figureRole:'comparison', figurePriority:35 });
+        });
+      }
+
+      const globalFit = safeStats.groupedGlobalFit || null;
+      if(globalFit){
+        const addGlobalTest = (label, test) => {
+          if(!test || !finite(test.fStatistic) || !finite(test.pValue)){ return; }
+          comparisonRows.push({
+            label,
+            valueParts:[`F(${Math.round(test.df1)}, ${Math.round(test.df2)}) = ${fmt(test.fStatistic, 3)}; p = `, pToken(test.pValue)]
+          });
+        };
+        addGlobalTest('Common curve vs separate curves', globalFit.commonCurve?.versusSeparate);
+        addGlobalTest('Shared-parameter fit vs separate curves', globalFit.sharedFit?.versusSeparate);
+        addGlobalTest('Common curve vs shared-parameter fit', globalFit.sharedFit?.versusCommon);
+        const candidates = [
+          ['Separate curves', globalFit.separate?.infoCriteria?.aicc],
+          ['Common curve', globalFit.commonCurve?.infoCriteria?.aicc],
+          ['Shared-parameter fit', globalFit.sharedFit?.infoCriteria?.aicc]
+        ].filter(entry => finite(entry[1])).sort((a,b) => Number(a[1]) - Number(b[1]));
+        if(candidates.length){ comparisonRows.push({ label:'Preferred grouped model', value:`${candidates[0][0]} by minimum AICc.` }); }
+      }
+
+      if(diagnosticRows.length){
+        diagnosticRows.unshift({
+          label:'Interpretation',
+          value:'Residual diagnostics are model checks, not automatic model-selection rules; their p-values are unadjusted and should be interpreted with plots and study context.'
+        });
+      }
+      const rowHasPValue = row => Array.isArray(row?.valueParts)
+        && row.valueParts.some(part => part && typeof part === 'object' && part.type === 'pValue');
+      const hasInference = resultRows.some(rowHasPValue)
+        || comparisonRows.some(rowHasPValue);
+      return {
+        schemaVersion:1,
+        kind:hasInference ? 'inferential' : 'analysis',
+        title:hasInference ? 'Statistical analysis summary' : 'Analysis summary',
+        sections:[
+          { key:'analysis', label:'', rows:analysisRows },
+          ...(resultRows.length ? [{ key:'results', label:'Results', rows:resultRows }] : []),
+          ...(comparisonRows.length ? [{ key:'comparisons', label:'Comparisons', rows:comparisonRows }] : []),
+          ...(diagnosticRows.length ? [{ key:'diagnostics', label:'Diagnostics', rows:diagnosticRows }] : [])
+        ]
+      };
+    }
+
     function buildScatterAnalysisSpec(context, stats, settings, extra){
       const regressionModeValue = settings?.regressionModeValue || scatterRegressionMode?.value || 'linear';
       const fitMethodValue = settings?.fitMethodValue || scatterFitMethod?.value || 'ols';
@@ -18634,13 +18959,14 @@
       };
     }
 
-    function appendScatterReportPanel(target, report, analysisSpec){
+    function appendScatterReportPanel(target, report, analysisSpec, options = {}){
       const reporting = Shared.statsReporting;
       if(reporting && typeof reporting.appendReportPanel === 'function'){
         const reportModel = {
           methodsText: report?.methodsText || '',
           resultsText: report?.resultsText || '',
-          analysisSpec: analysisSpec || null
+          analysisSpec: analysisSpec || null,
+          figureSummary: options.figureSummary || null
         };
         if(Array.isArray(report?.methodsParts) && report.methodsParts.length){
           reportModel.methodsParts = report.methodsParts;
@@ -18995,7 +19321,12 @@
         }
         const groupedReportText = buildScatterReportingText(context, { ...stats, grouped: true }, settings);
         const groupedAnalysisSpec = buildScatterAnalysisSpec(context, { ...stats, grouped: true }, settings, { controlSignature });
-        appendScatterReportPanel(scatterStatsResults, groupedReportText, groupedAnalysisSpec);
+        appendScatterReportPanel(scatterStatsResults, groupedReportText, groupedAnalysisSpec, {
+          figureSummary: buildScatterFigureSummary(context, { ...stats, grouped:true }, settings, {
+            groupedReports,
+            groupedLinearComparison: groupedComparisonReport
+          })
+        });
 
         scatterDebug('Debug: scatter grouped stats computed', {
           groupCount: groupedSeriesStats.length,
@@ -19081,7 +19412,9 @@
       }
       const reportText = buildScatterReportingText(context, stats, settings);
       const analysisSpec = buildScatterAnalysisSpec(context, stats, settings, { controlSignature });
-      appendScatterReportPanel(scatterStatsResults, reportText, analysisSpec);
+      appendScatterReportPanel(scatterStatsResults, reportText, analysisSpec, {
+        figureSummary: buildScatterFigureSummary(context, stats, settings, { detail })
+      });
 
       scatterDebug('Debug: scatter manual stats computed',{ stats, regressionSummary: scatterLastRegressionSummary });
     }
@@ -22251,20 +22584,11 @@
       const fallbackHeight = Math.round(fallbackWidth / targetAspect);
       const availableWidth = Math.floor(drawableFrame.width || 0);
       const availableHeight = Math.floor(drawableFrame.height || 0);
-      let W3 = availableWidth > 0 ? availableWidth : fallbackWidth;
-      let H3 = Math.round(W3 / targetAspect);
-      if(availableHeight > 0 && H3 > availableHeight){
-        H3 = Math.max(1, availableHeight);
-        W3 = Math.max(1, Math.round(H3 * targetAspect));
-        if(availableWidth > 0 && W3 > availableWidth){
-          W3 = Math.max(1, availableWidth);
-          H3 = Math.max(1, Math.round(W3 / targetAspect));
-        }
-      }
-      if(W3 <= 0 || H3 <= 0){
-        W3 = fallbackWidth;
-        H3 = fallbackHeight;
-      }
+      const frameDimensions = typeof plot3d.resolveFrameDimensions === 'function'
+        ? plot3d.resolveFrameDimensions({ availableWidth, availableHeight, fallbackWidth, fallbackHeight })
+        : { width: fallbackWidth, height: fallbackHeight };
+      let W3 = frameDimensions.width;
+      let H3 = frameDimensions.height;
       const baseW3 = W3;
       const legendAxisGap = Math.max(fs * 0.9, 18);
       const appliedLegendAxisGap = legendVisible ? legendAxisGap : 0;
@@ -22276,7 +22600,9 @@
       W3 = legendViewport3d.width;
       plotEl.style.position='relative';
       plotEl.style.aspectRatio = `${W3} / ${H3}`;
-      plotEl.style.padding = plotEl.style.padding || '12px';
+      // The outer .svgbox already supplies the user-frame padding. Additional
+      // padding here would make the CSS SVG rectangle smaller than its viewBox.
+      plotEl.style.padding = '0';
       plotEl.style.backgroundColor = '';
       plotEl.style.boxSizing = 'border-box';
       const svg3 = reuse3dSvg ? existingScatterSvg : document.createElementNS(NS,'svg');
@@ -22297,14 +22623,7 @@
       svg3.dataset.scatterGraphType = scatterCurrentGraphType;
       chartStyle.prepareSvg(svg3, { scopeId: 'scatter' });
       stampScatterParameterObservables(svg3, scatterLabelsState);
-      const legendProjection = chartStyle.stageLegendViewport({
-        svgBox: scatterSvgBoxRef || scatterRefs?.svgBox,
-        plot: plotEl,
-        svg: svg3,
-        baseWidth: baseW3,
-        baseHeight: H3,
-        legendWidth: legendVisible ? legendWidth + appliedLegendAxisGap : 0
-      });
+      let legendProjection = null;
       while(svg3.firstChild){
         svg3.removeChild(svg3.firstChild);
       }
@@ -22325,11 +22644,11 @@
         bottom: Math.max(fs * 3.2, 40),
         left: Math.max(fs * 3.2, 40)
       };
-      const legendShiftX = typeof plot3d.resolveLegendShiftX === 'function'
+      let legendShiftX = typeof plot3d.resolveLegendShiftX === 'function'
         ? plot3d.resolveLegendShiftX({ legendVisible, margin: margin3, fontSize: fs, legendWidth })
         : 0;
-      const plotW3 = Math.max(20, W3 - margin3.left - margin3.right);
-      const plotH3 = Math.max(20, H3 - margin3.top - margin3.bottom);
+      let plotW3 = Math.max(20, W3 - margin3.left - margin3.right);
+      let plotH3 = Math.max(20, H3 - margin3.top - margin3.bottom);
       const dataBounds = { xMin: Infinity, xMax: -Infinity, yMin: Infinity, yMax: -Infinity, zMin: Infinity, zMax: -Infinity };
       points3dInRange.forEach(pt => {
         if(pt.x<dataBounds.xMin) dataBounds.xMin=pt.x;
@@ -22515,7 +22834,20 @@
       const rotatePoint = (pt) => plot3d.rotatePoint(pt, scatterState.rotation);
       const rotatedCorners = allCorners.map(corner => rotatePoint(corner));
       const rotatedPoints = renderPoints3d.map(pt => rotatePoint(pt));
-      const projector = plot3d.createProjector({
+      const scatter3dFontStyles = exportFontStyles('scatter', { tabId: drawTabId });
+      const scatter3dTickFontSize = (() => {
+        if(!chartStyle || typeof chartStyle.resolveScopedLabelMeasureFont !== 'function'){
+          return fs;
+        }
+        const roles = ['xTick', 'yTick', 'zTick'];
+        const sizes = roles.map(role => Number(chartStyle.resolveScopedLabelMeasureFont({
+          styles: scatter3dFontStyles,
+          role,
+          fallbackPx: fs
+        }).fontSizePx)).filter(size => Number.isFinite(size) && size > 0);
+        return sizes.length ? Math.max(...sizes) : fs;
+      })();
+      let projector = plot3d.createProjector({
         rotatedPoints,
         rotatedCorners,
         width: W3,
@@ -22523,6 +22855,42 @@
         margin: margin3,
         shiftX: legendShiftX
       });
+      const scatter3dAxisLabels = {
+        x: scatterState.xLabelText || 'X',
+        y: scatterState.yLabelText || 'Y',
+        z: scatterState.zLabelText || 'Z'
+      };
+      const scatter3dSafeViewport = typeof plot3d.resolveRotationSafeViewport === 'function'
+        ? plot3d.resolveRotationSafeViewport({
+            width: W3,
+            height: H3,
+            margin: margin3,
+            axisLabels: scatter3dAxisLabels,
+            axisTicks: axisTicks3d,
+            axisTickFormatters: axisTickFormatters3d || undefined,
+            fontSize: fs,
+            tickFontSize: scatter3dTickFontSize,
+            axisStrokeWidth,
+            chartStyle,
+            rotationLimits: plot3d.DEFAULT_ROTATION_LIMITS
+          })
+        : { minX: 0, minY: 0, maxX: W3, maxY: H3, left: 0, top: 0, right: 0, bottom: 0, width: W3, height: H3 };
+      if(typeof plot3d.resolveRotationSafeMargin === 'function'){
+        Object.assign(margin3, plot3d.resolveRotationSafeMargin({ margin: margin3, safeViewport: scatter3dSafeViewport }));
+        legendShiftX = typeof plot3d.resolveLegendShiftX === 'function'
+          ? plot3d.resolveLegendShiftX({ legendVisible, margin: margin3, fontSize: fs, legendWidth })
+          : 0;
+        plotW3 = Math.max(20, W3 - margin3.left - margin3.right);
+        plotH3 = Math.max(20, H3 - margin3.top - margin3.bottom);
+        projector = plot3d.createProjector({
+          rotatedPoints,
+          rotatedCorners,
+          width: W3,
+          height: H3,
+          margin: margin3,
+          shiftX: legendShiftX
+        });
+      }
       const labelBounds3d = computeScatterLabelBounds3d(rotatedCorners, projector.project);
       if(labelBounds3d){
         scatterDebug('Debug: scatter 3d label bounds resolved', {
@@ -22572,19 +22940,6 @@
       const frontFrameLayer = document.createElementNS(NS, 'g');
       frontFrameLayer.setAttribute('data-layer', 'frame-front');
       svg3.appendChild(frontFrameLayer);
-      const scatter3dFontStyles = exportFontStyles('scatter', { tabId: drawTabId });
-      const scatter3dTickFontSize = (() => {
-        if(!chartStyle || typeof chartStyle.resolveScopedLabelMeasureFont !== 'function'){
-          return fs;
-        }
-        const roles = ['xTick', 'yTick', 'zTick'];
-        const sizes = roles.map(role => Number(chartStyle.resolveScopedLabelMeasureFont({
-          styles: scatter3dFontStyles,
-          role,
-          fallbackPx: fs
-        }).fontSizePx)).filter(size => Number.isFinite(size) && size > 0);
-        return sizes.length ? Math.max(...sizes) : fs;
-      })();
       const markScatter3dAxisTickLabel = (node, axisKey) => {
         if(!node){ return; }
         const role = axisKey === 'z' ? 'zTick' : (axisKey === 'y' ? 'yTick' : 'xTick');
@@ -22973,8 +23328,11 @@
           });
         }
       }
-      const defaultTitleX = margin3.left + plotW3 / 2;
-      const defaultTitleY = Math.max(margin3.top * 0.4, fs * 1.6);
+      const defaultTitle = typeof plot3d.resolveDefaultTitlePosition === 'function'
+        ? plot3d.resolveDefaultTitlePosition({ margin: margin3, plotWidth: plotW3, fontSize: fs })
+        : { x: margin3.left + plotW3 / 2, y: Math.max(margin3.top * 0.4, fs * 1.6) };
+      const defaultTitleX = defaultTitle.x;
+      const defaultTitleY = defaultTitle.y;
       const titlePos = scatterLabelsState?.positions?.title;
 
       // Convert relative positions to absolute if needed for 3D
@@ -23002,23 +23360,23 @@
       title3d.setAttribute('data-layer', 'scatter-3d-title');
       markFontEditable(title3d,'graphTitle','graphTitle');
       plot3d.applyLegendPointerGuards(title3d, { label: 'scatter-title-3d' });
-    const applyScatterTitle3d=value=>{
-      const nextValue=value!=null?String(value):'';
-      scatterTitleText=nextValue;
-      updateScatterDrawLabels({ title: nextValue }, 'scatter-3d-title-edit');
-        if(title3d.textContent!==nextValue){
+      const applyScatterTitle3d = value => {
+        const nextValue = value != null ? String(value) : '';
+        scatterTitleText = nextValue;
+        updateScatterDrawLabels({ title: nextValue }, 'scatter-3d-title-edit');
+        if(title3d.textContent !== nextValue){
           title3d.textContent=nextValue;
         }
         scheduleScatterViewRefresh('title-change');
       };
-    makeEditableLocal(title3d,txt=>{
-      const previous=scatterLabelsState?.title!=null?String(scatterLabelsState.title):'';
-      const nextValue=txt!=null?String(txt):'';
-        if(previous===nextValue){
+      makeEditableLocal(title3d, txt => {
+        const previous = scatterLabelsState?.title != null ? String(scatterLabelsState.title) : '';
+        const nextValue = txt != null ? String(txt) : '';
+        if(previous === nextValue){
           return;
         }
         applyScatterTitle3d(nextValue);
-        recordScatterChange('scatter:title',previous,nextValue,applyScatterTitle3d);
+        recordScatterChange('scatter:title', previous, nextValue, applyScatterTitle3d);
       });
       if(typeof Shared.enableLabelDrag === 'function'){
         Shared.enableLabelDrag(title3d, svg3, {
@@ -23139,13 +23497,27 @@
       }
 
       registerScatterGridControlTarget(svg3, { fallbackThickness: axisStrokeWidthBase });
+      legendProjection = typeof chartStyle.stagePlot3dViewport === 'function'
+        ? chartStyle.stagePlot3dViewport({
+            svgBox: scatterSvgBoxRef || scatterRefs?.svgBox,
+            plot: plotEl,
+            svg: svg3,
+            baseWidth: baseW3,
+            baseHeight: H3,
+            canonicalWidth: W3,
+            canonicalHeight: H3,
+            legendWidth: legendVisible ? legendWidth + appliedLegendAxisGap : 0,
+            safeViewport: scatter3dSafeViewport
+          })
+        : null;
+      const scatter3dViewport = { minX: 0, minY: 0, width: W3, height: H3 };
       // 3D plots must scale uniformly so the projected cube, axis labels, title,
       // legend, and every glyph keep their proportions. preserveAspectRatio
       // "xMidYMid meet" (vs the 2D "none"/fill-distort default) prevents the SVG
       // from being non-uniformly stretched when the rendered box aspect differs
       // from the content aspect, on initial render, rotation, and resize.
-      ensureGraphViewport(svg3,{ padding: Math.max(fs, 18), debugLabel: 'scatter-3d-graph', baseViewport: { width: W3, height: H3 }, preserveAspectRatio: 'xMidYMid meet', fitContent: false });
-      legendProjection.commit();
+      ensureGraphViewport(svg3,{ padding: Math.max(fs, 18), debugLabel: 'scatter-3d-graph', baseViewport: scatter3dViewport, preserveAspectRatio: 'xMidYMid meet', fitContent: false });
+      legendProjection?.commit?.();
       return;
 
     }
@@ -27409,6 +27781,14 @@ async function drawScatter(drawOptions = {}){
               tabId: drawSession.tabId || null
             });
             scheduleScatterDrawForSession(drawSession, replayOptions);
+          }else{
+            Shared.componentLifecycle?.emitLifecycleEvent?.({
+              componentKey: 'scatter',
+              tabId: drawSession?.tabId || null,
+              action: 'draw-settled',
+              reason: nextOpts.reason || 'scatter-draw',
+              phase: status
+            });
           }
         }else{
           const currentRuntime = getScatterDrawRuntime(drawSession);
@@ -28718,7 +29098,7 @@ async function drawScatter(drawOptions = {}){
           hasButton: !!scatterLoadExampleBtn
         });
       }
-      scatterLoadExampleBtn?.addEventListener?.('click',()=>{
+      const loadExampleData = () => {
         const type=scatterGraphTypeSelect?.value || 'scatter';
         const rawViewMode = type==='scatter' ? (scatterViewMode && typeof scatterViewMode.value === 'string' ? scatterViewMode.value : null) : null;
         const viewMode = type==='scatter'
@@ -28819,8 +29199,26 @@ async function drawScatter(drawOptions = {}){
         }finally{
           scatterSuppressResizeObserveUntil = Date.now() + 50;
         }
-      });
-      bindScatterControlHandler(scatterImportBtn, 'click', 'import-table', ()=>{ scatterFileInput.value=''; scatterFileInput.click(); });
+      };
+      scatterLoadExampleBtn?.addEventListener?.('click', loadExampleData);
+      const openImportPicker = () => {
+        if(!scatterFileInput || typeof scatterFileInput.click !== 'function'){
+          return false;
+        }
+        scatterFileInput.value = '';
+        scatterFileInput.click();
+        return true;
+      };
+      scatter.__desktopCommandActions = {
+        loadExampleData: () => {
+          loadExampleData();
+          return { status: 'handled' };
+        },
+        importData: () => openImportPicker()
+          ? { status: 'sent' }
+          : { status: 'skipped', reason: 'component-command-unavailable' }
+      };
+      bindScatterControlHandler(scatterImportBtn, 'click', 'import-table', openImportPicker);
       bindScatterControlHandler(scatterFileInput, 'change', 'import-file', ()=>{
         if(!tableImport || typeof tableImport.openFile !== 'function'){
           console.warn('scatter import skipped: Shared.tableImport.openFile unavailable');
@@ -30746,7 +31144,7 @@ async function drawScatter(drawOptions = {}){
       });
       return false;
     }
-    chartStyle.rehydrateLegendViewports?.(plot);
+    (chartStyle.rehydrateContentViewports || chartStyle.rehydrateLegendViewports)?.(plot);
     updateScatterDrawRuntime(cacheSession, runtime => {
       runtime.rotationPending = false;
       runtime.rotationPendingLogged = false;
@@ -31071,6 +31469,12 @@ async function drawScatter(drawOptions = {}){
       stats || {},
       settings || {}
     ),
+    buildScatterFigureSummary: (context, stats, settings = {}, options = {}) => buildScatterFigureSummary(
+      context || {},
+      stats || {},
+      settings || {},
+      options || {}
+    ),
     constants: Object.assign({}, scatter.__testHooks?.constants, {
       MAX_SIGNIFICANT_ANNOTATIONS
     })
@@ -31095,4 +31499,12 @@ async function drawScatter(drawOptions = {}){
       { key: 'notesState', get: () => notesState, excludeKeys: ['control'] }
     ]
   });
+
+  scatter.executeDesktopCommand = function executeDesktopCommand(command){
+    const action = scatter.__desktopCommandActions?.[command];
+    if (typeof action !== 'function') {
+      return { status: 'skipped', reason: 'component-command-unavailable' };
+    }
+    return action() || { status: 'handled' };
+  };
 })(window);

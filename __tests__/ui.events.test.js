@@ -1426,6 +1426,14 @@ describe('UI events and example loaders', () => {
     await component.draw({ reason: 'test-trace-transparency' });
     await flushAsyncWork(20);
 
+    const stageLegendViewport = jest.spyOn(window.Shared.chartStyle, 'stageLegendViewport');
+    legendToggle.checked = false;
+    legendToggle.dispatchEvent(new Event('change', { bubbles: true }));
+    await flushAsyncWork(20);
+    expect(stageLegendViewport).not.toHaveBeenCalled();
+    expect(component.getPayload()?.config?.showLegend).toBe(false);
+    stageLegendViewport.mockRestore();
+
     const defaultTrace = document.querySelector('#histSvg [data-series-key="col-0"][data-series-role="hist-trace"]');
     const defaultFill = document.querySelector('#histSvg [data-series-key="col-0"][data-series-role="hist-fill"]');
     const defaultBorder = document.querySelector('#histSvg [data-series-key="col-0"][data-series-role="hist-border"]');

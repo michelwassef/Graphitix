@@ -1243,6 +1243,13 @@
   };
 
   Object.keys(WORKSPACES).forEach(type => {
+    WORKSPACES[type].executeCommand = (command, payload = {}) => {
+      const component = window.Components?.[type];
+      if (typeof component?.executeDesktopCommand !== 'function') {
+        return { status: 'skipped', reason: 'component-command-unavailable' };
+      }
+      return component.executeDesktopCommand(command, payload);
+    };
     WORKSPACES[type].hasRenderablePayload = (payload, meta = {}) => {
       const componentCheck = window.Components?.[type]?.hasRenderablePayload;
       if (typeof componentCheck === 'function') {

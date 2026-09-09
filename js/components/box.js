@@ -5736,23 +5736,31 @@
     }
   }
 
-  function shouldRetainPreviousBoxFrame(drawOptions){
-    const preservePublishedFrame = drawOptions?.preservePublishedFrame === true;
-    if(drawOptions?.viewOnly !== true && !preservePublishedFrame){
+  function isBoxLiveResize(drawOptions, options = {}){
+    if(String(drawOptions?.reason || '').trim().toLowerCase() !== 'resize'){
       return false;
     }
-    const reason = typeof drawOptions?.reason === 'string' ? drawOptions.reason : '';
-    const ownerTabId = resolveBoxExplicitOrBoundTabId(drawOptions || {});
-    const renderedTabId = els.plotDiv?.dataset?.boxRenderedTabId || null;
-    const sameTabFrame = !ownerTabId || !renderedTabId || ownerTabId === renderedTabId;
-    if(!sameTabFrame && typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-      boxLog('Debug: box retained frame skipped due to tab change', {
-        reason,
-        ownerTabId,
-        renderedTabId
-      });
-    }
-    return sameTabFrame;
+    const phase = String(drawOptions?.resizePhase || '').trim().toLowerCase();
+    return phase === 'start'
+      || phase === 'move'
+      || (options.includeEnd !== false && phase === 'end');
+  }
+
+  function resolveCommittedBoxFrame(plotDiv, tabId = null){
+    const expectedTabId = tabId == null ? '' : String(tabId);
+    return Array.from(plotDiv?.children || []).reverse().find(node => {
+      if(String(node?.nodeName || '').toLowerCase() !== 'svg'){
+        return false;
+      }
+      if(node.getAttribute?.('id') !== 'boxSvg'
+        || node.getAttribute?.('data-box-pending-render') === '1'
+        || node.getAttribute?.('data-graph-frame-publication') === 'staged'
+        || node.getAttribute?.('aria-hidden') === 'true'){
+        return false;
+      }
+      const frameTabId = String(node.dataset?.boxTabId || '');
+      return !expectedTabId || frameTabId === expectedTabId;
+    }) || null;
   }
 
   function partitionArray(arr, left, right, pivotIndex){
@@ -10050,6 +10058,10 @@
     const scheduler = getBoxSessionDrawScheduler(shaped, { raw: options.raw === true });
     if(typeof scheduler !== 'function'){
       return undefined;
+    }
+    if(isBoxLiveResize(options)){
+      // A pointer resize supersedes any yielding draw already in progress.
+      bumpBoxDrawToken(shaped);
     }
     updateBoxDrawRuntime(shaped, runtime => {
       runtime.scheduled = true;
@@ -14845,7 +14857,10 @@
     const controls = els.boxSignificanceControls
       || getBoxNodeById('boxSignificanceControls')
       || null;
+    const figureControls = getBoxNodeById('boxStatsFigureControls') || null;
+    const figureOptions = figureControls?.querySelector?.('.stats-figure-controls__options') || null;
     const summaryCtl = els.boxIndividualSummaryCtl || getBoxNodeById('boxIndividualSummaryCtl') || null;
+    const summaryResultCtl = figureControls?.querySelector?.('#boxShowFigureSummary')?.closest?.('label') || null;
     const signRow = els.boxGraphSignificanceRow || getBoxNodeById('boxGraphSignificanceRow') || null;
     const whiskerRow = els.boxGraphWhiskerRow || getBoxNodeById('boxGraphWhiskerRow') || null;
     const graphTypeValue = String(els.boxGraphType?.value || '').toLowerCase();
@@ -14869,6 +14884,26 @@
     controls.setAttribute?.('aria-hidden', 'false');
     if(controls.style){
       controls.style.display = 'flex';
+    }
+    if(figureOptions){
+      if(controls.parentNode !== figureOptions){
+        if(summaryResultCtl && summaryResultCtl.parentNode === figureOptions){
+          figureOptions.insertBefore(controls, summaryResultCtl);
+        } else {
+          figureOptions.appendChild(controls);
+        }
+      } else if(summaryResultCtl && summaryResultCtl.parentNode === figureOptions && controls.nextElementSibling !== summaryResultCtl){
+        figureOptions.insertBefore(controls, summaryResultCtl);
+      }
+      if(boxDebugEnabled()){
+        boxLog('Debug: box significance controls placed in statistical results row', { graphTypeValue });
+      }
+      return;
+    }
+    if(controls.closest?.('#boxStatsFigureControls')){
+      // The static Graph-section markup is already the canonical placement.
+      // Keep it there if the owner root is not available during early binding.
+      return;
     }
     if(useGraphSectionRows && signRow){
       if(controls.parentNode !== signRow || signRow.lastElementChild !== controls){
@@ -15982,6 +16017,9 @@
   }
 
   function isBoxFontStyleEvent(detail){
+    if(Shared.statsFigureSummary?.isSummaryStyleEvent?.(detail)){
+      return false;
+    }
     const scopeId = detail?.scopeId || null;
     const storeKey = typeof detail?.storeKey === 'string' ? detail.storeKey : '';
     return scopeId === 'box' || storeKey.startsWith('box::');
@@ -18362,6 +18400,20 @@
     };
     bindBoxControlHandler(loadExampleBtn, 'click', 'load-example', loadExampleData);
     bindBoxControlHandler(importBtn, 'click', 'import-table', ()=>{ fileInput.value=''; fileInput.click(); });
+    box.__desktopCommandActions = {
+      loadExampleData: () => {
+        loadExampleData();
+        return { status: 'handled' };
+      },
+      importData: () => {
+        if(!fileInput || typeof fileInput.click !== 'function'){
+          return { status: 'skipped', reason: 'component-command-unavailable' };
+        }
+        fileInput.value = '';
+        fileInput.click();
+        return { status: 'sent' };
+      }
+    };
     const tableImport = Shared.tableImport;
     const applyBoxPrismStyle = style => {
       if(!style || typeof style !== 'object'){
@@ -22783,6 +22835,13 @@
     }
     return value.toFixed(places);
   }
+  function formatFigureStatNumber(value, digits = 3){
+    if(!Number.isFinite(Number(value))){
+      return '—';
+    }
+    const places = Number.isInteger(digits) ? digits : 3;
+    return Number(value).toFixed(places).replace(/\.?0+$/, '');
+  }
   function prepareGroupedStatsData(traces, helpers){
     ensureGroupedDefaults();
     ensureGroupedStatsDefaults();
@@ -27120,7 +27179,8 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       const reportModel = {
         methodsText: report.methodsText || '',
         resultsText: report.resultsText || '',
-        analysisSpec: report.analysisSpec || buildStatsAnalysisSpec(null)
+        analysisSpec: report.analysisSpec || buildStatsAnalysisSpec(null),
+        figureSummary: report.figureSummary || null
       };
       if(Array.isArray(report.methodsParts) && report.methodsParts.length){
         reportModel.methodsParts = report.methodsParts;
@@ -27129,7 +27189,8 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         reportModel.resultsParts = report.resultsParts;
       }
       reporting.appendReportPanel(target, reportModel, {
-        title: 'Reporting and reproducibility'
+        title: 'Reporting and reproducibility',
+        tabId: resolveBoxExplicitOrBoundTabId() || getActiveBoxWorkspaceTabId() || null
       });
       ensureBoxStatsReportHost({ target });
       return;
@@ -28014,6 +28075,228 @@ Technical analysis record (advanced)
     };
   }
 
+  function boxFigurePValueToken(value){
+    if(value && typeof value === 'object' && value.type === 'pValue'){
+      return value;
+    }
+    const numeric = Number(value?.value ?? value?.raw ?? value);
+    if(!Number.isFinite(numeric)){
+      return null;
+    }
+    return Shared.statsReporting?.pValue?.(numeric, { fallback: String(formatP(numeric)) })
+      || { type:'pValue', value:numeric, fallback:String(formatP(numeric)) };
+  }
+
+  function boxFigureNumeric(value){
+    const numeric = Number(value?.value ?? value?.raw ?? value);
+    return Number.isFinite(numeric) ? numeric : NaN;
+  }
+
+  function boxFigureCellText(value){
+    if(value == null) return '';
+    if(typeof value === 'object'){
+      if(value.type === 'pValue') return String(value.fallback ?? value.text ?? '');
+      return String(value.text ?? value.label ?? value.value ?? '');
+    }
+    return String(value);
+  }
+
+  function boxFigureCorrectionLabel(value){
+    const key = String(value || 'none').trim().toLowerCase();
+    const labels = {
+      none:'none', holm:'Holm', bonferroni:'Bonferroni', bh:'Benjamini–Hochberg', by:'Benjamini–Yekutieli',
+      tukey:'Tukey HSD', 'games-howell':'Games–Howell', 'tamhane-t2':'Tamhane T2', dunnett:'Dunnett', 'dunnett-t3':'Dunnett T3', nemenyi:'Nemenyi'
+    };
+    return labels[key] || String(value || 'none');
+  }
+
+  function buildBoxFigureSummary(model, report){
+    if(!model?.ok || !report?.analysisSpec){ return null; }
+    const spec = report.analysisSpec || {};
+    const analysisRows=[];
+    const resultRows=[];
+    const diagnosticRows=[];
+    const tables = Array.isArray(model.tables) ? model.tables.filter(Boolean) : [];
+    const ciLevel = Number(spec.ciLevel);
+    const ciPercent = Number.isFinite(ciLevel) ? `${Math.round(ciLevel * 100)}%` : '95%';
+    const analysisLabel = String(spec.analysisLabel || model?.analysis?.label || model?.analysisId || 'Statistical analysis');
+
+    if(spec.mode === 'grouped'){
+      analysisRows.push({
+        label:'Analysis',
+        value:`${analysisLabel} · ${Number(spec.groupsCount)||0} groups × ${Number(spec.conditionsCount)||0} conditions · ${Number(spec.rowsWithData)||0} complete row${Number(spec.rowsWithData)===1?'':'s'}`
+      });
+      if(Number(spec.partialRowsSkipped)>0){
+        analysisRows.push({ label:'Missing data', value:`${Number(spec.partialRowsSkipped)} incomplete row${Number(spec.partialRowsSkipped)===1?' was':'s were'} excluded from complete-case factorial calculations.` });
+      }
+      if(spec.comparisonScope){
+        analysisRows.push({ label:'Comparison scope', value:String(spec.comparisonScope).replace(/([a-z])([A-Z])/g,'$1 $2') });
+      }
+    }else{
+      const selected = Array.isArray(spec.selectedGroups) ? spec.selectedGroups.filter(Boolean) : [];
+      analysisRows.push({ label:'Analysis', value:`${analysisLabel}${selected.length ? ` · ${selected.join(', ')}` : ''}` });
+      const groupSummaries = Array.isArray(model.groupSummaries) ? model.groupSummaries : [];
+      if(groupSummaries.length){
+        analysisRows.push({
+          label:'Sample sizes',
+          value:groupSummaries.map(group => `${group.label}: n = ${Number.isFinite(Number(group.n)) ? Number(group.n) : '—'}`).join('; '),
+          figureRole:'context',
+          figurePriority:75
+        });
+      }
+      analysisRows.push({ label:'Design', value:`${spec.paired ? 'Paired/repeated-measures' : 'Independent'} · ${String(spec.alternative || 'two-sided')} alternative · ${ciPercent} confidence intervals` });
+    }
+
+    const correction = String(spec.correction || 'none').toLowerCase();
+    const configuredCorrection = String(spec.configuredCorrection || correction || 'none').toLowerCase();
+    const comparisonCount = Math.max(0, Number(model.correctionCount) || 0);
+    if(comparisonCount > 1){
+      analysisRows.push({
+        label:'Multiplicity',
+        value: correction === 'none'
+          ? `${comparisonCount} comparisons; p-values are unadjusted.`
+          : `${boxFigureCorrectionLabel(correction)} correction across ${comparisonCount} comparison${comparisonCount===1?'':'s'}.`
+      });
+    }else if(comparisonCount === 1 && configuredCorrection !== 'none'){
+      analysisRows.push({ label:'Multiplicity', value:'One prespecified comparison; no multiplicity adjustment required.' });
+    }
+    if(spec.postHoc && !['standard','none'].includes(String(spec.postHoc).toLowerCase())){
+      analysisRows.push({ label:'Post hoc', value:boxFigureCorrectionLabel(spec.postHoc) });
+    }
+
+    const metricTable = tables.find(table => Array.isArray(table?.columns)
+      && table.columns.some(col => col?.key === 'metric')
+      && table.columns.some(col => col?.key === 'value'));
+    if(metricTable){
+      const rows = Array.isArray(metricTable.rows) ? metricTable.rows : [];
+      const comparison = rows.find(row => /^comparison$/i.test(String(row?.metric || '')))?.value;
+      const test = rows.find(row => /^test$|overall test/i.test(String(row?.metric || '')))?.value || analysisLabel;
+      const statRow = rows.find(row => /^(?:t|f|h|q|u|w|d|statistic)$/i.test(String(row?.metric || '').trim()))
+        || rows.find(row => /statistic/i.test(String(row?.metric || '')));
+      const dfRow = rows.find(row => /^df$/i.test(String(row?.metric || '').trim()));
+      const diffRow = rows.find(row => /difference|geometric mean ratio/i.test(String(row?.metric || '')));
+      const ciRow = rows.find(row => /confidence interval|\bci\b/i.test(String(row?.metric || '')));
+      const pRow = rows.find(row => /p(?:-value| \()/i.test(String(row?.metric || '')));
+      const parts=[];
+      if(test) parts.push(String(test));
+      if(statRow?.value != null) parts.push(`; ${String(statRow.metric || 'statistic')} = ${boxFigureCellText(statRow.value)}`);
+      if(dfRow?.value != null) parts.push(`; df = ${boxFigureCellText(dfRow.value)}`);
+      if(diffRow?.value != null) parts.push(`; ${String(diffRow.metric)} = ${boxFigureCellText(diffRow.value)}`);
+      if(ciRow?.value != null) parts.push(`; ${String(ciRow.metric)} ${boxFigureCellText(ciRow.value)}`);
+      const pToken = boxFigurePValueToken(pRow?.value);
+      if(pToken) parts.push('; p = ', pToken);
+      if(parts.length) resultRows.push({ label:String(comparison || 'Overall result'), valueParts:parts });
+      rows.filter(row => /effect/i.test(String(row?.metric || ''))).forEach(row => {
+        const value=boxFigureCellText(row?.value);
+        if(value && value !== '-') resultRows.push({ label:String(row.metric), value });
+      });
+    }
+
+    const factorialTable = tables.find(table => Array.isArray(table?.rows) && table.rows.some(row => row?.source) && table.rows.some(row => row?.f != null));
+    if(factorialTable){
+      const rows=factorialTable.rows || [];
+      const caption=String(factorialTable.caption || analysisLabel);
+      const findDf = source => Number(rows.find(row => String(row?.source||'') === source)?.df);
+      const defaultErrorDf = findDf('Error');
+      const highestDf = findDf('Group × Condition × Row');
+      rows.forEach(row => {
+        const f=Number(row?.f);
+        const pToken=boxFigurePValueToken(row?.p);
+        if(!Number.isFinite(f) || !pToken) return;
+        const numeratorDf=Number(row?.df);
+        let denominatorDf=defaultErrorDf;
+        if(/Mixed Model/i.test(caption)){
+          if(row.source === 'Group') denominatorDf=findDf('Group × Row');
+          else if(row.source === 'Condition') denominatorDf=findDf('Condition × Row');
+          else if(row.source === 'Group × Condition') denominatorDf=findDf('Group × Condition × Row');
+        }else if(/three-factor/i.test(caption)){
+          denominatorDf=highestDf;
+        }
+        const dfText=Number.isFinite(numeratorDf) && Number.isFinite(denominatorDf)
+          ? `F(${formatFigureStatNumber(numeratorDf,0)}, ${formatFigureStatNumber(denominatorDf,0)})`
+          : 'F';
+        resultRows.push({ label:String(row.source || 'Effect'), valueParts:[`${dfText} = ${formatFigureStatNumber(f)}; p = `, pToken], figureRole:'effect' });
+      });
+    }
+
+    const rowLikeTables = tables.filter(table => table !== metricTable && table !== factorialTable && Array.isArray(table?.rows) && table.rows.length);
+    rowLikeTables.forEach(table => {
+      const rows = table.rows || [];
+      const candidates = rows.map((row,index) => {
+        const label = row.comparison || (row.condition && row.group ? `${row.group} @ ${row.condition}` : row.condition || row.group || row.label || `Comparison ${index+1}`);
+        const decision = row.padjust ?? row.adjPText ?? row.padj ?? row.p ?? row.pText;
+        const rawP = row.p ?? row.pText;
+        const adjustedP = row.padjust ?? row.adjPText ?? row.padj;
+        return {row,label,index,decisionP:boxFigureNumeric(decision),rawP,adjustedP};
+      });
+      const maxRows=8;
+      let selected=candidates;
+      if(candidates.length>maxRows){
+        selected=candidates.slice().sort((a,b)=>{
+          const ap=Number.isFinite(a.decisionP)?a.decisionP:Infinity;
+          const bp=Number.isFinite(b.decisionP)?b.decisionP:Infinity;
+          return ap-bp || a.index-b.index;
+        }).slice(0,maxRows);
+      }
+      selected.forEach(item => {
+        const row=item.row;
+        const parts=[];
+        const method=row.method || (row.t != null ? 't-test' : null);
+        if(method) parts.push(String(method));
+        const statistic = row.statisticText ?? row.statistic ?? (row.t != null ? row.t : (row.z != null ? row.z : null));
+        if(statistic != null && String(statistic)!=='-'){
+          const statLabel = row.t != null ? 't' : (row.z != null ? 'z' : 'statistic');
+          parts.push(`${parts.length?'; ':''}${statLabel} = ${boxFigureCellText(statistic)}`);
+        }
+        const df=row.dfText ?? row.df;
+        if(df != null && String(df)!=='-') parts.push(`; df = ${boxFigureCellText(df)}`);
+        const diff=row.differenceText ?? row.difference ?? row.delta;
+        if(diff != null && String(diff)!=='-') parts.push(`; difference = ${boxFigureCellText(diff)}`);
+        const ci=row.ciText ?? row.ci;
+        if(ci != null && String(ci)!=='-') parts.push(`; ${ciPercent} CI ${boxFigureCellText(ci)}`);
+        const rawToken=boxFigurePValueToken(item.rawP);
+        const adjToken=boxFigurePValueToken(item.adjustedP);
+        if(rawToken && adjToken && item.rawP !== item.adjustedP){
+          parts.push('; raw p = ', rawToken, '; adjusted p = ', adjToken);
+        }else if(adjToken){
+          parts.push('; p = ', adjToken);
+        }else if(rawToken){
+          parts.push('; p = ', rawToken);
+        }
+        if(parts.length) resultRows.push({ label:String(item.label), valueParts:parts });
+      });
+    });
+
+    const diagnostics=model.assumptionDiagnostics;
+    if(diagnostics && typeof diagnostics === 'object'){
+      (Array.isArray(diagnostics.groups)?diagnostics.groups:[]).forEach(group => {
+        const normality=group?.normality || {};
+        if(!Number.isFinite(Number(normality.pValue))) return;
+        const method=String(normality.method || 'normality').replace(/shapiro-wilk/i,'Shapiro–Wilk').replace(/dagostino/i,"D’Agostino");
+        diagnosticRows.push({ label:String(group.label || 'Group'), valueParts:[`${method}, n = ${Number(group.size)||0}; p = `, boxFigurePValueToken(normality.pValue), `; ${normality.passed === false ? 'flagged deviation from normality' : 'not flagged at the diagnostic α level'}.`] });
+      });
+      const variance=diagnostics.variance || {};
+      if(Number.isFinite(Number(variance.pValue))){
+        const method=String(diagnostics.varianceMethod || 'variance').replace(/brown-forsythe/i,'Brown–Forsythe').replace(/bartlett/i,'Bartlett');
+        diagnosticRows.push({ label:'Variance diagnostic', valueParts:[`${method}; p = `, boxFigurePValueToken(variance.pValue), `; ${variance.passed === false ? 'heterogeneity flagged' : 'heterogeneity not flagged'}.`] });
+      }
+      if(diagnosticRows.length){
+        diagnosticRows.push({ label:'Diagnostic scope', value:'Assumption diagnostics are advisory; Graphitix reports the statistical test explicitly selected by the user and does not silently substitute another test.' });
+      }
+    }
+
+    return {
+      schemaVersion:1,
+      kind:'inferential',
+      title:'Statistical analysis summary',
+      sections:[
+        { key:'analysis', label:'', rows:analysisRows },
+        ...(resultRows.length ? [{ key:'results', label:'Results', rows:resultRows }] : []),
+        ...(diagnosticRows.length ? [{ key:'diagnostics', label:'Diagnostics', rows:diagnosticRows }] : [])
+      ]
+    };
+  }
+
   function renderBoxStatsFromModel(model, context){
     const statsDiv = els.statsResults || getBoxNodeById('statsResults');
     if(!statsDiv){
@@ -28132,6 +28415,7 @@ Technical analysis record (advanced)
         const report = finalizeStatsReport(model.report, {
           familyDescription: 'Grouped analyses report the selected factorial model as one prespecified family.'
         });
+        report.figureSummary = buildBoxFigureSummary(model, report);
         setBoxStatsLastReportState(report, getBoxProjectionSession({ reason: 'box-projection-mutation' }));
         appendStatsReportPanel(statsDiv, report);
       }
@@ -28160,6 +28444,7 @@ Technical analysis record (advanced)
     });
     if(model.report){
       const report = finalizeStatsReport(model.report);
+      report.figureSummary = buildBoxFigureSummary(model, report);
       setBoxStatsLastReportState(report, getBoxProjectionSession({ reason: 'box-projection-mutation' }));
       appendStatsReportPanel(statsDiv, report);
     }
@@ -29540,6 +29825,7 @@ Technical analysis record (advanced)
       buildManualTicks,
       buildOrientationTraceRenderContext,
       cartesianRenderGeometry,
+      checkpoint,
       connectPointsActive,
       createOrientationSwarmRenderer,
       debugEnabled,
@@ -30328,22 +30614,23 @@ Technical analysis record (advanced)
     yText.textContent = state.yLabelText;
     markFontEditable(yText,'yTitle','yTitle');
     bindBoxInlineTextInteraction(yText, drawSession, 'yLabel');
+    const commitYLabelPosition = pos => {
+      const relX = (pos.x - yAxisX) / yLabelOffsetSpan;
+      const relY = (pos.y - marginLocal.top) / plotHLocal;
+      state.labelPositions.yLabel = {
+        x: pos.x,
+        y: pos.y,
+        relX: relX,
+        relY: relY
+      };
+      commitBoxLabelStateToSession({ labelPositions: state.labelPositions }, drawSession);
+      boxLog('Debug: box y-label position saved', { absolute: pos, relative: { relX, relY } });
+    };
     // Enable drag for y-axis label
     if(typeof Shared.enableLabelDrag === 'function'){
       Shared.enableLabelDrag(yText, svg, {
-        onDragEnd: pos => {
-          // Store both absolute and relative positions for yLabel
-          const relX = (pos.x - yAxisX) / yLabelOffsetSpan;
-          const relY = (pos.y - marginLocal.top) / plotHLocal;
-          state.labelPositions.yLabel = {
-            x: pos.x,
-            y: pos.y,
-            relX: relX,
-            relY: relY
-          };
-          commitBoxLabelStateToSession({ labelPositions: state.labelPositions }, drawSession);
-          boxLog('Debug: box y-label position saved', { absolute: pos, relative: { relX, relY } });
-        }
+        deferInitialConstraint: true,
+        onDragEnd: commitYLabelPosition
       });
     }
     const renderSwarmPointsVertical = createOrientationSwarmRenderer({
@@ -30372,6 +30659,9 @@ Technical analysis record (advanced)
     for(let i = 0; i < traces.length; i++){
       if(!isBoxDrawTokenCurrent(drawSession, token)){
         boxLog('boxplot draw cancelled during render loop',{ token });
+        return null;
+      }
+      if(checkpoint && !(await checkpoint('trace-start'))){
         return null;
       }
       const traceContext = buildOrientationTraceRenderContext({
@@ -30722,6 +31012,11 @@ Technical analysis record (advanced)
       annotationObstaclePaddingPx,
       titleX: categoricalPlotStart + plotWUsed / 2,
       titleY: Number.isFinite(titleBaselineY) ? titleBaselineY : (marginLocal.top / 2),
+      boundaryLabelBindings: [{
+        element: yText,
+        commit: commitYLabelPosition,
+        requiresBoundaryConstraint: hasBoxExplicitLabelPosition(yLabelPos)
+      }],
       annotationMinY,
       flipAxisTargetApplied: flipAxisLayout.applied,
       baseCanvasHeight,
@@ -30760,6 +31055,7 @@ Technical analysis record (advanced)
       buildManualTicks,
       buildOrientationTraceRenderContext,
       cartesianRenderGeometry,
+      checkpoint,
       connectPointsActive,
       createOrientationSwarmRenderer,
       debugEnabled,
@@ -30880,13 +31176,20 @@ Technical analysis record (advanced)
       tickFontSize: categoryTickFontSize
     });
     const leftLabelReservePx = categoryMargin.extensionPx;
+    const valueTitleRail = xMajorTickLength
+      + tickGap
+      + valueTickFontSize
+      + axisMetrics.axisTitleGap
+      + valueTitleFontSize
+      + axisMetrics.outerPadding;
     marginLocal.top = Math.max(marginLocal.top, fs * 2);
     marginLocal.left = Math.max(baseMarginLeft, fs * 0.5);
     marginLocal.right = Math.max(baseMarginRight, fs);
-    marginLocal.bottom = Math.max(marginLocal.bottom, xMajorTickLength + tickGap + valueTickFontSize + axisMetrics.axisTitleGap + valueTitleFontSize);
+    marginLocal.bottom = Math.max(marginLocal.bottom, valueTitleRail);
     if(cartesianRenderGeometry?.valid === true){
       marginLocal = { ...cartesianRenderGeometry.margins };
     }
+    marginLocal.bottom = Math.max(marginLocal.bottom, valueTitleRail);
     const baselineMargins = { ...marginLocal };
     let requiredMargins = {
       ...baselineMargins,
@@ -30952,7 +31255,7 @@ Technical analysis record (advanced)
       right: Math.max(requiredMargins.right, horizontalEndpointMargins.right)
     };
     const manualXAxisLabelAngle = getXAxisTickLabelAngle(drawSession);
-    const horizontalBottomLayout = manualXAxisLabelAngle === null ? null : chartStyle.computeBottomLayout({
+    const horizontalBottomLayout = chartStyle.computeBottomLayout({
       labels: horizontalValueTickLabels,
       fontSize: valueTitleFontSize,
       labelMeasureFont: yTickMeasureProfile.fontSpec,
@@ -30962,11 +31265,10 @@ Technical analysis record (advanced)
       axisMetrics,
       preservePlotRail: true,
       includeAxisTitleReserve: true,
+      reserveRotatedLabelSpace: manualXAxisLabelAngle !== null,
       manualLabelRotationAngleDeg: manualXAxisLabelAngle
     });
-    if(horizontalBottomLayout){
-      requiredMargins.bottom = Math.max(requiredMargins.bottom, horizontalBottomLayout.requiredBottom || marginLocal.bottom);
-    }
+    requiredMargins.bottom = Math.max(requiredMargins.bottom, horizontalBottomLayout.requiredBottom || marginLocal.bottom);
     const topReservePx = Math.max(0, Number(marginLocal.top) || 0);
     const bottomReservePx = Math.max(0, Number(marginLocal.bottom) || 0);
     const minPlotHeightPx = flipAxisLayout.applied
@@ -31419,22 +31721,23 @@ Technical analysis record (advanced)
     xLabel.textContent = state.yLabelText;
     markFontEditable(xLabel, 'yTitle', 'yTitle');
     bindBoxInlineTextInteraction(xLabel, drawSession, 'xLabel');
+    const commitXLabelPosition = pos => {
+      const relX = (pos.x - marginLocal.left) / plotWLocal;
+      const relY = (pos.y - xAxisBottom) / (plotHLocal + marginLocal.top);
+      state.labelPositions.xLabel = {
+        x: pos.x,
+        y: pos.y,
+        relX: relX,
+        relY: relY
+      };
+      commitBoxLabelStateToSession({ labelPositions: state.labelPositions }, drawSession);
+      boxLog('Debug: box x-label position saved', { absolute: pos, relative: { relX, relY } });
+    };
     // Enable drag for x-axis label (flipped mode)
     if(typeof Shared.enableLabelDrag === 'function'){
       Shared.enableLabelDrag(xLabel, svg, {
-        onDragEnd: pos => {
-          // Store both absolute and relative positions for xLabel
-          const relX = (pos.x - marginLocal.left) / plotWLocal;
-          const relY = (pos.y - xAxisBottom) / (plotHLocal + marginLocal.top);
-          state.labelPositions.xLabel = {
-            x: pos.x,
-            y: pos.y,
-            relX: relX,
-            relY: relY
-          };
-          commitBoxLabelStateToSession({ labelPositions: state.labelPositions }, drawSession);
-          boxLog('Debug: box x-label position saved', { absolute: pos, relative: { relX, relY } });
-        }
+        deferInitialConstraint: true,
+        onDragEnd: commitXLabelPosition
       });
     }
     const stackedErrorQueue = [];
@@ -31447,6 +31750,9 @@ Technical analysis record (advanced)
     for(let i = 0; i < traces.length; i++){
       if(!isBoxDrawTokenCurrent(drawSession, token)){
         boxLog('boxplot draw cancelled during render loop',{ token });
+        return null;
+      }
+      if(checkpoint && !(await checkpoint('trace-start'))){
         return null;
       }
       const traceContext = buildOrientationTraceRenderContext({
@@ -31808,6 +32114,11 @@ Technical analysis record (advanced)
       flipAxisTargetApplied: flipAxisLayout.applied,
       titleX: marginLocal.left + plotWLocal / 2,
       titleY: marginLocal.top / 2,
+      boundaryLabelBindings: [{
+        element: xLabel,
+        commit: commitXLabelPosition,
+        requiresBoundaryConstraint: hasBoxExplicitLabelPosition(xLabelPos)
+      }],
       significanceViewportExtension: 0,
       bottomViewportExtension: 0,
       leftViewportExtension: leftLabelReservePx,
@@ -32503,7 +32814,8 @@ Technical analysis record (advanced)
         nextMarginLeft = NaN,
         nextMarginTop = NaN,
         nextPlotW = NaN,
-        nextPlotH = NaN
+        nextPlotH = NaN,
+        checkpoint = null
       } = config || {};
       const groupAttributes = {
         'data-trace': traceIndex,
@@ -32512,6 +32824,9 @@ Technical analysis record (advanced)
         ...groupAttrs
       };
       const group = add('g', groupAttributes);
+      if(checkpoint && !(await checkpoint('points-start'))){
+        return null;
+      }
       const resizePhase = typeof drawOpts?.resizePhase === 'string' ? drawOpts.resizePhase : '';
       const isResizeLivePhase = drawOpts?.reason === 'resize' && (resizePhase === 'start' || resizePhase === 'move');
       const forceCanvasRecompute = !!drawOpts?.forceCanvasRecompute;
@@ -33437,7 +33752,8 @@ Technical analysis record (advanced)
         nextMarginLeft,
         nextMarginTop,
         nextPlotW,
-        nextPlotH
+        nextPlotH,
+        checkpoint
       });
     };
     const resolveDisplayedPointRadiusFallback = (profile, mode) => {
@@ -34320,6 +34636,7 @@ Technical analysis record (advanced)
       buildManualTicks,
       buildOrientationTraceRenderContext,
       cartesianRenderGeometry,
+      checkpoint,
       connectPointsActive,
       createOrientationSwarmRenderer,
       debugEnabled,
@@ -34471,6 +34788,48 @@ Technical analysis record (advanced)
     }) || null;
   }
 
+  function normalizeBoxBoundaryLabels(bindings, svg){
+    if(!svg || typeof Shared.constrainSvgLabelPosition !== 'function' || !Array.isArray(bindings)){
+      return;
+    }
+    bindings.forEach(binding => {
+      // Automatic labels are calculated from the solved Cartesian rails and
+      // included in the content-envelope measurement below. Only a persisted
+      // manual placement needs browser-geometry correction on a replacement
+      // frame.
+      if(binding?.requiresBoundaryConstraint !== true){
+        return;
+      }
+      const element = binding?.element;
+      if(!element || typeof element.getAttribute !== 'function'){
+        return;
+      }
+      const initial = {
+        x: Number(element.getAttribute('x')),
+        y: Number(element.getAttribute('y'))
+      };
+      if(!Number.isFinite(initial.x) || !Number.isFinite(initial.y)){
+        return;
+      }
+      const constrained = Shared.constrainSvgLabelPosition(element, svg, initial);
+      if((constrained.x !== initial.x || constrained.y !== initial.y)
+        && typeof binding.commit === 'function'){
+        binding.commit({ x: constrained.x, y: constrained.y, element });
+      }
+    });
+  }
+
+  function hasBoxExplicitLabelPosition(position){
+    if(!position || typeof position !== 'object'){
+      return false;
+    }
+    const hasRelativePosition = Number.isFinite(Number(position.relX))
+      && Number.isFinite(Number(position.relY));
+    const hasAbsolutePosition = Number.isFinite(Number(position.x))
+      && Number.isFinite(Number(position.y));
+    return hasRelativePosition || hasAbsolutePosition;
+  }
+
   function finalizeBoxRenderedFrame(context = {}){
     let {
       drawOpts,
@@ -34559,9 +34918,6 @@ Technical analysis record (advanced)
     svg.dataset.boxPlotW = String(Number(orientationResult?.plotW) || 0);
     svg.dataset.boxPlotH = String(Number(orientationResult?.plotH) || 0);
 
-    if(svg.parentNode !== els.plotDiv){
-      els.plotDiv.appendChild(svg);
-    }
     const defaultTitleX = orientationResult.titleX;
     // The automatic title belongs to the visible graph's top rail. A vertical
     // significance stack extends that rail into negative SVG coordinates, so
@@ -34590,24 +34946,33 @@ Technical analysis record (advanced)
     titleText.textContent = state.titleText;
     markFontEditable(titleText,'graphTitle','graphTitle');
     bindBoxInlineTextInteraction(titleText, drawSession, 'title');
+    const commitTitlePosition = pos => {
+      const relX = (pos.x - orientationResult.margin.left) / orientationResult.plotW;
+      const relY = (pos.y - orientationResult.margin.top) / orientationResult.plotH;
+      state.labelPositions.title = {
+        x: pos.x,
+        y: pos.y,
+        relX: relX,
+        relY: relY
+      };
+      commitBoxLabelStateToSession({ labelPositions: state.labelPositions }, drawSession);
+      boxLog('Debug: box title position saved', { absolute: pos, relative: { relX, relY } });
+    };
     // Enable drag for title
     if(typeof Shared.enableLabelDrag === 'function'){
       Shared.enableLabelDrag(titleText, svg, {
-        onDragEnd: pos => {
-          // Store both absolute and relative positions
-          const relX = (pos.x - orientationResult.margin.left) / orientationResult.plotW;
-          const relY = (pos.y - orientationResult.margin.top) / orientationResult.plotH;
-          state.labelPositions.title = {
-            x: pos.x,
-            y: pos.y,
-            relX: relX,
-            relY: relY
-          };
-          commitBoxLabelStateToSession({ labelPositions: state.labelPositions }, drawSession);
-          boxLog('Debug: box title position saved', { absolute: pos, relative: { relX, relY } });
-        }
+        deferInitialConstraint: true,
+        onDragEnd: commitTitlePosition
       });
     }
+    const boundaryLabelBindings = [
+      ...(Array.isArray(orientationResult.boundaryLabelBindings) ? orientationResult.boundaryLabelBindings : []),
+      {
+        element: titleText,
+        commit: commitTitlePosition,
+        requiresBoundaryConstraint: hasBoxExplicitLabelPosition(titlePos)
+      }
+    ];
     if(showLegend && legendRenderer.entries.length){
       const plotRight = orientationResult.margin.left + orientationResult.plotW;
       const defaultLegendY = orientationResult.margin.top;
@@ -34698,8 +35063,16 @@ Technical analysis record (advanced)
         bottomHeight: boxCartesianPlan.contentEnvelope.extensionBottom,
         legendWidth: legendViewportExtension,
         refineLegendReserve: true,
+        // Keep the entire render in one viewport transaction. The projection
+        // first exposes the planned envelope to the hidden replacement frame,
+        // then measure() expands that same envelope for rendered content before
+        // the frame is published.
         refineContentBounds: true
       });
+      normalizeBoxBoundaryLabels(boundaryLabelBindings, svg);
+      // Labels are normalized against the planned SVG first. Measuring the
+      // same projection afterwards can only extend its envelope, so those
+      // labels remain in bounds and no second staging pass is necessary.
       const measuredViewport = boxViewportProjection.measure?.() || boxViewportProjection.getViewport?.() || null;
       if(measuredViewport){
         boxCartesianPlan = buildBoxCartesianLayoutPlan({
@@ -34714,20 +35087,6 @@ Technical analysis record (advanced)
             maxX: measuredViewport.maxX,
             maxY: measuredViewport.maxY
           }
-        });
-        boxViewportProjection = chartStyle.stageGraphContentViewport({
-          svgBox: els.svgBox,
-          plot: els.plotDiv,
-          svg,
-          baseWidth: boxCartesianPlan.userFrame.width,
-          baseHeight: boxCartesianPlan.userFrame.height,
-          leftWidth: boxCartesianPlan.contentEnvelope.extensionLeft,
-          topHeight: boxCartesianPlan.contentEnvelope.extensionTop,
-          rightWidth: boxCartesianPlan.contentEnvelope.extensionRight,
-          bottomHeight: boxCartesianPlan.contentEnvelope.extensionBottom,
-          legendWidth: legendViewportExtension,
-          refineLegendReserve: false,
-          refineContentBounds: false
         });
       }
     }
@@ -34788,7 +35147,8 @@ Technical analysis record (advanced)
       component: 'box',
       tabId: drawSession?.tabId || getBoxProjectionTabId() || null,
       kind: 'graph',
-      budgetMs: 10
+      budgetMs: 10,
+      drawOptions: drawOpts
     }) || null;
     const checkpoint = async phase => {
       try{
@@ -35655,33 +36015,6 @@ Technical analysis record (advanced)
       return;
     }
     syncBoxThemeSurfaceForCurrentScheme();
-    const retainPreviousPlotFrame = shouldRetainPreviousBoxFrame(drawOpts) && !!els.plotDiv?.firstChild;
-    const retainedPlotNodes = retainPreviousPlotFrame ? Array.from(els.plotDiv.childNodes || []) : null;
-    const previousBoxSvg2d = (() => {
-      if(!retainPreviousPlotFrame || !Array.isArray(retainedPlotNodes)){
-        return null;
-      }
-      const candidates = retainedPlotNodes.filter(node =>
-        node
-        && String(node.nodeName || '').toLowerCase() === 'svg'
-        && node.getAttribute
-        && node.getAttribute('id') === 'boxSvg'
-      );
-      if(!candidates.length){
-        return null;
-      }
-      const committed = candidates.find(node => {
-        if(!node || typeof node.getAttribute !== 'function'){
-          return false;
-        }
-        return node.getAttribute('data-box-pending-render') !== '1'
-          && node.getAttribute('aria-hidden') !== 'true';
-      });
-      if(committed){
-        return committed;
-      }
-      return candidates[candidates.length - 1] || candidates[0] || null;
-    })();
     const plotDiv = els.plotDiv || getBoxNodeById('boxPlot');
     if(plotDiv){
       els.plotDiv = plotDiv;
@@ -35689,22 +36022,16 @@ Technical analysis record (advanced)
     if(!plotDiv){
       return;
     }
-    if(!retainPreviousPlotFrame){
-      while (plotDiv.firstChild) plotDiv.removeChild(plotDiv.firstChild);
-    }else if(debugEnabled){
-      boxLog('Debug: box retaining previous plot frame during async redraw', {
-        reason: drawOpts?.reason || null,
-        retainedNodeCount: retainedPlotNodes?.length || 0
-      });
-    }
+    const renderTabId = resolveBoxExplicitOrBoundTabId(drawOpts || {});
+    const previousBoxSvg2d = isBoxLiveResize(drawOpts, { includeEnd: false })
+      ? resolveCommittedBoxFrame(plotDiv, renderTabId)
+      : null;
     let W = Math.max(50, Math.floor(plotResizeZone.width || plotDiv.clientWidth || 50));
     let H = Math.max(40, Math.floor(plotResizeZone.height || plotDiv.clientHeight || 40));
     const significanceBasePlotHeight = H;
     const significanceBasePlotWidth = W;
     const previousBoxFrameHasCanvasPoints = !!previousBoxSvg2d?.querySelector?.('g[data-export-layer="box-points"] canvas');
-    const resizeLivePreviewPhase = drawOpts?.resizePhase === 'start' || drawOpts?.resizePhase === 'move';
-    const isResizeLiveCanvasPreview = drawOpts?.reason === 'resize'
-      && resizeLivePreviewPhase
+    const isResizeLiveCanvasPreview = isBoxLiveResize(drawOpts, { includeEnd: false })
       && !drawOpts?.forceCanvasRecompute
       && previousBoxFrameHasCanvasPoints;
     updateBoxSignificanceResultsState(drawSession, next => {
@@ -35740,10 +36067,6 @@ Technical analysis record (advanced)
     }
     els.plotDiv.style.position = 'relative';
     svg = document.createElementNS(NS, 'svg');
-    if(!retainPreviousPlotFrame){
-      svg.setAttribute('id', 'boxSvg');
-    }
-    const renderTabId = resolveBoxExplicitOrBoundTabId(drawOpts || {});
     if(renderTabId){
       svg.dataset.boxTabId = renderTabId;
     }
@@ -35757,31 +36080,32 @@ Technical analysis record (advanced)
     svg.style.display = 'block';
     chartStyle.prepareSvg(svg, { scopeId: 'box' });
     svg.addEventListener('mouseleave', handleBoxPlotMouseLeave);
-    if(retainPreviousPlotFrame){
-      const stageFrame = Shared.framePublication?.stage;
-      if(typeof stageFrame !== 'function'){
-        throw new Error('Box atomic redraw requires Shared.framePublication.stage.');
-      }
-      svg.setAttribute('data-box-pending-render', '1');
-      pendingPlotFramePublication = stageFrame({
-        container: els.plotDiv,
-        frame: svg,
-        publishedNode: svg,
-        publishedId: 'boxSvg',
-        component: 'box',
-        tabId: renderTabId,
-        canCommit: () => isBoxDrawTokenCurrent(drawSession, token)
-      });
+    const stageFrame = Shared.framePublication?.stage;
+    if(typeof stageFrame !== 'function'){
+      throw new Error('Box atomic redraw requires Shared.framePublication.stage.');
     }
-    pendingPlotFrameCommitted = !retainPreviousPlotFrame;
+    // Initial draws need the same mounted, hidden SVG as replacement draws:
+    // axis interaction bounds must be measured in the document before the
+    // content envelope is calculated.
+    svg.setAttribute('data-box-pending-render', '1');
+    pendingPlotFramePublication = stageFrame({
+      container: els.plotDiv,
+      frame: svg,
+      publishedNode: svg,
+      publishedId: 'boxSvg',
+      component: 'box',
+      tabId: renderTabId,
+      canCommit: () => isBoxDrawTokenCurrent(drawSession, token)
+    });
+    pendingPlotFrameCommitted = false;
     cleanupPendingPlotFrame = () => {
-      if(pendingPlotFrameCommitted || !retainPreviousPlotFrame || !pendingPlotFramePublication){
+      if(pendingPlotFrameCommitted || !pendingPlotFramePublication){
         return false;
       }
       return pendingPlotFramePublication.cleanup();
     };
     const commitPendingPlotFrame = () => {
-      if(pendingPlotFrameCommitted || !retainPreviousPlotFrame || !svg || !pendingPlotFramePublication){
+      if(pendingPlotFrameCommitted || !svg || !pendingPlotFramePublication){
         return false;
       }
       if(pendingPlotFramePublication.commit() !== true){
@@ -35799,20 +36123,11 @@ Technical analysis record (advanced)
       }
       if(debugEnabled){
         boxLog('Debug: box pending plot frame committed', {
-          reason: drawOpts?.reason || null,
-          removedNodeCount: retainedPlotNodes?.length || 0
+          reason: drawOpts?.reason || null
         });
       }
       return true;
     };
-    if(!retainPreviousPlotFrame && els.plotDiv?.dataset){
-      const committedTabId = svg?.dataset?.boxTabId || renderTabId;
-      if(committedTabId){
-        els.plotDiv.dataset.boxRenderedTabId = committedTabId;
-      }else{
-        delete els.plotDiv.dataset.boxRenderedTabId;
-      }
-    }
     const doc = svg.ownerDocument || global.document;
     const gridLayer = doc?.createElementNS ? doc.createElementNS(NS, 'g') : null;
     const referenceLayer = doc?.createElementNS ? doc.createElementNS(NS, 'g') : null;
@@ -38108,6 +38423,14 @@ Technical analysis record (advanced)
       resolveBoxLoading({ reason: status, status, tabId: drawSession?.tabId || null });
       if(pending){
         scheduleBoxDrawForSession(drawSession, { ...pending, raw: true });
+      }else{
+        Shared.componentLifecycle?.emitLifecycleEvent?.({
+          componentKey: 'box',
+          tabId: drawSession?.tabId || null,
+          action: 'draw-settled',
+          reason: drawOptions.reason || 'box-draw',
+          phase: status
+        });
       }
     }
     captureBoxSessionState(drawSession, {
@@ -39486,6 +39809,7 @@ Technical analysis record (advanced)
     return state;
   };
 	box.__testHooks = Object.assign({}, box.__testHooks, {
+      buildFigureSummary: (model, report) => buildBoxFigureSummary(model || {}, report || {}),
 	    getSession: tabLike => getBoxSession(tabLike || getBoxProjectionTabId() || null, { reason: 'box-test-session' }, { create: false }),
 	    tTest:(a,b,options={})=>tTest(a,b,options || {}),
       tTestEqualVariance:(a,b,options={})=>tTestEqualVariance(a,b,options || {}),
@@ -39659,7 +39983,7 @@ Technical analysis record (advanced)
       isBoxThemeNeutralColorToken:(value,options={})=>isBoxThemeNeutralColorToken(value,options || {}),
       resolveIndividualPointThemeDefaults:(config={})=>resolveIndividualPointThemeDefaults(config || {}),
       shouldUseBoxPointCanvasPreview:(opts, renderOptions)=>shouldUseBoxPointCanvasPreview(opts, renderOptions),
-      shouldRetainPreviousBoxFrame:(opts)=>shouldRetainPreviousBoxFrame(opts),
+      isBoxLiveResize:(opts, options={})=>isBoxLiveResize(opts, options),
       resolveBoxPlotDrawingZoneSize:()=>resolveBoxPlotDrawingZoneSize(),
       syncBoxPlotResizeZone:opts=>syncBoxPlotResizeZone(opts || {}),
       scheduleBoxGlobalOpacityApply:opacity=>scheduleBoxGlobalOpacityApply(opacity),
@@ -39715,4 +40039,12 @@ Technical analysis record (advanced)
       { key: 'notesState', get: () => notesState, excludeKeys: ['control'] }
     ]
   });
+
+  box.executeDesktopCommand = function executeDesktopCommand(command){
+    const action = box.__desktopCommandActions?.[command];
+    if (typeof action !== 'function') {
+      return { status: 'skipped', reason: 'component-command-unavailable' };
+    }
+    return action() || { status: 'handled' };
+  };
 })(window);

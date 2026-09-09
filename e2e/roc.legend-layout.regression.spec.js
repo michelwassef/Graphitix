@@ -72,6 +72,19 @@ test('ROC publishes final layout and legend visibility from the changed checkbox
   await clickExampleButtonIfPresent(page, 'rocLoadExample');
   await waitForRocLayout(page, true);
   await expectRocLayoutStable(page);
+  await page.waitForFunction(() => {
+    const tabId = window.Main?.session?.workspaceState?.activeTabId;
+    return !!window.Components?.roc?.__testHooks?.getSession?.(tabId)?.cache?.analysisModel;
+  });
+  await page.evaluate(() => {
+    const root = document.querySelector('#rocPage:not([hidden])');
+    const tabId = window.Main?.session?.workspaceState?.activeTabId;
+    const session = window.Components?.roc?.__testHooks?.getSession?.(tabId);
+    window.__rocLegendInvalidationProbe = {
+      analysisModel: session?.cache?.analysisModel || null,
+      statsNode: root?.querySelector('#rocStatsResults')?.firstChild || null
+    };
+  });
 
   await page.locator('#rocPage:not([hidden]) .resizer-options-summary').click();
   const legendControl = page.locator('#rocPage:not([hidden]) #rocShowLegend');
@@ -79,6 +92,16 @@ test('ROC publishes final layout and legend visibility from the changed checkbox
   await legendControl.uncheck();
   await waitForRocLayout(page, false);
   await expectRocLayoutStable(page);
+  const reuseProbe = await page.evaluate(() => {
+    const tabId = window.Main?.session?.workspaceState?.activeTabId;
+    const session = window.Components?.roc?.__testHooks?.getSession?.(tabId);
+    const statsNode = document.querySelector('#rocPage:not([hidden]) #rocStatsResults')?.firstChild || null;
+    return {
+      analysisModelReused: session?.cache?.analysisModel === window.__rocLegendInvalidationProbe?.analysisModel,
+      statsSurfaceReused: statsNode === window.__rocLegendInvalidationProbe?.statsNode
+    };
+  });
+  expect(reuseProbe).toEqual({ analysisModelReused: true, statsSurfaceReused: true });
 
   await legendControl.check();
   await waitForRocLayout(page, true);

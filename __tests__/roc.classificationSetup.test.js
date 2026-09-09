@@ -138,6 +138,10 @@ describe('ROC explicit classification setup', () => {
       { tabId: 'owner-a', viewOnly: false, reason: 'full-redraw' },
       { tabId: 'owner-a', viewOnly: true, reason: 'resize' }
     )).toMatchObject({ tabId: 'owner-a', viewOnly: false, reason: 'resize' });
+    expect(hooks().mergeDrawOptions(
+      { tabId: 'owner-a', renderImpact: 'layout', reason: 'legend-toggle' },
+      { tabId: 'owner-a', renderImpact: 'analysis', reason: 'data-change' }
+    )).toMatchObject({ renderImpact: 'analysis' });
     expect(hooks().mergeDrawOptions(null, null)).toBeNull();
 
     const deferred = hooks().createDrawRuntime({

@@ -76,7 +76,10 @@ describe('componentLayout zoom behavior contract', () => {
   });
 
   test('zoom resize phase is layout-only (no scheduleDraw / no user onResize callback)', () => {
-    const syncPanelSpy = jest.fn((table, graph, config, scheduleDraw) => {
+    const syncPanelSpy = jest.fn((table, graph, config, scheduleDraw, options) => {
+      if(options?.svgBox?.style && options.preserveSvgBoxPresentation !== true){
+        options.svgBox.style.width = '400px';
+      }
       if(typeof scheduleDraw === 'function'){
         scheduleDraw();
       }
@@ -112,6 +115,7 @@ describe('componentLayout zoom behavior contract', () => {
     const zoomContent = svgBox.querySelector('.resizer-zoom-content');
     expect(zoomContent).toBeTruthy();
     expect(zoomContent.style.getPropertyValue('--resizer-content-zoom')).toBe('1.4');
+    expect(svgBox.style.width).toBe('560px');
     expect(scheduleDraw).not.toHaveBeenCalled();
     expect(userResize).not.toHaveBeenCalled();
 

@@ -314,6 +314,231 @@
     updateEulerFromQuaternion(rotation);
   };
 
+  const DEFAULT_ROTATION_LIMITS = Object.freeze({
+    x: Object.freeze({ min: -Math.PI, max: Math.PI }),
+    y: Object.freeze({ min: -Math.PI, max: Math.PI }),
+    z: Object.freeze({ min: -Math.PI, max: Math.PI })
+  });
+  plot3d.DEFAULT_ROTATION_LIMITS = DEFAULT_ROTATION_LIMITS;
+
+  function resolveRotationLimits(input){
+    const source = input || {};
+    const read = (axis, aliases) => {
+      const value = source[axis] || aliases.map(key => source[key]).find(Boolean) || {};
+      const min = Number(value.min);
+      const max = Number(value.max);
+      return {
+        min: Number.isFinite(min) ? min : DEFAULT_ROTATION_LIMITS[axis].min,
+        max: Number.isFinite(max) && max >= (Number.isFinite(min) ? min : DEFAULT_ROTATION_LIMITS[axis].min)
+          ? max
+          : DEFAULT_ROTATION_LIMITS[axis].max
+      };
+    };
+    return {
+      x: read('x', ['pitch']),
+      y: read('y', ['yaw']),
+      z: read('z', ['roll'])
+    };
+  }
+
+  plot3d.resolveRotationLimits = resolveRotationLimits;
+
+  /**
+   * Resolve the largest logical SVG frame available to a 3D component.
+   * When both dimensions are known, preserve the drawable rectangle exactly;
+   * the projector itself keeps the data geometry uniform. The fallback aspect
+   * is used only when the layout has not supplied one of the dimensions yet.
+   */
+  plot3d.resolveFrameDimensions = function(options){
+    const opts = options || {};
+    const positiveFloor = value => {
+      const numeric = Number(value);
+      return Number.isFinite(numeric) && numeric > 0 ? Math.floor(numeric) : 0;
+    };
+    const availableWidth = positiveFloor(opts.availableWidth);
+    const availableHeight = positiveFloor(opts.availableHeight);
+    const fallbackWidth = Math.max(1, positiveFloor(opts.fallbackWidth) || 1);
+    const fallbackHeight = Math.max(1, positiveFloor(opts.fallbackHeight) || fallbackWidth);
+    const fallbackAspect = fallbackWidth / fallbackHeight;
+    const width = availableWidth || Math.max(1, Math.round(
+      availableHeight ? availableHeight * fallbackAspect : fallbackWidth
+    ));
+    const height = availableHeight || Math.max(1, Math.round(width / fallbackAspect));
+    return {
+      width: Math.max(1, width),
+      height: Math.max(1, height),
+      usedAvailableWidth: availableWidth > 0,
+      usedAvailableHeight: availableHeight > 0
+    };
+  };
+
+  /**
+   * Return the common default anchor for a 3D graph title. The title sits in
+   * the outer title band, above the projected frame, rather than being tied to
+   * the current rotation or to one component's local margin formula.
+   */
+  plot3d.resolveDefaultTitlePosition = function(options){
+    const opts = options || {};
+    const margin = opts.margin || {};
+    const left = Number.isFinite(Number(margin.left)) ? Number(margin.left) : 0;
+    const top = Math.max(0, Number(margin.top) || 0);
+    const width = Math.max(0, Number(opts.plotWidth ?? opts.width) || 0);
+    const fontSize = Math.max(1, Number(opts.fontSize) || 12);
+    return {
+      x: left + (width / 2),
+      y: Math.max(top * 0.4, fontSize * 1.6)
+    };
+  };
+
+  /**
+   * Return a fixed envelope for a 3D graph. The projector keeps the cube in
+   * its canonical frame; this envelope reserves space around that frame for
+   * the longest tick/title text at every permitted rotation. It is therefore
+   * independent of the current angle and safe to restore from cache.
+   */
+  plot3d.resolveRotationSafeViewport = function(options){
+    const opts = options || {};
+    const chartStyle = opts.chartStyle || Shared.chartStyle || {};
+    const canonicalWidth = Math.max(1, Number(opts.width ?? opts.baseWidth) || 1);
+    const canonicalHeight = Math.max(1, Number(opts.height ?? opts.baseHeight) || 1);
+    const fontSize = Math.max(1, Number(opts.fontSize) || 12);
+    const tickFontSize = Math.max(1, Number(opts.tickFontSize) || fontSize);
+    const axisStrokeWidth = Math.max(0, Number(opts.axisStrokeWidth) || 1);
+    const tickLength = Number.isFinite(Number(opts.tickLength))
+      ? Math.max(0, Number(opts.tickLength))
+      : Math.max(4, Math.round(fontSize * 0.5));
+    const tickLabelGap = Number.isFinite(Number(opts.tickLabelGap))
+      ? Math.max(0, Number(opts.tickLabelGap))
+      : (typeof chartStyle.resolveTickLabelGap === 'function'
+        ? Math.max(0, Number(chartStyle.resolveTickLabelGap(fontSize)) || 0)
+        : Math.max(2, Math.round(fontSize * 0.2)));
+    const axisTitleGap = Number.isFinite(Number(opts.axisTitleGap))
+      ? Math.max(0, Number(opts.axisTitleGap))
+      : Math.max(4, Math.round(fontSize * 0.75));
+    const textHeight = size => Math.max(1, size * 1.2);
+    const measure = (value, size) => {
+      const text = value == null ? '' : String(value);
+      const font = typeof chartStyle.makeFont === 'function'
+        ? chartStyle.makeFont(size)
+        : `${size}px Arial, Helvetica, sans-serif`;
+      let width = NaN;
+      if(typeof chartStyle.measureText === 'function'){
+        try{ width = Number(chartStyle.measureText(text, font)); }catch(_err){ width = NaN; }
+      }
+      if(!Number.isFinite(width) || width < 0){
+        width = text.length * size * 0.6;
+      }
+      return { width, height: textHeight(size) };
+    };
+    const formatTick = (axis, value) => {
+      const formatter = opts.axisTickFormatters?.[axis];
+      if(typeof formatter === 'function'){
+        try{ return formatter(value); }catch(_err){ /* fallback below */ }
+      }
+      if(typeof chartStyle.formatAxisValue === 'function'){
+        try{ return chartStyle.formatAxisValue(value, { maxDecimals: 2 }); }catch(_err){ /* fallback below */ }
+      }
+      return Number.isFinite(value) ? String(value) : '';
+    };
+    const labels = opts.axisLabels || {};
+    const ticks = opts.axisTicks || {};
+    const axisDiagnostics = {};
+    let maxReserve = 0;
+    ['x', 'y', 'z'].forEach(axis => {
+      const title = measure(labels[axis] || axis.toUpperCase(), fontSize);
+      let maxTick = { width: 0, height: textHeight(tickFontSize), text: '' };
+      const values = Array.isArray(ticks[axis]) ? ticks[axis] : [];
+      values.forEach(value => {
+        const text = formatTick(axis, value);
+        const measured = measure(text, tickFontSize);
+        if(measured.width > maxTick.width){
+          maxTick = { ...measured, text };
+        }
+      });
+      const tickDiagonal = Math.hypot(maxTick.width, maxTick.height);
+      const titleDiagonal = Math.hypot(title.width, title.height);
+      // Match renderAxesAndGrid's actual label placement. The old estimate
+      // added the full tick diagonal and an extra title gap, which reserved
+      // space twice and made the usable 3D frame unnecessarily small.
+      const tickCenterOffset = tickLength + tickLabelGap;
+      const tickRadius = tickDiagonal / 2;
+      const titleCenterOffset = Math.max(
+        fontSize * 1.2,
+        tickCenterOffset + tickFontSize + axisTitleGap
+      );
+      const titleRadius = titleDiagonal / 2;
+      const reserve = Math.max(
+        tickCenterOffset + tickRadius,
+        titleCenterOffset + titleRadius
+      ) + (axisStrokeWidth / 2) + 2;
+      maxReserve = Math.max(maxReserve, reserve);
+      axisDiagnostics[axis] = {
+        title: title.width,
+        maxTick: maxTick.width,
+        reserve
+      };
+    });
+    const reserve = Math.ceil(Math.max(fontSize, maxReserve));
+    const rotationLimits = resolveRotationLimits(opts.rotationLimits);
+    const viewport = {
+      baseWidth: canonicalWidth,
+      baseHeight: canonicalHeight,
+      minX: -reserve,
+      minY: -reserve,
+      maxX: canonicalWidth + reserve,
+      maxY: canonicalHeight + reserve,
+      width: canonicalWidth + reserve * 2,
+      height: canonicalHeight + reserve * 2,
+      left: reserve,
+      right: reserve,
+      top: reserve,
+      bottom: reserve,
+      reserve,
+      requiredMargin: reserve,
+      rotationLimits,
+      diagnostics: {
+        axis: axisDiagnostics,
+        reserve,
+        canonicalWidth,
+        canonicalHeight
+      }
+    };
+    debugLog('Debug: plot3d rotation-safe viewport resolved', {
+      width: viewport.width,
+      height: viewport.height,
+      reserve,
+      rotationLimits
+    });
+    return viewport;
+  };
+
+  /**
+   * Apply the rotation-safe envelope inside the canonical SVG viewport. The
+   * SVG must remain the user's fixed drawing frame; only the projected plot
+   * frame moves inward to make room for labels at every permitted rotation.
+   */
+  plot3d.resolveRotationSafeMargin = function(options){
+    const opts = options || {};
+    const source = opts.margin || {};
+    const safe = opts.safeViewport || opts.viewport || opts;
+    const reserve = Number(safe.requiredMargin ?? safe.reserve ?? safe.diagnostics?.reserve);
+    // resolveRotationSafeViewport already includes stroke expansion and a
+    // small edge clearance. Do not add another clearance here: it shrinks the
+    // projected cube twice and was the source of avoidable 3D whitespace.
+    const required = Number.isFinite(reserve) && reserve > 0 ? reserve : 0;
+    const read = key => {
+      const value = Number(source[key]);
+      return Number.isFinite(value) && value >= 0 ? value : 0;
+    };
+    const margin = {
+      top: Math.max(read('top'), required),
+      right: Math.max(read('right'), required),
+      bottom: Math.max(read('bottom'), required),
+      left: Math.max(read('left'), required)
+    };
+    return margin;
+  };
+
   plot3d.isLegendPointerTarget = function(target){
     if(!target){ return false; }
     if(target.dataset && target.dataset.legendKey){
@@ -511,6 +736,9 @@
   };
 
   function resolveSvgViewportLength(svgEl, attrName, fallback){
+    const baseDatasetKey = attrName === 'width' ? 'plot3dBaseWidth' : 'plot3dBaseHeight';
+    const baseLength = Number(svgEl?.dataset?.[baseDatasetKey]);
+    if(Number.isFinite(baseLength) && baseLength > 0){ return baseLength; }
     const rawAttr = Number(svgEl && typeof svgEl.getAttribute === 'function' ? svgEl.getAttribute(attrName) : NaN);
     if(Number.isFinite(rawAttr) && rawAttr > 0){ return rawAttr; }
     const box = svgEl?.viewBox?.baseVal || null;

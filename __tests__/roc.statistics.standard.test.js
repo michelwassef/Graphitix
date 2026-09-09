@@ -60,7 +60,7 @@ describe('ROC statistical standardization', () => {
       stats: [{ auc: inference.auc, pVal: inference.pValue }]
     });
 
-    expect(single.label).toBe('Show stats on plot');
+    expect(single.label).toBe('Stats on plot');
     expect(single.lines).toEqual(['AUC = 0.978; p < 0.0001']);
 
     const comparison = hooks.buildOnPlotPresentation({
@@ -68,7 +68,7 @@ describe('ROC statistical standardization', () => {
       graphType: 'roc',
       compareResultModel: { displayText: 'ΔAUC = 0.120; p = 0.031' }
     });
-    expect(comparison.label).toBe('Show stats on plot');
+    expect(comparison.label).toBe('Stats on plot');
     expect(comparison.lines).toEqual(['ΔAUC = 0.120; p = 0.031']);
   });
 
@@ -79,7 +79,7 @@ describe('ROC statistical standardization', () => {
       graphType: 'pr',
       stats: [{ avgPrecision: 0.91234 }]
     });
-    expect(presentation.label).toBe('Show stats on plot');
+    expect(presentation.label).toBe('Stats on plot');
     expect(presentation.lines).toEqual(['AP = 0.912']);
   });
 

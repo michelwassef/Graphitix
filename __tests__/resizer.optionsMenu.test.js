@@ -157,6 +157,57 @@ describe('Shared resizer graph options menu', () => {
     expect(recordStateChange).not.toHaveBeenCalled();
   });
 
+  test('normalizes graph option order when the legend is registered before shared controls', () => {
+    window.Shared.fontControls = {
+      areRolesVisible: jest.fn(() => true),
+      setRoleVisibility: jest.fn(() => true)
+    };
+    const box = createSvgBox();
+    const legend = document.createElement('label');
+    legend.className = 'config-panel__checkbox config-panel__checkbox--inline';
+    legend.innerHTML = '<input type="checkbox" checked><span>Show legend</span>';
+
+    window.Shared.resizer.ensureLegendControlPlacement({
+      svgBox: box,
+      control: legend,
+      debugLabel: 'early-legend'
+    });
+    window.Shared.attachResizableBox(box, {
+      componentName: 'scatter',
+      tabId: 'tab-a',
+      defaultWidth: 420,
+      defaultHeight: 320,
+      minWidth: 120,
+      minHeight: 90
+    });
+
+    const axes = document.createElement('details');
+    axes.className = 'resizer-axeslength-control';
+    const summary = document.createElement('summary');
+    summary.textContent = 'Axes length';
+    axes.appendChild(summary);
+    window.Shared.resizer.ensureGraphOptionsMenu({
+      svgBox: box,
+      controls: [axes],
+      debugLabel: 'axes-length'
+    });
+
+    const menu = box.querySelector('.resizer-options-menu');
+    const labels = Array.from(menu.children).map(control => (
+      control.matches('.resizer-axeslength-control')
+        ? control.querySelector('summary')?.textContent
+        : control.querySelector('span')?.textContent
+    ));
+    expect(labels).toEqual([
+      'Lock ratio',
+      'Proportional font resize',
+      'Show graph title',
+      'Show axes titles',
+      'Show legend',
+      'Axes length'
+    ]);
+  });
+
   test('tracks axis-title applicability from the active rendered graph', async () => {
     window.Shared.fontControls = {
       areRolesVisible: jest.fn(() => true),

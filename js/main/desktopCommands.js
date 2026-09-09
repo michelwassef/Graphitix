@@ -5,33 +5,6 @@
   const Shared = window.Shared = window.Shared || {};
   const namespace = Main.desktopCommands = Main.desktopCommands || {};
 
-  const IMPORT_BUTTON_IDS = {
-    box: 'boxImport',
-    scatter: 'scatterImport',
-    pca: 'pcaImport',
-    line: 'lineImport',
-    heatmap: 'heatmapImport',
-    surface: 'surfaceImport',
-    roc: 'rocImport',
-    survival: 'survivalImport',
-    hist: 'histImport',
-    pie: 'pieImport'
-  };
-
-  const EXAMPLE_BUTTON_IDS = {
-    venn: 'sample',
-    box: 'boxLoadExample',
-    scatter: 'scatterLoadExample',
-    pca: 'pcaLoadExample',
-    line: 'lineLoadExample',
-    heatmap: 'heatmapLoadExample',
-    surface: 'surfaceLoadExample',
-    roc: 'rocLoadExample',
-    survival: 'survivalLoadExample',
-    hist: 'histLoadExample',
-    pie: 'pieLoadExample'
-  };
-
   let state = null;
   let bridgeCleanup = null;
 
@@ -92,57 +65,28 @@
     return tab;
   }
 
-  function queryById(root, id) {
-    if (!root || !id || typeof root.querySelector !== 'function') {
-      return null;
-    }
-    return root.querySelector(`[id="${String(id).replace(/"/g, '\\"')}"]`);
-  }
-
-  function getActiveComponentRoot(tab) {
-    const type = tab?.type || '';
-    const workspaceTabs = Shared.workspaceTabs || {};
-    const mountedRoot = typeof workspaceTabs.getMountedRoot === 'function'
-      ? workspaceTabs.getMountedRoot(tab, type)
-      : null;
-    if (mountedRoot && typeof mountedRoot.querySelector === 'function') {
-      return mountedRoot;
-    }
-    const workspaces = state?.workspaces || Main.components?.registry || {};
-    const element = workspaces[type]?.element || null;
-    if (element && typeof element.querySelector === 'function') {
-      return element;
-    }
-    return null;
-  }
-
-  function isButtonUnavailable(button) {
-    return !button
-      || button.disabled
-      || button.getAttribute?.('aria-disabled') === 'true'
-      || button.dataset?.commandDisabled === '1';
-  }
-
-  function invokeActiveToolbarButton(idByType, commandName) {
+  async function invokeActiveComponentCommand(commandName, payload = {}) {
     const tab = getActiveGraphTab();
     if (!tab) {
-      debug('toolbarButtonSkipped', { command: commandName, reason: 'no-active-graph-tab' });
+      debug('componentCommandSkipped', { command: commandName, reason: 'no-active-graph-tab' });
       return { status: 'skipped', command: commandName, reason: 'no-active-graph-tab' };
     }
-    const id = idByType[tab.type] || '';
-    if (!id) {
-      debug('toolbarButtonSkipped', { command: commandName, type: tab.type, reason: 'unsupported-active-type' });
+    const workspaces = state?.workspaces || Main.components?.registry || {};
+    const workspace = workspaces[tab.type] || null;
+    if (typeof workspace?.executeCommand !== 'function') {
+      debug('componentCommandSkipped', { command: commandName, type: tab.type, reason: 'unsupported-active-type' });
       return { status: 'unsupported', command: commandName, type: tab.type };
     }
-    const root = getActiveComponentRoot(tab);
-    const button = queryById(root, id);
-    if (isButtonUnavailable(button)) {
-      debug('toolbarButtonSkipped', { command: commandName, type: tab.type, id, reason: 'button-unavailable' });
-      return { status: 'skipped', command: commandName, type: tab.type, reason: 'button-unavailable' };
+    const result = await workspace.executeCommand(commandName, {
+      ...(payload || {}),
+      tab,
+      tabId: tab.id,
+      origin: payload?.origin || 'desktop'
+    });
+    if (result && typeof result === 'object') {
+      return { command: commandName, type: tab.type, ...result };
     }
-    button.click();
-    debug('toolbarButtonInvoked', { command: commandName, type: tab.type, id });
-    return { status: 'sent', command: commandName, type: tab.type, id };
+    return { status: result === false ? 'skipped' : 'handled', command: commandName, type: tab.type };
   }
 
   function activateToolbarSection(sectionLabel, commandName) {
@@ -229,11 +173,11 @@
     }
 
     if (command === 'importData') {
-      return invokeActiveToolbarButton(IMPORT_BUTTON_IDS, command);
+      return invokeActiveComponentCommand(command, payload);
     }
 
     if (command === 'loadExampleData') {
-      return invokeActiveToolbarButton(EXAMPLE_BUTTON_IDS, command);
+      return invokeActiveComponentCommand(command, payload);
     }
 
     if (command === 'matchStyles') {

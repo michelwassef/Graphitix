@@ -784,10 +784,43 @@
           attempt
         });
         if (result?.status === 'sent' || result?.status === 'handled') {
+          // The component command updates its owner state directly. Synthetic
+          // browser input is not part of the trusted global input path, so keep
+          // this explicit canonical write at the shared command boundary.
+          await waitForNextPaint();
+          const active = session.getActiveTab?.();
+          if (active && !active.isWelcome && active.type === type
+            && typeof session.persistUserModifiedTabState === 'function') {
+            // Example loading can start an owner-scoped draw/statistics/data-view
+            // pipeline. Wait for that component's publication contract before
+            // capturing the canonical payload. Each component owns its
+            // readiness policy, including background analysis that must not be
+            // cancelled by snapshot or recovery capture.
+            const workspace = workspaces[type] || Main.components?.registry?.[type] || null;
+            if (typeof workspace?.awaitReadyForSnapshot === 'function') {
+              await workspace.awaitReadyForSnapshot({
+                tab: active,
+                tabId: active.id,
+                reason: 'welcome-load-example-ready',
+                origin: 'user'
+              });
+            }
+            session.persistUserModifiedTabState(active, {
+              reason: 'welcome-load-example',
+              origin: 'user',
+              captureCanonical: false
+            });
+            console.debug('Debug: welcome example canonical state persisted', {
+              tabId: active.id,
+              type
+            });
+          }
           console.debug('Debug: welcome load example invoked', { type, attempt });
           return true;
         }
-        const retryable = result?.reason === 'button-unavailable' || result?.reason === 'no-active-graph-tab';
+        const retryable = result?.reason === 'button-unavailable'
+          || result?.reason === 'component-command-unavailable'
+          || result?.reason === 'no-active-graph-tab';
         if (!retryable || attempt === WELCOME_EXAMPLE_MAX_ATTEMPTS) {
           console.warn('welcome load example skipped', { type, attempt, result });
           return false;

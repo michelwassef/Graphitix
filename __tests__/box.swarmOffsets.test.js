@@ -1478,16 +1478,15 @@ describe('Box swarm offset constraints', () => {
     expect(Number(dense.radius)).toBeLessThanOrEqual(5);
   });
 
-  test('previous box frame is retained for view-only redraws', () => {
+  test('live resize phases are identified consistently', () => {
     expect(hooks).toBeDefined();
-    expect(typeof hooks.shouldRetainPreviousBoxFrame).toBe('function');
-    expect(hooks.shouldRetainPreviousBoxFrame({ viewOnly: true, reason: 'resize' })).toBe(true);
-    expect(hooks.shouldRetainPreviousBoxFrame({ viewOnly: true, reason: 'resize-settled' })).toBe(true);
-    expect(hooks.shouldRetainPreviousBoxFrame({ viewOnly: true, reason: 'resize-observe' })).toBe(true);
-    expect(hooks.shouldRetainPreviousBoxFrame({ viewOnly: true, reason: 'point-mode-change' })).toBe(true);
-    expect(hooks.shouldRetainPreviousBoxFrame({ viewOnly: true, reason: 'significance-viewport-extension' })).toBe(true);
-    expect(hooks.shouldRetainPreviousBoxFrame({ preservePublishedFrame: true, reason: 'graph-edit-click-live-redraw' })).toBe(true);
-    expect(hooks.shouldRetainPreviousBoxFrame({ viewOnly: false, reason: 'resize' })).toBe(false);
+    expect(typeof hooks.isBoxLiveResize).toBe('function');
+    expect(hooks.isBoxLiveResize({ reason: 'resize', resizePhase: 'start' })).toBe(true);
+    expect(hooks.isBoxLiveResize({ reason: 'resize', resizePhase: 'move' })).toBe(true);
+    expect(hooks.isBoxLiveResize({ reason: 'resize', resizePhase: 'end' })).toBe(true);
+    expect(hooks.isBoxLiveResize({ reason: 'resize', resizePhase: 'end' }, { includeEnd: false })).toBe(false);
+    expect(hooks.isBoxLiveResize({ reason: 'resize', resizePhase: 'observe' })).toBe(false);
+    expect(hooks.isBoxLiveResize({ reason: 'point-mode-change', resizePhase: 'move' })).toBe(false);
   });
 
 });

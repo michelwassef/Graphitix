@@ -32,6 +32,115 @@ describe('Shared.plot3d helper', () => {
     expect(state.z).toBe(0);
   });
 
+  it('uses the complete drawable rectangle when both frame dimensions are available', () => {
+    const { plot3d } = global.Shared;
+    expect(plot3d.resolveFrameDimensions({
+      availableWidth: 482,
+      availableHeight: 456,
+      fallbackWidth: 480,
+      fallbackHeight: 360
+    })).toMatchObject({ width: 482, height: 456 });
+    expect(plot3d.resolveFrameDimensions({
+      availableWidth: 482,
+      availableHeight: 0,
+      fallbackWidth: 480,
+      fallbackHeight: 360
+    })).toMatchObject({ width: 482, height: 362 });
+  });
+
+  it('uses one default title anchor for all 3D Cartesian renderers', () => {
+    const { plot3d } = global.Shared;
+    expect(plot3d.resolveDefaultTitlePosition({
+      margin: { left: 24, top: 48 },
+      plotWidth: 260,
+      fontSize: 12
+    })).toMatchObject({ x: 154 });
+    expect(plot3d.resolveDefaultTitlePosition({
+      margin: { left: 24, top: 48 },
+      plotWidth: 260,
+      fontSize: 12
+    }).y).toBeCloseTo(19.2);
+  });
+
+  it('keeps the rotation hit surface on the canonical 3D graph when the SVG has an outward summary reserve', () => {
+    const { plot3d } = global.Shared;
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('width', '311');
+    svg.setAttribute('height', '387.2');
+    svg.dataset.plot3dBaseWidth = '285';
+    svg.dataset.plot3dBaseHeight = '285';
+    svg.dataset.statsFigureSummaryReserveBottom = '102.2';
+
+    const hitSurface = plot3d.ensureRotationHitSurface(svg, { debugLabel:'summary-reserve' });
+
+    expect(hitSurface.getAttribute('width')).toBe('285');
+    expect(hitSurface.getAttribute('height')).toBe('285');
+  });
+
+  it('reserves one rotation-safe envelope from titles, ticks, stroke, and limits', () => {
+    const { plot3d } = global.Shared;
+    const chartStyle = {
+      makeFont: size => `${size}px Test`,
+      measureText: (text, font) => String(text).length * Number.parseFloat(font) * 0.7,
+      resolveTickLabelGap: () => 4
+    };
+    const safe = plot3d.resolveRotationSafeViewport({
+      width: 311,
+      height: 233,
+      axisLabels: { x: 'PSD95_N', y: 'SYP_N', z: 'CaNA_N' },
+      axisTicks: { x: [-100, 0, 100], y: [-1000, 0, 1000], z: [-1, 0, 1] },
+      fontSize: 12,
+      tickFontSize: 12,
+      axisStrokeWidth: 3,
+      chartStyle,
+      rotationLimits: { x: { min: -1, max: 1 }, y: { min: -2, max: 2 }, z: { min: 0, max: 0.5 } }
+    });
+
+    expect(safe.minX).toBeLessThan(0);
+    expect(safe.minY).toBeLessThan(0);
+    expect(safe.maxX).toBeGreaterThan(311);
+    expect(safe.maxY).toBeGreaterThan(233);
+    expect(safe.width).toBe(safe.baseWidth + safe.left + safe.right);
+    expect(safe.height).toBe(safe.baseHeight + safe.top + safe.bottom);
+    expect(safe.rotationLimits.y).toEqual({ min: -2, max: 2 });
+    expect(safe.diagnostics.axis.y.maxTick).toBeGreaterThan(safe.diagnostics.axis.z.maxTick);
+
+    const repeat = plot3d.resolveRotationSafeViewport({
+      width: 311,
+      height: 233,
+      axisLabels: { x: 'PSD95_N', y: 'SYP_N', z: 'CaNA_N' },
+      axisTicks: { x: [-100, 0, 100], y: [-1000, 0, 1000], z: [-1, 0, 1] },
+      fontSize: 12,
+      tickFontSize: 12,
+      axisStrokeWidth: 3,
+      chartStyle,
+      rotationLimits: { x: { min: -1, max: 1 }, y: { min: -2, max: 2 }, z: { min: 0, max: 0.5 } }
+    });
+    expect(repeat).toEqual(safe);
+  });
+
+  it('uses the safe viewport reserve once when sizing the projector margins', () => {
+    const { plot3d } = global.Shared;
+    const safe = plot3d.resolveRotationSafeViewport({
+      width: 320,
+      height: 240,
+      axisLabels: { x: 'X', y: 'Y', z: 'Z' },
+      axisTicks: { x: [-1, 0, 1], y: [-1, 0, 1], z: [-1, 0, 1] },
+      fontSize: 12,
+      chartStyle: { measureText: text => String(text).length * 7 }
+    });
+
+    expect(plot3d.resolveRotationSafeMargin({
+      margin: { top: 1, right: 2, bottom: 3, left: 4 },
+      safeViewport: safe
+    })).toEqual({
+      top: safe.reserve,
+      right: safe.reserve,
+      bottom: safe.reserve,
+      left: safe.reserve
+    });
+  });
+
   it('applies screen-space yaw and pitch updates while dragging', () => {
     const { plot3d } = global.Shared;
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');

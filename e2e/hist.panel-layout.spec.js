@@ -208,7 +208,53 @@ test('Histogram stats overlay option is labeled and placed on the second Graph r
   const graph = page.locator('#histPage:not([hidden]) fieldset[data-graph-selection-fieldset="1"]');
   await expect(graph.locator('#histGraphPrimaryRow #histShowStatsSummary')).toHaveCount(0);
   await expect(graph.locator('#histGraphStatsRow #histShowStatsSummary')).toHaveCount(1);
-  await expect(graph.locator('#histGraphStatsRow label')).toHaveText('Show stats on plot');
+  await expect(graph.locator('#histGraphStatsRow label').first()).toContainText('Stats on plot');
+});
+
+test('Histogram statistics selectors use the shared control typography', async ({ page }) => {
+  test.setTimeout(90_000);
+  await installLocalCdnOverrides(page);
+  await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
+  await openComponentFromWelcome(page, HISTOGRAM, { first: true });
+
+  const labels = page.locator('#histPage:not([hidden]) #histStatsControls label');
+  await expect(labels).toHaveCount(2);
+  await expect(labels.nth(0)).toContainText('Fit diagnostics');
+  await expect(labels.nth(1)).toContainText('Distribution comparison');
+  await expect(page.locator('#histPage:not([hidden]) #histStatsDiagnosticsMode option')).toHaveText([
+    'Normal vs Log-normal',
+    'Normal fit only',
+    'Log-normal fit only',
+    'Off'
+  ]);
+  await expect.poll(async () => labels.evaluateAll(nodes => nodes.map(node => ({
+    fontSize: getComputedStyle(node).fontSize,
+    fontWeight: getComputedStyle(node).fontWeight,
+    letterSpacing: getComputedStyle(node).letterSpacing
+  })))).toEqual([
+    { fontSize: '13px', fontWeight: '400', letterSpacing: 'normal' },
+    { fontSize: '13px', fontWeight: '400', letterSpacing: 'normal' }
+  ]);
+});
+
+test('Histogram renders log-normal-only diagnostics', async ({ page }) => {
+  test.setTimeout(90_000);
+  await installLocalCdnOverrides(page);
+  await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
+  await openComponentFromWelcome(page, HISTOGRAM, { first: true });
+  await loadPanelHistogram(page, {
+    display: 'panels',
+    arrangement: 'grid',
+    sharedY: true
+  });
+
+  const diagnostics = page.locator('#histPage:not([hidden]) #histStatsDiagnosticsMode');
+  await diagnostics.selectOption('lognormal-fit');
+  await page.waitForFunction(() => window.Main?.tabs?.getActiveTab?.()?.payload?.config?.stats?.diagnosticsMode === 'lognormal-fit');
+  const results = page.locator('#histPage:not([hidden]) #histStatsResults');
+  await expect(results).toContainText('Log-normal fit diagnostics');
+  await expect(results).toContainText('Log-normal KS D');
+  await expect(results).toContainText('Log-normal AD A²');
 });
 
 test('Histogram panel controls flush a complete payload for a new workspace', async ({ page }) => {

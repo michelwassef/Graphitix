@@ -396,4 +396,28 @@ describe('Shared stats reporting disclosure persistence', () => {
     expect(target.querySelector('.stats-report-panel')?.open).toBe(true);
     expect(target.querySelector('.stats-report-panel__advanced')?.open).toBe(true);
   });
+
+  test('panel restore can update the report registry without queuing a duplicate figure summary render', () => {
+    const target = document.createElement('div');
+    document.body.appendChild(target);
+    const registerReportModel = jest.fn();
+    global.Shared.statsFigureSummary = { registerReportModel };
+
+    global.Shared.statsReporting.restorePanelModel(target, {
+      resultsModel: null,
+      reportModel: {
+        kind: 'stats-report',
+        methodsText: 'Methods.',
+        resultsText: 'Results.',
+        figureSummary: {
+          kind: 'analysis',
+          sections: [{ key: 'analysis', rows: [{ label: 'Result', value: 'Complete.' }] }]
+        }
+      }
+    }, { scheduleFigureSummary: false });
+
+    expect(registerReportModel).toHaveBeenCalledWith(expect.objectContaining({
+      scheduleRender: false
+    }));
+  });
 });

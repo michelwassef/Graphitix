@@ -244,6 +244,9 @@
     global.document.addEventListener('fontControls:styleChanged', event => {
       if(state.isRendering){ return; }
       const detail = event?.detail || {};
+      if(Shared.statsFigureSummary?.isSummaryStyleEvent?.(detail)){
+        return;
+      }
       const scopeId = detail.scopeId || null;
       const storeKey = detail.storeKey || '';
       if(scopeId === 'heatmap' || (typeof storeKey === 'string' && storeKey.startsWith('heatmap::'))){
@@ -402,6 +405,9 @@
         return;
       }
       heatmapTextResizeObserverSize = nextSize;
+      if(Shared.resizer?.consumeDisplayOnlyZoomResize?.(target, nextSize)){
+        return;
+      }
       const observeMutedUntil = Number(target.dataset?.heatmapResizeObserveMutedUntil) || 0;
       if(target.dataset?.heatmapResizeActive === 'true' || Date.now() <= observeMutedUntil){
         return;
@@ -3742,7 +3748,7 @@
     return normalized;
   }
 
-  function restoreHeatmapStatsPanelModel(model, session = null){
+  function restoreHeatmapStatsPanelModel(model, session = null, options = {}){
     const context = resolveHeatmapStatsPanelContext(session);
     const shaped = context.owner;
     const normalized = normalizeHeatmapStatsPanelModel(model);
@@ -3764,7 +3770,8 @@
     const reportHost = ensureHeatmapStatsReportHost(shaped);
     const restored = Shared.statsReporting.restorePanelModel(context.target, normalized, {
       ensureReportHost: reportHost ? () => reportHost : undefined,
-      clearMainWhenMissing: false
+      clearMainWhenMissing: false,
+      scheduleFigureSummary: options.scheduleFigureSummary !== false
     });
     return !!(restored?.restoredMain || restored?.restoredReport || context.target.querySelector?.('.stats-table-card, .stats-report-panel, table'));
   }
@@ -5252,7 +5259,7 @@
       schedule();
     });
 
-    bindHeatmapControlHandler($('heatmapLoadExample'), 'click', 'load-example', () => {
+    const loadExampleData = () => {
       const exampleRecord = Shared.exampleDatasets?.get?.('heatmap');
       const example = exampleRecord?.data;
       if(!Array.isArray(example)){
@@ -5276,16 +5283,31 @@
         reason: 'heatmap-example-load'
       });
       debugLog('heatmap example loaded');
-    });
+    };
+    bindHeatmapControlHandler($('heatmapLoadExample'), 'click', 'load-example', loadExampleData);
 
     const importBtn = $('heatmapImport');
     const fileInput = $('heatmapFile');
-    bindHeatmapControlHandler(importBtn, 'click', 'import-table', () => {
+    const openImportPicker = () => {
       if(fileInput){
         fileInput.value = '';
         fileInput.click();
       }
-    });
+    };
+    heatmap.__desktopCommandActions = {
+      loadExampleData: () => {
+        loadExampleData();
+        return { status: 'handled' };
+      },
+      importData: () => {
+        if(!fileInput || typeof fileInput.click !== 'function'){
+          return { status: 'skipped', reason: 'component-command-unavailable' };
+        }
+        openImportPicker();
+        return { status: 'sent' };
+      }
+    };
+    bindHeatmapControlHandler(importBtn, 'click', 'import-table', openImportPicker);
     bindHeatmapControlHandler(fileInput, 'change', 'import-file', async () => {
       const tableImport = Shared.tableImport;
       if(!tableImport || typeof tableImport.openFile !== 'function'){
@@ -5993,34 +6015,43 @@
     return total ? (extreme / total) : null;
   }
 
-  function computeHeatmapCorrelationPValue(corr, xs, ys, method){
+  function computeHeatmapCorrelationPValueInfo(corr, xs, ys, method){
     const bounded = Number.isFinite(corr)
       ? Math.max(-0.999999999999, Math.min(0.999999999999, Number(corr)))
       : NaN;
     const count = Math.min(xs?.length || 0, ys?.length || 0);
-    if(!Number.isFinite(bounded) || count < 3 || method === 'uncentered'){
-      return NaN;
+    if(!Number.isFinite(bounded) || count < 3){
+      return { pValue:NaN, method:'not estimable', exact:false, hasTies:false };
+    }
+    if(method === 'uncentered'){
+      return { pValue:NaN, method:'not computed for uncentered correlation', exact:false, hasTies:false };
     }
     const statsApi = global.jStat || null;
-    if(method === 'spearman'){
-      const hasTies = hasHeatmapDuplicateValues(xs) || hasHeatmapDuplicateValues(ys);
-      if(!hasTies && count <= 9){
-        const exact = computeHeatmapSpearmanExactP(bounded, count);
-        if(Number.isFinite(exact)){
-          return exact;
-        }
+    const hasTies = method === 'spearman' && (hasHeatmapDuplicateValues(xs) || hasHeatmapDuplicateValues(ys));
+    if(method === 'spearman' && !hasTies && count <= 9){
+      const exact = computeHeatmapSpearmanExactP(bounded, count);
+      if(Number.isFinite(exact)){
+        return { pValue:exact, method:'exact permutation', exact:true, hasTies:false };
       }
     }
     const tStatistic = bounded * Math.sqrt((count - 2) / Math.max(1e-12, 1 - (bounded * bounded)));
     const helper = Shared.stats?.studentTTwoSidedPValue;
+    let pValue = NaN;
     if(typeof helper === 'function'){
       const value = helper(tStatistic, count - 2);
-      return Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : NaN;
+      pValue = Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : NaN;
+    }else{
+      const studentTCdf = (statsApi?.studentt && typeof statsApi.studentt.cdf === 'function')
+        ? statsApi.studentt.cdf.bind(statsApi.studentt)
+        : null;
+      pValue = studentTCdf ? Math.max(0, Math.min(1, 2 * (1 - studentTCdf(Math.abs(tStatistic), count - 2)))) : NaN;
     }
-    const studentTCdf = (statsApi?.studentt && typeof statsApi.studentt.cdf === 'function')
-      ? statsApi.studentt.cdf.bind(statsApi.studentt)
-      : null;
-    return studentTCdf ? Math.max(0, Math.min(1, 2 * (1 - studentTCdf(Math.abs(tStatistic), count - 2)))) : NaN;
+    return {
+      pValue,
+      method:method === 'pearson' ? 'two-sided Student t approximation' : 'two-sided t approximation',
+      exact:false,
+      hasTies
+    };
   }
 
   function computeUncenteredCorrelation(xs, ys){
@@ -6060,8 +6091,15 @@
       corr = computeCorrelation(xs, ys, 'pearson');
     }
     const normalized = Number.isFinite(corr) ? Math.max(-1, Math.min(1, corr)) : NaN;
-    const pValue = computeHeatmapCorrelationPValue(normalized, xs, ys, method);
-    return { corr: normalized, count, pValue };
+    const inference = computeHeatmapCorrelationPValueInfo(normalized, xs, ys, method);
+    return {
+      corr: normalized,
+      count,
+      pValue: inference.pValue,
+      pMethod: inference.method,
+      exactPValue: inference.exact,
+      hasTies: inference.hasTies
+    };
   }
 
   function distanceBetweenVectors(vecA, vecB, metric){
@@ -9533,7 +9571,104 @@
     return row;
   }
 
-  function updateStats(stats){
+  function buildHeatmapFigureSummary(stats){
+    if(!stats || typeof stats !== 'object'){ return null; }
+    if(stats.type === 'values'){
+      const rows = [
+        { label:'Matrix', value:`${Number(stats.rowCount || 0)} rows × ${Number(stats.columnCount || 0)} columns${Number.isFinite(Number(stats.finiteCount)) ? ` · ${Number(stats.finiteCount)} finite cells` : ''}` }
+      ];
+      if(Number.isFinite(Number(stats.min)) && Number.isFinite(Number(stats.max))){
+        rows.push({ label:'Value range', value:`${Number(stats.min).toFixed(stats.decimals ?? 2)} to ${Number(stats.max).toFixed(stats.decimals ?? 2)}${Number.isFinite(Number(stats.mean)) ? ` · mean = ${Number(stats.mean).toFixed(stats.decimals ?? 2)}` : ''}` });
+      }
+      rows.push({ label:'Transformation', value:stats.logApplied === true ? 'Log transform applied.' : stats.logApplied === false ? 'No log transform applied.' : 'No explicit log-transform state reported.' });
+      if(Number(stats.rowsFiltered || 0) || Number(stats.columnsRemoved || 0)){
+        rows.push({ label:'Filtering', value:`${Number(stats.rowsFiltered || 0)} rows filtered; ${Number(stats.columnsRemoved || 0)} columns removed.` });
+      }
+      if(stats.rowClusterLabel || stats.columnClusterLabel){
+        rows.push({ label:'Clustering', value:[stats.rowClusterLabel ? `rows: ${stats.rowClusterLabel}${stats.rowDendrogram ? ' + dendrogram' : ''}` : null, stats.columnClusterLabel ? `columns: ${stats.columnClusterLabel}${stats.columnDendrogram ? ' + dendrogram' : ''}` : null].filter(Boolean).join('; ') });
+      }
+      return { schemaVersion:1, kind:'analysis', title:'Analysis summary', sections:[{ key:'analysis', label:'', rows }] };
+    }
+    if(stats.type !== 'correlation'){ return null; }
+    const methodLookup = { pearson:'Pearson correlation', spearman:'Spearman rank correlation', uncentered:'Uncentered correlation' };
+    const methodLabel = methodLookup[stats.method] || String(stats.method || 'Correlation');
+    const symbol = getHeatmapCorrelationSymbol(stats.method);
+    const correction = String(stats.significanceCorrection || 'none').toLowerCase();
+    const correctionLookup = { bh:'Benjamini–Hochberg', by:'Benjamini–Yekutieli', holm:'Holm', none:'None' };
+    const pairResults = Array.isArray(stats.pairResults) ? stats.pairResults.filter(Boolean) : [];
+    const hasPairwiseInference = stats.showSignificance === true && pairResults.some(pair => Number.isFinite(Number(pair.rawPValue ?? pair.pValue)));
+    const analysisRows = [{ label:'Analysis', value:`${methodLabel} · ${Number(stats.itemCount || 0)} items · ${Number(stats.pairCount || 0)} evaluable unique pairs` }];
+    if(stats.method === 'pearson' && hasPairwiseInference){
+      analysisRows.push({ label:'P-value method', value:'Two-sided Student t approximation for each Pearson correlation.' });
+    }else if(stats.method === 'spearman' && hasPairwiseInference){
+      analysisRows.push({ label:'P-value method', value:'Two-sided exact permutation p-values for tie-free pairs with n ≤ 9; otherwise a two-sided t approximation.' });
+    }else if(stats.method === 'uncentered' && stats.showSignificance){
+      analysisRows.push({ label:'Inference', value:'P-values are not computed for uncentered correlation; significance adjustment is therefore not applicable.' });
+    }
+    if(stats.useAbs){ analysisRows.push({ label:'Display', value:'Absolute correlations are displayed; signed coefficients are retained for statistical reporting.' }); }
+    if(hasPairwiseInference){
+      const level = Number(stats.inferenceLevel);
+      const isFdr = correction === 'bh' || correction === 'by';
+      analysisRows.push({
+        label:'Multiplicity',
+        value: correction === 'none'
+          ? `${pairResults.length || Number(stats.testedPairCount || 0)} tested pairs; p-values are unadjusted; ${isFdr ? 'target FDR' : 'α'} = ${formatHeatmapInferenceLevelLabel(level)}.`
+          : `${correctionLookup[correction] || correction} adjustment across ${pairResults.length || Number(stats.testedPairCount || 0)} unique pairwise tests; ${isFdr ? 'target FDR' : 'family-wise α'} = ${formatHeatmapInferenceLevelLabel(level)}.`
+      });
+    }
+    if(stats.rowClusterLabel || stats.columnClusterLabel){
+      analysisRows.push({ label:'Clustering', value:[stats.rowClusterLabel ? `rows: ${stats.rowClusterLabel}` : null, stats.columnClusterLabel ? `columns: ${stats.columnClusterLabel}` : null].filter(Boolean).join('; ') });
+    }
+
+    const resultRows = [];
+    const buildPairRow = pair => {
+      const raw = Number(pair.raw);
+      const n = Number(pair.n ?? pair.count);
+      const rawP = Number(pair.rawPValue ?? pair.pValue);
+      const adjusted = Number(pair.adjustedPValue);
+      const parts = [`${symbol} = ${Number.isFinite(raw) ? raw.toFixed(stats.decimals ?? 3) : '—'}`];
+      if(Number.isFinite(n)) parts.push(`; n = ${n}`);
+      if(stats.showSignificance && Number.isFinite(rawP)){
+        parts.push('; raw p = ', Shared.statsReporting?.pValue?.(rawP, { fallback:formatHeatmapPValue(rawP) }) || formatHeatmapPValue(rawP));
+        if(correction !== 'none' && Number.isFinite(adjusted)){
+          parts.push('; adjusted p = ', Shared.statsReporting?.pValue?.(adjusted, { fallback:formatHeatmapPValue(adjusted) }) || formatHeatmapPValue(adjusted));
+        }
+        if(pair.hasTies && stats.method === 'spearman'){
+          parts.push(' (ties present)');
+        }
+      }
+      return { label:`${pair.left} vs ${pair.right}`, valueParts:parts, figureRole:'effect', figurePriority:65 };
+    };
+    if(hasPairwiseInference && pairResults.length){
+      const level = Number(stats.inferenceLevel);
+      const decisionP = pair => correction === 'none' ? Number(pair.rawPValue ?? pair.pValue) : Number(pair.adjustedPValue);
+      const significant = pairResults.filter(pair => Number.isFinite(decisionP(pair)) && Number.isFinite(level) && decisionP(pair) <= level);
+      if(pairResults.length <= 6){
+        pairResults.forEach(pair => resultRows.push(buildPairRow(pair)));
+      }else if(significant.length){
+        const ordered = significant.slice().sort((a,b) => decisionP(a) - decisionP(b));
+        const selected = ordered.slice(0,5);
+        resultRows.push({ label:'Significant pairs', value:`${significant.length} of ${pairResults.length} at the configured ${correction === 'none' ? 'significance' : 'FDR'} threshold.`, figureRole:'effect', figurePriority:65 });
+        selected.forEach(pair => resultRows.push(buildPairRow(pair)));
+      }else{
+        resultRows.push({ label:'Significant pairs', value:`0 of ${pairResults.length} at the configured ${correction === 'bh' || correction === 'by' ? 'FDR' : 'significance'} threshold.`, figureRole:'effect', figurePriority:65 });
+        const strongestPair = pairResults.slice().sort((a,b) => Math.abs(Number(b.raw) || 0) - Math.abs(Number(a.raw) || 0))[0];
+        if(strongestPair) resultRows.push({ ...buildPairRow(strongestPair), label:`Strongest: ${strongestPair.left} vs ${strongestPair.right}` });
+      }
+    }else{
+      if(stats.strongest){
+        const labels = Array.isArray(stats.strongest.labels) ? stats.strongest.labels.join(' vs ') : String(stats.strongest.labels || '');
+        resultRows.push({ label:`Strongest |${symbol}|`, value:`${labels}; ${symbol} = ${Number.isFinite(Number(stats.strongest.raw)) ? Number(stats.strongest.raw).toFixed(stats.decimals ?? 3) : '—'}${Number.isFinite(Number(stats.strongest.count)) ? `; n = ${Number(stats.strongest.count)}` : ''}` });
+      }
+      if(stats.mostNegative && !stats.useAbs){
+        const labels = Array.isArray(stats.mostNegative.labels) ? stats.mostNegative.labels.join(' vs ') : String(stats.mostNegative.labels || '');
+        resultRows.push({ label:`Most negative ${symbol}`, value:`${labels}; ${symbol} = ${Number.isFinite(Number(stats.mostNegative.value)) ? Number(stats.mostNegative.value).toFixed(stats.decimals ?? 3) : '—'}${Number.isFinite(Number(stats.mostNegative.count)) ? `; n = ${Number(stats.mostNegative.count)}` : ''}` });
+      }
+    }
+    return { schemaVersion:1, kind:hasPairwiseInference ? 'inferential' : 'analysis', title:hasPairwiseInference ? 'Statistical analysis summary' : 'Analysis summary', sections:[{ key:'analysis', label:'', rows:analysisRows }, ...(resultRows.length ? [{ key:'results', label:'Results', rows:resultRows }] : [])] };
+  }
+
+  function updateStats(stats, options = {}){
     state.lastStats = stats ? { ...stats } : null;
     updateHeatmapResultsState(getHeatmapProjectionSession({ reason: 'heatmap-projection-mutation' }), results => {
       results.stats = cloneSimple(state.lastStats) || null;
@@ -9641,6 +9776,7 @@
             `Items analysed = ${stats.itemCount || 0}; pairs evaluated = ${stats.pairCount || 0}.`,
             stats.strongest ? `Strongest |${correlationSymbol}| involved ${Array.isArray(stats.strongest.labels) ? stats.strongest.labels.join(' vs ') : String(stats.strongest.labels || '')}.` : null
           ].filter(Boolean).join(' '),
+          figureSummary: buildHeatmapFigureSummary(stats),
           analysisSpec: {
             component: 'heatmap',
             type: stats.type,
@@ -9663,7 +9799,10 @@
             rowClusterLabel: stats.rowClusterLabel || null,
             columnClusterLabel: stats.columnClusterLabel || null
           }
-        }, { title: 'Reporting and reproducibility' });
+        }, {
+          title: 'Reporting and reproducibility',
+          scheduleFigureSummary: options.scheduleFigureSummary !== false
+        });
       }
       const statsSession = getActiveHeatmapSessionForState();
       const panelModel = captureHeatmapStatsPanelModel(null, statsSession);
@@ -9727,6 +9866,7 @@
             `Rows = ${stats.rowCount || 0}; columns = ${stats.columnCount || 0}.`,
             Number.isFinite(stats.min) && Number.isFinite(stats.max) ? `Values ranged from ${stats.min.toFixed(stats.decimals ?? 2)} to ${stats.max.toFixed(stats.decimals ?? 2)}.` : null
           ].filter(Boolean).join(' '),
+          figureSummary: buildHeatmapFigureSummary(stats),
           analysisSpec: {
             component: 'heatmap',
             type: stats.type,
@@ -9737,7 +9877,10 @@
             rowsFiltered: stats.rowsFiltered || 0,
             columnsRemoved: stats.columnsRemoved || 0
           }
-        }, { title: 'Reporting and reproducibility' });
+        }, {
+          title: 'Reporting and reproducibility',
+          scheduleFigureSummary: options.scheduleFigureSummary !== false
+        });
       }
       const statsSession = getActiveHeatmapSessionForState();
       const panelModel = captureHeatmapStatsPanelModel(null, statsSession);
@@ -9762,6 +9905,19 @@
       results.stats = cloneSimple(state.lastStats) || null;
       results.statsPanelModel = normalizeHeatmapStatsPanelModel(state.statsPanelModel);
     });
+  }
+
+  function renderHeatmapFigureSummary(tabId, reason = 'heatmap-stats-update'){
+    const ownerTabId = String(tabId || getHeatmapProjectionTabId() || '').trim() || null;
+    if(!ownerTabId || typeof Shared.statsFigureSummary?.renderForTab !== 'function'){
+      return false;
+    }
+    return Shared.statsFigureSummary.renderForTab(ownerTabId, {
+      componentType: 'heatmap',
+      allowDuringResize: true,
+      graphRedrawn: true,
+      reason
+    }) === true;
   }
 
 
@@ -10805,6 +10961,10 @@
       return;
     }
     const doc = global.document;
+    // A summary is an outward presentation projection, not graph geometry.
+    // Restore the prior canonical viewport before this reused SVG root is drawn
+    // again; the mounted table remains in place until its replacement commits.
+    Shared.statsFigureSummary?.beginGraphRedraw?.(state.svg);
     delete state.svg.__heatmapLabelProjection;
     updateHeatmapRenderRuntime(ownerSession, runtime => {
       runtime.labelProjection = null;
@@ -11842,6 +12002,7 @@
     }
     applyHeatmapTextAspect('heatmap-text-correction-committed');
     state.layout?.syncPanels?.({ skipSchedule: true });
+    renderHeatmapFigureSummary(ownerTabId, 'heatmap-draw-summary');
     if(modelType === 'values' && resizerAspectLocked){
       svgBox?.__sharedResizableBoxApi?.calibrateLockedGeometryConstraint?.();
     }
@@ -11904,8 +12065,8 @@
       for(let j = i + 1; j < items.length; j += 1){
         const entry = calculateCorrelationEntry(items[i].vector, items[j].vector, settings.correlationMethod);
         const raw = Number.isFinite(entry.corr) ? entry.corr : NaN;
-        matrix[i][j] = { raw, count: entry.count, pValue: entry.pValue };
-        matrix[j][i] = { raw, count: entry.count, pValue: entry.pValue };
+        matrix[i][j] = { raw, count: entry.count, pValue: entry.pValue, pMethod:entry.pMethod, exactPValue:entry.exactPValue, hasTies:entry.hasTies };
+        matrix[j][i] = { raw, count: entry.count, pValue: entry.pValue, pMethod:entry.pMethod, exactPValue:entry.exactPValue, hasTies:entry.hasTies };
         if(Number.isFinite(raw)){
           pairCount += 1;
           const absValue = Math.abs(raw);
@@ -11936,7 +12097,7 @@
       for(let j = i + 1; j < items.length; j += 1){
         const pValue = Number(matrix[i]?.[j]?.pValue);
         if(Number.isFinite(pValue)){
-          pairCells.push({ i, j, pValue });
+          pairCells.push({ i, j, pValue, left:items[i].label, right:items[j].label, raw:matrix[i][j].raw, n:matrix[i][j].count, pMethod:matrix[i][j].pMethod, exactPValue:matrix[i][j].exactPValue, hasTies:matrix[i][j].hasTies });
         }
       }
     }
@@ -11973,7 +12134,7 @@
         if(!entry){
           return { raw: NaN, count: 0, pValue: NaN };
         }
-        return { raw: entry.raw, count: entry.count, pValue: entry.pValue, adjustedPValue: entry.adjustedPValue };
+        return { raw: entry.raw, count: entry.count, pValue: entry.pValue, adjustedPValue: entry.adjustedPValue, pMethod:entry.pMethod, exactPValue:entry.exactPValue, hasTies:entry.hasTies };
       }));
       const showRowDendrogram = !!(resolvedCluster && clusterConfig.showDendrogram);
       const showColumnDendrogram = showRowDendrogram;
@@ -12012,6 +12173,17 @@
           significanceCorrection,
           inferenceLevel: settings.inferenceLevel,
           testedPairCount: pairCells.length,
+          pairResults: pairCells.map((entry, idx) => ({
+            left:entry.left,
+            right:entry.right,
+            raw:entry.raw,
+            n:entry.n,
+            rawPValue:entry.pValue,
+            adjustedPValue:Number.isFinite(Number(adjustedPairValues[idx])) ? Number(adjustedPairValues[idx]) : entry.pValue,
+            pMethod:entry.pMethod || null,
+            exactPValue:entry.exactPValue === true,
+            hasTies:entry.hasTies === true
+          })),
           rowClusterLabel: resolvedCluster && clusterConfig.enabled
             ? `${clusterConfig.metric} (${settings.clustering.linkage})`
             : null,
@@ -12020,7 +12192,7 @@
             : null,
           rowDendrogram: showRowDendrogram,
           columnDendrogram: showColumnDendrogram
-        });
+        }, { scheduleFigureSummary: false });
         return true;
       });
     };
@@ -12120,7 +12292,7 @@
           rowDendrogram: showRowDendrogram,
           columnDendrogram: showColumnDendrogram,
           adjustments: processed.adjustmentSummary
-        });
+        }, { scheduleFigureSummary: false });
         return true;
       });
     };
@@ -13323,8 +13495,8 @@
       updateHeatmapDrawRuntime(ownerSession, runtime => {
         current = Number(runtime.cycleId) === cycleId;
         runtime.completedCycleId = Math.max(Number(runtime.completedCycleId) || 0, cycleId);
-        if(current){
-          runtime.inProgress = false;
+      if(current){
+        runtime.inProgress = false;
           runtime.requestOptions = null;
           runtime.lastStatus = runtime.deferredOptions ? 'deferred' : status;
           runtime.lastReason = reason;
@@ -14033,67 +14205,6 @@
   ]);
   const HEATMAP_SVG_ROOT_STYLES = Object.freeze(['display']);
 
-  function captureHeatmapSvgRootState(svg){
-    if(!svg){
-      return null;
-    }
-    const attributes = {};
-    const style = {};
-    for(const name of HEATMAP_SVG_ROOT_ATTRIBUTES){
-      const value = svg.getAttribute?.(name);
-      if(value){
-        attributes[name] = value;
-      }
-    }
-    for(const name of HEATMAP_SVG_ROOT_STYLES){
-      const value = svg.style?.[name];
-      if(value){
-        style[name] = value;
-      }
-    }
-    return {
-      attributes: Object.keys(attributes).length ? attributes : null,
-      style: Object.keys(style).length ? style : null
-    };
-  }
-
-  function restoreHeatmapSvgRootState(svg, snapshot){
-    if(!svg){
-      return false;
-    }
-    for(const name of HEATMAP_SVG_ROOT_ATTRIBUTES){
-      svg.removeAttribute?.(name);
-    }
-    if(svg.style){
-      for(const name of HEATMAP_SVG_ROOT_STYLES){
-        svg.style[name] = '';
-      }
-    }
-    const attributes = snapshot?.attributes && typeof snapshot.attributes === 'object'
-      ? snapshot.attributes
-      : null;
-    const style = snapshot?.style && typeof snapshot.style === 'object'
-      ? snapshot.style
-      : null;
-    if(attributes){
-      for(const name of HEATMAP_SVG_ROOT_ATTRIBUTES){
-        const value = attributes[name];
-        if(value != null && value !== ''){
-          svg.setAttribute?.(name, String(value));
-        }
-      }
-    }
-    if(style && svg.style){
-      for(const name of HEATMAP_SVG_ROOT_STYLES){
-        const value = style[name];
-        if(value != null && value !== ''){
-          svg.style[name] = String(value);
-        }
-      }
-    }
-    return true;
-  }
-
   function resolveHeatmapRenderCacheForPreview(tab){
     const candidates = [
       tab?.renderCache?.cache,
@@ -14691,7 +14802,10 @@
     const svgCache = detachChildren(svg);
     const statsCache = detachChildren(stats);
     const renderState = captureHeatmapRenderStateSnapshot(requestedSession);
-    const svgRootState = captureHeatmapSvgRootState(svg);
+    const svgRootState = Shared.graphViewport.captureSvgRootState(svg, {
+      attributes: HEATMAP_SVG_ROOT_ATTRIBUTES,
+      styles: HEATMAP_SVG_ROOT_STYLES
+    });
     if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
       debugLog('Debug: heatmap render cache captured', {
         svgNodes: svgCache?.count || 0,
@@ -15037,14 +15151,25 @@
     const restoredState = cache.renderState
       ? restoreHeatmapRenderStateSnapshot(cache.renderState, restoreSession)
       : true;
-    restoreHeatmapSvgRootState(svg, cache.svgRootState);
+    Shared.graphViewport.restoreSvgRootState(svg, cache.svgRootState, {
+      attributes: HEATMAP_SVG_ROOT_ATTRIBUTES,
+      styles: HEATMAP_SVG_ROOT_STYLES
+    });
     const restoredSvg = restoreChildren(svg, graphCachePayload);
     const durableStatsModel = normalizeHeatmapStatsPanelModel(
       restoreSession.results?.statsPanelModel || restoreSession.state?.statsPanelModel || {}
     );
     let restoredStats = true;
     if(heatmapStatsPanelModelHasContent(durableStatsModel)){
-      restoredStats = restoreHeatmapStatsPanelModel(durableStatsModel, restoreSession);
+      const cachedFigureSummary = !!(
+        restoredSvg
+        && svg.querySelector?.('g[data-stats-figure-summary="1"]')
+      );
+      restoredStats = restoreHeatmapStatsPanelModel(durableStatsModel, restoreSession, {
+        // The cache already contains the complete summary SVG projection. Rebuild
+        // the report panel and registry, but do not schedule a second projection.
+        scheduleFigureSummary: !cachedFigureSummary
+      });
     }else if(cache.stats){
       restoredStats = restoreChildren(stats, cache.stats);
     }
@@ -15145,6 +15270,7 @@
   }
 
   heatmap.__testHooks = Object.assign({}, heatmap.__testHooks, {
+    buildFigureSummary: stats => buildHeatmapFigureSummary(stats || {}),
     benchmarkLoad: opts => benchmarkHeatmapLoad(opts),
     resolveDrawableFrame: targetEl => resolveHeatmapDrawableFrame(targetEl),
     resolveRoleTextScales: opts => resolveHeatmapRoleTextScales(opts),
@@ -15262,4 +15388,12 @@
       { key: 'notesState', get: () => notesState, excludeKeys: ['control'] }
     ]
   });
+
+  heatmap.executeDesktopCommand = function executeDesktopCommand(command){
+    const action = heatmap.__desktopCommandActions?.[command];
+    if (typeof action !== 'function') {
+      return { status: 'skipped', reason: 'component-command-unavailable' };
+    }
+    return action() || { status: 'handled' };
+  };
 })(window);

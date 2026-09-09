@@ -523,6 +523,13 @@
     }else{
       merged.viewOnly = false;
     }
+    if(Object.prototype.hasOwnProperty.call(previous, 'renderImpact')
+      || Object.prototype.hasOwnProperty.call(next, 'renderImpact')){
+      merged.renderImpact = Shared.componentLifecycle?.mergeRenderImpact?.(
+        Object.prototype.hasOwnProperty.call(previous, 'renderImpact') ? previous.renderImpact : null,
+        Object.prototype.hasOwnProperty.call(next, 'renderImpact') ? next.renderImpact : 'analysis'
+      ) || next.renderImpact || previous.renderImpact;
+    }
     return normalizeRocQueuedDrawOptions(merged);
   }
 
@@ -1203,6 +1210,7 @@
       refs: createDefaultRocRefs(root || null),
       cache: {
         render: null,
+        analysisModel: null,
         emptyPayloadTemplate: cloneSimple(emptyPayloadTemplate) || null
       },
       listeners: new Map(),
@@ -1244,6 +1252,7 @@
     session.refs.root = normalizeRocRefValue(session.refs.root) || session.root || null;
     session.cache = session.cache && typeof session.cache === 'object' ? session.cache : {};
     if(!Object.prototype.hasOwnProperty.call(session.cache, 'render')){ session.cache.render = null; }
+    if(!Object.prototype.hasOwnProperty.call(session.cache, 'analysisModel')){ session.cache.analysisModel = null; }
     if(!Object.prototype.hasOwnProperty.call(session.cache, 'emptyPayloadTemplate')){ session.cache.emptyPayloadTemplate = null; }
     session.listeners = session.listeners instanceof Map ? session.listeners : new Map();
     session.timers = session.timers && typeof session.timers === 'object' ? session.timers : {};
@@ -2183,6 +2192,9 @@
   }
 
   function isRocFontStyleEvent(detail){
+    if(Shared.statsFigureSummary?.isSummaryStyleEvent?.(detail)){
+      return false;
+    }
     const scopeId = detail?.scopeId || null;
     const storeKey = typeof detail?.storeKey === 'string' ? detail.storeKey : '';
     return scopeId === 'roc' || storeKey.startsWith('roc::');
@@ -2389,6 +2401,22 @@
         ? computeSingleAucInference(rankedCurve.sorted, 0.05, pMethod)
         : null
     };
+  }
+
+  function getReusableRocAnalysisModel(session = null, meta = {}, signature = ''){
+    if(!Shared.componentLifecycle?.isPresentationOnlyDraw?.(meta)){
+      return null;
+    }
+    const model = session?.cache?.analysisModel || null;
+    return model && model.signature === signature ? model : null;
+  }
+
+  function publishRocAnalysisModel(session = null, model = null){
+    if(session?.cache && model && typeof model === 'object'){
+      session.cache.analysisModel = model;
+      session.updatedAt = Date.now();
+    }
+    return model;
   }
 
   function formatRocLegendMetricLabel(analysis, graphType){
@@ -4346,7 +4374,7 @@
   }
 
   function initExampleAndImport(){
-    refs.loadExampleBtn?.addEventListener('click', event => {
+    const loadExampleData = event => {
       runRocControlOwner(event, 'roc-example-load', session => {
       const ownerHot = session?.managers?.hot || state.hot;
       const exampleRecord = Shared.exampleDatasets?.get?.('roc');
@@ -4367,14 +4395,27 @@
       console.debug('Debug: ROC biomedical example loaded', { rows: example.length - 1, curves: example[0].length - 1 });
       scheduleRocDrawForSession(session, { reason: 'roc-example-load', tabId: session?.tabId || undefined });
       });
-    });
+    };
+    refs.loadExampleBtn?.addEventListener('click', loadExampleData);
 
-    bindRocControlHandler(refs.importBtn, 'click', 'import-table', () => {
-      if(refs.fileInput){
-        refs.fileInput.value = '';
-        refs.fileInput.click();
+    const openImportPicker = () => {
+      if(!refs.fileInput || typeof refs.fileInput.click !== 'function'){
+        return false;
       }
-    });
+      refs.fileInput.value = '';
+      refs.fileInput.click();
+      return true;
+    };
+    roc.__desktopCommandActions = {
+      loadExampleData: () => {
+        loadExampleData(null);
+        return { status: 'handled' };
+      },
+      importData: () => openImportPicker()
+        ? { status: 'sent' }
+        : { status: 'skipped', reason: 'component-command-unavailable' }
+    };
+    bindRocControlHandler(refs.importBtn, 'click', 'import-table', openImportPicker);
     if(refs.renderButton){
       refs.renderButton.addEventListener('click', event => {
         runRocControlOwner(event, 'manual-render', session => {
@@ -4969,7 +5010,7 @@
     const singleCurve = count === 1;
     const presentation = {
       mode: singleCurve ? 'stats' : 'comparison',
-      label: 'Show stats on plot',
+      label: 'Stats on plot',
       lines: []
     };
     if(singleCurve){
@@ -5328,17 +5369,23 @@
   }
 
   function formatRocComparisonMethodLabel(diffResult, diffMethod){
-    const method = String(diffMethod || diffResult?.method || '').trim().toLowerCase();
+    // The computed comparison result is canonical for the method that actually
+    // produced its p-value/CI. Session/configuration state is only a fallback
+    // for legacy results that predate explicit method provenance.
+    const resultMethod = String(diffResult?.method || '').trim();
+    const configuredMethod = String(diffMethod || '').trim();
+    const sourceMethod = resultMethod || configuredMethod;
+    const method = sourceMethod.toLowerCase();
     if(method === 'delong' || method === 'de long'){
       return 'DeLong';
     }
     if(method === 'bootstrap' || method === 'paired-bootstrap'){
-      return 'Bootstrap';
+      return 'paired bootstrap';
     }
     if(method === 'permutation' || method === 'paired-permutation'){
-      return 'Permutation';
+      return 'paired permutation';
     }
-    return String(diffResult?.method || diffMethod || '—');
+    return sourceMethod || '—';
   }
 
   function renderRocComparisonStatsPanel(stats, graphType, diffResult, options = {}){
@@ -5470,6 +5517,145 @@
   }
 
 
+  function buildRocFigureSummary(stats, graphType, diffResult, options = {}){
+    const list = Array.isArray(stats) ? stats.filter(Boolean) : [];
+    if(!list.length){ return null; }
+    const normalizedGraphType = String(graphType || 'roc').toLowerCase() === 'pr' ? 'pr' : 'roc';
+    const session = ensureRocSessionOwnershipShape(options.session || getActiveRocSessionForState());
+    const rocRefs = resolveRocStatsRefsForSession(session, options);
+    const formatOptions = { ...options, session, refs: rocRefs };
+    const alpha = getRocStatsAlpha(formatOptions);
+    const setup = list[0] || {};
+    const singleCurvePMethods = Array.from(new Set(list
+      .filter(stat => Number.isFinite(Number(stat?.pVal)) && stat?.pMethod)
+      .map(stat => String(stat.pMethod).startsWith('exact')
+        ? 'exact Mann–Whitney'
+        : 'asymptotic Mann–Whitney, tie/continuity corrected')));
+    const singleCurveMethodText = singleCurvePMethods.length
+      ? `; single-curve p-values use ${singleCurvePMethods.join('; ')}`
+      : '';
+    const analysisRows = [{
+      label: 'Analysis',
+      value: normalizedGraphType === 'roc'
+        ? `ROC analysis · ${list.length} curve${list.length === 1 ? '' : 's'} · two-sided tests of AUC against 0.5`
+        : `Precision–recall analysis · ${list.length} curve${list.length === 1 ? '' : 's'}`,
+      figureRole:'analysis',
+      figurePriority:80
+    }, {
+      label: 'Classification',
+      value: `Positive: ${formatRocClassValue(setup.positiveClass)}; negative: ${formatRocClassValue(setup.negativeClass)}; ${setup.scoreDirection === 'lower' ? 'lower' : 'higher'} scores indicate positive`,
+      figureRole: 'classification'
+    }];
+    if(normalizedGraphType === 'roc'){
+      analysisRows.push({
+      label: 'Inference',
+        value: `95% DeLong AUC confidence intervals${singleCurveMethodText}; α = ${Shared.statsInference?.formatLevel?.(alpha) || alpha}${list.length > 1 ? '; per-curve AUC p-values are unadjusted across curves' : ''}`,
+        figureRole:'inference',
+        figurePriority:70
+      });
+    }
+
+    const resultRows = [];
+    list.forEach((stat, index) => {
+      const curveName = String(stat?.name || `Curve ${index + 1}`);
+      const nPositive = Number(stat?.positiveCount);
+      const nNegative = Number(stat?.negativeCount);
+      const sampleText = Number.isFinite(nPositive) && Number.isFinite(nNegative)
+        ? `n+ = ${nPositive}; n− = ${nNegative}; `
+        : '';
+      if(normalizedGraphType === 'roc'){
+        const parts = [
+          `${sampleText}AUC = ${formatRocDecimal(stat?.auc, 3)}`
+        ];
+        if(Number.isFinite(Number(stat?.aucCiLow)) && Number.isFinite(Number(stat?.aucCiHigh))){
+          parts.push(`; 95% CI [${formatRocDecimal(stat.aucCiLow, 3)}, ${formatRocDecimal(stat.aucCiHigh, 3)}]`);
+        }
+        if(Number.isFinite(Number(stat?.mannWhitneyU))){
+          parts.push(`; U = ${formatRocDecimal(stat.mannWhitneyU, 2)}`);
+        }
+        if(Number.isFinite(Number(stat?.pVal))){
+          parts.push('; p = ', rocInferencePValue(stat.pVal, formatOptions));
+        }
+        resultRows.push({ label: curveName, valueParts: parts, figureRole:'effect', figurePriority:65 });
+        if(Number.isFinite(Number(stat?.thr))){
+          const cutoffParts = [
+            `${stat.thresholdMethod || 'Youden index'}: ${stat.cutoffRule || `threshold ${formatRocDecimal(stat.thr, 3)}`}`
+          ];
+          if(Number.isFinite(Number(stat?.recall))) cutoffParts.push(`; sensitivity = ${formatRocPercent(stat.recall)}`);
+          if(Number.isFinite(Number(stat?.specificity))) cutoffParts.push(`; specificity = ${formatRocPercent(stat.specificity)}`);
+          resultRows.push({ label: `${curveName} cutoff`, valueParts: cutoffParts, figureRole:'threshold', figurePriority:55 });
+        }
+      }else{
+        const parts = [`${sampleText}average precision = ${formatRocDecimal(stat?.avgPrecision ?? stat?.auc, 3)}`];
+        resultRows.push({ label: curveName, valueParts: parts, figureRole:'effect', figurePriority:65 });
+        if(Number.isFinite(Number(stat?.thr))){
+          const cutoffParts = [
+            `${stat.thresholdMethod || 'Maximum F1'}: ${stat.cutoffRule || `threshold ${formatRocDecimal(stat.thr, 3)}`}`
+          ];
+          if(Number.isFinite(Number(stat?.precision))) cutoffParts.push(`; precision = ${formatRocPercent(stat.precision)}`);
+          if(Number.isFinite(Number(stat?.recall))) cutoffParts.push(`; recall = ${formatRocPercent(stat.recall)}`);
+          if(Number.isFinite(Number(stat?.f1))) cutoffParts.push(`; F1 = ${formatRocPercent(stat.f1)}`);
+          resultRows.push({ label: `${curveName} cutoff`, valueParts: cutoffParts, figureRole:'threshold', figurePriority:55 });
+        }
+      }
+    });
+
+    const compareSelection = String(
+      options.compareSelection
+      || session?.results?.compareSelection
+      || session?.state?.compareSelection
+      || state.compareSelection
+      || (isRocSessionActive(session) ? state.compareSel?.value : '')
+      || ''
+    );
+    const [firstIndex, secondIndex] = compareSelection.split(',').map(value => Number(value));
+    const hasValidComparison = Number.isInteger(firstIndex) && Number.isInteger(secondIndex)
+      && firstIndex >= 0 && secondIndex > firstIndex && secondIndex < list.length
+      && Number.isFinite(Number(diffResult?.diff));
+    if(hasValidComparison){
+      const firstName = String(list[firstIndex]?.name || `Curve ${firstIndex + 1}`);
+      const secondName = String(list[secondIndex]?.name || `Curve ${secondIndex + 1}`);
+      const metric = normalizedGraphType === 'roc' ? 'ΔAUC' : 'ΔAP';
+      const comparisonMethod = formatRocComparisonMethodLabel(diffResult, session?.results?.diffMethod || session?.state?.diffMethod || state.diffMethod);
+      if(Number.isFinite(Number(diffResult?.p))){
+        analysisRows.push({
+          label:'Curve-comparison inference',
+          value:`One prespecified paired comparison (${firstName} vs ${secondName}); ${comparisonMethod || 'configured paired method'}; two-sided p-value; 95% confidence interval; α = ${Shared.statsInference?.formatLevel?.(alpha) || alpha}; no multiplicity adjustment required.`
+        });
+      }
+      const parts = [`${firstName} − ${secondName}: ${metric} = ${formatRocDecimal(diffResult.diff, 3)}`];
+      if(Array.isArray(diffResult?.ci) && Number.isFinite(Number(diffResult.ci[0])) && Number.isFinite(Number(diffResult.ci[1]))){
+        parts.push(`; 95% CI [${formatRocDecimal(diffResult.ci[0], 3)}, ${formatRocDecimal(diffResult.ci[1], 3)}]`);
+      }
+      if(Number.isFinite(Number(diffResult?.z))){
+        parts.push(`; z = ${formatRocDecimal(diffResult.z, 3)}`);
+      }
+      if(Number.isFinite(Number(diffResult?.p))){
+        parts.push('; p = ', rocInferencePValue(diffResult.p, formatOptions));
+      }
+      if(comparisonMethod){ parts.push(` (${comparisonMethod}`); }
+      if(Number.isFinite(Number(diffResult?.pairedCount))){ parts.push(`${comparisonMethod ? '; ' : ' ('}paired n = ${Number(diffResult.pairedCount)}`); }
+      if(comparisonMethod || Number.isFinite(Number(diffResult?.pairedCount))){ parts.push(')'); }
+      resultRows.push({ label: 'Curve comparison', valueParts: parts, figureRole:'comparison', figurePriority:75 });
+    }
+
+    const warning = getRocAucDirectionWarning(list, normalizedGraphType);
+    const diagnosticRows = warning ? [{ label:'Direction check', value:String(warning) }] : [];
+    const hasCurveComparisonInference = Number.isFinite(Number(diffResult?.p));
+    const hasInferentialTest = normalizedGraphType === 'roc' || hasCurveComparisonInference;
+    return {
+      schemaVersion: 1,
+      kind: hasInferentialTest ? 'inferential' : 'analysis',
+      title: hasInferentialTest ? 'Statistical analysis summary' : 'Analysis summary',
+      sections: [
+        { key:'analysis', label:'', rows:analysisRows },
+        { key:'results', label:'Results', rows:resultRows },
+        ...(diagnosticRows.length ? [{ key:'diagnostics', label:'Diagnostics', rows:diagnosticRows }] : [])
+      ]
+    };
+  }
+
+
   function appendRocReportPanel(stats, graphType, diffResult, options = {}){
     const session = ensureRocSessionOwnershipShape(options.session || getActiveRocSessionForState());
     const rocRefs = resolveRocStatsRefsForSession(session, options);
@@ -5520,6 +5706,7 @@
         directionWarning ? ` ${directionWarning}` : null,
         compareParts ? [' ', compareParts] : null
       ].filter(Boolean),
+      figureSummary: buildRocFigureSummary(stats, graphType, diffResult, { ...formatOptions, compareSelection }),
       analysisSpec: {
         component: 'roc',
         graphType,
@@ -5830,41 +6017,15 @@
       return;
     }
 
-    const canonicalSeries = series.map(serie => ({
-      ...serie,
-      pairs: buildCanonicalAnalysisPairs(rawLabels, serie.scores, classification)
-    }));
-    const seriesAnalyses = canonicalSeries.map(serie => buildRocSeriesAnalysis(
-      serie,
-      graphType,
-      state.singleRocPMethod
-    ));
-    const referencePairs = canonicalSeries[0]?.pairs || [];
-    const positives = referencePairs.filter(pair => pair.analysisLabel === 1).length;
-    const negatives = referencePairs.filter(pair => pair.analysisLabel === 0).length;
-    const pairCountsForAdvisor = canonicalSeries.map(serie => serie.pairs.length);
-    const advisorContext = {
-      graphType,
-      positives,
-      negatives,
-      seriesCount: series.length,
-      pairCounts: pairCountsForAdvisor,
-      minPairs: pairCountsForAdvisor.length ? Math.min(...pairCountsForAdvisor) : 0
-    };
-    const drawAdvisorState = getRocAdvisorState(drawSession);
-    drawAdvisorState.context = advisorContext;
-    setRocAdvisorState(drawAdvisorState, drawSession);
-    renderRocStatsAdvisor(advisorContext, { session: drawSession, refs: drawRefs, tabId: drawTabId });
+    // Establish the effective comparison selection before building the cache
+    // signature. The first full draw may create the default pair (0,1); the
+    // signature must describe that resulting state so presentation redraws can
+    // reuse the completed analysis model.
+    if(!Shared.componentLifecycle?.isPresentationOnlyDraw?.(meta)){
+      populateRocCompareOptions(series.map(s => s.name), drawSession);
+    }
 
-    const legendLabels = canonicalSeries.map(s => s.name);
-    ensureLabelColors(legendLabels);
-    // Keep curve-performance estimates attached to their series in the legend.
-    // This is derived presentation state only; the underlying statistics remain
-    // canonical in the tab-owned analysis/session state.
-    const legendMetricLabels = seriesAnalyses.map(analysis => formatRocLegendMetricLabel(analysis, graphType));
-
-    populateRocCompareOptions(canonicalSeries.map(s => s.name), drawSession);
-    state.analysisSignature = buildRocAnalysisSignature({
+    const analysisSignature = buildRocAnalysisSignature({
       data,
       graphType,
       positiveClass: classification.positiveClass,
@@ -5876,6 +6037,62 @@
       resamplingSeed: state.resamplingSeed,
       resamplingIterations: state.resamplingIterations
     });
+    const reusableAnalysis = getReusableRocAnalysisModel(drawSession, meta, analysisSignature);
+    let canonicalSeries;
+    let seriesAnalyses;
+    let referencePairs;
+    let positives;
+    let negatives;
+    let pairCountsForAdvisor;
+    let advisorContext;
+    let legendLabels;
+    let legendMetricLabels;
+    if(reusableAnalysis){
+      canonicalSeries = reusableAnalysis.canonicalSeries;
+      seriesAnalyses = reusableAnalysis.seriesAnalyses;
+      referencePairs = reusableAnalysis.referencePairs || [];
+      positives = reusableAnalysis.positives;
+      negatives = reusableAnalysis.negatives;
+      pairCountsForAdvisor = reusableAnalysis.pairCountsForAdvisor || [];
+      advisorContext = reusableAnalysis.advisorContext;
+      legendLabels = reusableAnalysis.legendLabels || canonicalSeries.map(s => s.name);
+      legendMetricLabels = reusableAnalysis.legendMetricLabels || seriesAnalyses.map(analysis => formatRocLegendMetricLabel(analysis, graphType));
+    }else{
+      canonicalSeries = series.map(serie => ({
+        ...serie,
+        pairs: buildCanonicalAnalysisPairs(rawLabels, serie.scores, classification)
+      }));
+      seriesAnalyses = canonicalSeries.map(serie => buildRocSeriesAnalysis(
+        serie,
+        graphType,
+        state.singleRocPMethod
+      ));
+      referencePairs = canonicalSeries[0]?.pairs || [];
+      positives = referencePairs.filter(pair => pair.analysisLabel === 1).length;
+      negatives = referencePairs.filter(pair => pair.analysisLabel === 0).length;
+      pairCountsForAdvisor = canonicalSeries.map(serie => serie.pairs.length);
+      advisorContext = {
+        graphType,
+        positives,
+        negatives,
+        seriesCount: series.length,
+        pairCounts: pairCountsForAdvisor,
+        minPairs: pairCountsForAdvisor.length ? Math.min(...pairCountsForAdvisor) : 0
+      };
+      legendLabels = canonicalSeries.map(s => s.name);
+      legendMetricLabels = seriesAnalyses.map(analysis => formatRocLegendMetricLabel(analysis, graphType));
+    }
+    const drawAdvisorState = getRocAdvisorState(drawSession);
+    drawAdvisorState.context = advisorContext;
+    setRocAdvisorState(drawAdvisorState, drawSession);
+    if(!reusableAnalysis){
+      renderRocStatsAdvisor(advisorContext, { session: drawSession, refs: drawRefs, tabId: drawTabId });
+    }
+    ensureLabelColors(legendLabels);
+    // Keep curve-performance estimates attached to their series in the legend.
+    // This is derived presentation state only; the underlying statistics remain
+    // canonical in the tab-owned analysis/session state.
+    state.analysisSignature = analysisSignature;
 
     const plotEl = drawRefs.plotDiv;
     plotEl.style.display = 'block';
@@ -6414,63 +6631,71 @@
       });
     }
 
-    const stats = [];
-    const allPairs = [];
+    let stats = reusableAnalysis?.stats || [];
+    let allPairs = reusableAnalysis?.allPairs || [];
 
+    if(!reusableAnalysis){
+      stats = [];
+      allPairs = [];
+    }
     for(let seriesIndex = 0; seriesIndex < seriesAnalyses.length; seriesIndex += 1){
       const analysis = seriesAnalyses[seriesIndex];
       const serie = analysis.serie;
       const rankedCurve = analysis.rankedCurve;
       const rankedPairs = rankedCurve.sorted;
-      allPairs.push(rankedPairs);
       const points = rankedCurve.points;
-      const auc = rankedCurve.metric;
-      const avgPrecision = graphType === 'pr' ? rankedCurve.metric : undefined;
-      const analysisThresholdRows = buildRocThresholdMetricsTable(rankedPairs);
-      const selectedCutoff = graphType === 'roc' ? selectYoudenThreshold(analysisThresholdRows) : selectMaximumF1Threshold(analysisThresholdRows);
-      const thresholdRows = analysisThresholdRows.map(row => ({
-        ...row,
-        analysisThreshold: row.threshold,
-        threshold: rocOriginalThreshold(row.threshold, classification.scoreDirection),
-        cutoffOperator: rocCutoffOperator(classification.scoreDirection)
-      }));
-      const aucUncertainty = analysis.aucUncertainty;
+      if(!reusableAnalysis){
+        allPairs.push(rankedPairs);
+        const auc = rankedCurve.metric;
+        const avgPrecision = graphType === 'pr' ? rankedCurve.metric : undefined;
+        const analysisThresholdRows = buildRocThresholdMetricsTable(rankedPairs);
+        const selectedCutoff = graphType === 'roc' ? selectYoudenThreshold(analysisThresholdRows) : selectMaximumF1Threshold(analysisThresholdRows);
+        const thresholdRows = analysisThresholdRows.map(row => ({
+          ...row,
+          analysisThreshold: row.threshold,
+          threshold: rocOriginalThreshold(row.threshold, classification.scoreDirection),
+          cutoffOperator: rocCutoffOperator(classification.scoreDirection)
+        }));
+        const aucUncertainty = analysis.aucUncertainty;
 
-      stats.push({
-        name: serie.name,
-        auc,
-        avgPrecision,
-        aucSe: aucUncertainty?.se,
-        aucCiLow: aucUncertainty?.ciLow,
-        aucCiHigh: aucUncertainty?.ciHigh,
-        aucZ: aucUncertainty?.mannWhitneyZ,
-        thr: Number.isFinite(selectedCutoff?.threshold)
-          ? rocOriginalThreshold(selectedCutoff.threshold, classification.scoreDirection)
-          : NaN,
-        cutoffOperator: rocCutoffOperator(classification.scoreDirection),
-        cutoffRule: Number.isFinite(selectedCutoff?.threshold)
-          ? `Score ${rocCutoffOperator(classification.scoreDirection)} ${formatRocDecimal(rocOriginalThreshold(selectedCutoff.threshold, classification.scoreDirection), 3)}`
-          : null,
-        positiveClass: classification.positiveClass,
-        negativeClass: classification.negativeClass,
-        scoreDirection: classification.scoreDirection,
-        thresholdMethod: graphType === 'roc' ? 'Youden index' : 'maximum F1 score',
-        youden: selectedCutoff?.youden,
-        accuracy: selectedCutoff?.accuracy,
-        precision: selectedCutoff?.ppv,
-        recall: selectedCutoff?.sensitivity,
-        specificity: selectedCutoff?.specificity,
-        npv: selectedCutoff?.npv,
-        lrPositive: selectedCutoff?.lrPositive,
-        lrNegative: selectedCutoff?.lrNegative,
-        f1: selectedCutoff?.f1,
-        pVal: graphType === 'roc' ? aucUncertainty?.pValue : NaN,
-        pMethod: graphType === 'roc' ? aucUncertainty?.pMethod : null,
-        pRequestedMethod: graphType === 'roc' ? aucUncertainty?.pRequestedMethod : null,
-        pFallbackReason: graphType === 'roc' ? aucUncertainty?.pFallbackReason : null,
-        mannWhitneyU: graphType === 'roc' ? aucUncertainty?.mannWhitneyU : null,
-        thresholdRows
-      });
+        stats.push({
+          name: serie.name,
+          auc,
+          avgPrecision,
+          aucSe: aucUncertainty?.se,
+          aucCiLow: aucUncertainty?.ciLow,
+          aucCiHigh: aucUncertainty?.ciHigh,
+          aucZ: aucUncertainty?.mannWhitneyZ,
+          positiveCount: Number(rankedCurve.positives) || 0,
+          negativeCount: Number(rankedCurve.negatives) || 0,
+          thr: Number.isFinite(selectedCutoff?.threshold)
+            ? rocOriginalThreshold(selectedCutoff.threshold, classification.scoreDirection)
+            : NaN,
+          cutoffOperator: rocCutoffOperator(classification.scoreDirection),
+          cutoffRule: Number.isFinite(selectedCutoff?.threshold)
+            ? `Score ${rocCutoffOperator(classification.scoreDirection)} ${formatRocDecimal(rocOriginalThreshold(selectedCutoff.threshold, classification.scoreDirection), 3)}`
+            : null,
+          positiveClass: classification.positiveClass,
+          negativeClass: classification.negativeClass,
+          scoreDirection: classification.scoreDirection,
+          thresholdMethod: graphType === 'roc' ? 'Youden index' : 'maximum F1 score',
+          youden: selectedCutoff?.youden,
+          accuracy: selectedCutoff?.accuracy,
+          precision: selectedCutoff?.ppv,
+          recall: selectedCutoff?.sensitivity,
+          specificity: selectedCutoff?.specificity,
+          npv: selectedCutoff?.npv,
+          lrPositive: selectedCutoff?.lrPositive,
+          lrNegative: selectedCutoff?.lrNegative,
+          f1: selectedCutoff?.f1,
+          pVal: graphType === 'roc' ? aucUncertainty?.pValue : NaN,
+          pMethod: graphType === 'roc' ? aucUncertainty?.pMethod : null,
+          pRequestedMethod: graphType === 'roc' ? aucUncertainty?.pRequestedMethod : null,
+          pFallbackReason: graphType === 'roc' ? aucUncertainty?.pFallbackReason : null,
+          mannWhitneyU: graphType === 'roc' ? aucUncertainty?.mannWhitneyU : null,
+          thresholdRows
+        });
+      }
 
       const color = state.labelColors[serie.name] || DEFAULT_SCATTER_COLORS[seriesIndex % DEFAULT_SCATTER_COLORS.length];
       // per-series stroke width and opacity (fall back to global borderWidthPx / full opacity)
@@ -6609,29 +6834,38 @@
     if(!(await checkpoint())){
       return false;
     }
-    if(!renderRocStatsSummary(stats, graphType, {
-      session: drawSession,
-      refs: drawRefs,
-      tabId: drawTabId,
-      drawGeneration: meta?.drawGeneration
-    })){
-      return false;
-    }
+    if(!reusableAnalysis){
+      if(!renderRocStatsSummary(stats, graphType, {
+        session: drawSession,
+        refs: drawRefs,
+        tabId: drawTabId,
+        drawGeneration: meta?.drawGeneration
+      })){
+        return false;
+      }
 
-    // The base panel is already the current graph's durable result. Publish
-    // it before cooperative comparison work so activation/cache restore cannot
-    // repaint the previous graph type while the comparison is running.
-    state.statsPanelSignature = state.analysisSignature;
-    if(drawSession?.state){
-      drawSession.state.statsPanelSignature = state.statsPanelSignature;
+      // The base panel is already the current graph's durable result. Publish
+      // it before cooperative comparison work so activation/cache restore cannot
+      // repaint the previous graph type while the comparison is running.
+      state.statsPanelSignature = state.analysisSignature;
+      if(drawSession?.state){
+        drawSession.state.statsPanelSignature = state.statsPanelSignature;
+      }
+      captureRocStatsPanelModel(null, { session: drawSession, refs: drawRefs, tabId: drawTabId });
     }
-    captureRocStatsPanelModel(null, { session: drawSession, refs: drawRefs, tabId: drawTabId });
 
     // PR bootstrap/permutation comparison is cooperative and continues after
     // the base frame and its matching summary are visible.
 
-    let diffResult = null;
-    if(series.length >= 2 && state.compareSel && state.compareSel.value){
+    let diffResult = reusableAnalysis?.compareResultModel?.result || null;
+    if(reusableAnalysis){
+      state.compareResultModel = normalizeRocCompareResultModel(reusableAnalysis.compareResultModel || null);
+      commitRocCompareStateToSession(drawSession, {
+        compareSelection: state.compareResultModel?.compareSelection || null,
+        diffMethod: state.compareResultModel?.diffMethod || state.diffMethod,
+        compareResult: state.compareResultModel
+      });
+    }else if(series.length >= 2 && state.compareSel && state.compareSel.value){
       const compareSelection = state.compareSel.value;
       const [i, j] = compareSelection.split(',').map(Number);
       const pairsA = allPairs[i];
@@ -6731,17 +6965,34 @@
         )
       });
     }
-    renderRocComparisonStatsPanel(stats, graphType, diffResult, {
-      session: drawSession,
-      refs: drawRefs,
-      tabId: drawTabId,
-      compareSelection: state.compareSelection,
-      diffMethod: state.diffMethod,
-      drawGeneration: meta?.drawGeneration
-    });
-    appendRocReportPanel(stats, graphType, diffResult, { session: drawSession, refs: drawRefs, tabId: drawTabId });
-    state.statsPanelSignature = state.analysisSignature;
-    captureRocStatsPanelModel(null, { session: drawSession, refs: drawRefs, tabId: drawTabId });
+    if(!reusableAnalysis){
+      renderRocComparisonStatsPanel(stats, graphType, diffResult, {
+        session: drawSession,
+        refs: drawRefs,
+        tabId: drawTabId,
+        compareSelection: state.compareSelection,
+        diffMethod: state.diffMethod,
+        drawGeneration: meta?.drawGeneration
+      });
+      appendRocReportPanel(stats, graphType, diffResult, { session: drawSession, refs: drawRefs, tabId: drawTabId });
+      state.statsPanelSignature = state.analysisSignature;
+      captureRocStatsPanelModel(null, { session: drawSession, refs: drawRefs, tabId: drawTabId });
+      publishRocAnalysisModel(drawSession, {
+        signature: state.analysisSignature,
+        canonicalSeries,
+        seriesAnalyses,
+        referencePairs,
+        positives,
+        negatives,
+        pairCountsForAdvisor,
+        advisorContext,
+        legendLabels,
+        legendMetricLabels,
+        stats,
+        allPairs,
+        compareResultModel: state.compareResultModel
+      });
+    }
     captureRocSessionStateFromActive(drawSession, {
       reason: 'roc-draw-complete',
       captureStatsPanel: false
@@ -6777,9 +7028,12 @@
       }
       return null;
     }
+    // Payload capture is a read boundary. The active owner is already projected;
+    // applying it here rebuilds controls and statistics cards during ordinary save
+    // or recovery capture.
     const payloadSession = bindRocSessionForTab(requestedTabId || getRocWorkspaceActiveTabId() || projectionTabId || null, {
       reason: 'roc-get-payload-bind-active-owner'
-    }, { apply: true, syncUi: true }) || getActiveRocSessionForState();
+    }, { apply: false, syncUi: false }) || getActiveRocSessionForState();
     refreshRocActiveDomRefsForSession(payloadSession, { reason: 'roc-get-payload' });
     syncRocRuntimeControlsFromDom(payloadSession);
     captureRocSessionStateFromActive(payloadSession, {
@@ -7518,7 +7772,7 @@
         syncRocRuntimeControlsFromEvent({ event, session, reason: 'legend-control' });
         ensureRocLegendControlPlacement();
         persistRocTabState('roc-legend-toggle', session);
-        scheduleRocControlDraw('legend-control', { event, session });
+        scheduleRocControlDraw('legend-control', { event, session, renderImpact: 'layout' });
       });
     }
     refs.showComparisonOnPlot?.addEventListener('change', event => {
@@ -8458,6 +8712,7 @@
     ),
     buildLegendMetricLabel: (serie, graphType = 'roc', pMethod = 'auto') => buildRocLegendMetricLabel(serie, graphType, pMethod),
     buildOnPlotPresentation: options => buildRocOnPlotPresentation(options || {}),
+    buildFigureSummary: (stats, graphType = 'roc', diffResult = null, options = {}) => buildRocFigureSummary(stats, graphType, diffResult, options),
     applyDefaultXAxisGutter: (margin, plotWidth, plotHeight, svgBox = null) => applyRocDefaultXAxisGutter(margin, plotWidth, plotHeight, svgBox),
     resolveDrawableFrame: plot => resolveRocDrawableFrame(plot),
     createDrawRuntime: source => createDefaultRocDrawRuntime(source),
@@ -8481,4 +8736,12 @@
       { key: 'notesState', get: () => notesState, excludeKeys: ['control'] }
     ]
   });
+
+  roc.executeDesktopCommand = function executeDesktopCommand(command){
+    const action = roc.__desktopCommandActions?.[command];
+    if (typeof action !== 'function') {
+      return { status: 'skipped', reason: 'component-command-unavailable' };
+    }
+    return action() || { status: 'handled' };
+  };
 })(window);

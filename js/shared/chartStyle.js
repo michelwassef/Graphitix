@@ -16,6 +16,18 @@
   const MIN_DEFAULT_SIZE = 256;
   const FALLBACK_VIEWPORT_WIDTH = 960;
   const COLOR_SWATCH_SIZE = 20;
+  function debugLog(message, payload){
+    try{
+      if(typeof Shared.isDebugEnabled === 'function' && !Shared.isDebugEnabled()){
+        return;
+      }
+    }catch(_err){
+      return;
+    }
+    if(typeof global.console?.debug === 'function'){
+      global.console.debug(message, payload);
+    }
+  }
   // Canonical horizontal whitespace between the SVG viewport edge and the
   // nearest rendered graph content. Axis-specific reserves are added inward
   // from this edge so every component can share the same outer gutter.
@@ -71,7 +83,7 @@
         dataset.colorSwatchNormalized = '1';
       }
       if(!payload.alreadyNormalized){
-        console.debug('Debug: chartStyle.normalizeColorInput applied', payload); // Debug: color swatch normalization
+        debugLog('Debug: chartStyle.normalizeColorInput applied', payload); // Debug: color swatch normalization
       }
       return requestedSize;
     }catch(err){
@@ -131,7 +143,7 @@
       scale: DEFAULT_GRAPH_SIZE_SCALE,
       normalized
     };
-    console.debug('Debug: chartStyle.computeDefaultGraphSize', payload); // Debug: default graph dimension computation
+    debugLog('Debug: chartStyle.computeDefaultGraphSize', payload); // Debug: default graph dimension computation
     return { width: normalized, height: normalized };
   }
 
@@ -186,7 +198,7 @@
         if(fromHot){ return fromHot; }
       }
     }catch(err){
-      console.debug('Debug: chartStyle active tab resolve via hot failed', { error: err?.message || String(err) });
+      debugLog('Debug: chartStyle active tab resolve via hot failed', { error: err?.message || String(err) });
     }
     try{
       const session = global.Main?.session || null;
@@ -196,7 +208,7 @@
         if(fromSession){ return fromSession; }
       }
     }catch(err){
-      console.debug('Debug: chartStyle active tab resolve via session failed', { error: err?.message || String(err) });
+      debugLog('Debug: chartStyle active tab resolve via session failed', { error: err?.message || String(err) });
     }
     try{
       const doc = global.document;
@@ -206,7 +218,7 @@
         if(fromDom){ return fromDom; }
       }
     }catch(err){
-      console.debug('Debug: chartStyle active tab resolve via dom failed', { error: err?.message || String(err) });
+      debugLog('Debug: chartStyle active tab resolve via dom failed', { error: err?.message || String(err) });
     }
     return null;
   }
@@ -322,7 +334,7 @@
     if(stale.length){
       stale.forEach(item => proportionalFontResizeInputs.delete(item));
     }
-    console.debug('Debug: chartStyle.syncProportionalFontResizeInputs', {
+    debugLog('Debug: chartStyle.syncProportionalFontResizeInputs', {
       origin: origin || 'unknown',
       scope: scopeFilter || 'all',
       controlCount: proportionalFontResizeInputs.size,
@@ -333,7 +345,7 @@
 
   function emitProportionalFontResizeChange(origin, scopeId, enabledValue){
     const effectiveScope = scopeId || GLOBAL_TEXT_SCOPE;
-    console.debug('Debug: chartStyle.emitProportionalFontResizeChange start', {
+    debugLog('Debug: chartStyle.emitProportionalFontResizeChange start', {
       origin: origin || 'unknown',
       enabled: enabledValue,
       scope: effectiveScope,
@@ -344,7 +356,7 @@
         return;
       }
       if(info.scope && info.scope !== effectiveScope){
-        console.debug('Debug: chartStyle.emitProportionalFontResizeChange skip listener', {
+        debugLog('Debug: chartStyle.emitProportionalFontResizeChange skip listener', {
           listenerScope: info.scope,
           eventScope: effectiveScope,
           listenerOrigin: info.origin || listener.name || 'anonymous'
@@ -398,7 +410,7 @@
     DEFAULT_HEIGHT = updated.height;
     chartStyle.DEFAULT_WIDTH = DEFAULT_WIDTH;
     chartStyle.DEFAULT_HEIGHT = DEFAULT_HEIGHT;
-    console.debug('Debug: chartStyle.refreshDefaultGraphSize', { context, updated }); // Debug: default size refresh
+    debugLog('Debug: chartStyle.refreshDefaultGraphSize', { context, updated }); // Debug: default size refresh
     return updated;
   }
 
@@ -407,11 +419,11 @@
     const refresh = options?.refresh === true;
     if(refresh){
       const refreshed = refreshDefaultGraphSize(context);
-      console.debug('Debug: chartStyle.getDefaultGraphSize refresh result', { context, refreshed }); // Debug: refresh branch trace
+      debugLog('Debug: chartStyle.getDefaultGraphSize refresh result', { context, refreshed }); // Debug: refresh branch trace
       return { width: refreshed.width, height: refreshed.height };
     }
     const current = { width: DEFAULT_WIDTH, height: DEFAULT_HEIGHT };
-    console.debug('Debug: chartStyle.getDefaultGraphSize cached result', { context, current }); // Debug: cached branch trace
+    debugLog('Debug: chartStyle.getDefaultGraphSize cached result', { context, current }); // Debug: cached branch trace
     return current;
   };
 
@@ -454,7 +466,7 @@
       aspectRatio: DEFAULT_ASPECT_RATIO,
       aspectLocked: DEFAULT_ASPECT_LOCKED
     };
-    console.debug('Debug: chartStyle.getSquareGraphSizing', {
+    debugLog('Debug: chartStyle.getSquareGraphSizing', {
       context,
       refresh,
       minScale,
@@ -467,14 +479,14 @@
   chartStyle.ptToPx = function ptToPx(pt){
     const numeric = Number(pt);
     const px = Number.isFinite(numeric) ? numeric * PT_TO_PX : BASE_FONT_SIZE_PX;
-    console.debug('Debug: chartStyle.ptToPx',{input:pt, numeric, px}); // Debug: pt to px conversion trace
+    debugLog('Debug: chartStyle.ptToPx',{input:pt, numeric, px}); // Debug: pt to px conversion trace
     return px;
   };
 
   chartStyle.pxToPt = function pxToPt(px){
     const numeric = Number(px);
     const pt = Number.isFinite(numeric) ? numeric / PT_TO_PX : BASE_FONT_SIZE_PT;
-    console.debug('Debug: chartStyle.pxToPt',{input:px, numeric, pt}); // Debug: px to pt conversion trace
+    debugLog('Debug: chartStyle.pxToPt',{input:px, numeric, pt}); // Debug: px to pt conversion trace
     return pt;
   };
 
@@ -482,7 +494,7 @@
     const numeric = Number(raw);
     const pt = Number.isFinite(numeric) ? numeric : BASE_FONT_SIZE_PT;
     const px = chartStyle.ptToPx(pt);
-    console.debug('Debug: chartStyle.normalizeFontSize',{raw, pt, px}); // Debug: font normalization trace
+    debugLog('Debug: chartStyle.normalizeFontSize',{raw, pt, px}); // Debug: font normalization trace
     return {pt, px};
   };
 
@@ -494,7 +506,7 @@
     }
     if(!chartStyle._canvas){
       chartStyle._canvas = doc.createElement('canvas');
-      console.debug('Debug: chartStyle created measurement canvas'); // Debug helper creation
+      debugLog('Debug: chartStyle created measurement canvas'); // Debug helper creation
     }
     return chartStyle._canvas;
   }
@@ -617,7 +629,7 @@
       }
     }
     syncFontInputBaseline(inputEl, displayPt, { syncValue: opts.syncInputValue === true });
-    console.debug('Debug: chartStyle.commitFontResizeBaseline', {
+    debugLog('Debug: chartStyle.commitFontResizeBaseline', {
       origin: opts.origin || 'unknown',
       scope: opts.scopeId || dataset?.resizerProportionalFontResizeScope || 'global',
       width: Number.isFinite(size.width) ? size.width : null,
@@ -720,7 +732,7 @@
       legacyMinScale: Math.min(scaleX, scaleY),
       scale: styleScale
     };
-    console.debug('Debug: chartStyle.computeResizeScale', payload); // Debug: resize scaling payload
+    debugLog('Debug: chartStyle.computeResizeScale', payload); // Debug: resize scaling payload
     return payload;
   };
 
@@ -758,7 +770,7 @@
       const datasetBase = Number(inputEl.dataset.fontBasePt);
       if(!Number.isFinite(datasetBase)){
         inputEl.dataset.fontBasePt = String(normalized.pt);
-        console.debug('Debug: chartStyle.resolveScaledFontSize init control base', {
+        debugLog('Debug: chartStyle.resolveScaledFontSize init control base', {
           inputId: inputEl.id || null,
           basePt: normalized.pt
         }); // Debug: base initialization for control
@@ -818,14 +830,14 @@
     const scaledPt = chartStyle.pxToPt(scaledPx);
     if(inputEl && inputEl.dataset){
       inputEl.dataset.fontDisplayPt = String(scaledPt);
-      console.debug('Debug: chartStyle.resolveScaledFontSize display stored', {
+      debugLog('Debug: chartStyle.resolveScaledFontSize display stored', {
         inputId: inputEl.id || null,
         scaledPt
       }); // Debug: display pt tracking
     }
     if(dataset){
       dataset.fontDisplayPt = String(scaledPt);
-      console.debug('Debug: chartStyle.resolveScaledFontSize dataset display stored', {
+      debugLog('Debug: chartStyle.resolveScaledFontSize dataset display stored', {
         scope: scopeId || 'global',
         scaledPt
       }); // Debug: dataset display tracking
@@ -849,7 +861,7 @@
       proportionalFontResize: proportionalResizeEnabled,
       scopeId
     };
-    console.debug('Debug: chartStyle.resolveScaledFontSize', {
+    debugLog('Debug: chartStyle.resolveScaledFontSize', {
       raw: opts.rawSize,
       normalizedPt: normalized.pt,
       basePx: normalized.px,
@@ -892,7 +904,7 @@
       proportionalFontResize: opts.proportionalFontResize,
       input: opts.input
     });
-    console.debug('Debug: chartStyle.computeFontInfoForSvg', {
+    debugLog('Debug: chartStyle.computeFontInfoForSvg', {
       debugLabel: opts.debugLabel || 'chartStyle.computeFontInfoForSvg',
       rawSize: opts.rawSize,
       width,
@@ -955,7 +967,7 @@
       viewBoxHeight: safeViewHeight,
       debugLabel: opts.debugLabel || 'chartStyle.computeViewBoxScale'
     };
-    console.debug('Debug: chartStyle.computeViewBoxScale', payload); // Debug: viewBox scale computation
+    debugLog('Debug: chartStyle.computeViewBoxScale', payload); // Debug: viewBox scale computation
     return payload;
   };
 
@@ -970,7 +982,7 @@
     if(Number.isFinite(adjusted) && adjusted < min){
       adjusted = min;
     }
-    console.debug('Debug: chartStyle.adjustFontSizeForViewBox', {
+    debugLog('Debug: chartStyle.adjustFontSizeForViewBox', {
       debugLabel: opts.debugLabel || 'chartStyle.adjustFontSizeForViewBox',
       base,
       scale,
@@ -996,7 +1008,7 @@
     const force = opts.force === true;
     const previous = getScopedProportionalFontResize(scopeId);
     if(previous === nextValue && !force){
-      console.debug('Debug: chartStyle.setProportionalFontResize noop', { enabled: previous, origin, scope: effectiveScope });
+      debugLog('Debug: chartStyle.setProportionalFontResize noop', { enabled: previous, origin, scope: effectiveScope });
       return previous;
     }
     commitFontResizeBaseline({
@@ -1016,7 +1028,7 @@
       }
       svgBox.dataset.resizerProportionalFontResize = nextValue ? 'true' : 'false';
     }
-    console.debug('Debug: chartStyle.setProportionalFontResize', {
+    debugLog('Debug: chartStyle.setProportionalFontResize', {
       enabled: nextValue,
       origin,
       force,
@@ -1031,7 +1043,7 @@
   chartStyle.isProportionalFontResizeEnabled = function isProportionalFontResizeEnabled(scopeOptions){
     const scopeId = resolveScopeKey(scopeOptions);
     const result = getScopedProportionalFontResize(scopeId);
-    console.debug('Debug: chartStyle.isProportionalFontResizeEnabled query', {
+    debugLog('Debug: chartStyle.isProportionalFontResizeEnabled query', {
       enabled: result,
       scope: scopeId || 'global'
     });
@@ -1043,9 +1055,9 @@
     const opts = options || {};
     const origin = opts.origin || el?.id || 'proportional-font-resize-control';
     if(!el || typeof el.addEventListener !== 'function'){
-      console.debug('Debug: chartStyle.registerProportionalFontResizeControl skipped', { origin, reason: 'invalid element' });
+      debugLog('Debug: chartStyle.registerProportionalFontResizeControl skipped', { origin, reason: 'invalid element' });
       return function noopUnregister(){
-        console.debug('Debug: chartStyle.unregisterProportionalFontResizeControl noop', { origin });
+        debugLog('Debug: chartStyle.unregisterProportionalFontResizeControl noop', { origin });
       };
     }
     const scopeId = resolveScopeKey({ ...opts, input: el });
@@ -1065,7 +1077,7 @@
     if(el.__chartStyleProportionalFontResizeHandler){
       el.removeEventListener('change', el.__chartStyleProportionalFontResizeHandler);
       delete el.__chartStyleProportionalFontResizeHandler;
-      console.debug('Debug: chartStyle.registerProportionalFontResizeControl removed existing handler', { origin });
+      debugLog('Debug: chartStyle.registerProportionalFontResizeControl removed existing handler', { origin });
     }
     if('checked' in el){
       try {
@@ -1079,13 +1091,13 @@
       if(svgBox && svgBox.dataset){
         svgBox.dataset.resizerProportionalFontResize = enabled ? 'true' : 'false';
       }
-      console.debug('Debug: chartStyle.proportionalFontResizeControl change', { origin, enabled, scope: effectiveScope });
+      debugLog('Debug: chartStyle.proportionalFontResizeControl change', { origin, enabled, scope: effectiveScope });
       chartStyle.setProportionalFontResize(enabled, { origin: `control-${origin}`, scopeId, svgBox });
     };
     el.addEventListener('change', handler);
     el.__chartStyleProportionalFontResizeHandler = handler;
     proportionalFontResizeInputs.set(el, scopeId);
-    console.debug('Debug: chartStyle.registerProportionalFontResizeControl', {
+    debugLog('Debug: chartStyle.registerProportionalFontResizeControl', {
       origin,
       enabled: getScopedProportionalFontResize(scopeId),
       controlCount: proportionalFontResizeInputs.size,
@@ -1097,7 +1109,7 @@
         delete el.__chartStyleProportionalFontResizeHandler;
       }
       proportionalFontResizeInputs.delete(el);
-      console.debug('Debug: chartStyle.unregisterProportionalFontResizeControl', {
+      debugLog('Debug: chartStyle.unregisterProportionalFontResizeControl', {
         origin,
         remaining: proportionalFontResizeInputs.size,
         scope: effectiveScope
@@ -1111,9 +1123,9 @@
 
   chartStyle.onProportionalFontResizeChange = function onProportionalFontResizeChange(callback, options){
     if(typeof callback !== 'function'){
-      console.debug('Debug: chartStyle.onProportionalFontResizeChange skipped', { reason: 'invalid callback' });
+      debugLog('Debug: chartStyle.onProportionalFontResizeChange skipped', { reason: 'invalid callback' });
       return function noopRemove(){
-        console.debug('Debug: chartStyle.onProportionalFontResizeChange noop remove');
+        debugLog('Debug: chartStyle.onProportionalFontResizeChange noop remove');
       };
     }
     const opts = options || {};
@@ -1121,7 +1133,7 @@
     const scopeId = resolveScopeKey(opts);
     const effectiveScope = scopeId || null;
     proportionalFontResizeListeners.set(callback, { origin, scope: effectiveScope ? effectiveScope : null });
-    console.debug('Debug: chartStyle.onProportionalFontResizeChange registered', {
+    debugLog('Debug: chartStyle.onProportionalFontResizeChange registered', {
       origin,
       listenerCount: proportionalFontResizeListeners.size,
       scope: effectiveScope || 'all'
@@ -1136,7 +1148,7 @@
     }
     const cleanup = () => {
       proportionalFontResizeListeners.delete(callback);
-      console.debug('Debug: chartStyle.onProportionalFontResizeChange removed', {
+      debugLog('Debug: chartStyle.onProportionalFontResizeChange removed', {
         origin,
         remaining: proportionalFontResizeListeners.size,
         scope: effectiveScope || 'all'
@@ -1197,7 +1209,7 @@
     const fallback = Number.isFinite(options?.fallback) ? options.fallback : 6;
     if(!Number.isFinite(px) || px <= 0){
       const fallbackCount = Math.max(2, fallback);
-      console.debug('Debug: chartStyle.estimateTickCount fallback', {
+      debugLog('Debug: chartStyle.estimateTickCount fallback', {
         spanPx: spanPx,
         fallback: fallbackCount,
         reason: 'invalid span',
@@ -1212,7 +1224,7 @@
     const rounded = Math.round(rawEstimate);
     const clamped = Math.min(maxTicks, Math.max(minTicks, rounded));
     const final = Math.max(2, Number.isFinite(clamped) ? clamped : fallback);
-    console.debug('Debug: chartStyle.estimateTickCount', {
+    debugLog('Debug: chartStyle.estimateTickCount', {
       spanPx: px,
       baseSpacing,
       rawEstimate,
@@ -1658,7 +1670,7 @@
     const baseMetrics = {
       tickLength: DEFAULT_MAJOR_TICK_LENGTH,
       tickLabelGap: chartStyle.resolveTickLabelGap(safeFont),
-      axisTitleGap: Math.max(4, Math.round(safeFont * 0.75)),
+      axisTitleGap: Math.max(2, Math.round(safeFont * 0.175)),
       outerPadding: Math.max(6, Math.round(safeFont * 0.6)),
       yTitleGap: Math.max(4, Math.round(safeFont * 0.5))
     };
@@ -1674,7 +1686,7 @@
           yTitleGap: scaleMetric(baseMetrics.yTitleGap, 1.5)
         }
       : baseMetrics;
-    console.debug('Debug: chartStyle.createAxisMetrics',{
+    debugLog('Debug: chartStyle.createAxisMetrics',{
       fontSize:safeFont,
       hasScaleInfo,
       scale: scaleInfo?.styleScale ?? scaleInfo?.scale ?? null,
@@ -1694,7 +1706,7 @@
     const axisMetrics = options?.axisMetrics || chartStyle.createAxisMetrics(fontSize);
     const tickLength = axisMetrics.tickLength ?? DEFAULT_MAJOR_TICK_LENGTH;
     const tickLabelGap = axisMetrics.tickLabelGap ?? chartStyle.resolveTickLabelGap(fontSize);
-    const axisTitleGap = axisMetrics.axisTitleGap ?? Math.max(4, Math.round(fontSize * 0.75));
+    const axisTitleGap = axisMetrics.axisTitleGap ?? Math.max(2, Math.round(fontSize * 0.175));
     const outerPadding = axisMetrics.outerPadding ?? Math.max(6, Math.round(fontSize * 0.6));
     const baseLabelOffset = tickLength + tickLabelGap;
     const customMeasureFontRaw = typeof options?.labelMeasureFont === 'string' ? options.labelMeasureFont.trim() : '';
@@ -1833,7 +1845,7 @@
     const titleOffset = preservePlotRail
       ? adjustedLabelOffset + activeExtra + axisTitleReserve
       : nominalTitleOffset;
-    console.debug('Debug: chartStyle.computeBottomLayout', {
+    debugLog('Debug: chartStyle.computeBottomLayout', {
       labelCount: labels.length,
       fontSize,
       plotWidth,
@@ -1924,7 +1936,7 @@
   chartStyle.applyLabelOrientation = function applyLabelOrientation(nodes, options){
     const list = Array.from(nodes || []);
     if(!list.length){
-      console.debug('Debug: chartStyle.applyLabelOrientation skipped (no labels)');
+      debugLog('Debug: chartStyle.applyLabelOrientation skipped (no labels)');
       return false;
     }
     const angle = options?.angle ?? -45;
@@ -2012,7 +2024,7 @@
         node.removeAttribute('transform');
       });
     }
-    console.debug('Debug: chartStyle.applyLabelOrientation result', {count: list.length, rotated: rotate, angle, disableAuto, opticalPaddingPx}); // Debug: label orientation summary
+    debugLog('Debug: chartStyle.applyLabelOrientation result', {count: list.length, rotated: rotate, angle, disableAuto, opticalPaddingPx}); // Debug: label orientation summary
     return rotate;
   };
 
@@ -2024,7 +2036,7 @@
     }catch(err){
       // Ignore debug toggle lookup failures and log by default
     }
-    console.debug(label, payload);
+    debugLog(label, payload);
   }
 
   function normalizePrecision(value){
@@ -2448,7 +2460,7 @@
     });
     unique.sort((a, b) => a - b);
     if(Shared.isDebugEnabled?.()){
-      console.debug('Debug: chartStyle.computeMinorTickPositions', {
+      debugLog('Debug: chartStyle.computeMinorTickPositions', {
         majorCount: majorTicks.length,
         minorCount: unique.length,
         min,
@@ -2514,7 +2526,7 @@
       vertical,
       horizontal
     };
-    console.debug('Debug: chartStyle.computeLabelPadding', summary); // Debug: label padding computation
+    debugLog('Debug: chartStyle.computeLabelPadding', summary); // Debug: label padding computation
     return { ...summary, sin, cos };
   };
 
@@ -2525,7 +2537,7 @@
     const applied = Number.isFinite(currentMargin) ? currentMargin : 0;
     const required = direction === 'horizontal' ? info.horizontal : info.vertical;
     const margin = Math.max(applied, required);
-    console.debug('Debug: chartStyle.ensureLabelPadding', {
+    debugLog('Debug: chartStyle.ensureLabelPadding', {
       debugLabel: options?.debugLabel || 'chartStyle.ensureLabelPadding',
       direction,
       applied,
@@ -2569,7 +2581,7 @@
     const axisMetrics = options?.axisMetrics || chartStyle.createAxisMetrics(fontSize);
     const tickLength = axisMetrics.tickLength ?? DEFAULT_MAJOR_TICK_LENGTH;
     const tickLabelGap = axisMetrics.tickLabelGap ?? chartStyle.resolveTickLabelGap(fontSize);
-    const axisTitleGap = axisMetrics.axisTitleGap ?? Math.max(4, Math.round(fontSize * 0.75));
+    const axisTitleGap = axisMetrics.axisTitleGap ?? Math.max(2, Math.round(fontSize * 0.175));
     const outerPadding = axisMetrics.outerPadding ?? Math.max(6, Math.round(fontSize * 0.6));
     const horizontalEdgePadding = chartStyle.resolveGraphHorizontalEdgePadding(
       options?.horizontalEdgePadding ?? axisMetrics.horizontalEdgePadding
@@ -2595,7 +2607,7 @@
     const right = xEndpointMargins.right + legendWidth;
     const bottomSpacing = tickLength + tickLabelGap + xTickFontSize + axisTitleGap + fontSize + outerPadding;
     const bottom = Math.max(bottomSpacing, Math.max(36, Math.round(fontSize * BASE_BOTTOM_FACTOR)) + fontSize * 0.5);
-    console.debug('Debug: chartStyle.computeBaseMargins', {
+    debugLog('Debug: chartStyle.computeBaseMargins', {
       fontSize,
       legendWidth,
       maxYLabelWidth,
@@ -2697,7 +2709,7 @@
       }
     }
     if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-      console.debug('Debug: chartStyle.stabilizeAxisResizeMargins', {
+      debugLog('Debug: chartStyle.stabilizeAxisResizeMargins', {
         scope: options?.scopeId || options?.scope || svgBox.id || null,
         axis,
         aspectLocked,
@@ -2754,7 +2766,7 @@
       rightExtension = targetW - innerW;
     }
     const renderWidth = Math.max(1, width + rightExtension);
-    console.debug('Debug: chartStyle.fitPlotAspectPreservingHeight', {
+    debugLog('Debug: chartStyle.fitPlotAspectPreservingHeight', {
       totalWidth: width,
       totalHeight: height,
       aspect,
@@ -2780,7 +2792,7 @@
     }
     svg.setAttribute('font-family', FONT_FAMILY);
     svg.setAttribute('color', TEXT_COLOR);
-    console.debug('Debug: chartStyle.applySvgDefaults', { hasSvg: true }); // Debug: svg defaults applied
+    debugLog('Debug: chartStyle.applySvgDefaults', { hasSvg: true }); // Debug: svg defaults applied
     return true;
   };
 
@@ -2795,7 +2807,7 @@
     const scopeId = options.scopeId || svg.id || svg.dataset?.fontScope || svg.closest?.('.svgbox')?.id || null;
     try{
       fontControls.enableForSvg(svg, { scopeId, tabId: options.tabId || null });
-      console.debug('Debug: chartStyle.bindSvgInteractions fontControls attached', { scope: scopeId }); // Debug: font panel binding
+      debugLog('Debug: chartStyle.bindSvgInteractions fontControls attached', { scope: scopeId }); // Debug: font panel binding
       return true;
     }catch(err){
       console.error('chartStyle.bindSvgInteractions fontControls error', err);
@@ -2822,7 +2834,7 @@
     const opts = options || {};
     const el = opts.element;
     if(!el){
-      console.debug('Debug: chartStyle.renderFontSizeLabel skipped', { reason: 'missing element', options: opts }); // Debug: font label skip
+      debugLog('Debug: chartStyle.renderFontSizeLabel skipped', { reason: 'missing element', options: opts }); // Debug: font label skip
       return '';
     }
     const info = opts.fontInfo || {};
@@ -2856,7 +2868,7 @@
           dataset.fontDisplayPt = String(basePt);
           dataset.fontResizeBaselinePending = 'true';
         }
-        console.debug('Debug: chartStyle.renderFontSizeLabel manual control sync', {
+        debugLog('Debug: chartStyle.renderFontSizeLabel manual control sync', {
           inputId: inputEl?.id || null,
           basePt: Number(dataset.fontBasePt),
           displayPt: Number(dataset.fontDisplayPt)
@@ -2864,7 +2876,7 @@
       }else{
         if(Number.isFinite(basePt) && !Number.isFinite(Number(dataset.fontBasePt))){
           dataset.fontBasePt = String(basePt);
-          console.debug('Debug: chartStyle.renderFontSizeLabel base cached', {
+          debugLog('Debug: chartStyle.renderFontSizeLabel base cached', {
             inputId: inputEl?.id || null,
             basePt
           }); // Debug: cache base for control
@@ -2880,7 +2892,7 @@
               min,
               max
             };
-            console.debug('Debug: chartStyle.renderFontSizeLabel control observed', payload); // Debug: control state observation
+            debugLog('Debug: chartStyle.renderFontSizeLabel control observed', payload); // Debug: control state observation
           }
         }
       }
@@ -2897,7 +2909,7 @@
       label = roundedPx + 'px';
     }
     el.textContent = label;
-    console.debug('Debug: chartStyle.renderFontSizeLabel applied', {
+    debugLog('Debug: chartStyle.renderFontSizeLabel applied', {
       pt: roundedPt,
       px: roundedPx,
       label,
@@ -2974,9 +2986,17 @@
     const maxHeight = Number.isFinite(requestedMaxHeight) && requestedMaxHeight > 0
       ? requestedMaxHeight
       : Infinity;
-    const maximumRows = Number.isFinite(maxHeight)
+    const requestedMaximumRows = Number.isFinite(maxHeight)
       ? Math.max(1, Math.floor(Math.max(0, maxHeight - baselineOffset - rowContentHeight) / rowHeight) + 1)
       : Math.max(1, normalizedEntries.length);
+    // A graph can be resized below the height of one complete legend row. In
+    // that state, turning every entry into a separate column makes the legend
+    // wider than the graph and feeds that width back into the SVG envelope.
+    // Let the legend extend vertically instead; the content-envelope pass will
+    // reserve that height without changing the user's graph frame.
+    const maximumRows = Number.isFinite(maxHeight) && normalizedEntries.length > 1 && requestedMaximumRows < 2
+      ? normalizedEntries.length
+      : requestedMaximumRows;
     const columnCount = normalizedEntries.length ? Math.ceil(normalizedEntries.length / maximumRows) : 0;
     const rowsPerColumn = columnCount ? Math.ceil(normalizedEntries.length / columnCount) : 0;
     const columnWidths = Array.from({ length: columnCount }, () => minWidth);
@@ -3380,8 +3400,39 @@
 
   chartStyle.stageGraphContentViewport = function stageGraphContentViewport(options){
     const opts = options || {};
+    const carriedSummaryReserve = opts.includeCarriedStatsFigureSummary === false
+      ? 0
+      : (opts.svg?.dataset?.statsFigureSummaryCarried === '1'
+        ? Math.max(0, Number(opts.svg.dataset.statsFigureSummaryCarryReserveBottom) || 0)
+        : 0);
     let viewport = chartStyle.computeGraphContentViewport(opts);
+    const getPublishedViewport = () => carriedSummaryReserve > 0
+      ? chartStyle.computeGraphContentViewport({
+          baseWidth: viewport.baseWidth,
+          baseHeight: viewport.baseHeight,
+          rightWidth: viewport.rightWidth,
+          bottomHeight: viewport.bottomHeight + carriedSummaryReserve,
+          leftWidth: viewport.leftWidth,
+          topHeight: viewport.topHeight,
+          contentBounds: {
+            minX: viewport.minX,
+            minY: viewport.minY,
+            maxX: viewport.maxX,
+            maxY: viewport.maxY + carriedSummaryReserve
+          }
+        })
+      : viewport;
     const svg = opts.svg || null;
+    const renderedScaleCandidate = Number(opts.renderedScale);
+    const renderedScaleXCandidate = Number(opts.renderedScaleX);
+    const renderedScaleYCandidate = Number(opts.renderedScaleY);
+    const renderedScaleX = Number.isFinite(renderedScaleXCandidate) && renderedScaleXCandidate > 0
+      ? renderedScaleXCandidate
+      : (Number.isFinite(renderedScaleCandidate) && renderedScaleCandidate > 0 ? renderedScaleCandidate : 1);
+    const renderedScaleY = Number.isFinite(renderedScaleYCandidate) && renderedScaleYCandidate > 0
+      ? renderedScaleYCandidate
+      : (Number.isFinite(renderedScaleCandidate) && renderedScaleCandidate > 0 ? renderedScaleCandidate : 1);
+    const applyRenderedScaleToSvgDimensions = opts.applyRenderedScaleToSvgDimensions === true;
     const plot = opts.plot || svg?.parentElement || null;
     const svgBox = opts.svgBox || plot?.closest?.('.svgbox') || svg?.closest?.('.svgbox') || null;
     const format = value => String(Math.round(value * 1000) / 1000);
@@ -3392,28 +3443,34 @@
       : 0;
     const applyViewportSlot = target => {
       if(!target?.dataset || !target?.style) return;
-      const hasHorizontalExtension = viewport.extensionWidth > 0;
-      const hasVerticalExtension = viewport.extensionHeight > 0;
+      const publishedViewport = getPublishedViewport();
+      const hasHorizontalExtension = publishedViewport.extensionWidth > 0;
+      const hasVerticalExtension = publishedViewport.extensionHeight > 0;
       const hasExtension = hasHorizontalExtension || hasVerticalExtension;
       if(hasExtension){
         target.dataset.graphContentViewport = 'true';
         const zoomCandidate = Number(svgBox?.dataset?.resizerZoomLevel || svgBox?.dataset?.resizerZoom);
         const zoomScale = Number.isFinite(zoomCandidate) && zoomCandidate > 0 ? zoomCandidate : 1;
+        const zoomContent = target.closest?.('.resizer-zoom-content') || null;
+        const usesDisplayZoomTransform = !!zoomContent;
+        const targetZoomScale = usesDisplayZoomTransform ? 1 : zoomScale;
         // The SVG itself spans the complete logical envelope. Its containing plot
         // only needs the canonical frame plus right/bottom outward growth because
         // left/top growth is translated outward and must not move the base frame.
-        const slotWidth = target === svg ? viewport.width : (viewport.baseWidth + viewport.rightWidth);
-        const slotHeight = target === svg ? viewport.height : (viewport.baseHeight + viewport.bottomHeight);
+        const slotWidth = target === svg ? publishedViewport.width : (publishedViewport.baseWidth + publishedViewport.rightWidth);
+        const slotHeight = target === svg ? publishedViewport.height : (publishedViewport.baseHeight + publishedViewport.bottomHeight);
+        const renderedSlotWidth = slotWidth * renderedScaleX;
+        const renderedSlotHeight = slotHeight * renderedScaleY;
         if(hasHorizontalExtension){
-          target.style.setProperty('--graph-content-viewport-width', `${format(slotWidth)}px`);
-          target.style.setProperty('--graph-content-rendered-width', `${format(slotWidth * zoomScale)}px`);
+          target.style.setProperty('--graph-content-viewport-width', `${format(renderedSlotWidth)}px`);
+          target.style.setProperty('--graph-content-rendered-width', `${format(renderedSlotWidth * targetZoomScale)}px`);
         }else{
           target.style.removeProperty('--graph-content-viewport-width');
           target.style.removeProperty('--graph-content-rendered-width');
         }
         if(hasVerticalExtension){
-          target.style.setProperty('--graph-content-viewport-height', `${format(slotHeight)}px`);
-          target.style.setProperty('--graph-content-rendered-height', `${format(slotHeight * zoomScale)}px`);
+          target.style.setProperty('--graph-content-viewport-height', `${format(renderedSlotHeight)}px`);
+          target.style.setProperty('--graph-content-rendered-height', `${format(renderedSlotHeight * targetZoomScale)}px`);
         }else{
           target.style.removeProperty('--graph-content-viewport-height');
           target.style.removeProperty('--graph-content-rendered-height');
@@ -3426,13 +3483,13 @@
         target.style.removeProperty('--graph-content-rendered-height');
       }
       if(target === svg){
-        if(viewport.leftWidth > 0){
-          target.style.setProperty('--graph-content-origin-left', `${format(viewport.leftWidth)}px`);
+        if(publishedViewport.leftWidth > 0){
+          target.style.setProperty('--graph-content-origin-left', `${format(publishedViewport.leftWidth * renderedScaleX)}px`);
         }else{
           target.style.removeProperty('--graph-content-origin-left');
         }
-        if(viewport.topHeight > 0){
-          target.style.setProperty('--graph-content-origin-top', `${format(viewport.topHeight)}px`);
+        if(publishedViewport.topHeight > 0){
+          target.style.setProperty('--graph-content-origin-top', `${format(publishedViewport.topHeight * renderedScaleY)}px`);
         }else{
           target.style.removeProperty('--graph-content-origin-top');
         }
@@ -3440,54 +3497,87 @@
     };
     const syncSvgViewportDatasets = () => {
       if(!svg?.dataset) return;
-      svg.dataset.legendBaseWidth = format(viewport.baseWidth);
-      svg.dataset.legendBaseHeight = format(viewport.baseHeight);
+      const publishedViewport = getPublishedViewport();
+      svg.dataset.legendBaseWidth = format(publishedViewport.baseWidth);
+      svg.dataset.legendBaseHeight = format(publishedViewport.baseHeight);
       svg.dataset.legendReserveWidth = format(legendReserveWidth);
-      svg.dataset.graphContentBaseWidth = format(viewport.baseWidth);
-      svg.dataset.graphContentBaseHeight = format(viewport.baseHeight);
-      svg.dataset.graphContentEnvelopeMinX = format(viewport.minX);
-      svg.dataset.graphContentEnvelopeMinY = format(viewport.minY);
-      svg.dataset.graphContentEnvelopeMaxX = format(viewport.maxX);
-      svg.dataset.graphContentEnvelopeMaxY = format(viewport.maxY);
-      svg.dataset.graphContentReserveRight = format(viewport.rightWidth);
-      svg.dataset.graphContentReserveBottom = format(viewport.bottomHeight);
-      svg.dataset.graphContentReserveLeft = format(viewport.leftWidth);
-      svg.dataset.graphContentReserveTop = format(viewport.topHeight);
+      svg.dataset.graphContentBaseWidth = format(publishedViewport.baseWidth);
+      svg.dataset.graphContentBaseHeight = format(publishedViewport.baseHeight);
+      svg.dataset.graphContentEnvelopeMinX = format(publishedViewport.minX);
+      svg.dataset.graphContentEnvelopeMinY = format(publishedViewport.minY);
+      svg.dataset.graphContentEnvelopeMaxX = format(publishedViewport.maxX);
+      svg.dataset.graphContentEnvelopeMaxY = format(publishedViewport.maxY);
+      svg.dataset.graphContentReserveRight = format(publishedViewport.rightWidth);
+      svg.dataset.graphContentReserveBottom = format(publishedViewport.bottomHeight);
+      svg.dataset.graphContentReserveLeft = format(publishedViewport.leftWidth);
+      svg.dataset.graphContentReserveTop = format(publishedViewport.topHeight);
+      svg.dataset.graphContentRenderedScaleX = format(renderedScaleX);
+      svg.dataset.graphContentRenderedScaleY = format(renderedScaleY);
     };
-    const readLegendTranslateX = legendNode => {
+    const readLegendTranslate = (legendNode, axis = 'x') => {
       try{
         const consolidated = legendNode?.transform?.baseVal?.consolidate?.();
-        const matrixX = Number(consolidated?.matrix?.e);
-        if(Number.isFinite(matrixX)) return matrixX;
+        const matrixValue = Number(axis === 'y' ? consolidated?.matrix?.f : consolidated?.matrix?.e);
+        if(Number.isFinite(matrixValue)) return matrixValue;
       }catch(err){}
       const transform = String(legendNode?.getAttribute?.('transform') || '');
-      const match = transform.match(/translate\(\s*([-+]?\d*\.?\d+(?:e[-+]?\d+)?)/i);
+      const match = transform.match(/translate\(\s*([-+]?\d*\.?\d+(?:e[-+]?\d+)?)(?:[\s,]+([-+]?\d*\.?\d+(?:e[-+]?\d+)?))?/i);
       if(match){
-        const parsed = Number(match[1]);
+        const parsed = Number(axis === 'y' ? (match[2] ?? 0) : match[1]);
         if(Number.isFinite(parsed)) return parsed;
       }
-      const fallback = Number(legendNode?.dataset?.legendOriginX);
+      const fallback = Number(axis === 'y'
+        ? legendNode?.dataset?.legendOriginY
+        : legendNode?.dataset?.legendOriginX);
       return Number.isFinite(fallback) ? fallback : 0;
+    };
+    const readLegendTranslateX = legendNode => readLegendTranslate(legendNode, 'x');
+    const readLegendTranslateY = legendNode => readLegendTranslate(legendNode, 'y');
+    const readLegendContentBounds = legendNode => {
+      try{
+        const bounds = legendNode?.getBBox?.();
+        if(bounds && Number.isFinite(Number(bounds.x)) && Number.isFinite(Number(bounds.y))
+          && Number.isFinite(Number(bounds.width)) && Number.isFinite(Number(bounds.height))
+          && (Number(bounds.width) > 0 || Number(bounds.height) > 0)){
+          return {
+            x: Number(bounds.x),
+            y: Number(bounds.y),
+            width: Number(bounds.width),
+            height: Number(bounds.height)
+          };
+        }
+      }catch(err){}
+      const x = Number(legendNode?.dataset?.legendContentX);
+      const y = Number(legendNode?.dataset?.legendContentY);
+      const width = Number(legendNode?.dataset?.legendContentWidth);
+      const height = Number(legendNode?.dataset?.legendContentHeight);
+      return Number.isFinite(x) && Number.isFinite(y)
+        && Number.isFinite(width) && Number.isFinite(height)
+        && (width > 0 || height > 0)
+        ? { x, y, width, height }
+        : null;
+    };
+    const readLegendCanonicalOrigin = (legendNode, axis = 'x') => {
+      const stored = Number(axis === 'y'
+        ? legendNode?.dataset?.legendCanonicalOriginY
+        : legendNode?.dataset?.legendCanonicalOriginX);
+      return Number.isFinite(stored)
+        ? stored
+        : (axis === 'y' ? readLegendTranslateY(legendNode) : readLegendTranslateX(legendNode));
     };
     const refineLegendReserveFromRenderedContent = () => {
       if(opts.refineLegendReserve === false || !svg || legendReserveWidth <= 0){
         return false;
       }
       const legendNode = svg.querySelector?.('[data-legend-viewport-content="true"]') || null;
-      if(!legendNode || typeof legendNode.getBBox !== 'function'){
+      if(!legendNode){
         return false;
       }
-      let bbox = null;
-      try{
-        bbox = legendNode.getBBox();
-      }catch(err){
+      const bbox = readLegendContentBounds(legendNode);
+      if(!bbox){
         return false;
       }
-      if(!bbox || !Number.isFinite(Number(bbox.x)) || !Number.isFinite(Number(bbox.width))){
-        return false;
-      }
-      const canonicalOriginX = Number(legendNode.dataset?.legendCanonicalOriginX);
-      const rightEdge = (Number.isFinite(canonicalOriginX) ? canonicalOriginX : readLegendTranslateX(legendNode))
+      const rightEdge = readLegendCanonicalOrigin(legendNode, 'x')
         + Number(bbox.x) + Number(bbox.width);
       if(!Number.isFinite(rightEdge)){
         return false;
@@ -3541,7 +3631,7 @@
       }
       syncSvgViewportDatasets();
       if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-        console.debug('Debug: chartStyle legend viewport refined from rendered content', {
+        debugLog('Debug: chartStyle legend viewport refined from rendered content', {
           baseWidth: viewport.baseWidth,
           rightEdge,
           horizontalEdgePadding,
@@ -3553,14 +3643,63 @@
       }
       return true;
     };
+    const refineLegendVerticalReserveFromRenderedContent = () => {
+      if(opts.refineLegendVerticalReserve !== true || !svg){
+        return false;
+      }
+      const legendNode = svg.querySelector?.('[data-legend-viewport-content="true"]') || null;
+      const bbox = readLegendContentBounds(legendNode);
+      if(!bbox){
+        return false;
+      }
+      // The canonical legend origin describes the renderer-owned placement.
+      // A user drag is constrained after publication; it must not inflate the
+      // graph frame on every redraw.
+      const topEdge = readLegendCanonicalOrigin(legendNode, 'y') + bbox.y;
+      const bottomEdge = topEdge + bbox.height;
+      const nextTopHeight = Math.max(viewport.topHeight, Math.max(0, -topEdge));
+      const nextBottomHeight = Math.max(viewport.bottomHeight, Math.max(0, bottomEdge - viewport.baseHeight));
+      if(Math.abs(nextTopHeight - viewport.topHeight) <= 0.25
+        && Math.abs(nextBottomHeight - viewport.bottomHeight) <= 0.25){
+        return false;
+      }
+      viewport = chartStyle.computeGraphContentViewport({
+        baseWidth: viewport.baseWidth,
+        baseHeight: viewport.baseHeight,
+        rightWidth: viewport.rightWidth,
+        bottomHeight: nextBottomHeight,
+        leftWidth: viewport.leftWidth,
+        topHeight: nextTopHeight,
+        contentBounds: {
+          minX: viewport.minX,
+          minY: Math.min(viewport.minY, -nextTopHeight),
+          maxX: viewport.maxX,
+          maxY: Math.max(viewport.maxY, viewport.baseHeight + nextBottomHeight)
+        }
+      });
+      syncSvgViewportDatasets();
+      if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+        debugLog('Debug: chartStyle legend viewport refined for vertical content', {
+          baseHeight: viewport.baseHeight,
+          topEdge,
+          bottomEdge,
+          topHeight: viewport.topHeight,
+          bottomHeight: viewport.bottomHeight,
+          viewportHeight: viewport.height
+        });
+      }
+      return true;
+    };
     if(svg){
       if(opts.applySvgViewport !== false){
-        svg.setAttribute('width', format(viewport.width));
-        svg.setAttribute('height', format(viewport.height));
-        svg.setAttribute('viewBox', `${format(viewport.minX)} ${format(viewport.minY)} ${format(viewport.width)} ${format(viewport.height)}`);
+        const publishedViewport = getPublishedViewport();
+        svg.setAttribute('width', format(publishedViewport.width * (applyRenderedScaleToSvgDimensions ? renderedScaleX : 1)));
+        svg.setAttribute('height', format(publishedViewport.height * (applyRenderedScaleToSvgDimensions ? renderedScaleY : 1)));
+        svg.setAttribute('viewBox', `${format(publishedViewport.minX)} ${format(publishedViewport.minY)} ${format(publishedViewport.width)} ${format(publishedViewport.height)}`);
         syncSvgViewportDatasets();
       }
-      if(svg.style && (viewport.extensionWidth > 0 || viewport.extensionHeight > 0)){
+      const publishedViewport = getPublishedViewport();
+      if(svg.style && (publishedViewport.extensionWidth > 0 || publishedViewport.extensionHeight > 0)){
         svg.style.overflow = 'visible';
       }else if(svg.style){
         svg.style.removeProperty('overflow');
@@ -3570,7 +3709,30 @@
     const refineContentBoundsFromRenderedSvg = () => {
       if(opts.refineContentBounds === false || !svg || typeof svg.getBBox !== 'function') return false;
       let bounds = null;
-      try{ bounds = svg.getBBox(); }catch(_err){ return false; }
+      const excludedNodes = Array.from(svg.querySelectorAll?.('g[data-stats-figure-summary="1"]') || [])
+        .map(node => ({
+          node,
+          parent: node.parentNode,
+          nextSibling: node.nextSibling
+        }))
+        .filter(entry => entry.parent);
+      try{
+        // The statistical summary is an outward report extension, not graph
+        // content. Remove it only for the synchronous bounds measurement so a
+        // replacement frame cannot feed the table's height back into the
+        // canonical graph frame.
+        excludedNodes.forEach(entry => entry.parent.removeChild(entry.node));
+        bounds = svg.getBBox();
+      }catch(_err){ return false; }
+      finally{
+        excludedNodes.forEach(entry => {
+          if(entry.nextSibling?.parentNode === entry.parent){
+            entry.parent.insertBefore(entry.node, entry.nextSibling);
+          }else if(entry.node.parentNode !== entry.parent){
+            entry.parent.appendChild(entry.node);
+          }
+        });
+      }
       const x = Number(bounds?.x);
       const y = Number(bounds?.y);
       const width = Number(bounds?.width);
@@ -3602,9 +3764,10 @@
     };
     const applySvgViewport = () => {
       if(!svg || opts.applySvgViewport === false) return;
-      svg.setAttribute('width', format(viewport.width));
-      svg.setAttribute('height', format(viewport.height));
-      svg.setAttribute('viewBox', `${format(viewport.minX)} ${format(viewport.minY)} ${format(viewport.width)} ${format(viewport.height)}`);
+      const publishedViewport = getPublishedViewport();
+      svg.setAttribute('width', format(publishedViewport.width * (applyRenderedScaleToSvgDimensions ? renderedScaleX : 1)));
+      svg.setAttribute('height', format(publishedViewport.height * (applyRenderedScaleToSvgDimensions ? renderedScaleY : 1)));
+      svg.setAttribute('viewBox', `${format(publishedViewport.minX)} ${format(publishedViewport.minY)} ${format(publishedViewport.width)} ${format(publishedViewport.height)}`);
       syncSvgViewportDatasets();
     };
     let measured = false;
@@ -3612,6 +3775,7 @@
     const measure = () => {
       if(!measured){
         refineLegendReserveFromRenderedContent();
+        refineLegendVerticalReserveFromRenderedContent();
         refineContentBoundsFromRenderedSvg();
         measured = true;
       }
@@ -3628,21 +3792,29 @@
         applyViewportSlot(svg);
         applyViewportSlot(plot);
         if(svgBox?.dataset && svgBox?.style){
-          const hasExtension = viewport.extensionWidth > 0 || viewport.extensionHeight > 0;
-          if(hasExtension){
-            const zoomCandidate = Number(svgBox?.dataset?.resizerZoomLevel || svgBox?.dataset?.resizerZoom);
-            const zoomScale = Number.isFinite(zoomCandidate) && zoomCandidate > 0 ? zoomCandidate : 1;
-            svgBox.style.setProperty('--graph-content-extra-left', `${format(viewport.leftWidth * zoomScale)}px`);
-            svgBox.style.setProperty('--graph-content-extra-top', `${format(viewport.topHeight * zoomScale)}px`);
-            svgBox.style.setProperty('--graph-content-extra-right', `${format(viewport.rightWidth * zoomScale)}px`);
-            svgBox.style.setProperty('--graph-content-extra-bottom', `${format(viewport.bottomHeight * zoomScale)}px`);
-            svgBox.dataset.graphContentEnvelope = 'true';
-          }else{
+          const clearSvgBoxEnvelope = () => {
             delete svgBox.dataset.graphContentEnvelope;
             svgBox.style.removeProperty('--graph-content-extra-left');
             svgBox.style.removeProperty('--graph-content-extra-top');
             svgBox.style.removeProperty('--graph-content-extra-right');
             svgBox.style.removeProperty('--graph-content-extra-bottom');
+          };
+          if(opts.applySvgBoxEnvelope === false){
+            clearSvgBoxEnvelope();
+          }else{
+            const publishedViewport = getPublishedViewport();
+            const hasExtension = publishedViewport.extensionWidth > 0 || publishedViewport.extensionHeight > 0;
+            if(hasExtension){
+              const zoomCandidate = Number(svgBox?.dataset?.resizerZoomLevel || svgBox?.dataset?.resizerZoom);
+              const zoomScale = Number.isFinite(zoomCandidate) && zoomCandidate > 0 ? zoomCandidate : 1;
+              svgBox.style.setProperty('--graph-content-extra-left', `${format(publishedViewport.leftWidth * renderedScaleX * zoomScale)}px`);
+              svgBox.style.setProperty('--graph-content-extra-top', `${format(publishedViewport.topHeight * renderedScaleY * zoomScale)}px`);
+              svgBox.style.setProperty('--graph-content-extra-right', `${format(publishedViewport.rightWidth * renderedScaleX * zoomScale)}px`);
+              svgBox.style.setProperty('--graph-content-extra-bottom', `${format(publishedViewport.bottomHeight * renderedScaleY * zoomScale)}px`);
+              svgBox.dataset.graphContentEnvelope = 'true';
+            }else{
+              clearSvgBoxEnvelope();
+            }
           }
         }
         return true;
@@ -3658,7 +3830,137 @@
     // would turn into a left margin on the canonical frame.
     return chartStyle.stageGraphContentViewport({
       ...opts,
-      refineContentBounds: false
+      refineContentBounds: false,
+      refineLegendVerticalReserve: opts.refineLegendVerticalReserve !== false
+    });
+  };
+
+  chartStyle.stagePlot3dViewport = function stagePlot3dViewport(options){
+    const opts = options && typeof options === 'object' ? options : {};
+    const safe = opts.safeViewport || opts.viewport || {};
+    const resolveDimension = (value, fallback = 1) => {
+      const numeric = Number(value);
+      if(Number.isFinite(numeric) && numeric > 0){
+        return numeric;
+      }
+      const fallbackNumeric = Number(fallback);
+      return Number.isFinite(fallbackNumeric) && fallbackNumeric > 0 ? fallbackNumeric : 1;
+    };
+    const baseWidth = resolveDimension(opts.baseWidth ?? safe.baseWidth);
+    const baseHeight = resolveDimension(opts.baseHeight ?? safe.baseHeight);
+    const canonicalWidth = resolveDimension(opts.canonicalWidth ?? safe.baseWidth, baseWidth);
+    const canonicalHeight = resolveDimension(opts.canonicalHeight ?? safe.baseHeight, baseHeight);
+    const legendWidth = Math.max(0, Number(opts.legendWidth) || 0);
+    const applyOuterEnvelope = opts.applyOuterEnvelope !== false;
+    const leftWidth = Math.max(0, Number(safe.left) || 0);
+    const topHeight = Math.max(0, Number(safe.top) || 0);
+    const bottomHeight = Math.max(0, Number(safe.bottom) || 0);
+    const minX = Number.isFinite(Number(safe.minX)) ? Number(safe.minX) : -leftWidth;
+    const minY = Number.isFinite(Number(safe.minY)) ? Number(safe.minY) : -topHeight;
+    const maxX = Number.isFinite(Number(safe.maxX)) ? Number(safe.maxX) : canonicalWidth + Math.max(0, Number(safe.right) || 0);
+    const maxY = Number.isFinite(Number(safe.maxY)) ? Number(safe.maxY) : canonicalHeight + bottomHeight;
+    // Plot3D safety space belongs to the SVG coordinate system. It must not
+    // become a CSS margin or a plot aspect-ratio input, otherwise every axis
+    // label reserve enlarges the outer graph layout.
+    const projection = chartStyle.stageGraphContentViewport({
+      ...opts,
+      baseWidth,
+      baseHeight,
+      rightWidth: legendWidth,
+      legendWidth,
+      leftWidth: 0,
+      topHeight: 0,
+      bottomHeight: 0,
+      contentBounds: {
+        minX: 0,
+        minY: 0,
+        maxX: baseWidth + legendWidth,
+        maxY: baseHeight
+      },
+      refineContentBounds: false,
+      refineLegendReserve: false,
+      includeCarriedStatsFigureSummary: false,
+      applySvgBoxEnvelope: applyOuterEnvelope
+    });
+    const svg = opts.svg;
+    const safeWidth = Math.max(1, maxX - minX);
+    const safeHeight = Math.max(1, maxY - minY);
+    // Plot3D reserves are applied to the projector margin, not to the outer
+    // SVG viewBox. Expanding the viewBox here would scale down every glyph and
+    // make the graph depend on label length.
+    const viewportMinX = 0;
+    const viewportMinY = 0;
+    const formatViewportValue = value => Math.round(Number(value) * 1000) / 1000;
+    const viewportWidth = Math.max(1, formatViewportValue(canonicalWidth));
+    const viewportHeight = Math.max(1, formatViewportValue(canonicalHeight));
+    const applySafeSvgViewport = () => {
+      if(!svg){
+        return;
+      }
+      svg.setAttribute('width', String(viewportWidth));
+      svg.setAttribute('height', String(viewportHeight));
+      svg.setAttribute('viewBox', `${viewportMinX} ${viewportMinY} ${viewportWidth} ${viewportHeight}`);
+      svg.setAttribute('preserveAspectRatio', opts.preserveAspectRatio || 'xMidYMid meet');
+      if(svg.style){
+        svg.style.width = '100%';
+        svg.style.height = '100%';
+        svg.style.minWidth = '0';
+        svg.style.minHeight = '0';
+        svg.style.display = 'block';
+        svg.style.overflow = 'visible';
+      }
+    };
+    if(svg?.dataset){
+      svg.dataset.plot3dViewport = 'true';
+      svg.dataset.plot3dBaseWidth = String(baseWidth);
+      svg.dataset.plot3dBaseHeight = String(baseHeight);
+      svg.dataset.plot3dCanonicalWidth = String(canonicalWidth);
+      svg.dataset.plot3dCanonicalHeight = String(canonicalHeight);
+      svg.dataset.plot3dViewportMinX = String(viewportMinX);
+      svg.dataset.plot3dViewportMinY = String(viewportMinY);
+      svg.dataset.plot3dViewportMaxX = String(viewportWidth);
+      svg.dataset.plot3dViewportMaxY = String(viewportHeight);
+      svg.dataset.plot3dViewportWidth = String(viewportWidth);
+      svg.dataset.plot3dViewportHeight = String(viewportHeight);
+      svg.dataset.plot3dSafeViewportMinX = String(minX);
+      svg.dataset.plot3dSafeViewportMinY = String(minY);
+      svg.dataset.plot3dSafeViewportMaxX = String(maxX);
+      svg.dataset.plot3dSafeViewportMaxY = String(maxY);
+      svg.dataset.plot3dSafeViewportWidth = String(safeWidth);
+      svg.dataset.plot3dSafeViewportHeight = String(safeHeight);
+      svg.dataset.plot3dOuterEnvelope = applyOuterEnvelope ? 'true' : 'false';
+      svg.dataset.plot3dReserveLeft = String(leftWidth);
+      svg.dataset.plot3dReserveTop = String(topHeight);
+      svg.dataset.plot3dReserveRight = String(Math.max(0, Number(safe.right) || 0));
+      svg.dataset.plot3dReserveBottom = String(bottomHeight);
+      svg.dataset.plot3dLegendReserveWidth = String(legendWidth);
+      if(safe.rotationLimits){
+        try{ svg.dataset.plot3dRotationLimits = JSON.stringify(safe.rotationLimits); }catch(_err){ /* metadata is optional */ }
+      }
+    }
+    return Object.assign({}, projection, {
+      getViewport(){
+        return {
+          ...projection.getViewport(),
+          plot3dMinX: viewportMinX,
+          plot3dMinY: viewportMinY,
+          plot3dMaxX: viewportWidth,
+          plot3dMaxY: viewportHeight,
+          plot3dWidth: viewportWidth,
+          plot3dHeight: viewportHeight,
+          plot3dSafeMinX: minX,
+          plot3dSafeMinY: minY,
+          plot3dSafeMaxX: maxX,
+          plot3dSafeMaxY: maxY,
+          plot3dSafeWidth: safeWidth,
+          plot3dSafeHeight: safeHeight
+        };
+      },
+      commit(){
+        const committed = projection.commit();
+        applySafeSvgViewport();
+        return committed;
+      }
     });
   };
 
@@ -3673,6 +3975,9 @@
     root.querySelectorAll?.('svg[data-graph-content-base-width], svg[data-legend-base-width][data-legend-reserve-width]').forEach(svg => svgs.push(svg));
     let restored = 0;
     svgs.forEach(svg => {
+      if(svg.dataset?.plot3dViewport === 'true'){
+        return;
+      }
       const baseWidth = Number(svg.dataset?.graphContentBaseWidth ?? svg.dataset?.legendBaseWidth);
       const reserveWidth = Number(svg.dataset?.legendReserveWidth);
       const contentReserveWidth = Number(svg.dataset?.graphContentReserveRight);
@@ -3689,6 +3994,10 @@
       const minY = Number(svg.dataset?.graphContentEnvelopeMinY);
       const maxX = Number(svg.dataset?.graphContentEnvelopeMaxX);
       const maxY = Number(svg.dataset?.graphContentEnvelopeMaxY);
+      const renderedScaleX = Number(svg.dataset?.graphContentRenderedScaleX);
+      const renderedScaleY = Number(svg.dataset?.graphContentRenderedScaleY);
+      const hasRenderedScale = (Number.isFinite(renderedScaleX) && renderedScaleX > 0)
+        || (Number.isFinite(renderedScaleY) && renderedScaleY > 0);
       const plot = root !== svg && root.contains?.(svg)
         ? root
         : (svg.parentElement || null);
@@ -3710,11 +4019,163 @@
           maxY: Number.isFinite(maxY) ? maxY : (Number.isFinite(baseHeight) && baseHeight > 0 ? baseHeight : fallbackHeight)
         },
         applySvgViewport: false,
-        allowLegendReserveShrink: false
+        allowLegendReserveShrink: false,
+        renderedScaleX: Number.isFinite(renderedScaleX) && renderedScaleX > 0 ? renderedScaleX : 1,
+        renderedScaleY: Number.isFinite(renderedScaleY) && renderedScaleY > 0 ? renderedScaleY : 1,
+        applyRenderedScaleToSvgDimensions: hasRenderedScale
       }).commit();
       restored += 1;
     });
     return restored;
+  };
+
+  chartStyle.rehydratePlot3dViewports = function rehydratePlot3dViewports(root){
+    if(!root){
+      return 0;
+    }
+    const svgs = [];
+    if(root.matches?.('svg[data-plot3d-viewport="true"]')){
+      svgs.push(root);
+    }
+    root.querySelectorAll?.('svg[data-plot3d-viewport="true"]').forEach(svg => svgs.push(svg));
+    let restored = 0;
+    svgs.forEach(svg => {
+      const mountedSummary = svg.querySelector?.('g[data-stats-figure-summary="1"]') || null;
+      const summaryReserve = mountedSummary
+        ? Math.max(
+            0,
+            Number(mountedSummary.dataset?.statsSummaryReserveBottom) || 0,
+            Number(svg.dataset?.statsFigureSummaryReserveBottom) || 0
+          )
+        : 0;
+      const summaryViewport = summaryReserve > 0 ? {
+        baseWidth: Number(svg.dataset?.statsFigureSummaryBaseWidth),
+        baseHeight: Number(svg.dataset?.statsFigureSummaryBaseHeight),
+        rightWidth: Number(svg.dataset?.statsFigureSummaryBaseReserveRight),
+        bottomHeight: Number(svg.dataset?.statsFigureSummaryBaseReserveBottom),
+        leftWidth: Number(svg.dataset?.statsFigureSummaryBaseReserveLeft),
+        topHeight: Number(svg.dataset?.statsFigureSummaryBaseReserveTop),
+        minX: Number(svg.dataset?.statsFigureSummaryBaseEnvelopeMinX),
+        minY: Number(svg.dataset?.statsFigureSummaryBaseEnvelopeMinY),
+        maxX: Number(svg.dataset?.statsFigureSummaryBaseEnvelopeMaxX),
+        maxY: Number(svg.dataset?.statsFigureSummaryBaseEnvelopeMaxY),
+        renderedScaleX: Number(svg.dataset?.statsFigureSummaryRenderedScaleX),
+        renderedScaleY: Number(svg.dataset?.statsFigureSummaryRenderedScaleY)
+      } : null;
+      const baseWidth = Number(svg.dataset?.plot3dBaseWidth);
+      const baseHeight = Number(svg.dataset?.plot3dBaseHeight);
+      const canonicalWidth = Number(svg.dataset?.plot3dCanonicalWidth);
+      const canonicalHeight = Number(svg.dataset?.plot3dCanonicalHeight);
+      const minX = Number(svg.dataset?.plot3dViewportMinX);
+      const minY = Number(svg.dataset?.plot3dViewportMinY);
+      const maxX = Number(svg.dataset?.plot3dViewportMaxX);
+      const maxY = Number(svg.dataset?.plot3dViewportMaxY);
+      const safeMinX = Number(svg.dataset?.plot3dSafeViewportMinX);
+      const safeMinY = Number(svg.dataset?.plot3dSafeViewportMinY);
+      const safeMaxX = Number(svg.dataset?.plot3dSafeViewportMaxX);
+      const safeMaxY = Number(svg.dataset?.plot3dSafeViewportMaxY);
+      const left = Number(svg.dataset?.plot3dReserveLeft);
+      const top = Number(svg.dataset?.plot3dReserveTop);
+      const right = Number(svg.dataset?.plot3dReserveRight);
+      const bottom = Number(svg.dataset?.plot3dReserveBottom);
+      const legendWidth = Number(svg.dataset?.plot3dLegendReserveWidth);
+      if(!Number.isFinite(baseWidth) || baseWidth <= 0
+        || !Number.isFinite(baseHeight) || baseHeight <= 0
+        || !Number.isFinite(canonicalWidth) || canonicalWidth <= 0
+        || !Number.isFinite(canonicalHeight) || canonicalHeight <= 0
+        || !Number.isFinite(minX) || !Number.isFinite(minY)
+        || !Number.isFinite(maxX) || !Number.isFinite(maxY)){
+        return;
+      }
+      let rotationLimits = null;
+      try{ rotationLimits = JSON.parse(svg.dataset?.plot3dRotationLimits || 'null'); }catch(_err){ rotationLimits = null; }
+      const plot = root !== svg && root.contains?.(svg) ? root : (svg.parentElement || null);
+      chartStyle.stagePlot3dViewport({
+        svg,
+        plot,
+        svgBox: svg.closest?.('.svgbox') || null,
+        baseWidth,
+        baseHeight,
+        canonicalWidth,
+        canonicalHeight,
+        legendWidth: Number.isFinite(legendWidth) && legendWidth >= 0 ? legendWidth : 0,
+        applyOuterEnvelope: svg.dataset?.plot3dOuterEnvelope !== 'false',
+        safeViewport: {
+          // New caches store the physical viewport separately from the
+          // rotation-safe diagnostic envelope. Older caches used the latter
+          // as the viewBox, so fall back to those values for migration.
+          minX: Number.isFinite(safeMinX) ? safeMinX : minX,
+          minY: Number.isFinite(safeMinY) ? safeMinY : minY,
+          maxX: Number.isFinite(safeMaxX) ? safeMaxX : maxX,
+          maxY: Number.isFinite(safeMaxY) ? safeMaxY : maxY,
+          left: Number.isFinite(left) ? Math.max(0, left) : Math.max(0, -minX),
+          top: Number.isFinite(top) ? Math.max(0, top) : Math.max(0, -minY),
+          right: Number.isFinite(right) ? Math.max(0, right) : Math.max(0, maxX - canonicalWidth),
+          bottom: Number.isFinite(bottom) ? Math.max(0, bottom) : Math.max(0, maxY - canonicalHeight),
+          rotationLimits
+        }
+      }).commit();
+      if(summaryViewport){
+        const summaryBaseWidth = Number.isFinite(summaryViewport.baseWidth) && summaryViewport.baseWidth > 0
+          ? summaryViewport.baseWidth
+          : baseWidth;
+        const summaryBaseHeight = Number.isFinite(summaryViewport.baseHeight) && summaryViewport.baseHeight > 0
+          ? summaryViewport.baseHeight
+          : baseHeight;
+        const summaryRightWidth = Number.isFinite(summaryViewport.rightWidth) && summaryViewport.rightWidth >= 0
+          ? summaryViewport.rightWidth
+          : (Number.isFinite(legendWidth) && legendWidth >= 0 ? legendWidth : Math.max(0, canonicalWidth - baseWidth));
+        const summaryBaseBottom = Number.isFinite(summaryViewport.bottomHeight) && summaryViewport.bottomHeight >= 0
+          ? summaryViewport.bottomHeight
+          : 0;
+        const summaryLeftWidth = Number.isFinite(summaryViewport.leftWidth) && summaryViewport.leftWidth >= 0
+          ? summaryViewport.leftWidth
+          : 0;
+        const summaryTopHeight = Number.isFinite(summaryViewport.topHeight) && summaryViewport.topHeight >= 0
+          ? summaryViewport.topHeight
+          : 0;
+        chartStyle.stageGraphContentViewport({
+          svg,
+          plot,
+          svgBox: svg.closest?.('.svgbox') || null,
+          baseWidth: summaryBaseWidth,
+          baseHeight: summaryBaseHeight,
+          rightWidth: summaryRightWidth,
+          legendWidth: Number.isFinite(legendWidth) && legendWidth >= 0 ? legendWidth : summaryRightWidth,
+          bottomHeight: summaryBaseBottom + summaryReserve,
+          leftWidth: summaryLeftWidth,
+          topHeight: summaryTopHeight,
+          contentBounds: {
+            minX: Number.isFinite(summaryViewport.minX) ? summaryViewport.minX : -summaryLeftWidth,
+            minY: Number.isFinite(summaryViewport.minY) ? summaryViewport.minY : -summaryTopHeight,
+            maxX: Number.isFinite(summaryViewport.maxX)
+              ? summaryViewport.maxX
+              : summaryBaseWidth + summaryRightWidth,
+            maxY: Math.max(
+              Number.isFinite(summaryViewport.maxY) ? summaryViewport.maxY : summaryBaseHeight + summaryBaseBottom,
+              summaryBaseHeight + summaryBaseBottom + summaryReserve
+            )
+          },
+          refineContentBounds: false,
+          refineLegendReserve: false,
+          allowLegendReserveShrink: false,
+          includeCarriedStatsFigureSummary: false,
+          renderedScaleX: Number.isFinite(summaryViewport.renderedScaleX) && summaryViewport.renderedScaleX > 0
+            ? summaryViewport.renderedScaleX
+            : 1,
+          renderedScaleY: Number.isFinite(summaryViewport.renderedScaleY) && summaryViewport.renderedScaleY > 0
+            ? summaryViewport.renderedScaleY
+            : 1,
+          applyRenderedScaleToSvgDimensions: true
+        }).commit();
+      }
+      restored += 1;
+    });
+    return restored;
+  };
+
+  chartStyle.rehydrateContentViewports = function rehydrateContentViewports(root){
+    return chartStyle.rehydratePlot3dViewports(root) + chartStyle.rehydrateGraphContentViewports(root);
   };
 
   // Compatibility name retained because component restore hooks predate the
@@ -3745,7 +4206,7 @@
     let sides = Array.isArray(opts.sides) ? opts.sides.slice() : (opts.sides === "all" ? ["top","right","bottom","left"] : []);
     if(!sides.length){ sides = ["top","right"]; }
     if(!svg || !margin || !Number.isFinite(plotW) || !Number.isFinite(plotH) || plotW <= 0 || plotH <= 0 || !doc){
-      console.debug("Debug: chartStyle.drawPlotFrame skipped", { hasSvg: !!svg, hasMargin: !!margin, plotW, plotH, sides }); // Debug: frame skip reasoning
+      debugLog("Debug: chartStyle.drawPlotFrame skipped", { hasSvg: !!svg, hasMargin: !!margin, plotW, plotH, sides }); // Debug: frame skip reasoning
       return [];
     }
     const group = opts.group && typeof opts.group.appendChild === 'function' ? opts.group : svg;
@@ -3774,7 +4235,7 @@
       group.appendChild(line);
       drawn.push(side);
     });
-    console.debug("Debug: chartStyle.drawPlotFrame applied", { sides: drawn, stroke, plotW, plotH, strokeWidth: strokeWidth ?? 'auto' }); // Debug: frame draw summary with stroke scaling
+    debugLog("Debug: chartStyle.drawPlotFrame applied", { sides: drawn, stroke, plotW, plotH, strokeWidth: strokeWidth ?? 'auto' }); // Debug: frame draw summary with stroke scaling
     return drawn;
   };
 

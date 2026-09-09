@@ -759,10 +759,13 @@
   function collectVennPayloadGenes(payload) {
     const data = payload?.data && typeof payload.data === 'object' ? payload.data : {};
     const genes = [];
+    const seen = new Set();
     ['listA', 'listB', 'listC'].forEach(key => {
       String(data[key] || '').split(/\r?\n/).forEach(raw => {
         const gene = raw.trim();
-        if (gene) {
+        const identity = gene.toUpperCase();
+        if (gene && !seen.has(identity)) {
+          seen.add(identity);
           genes.push(gene);
         }
       });
@@ -791,14 +794,28 @@
     return owner.cache.suppressSpeciesAutoDetection;
   }
 
-  function shouldSuppressVennSpeciesRecognition(session = null) {
+  function shouldSuppressVennSpeciesRecognition(session = null, genes = null) {
     const owner = ensureVennSessionOwnershipShape(session || getActiveVennSessionForState());
     const cache = owner?.cache || null;
+    const currentSignature = computeGeneSignature(Array.isArray(genes) ? genes : getAllGenes());
+    let baselineSignature = String(cache?.speciesAutoDetectionBaselineSignature || '');
     if (!cache?.suppressSpeciesAutoDetection) {
+      const storedPayload = owner?.state?.snapshot?.payload
+        || getStoredVennPayloadForTab(owner?.tabId || null)
+        || null;
+      const storedSpecies = String(storedPayload?.analysis?.speciesValue || owner?.results?.speciesValue || '').trim();
+      if (!storedSpecies) {
+        return false;
+      }
+      baselineSignature = computeGeneSignature(collectVennPayloadGenes(storedPayload));
+      if (currentSignature === baselineSignature) {
+        cache.suppressSpeciesAutoDetection = true;
+        cache.speciesAutoDetectionBaselineSignature = baselineSignature;
+        owner.updatedAt = Date.now();
+        return true;
+      }
       return false;
     }
-    const currentSignature = computeGeneSignature(getAllGenes());
-    const baselineSignature = String(cache.speciesAutoDetectionBaselineSignature || '');
     if (currentSignature === baselineSignature) {
       return true;
     }
@@ -816,40 +833,6 @@
   function isManualSpeciesDetectionReason(reason) {
     const normalized = String(reason || '').toLowerCase();
     return normalized.includes('manual');
-  }
-
-  function cancelAutomaticSpeciesDetectionForSnapshot(meta = {}) {
-    const detection = getSpeciesDetectionState();
-    const targetTabId = normalizeVennTabId(meta?.tabId || meta?.tab || getVennProjectionTabId() || null);
-    const pendingTabId = normalizeVennTabId(detection.pendingTabId || null);
-    const activeTabId = normalizeVennTabId(detection.active?.tabId || null);
-    const pendingManual = isManualSpeciesDetectionReason(detection.pendingReason);
-    const activeManual = isManualSpeciesDetectionReason(detection.active?.reason);
-    const pendingBelongsToTarget = !targetTabId || !pendingTabId || pendingTabId === targetTabId;
-    const activeBelongsToTarget = !targetTabId || !activeTabId || activeTabId === targetTabId;
-    if (pendingManual || activeManual || (!pendingBelongsToTarget && !activeBelongsToTarget)) {
-      return false;
-    }
-    const hadAutomaticWork = !!(
-      (detection.pendingTimeoutId && pendingBelongsToTarget)
-      || (detection.active && activeBelongsToTarget)
-    );
-    if (hadAutomaticWork) {
-      cancelPendingSpeciesDetection(meta.reason || 'snapshot-ready', {
-        abortActive: true,
-        resetIndicator: false,
-        tabId: targetTabId
-      });
-      detection.pendingReason = null;
-      if (activeBelongsToTarget) {
-        detection.active = null;
-      }
-      debug('Debug: venn automatic species detection cancelled for snapshot', {
-        tabId: targetTabId || null,
-        reason: meta.reason || 'snapshot-ready'
-      });
-    }
-    return hadAutomaticWork;
   }
 
   function scheduleSpeciesRecognition(reason = 'auto-detect') {
@@ -8716,6 +8699,48 @@
     return { valid: true, reason: null, validation, total, counts, results, rows, alpha, cache: significanceCache };
   }
 
+  function buildVennFigureSummary(significance){
+    if(!significance?.valid || !Array.isArray(significance.results) || !significance.results.length){ return null; }
+    const total = Number(significance.total);
+    const validation = significance.validation || {};
+    const alpha = Number(significance.alpha);
+    const results = significance.results;
+    const analysisRows = [{
+      label:'Analysis',
+      value:`One-sided upper-tail hypergeometric overlap enrichment · ${validation.setCount || 2}-set Venn · universe N = ${Number.isFinite(total) ? total : '—'}`
+    }, {
+      label:'Multiplicity',
+      value: results.length === 1
+        ? `One displayed overlap test; no multiplicity adjustment is required${Number.isFinite(alpha) ? ` · α = ${Shared.statsInference?.formatLevel?.(alpha) || alpha}` : ''}.`
+        : `Holm adjustment across ${results.length} displayed overlap tests${Number.isFinite(alpha) ? ` · family-wise α = ${Shared.statsInference?.formatLevel?.(alpha) || alpha}` : ''}`
+    }];
+    const resultRows = results.map(entry => {
+      const observed = Number(entry.observed);
+      const successes = Number(entry.successes);
+      const draws = Number(entry.draws);
+      const expected = Number.isFinite(total) && total > 0 && Number.isFinite(successes) && Number.isFinite(draws)
+        ? (successes * draws) / total
+        : NaN;
+      const parts = [
+        `observed overlap = ${Number.isFinite(observed) ? observed : '—'}`,
+        ...(Number.isFinite(expected) ? [`; expected under the hypergeometric null = ${expected.toFixed(expected >= 10 ? 1 : 2)}`] : []),
+        '; raw p = ', createVennPValueToken(entry.rawPValue, null, probabilityDisplayFromLog(entry.rawLogPValue)),
+        '; Holm-adjusted p = ', createVennPValueToken(entry.adjustedPValue, createVennAdjustedInferenceSpec(), probabilityDisplayFromLog(entry.adjustedLogPValue)),
+        `; ${entry.significant ? 'significant' : 'not significant'}`
+      ];
+      return { label:String(entry.name || 'Overlap'), valueParts:parts };
+    });
+    return {
+      schemaVersion:1,
+      kind:'inferential',
+      title:'Statistical analysis summary',
+      sections:[
+        { key:'analysis', label:'', rows:analysisRows },
+        { key:'results', label:'Overlap tests', rows:resultRows }
+      ]
+    };
+  }
+
   function calculateSignificance() {
     if (!state.analysis.lastCounts || !state.ui.significanceResults) {
       if (state.ui.significanceResults) state.ui.significanceResults.textContent = 'Draw a Venn diagram first.';
@@ -8772,6 +8797,7 @@
           `${results.length} overlap enrichment test${results.length === 1 ? ' was' : 's were'} evaluated.`,
           best ? `Smallest Holm-adjusted p-value: ${best.name}, ${formatProbabilityExpressionFromLog(best.adjustedLogPValue, 'adjusted p')}.` : null
         ].filter(Boolean).join(' '),
+        figureSummary: buildVennFigureSummary(significance),
         analysisSpec: {
           component: 'venn',
           test: 'one-sided hypergeometric overlap enrichment',
@@ -8911,9 +8937,17 @@
     if(!isVennCallbackOwnerCurrent(callbackOwner)){
       return null;
     }
+    const genes = Array.isArray(options.genes) ? options.genes.slice() : getAllGenes();
+    if(!isManualSpeciesDetectionReason(reason)
+      && shouldSuppressVennSpeciesRecognition(callbackOwner.session, genes)){
+      debug('Debug: venn species detection skipped for restored owner baseline', {
+        reason,
+        tabId: callbackOwner.tabId || null
+      });
+      return null;
+    }
     cancelPendingSpeciesDetection(reason, { tabId: callbackOwner.tabId || null });
     const detection = getSpeciesDetectionState();
-    const genes = Array.isArray(options.genes) ? options.genes.slice() : getAllGenes();
     const owner = beginVennAnalysisRequest('species', {
       owner: callbackOwner,
       reason: `venn-species-${reason}`
@@ -12963,6 +12997,13 @@
     };
     state.ui.root = root;
     state.ui.stage = $root('#stage');
+    // Layout elements are part of the mounted tab root as well. Rebinding only
+    // the controls/stage leaves the previous same-component tab's frame in the
+    // active mirror, so the next draw can size this tab from another tab's SVG.
+    state.ui.tablePanel = $root('#vennInputPanel');
+    state.ui.graphPanel = $root('#vennGraphPanel');
+    state.ui.panelResizer = $root('#vennPanelResizer');
+    state.ui.svgBox = $root('#vennGraphPanel .svgbox');
     state.ui.inputs = {
       A: $root('#listA'),
       B: $root('#listB'),
@@ -13226,14 +13267,25 @@
     debugLog('init start');
     const runVennDrawCycle = async (drawOptions = {}) => {
       const drawTabId = normalizeVennSessionTabId(drawOptions?.tabId || getVennProjectionTabId() || null, drawOptions || {});
+      let status = 'complete';
       try{
         return await refreshDiagram(drawOptions);
+      }catch(error){
+        status = 'error';
+        throw error;
       }finally{
         const owner = drawTabId
           ? getVennSession(drawTabId, { tabId: drawTabId, reason: 'venn-draw-complete' }, { create: false })
           : getActiveVennSessionForState();
         clearVennPendingDrawState(owner, 'venn-draw-complete');
         vennOverlayController?.resolve({ reason: 'complete', tabId: drawTabId || getVennProjectionTabId() || null });
+        Shared.componentLifecycle?.emitLifecycleEvent?.({
+          componentKey: 'venn',
+          tabId: drawTabId || getVennProjectionTabId() || null,
+          action: 'draw-settled',
+          reason: drawOptions.reason || 'venn-draw',
+          phase: status
+        });
       }
     };
     const scheduleVennBase = Shared.componentLifecycle?.createTabScopedFrameDebouncer
@@ -13527,6 +13579,7 @@
   };
 
   venn.__testHooks = Object.assign({}, venn.__testHooks, {
+    buildFigureSummary: significance => buildVennFigureSummary(significance || {}),
     state,
     resolveDrawableFrame: targetEl => resolveVennDrawableFrame(targetEl),
     resolveDiagramLayout: options => resolveVennDiagramLayout(options),
@@ -13624,91 +13677,17 @@
     return cacheMeta?.complete === true && cacheMeta?.type === 'venn';
   }
 
-  function captureSvgRootState(svg){
-    if(!svg){
-      return null;
-    }
-    const attributeNames = ['width', 'height', 'viewBox', 'preserveAspectRatio', 'font-family', 'color', 'font-size', 'aria-label'];
-    const styleNames = ['display'];
-    const attributes = {};
-    const style = {};
-    attributeNames.forEach(name => {
-      const value = typeof svg.getAttribute === 'function' ? svg.getAttribute(name) : null;
-      if(typeof value === 'string' && value.length){
-        attributes[name] = value;
-      }
-    });
-    styleNames.forEach(name => {
-      const value = svg.style?.[name];
-      if(typeof value === 'string' && value.length){
-        style[name] = value;
-      }
-    });
-    return {
-      attributes: Object.keys(attributes).length ? attributes : null,
-      style: Object.keys(style).length ? style : null
-    };
-  }
-
-  function restoreSvgRootState(svg, snapshot){
-    if(!svg){
-      return false;
-    }
-    const attributeNames = ['width', 'height', 'viewBox', 'preserveAspectRatio', 'font-family', 'color', 'font-size', 'aria-label'];
-    const styleNames = ['display'];
-    attributeNames.forEach(name => {
-      try{
-        if(typeof svg.removeAttribute === 'function'){
-          svg.removeAttribute(name);
-        }
-      }catch(err){
-        console.error('venn restore svg attribute reset error', { name, err });
-      }
-    });
-    styleNames.forEach(name => {
-      try{
-        if(svg.style){
-          svg.style[name] = '';
-        }
-      }catch(err){
-        console.error('venn restore svg style reset error', { name, err });
-      }
-    });
-    if(!snapshot || typeof snapshot !== 'object'){
-      return true;
-    }
-    const attributes = snapshot.attributes && typeof snapshot.attributes === 'object'
-      ? snapshot.attributes
-      : null;
-    const style = snapshot.style && typeof snapshot.style === 'object'
-      ? snapshot.style
-      : null;
-    if(attributes){
-      Object.entries(attributes).forEach(([name, value]) => {
-        try{
-          if(value == null || value === ''){
-            svg.removeAttribute?.(name);
-          }else{
-            svg.setAttribute?.(name, String(value));
-          }
-        }catch(err){
-          console.error('venn restore svg attribute error', { name, value, err });
-        }
-      });
-    }
-    if(style){
-      Object.entries(style).forEach(([name, value]) => {
-        try{
-          if(svg.style){
-            svg.style[name] = value || '';
-          }
-        }catch(err){
-          console.error('venn restore svg style error', { name, value, err });
-        }
-      });
-    }
-    return true;
-  }
+  const VENN_SVG_ROOT_ATTRIBUTES = Object.freeze([
+    'width',
+    'height',
+    'viewBox',
+    'preserveAspectRatio',
+    'font-family',
+    'color',
+    'font-size',
+    'aria-label'
+  ]);
+  const VENN_SVG_ROOT_STYLES = Object.freeze(['display']);
 
   function mountVennExportControls(){
     const exporter = Shared.exporter;
@@ -13783,7 +13762,10 @@
       return null;
     }
     const emptyNotice = captureVennEmptyNoticeState();
-    const stageRootState = captureSvgRootState(stage);
+    const stageRootState = Shared.graphViewport.captureSvgRootState(stage, {
+      attributes: VENN_SVG_ROOT_ATTRIBUTES,
+      styles: VENN_SVG_ROOT_STYLES
+    });
     const stageCache = detachChildren(stage);
     if(!vennFragmentPayloadHasGraph(stageCache)){
       restoreChildren(stage, stageCache);
@@ -13857,7 +13839,6 @@
   };
 
   venn.awaitReadyForSnapshot = function awaitReadyForSnapshot(meta = {}){
-    cancelAutomaticSpeciesDetectionForSnapshot(meta);
     return Shared.componentLifecycle?.awaitReadyForSnapshot?.(venn, {
       ...meta,
       componentKey: 'venn',
@@ -13917,7 +13898,10 @@
     ensureVennDomBindings(targetTabId);
     const ownerRoot = resolveVennRoot(targetTabId || null) || state.ui.root || null;
     const stage = ownerRoot?.querySelector?.('#stage') || state.ui.stage || null;
-    restoreSvgRootState(stage, cache.stageRootState);
+    Shared.graphViewport.restoreSvgRootState(stage, cache.stageRootState, {
+      attributes: VENN_SVG_ROOT_ATTRIBUTES,
+      styles: VENN_SVG_ROOT_STYLES
+    });
     const graphCachePayload = cache?.[cache?.__graphitixRenderCache?.graphicKey] || cache?.stage || cache?.plot || cache?.preview || cache?.graph || cache?.svg;
     const restoredStage = restoreChildren(stage, graphCachePayload);
     const restoredEmptyNotice = applyVennEmptyNoticeState(cache.emptyNotice, {
@@ -14053,6 +14037,21 @@
 
   venn.getPreviewSvg = function getPreviewSvg(tab){
     return resolveVennPreviewSourceSvg(tab);
+  };
+
+  venn.executeDesktopCommand = function executeDesktopCommand(command){
+    const action = venn.__desktopCommandActions?.[command];
+    if (typeof action !== 'function') {
+      return { status: 'skipped', reason: 'component-command-unavailable' };
+    }
+    return action() || { status: 'handled' };
+  };
+
+  venn.__desktopCommandActions = {
+    loadExampleData: () => {
+      handleSampleClick();
+      return { status: 'handled' };
+    }
   };
 
   venn.__statsTestHooks = Object.freeze({

@@ -40,6 +40,7 @@ async function readSurfaceResizeFrame(page) {
       faceSignature: faces.slice(0, 12).map(node => node.getAttribute('points')),
       baseWidth: Number(svg?.getAttribute('data-surface-base-width')),
       baseHeight: Number(svg?.getAttribute('data-surface-base-height')),
+      canonicalWidth: Number(svg?.getAttribute('data-plot3d-canonical-width')),
       mutations: window.__surfaceResizeMutations || 0
     };
   });
@@ -91,12 +92,10 @@ test('surface live resize and release publish the same projected frame', async (
     await page.mouse.move(startX + step * 12, startY);
     await page.waitForTimeout(25);
     during = await readSurfaceResizeFrame(page);
-    expect(during.viewBox).toEqual({
-      x: 0,
-      y: 0,
-      width: during.baseWidth,
-      height: during.baseHeight
-    });
+    expect(during.viewBox.x).toBe(0);
+    expect(during.viewBox.y).toBe(0);
+    expect(during.viewBox.width).toBeCloseTo(during.canonicalWidth, 3);
+    expect(during.viewBox.height).toBe(during.baseHeight);
     expect(during.faceCount).toBe(before.faceCount);
     expect(during.faceSignature.every(Boolean)).toBe(true);
   }

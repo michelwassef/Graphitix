@@ -105,6 +105,7 @@
   <script defer src="js/shared/regression.js"></script>
   <script defer src="js/shared/resampling.js"></script>
   <script defer src="js/shared/stats.js"></script>
+  <script defer src="js/shared/statsFigureSummary.js"></script>
   <script defer src="js/shared/statsInference.js"></script>
   <script defer src="js/shared/boxStatsModel.js"></script>
   <script defer src="js/shared/stats-table.js"></script>
@@ -314,6 +315,17 @@
               </div>
               <div id="vennSetLimitWarning" class="config-panel__warning" role="alert" aria-live="polite" hidden>
                 Venn diagrams use only the first three columns. Select UpSet plot to visualize overlaps across four or more sets.
+              </div>
+              <div class="control stats-figure-controls stats-figure-controls--grouped" id="vennStatsFigureControls">
+                <div class="stats-figure-controls__result-row">
+                  <div class="stats-figure-controls__heading">Statistical results:</div>
+                  <div class="stats-figure-controls__options">
+                    <label class="venn-inline-checkbox">
+                      <input type="checkbox" id="vennShowFigureSummary" class="stats-figure-summary-checkbox" data-parameter-stats-figure-summary="1" data-undo-ignore="1" disabled />
+                      <span>Summary table</span>
+                    </label>
+                  </div>
+                </div>
               </div>
             </fieldset>
             <fieldset hidden>
@@ -708,17 +720,28 @@
                 <input type="number" id="boxViolinSamplesValue" min="8" max="2048" step="1" value="80" class="idx-inline-027" />
               </div>
               <div class="control-row box-graph-row box-graph-row--significance" id="boxGraphSignificanceRow" style="display:none"></div>
-              <div class="control idx-inline-022" id="boxSignificanceControls" hidden aria-hidden="true">
-                <label class="idx-inline-024">
-                  <input type="checkbox" id="boxShowSignificance" /> Show pairwise comparisons
-                </label>
-                <label id="boxSignificanceLabelCtl" class="additional-line-controls-panel__field significance-controls-panel__field significance-controls-panel__field--numeric significance-controls-panel__field--label-mode">
-                  <span class="additional-line-controls-panel__field-label significance-controls-panel__field-label">Label</span>
-                  <select id="boxSignificanceLabelMode" class="additional-line-controls-panel__input additional-line-controls-panel__input--select significance-controls-panel__input significance-controls-panel__input--select significance-controls-panel__input--square" data-significance-label-mode="1">
-                    <option value="decision">Decision (* / NS; D / ND for FDR)</option>
-                    <option value="p" selected>P-value</option>
-                  </select>
-                </label>
+              <div class="control stats-figure-controls stats-figure-controls--grouped" id="boxStatsFigureControls">
+                <div class="stats-figure-controls__result-row">
+                  <div class="stats-figure-controls__heading">Statistical results:</div>
+                  <div class="stats-figure-controls__options">
+                    <label class="idx-inline-023 config-panel__checkbox">
+                      <input type="checkbox" id="boxShowFigureSummary" class="stats-figure-summary-checkbox" data-parameter-stats-figure-summary="1" data-undo-ignore="1" disabled />
+                      <span>Summary table</span>
+                    </label>
+                    <div class="control idx-inline-022" id="boxSignificanceControls" hidden aria-hidden="true">
+                      <label class="idx-inline-024 config-panel__checkbox">
+                        <input type="checkbox" id="boxShowSignificance" /> Pairwise comparisons
+                      </label>
+                      <label id="boxSignificanceLabelCtl" class="additional-line-controls-panel__field significance-controls-panel__field significance-controls-panel__field--numeric significance-controls-panel__field--label-mode">
+                        <span class="additional-line-controls-panel__field-label significance-controls-panel__field-label">Label</span>
+                        <select id="boxSignificanceLabelMode" class="additional-line-controls-panel__input additional-line-controls-panel__input--select significance-controls-panel__input significance-controls-panel__input--select significance-controls-panel__input--square" data-significance-label-mode="1">
+                          <option value="decision">Decision (* / NS; D / ND for FDR)</option>
+                          <option value="p" selected>P-value</option>
+                        </select>
+                      </label>
+                    </div>
+                  </div>
+                </div>
               </div>
             </fieldset>
             <fieldset>
@@ -833,14 +856,18 @@
                 </label>
                 <label class="config-panel__checkbox config-panel__checkbox--inline"><input type="checkbox" id="scatterShowLegend" checked /> <span>Show legend</span></label>
               </div>
-              <div class="scatter-graph-regression-options" id="scatterGraphRegressionOptionsGrid">
-                <div class="config-panel__line config-panel__line--checkboxes scatter-graph-regression-options-row">
+              <div class="scatter-graph-regression-options stats-figure-controls stats-figure-controls--grouped" id="scatterGraphRegressionOptionsGrid">
+                <div class="config-panel__line config-panel__line--checkboxes scatter-graph-regression-options-row stats-figure-controls__options stats-figure-controls__options--inline">
                   <label class="config-panel__checkbox"><input type="checkbox" id="scatterShowLine" /> <span>Show trend line</span></label>
-                  <label class="config-panel__checkbox"><input type="checkbox" id="scatterShowPlotStats" /> <span>Show stats on plot</span></label>
-                </div>
-                <div class="config-panel__line config-panel__line--checkboxes scatter-graph-regression-options-row">
                   <label class="config-panel__checkbox"><input type="checkbox" id="scatterShowCI" /> <span>Confidence interval (CI)</span></label>
                   <label class="config-panel__checkbox"><input type="checkbox" id="scatterShowPI" /> <span>Prediction interval (PI)</span></label>
+                </div>
+                <div class="stats-figure-controls__result-row">
+                  <div class="stats-figure-controls__heading">Statistical results:</div>
+                  <div class="config-panel__line config-panel__line--checkboxes scatter-graph-regression-options-row stats-figure-controls__options">
+                    <label class="config-panel__checkbox"><input type="checkbox" id="scatterShowPlotStats" /> <span>Stats on plot</span></label>
+                    <label class="config-panel__checkbox"><input type="checkbox" id="scatterShowFigureSummary" class="stats-figure-summary-checkbox" data-parameter-stats-figure-summary="1" data-undo-ignore="1" disabled /> <span>Summary table</span></label>
+                  </div>
                 </div>
               </div>
               <div class="config-panel__line config-panel__line--split idx-inline-001" id="scatterThresholdControls">
@@ -1104,7 +1131,7 @@
           </div>
           <div class="config-panel">
             <fieldset data-graph-selection-fieldset="1">
-              <legend>Method</legend>
+              <legend>Graph</legend>
               <div class="control idx-inline-031">
                 <label class="idx-inline-023">
                   Algorithm
@@ -1183,6 +1210,17 @@
                 <label class="idx-inline-023" title="Centers each input variable and divides it by its standard deviation before dimensionality reduction. For PCA, this is unit-variance (correlation-based) PCA. It changes the analysis, not graph axis geometry. If the entered variables are already standardized, enabling this option will not change the result.">
                   <input type="checkbox" id="pcaStandardizeVariables" aria-label="Standardize input variables to unit variance" /> Standardize variables
                 </label>
+              </div>
+              <div class="control stats-figure-controls stats-figure-controls--grouped" id="pcaStatsFigureControls">
+                <div class="stats-figure-controls__result-row">
+                  <div class="stats-figure-controls__heading">Statistical results:</div>
+                  <div class="stats-figure-controls__options">
+                    <label class="idx-inline-023 config-panel__checkbox">
+                      <input type="checkbox" id="pcaShowFigureSummary" class="stats-figure-summary-checkbox" data-parameter-stats-figure-summary="1" data-undo-ignore="1" disabled />
+                      <span>Summary table</span>
+                    </label>
+                  </div>
+                </div>
               </div>
             </fieldset>
             <div id="pcaHiddenPointControls" hidden aria-hidden="true">
@@ -1280,6 +1318,20 @@
             </div>
           </div>
           <div class="config-panel">
+            <fieldset data-graph-selection-fieldset="1">
+              <legend>Graph</legend>
+              <div class="control stats-figure-controls stats-figure-controls--grouped" id="surfaceStatsFigureControls">
+                <div class="stats-figure-controls__result-row">
+                  <div class="stats-figure-controls__heading">Statistical results:</div>
+                  <div class="stats-figure-controls__options">
+                    <label class="idx-inline-023 config-panel__checkbox">
+                      <input type="checkbox" id="surfaceShowFigureSummary" class="stats-figure-summary-checkbox" data-parameter-stats-figure-summary="1" data-undo-ignore="1" disabled />
+                      <span>Summary table</span>
+                    </label>
+                  </div>
+                </div>
+              </div>
+            </fieldset>
             <fieldset>
               <legend>Data interpretation</legend>
               <div class="control">
@@ -1407,28 +1459,35 @@
                   </select>
                 </label>
               </div>
-              <div class="line-graph-regression-options" id="lineGraphRegressionOptionsGrid">
-                <div class="control line-graph-regression-options-row">
+              <div class="line-graph-regression-options stats-figure-controls stats-figure-controls--grouped" id="lineGraphRegressionOptionsGrid">
+                <div class="control line-graph-regression-options-row stats-figure-controls__options stats-figure-controls__options--inline">
                   <label class="idx-inline-023">
                     <input type="checkbox" id="lineShowTrendLine" /> Show Fitted Trend Line
                   </label>
                   <label class="idx-inline-023">
                     <input type="checkbox" id="lineShowIntervals" /> Show Confidence Interval
                   </label>
-                </div>
-                <div class="control line-graph-regression-options-row">
                   <label class="idx-inline-023">
                     <input type="checkbox" id="lineShowPredictionIntervals" /> Show Prediction Interval
                   </label>
-                  <label class="idx-inline-023">
-                    <input type="checkbox" id="lineShowPlotStats" /> Show stats on plot
-                  </label>
+                </div>
+                <div class="stats-figure-controls__result-row">
+                  <div class="stats-figure-controls__heading">Statistical results:</div>
+                  <div class="control line-graph-regression-options-row stats-figure-controls__options">
+                    <label class="idx-inline-023"><input type="checkbox" id="lineShowPlotStats" /> Stats on plot</label>
+                    <label class="idx-inline-023"><input type="checkbox" id="lineShowFigureSummary" class="stats-figure-summary-checkbox" data-parameter-stats-figure-summary="1" data-undo-ignore="1" disabled /> Summary table</label>
+                  </div>
                 </div>
               </div>
             </fieldset>
             <input type="number" id="lineBorderWidth" value="2" min="0" max="10" hidden />
             <input type="color" id="lineBorder" value="#0000ff" hidden />
-            <input type="number" id="lineErrorBarWidth" value="2" min="0" max="10" hidden />
+            <input type="number" id="lineErrorBarWidth" value="2" min="0" max="10" data-undo-ignore="1" hidden />
+            <select id="lineUncertaintyDisplay" data-undo-ignore="1" hidden>
+              <option value="bars" selected>Error bars</option>
+              <option value="band">Shaded band</option>
+            </select>
+            <input type="number" id="lineUncertaintyBandTransparency" value="80" min="0" max="100" step="1" data-undo-ignore="1" hidden />
             <fieldset>
               <legend>Grid & axis</legend>
               <div class="control idx-inline-031">
@@ -1581,7 +1640,7 @@
                   </label>
                   <label class="heatmap-inline-group heatmap-control-inline">
                     <input type="checkbox" id="heatmapMaskLower" />
-                    <span class="heatmap-nowrap">Hide lower triangle (correlation)</span>
+                    <span class="heatmap-nowrap">Hide lower triangle</span>
                   </label>
                 </div>
                 <div class="heatmap-control-row heatmap-correlation-only">
@@ -1629,6 +1688,17 @@
                   </label>
                 </div>
                 <div id="heatmapStatsInferenceControls" class="stats-inference-controls stats-inference-controls--compact" aria-label="Correlation inference settings"></div>
+                <div class="heatmap-control-row stats-figure-controls stats-figure-controls--grouped" id="heatmapStatsFigureControls">
+                  <div class="stats-figure-controls__result-row">
+                    <div class="stats-figure-controls__heading">Statistical results:</div>
+                    <div class="stats-figure-controls__options">
+                      <label class="heatmap-inline-group">
+                        <input type="checkbox" id="heatmapShowFigureSummary" class="stats-figure-summary-checkbox" data-parameter-stats-figure-summary="1" data-undo-ignore="1" disabled />
+                        <span>Summary table</span>
+                      </label>
+                    </div>
+                  </div>
+                </div>
               </div>
             </fieldset>
             <fieldset class="heatmap-view-panel heatmap-clustering-panel">
@@ -1815,7 +1885,15 @@
                     <option value="pr">Precision-Recall</option>
                   </select>
                 </label>
-                <label class="idx-inline-023"><input type="checkbox" id="rocShowComparisonOnPlot" /> <span id="rocShowComparisonOnPlotLabel">Show stats on plot</span></label>
+              </div>
+              <div class="stats-figure-controls stats-figure-controls--grouped" id="rocStatsFigureControls">
+                <div class="stats-figure-controls__result-row">
+                  <div class="stats-figure-controls__heading">Statistical results:</div>
+                  <div class="stats-figure-controls__options">
+                    <label class="idx-inline-023"><input type="checkbox" id="rocShowComparisonOnPlot" disabled data-stats-report-control="shared" /> <span id="rocShowComparisonOnPlotLabel">Stats on plot</span></label>
+                    <label class="idx-inline-023"><input type="checkbox" id="rocShowFigureSummary" class="stats-figure-summary-checkbox" data-parameter-stats-figure-summary="1" data-undo-ignore="1" disabled /> Summary table</label>
+                  </div>
+                </div>
               </div>
             </fieldset>
             <fieldset data-roc-classification-fieldset="1">
@@ -1906,7 +1984,15 @@
               </div>
               <div class="control idx-inline-031">
                 <label class="idx-inline-023"><input type="checkbox" id="survivalShowRiskTable" checked /> Number at risk</label>
-                <label class="idx-inline-023"><input type="checkbox" id="survivalShowPlotStats" /> Show stats on plot</label>
+              </div>
+              <div class="stats-figure-controls stats-figure-controls--grouped" id="survivalStatsFigureControls">
+                <div class="stats-figure-controls__result-row">
+                  <div class="stats-figure-controls__heading">Statistical results:</div>
+                  <div class="stats-figure-controls__options">
+                    <label class="idx-inline-023"><input type="checkbox" id="survivalShowPlotStats" disabled data-stats-report-control="shared" /> Stats on plot</label>
+                    <label class="idx-inline-023"><input type="checkbox" id="survivalShowFigureSummary" class="stats-figure-summary-checkbox" data-parameter-stats-figure-summary="1" data-undo-ignore="1" disabled /> Summary table</label>
+                  </div>
+                </div>
               </div>
             </fieldset>
             <fieldset>
@@ -2003,8 +2089,14 @@
                 </label>
                 <label class="idx-inline-023"><input type="checkbox" id="histShowLegend" checked /> Show legend</label>
               </div>
-              <div class="control idx-inline-031" id="histGraphStatsRow">
-                <label class="idx-inline-023"><input type="checkbox" id="histShowStatsSummary" /> Show stats on plot</label>
+              <div class="stats-figure-controls stats-figure-controls--grouped" id="histGraphStatsRow">
+                <div class="stats-figure-controls__result-row">
+                  <div class="stats-figure-controls__heading">Statistical results:</div>
+                  <div class="stats-figure-controls__options">
+                    <label class="idx-inline-023"><input type="checkbox" id="histShowStatsSummary" disabled data-stats-report-control="shared" /> Stats on plot</label>
+                    <label class="idx-inline-023"><input type="checkbox" id="histShowFigureSummary" class="stats-figure-summary-checkbox" data-parameter-stats-figure-summary="1" data-undo-ignore="1" disabled /> Summary table</label>
+                  </div>
+                </div>
               </div>
               <div class="control idx-inline-031" id="histPanelLayoutRow" hidden>
                 <label class="idx-inline-023" id="histPanelArrangementCtl">
@@ -2130,9 +2222,10 @@
             <div class="control idx-inline-031" id="histStatsControls">
               <label class="idx-inline-023">
                 Fit diagnostics
-                <select id="histStatsDiagnosticsMode">
+                  <select id="histStatsDiagnosticsMode">
                   <option value="normal-vs-lognormal" selected>Normal vs Log-normal</option>
                   <option value="normal-fit">Normal fit only</option>
+                  <option value="lognormal-fit">Log-normal fit only</option>
                   <option value="off">Off</option>
                 </select>
               </label>
@@ -2194,7 +2287,15 @@
                 <label><input type="checkbox" id="pieShowPercents" /> Show percentages</label>
                 <label><input type="checkbox" id="pieShowFrame" /> Show frame</label>
                 <label><input type="checkbox" id="pieShowLegend" checked /> Show legend</label>
-                <label><input type="checkbox" id="pieShowStatsSummary" /> Show stats on plot</label>
+              </div>
+              <div class="control stats-figure-controls stats-figure-controls--grouped" id="pieStatsFigureControls">
+                <div class="stats-figure-controls__result-row">
+                  <div class="stats-figure-controls__heading">Statistical results:</div>
+                  <div class="stats-figure-controls__options">
+                    <label><input type="checkbox" id="pieShowStatsSummary" disabled data-stats-report-control="shared" /> Stats on plot</label>
+                    <label><input type="checkbox" id="pieShowFigureSummary" class="stats-figure-summary-checkbox" data-parameter-stats-figure-summary="1" data-undo-ignore="1" disabled /> Summary table</label>
+                  </div>
+                </div>
               </div>
               <div class="control pie-radial-options" data-pie-radial-options="1">
                 <label>

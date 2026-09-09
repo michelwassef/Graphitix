@@ -1467,7 +1467,8 @@
     svg.style.minWidth = '0';
     svg.style.minHeight = '0';
     svg.style.display = 'block';
-    svg.setAttribute('viewBox', `${viewport.x} ${viewport.y} ${viewport.width} ${viewport.height}`);
+    const format = value => Math.round(Number(value) * 1000) / 1000;
+    svg.setAttribute('viewBox', `${format(viewport.x)} ${format(viewport.y)} ${format(viewport.width)} ${format(viewport.height)}`);
     svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
     return true;
   }
@@ -1888,6 +1889,9 @@
   }
 
   function isSurfaceFontStyleEvent(detail){
+    if(Shared.statsFigureSummary?.isSummaryStyleEvent?.(detail)){
+      return false;
+    }
     const scopeId = detail?.scopeId || null;
     const storeKey = typeof detail?.storeKey === 'string' ? detail.storeKey : '';
     return scopeId === 'surface' || storeKey.startsWith('surface::');
@@ -3212,7 +3216,38 @@
     }
   }
 
-  function updateStats(info){
+  function buildSurfaceFigureSummary(info){
+    if(!info || typeof info !== 'object'){ return null; }
+    const rows = [];
+    const structured = Number(info.gridColumns) > 0 && Number(info.gridRows) > 0 && Number(info.gridExpected) > 0;
+    rows.push({
+      label:'Geometry',
+      value:structured
+        ? `${Number(info.gridColumns)} × ${Number(info.gridRows)} coordinate grid · ${info.gridComplete ? 'complete' : 'partial'} cell coverage`
+        : 'Unstructured X/Y/Z point cloud'
+    });
+    rows.push({
+      label:'Rendered mesh',
+      value:`${Number(info.vertexCount || 0)} vertices · ${Number(info.faceCount || 0)} triangular faces${Number.isFinite(Number(info.gridCells)) ? ` · ${Number(info.gridCells)} complete grid cells` : ''}`
+    });
+    if(Number.isFinite(Number(info.zMin)) && Number.isFinite(Number(info.zMax))){
+      rows.push({ label:'Z range', value:`${formatNumber(info.zMin)} to ${formatNumber(info.zMax)}` });
+    }
+    if(Number(info.skipped || 0) > 0){
+      rows.push({ label:'Excluded rows', value:`${Number(info.skipped)} rows with missing or non-numeric X/Y/Z values` });
+    }
+    if(info.resourceLimited){
+      rows.push({
+        label:'Resource limit',
+        value:info.pointLimitReached
+          ? `Point parsing limit reached; retained ${Number(info.vertexCount || 0)} finite coordinate points${Number(info.unscannedRows || 0) ? ` and did not scan ${Number(info.unscannedRows)} trailing rows` : ''}.`
+          : `Resource limit reached after scanning ${Number(info.scannedRows || 0)} of ${Number(info.rawRowCount || 0)} rows.`
+      });
+    }
+    return { schemaVersion:1, kind:'analysis', title:'Analysis summary', sections:[{ key:'analysis', label:'', rows }] };
+  }
+
+  function updateStats(info, options = {}){
     state.lastStats = (info && typeof info === 'object')
       ? (cloneSimple(info) || info)
       : null;
@@ -3265,6 +3300,7 @@
           Number.isFinite(info.faceCount) ? `Faces = ${info.faceCount}.` : null,
           Number.isFinite(info.zMin) && Number.isFinite(info.zMax) ? `Z range = ${formatNumber(info.zMin)} to ${formatNumber(info.zMax)}.` : null
         ].filter(Boolean).join(' '),
+        figureSummary: buildSurfaceFigureSummary(info),
         analysisSpec: {
           component: 'surface',
           vertexCount: Number.isFinite(info.vertexCount) ? info.vertexCount : 0,
@@ -3276,7 +3312,10 @@
           gridComplete: !!info.gridComplete,
           skipped: info.skipped || 0
         }
-      }, { title: 'Reporting and reproducibility' });
+      }, {
+        title: 'Reporting and reproducibility',
+        scheduleFigureSummary: options.scheduleFigureSummary !== false
+      });
     }
     const session = getActiveSurfaceSessionForState();
     captureSurfaceStatsPanelModel(null, session);
@@ -3287,6 +3326,18 @@
       session.state.statsPanelModel = normalizeSurfaceStatsPanelModel(state.statsPanelModel || {});
       session.updatedAt = Date.now();
     }
+  }
+
+  function renderSurfaceFigureSummary(tabId, reason = 'surface-stats-update'){
+    const ownerTabId = String(tabId || getSurfaceProjectionTabId() || '').trim() || null;
+    if(!ownerTabId || typeof Shared.statsFigureSummary?.renderForTab !== 'function'){
+      return false;
+    }
+    return Shared.statsFigureSummary.renderForTab(ownerTabId, {
+      componentType: 'surface',
+      allowDuringResize: true,
+      reason
+    }) === true;
   }
 
   function normalizeSurfaceStatsPanelModel(source = {}){
@@ -3369,7 +3420,7 @@
     return surfaceStatsPanelNodeHasStatContent(normalized.resultsModel);
   }
 
-  function restoreSurfaceStatsPanelModel(model, session = null){
+  function restoreSurfaceStatsPanelModel(model, session = null, options = {}){
     const context = resolveSurfaceStatsPanelContext(session);
     const normalized = normalizeSurfaceStatsPanelModel(model);
     if(context.owner){
@@ -3386,7 +3437,10 @@
     if(!context.target || !surfaceStatsPanelModelHasContent(normalized) || !Shared.statsReporting || typeof Shared.statsReporting.restorePanelModel !== 'function'){
       return false;
     }
-    const restored = Shared.statsReporting.restorePanelModel(context.target, normalized, { clearMainWhenMissing: false });
+    const restored = Shared.statsReporting.restorePanelModel(context.target, normalized, {
+      clearMainWhenMissing: false,
+      scheduleFigureSummary: options.scheduleFigureSummary !== false
+    });
     state.statsPanelModel = normalizeSurfaceStatsPanelModel(normalized);
     return !!(restored?.restoredMain || restored?.restoredReport || context.target.querySelector?.('.stats-table-card, .stats-report-panel, table, span'));
   }
@@ -3808,8 +3862,17 @@
         scheduleActiveSurfaceDraw({ reason: `surface-${axis}-axis-change` });
       });
     });
+    let loadExampleData = null;
+    const openImportPicker = () => {
+      if(!state.controls.importFile || typeof state.controls.importFile.click !== 'function'){
+        return false;
+      }
+      state.controls.importFile.value = '';
+      state.controls.importFile.click();
+      return true;
+    };
     if(state.controls.loadExample){
-      bindSurfaceControlHandler(state.controls.loadExample, 'click', 'load-example', () => {
+      loadExampleData = () => {
         const exampleRecord = Shared.exampleDatasets?.get?.('surface');
         const example = exampleRecord?.data;
         if(!Array.isArray(example)){
@@ -3839,13 +3902,11 @@
             reason: 'surface-example-load'
           });
         }
-      });
+      };
+      bindSurfaceControlHandler(state.controls.loadExample, 'click', 'load-example', loadExampleData);
     }
     if(state.controls.importBtn && state.controls.importFile){
-      bindSurfaceControlHandler(state.controls.importBtn, 'click', 'import-table', () => {
-        state.controls.importFile.value = '';
-        state.controls.importFile.click();
-      });
+      bindSurfaceControlHandler(state.controls.importBtn, 'click', 'import-table', openImportPicker);
       bindSurfaceControlHandler(state.controls.importFile, 'change', 'import-file', () => {
         if(!tableImport || typeof tableImport.openFile !== 'function'){
           console.warn('surface import skipped: tableImport unavailable');
@@ -3903,6 +3964,18 @@
         });
       });
     }
+    surface.__desktopCommandActions = {
+      loadExampleData: () => {
+        if(typeof loadExampleData !== 'function'){
+          return { status: 'skipped', reason: 'component-command-unavailable' };
+        }
+        loadExampleData();
+        return { status: 'handled' };
+      },
+      importData: () => openImportPicker()
+        ? { status: 'sent' }
+        : { status: 'skipped', reason: 'component-command-unavailable' }
+    };
     if(exporter && typeof exporter.mountSvgControls === 'function'){
       exporter.mountSvgControls({
         container: getSurfaceNodeById('surfaceExportControls'),
@@ -3959,10 +4032,13 @@
       drawSession.updatedAt = Date.now();
     }
     let status = 'complete';
+    let summaryProjectionHandled = false;
     try{
       const result = await draw(options, drawSession);
       if(result === false){
         status = 'cancelled';
+      }else{
+        summaryProjectionHandled = result?.summaryProjectionHandled === true;
       }
     }catch(err){
       status = 'error';
@@ -3984,7 +4060,8 @@
         tabId: drawTabId,
         action: 'draw-settled',
         reason: options?.reason || 'surface-draw',
-        phase: status
+        phase: status,
+        details: { summaryProjectionHandled }
       });
     }
   }
@@ -4164,8 +4241,8 @@
       showLegend: false
     });
     const legendShiftX = 0;
-    const plotWidth = Math.max(40, width - margin.left - margin.right);
-    const plotHeight = Math.max(40, height - margin.top - margin.bottom);
+    let plotWidth = Math.max(40, width - margin.left - margin.right);
+    let plotHeight = Math.max(40, height - margin.top - margin.bottom);
     const ranges = {
       x: ensureAxisRange(parsed.ranges?.x),
       y: ensureAxisRange(parsed.ranges?.y),
@@ -4207,7 +4284,7 @@
         }
       };
     }
-    const projectRotated = (rot) => projector.project(rot);
+    let projectRotated = (rot) => projector.project(rot);
     bindSurface3dRotationControls(svg, 'surface-plot', drawSession);
     const tickTargetX = Math.max(3, typeof chartStyle.estimateTickCount === 'function'
       ? chartStyle.estimateTickCount(plotWidth, { axis: 'x', fallback: 6 })
@@ -4242,6 +4319,84 @@
       y: ensureMinTicks(clampTicks(scaleY.ticks, ranges.y), ranges.y),
       z: ensureMinTicks(clampTicks(scaleZ.ticks, ranges.z), ranges.z)
     };
+    const surface3dSafeViewport = typeof plot3d.resolveRotationSafeViewport === 'function'
+      ? plot3d.resolveRotationSafeViewport({
+          width,
+          height,
+          margin,
+          axisLabels: { x: state.labels.x, y: state.labels.y, z: state.labels.z },
+          axisTicks,
+          fontSize: fs,
+          tickFontSize: surface3dTickFontSize,
+          axisStrokeWidth,
+          chartStyle,
+          rotationLimits: plot3d.DEFAULT_ROTATION_LIMITS
+        })
+      : { minX: 0, minY: 0, maxX: width, maxY: height, left: 0, top: 0, right: 0, bottom: 0, width, height };
+    if(typeof plot3d.resolveRotationSafeMargin === 'function'){
+      Object.assign(margin, plot3d.resolveRotationSafeMargin({ margin, safeViewport: surface3dSafeViewport }));
+      plotWidth = Math.max(40, width - margin.left - margin.right);
+      plotHeight = Math.max(40, height - margin.top - margin.bottom);
+      projector = typeof plot3d.createProjector === 'function'
+        ? plot3d.createProjector({
+            rotatedPoints: rotatedPoints.concat(rotatedCorners),
+            rotatedCorners,
+            width,
+            height,
+            margin,
+            shiftX: legendShiftX
+          })
+        : projector;
+      projectRotated = rot => projector.project(rot);
+    }
+    const surfaceLegendViewportExtension = (() => {
+      if(!legendVisible){
+        return 0;
+      }
+      const metrics = resolveSurfaceLegendMetrics({
+        width,
+        height,
+        margin,
+        fontSize: fs,
+        legendFontSize: surfaceLegendTickFontSize,
+        drawableFrame
+      });
+      const labels = resolveSurfaceLegendTicks(parsed.stats.zMin, parsed.stats.zMax)
+        .map(tick => tick.label);
+      const font = typeof chartStyle.makeFont === 'function'
+        ? chartStyle.makeFont(surfaceLegendTickFontSize)
+        : `${surfaceLegendTickFontSize}px Arial, Helvetica, sans-serif`;
+      const maxLabelWidth = labels.reduce((max, label) => {
+        const measured = typeof chartStyle.measureText === 'function'
+          ? Number(chartStyle.measureText(label, font))
+          : String(label).length * surfaceLegendTickFontSize * 0.6;
+        return Number.isFinite(measured) ? Math.max(max, measured) : max;
+      }, 0);
+      const legendContentWidth = metrics.barWidth
+        + metrics.tickLength
+        + metrics.tickLabelGap
+        + maxLabelWidth
+        + metrics.strokeWidth
+        + 2;
+      const defaultLegendX = width - metrics.marginRight + metrics.legendRightPad;
+      return Math.max(0, defaultLegendX + legendContentWidth - width + 2);
+    })();
+    const surfaceCanonicalWidth = width + surfaceLegendViewportExtension;
+    const surface3dViewportProjection = typeof chartStyle.stagePlot3dViewport === 'function'
+      ? chartStyle.stagePlot3dViewport({
+          svgBox,
+          plot: svg.parentElement,
+          svg,
+          baseWidth: width,
+          baseHeight: height,
+          canonicalWidth: surfaceCanonicalWidth,
+          canonicalHeight: height,
+          legendWidth: surfaceLegendViewportExtension,
+          applyOuterEnvelope: false,
+          safeViewport: surface3dSafeViewport
+        })
+      : null;
+    const surface3dViewport = { minX: 0, minY: 0, width: surfaceCanonicalWidth, height };
     const colorFor = colorScaleFactory(parsed.stats.zMin, parsed.stats.zMax, state.settings.colorRamp);
     const effectiveMode = (state.settings.interpolation === 'grid' && parsed.faces.length)
       ? 'grid'
@@ -4490,6 +4645,11 @@
       title.textContent = state.labels.title;
       markFontEditable(title, 'graphTitle', 'graphTitle');
       bindSurfaceTitleInlineInteraction(title, drawSession);
+      if(typeof plot3d.applyLegendPointerGuards === 'function'){
+        plot3d.applyLegendPointerGuards(title, { label: 'surface-title' });
+      }
+      title.setAttribute('data-graph-title', '1');
+      svg.appendChild(title);
       if(typeof Shared.enableLabelDrag === 'function'){
         Shared.enableLabelDrag(title, svg, {
           onDragEnd: pos => {
@@ -4506,11 +4666,6 @@
           }
         });
       }
-      if(typeof plot3d.applyLegendPointerGuards === 'function'){
-        plot3d.applyLegendPointerGuards(title, { label: 'surface-title' });
-      }
-      title.setAttribute('data-graph-title', '1');
-      svg.appendChild(title);
     } else {
       // update position/size and text only
       
@@ -4607,12 +4762,17 @@
       ensureSurfaceGraphViewport(svg, {
         padding: Math.max(fs, 18),
         debugLabel: 'surface-3d-graph',
-        baseViewport: { width, height },
+        baseViewport: surface3dViewport,
         fitContent: false
       });
     }
-    updateStats(parsed.stats);
+    surface3dViewportProjection?.commit?.();
+    updateStats(parsed.stats, { scheduleFigureSummary: false });
     state.layout?.syncPanels?.({ skipSchedule: true });
+    const summaryProjectionHandled = renderSurfaceFigureSummary(
+      drawSession?.tabId || getSurfaceProjectionTabId() || null,
+      options?.reason || 'surface-draw-summary'
+    ) === true;
     syncSurfaceAutoDrawNoticeWidth('draw');
     captureSurfaceSessionStateFromActive(projectedSurfaceSession, { reason: 'surface-draw-complete' });
     debugLog('Debug: surface draw complete', {
@@ -4620,7 +4780,7 @@
       points: parsed.points.length,
       faces: parsed.faces.length
     });
-    return true;
+    return { completed:true, summaryProjectionHandled };
   }
 
   surface.draw = function drawSurfacePublic(options = {}){
@@ -4702,6 +4862,12 @@
   surface.init = function init(options = {}){
     const targetTabId = options?.tabId || getSurfaceProjectionTabId() || null;
     const targetRoot = options?.root || resolveSurfaceRoot(targetTabId || null) || null;
+    const passiveInit = options?.skipInitialDraw === true
+      || options?.suppressDraw === true
+      || options?.suppressAutoDraw === true
+      || options?.passiveControls === true
+      || options?.restoreRenderCache === true
+      || options?.restoreTransaction === true;
     if(surface.ready && (!targetTabId || surface.__boundTabId === targetTabId) && (!targetRoot || state.root === targetRoot)){
       bindSurfaceSessionForTab(targetTabId || null, { root: targetRoot || state.root || null, reason: options?.reason || 'surface-init-same-tab' }, { apply: false });
       syncSurfaceSessionRefsFromActive();
@@ -4855,7 +5021,12 @@
       });
       state.scheduleDraw = (opts) => surfaceAutoDrawManager.schedule(opts);
       surfaceAutoDrawManager.updateUi();
-      surfaceAutoDrawManager.evaluateThresholds();
+      // Recovery and passive activation already have owner-canonical data and
+      // may restore a cached graph before the normal draw path runs. Threshold
+      // evaluation must not turn that projection into an initialization draw.
+      if(!passiveInit){
+        surfaceAutoDrawManager.evaluateThresholds();
+      }
       syncSurfaceAutoDrawNoticeWidth('auto-draw-init');
     }else{
       state.scheduleDraw = scheduleDrawSurfaceRaw;
@@ -4865,7 +5036,7 @@
     }
     ensureSurfaceFontEventListener();
     if(state.layout && typeof state.layout.syncPanels === 'function'){
-      state.layout.syncPanels();
+      state.layout.syncPanels({ skipSchedule: passiveInit });
     }
     syncSurfaceAutoDrawNoticeWidth('panel-resync');
     updateAxisOptions();
@@ -4874,7 +5045,15 @@
     syncSurfaceSessionManagersFromActive();
     surface.__domSentinel = getSurfaceNodeById('surfaceHot');
     surface.ready = true;
-    scheduleActiveSurfaceDraw({ reason: options?.reason || 'surface-init-complete' });
+    if(!passiveInit){
+      scheduleActiveSurfaceDraw({ reason: options?.reason || 'surface-init-complete' });
+    }else{
+      debugLog('Debug: surface init initial draw skipped', {
+        reason: options?.reason || 'surface-init-complete',
+        tabId: targetTabId || null,
+        restoreRenderCache: options?.restoreRenderCache === true
+      });
+    }
   };
 
   surface.ensure = function ensure(options = {}){
@@ -5296,6 +5475,13 @@
       ? (cloneSimple(payload.stats) || payload.stats)
       : null;
     state.statsPanelModel = normalizeSurfaceStatsPanelModel(config.statsPanelModel || payload.stats?.statsPanelModel || {});
+    if(scheduleTargetSession){
+      scheduleTargetSession.state.lastStats = cloneSimple(state.lastStats) || null;
+      scheduleTargetSession.results.lastStats = cloneSimple(state.lastStats) || null;
+      scheduleTargetSession.state.statsPanelModel = normalizeSurfaceStatsPanelModel(state.statsPanelModel);
+      scheduleTargetSession.results.statsPanelModel = normalizeSurfaceStatsPanelModel(state.statsPanelModel);
+      scheduleTargetSession.updatedAt = Date.now();
+    }
     if(!skipDraw){
       if(state.lastStats){
         updateStats(state.lastStats);
@@ -5576,91 +5762,39 @@
     return true;
   }
 
-  function captureSurfaceSvgRootState(svg){
-    if(!svg){
-      return null;
-    }
-    const attributeNames = ['width', 'height', 'viewBox', 'preserveAspectRatio', 'font-family', 'data-surface-base-width', 'data-surface-base-height'];
-    const styleNames = ['display'];
-    const attributes = {};
-    const style = {};
-    attributeNames.forEach(name => {
-      const value = typeof svg.getAttribute === 'function' ? svg.getAttribute(name) : null;
-      if(typeof value === 'string' && value.length){
-        attributes[name] = value;
-      }
-    });
-    styleNames.forEach(name => {
-      const value = svg.style?.[name];
-      if(typeof value === 'string' && value.length){
-        style[name] = value;
-      }
-    });
-    return {
-      attributes: Object.keys(attributes).length ? attributes : null,
-      style: Object.keys(style).length ? style : null
-    };
-  }
-
-  function restoreSurfaceSvgRootState(svg, snapshot){
-    if(!svg){
-      return false;
-    }
-    const attributeNames = ['width', 'height', 'viewBox', 'preserveAspectRatio', 'font-family', 'data-surface-base-width', 'data-surface-base-height'];
-    const styleNames = ['display'];
-    attributeNames.forEach(name => {
-      try{
-        if(typeof svg.removeAttribute === 'function'){
-          svg.removeAttribute(name);
-        }
-      }catch(err){
-        console.error('surface restore svg attribute reset error', { name, err });
-      }
-    });
-    styleNames.forEach(name => {
-      try{
-        if(svg.style){
-          svg.style[name] = '';
-        }
-      }catch(err){
-        console.error('surface restore svg style reset error', { name, err });
-      }
-    });
-    if(!snapshot || typeof snapshot !== 'object'){
-      return true;
-    }
-    const attributes = snapshot.attributes && typeof snapshot.attributes === 'object'
-      ? snapshot.attributes
-      : null;
-    const style = snapshot.style && typeof snapshot.style === 'object'
-      ? snapshot.style
-      : null;
-    if(attributes){
-      Object.entries(attributes).forEach(([name, value]) => {
-        try{
-          if(value == null || value === ''){
-            svg.removeAttribute?.(name);
-          }else{
-            svg.setAttribute?.(name, String(value));
-          }
-        }catch(err){
-          console.error('surface restore svg attribute error', { name, value, err });
-        }
-      });
-    }
-    if(style){
-      Object.entries(style).forEach(([name, value]) => {
-        try{
-          if(svg.style){
-            svg.style[name] = value || '';
-          }
-        }catch(err){
-          console.error('surface restore svg style error', { name, value, err });
-        }
-      });
-    }
-    return true;
-  }
+  const SURFACE_SVG_ROOT_ATTRIBUTES = Object.freeze([
+    'width',
+    'height',
+    'viewBox',
+    'preserveAspectRatio',
+    'font-family',
+    'data-surface-base-width',
+    'data-surface-base-height',
+    'data-plot3d-viewport',
+    'data-plot3d-base-width',
+    'data-plot3d-base-height',
+    'data-plot3d-canonical-width',
+    'data-plot3d-canonical-height',
+    'data-plot3d-viewport-min-x',
+    'data-plot3d-viewport-min-y',
+    'data-plot3d-viewport-max-x',
+    'data-plot3d-viewport-max-y',
+    'data-plot3d-viewport-width',
+    'data-plot3d-viewport-height',
+    'data-plot3d-safe-viewport-min-x',
+    'data-plot3d-safe-viewport-min-y',
+    'data-plot3d-safe-viewport-max-x',
+    'data-plot3d-safe-viewport-max-y',
+    'data-plot3d-safe-viewport-width',
+    'data-plot3d-safe-viewport-height',
+    'data-plot3d-outer-envelope',
+    'data-plot3d-reserve-left',
+    'data-plot3d-reserve-top',
+    'data-plot3d-reserve-right',
+    'data-plot3d-reserve-bottom',
+    'data-plot3d-legend-reserve-width',
+    'data-plot3d-rotation-limits'
+  ]);
 
   function syncSurfaceGeometryPoolsFromDom(reason, session = null, svgOverride = null){
     const ownerSession = ensureSurfaceSessionOwnershipShape(session || getActiveSurfaceSessionForState());
@@ -5759,7 +5893,10 @@
     const svgCache = detachChildren(state.svg);
     const statsCache = detachChildren(state.statsEl);
     const messageCache = detachChildren(state.messageEl);
-    const svgRootState = captureSurfaceSvgRootState(state.svg);
+    const svgRootState = Shared.graphViewport.captureSvgRootState(state.svg, {
+      attributes: SURFACE_SVG_ROOT_ATTRIBUTES,
+      styles: ['display']
+    });
     if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
       debugLog('Debug: surface render cache captured', {
         svgNodes: svgCache?.count || 0,
@@ -5852,12 +5989,41 @@
     }
     const graphCachePayload = cache?.[cache?.__graphitixRenderCache?.graphicKey] || cache?.svg || cache?.plot || cache?.preview || cache?.graph || cache?.stage;
     cacheDom();
-    restoreSurfaceSvgRootState(state.svg, cache.svgRootState);
+    Shared.graphViewport.restoreSvgRootState(state.svg, cache.svgRootState, {
+      attributes: SURFACE_SVG_ROOT_ATTRIBUTES,
+      styles: ['display']
+    });
     const restoredSvg = restoreChildren(state.svg, graphCachePayload);
-    const durableStatsModel = normalizeSurfaceStatsPanelModel(cacheSession?.results?.statsPanelModel || cacheSession?.state?.statsPanelModel || {});
+    if(restoredSvg){
+      (chartStyle.rehydrateContentViewports || chartStyle.rehydrateLegendViewports)?.(state.svg);
+    }
+    const payloadStatsModel = normalizeSurfaceStatsPanelModel(
+      _meta?.payload?.config?.statsPanelModel
+        || _meta?.payload?.stats?.statsPanelModel
+        || {}
+    );
+    const sessionStatsModel = normalizeSurfaceStatsPanelModel(
+      cacheSession?.results?.statsPanelModel
+        || cacheSession?.state?.statsPanelModel
+        || {}
+    );
+    const durableStatsModel = surfaceStatsPanelModelHasContent(payloadStatsModel)
+      ? payloadStatsModel
+      : sessionStatsModel;
     let restoredStats = true;
     if(surfaceStatsPanelModelHasContent(durableStatsModel)){
-      restoredStats = restoreSurfaceStatsPanelModel(durableStatsModel, cacheSession);
+      const cachedFigureSummary = !!(
+        restoredSvg
+        && state.svg?.querySelector?.('g[data-stats-figure-summary="1"]')
+      );
+      restoredStats = restoreSurfaceStatsPanelModel(durableStatsModel, cacheSession, {
+        // The cache already contains the complete summary SVG projection. Rebuild
+        // the report panel and registry, but do not schedule a second projection.
+        scheduleFigureSummary: !cachedFigureSummary
+      });
+    }else if(cacheSession?.results?.lastStats || cacheSession?.state?.lastStats || state.lastStats){
+      updateStats(cacheSession?.results?.lastStats || cacheSession?.state?.lastStats || state.lastStats);
+      restoredStats = true;
     }else if(cache.stats){
       restoredStats = restoreChildren(state.statsEl, cache.stats);
       if(restoredStats){
@@ -5893,6 +6059,7 @@
 
   surface.__getState = () => state;
   surface.__testHooks = Object.assign({}, surface.__testHooks, {
+    buildFigureSummary: info => buildSurfaceFigureSummary(info || {}),
     resolveDrawableFrame: targetEl => resolveSurfaceDrawableFrame(targetEl),
     resolve3dFrame: drawableFrame => resolveSurface3dFrame(drawableFrame),
     resolveLegendMetrics: options => resolveSurfaceLegendMetrics(options),
@@ -5997,4 +6164,12 @@
       { key: 'notesState', get: () => notesState, excludeKeys: ['control'] }
     ]
   });
+
+  surface.executeDesktopCommand = function executeDesktopCommand(command){
+    const action = surface.__desktopCommandActions?.[command];
+    if (typeof action !== 'function') {
+      return { status: 'skipped', reason: 'component-command-unavailable' };
+    }
+    return action() || { status: 'handled' };
+  };
 })(window);

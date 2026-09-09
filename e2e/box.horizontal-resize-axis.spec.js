@@ -7,7 +7,16 @@ const {
 
 function readBoxAxisMetrics() {
   const root = document.querySelector('#boxPage:not([hidden])') || document;
-  const svg = root.querySelector('#boxPlot svg');
+  const svgCandidates = Array.from(root.querySelectorAll('#boxPlot svg'));
+  const svg = [...svgCandidates].reverse().find(node => {
+    if (!node || node.getAttribute('data-graph-frame-publication') === 'staged'
+      || node.getAttribute('data-box-pending-render') === '1'
+      || node.getAttribute('aria-hidden') === 'true') {
+      return false;
+    }
+    const style = getComputedStyle(node);
+    return style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0';
+  }) || svgCandidates[svgCandidates.length - 1] || null;
   const svgBox = root.querySelector('#boxGraphPanel .svgbox');
   if (!svg || !svgBox) {
     return null;
@@ -65,6 +74,7 @@ function readBoxAxisMetrics() {
     viewBox: svg.getAttribute('viewBox'),
     viewBoxMinX: Number((svg.getAttribute('viewBox') || '').trim().split(/\s+/)[0]),
     viewBoxWidth: Number((svg.getAttribute('viewBox') || '').trim().split(/\s+/)[2]),
+    svgWidthAttribute: svg.getAttribute('width'),
     stableMinX: Number(svgBox.dataset.graphViewportStableMinX),
     stableWidth: Number(svgBox.dataset.graphViewportStableWidth),
     yAxisSvgX: yAxis ? yAxis.x1 : null,
@@ -328,11 +338,32 @@ function summarize(samples) {
   };
 }
 
+test('box reset at default size preserves initial graph placement', async ({ page }) => {
+  await prepareBox(page);
+  const read = () => {
+    const box = document.querySelector('#boxGraphPanel .svgbox');
+    const plot = document.querySelector('#boxPlot');
+    const svg = plot.querySelector('svg');
+    const title = svg.querySelector('[data-font-role="graphTitle"]');
+    return {
+      box: box.getBoundingClientRect().toJSON(), plot: plot.getBoundingClientRect().toJSON(),
+      svg: svg.getBoundingClientRect().toJSON(), title: title.getBoundingClientRect().toJSON(),
+      viewBox: svg.getAttribute('viewBox'), plotStyle: plot.getAttribute('style'),
+      plotH: svg.dataset.boxPlotH, top: box.style.getPropertyValue('--graph-content-extra-top')
+    };
+  };
+  const before = await page.evaluate(read);
+  await page.locator('#boxGraphPanel .resizer-vertical').first().dblclick();
+  await page.waitForTimeout(700);
+  const after = await page.evaluate(read);
+  expect(Math.abs(after.title.y - before.title.y)).toBeLessThanOrEqual(0.5);
+});
+
 test('box pointer horizontal drag keeps y-axis line stable in page coordinates', async ({ page }, testInfo) => {
   const issues = registerIssueCollectors(page);
   await prepareBox(page);
 
-  const samples = await dragBoxWidthDense(page, -150);
+  const samples = await dragBoxWidthDense(page, -150, { stepDelayMs: 0 });
   const summary = summarize(samples);
 
   await testInfo.attach('box-horizontal-pointer-drag-axis.metrics.json', {
@@ -342,8 +373,76 @@ test('box pointer horizontal drag keeps y-axis line stable in page coordinates',
 
   expect(summary.base).not.toBeNull();
   expect(summary.maxYAxisPageXDrift).toBeLessThanOrEqual(0.25);
+  const liveMetrics = samples
+    .filter(sample => /^move-/.test(sample.phase))
+    .map(sample => sample.metrics)
+    .filter(Boolean);
+  expect(liveMetrics.every(metrics => metrics.svgWidthAttribute !== '100%')).toBe(true);
+  expect(new Set(liveMetrics.map(metrics => metrics.viewBoxWidth).filter(Number.isFinite)).size).toBeGreaterThanOrEqual(4);
   expect(issues.critical).toEqual([]);
 });
+
+for (const axis of ['x', 'y']) {
+test(`box live ${axis} resize keeps the displayed envelope consistent`, async ({ page }) => {
+  await prepareBox(page);
+  const dimensionKey = axis === 'x' ? 'boxPlotW' : 'boxPlotH';
+  const initialDimension = await page.locator('#boxPlot svg').first().getAttribute(`data-box-plot-${axis === 'x' ? 'w' : 'h'}`);
+  const liveDimensions = [];
+  await page.evaluate(() => {
+    window.__boxEnvelopeMismatches = [];
+    const box = document.querySelector('#boxGraphPanel .svgbox');
+    window.__boxStopEnvelopeWatch = false;
+    const sample = () => {
+      if (window.__boxStopEnvelopeWatch) return;
+      const svg = box.querySelector('#boxPlot svg:not([data-graph-frame-publication="staged"])');
+      if (svg) {
+        for (const side of ['left', 'top', 'right', 'bottom']) {
+          const reserve = Number(svg.dataset[`graphContentReserve${side[0].toUpperCase()}${side.slice(1)}`]) || 0;
+          const actual = parseFloat(box.style.getPropertyValue(`--graph-content-extra-${side}`)) || 0;
+          if (Math.abs(actual - reserve) > 1) window.__boxEnvelopeMismatches.push({ side, actual, reserve });
+        }
+      }
+      requestAnimationFrame(sample);
+    };
+    requestAnimationFrame(sample);
+  });
+
+  const handle = page.locator(`#boxGraphPanel .svgbox .resizer-${axis === 'x' ? 'vertical' : 'horizontal'}`).first();
+  await expect(handle).toBeVisible({ timeout: 10_000 });
+  const rect = await handle.boundingBox();
+  expect(rect).toBeTruthy();
+  if (!rect) {
+    return;
+  }
+  const x = rect.x + rect.width / 2;
+  const y = rect.y + rect.height / 2;
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  for (let step = 1; step <= 8; step += 1) {
+    await page.mouse.move(axis === 'x' ? x - step * 12 : x, axis === 'y' ? y - step * 12 : y);
+    await page.waitForTimeout(45);
+    liveDimensions.push(await page.evaluate(key => {
+      const svg = document.querySelector('#boxPlot svg:not([data-graph-frame-publication="staged"])');
+      return Number(svg?.dataset[key]);
+    }, dimensionKey));
+  }
+  await page.waitForTimeout(120);
+  const dimensionBeforeRelease = await page.evaluate(key => {
+    const svg = document.querySelector('#boxPlot svg:not([data-graph-frame-publication="staged"])');
+    return Number(svg?.dataset[key]);
+  }, dimensionKey);
+  await page.mouse.up();
+  await page.waitForFunction(() => window.Components?.box?.isIdleForSnapshot?.() === true, null, { timeout: 20_000 });
+
+  const mismatches = await page.evaluate(() => {
+    window.__boxStopEnvelopeWatch = true;
+    return window.__boxEnvelopeMismatches;
+  });
+  expect(Number(initialDimension) - dimensionBeforeRelease).toBeGreaterThan(20);
+  expect(new Set(liveDimensions.filter(Number.isFinite)).size).toBeGreaterThanOrEqual(4);
+  expect(mismatches).toEqual([]);
+});
+}
 
 test('box crash recovery preserves the horizontal-resize y-axis anchor and x-label reserve', async ({ page }, testInfo) => {
   test.setTimeout(150_000);

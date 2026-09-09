@@ -435,7 +435,11 @@
     }
     const reason = options.reason || 'archive-save';
     const snapshotIntent = resolvePersistSnapshotIntent(options);
-    const shouldCaptureRenderCache = options.captureRenderCache === true;
+    // Display-only zoom changes do not alter graph content. Capturing a live
+    // render cache here would detach and reattach the visible SVG later.
+    const zoomOnlyLayoutMutation = active.payloadDirty !== true
+      && String(active.lastUserModifiedReason || '') === 'resizer-zoom-change';
+    const shouldCaptureRenderCache = options.captureRenderCache === true && !zoomOnlyLayoutMutation;
     const preserveRenderCacheTabIds = Array.isArray(options.preserveRenderCacheTabIds)
       ? options.preserveRenderCacheTabIds.filter(Boolean)
       : [active.id];
@@ -443,7 +447,7 @@
       reason,
       forcePreviewCapture: true,
       captureRenderCache: shouldCaptureRenderCache,
-      captureRenderCacheIfNeeded: options.captureRenderCacheIfNeeded === true,
+      captureRenderCacheIfNeeded: options.captureRenderCacheIfNeeded === true && !zoomOnlyLayoutMutation,
       preserveRenderCacheTabIds,
       disableRenderCachePrune: true,
       origin: 'lifecycle',

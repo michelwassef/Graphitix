@@ -20,6 +20,31 @@ describe('Shared.enableLabelDrag', () => {
     return { svg, text };
   }
 
+  function createBoundedSvgText(x = 90, y = 95) {
+    const { svg, text } = createSvgText(x, y);
+    text.dataset.fontRole = 'graphTitle';
+    svg.getBoundingClientRect = () => ({
+      left: 0,
+      top: 0,
+      right: 100,
+      bottom: 100
+    });
+    svg.getScreenCTM = () => ({
+      inverse: () => ({})
+    });
+    text.getBoundingClientRect = () => {
+      const currentX = Number(text.getAttribute('x')) || 0;
+      const currentY = Number(text.getAttribute('y')) || 0;
+      return {
+        left: currentX - 20,
+        right: currentX + 20,
+        top: currentY - 10,
+        bottom: currentY + 10
+      };
+    };
+    return { svg, text };
+  }
+
   beforeEach(() => {
     jest.resetModules();
     document.body.innerHTML = '';
@@ -98,6 +123,66 @@ describe('Shared.enableLabelDrag', () => {
       element: text
     }));
     expect(window.Shared.undoManager.recordStateChange).toHaveBeenCalledTimes(1);
+  });
+
+  test('keeps graph and axis title roles inside the SVG viewport during restore and drag', () => {
+    const { svg, text } = createBoundedSvgText();
+    const onPositionChange = jest.fn();
+
+    window.Shared.enableLabelDrag(text, svg, { onPositionChange });
+
+    expect(text.getAttribute('x')).toBe('80');
+    expect(text.getAttribute('y')).toBe('90');
+    expect(onPositionChange).toHaveBeenCalledWith(expect.objectContaining({
+      x: 80,
+      y: 90,
+      reason: 'svg-boundary-normalize',
+      initial: true
+    }));
+
+    text.dispatchEvent(new window.MouseEvent('mousedown', {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+      clientX: 50,
+      clientY: 50
+    }));
+    window.dispatchEvent(new window.MouseEvent('mousemove', {
+      bubbles: true,
+      cancelable: true,
+      buttons: 1,
+      clientX: 220,
+      clientY: 220
+    }));
+    window.dispatchEvent(new window.MouseEvent('mouseup', {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+      clientX: 220,
+      clientY: 220
+    }));
+
+    expect(text.getAttribute('x')).toBe('80');
+    expect(text.getAttribute('y')).toBe('90');
+    expect(onPositionChange).toHaveBeenLastCalledWith(expect.objectContaining({
+      x: 80,
+      y: 90,
+      reason: 'drag-end'
+    }));
+  });
+
+  test('can defer initial boundary normalization until the final SVG envelope exists', () => {
+    const { svg, text } = createBoundedSvgText();
+    const onPositionChange = jest.fn();
+
+    window.Shared.enableLabelDrag(text, svg, {
+      deferInitialConstraint: true,
+      onPositionChange
+    });
+
+    expect(text.getAttribute('x')).toBe('90');
+    expect(text.getAttribute('y')).toBe('95');
+    expect(onPositionChange).not.toHaveBeenCalled();
   });
 
   test.each([

@@ -2923,6 +2923,21 @@ describe('componentLifecycle — draw scheduling helpers', () => {
     expect(merged.forceCanvasRecompute).toBe(true);
   });
 
+  test('mergeDrawOptions keeps the strongest semantic render impact', () => {
+    expect(lc.mergeRenderImpact('paint', 'layout')).toBe('layout');
+    expect(lc.mergeRenderImpact('layout', 'analysis')).toBe('analysis');
+    expect(lc.mergeRenderImpact('structural', 'paint')).toBe('structural');
+    expect(lc.mergeRenderImpact(null, 'layout')).toBe('layout');
+    expect(lc.mergeDrawOptions({}, { renderImpact: 'layout' })).toMatchObject({ renderImpact: 'layout' });
+    expect(lc.mergeDrawOptions({ renderImpact: 'layout' }, { reason: 'data-change' })).toMatchObject({ renderImpact: 'analysis' });
+    expect(lc.mergeDrawOptions(
+      { renderImpact: 'layout', reason: 'legend-toggle' },
+      { renderImpact: 'analysis', reason: 'data-change' }
+    )).toMatchObject({ renderImpact: 'analysis' });
+    expect(lc.isPresentationOnlyDraw({ renderImpact: 'layout' })).toBe(true);
+    expect(lc.isPresentationOnlyDraw({ renderImpact: 'analysis' })).toBe(false);
+  });
+
   test('resolveDrawCooldownMs does not throttle live resize frames', () => {
     expect(lc.resolveDrawCooldownMs(
       { viewOnly: true, reason: 'resize', resizePhase: 'start' },

@@ -386,6 +386,9 @@
   }
 
   function isLineFontStyleEvent(detail){
+    if(Shared.statsFigureSummary?.isSummaryStyleEvent?.(detail)){
+      return false;
+    }
     const scopeId = detail?.scopeId || null;
     const storeKey = typeof detail?.storeKey === 'string' ? detail.storeKey : '';
     return scopeId === 'line' || storeKey.startsWith('line::');
@@ -521,8 +524,12 @@
   let lineTextColor = chartStyle.TEXT_COLOR || '#000000';
   let lineBackgroundColor = '#ffffff';
   let lineLegendControl = null;
-  let lineErrorBarToolbarPanel = null;
-  let lineErrorBarToolbarInput = null;
+  let lineUncertaintyToolbarPanel = null;
+  let lineUncertaintyToolbarModeSelect = null;
+  let lineUncertaintyToolbarWidthInput = null;
+  let lineUncertaintyToolbarTransparencyField = null;
+  let lineUncertaintyToolbarTransparencyInput = null;
+  let lineUncertaintyToolbarTransparencyValue = null;
 
   function normalizeLineThemeColor(value, fallback){
     return (typeof value === 'string' && value.trim()) ? value.trim() : fallback;
@@ -3555,6 +3562,29 @@
     return finalizeLine2dSeriesAccumulator(accumulator);
   }
 
+  function buildLineProjectedUncertaintyBandPath(points){
+    if(!Array.isArray(points) || points.length < 2){
+      return null;
+    }
+    const valid = points.every(point => (
+      Number.isFinite(point?.x)
+      && Number.isFinite(point?.upperY)
+      && Number.isFinite(point?.lowerY)
+    ));
+    if(!valid){
+      return null;
+    }
+    const commands = [];
+    points.forEach((point, index) => {
+      commands.push(`${index === 0 ? 'M' : 'L'}${point.x},${point.upperY}`);
+    });
+    points.slice().reverse().forEach(point => {
+      commands.push(`L${point.x},${point.lowerY}`);
+    });
+    commands.push('Z');
+    return commands.join(' ');
+  }
+
   function buildLineStatsContextFromOwnerData(session = null, options = {}){
     const ownerSession = ensureLineSessionOwnershipShape(session || getLineActiveSessionForState());
     if(!ownerSession){
@@ -4364,6 +4394,8 @@
     'border',
     'borderWidth',
     'errorBarWidth',
+    'uncertaintyDisplay',
+    'uncertaintyBandTransparency',
     'dotSize',
     'displayMode',
     'alpha',
@@ -4477,6 +4509,8 @@
       border: '',
       borderWidth: '',
       errorBarWidth: '',
+      uncertaintyDisplay: 'bars',
+      uncertaintyBandTransparency: '80',
       alpha: '',
       displayMode: 'line',
       showGrid: false,
@@ -4513,6 +4547,8 @@
       border: src.border != null ? String(src.border) : defaults.border,
       borderWidth: src.borderWidth != null ? String(src.borderWidth) : defaults.borderWidth,
       errorBarWidth: src.errorBarWidth != null ? String(src.errorBarWidth) : defaults.errorBarWidth,
+      uncertaintyDisplay: sanitizeLineUncertaintyDisplay(src.uncertaintyDisplay ?? defaults.uncertaintyDisplay),
+      uncertaintyBandTransparency: formatLineUncertaintyBandTransparency(src.uncertaintyBandTransparency ?? defaults.uncertaintyBandTransparency),
       alpha: src.alpha != null ? String(src.alpha) : defaults.alpha,
       displayMode: sanitizeLineDisplayMode(src.displayMode != null ? src.displayMode : defaults.displayMode),
       showGrid: !!src.showGrid,
@@ -5887,6 +5923,8 @@
       border: lineRefs.border?.value ?? currentControls.border,
       borderWidth: lineRefs.borderWidth?.value ?? currentControls.borderWidth,
       errorBarWidth: lineRefs.errorBarWidth?.value ?? currentControls.errorBarWidth,
+      uncertaintyDisplay: lineRefs.uncertaintyDisplay?.value ?? currentControls.uncertaintyDisplay,
+      uncertaintyBandTransparency: lineRefs.uncertaintyBandTransparency?.value ?? currentControls.uncertaintyBandTransparency,
       alpha: lineRefs.alpha?.value ?? currentControls.alpha,
       displayMode: lineRefs.displayMode?.value ?? currentControls.displayMode,
       showGrid: lineRefs.showGrid ? !!lineRefs.showGrid.checked : currentControls.showGrid,
@@ -6013,6 +6051,8 @@
     refs.border = byId('lineBorder');
     refs.borderWidth = byId('lineBorderWidth');
     refs.errorBarWidth = byId('lineErrorBarWidth');
+    refs.uncertaintyDisplay = byId('lineUncertaintyDisplay');
+    refs.uncertaintyBandTransparency = byId('lineUncertaintyBandTransparency');
     refs.dotSize = byId('lineDotSize');
     refs.displayMode = byId('lineDisplayMode');
     refs.alpha = byId('lineAlpha');
@@ -6264,6 +6304,22 @@
     console.debug(label, payload);
   }
 
+  function sanitizeLineUncertaintyDisplay(value){
+    return String(value || '').trim().toLowerCase() === 'band' ? 'band' : 'bars';
+  }
+
+  function clampLineUncertaintyBandTransparency(value){
+    const numeric = Number(value);
+    if(!Number.isFinite(numeric)){
+      return 80;
+    }
+    return Math.min(100, Math.max(0, numeric));
+  }
+
+  function formatLineUncertaintyBandTransparency(value){
+    return String(Math.round(clampLineUncertaintyBandTransparency(value)));
+  }
+
   function clampLineErrorBarWidth(value){
     const numeric = Number(value);
     if(!Number.isFinite(numeric)){
@@ -6285,117 +6341,358 @@
     return liveInput;
   }
 
-  function syncLineErrorBarToolbarValue(){
-    const backingInput = getLineErrorBarWidthInput();
-    if(!backingInput){
+  function getLineUncertaintyDisplayInput(){
+    const liveInput = queryLineRoot('#lineUncertaintyDisplay') || refs.uncertaintyDisplay || null;
+    if(liveInput && refs.uncertaintyDisplay !== liveInput){
+      refs.uncertaintyDisplay = liveInput;
+    }
+    return liveInput;
+  }
+
+  function getLineUncertaintyBandTransparencyInput(){
+    const liveInput = queryLineRoot('#lineUncertaintyBandTransparency') || refs.uncertaintyBandTransparency || null;
+    if(liveInput && refs.uncertaintyBandTransparency !== liveInput){
+      refs.uncertaintyBandTransparency = liveInput;
+    }
+    return liveInput;
+  }
+
+  function syncLineUncertaintyToolbarValue(){
+    const widthInput = getLineErrorBarWidthInput();
+    const displayInput = getLineUncertaintyDisplayInput();
+    const transparencyInput = getLineUncertaintyBandTransparencyInput();
+    if(!widthInput || !displayInput || !transparencyInput){
       return;
     }
-    const normalizedText = formatLineErrorBarWidth(backingInput.value);
-    if(backingInput.value !== normalizedText){
-      backingInput.value = normalizedText;
+
+    const widthText = formatLineErrorBarWidth(widthInput.value);
+    const displayValue = sanitizeLineUncertaintyDisplay(displayInput.value);
+    const transparencyText = formatLineUncertaintyBandTransparency(transparencyInput.value);
+    if(widthInput.value !== widthText){ widthInput.value = widthText; }
+    if(displayInput.value !== displayValue){ displayInput.value = displayValue; }
+    if(transparencyInput.value !== transparencyText){ transparencyInput.value = transparencyText; }
+
+    const modeToolbarCurrent = canLineUncertaintyToolbarMutate(lineUncertaintyToolbarModeSelect);
+    const widthToolbarCurrent = canLineUncertaintyToolbarMutate(lineUncertaintyToolbarWidthInput);
+    const transparencyToolbarCurrent = canLineUncertaintyToolbarMutate(lineUncertaintyToolbarTransparencyInput);
+    if(modeToolbarCurrent && lineUncertaintyToolbarModeSelect.value !== displayValue){
+      lineUncertaintyToolbarModeSelect.value = displayValue;
     }
-    if(lineErrorBarToolbarInput && lineErrorBarToolbarInput.value !== normalizedText){
-      lineErrorBarToolbarInput.value = normalizedText;
+    if(widthToolbarCurrent && lineUncertaintyToolbarWidthInput.value !== widthText){
+      lineUncertaintyToolbarWidthInput.value = widthText;
+    }
+    if(transparencyToolbarCurrent && lineUncertaintyToolbarTransparencyInput.value !== transparencyText){
+      lineUncertaintyToolbarTransparencyInput.value = transparencyText;
+    }
+    if(transparencyToolbarCurrent && lineUncertaintyToolbarTransparencyValue){
+      lineUncertaintyToolbarTransparencyValue.textContent = `${transparencyText}%`;
+    }
+
+    const bandMode = displayValue === 'band';
+    const widthField = widthToolbarCurrent
+      ? (lineUncertaintyToolbarWidthInput?.closest?.('.additional-line-controls-panel__field') || null)
+      : null;
+    if(widthField){ widthField.hidden = bandMode; }
+    if(transparencyToolbarCurrent && lineUncertaintyToolbarTransparencyField){
+      lineUncertaintyToolbarTransparencyField.hidden = !bandMode;
     }
   }
 
-  function clearLineErrorBarToolbarControl(host){
-    const targetHost = host
-      || lineErrorBarToolbarPanel?.parentElement
-      || queryLineRoot('.font-toolbar-host[data-font-toolbar-scope="line"]')
-      || null;
-    if(targetHost?.querySelectorAll){
-      targetHost.querySelectorAll('.line-errorbar-inline-panel').forEach(node => node.remove());
+  function canLineUncertaintyToolbarMutate(input){
+    if(!input || input.isConnected !== true){
+      return false;
     }
-    lineErrorBarToolbarPanel = null;
-    lineErrorBarToolbarInput = null;
+    const activeTabId = String(getLineProjectionTabId() || '').trim();
+    const ownerTabId = String(resolveLineTabIdFromNode(input) || '').trim();
+    return !activeTabId || !ownerTabId || activeTabId === ownerTabId;
   }
 
-  function syncLineErrorBarToolbarControl(host){
-    const targetHost = host
-      || lineErrorBarToolbarPanel?.parentElement
-      || queryLineRoot('.font-toolbar-host[data-font-toolbar-scope="line"]')
-      || null;
-    if(!targetHost){
-      return;
-    }
-    const bindToolbarInput = input => {
-      if(!input || input.__lineErrorBarToolbarBound === true){
-        return;
+  function resolveLineUncertaintyToolbarHost(host = null){
+    const activeTabId = String(getLineProjectionTabId() || '').trim();
+    const activeHost = queryLineRoot('.font-toolbar-host[data-font-toolbar-scope="line"]', activeTabId || null) || null;
+    const isHostOwnedByActiveTab = candidate => {
+      if(!candidate || candidate.isConnected !== true){
+        return false;
       }
-      const applyToolbarValue = () => {
+      const ownerTabId = String(resolveLineTabIdFromNode(candidate) || '').trim();
+      return !activeTabId || !ownerTabId || ownerTabId === activeTabId;
+    };
+    if(isHostOwnedByActiveTab(host)){
+      return host;
+    }
+    if(isHostOwnedByActiveTab(activeHost)){
+      return activeHost;
+    }
+    const panelHost = lineUncertaintyToolbarPanel?.parentElement || null;
+    return isHostOwnedByActiveTab(panelHost) ? panelHost : null;
+  }
+
+  function clearLineUncertaintyToolbarControl(host){
+    const targetHost = resolveLineUncertaintyToolbarHost(host);
+    if(targetHost?.querySelectorAll){
+      targetHost.querySelectorAll('.line-uncertainty-inline-panel').forEach(node => node.remove());
+    }
+    if(lineUncertaintyToolbarPanel?.isConnected && lineUncertaintyToolbarPanel.parentElement !== targetHost){
+      lineUncertaintyToolbarPanel.remove();
+    }
+    lineUncertaintyToolbarPanel = null;
+    lineUncertaintyToolbarModeSelect = null;
+    lineUncertaintyToolbarWidthInput = null;
+    lineUncertaintyToolbarTransparencyField = null;
+    lineUncertaintyToolbarTransparencyInput = null;
+    lineUncertaintyToolbarTransparencyValue = null;
+  }
+
+  function syncLineUncertaintyToolbarControl(host){
+    const targetHost = resolveLineUncertaintyToolbarHost(host);
+    if(!targetHost){
+      clearLineUncertaintyToolbarControl(null);
+      return;
+    }
+
+    const widthBacking = getLineErrorBarWidthInput();
+    const displayBacking = getLineUncertaintyDisplayInput();
+    const transparencyBacking = getLineUncertaintyBandTransparencyInput();
+    const shouldShow = isLineGroupedModeActive();
+    if(!shouldShow || !widthBacking || !displayBacking || !transparencyBacking){
+      clearLineUncertaintyToolbarControl(targetHost);
+      lineDebug('Debug: line uncertainty toolbar visibility updated', { visible: false, groupedMode: shouldShow });
+      return;
+    }
+
+    const applyErrorBarWidthBacking = value => {
+      const backingInput = getLineErrorBarWidthInput();
+      if(!backingInput){ return null; }
+      const nextText = formatLineErrorBarWidth(value);
+      backingInput.value = nextText;
+      backingInput.dispatchEvent(new Event('input', { bubbles: true }));
+      return nextText;
+    };
+    const applyUncertaintyDisplayBacking = value => {
+      const backingInput = getLineUncertaintyDisplayInput();
+      if(!backingInput){ return null; }
+      const nextValue = sanitizeLineUncertaintyDisplay(value);
+      backingInput.value = nextValue;
+      backingInput.dispatchEvent(new Event('change', { bubbles: true }));
+      return nextValue;
+    };
+    const applyUncertaintyTransparencyBacking = value => {
+      const backingInput = getLineUncertaintyBandTransparencyInput();
+      if(!backingInput){ return null; }
+      const nextText = formatLineUncertaintyBandTransparency(value);
+      backingInput.value = nextText;
+      backingInput.dispatchEvent(new Event('input', { bubbles: true }));
+      return nextText;
+    };
+    const bindWidthInput = input => {
+      if(!input || input.__lineUncertaintyWidthBound === true){ return; }
+      let interactionStart = null;
+      const applyLiveValue = () => {
+        if(!canLineUncertaintyToolbarMutate(input)){ return null; }
+        const backingInput = getLineErrorBarWidthInput();
+        if(!backingInput){ return null; }
+        const rawValue = String(input.value ?? '').trim();
+        if(rawValue === '' || rawValue === '-' || rawValue === '+'){ return null; }
+        if(interactionStart === null){
+          interactionStart = formatLineErrorBarWidth(backingInput.value);
+        }
+        const nextText = formatLineErrorBarWidth(rawValue);
+        if(input.value !== nextText){ input.value = nextText; }
+        if(backingInput.value !== nextText){
+          applyErrorBarWidthBacking(nextText);
+        }
+        return nextText;
+      };
+      input.addEventListener('input', applyLiveValue);
+      input.addEventListener('change', () => {
+        if(!canLineUncertaintyToolbarMutate(input)){
+          interactionStart = null;
+          return;
+        }
         const backingInput = getLineErrorBarWidthInput();
         if(!backingInput){
+          interactionStart = null;
           return;
         }
-        const rawValue = String(input.value ?? '').trim();
-        if(rawValue === '' || rawValue === '-' || rawValue === '+'){
-          return;
+        const previous = interactionStart === null
+          ? formatLineErrorBarWidth(backingInput.value)
+          : interactionStart;
+        const next = applyLiveValue();
+        interactionStart = null;
+        if(next === null || previous === next){ return; }
+        recordLineChange('line:error-bar-width', previous, next, value => {
+          applyErrorBarWidthBacking(value);
+          syncLineUncertaintyToolbarValue();
+        });
+      });
+      input.__lineUncertaintyWidthBound = true;
+    };
+    const bindModeSelect = select => {
+      if(!select || select.__lineUncertaintyModeBound === true){ return; }
+      select.addEventListener('change', () => {
+        if(!canLineUncertaintyToolbarMutate(select)){ return; }
+        const backingInput = getLineUncertaintyDisplayInput();
+        if(!backingInput){ return; }
+        const previous = sanitizeLineUncertaintyDisplay(backingInput.value);
+        const nextValue = sanitizeLineUncertaintyDisplay(select.value);
+        if(backingInput.value !== nextValue){
+          applyUncertaintyDisplayBacking(nextValue);
         }
-        const nextText = formatLineErrorBarWidth(input.value);
-        if(input.value !== nextText){
-          input.value = nextText;
+        syncLineUncertaintyToolbarValue();
+        if(previous === nextValue){ return; }
+        recordLineChange('line:uncertainty-display', previous, nextValue, value => {
+          applyUncertaintyDisplayBacking(value);
+          syncLineUncertaintyToolbarValue();
+        });
+      });
+      select.__lineUncertaintyModeBound = true;
+    };
+    const bindTransparencyInput = input => {
+      if(!input || input.__lineUncertaintyTransparencyBound === true){ return; }
+      let interactionStart = null;
+      const applyLiveValue = () => {
+        if(!canLineUncertaintyToolbarMutate(input)){ return null; }
+        const backingInput = getLineUncertaintyBandTransparencyInput();
+        if(!backingInput){ return null; }
+        if(interactionStart === null){
+          interactionStart = formatLineUncertaintyBandTransparency(backingInput.value);
+        }
+        const nextText = formatLineUncertaintyBandTransparency(input.value);
+        if(input.value !== nextText){ input.value = nextText; }
+        if(lineUncertaintyToolbarTransparencyValue){
+          lineUncertaintyToolbarTransparencyValue.textContent = `${nextText}%`;
         }
         if(backingInput.value !== nextText){
-          backingInput.value = nextText;
-          backingInput.dispatchEvent(new Event('input', { bubbles: true }));
+          applyUncertaintyTransparencyBacking(nextText);
         }
+        return nextText;
       };
-      input.addEventListener('input', applyToolbarValue);
-      input.addEventListener('change', applyToolbarValue);
-      input.__lineErrorBarToolbarBound = true;
+      input.addEventListener('input', applyLiveValue);
+      input.addEventListener('change', () => {
+        if(!canLineUncertaintyToolbarMutate(input)){
+          interactionStart = null;
+          return;
+        }
+        const backingInput = getLineUncertaintyBandTransparencyInput();
+        if(!backingInput){
+          interactionStart = null;
+          return;
+        }
+        const previous = interactionStart === null
+          ? formatLineUncertaintyBandTransparency(backingInput.value)
+          : interactionStart;
+        const next = applyLiveValue();
+        interactionStart = null;
+        if(next === null || previous === next){ return; }
+        recordLineChange('line:uncertainty-band-transparency', previous, next, value => {
+          applyUncertaintyTransparencyBacking(value);
+          syncLineUncertaintyToolbarValue();
+        });
+      });
+      input.__lineUncertaintyTransparencyBound = true;
     };
-    const shouldShow = isLineGroupedModeActive();
-    const backingInput = getLineErrorBarWidthInput();
-    if(!shouldShow || !backingInput){
-      clearLineErrorBarToolbarControl(targetHost);
-      lineDebug('Debug: line error bar toolbar visibility updated', { visible: false, groupedMode: shouldShow });
-      return;
-    }
-    let panel = targetHost.querySelector('.line-errorbar-inline-panel');
+
+    let panel = targetHost.querySelector('.line-uncertainty-inline-panel');
     if(!panel){
-      clearLineErrorBarToolbarControl(targetHost);
+      clearLineUncertaintyToolbarControl(targetHost);
       const doc = targetHost.ownerDocument || global.document;
-      if(!doc){
-        return;
-      }
+      if(!doc){ return; }
       const toolbarApi = Shared.getWorkspaceToolbarApi();
       const panelParts = toolbarApi.createSubPanel({
-        panelClass: 'additional-line-controls-panel line-errorbar-inline-panel',
-        title: 'Error bars',
+        panelClass: 'additional-line-controls-panel line-uncertainty-inline-panel',
+        title: 'Uncertainty (±SD)',
         rowClass: 'additional-line-controls-panel__row'
       });
       panel = panelParts.panel;
-      panel.dataset.lineErrorBarToolbar = '1';
+      panel.dataset.lineUncertaintyToolbar = '1';
+      panel.dataset.ownerTabId = String(getLineProjectionTabId() || '');
       panelParts.title.classList.add('additional-line-controls-panel__title');
       const row = panelParts.row;
-      const input = doc.createElement('input');
-      input.type = 'number';
-      input.min = backingInput.min || '0';
-      input.max = backingInput.max || '10';
-      input.step = backingInput.step || '0.25';
-      input.className = 'additional-line-controls-panel__input additional-line-controls-panel__input--small';
-      input.setAttribute('aria-label', 'Error bar thickness');
-      input.setAttribute('data-undo-ignore', '1');
-      bindToolbarInput(input);
-      const field = toolbarApi.createLabeledField({
-        fieldClass: 'additional-line-controls-panel__field additional-line-controls-panel__field--numeric',
-        label: 'Error Bar Thickness',
+
+      const modeSelect = doc.createElement('select');
+      modeSelect.className = 'additional-line-controls-panel__input additional-line-controls-panel__input--select';
+      modeSelect.setAttribute('aria-label', 'Uncertainty display');
+      modeSelect.setAttribute('data-undo-ignore', '1');
+      [
+        { value: 'bars', label: 'Error bars' },
+        { value: 'band', label: 'Shaded band' }
+      ].forEach(option => {
+        const el = doc.createElement('option');
+        el.value = option.value;
+        el.textContent = option.label;
+        modeSelect.appendChild(el);
+      });
+      const modeField = toolbarApi.createLabeledField({
+        fieldClass: 'additional-line-controls-panel__field additional-line-controls-panel__field--style',
+        label: 'Display',
         labelClass: 'additional-line-controls-panel__field-label',
-        control: input
+        control: modeSelect
       }).field;
-      row.appendChild(field);
+      row.appendChild(modeField);
+
+      const widthInput = doc.createElement('input');
+      widthInput.type = 'number';
+      widthInput.min = widthBacking.min || '0';
+      widthInput.max = widthBacking.max || '10';
+      widthInput.step = widthBacking.step || '0.25';
+      widthInput.className = 'additional-line-controls-panel__input additional-line-controls-panel__input--small';
+      widthInput.setAttribute('aria-label', 'Error bar thickness');
+      widthInput.setAttribute('data-undo-ignore', '1');
+      const widthField = toolbarApi.createLabeledField({
+        fieldClass: 'additional-line-controls-panel__field additional-line-controls-panel__field--numeric',
+        label: 'Thickness',
+        labelClass: 'additional-line-controls-panel__field-label',
+        control: widthInput
+      }).field;
+      row.appendChild(widthField);
+
+      const transparencyParts = toolbarApi.createTransparencyControl({
+        wrapClass: 'additional-line-controls-panel__range',
+        inputClass: 'additional-line-controls-panel__transparency-input',
+        inputAttrs: {
+          min: '0',
+          max: '100',
+          step: '1',
+          'aria-label': 'Uncertainty band transparency',
+          'data-undo-ignore': '1'
+        },
+        valueClass: 'additional-line-controls-panel__range-value'
+      });
+      const transparencyField = toolbarApi.createLabeledField({
+        fieldClass: 'additional-line-controls-panel__field additional-line-controls-panel__field--transparency',
+        label: 'Transparency',
+        labelClass: 'additional-line-controls-panel__field-label',
+        control: transparencyParts.wrap
+      }).field;
+      row.appendChild(transparencyField);
+
+      bindModeSelect(modeSelect);
+      bindWidthInput(widthInput);
+      bindTransparencyInput(transparencyParts.input);
       targetHost.appendChild(panel);
-      lineErrorBarToolbarPanel = panel;
-      lineErrorBarToolbarInput = input;
-      lineDebug('Debug: line error bar toolbar control mounted', { groupedMode: shouldShow });
+
+      lineUncertaintyToolbarPanel = panel;
+      lineUncertaintyToolbarModeSelect = modeSelect;
+      lineUncertaintyToolbarWidthInput = widthInput;
+      lineUncertaintyToolbarTransparencyField = transparencyField;
+      lineUncertaintyToolbarTransparencyInput = transparencyParts.input;
+      lineUncertaintyToolbarTransparencyValue = transparencyParts.value;
+      lineDebug('Debug: line uncertainty toolbar control mounted', { groupedMode: shouldShow });
     }else{
-      lineErrorBarToolbarPanel = panel;
-      lineErrorBarToolbarInput = panel.querySelector('input[type="number"]');
-      bindToolbarInput(lineErrorBarToolbarInput);
+      lineUncertaintyToolbarPanel = panel;
+      panel.dataset.ownerTabId = String(getLineProjectionTabId() || '');
+      lineUncertaintyToolbarModeSelect = panel.querySelector('select[aria-label="Uncertainty display"]');
+      lineUncertaintyToolbarWidthInput = panel.querySelector('input[aria-label="Error bar thickness"]');
+      lineUncertaintyToolbarTransparencyField = panel.querySelector('.additional-line-controls-panel__field--transparency');
+      lineUncertaintyToolbarTransparencyInput = lineUncertaintyToolbarTransparencyField?.querySelector('input[type="range"]') || null;
+      lineUncertaintyToolbarTransparencyValue = lineUncertaintyToolbarTransparencyField?.querySelector('.additional-line-controls-panel__range-value') || null;
+      bindModeSelect(lineUncertaintyToolbarModeSelect);
+      bindWidthInput(lineUncertaintyToolbarWidthInput);
+      bindTransparencyInput(lineUncertaintyToolbarTransparencyInput);
     }
-    syncLineErrorBarToolbarValue();
-    lineDebug('Debug: line error bar toolbar visibility updated', { visible: true, groupedMode: shouldShow });
+
+    syncLineUncertaintyToolbarValue();
+    lineDebug('Debug: line uncertainty toolbar visibility updated', { visible: true, groupedMode: shouldShow });
   }
 
   function activateLineDataToolbar(reason){
@@ -6646,6 +6943,8 @@
       .filter(node => String(node.dataset?.series || node.getAttribute?.('data-series') || '').trim() === key);
     const lineNodes = seriesNodes.filter(node => node.dataset?.lineStyleRole === 'line');
     const areaNodes = seriesNodes.filter(node => node.dataset?.lineStyleRole === 'area');
+    const uncertaintyBandNodes = Array.from(svg.querySelectorAll('path[data-line-uncertainty-series]'))
+      .filter(node => String(node.dataset?.lineUncertaintySeries || '').trim() === key);
     const markerGroups = seriesNodes.filter(node => node.dataset?.lineStyleRole === 'markers');
     const markerNodes = markerGroups.flatMap(group => Array.from(group.querySelectorAll('circle, ellipse, path, polygon, rect')));
     const legendNodes = Array.from(svg.querySelectorAll('[data-legend-key]'))
@@ -6673,6 +6972,7 @@
     const markerAlpha = patch.markerAlpha ?? patch.alpha;
     setAttribute(lineNodes, 'stroke', lineStroke);
     setAttribute(areaNodes, 'fill', lineStroke);
+    setAttribute(uncertaintyBandNodes, 'fill', lineStroke);
     setAttribute(legendLines, 'stroke', lineStroke);
     setAttribute(lineNodes, 'stroke-width', lineStrokeWidth);
     setAttribute(legendLines, 'stroke-width', lineStrokeWidth);
@@ -7529,7 +7829,7 @@
             if(additionalLineControls && typeof additionalLineControls.refresh === 'function'){
               additionalLineControls.refresh();
             }
-            syncLineErrorBarToolbarControl(toolbarHost);
+            syncLineUncertaintyToolbarControl(toolbarHost);
           }catch(err){}
         };
         if(additionalLineControls && typeof additionalLineControls.show === 'function'){
@@ -7922,7 +8222,7 @@
           ensureInlineOverlayPanel();
           toolbarHost.classList.add('font-toolbar-host--line-dual');
         }
-        syncLineErrorBarToolbarControl(toolbarHost);
+        syncLineUncertaintyToolbarControl(toolbarHost);
         if(markerScopeSelect){
           markerScopeSelect.addEventListener('change', () => {
             setLineScope(markerScopeSelect.value, {
@@ -10295,7 +10595,7 @@
     if(refs.replicatesInput){
       refs.replicatesInput.disabled = mode !== 'grouped';
     }
-    syncLineErrorBarToolbarControl();
+    syncLineUncertaintyToolbarControl();
   }
 
   function updateLineGroupShapeSelect(index, shape){
@@ -12131,10 +12431,10 @@
     return extreme / total;
   }
 
-  function computeLineCorrelationStats(method, x, y, jStatLib){
+  function computeLineCorrelationStats(method, x, y, jStatLib, alpha = 0.05){
     const n = x.length;
     const pearson = jStatLib.corrcoeff(x, y);
-    const alpha = 0.05;
+    const ciAlpha = Number.isFinite(Number(alpha)) && Number(alpha) > 0 && Number(alpha) < 1 ? Number(alpha) : 0.05;
     if(method === 'pearson'){
       const bounded = Math.max(-0.999999999999, Math.min(0.999999999999, pearson));
       const t = bounded * Math.sqrt((n - 2) / Math.max(1e-12, 1 - (bounded * bounded)));
@@ -12144,7 +12444,7 @@
         r: pearson,
         p,
         pMethod: 'Student t approximation',
-        ci: computeLineCorrelationConfidenceInterval(pearson, n, alpha),
+        ci: computeLineCorrelationConfidenceInterval(pearson, n, ciAlpha),
         ciApproximate: false
       };
     }
@@ -12169,7 +12469,7 @@
       r: spearman,
       p,
       pMethod,
-      ci: computeLineCorrelationConfidenceInterval(spearman, n, alpha),
+      ci: computeLineCorrelationConfidenceInterval(spearman, n, ciAlpha),
       ciApproximate: true
     };
   }
@@ -12279,11 +12579,11 @@
     const y=points.map(p=>p.y);
     const n=points.length;
     if(n<3) return null;
-    const correlation = computeLineCorrelationStats(method, x, y, jStatLib);
+    const alpha = Number.isFinite(options.alpha) ? options.alpha : 0.05;
+    const correlation = computeLineCorrelationStats(method, x, y, jStatLib, alpha);
     const r = correlation.r;
     const p = correlation.p;
     const label = correlation.label;
-    const alpha = Number.isFinite(options.alpha) ? options.alpha : 0.05;
     let regressionModel=options.precomputedRegression || null;
     if(!regressionModel && typeof regressionTools.fitRegression==='function'){
       try{
@@ -12324,6 +12624,187 @@
     };
   }
 
+
+  function buildLineFigureSummary(seriesEntries, options = {}){
+    const entries = Array.isArray(seriesEntries) ? seriesEntries.filter(entry => entry?.stats) : [];
+    if(!entries.length){ return null; }
+    const methodLabel = String(options.methodLabel || entries[0]?.stats?.method || options.method || 'Pearson').trim();
+    const associationSymbol = getLineAssociationSymbol(methodLabel);
+    const regressionMode = String(options.regressionMode || 'linear').trim();
+    const regressionLabel = getLineRegressionLabel(regressionMode);
+    const confidenceAlpha = Number.isFinite(Number(options.confidenceAlpha ?? options.alpha))
+      ? Number(options.confidenceAlpha ?? options.alpha)
+      : 0.05;
+    const decisionAlpha = Number.isFinite(Number(options.decisionAlpha)) ? Number(options.decisionAlpha) : getLineStatsAlpha();
+    const confidenceLevel = Math.max(0, Math.min(100, (1 - confidenceAlpha) * 100));
+    const alphaLabel = Shared.statsInference?.formatLevel?.(decisionAlpha) || String(decisionAlpha);
+    const associationPMethods = Array.from(new Set(entries
+      .map(entry => String(entry?.stats?.pMethod || '').trim())
+      .map(method => method.replace(/\s*(?:[;(,]|\band\s+)?\s*two-sided\s*\)?\s*$/i, '').trim())
+      .filter(Boolean)));
+    const associationMethodSummary = associationPMethods.length
+      ? `; association p-values use ${associationPMethods.join('; ')}`
+      : '';
+    const finite = value => Number.isFinite(Number(value));
+    const fmt = (value, digits = 4) => formatMetricValue(Number(value), digits);
+    const rawPToken = (value, inference = true) => {
+      const numeric = Number(value);
+      const fallback = Number.isFinite(numeric) ? String(formatP(numeric)) : '—';
+      if(typeof Shared.statsReporting?.pValue === 'function'){
+        return Shared.statsReporting.pValue(numeric, {
+          fallback,
+          inference: inference ? createLineInferenceSpec() : null
+        });
+      }
+      const token = { type:'pValue', value:numeric, fallback };
+      if(inference){ token.__statsInference = createLineInferenceSpec(); }
+      return token;
+    };
+    const analysisRows = [{
+      label:'Analysis',
+      value:`${entries.length} series · ${methodLabel} association · ${regressionLabel}`,
+      figureRole:'analysis',
+      figurePriority:80
+    }, {
+      label:'Inference',
+      value:`Two-sided association and model-coefficient tests; ${confidenceLevel.toFixed(confidenceLevel % 1 === 0 ? 0 : 1)}% confidence intervals; α = ${alphaLabel}${associationMethodSummary}${entries.length > 1 ? '; separate per-series inferential p-values are not multiplicity-adjusted across series' : ''}`,
+      figureRole:'inference',
+      figurePriority:70
+    }];
+    if(options.showDiagnostics){
+      analysisRows.push({
+        label:'Diagnostics',
+        value:'Residual diagnostics are advisory model checks; their p-values are unadjusted and should be interpreted with residual plots and study context.'
+      });
+    }
+    const resultRows = [];
+    const coefficientRows = [];
+    const diagnosticRows = [];
+    const forecastRows = [];
+    const isForecastMode = ['arima','holtwinters'].includes(regressionMode.toLowerCase());
+
+    entries.forEach((entry, index) => {
+      const name = String(entry?.name || `Series ${index + 1}`);
+      const stats = entry.stats || {};
+      const model = stats.regression || null;
+      const n = Number(model?.metrics?.sampleSize ?? entry.pointCount);
+      if(finite(stats.r)){
+        const parts = [];
+        if(Number.isFinite(n)){ parts.push(`n = ${Math.round(n)}; `); }
+        parts.push(`${associationSymbol} = ${fmt(stats.r, 4)}`);
+        if(stats.correlationCI && finite(stats.correlationCI.low) && finite(stats.correlationCI.high)){
+          parts.push(`; ${confidenceLevel.toFixed(confidenceLevel % 1 === 0 ? 0 : 1)}% CI [${fmt(stats.correlationCI.low, 4)}, ${fmt(stats.correlationCI.high, 4)}]${stats.correlationCiApproximate ? ' (approximate Fisher-z interval)' : ''}`);
+        }
+        if(finite(stats.p)){ parts.push('; p = ', rawPToken(stats.p)); }
+        resultRows.push({ label:`${name} · association`, valueParts:parts, figureRole:'association', figurePriority:80 });
+      }
+
+      if(!model){ return; }
+      const metrics = model.metrics || {};
+      if(isForecastMode || ['arima','holtwinters'].includes(String(model.mode || '').toLowerCase())){
+        const parts = [];
+        if(finite(metrics.horizon)){ parts.push(`horizon = ${Math.round(Number(metrics.horizon))}`); }
+        if(finite(metrics.rmse)){ parts.push(`${parts.length ? '; ' : ''}RMSE = ${fmt(metrics.rmse, 4)}`); }
+        if(finite(metrics.mae)){ parts.push(`${parts.length ? '; ' : ''}MAE = ${fmt(metrics.mae, 4)}`); }
+        if(finite(metrics.mape)){ parts.push(`${parts.length ? '; ' : ''}MAPE = ${(Number(metrics.mape) * 100).toFixed(2)}%`); }
+        if(finite(metrics.smape)){ parts.push(`${parts.length ? '; ' : ''}sMAPE = ${(Number(metrics.smape) * 100).toFixed(2)}%`); }
+        if(metrics.selectionCriterion){ parts.push(`${parts.length ? '; ' : ''}tuning criterion = ${String(metrics.selectionCriterion).replace(/-/g,' ')}`); }
+        if(finite(metrics.selectionScore)){ parts.push(`${parts.length ? '; ' : ''}score = ${fmt(metrics.selectionScore, 3)}`); }
+        if(parts.length){
+          forecastRows.push({
+            label:`Forecast${entries.length > 1 ? ` · ${name}` : ''}`,
+            valueParts:parts,
+            figureRole:'diagnostic'
+          });
+        }
+      }else{
+        const modelParts = [];
+        if(finite(metrics.r2)){
+          modelParts.push(`${metrics.r2Kind === 'uncentered' ? 'uncentered R²' : 'R²'} = ${fmt(metrics.r2, 4)}`);
+        }
+        if(finite(metrics.adjR2)){ modelParts.push(`${modelParts.length ? '; ' : ''}adjusted R² = ${fmt(metrics.adjR2, 4)}`); }
+        if(finite(entry.modelF) && finite(entry.modelDf1) && finite(entry.modelDf2)){
+          modelParts.push(`${modelParts.length ? '; ' : ''}F(${Math.round(Number(entry.modelDf1))}, ${Math.round(Number(entry.modelDf2))}) = ${fmt(entry.modelF, 3)}`);
+          if(finite(entry.modelFP)){ modelParts.push('; p = ', rawPToken(entry.modelFP)); }
+        }
+        if(finite(metrics.rmse)){ modelParts.push(`${modelParts.length ? '; ' : ''}RMSE = ${fmt(metrics.rmse, 4)}`); }
+        if(modelParts.length){ resultRows.push({ label:`${name} · model`, valueParts:modelParts, figureRole:'model', figurePriority:70 }); }
+      }
+
+      const coefficients = Array.isArray(model.coefficientStats) ? model.coefficientStats.filter(Boolean) : [];
+      const df = Number(model?.intervals?.degreesOfFreedom);
+      coefficients.forEach(stat => {
+        if(!finite(stat?.estimate)){ return; }
+        const parts = [`Estimate = ${fmt(stat.estimate, 4)}`];
+        if(finite(stat.standardError ?? stat.se)){ parts.push(`; SE = ${fmt(stat.standardError ?? stat.se, 4)}`); }
+        const statistic = Number(stat.statistic ?? stat.tStatistic ?? stat.zStatistic);
+        const statisticLabel = String(stat.statisticLabel || (finite(stat.zStatistic) ? 'z' : 't')).trim();
+        if(Number.isFinite(statistic)){
+          parts.push(`; ${statisticLabel}${statisticLabel.toLowerCase() === 't' && Number.isFinite(df) ? `(${Math.round(df)})` : ''} = ${fmt(statistic, 3)}`);
+        }
+        if(finite(stat.pValue)){ parts.push('; p = ', rawPToken(stat.pValue)); }
+        if(finite(stat.ciLow) && finite(stat.ciHigh)){
+          parts.push(`; ${confidenceLevel.toFixed(confidenceLevel % 1 === 0 ? 0 : 1)}% CI [${fmt(stat.ciLow, 4)}, ${fmt(stat.ciHigh, 4)}]`);
+        }
+        coefficientRows.push({ label:`${name} · ${String(stat.term || 'coefficient')}`, valueParts:parts });
+      });
+
+      if(options.showDiagnostics && model.diagnostics){
+        const d = model.diagnostics;
+        const parts = [];
+        if(finite(d.jarqueBera)){
+          parts.push(`Jarque–Bera = ${fmt(d.jarqueBera, 3)}`);
+          if(finite(d.jarqueBeraP)){ parts.push(', p = ', rawPToken(d.jarqueBeraP, false)); }
+        }
+        const runs = d.runsTest || null;
+        if(runs?.available && finite(runs.z)){
+          if(parts.length){ parts.push('; '); }
+          parts.push(`runs z = ${fmt(runs.z, 3)}`);
+          if(finite(runs.pValue)){ parts.push(', p = ', rawPToken(runs.pValue, false)); }
+        }
+        const lof = d.lackOfFit || null;
+        if(lof?.available && finite(lof.fStatistic)){
+          if(parts.length){ parts.push('; '); }
+          parts.push(`lack-of-fit F${finite(lof.dfLackOfFit) && finite(lof.dfPureError) ? `(${Math.round(Number(lof.dfLackOfFit))}, ${Math.round(Number(lof.dfPureError))})` : ''} = ${fmt(lof.fStatistic, 3)}`);
+          if(finite(lof.pValue)){ parts.push(', p = ', rawPToken(lof.pValue, false)); }
+        }
+        if(parts.length){ diagnosticRows.push({ label:name, valueParts:parts, figureRole:'diagnostic', figurePriority:45 }); }
+      }
+    });
+
+    const sections = [
+      { key:'analysis', label:'', rows:analysisRows },
+      ...(resultRows.length ? [{ key:'results', label:'Results', rows:resultRows }] : [])
+    ];
+    if(coefficientRows.length){
+      if(coefficientRows.length <= 12){
+        sections.push({ key:'coefficients', label:'Coefficients', rows:coefficientRows });
+      }else{
+        const prioritized = coefficientRows.filter(row => /·\s*(slope|trend|time|x\b)/i.test(row.label)).slice(0,8);
+        sections.push({
+          key:'coefficients',
+          label:'Coefficients',
+          rows:[
+            { label:'Coefficient family', value:`${coefficientRows.length} coefficient tests across ${entries.length} series; showing ${prioritized.length || Math.min(8, coefficientRows.length)} primary/trend coefficients below. The complete coefficient table remains in the canonical statistical results.` },
+            ...(prioritized.length ? prioritized : coefficientRows.slice(0,8))
+          ]
+        });
+      }
+    }
+    if(forecastRows.length){ sections.push({ key:'forecast', label:'Forecast', rows:forecastRows }); }
+    if(diagnosticRows.length){ sections.push({ key:'diagnostics', label:'Diagnostics', rows:diagnosticRows }); }
+    const rowHasPValue = row => Array.isArray(row?.valueParts)
+      && row.valueParts.some(part => part && typeof part === 'object' && part.type === 'pValue');
+    const hasInference = resultRows.some(rowHasPValue)
+      || coefficientRows.some(rowHasPValue);
+    return {
+      schemaVersion:1,
+      kind:hasInference ? 'inferential' : 'analysis',
+      title:hasInference ? 'Statistical analysis summary' : 'Analysis summary',
+      sections
+    };
+  }
+
   function updateLineStats(series, options = {}){
     const session = ensureLineSessionOwnershipShape(options.session || getLineActiveSessionForState());
     const lineRefs = resolveLineRefsContext(session, options);
@@ -12355,6 +12836,7 @@
     const parameterRows=[];
     const seasonalRows=[];
     const forecastRows=[];
+    const figureSeriesStats=[];
     let methodLabel='';
     const regressionSummaries = [];
     series.forEach(s=>{
@@ -12408,6 +12890,18 @@
             modelF:formatMetricValue(modelF),
             modelFP:formatP(modelFP),
             modelPValueCell:lineInferencePValue(modelFP)
+          });
+          figureSeriesStats.push({
+            name:s.name,
+            pointCount:pts.length,
+            stats,
+            regressionSummary:summary,
+            modelF,
+            modelFP,
+            modelDf1:Number.isFinite(predictorCount) ? predictorCount : NaN,
+            modelDf2:Number.isFinite(sampleSizeValue) && Number.isFinite(predictorCount)
+              ? sampleSizeValue - predictorCount - 1
+              : NaN
           });
           if(stats.regression?.summary?.parameters && typeof stats.regression.summary.parameters === 'object'){
             Object.entries(stats.regression.summary.parameters).forEach(([label, value]) => {
@@ -12756,6 +13250,14 @@
         methodsText: methodsParts.join(' '),
         resultsText: resultsParts.join(' '),
         resultsParts: structuredResultsParts,
+        figureSummary: buildLineFigureSummary(figureSeriesStats, {
+          method,
+          methodLabel:methodLabel || method,
+          regressionMode,
+          showDiagnostics,
+          confidenceAlpha:regressionAlpha,
+          decisionAlpha:getLineStatsAlpha()
+        }),
         analysisSpec: {
           component: 'line',
           method,
@@ -12913,6 +13415,8 @@
         border:controls.border,
         borderWidth:controls.borderWidth,
         errorBarWidth:controls.errorBarWidth || controls.borderWidth,
+        uncertaintyDisplay:sanitizeLineUncertaintyDisplay(controls.uncertaintyDisplay),
+        uncertaintyBandTransparency:formatLineUncertaintyBandTransparency(controls.uncertaintyBandTransparency),
         alpha:controls.alpha,
         labelColors:{ ...lineLabelColors },
         seriesStyles: payloadSeriesStyles,
@@ -13337,8 +13841,14 @@
       }else if(!payloadRefs.errorBarWidth.value){
         payloadRefs.errorBarWidth.value=payloadRefs.borderWidth?.value || '1';
       }
-      syncLineErrorBarToolbarValue();
     }
+    if(payloadRefs.uncertaintyDisplay){
+      payloadRefs.uncertaintyDisplay.value=sanitizeLineUncertaintyDisplay(c.uncertaintyDisplay);
+    }
+    if(payloadRefs.uncertaintyBandTransparency){
+      payloadRefs.uncertaintyBandTransparency.value=formatLineUncertaintyBandTransparency(c.uncertaintyBandTransparency);
+    }
+    syncLineUncertaintyToolbarValue();
     if(payloadRefs.alpha){
       payloadRefs.alpha.value=c.alpha||0;
       if(payloadRefs.alphaVal){
@@ -14107,20 +14617,11 @@
       const fallbackHeight = Math.round(fallbackWidth / targetAspect);
       const availableWidth = Math.floor(drawableFrame.width || 0);
       const availableHeight = Math.floor(drawableFrame.height || 0);
-      let W3 = availableWidth > 0 ? availableWidth : fallbackWidth;
-      let H3 = Math.round(W3 / targetAspect);
-      if(availableHeight > 0 && H3 > availableHeight){
-        H3 = Math.max(1, availableHeight);
-        W3 = Math.max(1, Math.round(H3 * targetAspect));
-        if(availableWidth > 0 && W3 > availableWidth){
-          W3 = Math.max(1, availableWidth);
-          H3 = Math.max(1, Math.round(W3 / targetAspect));
-        }
-      }
-      if(W3 <= 0 || H3 <= 0){
-        W3 = fallbackWidth;
-        H3 = fallbackHeight;
-      }
+      const frameDimensions = typeof plot3d.resolveFrameDimensions === 'function'
+        ? plot3d.resolveFrameDimensions({ availableWidth, availableHeight, fallbackWidth, fallbackHeight })
+        : { width: fallbackWidth, height: fallbackHeight };
+      let W3 = frameDimensions.width;
+      let H3 = frameDimensions.height;
       const baseW3 = W3;
       const legendVisible = showLegend && legendLayout?.renderer?.entries?.length > 0;
       const legendAxisGap = Math.max(fs * 0.9, 18);
@@ -14141,7 +14642,9 @@
       }else{
         plotEl.style.aspectRatio = `${W3} / ${H3}`;
       }
-      plotEl.style.padding = plotEl.style.padding || '12px';
+      // The outer .svgbox already supplies the user-frame padding. Additional
+      // padding here would make the CSS SVG rectangle smaller than its viewBox.
+      plotEl.style.padding = '0';
       plotEl.style.backgroundColor = '';
       plotEl.style.boxSizing = 'border-box';
       const existingLineSvg = plotEl.querySelector?.('#lineSvg') || null;
@@ -14158,14 +14661,7 @@
       svg3.dataset.viewMode = '3d';
       chartStyle.prepareSvg(svg3, { scopeId: 'line' });
       stampLineParameterObservables(svg3, invocation.session);
-      const legendProjection = chartStyle.stageLegendViewport({
-        svgBox: refs.svgBox,
-        plot: plotEl,
-        svg: svg3,
-        baseWidth: baseW3,
-        baseHeight: H3,
-        legendWidth: legendVisible ? lineLegendWidth + appliedLegendAxisGap : 0
-      });
+      let legendProjection = null;
       if(reuse3dSvg){
         svg3.replaceChildren();
       }
@@ -14200,11 +14696,11 @@
         bottom: Math.max(fs * 3.2, 40),
         left: Math.max(fs * 3.2, 40)
       };
-      const legendShiftX = typeof plot3d.resolveLegendShiftX === 'function'
+      let legendShiftX = typeof plot3d.resolveLegendShiftX === 'function'
         ? plot3d.resolveLegendShiftX({ legendVisible, margin: margin3, fontSize: fs, legendWidth: lineLegendWidth })
         : 0;
-      const plotW3 = Math.max(20, W3 - margin3.left - margin3.right);
-      const plotH3 = Math.max(20, H3 - margin3.top - margin3.bottom);
+      let plotW3 = Math.max(20, W3 - margin3.left - margin3.right);
+      let plotH3 = Math.max(20, H3 - margin3.top - margin3.bottom);
 
       const axisTickTools = chartStyle.axisTicks || null;
       const buildAxisScale = opts => {
@@ -14391,19 +14887,6 @@
           }
         });
       });
-      const projector = plot3d.createProjector({
-        rotatedPoints,
-        rotatedCorners,
-        width: W3,
-        height: H3,
-        margin: margin3,
-        shiftX: legendShiftX
-      });
-
-      const frontFrameLayer = global.document.createElementNS(NS, 'g');
-      frontFrameLayer.setAttribute('data-layer', 'frame-front');
-      svg3.appendChild(frontFrameLayer);
-
       const line3dFontStyles = exportFontStyles('line', { tabId: invocation.session?.tabId || null });
       const line3dTickFontSize = (() => {
         if(!chartStyle || typeof chartStyle.resolveScopedLabelMeasureFont !== 'function'){
@@ -14417,6 +14900,51 @@
         }).fontSizePx)).filter(size => Number.isFinite(size) && size > 0);
         return sizes.length ? Math.max(...sizes) : fs;
       })();
+      let projector = plot3d.createProjector({
+        rotatedPoints,
+        rotatedCorners,
+        width: W3,
+        height: H3,
+        margin: margin3,
+        shiftX: legendShiftX
+      });
+      const line3dAxisLabels = { x: lineLabelsState.x, y: lineLabelsState.y, z: lineLabelsState.z };
+      const line3dSafeViewport = typeof plot3d.resolveRotationSafeViewport === 'function'
+        ? plot3d.resolveRotationSafeViewport({
+            width: W3,
+            height: H3,
+            margin: margin3,
+            axisLabels: line3dAxisLabels,
+            axisTicks: axisTicks3d,
+            axisTickFormatters: axisTickFormatters3d || undefined,
+            fontSize: fs,
+            tickFontSize: line3dTickFontSize,
+            axisStrokeWidth,
+            chartStyle,
+            rotationLimits: plot3d.DEFAULT_ROTATION_LIMITS
+          })
+        : { minX: 0, minY: 0, maxX: W3, maxY: H3, left: 0, top: 0, right: 0, bottom: 0, width: W3, height: H3 };
+      if(typeof plot3d.resolveRotationSafeMargin === 'function'){
+        Object.assign(margin3, plot3d.resolveRotationSafeMargin({ margin: margin3, safeViewport: line3dSafeViewport }));
+        legendShiftX = typeof plot3d.resolveLegendShiftX === 'function'
+          ? plot3d.resolveLegendShiftX({ legendVisible, margin: margin3, fontSize: fs, legendWidth: lineLegendWidth })
+          : 0;
+        plotW3 = Math.max(20, W3 - margin3.left - margin3.right);
+        plotH3 = Math.max(20, H3 - margin3.top - margin3.bottom);
+        projector = plot3d.createProjector({
+          rotatedPoints,
+          rotatedCorners,
+          width: W3,
+          height: H3,
+          margin: margin3,
+          shiftX: legendShiftX
+        });
+      }
+
+      const frontFrameLayer = global.document.createElementNS(NS, 'g');
+      frontFrameLayer.setAttribute('data-layer', 'frame-front');
+      svg3.appendChild(frontFrameLayer);
+
       const markLine3dAxisTickLabel = (node, axisKey) => {
         if(!node){ return; }
         const role = axisKey === 'z' ? 'zTick' : (axisKey === 'y' ? 'yTick' : 'xTick');
@@ -14658,8 +15186,11 @@
         }
       }
 
-      const defaultTitleY = Math.max(margin3.top * 0.4, fs * 1.6);
-      const defaultTitleX = margin3.left + plotW3 / 2;
+      const defaultTitle = typeof plot3d.resolveDefaultTitlePosition === 'function'
+        ? plot3d.resolveDefaultTitlePosition({ margin: margin3, plotWidth: plotW3, fontSize: fs })
+        : { x: margin3.left + plotW3 / 2, y: Math.max(margin3.top * 0.4, fs * 1.6) };
+      const defaultTitleX = defaultTitle.x;
+      const defaultTitleY = defaultTitle.y;
       const titlePos = lineLabelsState.positions?.title;
 
       // Convert relative positions to absolute if needed for 3D title
@@ -14795,6 +15326,20 @@
 
       registerLineGridControlTarget(svg3, { fallbackThickness: axisStrokeWidthBase });
       handleLineStatsUnavailable(null, 'Statistics are available in 2D view.');
+      legendProjection = typeof chartStyle.stagePlot3dViewport === 'function'
+        ? chartStyle.stagePlot3dViewport({
+            svgBox: refs.svgBox,
+            plot: plotEl,
+            svg: svg3,
+            baseWidth: baseW3,
+            baseHeight: H3,
+            canonicalWidth: W3,
+            canonicalHeight: H3,
+            legendWidth: legendVisible ? lineLegendWidth + appliedLegendAxisGap : 0,
+            safeViewport: line3dSafeViewport
+          })
+        : null;
+      const line3dViewport = { minX: 0, minY: 0, width: W3, height: H3 };
       // 3D plots must scale uniformly: the content (projected cube, axis labels,
       // title, legend, and every glyph) is laid out in fixed viewBox coordinates and
       // must NEVER be non-uniformly stretched to fill a container of a different
@@ -14802,7 +15347,7 @@
       // "none"/fill-distort default) guarantees proportions are preserved on initial
       // render, rotation, and resize. Without it, a content bbox whose aspect differs
       // from the rendered box stretches the whole plot vertically/horizontally.
-      ensureGraphViewport(svg3, { padding: Math.max(fs, 18), debugLabel: 'line-3d-graph', baseViewport: { width: W3, height: H3 }, preserveAspectRatio: 'xMidYMid meet', fitContent: false });
+      ensureGraphViewport(svg3, { padding: Math.max(fs, 18), debugLabel: 'line-3d-graph', baseViewport: line3dViewport, preserveAspectRatio: 'xMidYMid meet', fitContent: false });
       if(!(await checkpoint()) || (invocation.session && !isLineSessionActive(invocation.session))){
         return false;
       }
@@ -14811,7 +15356,7 @@
           return false;
         }
       }
-      legendProjection.commit();
+      legendProjection?.commit?.();
       getActiveLineLayoutManager()?.syncPanels?.({ skipSchedule: true });
       scheduleLineNoticeWidth('draw-3d');
       console.debug('Debug: drawLine3d complete', { debugStamp });
@@ -14879,6 +15424,8 @@
       const borderWidthRaw=Number(controls.borderWidth);
       const errorBarWidthInput=Number(controls.errorBarWidth);
       const errorBarWidthRaw=Number.isFinite(errorBarWidthInput)?errorBarWidthInput:borderWidthRaw;
+      const uncertaintyDisplay=sanitizeLineUncertaintyDisplay(controls.uncertaintyDisplay);
+      const uncertaintyBandTransparency=clampLineUncertaintyBandTransparency(controls.uncertaintyBandTransparency);
       const borderColor=controls.border;
       const drawableFrame = resolveLineDrawableFrame(refs.plot);
       const fontInfo=chartStyle.resolveScaledFontSize({
@@ -16312,9 +16859,12 @@
       }
       console.debug('Debug: line font tick binding',{ xTickFontCount, yTickFontCount }); // Debug: tick font binding counts
       console.debug('Debug: line ticks stroke scaled',{xTickCount:xScale.ticks.length,yTickCount:yScale.ticks.length,axisStrokeWidth});
-      const showErrorBars=replicates>1;
+      const showErrorBars=replicates>1 && uncertaintyDisplay === 'bars';
+      const showUncertaintyBand=replicates>1 && uncertaintyDisplay === 'band';
       const errorStrokeWidth=errorBarWidthPx;
       const errorCapHalf=Math.max(4, dotSizePx*1.2);
+      svg.dataset.lineUncertaintyDisplay = uncertaintyDisplay;
+      svg.dataset.lineUncertaintyBandTransparency = String(uncertaintyBandTransparency);
       const buildLineIntervalBandPath = (samples, lowerKey, upperKey) => {
         const ordered = Array.isArray(samples) ? samples.slice().sort((a, b) => (a?.x ?? 0) - (b?.x ?? 0)) : [];
         const upper = [];
@@ -16440,6 +16990,15 @@
         registerLineOverlayControlElement(el, 'trend', series.name);
         return el;
       };
+      const uncertaintyBandLayer=showUncertaintyBand?document.createElementNS(NS,'g'):null;
+      if(uncertaintyBandLayer){
+        uncertaintyBandLayer.setAttribute('data-layer','line-uncertainty-bands');
+        uncertaintyBandLayer.style.pointerEvents='none';
+        // Keep every uncertainty band behind every data line/marker. Rendering
+        // one band inline with each series would allow a later series band to
+        // cover an earlier series line, which is visually misleading.
+        svg.appendChild(uncertaintyBandLayer);
+      }
       const seriesElems=[];
       for(let i = 0; i < seriesWithData.length; i += 1){
         const s = seriesWithData[i];
@@ -16554,6 +17113,14 @@
         let currentSegment=null;
         const markerFrag=document.createDocumentFragment();
         const errorGroup=showErrorBars?document.createElementNS(NS,'g'):null;
+        const uncertaintyBandSegments=[];
+        let currentUncertaintyBandSegment=null;
+        const flushUncertaintyBandSegment=()=>{
+          if(currentUncertaintyBandSegment?.length >= 2){
+            uncertaintyBandSegments.push(currentUncertaintyBandSegment);
+          }
+          currentUncertaintyBandSegment=null;
+        };
         if(errorGroup){
           errorGroup.setAttribute('fill','none');
           errorGroup.setAttribute('stroke',seriesLineColor);
@@ -16581,16 +17148,20 @@
               currentSegment.lastX = px;
             }
             const replicateCount=Number.isInteger(pt?.replicateCount)?pt.replicateCount:(Array.isArray(pt?.replicates)?pt.replicates.length:0);
-            const canShowError=showErrorBars && replicateCount>1 && errorGroup && Number.isFinite(pt.lower) && Number.isFinite(pt.upper) && pt.upper>=pt.lower;
-            if(!canShowError && showErrorBars && replicateCount<=1){
-              console.debug('Debug: line error bar suppressed for single value',{ series:s.name, x:pt.x, replicateCount });
-            }
-            if(canShowError){
+            const hasUncertaintySpread=replicateCount>1 && Number.isFinite(pt.lower) && Number.isFinite(pt.upper) && pt.upper>=pt.lower;
+            let lowerPx=null;
+            let upperPx=null;
+            if(hasUncertaintySpread){
               const lowerVal=logY?(pt.lower>0?Math.log10(pt.lower):null):pt.lower;
               const upperVal=logY?(pt.upper>0?Math.log10(pt.upper):null):pt.upper;
               if(lowerVal!=null && upperVal!=null && Number.isFinite(lowerVal) && Number.isFinite(upperVal)){
-                const lowerPx=y2px(lowerVal);
-                const upperPx=y2px(upperVal);
+                lowerPx=y2px(lowerVal);
+                upperPx=y2px(upperVal);
+              }
+            }
+            const hasProjectedUncertainty=Number.isFinite(lowerPx) && Number.isFinite(upperPx);
+            if(showErrorBars){
+              if(hasProjectedUncertainty && errorGroup){
                 const errorSegments = svgGeometry.buildOrthogonalCappedLineSegments({
                   orientation:'vertical',
                   start:upperPx,
@@ -16609,6 +17180,18 @@
                   errorPath.setAttribute('data-line-error-segment-count',String(errorSegments.length));
                   errorGroup.appendChild(errorPath);
                 }
+              }else if(replicateCount<=1){
+                console.debug('Debug: line error bar suppressed for single value',{ series:s.name, x:pt.x, replicateCount });
+              }
+            }
+            if(showUncertaintyBand){
+              if(hasProjectedUncertainty){
+                if(!currentUncertaintyBandSegment){
+                  currentUncertaintyBandSegment=[];
+                }
+                currentUncertaintyBandSegment.push({ x:px, lowerY:lowerPx, upperY:upperPx });
+              }else{
+                flushUncertaintyBandSegment();
               }
             }
             if(seriesDotSize > 0){
@@ -16634,11 +17217,17 @@
               segments.push(currentSegment);
               currentSegment=null;
             }
+            if(showUncertaintyBand){
+              flushUncertaintyBandSegment();
+            }
           }
         }
         if(currentSegment){
           segments.push(currentSegment);
           currentSegment=null;
+        }
+        if(showUncertaintyBand){
+          flushUncertaintyBandSegment();
         }
         const strokeCommands=[];
         const fillCommands=[];
@@ -16653,6 +17242,7 @@
         });
         const pathStr=strokeCommands.join('');
         let attachedErrorGroup=null;
+        let uncertaintyBandGroup=null;
         let areaPathEl=null;
         if(fillCommands.length && areaFillOpacity > 0){
           const areaPathStr=fillCommands.join('');
@@ -16666,6 +17256,37 @@
           areaPathEl.dataset.renderMode='area-fill';
           areaPathEl.style.pointerEvents='none';
           svg.appendChild(areaPathEl);
+        }
+        if(showUncertaintyBand && uncertaintyBandSegments.length){
+          // Band transparency is an independent presentation control. It shares
+          // the series line color, but must not compound with Line transparency:
+          // changing a line's opacity should never silently redefine the band.
+          const bandOpacity=Math.max(0,Math.min(1,1-(uncertaintyBandTransparency/100)));
+          if(bandOpacity>0){
+            uncertaintyBandGroup=document.createElementNS(NS,'g');
+            uncertaintyBandGroup.dataset.lineUncertaintyBandLayer='1';
+            uncertaintyBandGroup.dataset.lineUncertaintySeries=s.name || '';
+            uncertaintyBandGroup.style.pointerEvents='none';
+            uncertaintyBandSegments.forEach((segmentPoints,segmentIndex)=>{
+              const pathData=buildLineProjectedUncertaintyBandPath(segmentPoints);
+              if(!pathData){ return; }
+              const bandPath=document.createElementNS(NS,'path');
+              bandPath.setAttribute('d',pathData);
+              bandPath.setAttribute('fill',seriesLineColor);
+              bandPath.setAttribute('fill-opacity',String(bandOpacity));
+              bandPath.setAttribute('stroke','none');
+              bandPath.setAttribute('data-line-uncertainty-band','1');
+              bandPath.setAttribute('data-line-uncertainty-segment-index',String(segmentIndex));
+              bandPath.dataset.lineUncertaintySeries=s.name || '';
+              bandPath.style.pointerEvents='none';
+              uncertaintyBandGroup.appendChild(bandPath);
+            });
+            if(uncertaintyBandGroup.childNodes.length && uncertaintyBandLayer){
+              uncertaintyBandLayer.appendChild(uncertaintyBandGroup);
+            }else{
+              uncertaintyBandGroup=null;
+            }
+          }
         }
         if(errorGroup && errorGroup.childNodes.length){
           svg.appendChild(errorGroup);
@@ -16747,12 +17368,15 @@
             }
           }
         }
-        seriesElems.push({path,mGroup,errorGroup:attachedErrorGroup,trendPath:trendPathEl,forecastPath:forecastPathEl,areaPath:areaPathEl});
+        seriesElems.push({path,mGroup,errorGroup:attachedErrorGroup,uncertaintyBandGroup,trendPath:trendPathEl,forecastPath:forecastPathEl,areaPath:areaPathEl});
+      }
+      if(uncertaintyBandLayer && !uncertaintyBandLayer.childNodes.length){
+        uncertaintyBandLayer.remove();
       }
       if(!(await checkpoint())){
         return false;
       }
-      console.debug('Debug: line series rendered',{ showErrorBars, seriesCount: seriesWithData.length });
+      console.debug('Debug: line series rendered',{ showErrorBars, showUncertaintyBand, uncertaintyDisplay, uncertaintyBandTransparency, seriesCount: seriesWithData.length });
       if(showPlotStats){
         const statsLines = buildLinePlotStatsLines(seriesWithData, { regressionMode: regressionModeCurrent });
         if(statsLines.length){
@@ -17160,7 +17784,7 @@
     if(refs.statsButton){
       refs.statsButton.addEventListener('click', handleLineStatsComputeClick);
     }
-    syncLineErrorBarToolbarValue();
+    syncLineUncertaintyToolbarValue();
     if(refs.fontSize && refs.fontSizeVal){
       if(refs.fontSize.dataset){
         refs.fontSize.dataset.fontBasePt = String(refs.fontSize.value);
@@ -18052,7 +18676,7 @@
     }
     applyLineReplicateChange(lineReplicates, { sourceReplicates: lineReplicates, skipDraw: true });
 
-    refs.loadExample?.addEventListener('click',()=>{
+    const loadExampleData = () => {
       const is3dMode = getLineViewState().viewMode === '3d' || refs.replicateMode?.value === '3d' || refs.viewMode?.value === '3d';
       if(is3dMode){
         const example = Shared.exampleDatasets?.get?.('line', 'threeD');
@@ -18127,8 +18751,26 @@
       rememberLineSessionState(getLineProjectionTabId() || null, { reason: 'line-example-load' }, { readControls: true });
       console.debug('Debug: line example loaded',{ key, replicates: exampleReplicates, mode: isGroupedMode ? 'grouped' : 'single' });
       scheduleActiveLineDraw({ force: true, reason: 'line-example-load' });
-    });
-    bindLineControlHandler(refs.importBtn, 'click', 'import-table', ()=>{ if(refs.fileInput){ refs.fileInput.value=''; refs.fileInput.click(); } });
+    };
+    refs.loadExample?.addEventListener('click', loadExampleData);
+    const openImportPicker = () => {
+      if(!refs.fileInput || typeof refs.fileInput.click !== 'function'){
+        return false;
+      }
+      refs.fileInput.value = '';
+      refs.fileInput.click();
+      return true;
+    };
+    line.__desktopCommandActions = {
+      loadExampleData: () => {
+        loadExampleData();
+        return { status: 'handled' };
+      },
+      importData: () => openImportPicker()
+        ? { status: 'sent' }
+        : { status: 'skipped', reason: 'component-command-unavailable' }
+    };
+    bindLineControlHandler(refs.importBtn, 'click', 'import-table', openImportPicker);
     bindLineControlHandler(refs.fileInput, 'change', 'import-file', async e=>{
       const tableImport = Shared.tableImport;
       if(!tableImport || typeof tableImport.openFile !== 'function'){
@@ -18277,9 +18919,21 @@
     refs.border?.addEventListener('input',()=>{ scheduleLineViewRefresh('line-border-change'); });
     refs.borderWidth?.addEventListener('input',()=>{ scheduleLineViewRefresh('line-border-width-change'); });
     refs.errorBarWidth?.addEventListener('input',()=>{
-      syncLineErrorBarToolbarValue();
+      syncLineUncertaintyToolbarValue();
       console.debug('Debug: line errorBarWidth change',{ value: refs.errorBarWidth.value });
       scheduleLineViewRefresh('line-errorbar-width-change');
+    });
+    refs.uncertaintyDisplay?.addEventListener('change',()=>{
+      refs.uncertaintyDisplay.value = sanitizeLineUncertaintyDisplay(refs.uncertaintyDisplay.value);
+      syncLineUncertaintyToolbarValue();
+      lineDebug('Debug: line uncertainty display changed', { value: refs.uncertaintyDisplay.value });
+      scheduleLineViewRefresh('line-uncertainty-display-change');
+    });
+    refs.uncertaintyBandTransparency?.addEventListener('input',()=>{
+      refs.uncertaintyBandTransparency.value = formatLineUncertaintyBandTransparency(refs.uncertaintyBandTransparency.value);
+      syncLineUncertaintyToolbarValue();
+      lineDebug('Debug: line uncertainty band transparency changed', { value: refs.uncertaintyBandTransparency.value });
+      scheduleLineViewRefresh('line-uncertainty-band-transparency-change');
     });
     refs.dotSize?.addEventListener('input',()=>{ scheduleLineViewRefresh('line-dot-size-change'); });
     refs.alpha?.addEventListener('input',()=>{ if(refs.alphaVal) refs.alphaVal.textContent=refs.alpha.value; scheduleLineViewRefresh('line-alpha-change'); });
@@ -19302,7 +19956,7 @@
       return false;
     }
     const renderCacheSession = resolveLineRenderCacheSession(meta);
-    chartStyle.rehydrateLegendViewports?.(plot);
+    (chartStyle.rehydrateContentViewports || chartStyle.rehydrateLegendViewports)?.(plot);
     bindLineLegendInteractions(
       svg?.querySelector?.('[data-legend-viewport-content="true"]') || null,
       svg,
@@ -19446,7 +20100,9 @@
     setValue(refs.border, 'border');
     setValue(refs.borderWidth, 'borderWidth');
     setValue(refs.errorBarWidth, 'errorBarWidth');
-    syncLineErrorBarToolbarValue();
+    setValue(refs.uncertaintyDisplay, 'uncertaintyDisplay');
+    setValue(refs.uncertaintyBandTransparency, 'uncertaintyBandTransparency');
+    syncLineUncertaintyToolbarValue();
     setValue(refs.alpha, 'alpha');
     if(refs.alphaVal && refs.alpha){
       refs.alphaVal.textContent = refs.alpha.value;
@@ -19762,11 +20418,12 @@
   };
 
   line.__testHooks = Object.assign({}, line.__testHooks, {
-    computeLineCorrelationStats: (method, x, y, jStatLib) => computeLineCorrelationStats(
+    computeLineCorrelationStats: (method, x, y, jStatLib, alpha = 0.05) => computeLineCorrelationStats(
       method,
       Array.isArray(x) ? x : [],
       Array.isArray(y) ? y : [],
-      jStatLib || global.jStat || global.window?.jStat
+      jStatLib || global.jStat || global.window?.jStat,
+      alpha
     ),
     computeLineStats: (points, method, options = {}) => computeLineStats(
       Array.isArray(points) ? points : [],
@@ -19776,8 +20433,11 @@
       options
     ),
     buildPlotStatsLines: (series, options = {}) => buildLinePlotStatsLines(series, options),
+    buildFigureSummary: (seriesEntries, options = {}) => buildLineFigureSummary(seriesEntries, options),
     buildRegressionTrendPath: (samples, options = {}) => buildLineRegressionTrendPath(samples, options),
     build2dSeriesDataModel: (matrix, options = {}) => buildLine2dSeriesDataModel(matrix, options),
+    buildProjectedUncertaintyBandPath: points => buildLineProjectedUncertaintyBandPath(points),
+    sanitizeUncertaintyDisplay: value => sanitizeLineUncertaintyDisplay(value),
     reconcileStatsContextFromOwnerData: (session, options = {}) => reconcileLineStatsContextFromOwnerData(session, options),
     resolveDrawableFrame: plot => resolveLineDrawableFrame(plot),
     buildLine3dMatrixFrom2d,
@@ -19805,4 +20465,12 @@
       { key: 'notesState', get: () => notesState, excludeKeys: ['control'] }
     ]
   });
+
+  line.executeDesktopCommand = function executeDesktopCommand(command){
+    const action = line.__desktopCommandActions?.[command];
+    if (typeof action !== 'function') {
+      return { status: 'skipped', reason: 'component-command-unavailable' };
+    }
+    return action() || { status: 'handled' };
+  };
 })(window);

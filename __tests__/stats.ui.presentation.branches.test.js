@@ -339,6 +339,7 @@ describe('UI statistical presentation branches', () => {
     expect(statsResults?.textContent || '').toMatch(/Goodness-of-fit test/i);
     expect(statsResults?.textContent || '').toMatch(/equal expected proportions/i);
     expect(statsResults?.textContent || '').toMatch(/10\.0000/);
+    expect(statsResults?.textContent || '').toMatch(/N\s*60/i);
     expect(statsResults?.textContent || '').toContain('Reporting and reproducibility');
     expectReportHostAtBottom('pieStatsReportHost');
     const singleDatasetStats = pie.getPayload()?.config?.stats;
@@ -370,6 +371,7 @@ describe('UI statistical presentation branches', () => {
     await waitFor(() => /Overall test summary|Pairwise comparisons/i.test(statsResults?.textContent || ''));
     const pairwiseText = statsResults?.textContent || '';
     expect(pairwiseText).toMatch(/Overall test summary|Pairwise comparisons/i);
+    expect(pairwiseText).toMatch(/N\s*101/i);
   }, 30000);
 
   test('hist stats render descriptive, fit-diagnostic, comparison-note, and reporting branches', async () => {

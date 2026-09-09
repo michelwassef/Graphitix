@@ -72,6 +72,13 @@
     return typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled();
   }
 
+  function statsDebug(label, payload){
+    if(!statsDebugEnabled() || typeof global.console?.debug !== 'function'){
+      return;
+    }
+    global.console.debug(label, payload);
+  }
+
   function clampSignificantDigits(value){
     const coerced = Math.floor(Number(value));
     if(Number.isFinite(coerced) && coerced >= 1 && coerced <= 15){
@@ -428,6 +435,7 @@
 
   const panelPValueScientificState = new WeakMap();
   const tabPValueScientificState = new Map();
+  const DEFAULT_FIGURE_SUMMARY_ENABLED = false;
 
   function normalizeStatsTabId(value){
     const text = typeof value === 'string' ? value.trim() : String(value || '').trim();
@@ -571,6 +579,54 @@
     return DEFAULT_PVALUE_FORMAT_SCIENTIFIC;
   }
 
+  function readStoredFigureSummaryEnabledForTab(tabId){
+    const key = normalizeStatsTabId(tabId);
+    const sharedState = getTabStatsReportingControlState(key, {
+      create: false,
+      reason: 'stats-reporting-figure-summary-read'
+    });
+    if(sharedState && Object.prototype.hasOwnProperty.call(sharedState, 'figureSummaryEnabled')){
+      return sharedState.figureSummaryEnabled === true;
+    }
+    return DEFAULT_FIGURE_SUMMARY_ENABLED;
+  }
+
+  function hasStoredFigureSummaryEnabledForTab(tabId){
+    const key = normalizeStatsTabId(tabId);
+    if(!key){ return false; }
+    const sharedState = getTabStatsReportingControlState(key, {
+      create: false,
+      reason: 'stats-reporting-figure-summary-presence'
+    });
+    return !!(
+      sharedState
+      && Object.prototype.hasOwnProperty.call(sharedState, 'figureSummaryEnabled')
+    );
+  }
+
+  function setTabFigureSummaryEnabled(tabLike, value, options = {}){
+    const resolved = resolveStatsTabReference(tabLike);
+    const next = value === true;
+    if(!resolved.tabId){ return next; }
+    const sharedState = getTabStatsReportingControlState(resolved.tabLike, {
+      create: true,
+      reason: options.reason || 'stats-reporting-figure-summary-write'
+    });
+    if(sharedState){ sharedState.figureSummaryEnabled = next; }
+    return next;
+  }
+
+  function clearTabFigureSummaryEnabled(tabLike, options = {}){
+    const resolved = resolveStatsTabReference(tabLike);
+    if(!resolved.tabId){ return DEFAULT_FIGURE_SUMMARY_ENABLED; }
+    const sharedState = getTabStatsReportingControlState(resolved.tabLike, {
+      create: false,
+      reason: options.reason || 'stats-reporting-figure-summary-clear'
+    });
+    if(sharedState){ delete sharedState.figureSummaryEnabled; }
+    return DEFAULT_FIGURE_SUMMARY_ENABLED;
+  }
+
   function getPanelPValueScientific(target, options = {}){
     const tabId = resolveTargetStatsTabId(target, options);
     if(tabId){
@@ -706,7 +762,7 @@
     }
     const result = scientific ? String(formatted) : finalizeNumberString(formatted);
     if(statsDebugEnabled()){
-      console.debug('Debug: Shared.formatPValue',{ input: value, formatted: result, scientific, thresholded, options });
+      statsDebug('Debug: Shared.formatPValue',{ input: value, formatted: result, scientific, thresholded, options });
     }
     return createPValueDisplayString(result, bounded, {
       scientific,
@@ -775,18 +831,18 @@
   function normalizeMethod(method){
     const raw = typeof method === 'string' ? method.toLowerCase() : '';
     if(raw && METHOD_CONFIG[raw]){
-      console.debug('Debug: stats.normalizeMethod direct match',{ method: raw });
+      statsDebug('Debug: stats.normalizeMethod direct match',{ method: raw });
       return raw;
     }
     if(raw){
       for(const [key, cfg] of Object.entries(METHOD_CONFIG)){
         if(Array.isArray(cfg.aliases) && cfg.aliases.includes(raw)){
-          console.debug('Debug: stats.normalizeMethod alias match',{ alias: raw, resolved: key });
+          statsDebug('Debug: stats.normalizeMethod alias match',{ alias: raw, resolved: key });
           return key;
         }
       }
     }
-    console.debug('Debug: stats.normalizeMethod fallback',{ requested: method, fallback: DEFAULT_METHOD });
+    statsDebug('Debug: stats.normalizeMethod fallback',{ requested: method, fallback: DEFAULT_METHOD });
     return DEFAULT_METHOD;
   }
 
@@ -893,7 +949,7 @@
       const adjustedValid = adjuster(valid.map(entry => entry.pValue));
       valid.forEach((entry, validIndex) => { output[entry.index] = adjustedValid[validIndex]; });
     }
-    console.debug('Debug: stats.adjustPValues complete',{
+    statsDebug('Debug: stats.adjustPValues complete',{
       method: methodKey,
       totalCount: values.length,
       validCount: valid.length,
@@ -1429,7 +1485,7 @@
         store.values[i] = running;
       }
       store.maxComputed = maxTarget;
-      console.debug('Debug: stats.logFactCache extended',{ maxComputed: store.maxComputed }); // Debug: log factorial cache grow
+      statsDebug('Debug: stats.logFactCache extended',{ maxComputed: store.maxComputed }); // Debug: log factorial cache grow
     }
     return store;
   }
@@ -1442,7 +1498,7 @@
     if(cache.maxComputed > maxTarget){
       cache.values.length = maxTarget + 1;
       cache.maxComputed = maxTarget;
-      console.debug('Debug: stats.logFactCache trimmed',{ maxComputed: cache.maxComputed }); // Debug: log factorial cache trim
+      statsDebug('Debug: stats.logFactCache trimmed',{ maxComputed: cache.maxComputed }); // Debug: log factorial cache trim
     }
     return cache;
   }
@@ -1567,7 +1623,7 @@
     const underflow = logPValue < minimumLog;
     const pValue = underflow ? 0 : Math.min(1, Math.max(0, Math.exp(logPValue)));
     if(statsDebugEnabled()){
-      console.debug('Debug: stats.hypergeom right tail', { N, K, n, k, pValue, logPValue, underflow });
+      statsDebug('Debug: stats.hypergeom right tail', { N, K, n, k, pValue, logPValue, underflow });
     }
     return {
       valid: true,
@@ -1607,7 +1663,7 @@
 
   stats.listCorrections = function(){
     const list = Object.entries(METHOD_CONFIG).map(([value, cfg]) => ({ value, label: cfg.label }));
-    console.debug('Debug: stats.listCorrections',{ methods: list.map(item => item.value) });
+    statsDebug('Debug: stats.listCorrections',{ methods: list.map(item => item.value) });
     return list;
   };
 
@@ -1769,7 +1825,7 @@
         ok = typeof global.document.execCommand === 'function' ? !!global.document.execCommand('copy') : false;
       }catch(error){
         if(onDebug){
-          console.debug('Debug: statsReporting.copyReportTextToClipboard fallback failed', { message: error?.message || String(error) });
+          statsDebug('Debug: statsReporting.copyReportTextToClipboard fallback failed', { message: error?.message || String(error) });
         }
         ok = false;
       }
@@ -1784,7 +1840,7 @@
       }
       resetLater();
       if(onDebug){
-        console.debug('Debug: statsReporting.copyReportTextToClipboard', { copied, length: value.length });
+        statsDebug('Debug: statsReporting.copyReportTextToClipboard', { copied, length: value.length });
       }
       return copied;
     };
@@ -1794,14 +1850,14 @@
           .then(() => complete(true))
           .catch(error => {
             if(onDebug){
-              console.debug('Debug: statsReporting.copyReportTextToClipboard navigator fallback', { message: error?.message || String(error) });
+              statsDebug('Debug: statsReporting.copyReportTextToClipboard navigator fallback', { message: error?.message || String(error) });
             }
             return complete(fallbackCopy());
           });
       }
     }catch(error){
       if(onDebug){
-        console.debug('Debug: statsReporting.copyReportTextToClipboard navigator failed', { message: error?.message || String(error) });
+        statsDebug('Debug: statsReporting.copyReportTextToClipboard navigator failed', { message: error?.message || String(error) });
       }
     }
     return Promise.resolve(complete(fallbackCopy()));
@@ -2045,6 +2101,7 @@
       methodsParts,
       resultsParts,
       analysisSpec: cloneStatsReportingValue(source.analysisSpec || options?.analysisSpecFallback || null),
+      figureSummary: cloneStatsReportingValue(source.figureSummary || options?.figureSummary || null),
       open: source.open === true || options?.open === true,
       advancedOpen: source.advancedOpen === true || options?.advancedOpen === true
     };
@@ -2136,9 +2193,19 @@
     }
 
     if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-      console.debug('Debug: statsReporting.appendReportPanel',{ title: reportModel.title, hasMethods: !!reportModel.methodsText, hasResults: !!reportModel.resultsText, hasAnalysisSpec: !!displaySpec });
+      statsDebug('Debug: statsReporting.appendReportPanel',{ title: reportModel.title, hasMethods: !!reportModel.methodsText, hasResults: !!reportModel.resultsText, hasAnalysisSpec: !!displaySpec });
     }
     reportTarget.appendChild(panel);
+    const tabId = resolveTargetStatsTabId(target, options || {});
+    const ownerRoot = target?.closest?.('[data-workspace-tab-id][data-workspace-component]') || null;
+    const componentType = String(ownerRoot?.dataset?.workspaceComponent || '').trim().toLowerCase();
+    Shared.statsFigureSummary?.registerReportModel?.({
+      tabId,
+      componentType,
+      reportModel,
+      scheduleRender: options?.scheduleFigureSummary !== false
+    });
+    reporting.syncFigureSummaryControls(tabId);
     const syncDisclosureState = () => {
       reportModel.open = panel.open === true;
       const advancedPanel = panel.querySelector?.(':scope > .stats-report-panel__advanced') || null;
@@ -2174,7 +2241,8 @@
     '#survivalStatsSummary',
     '#survivalStatsLogRank',
     '#survivalStatsHazardRatios',
-    '#survivalStatsCox'
+    '#survivalStatsCox',
+    '#significanceResults'
   ];
   const COLLAPSED_STATS_SECTIONS = new Set(['diagnostics', 'supplementary']);
 
@@ -2217,7 +2285,7 @@
 
   function statsReportingDebug(label, payload){
     if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-      console.debug(`Debug: statsReporting.${label}`, payload || {});
+      statsDebug(`Debug: statsReporting.${label}`, payload || {});
     }
   }
 
@@ -2309,6 +2377,9 @@
           };
           if(hasStoredPValueScientificForTab(key)){
             nextStatsReporting.pValueScientific = readStoredPValueScientificForTab(key);
+          }
+          if(hasStoredFigureSummaryEnabledForTab(key)){
+            nextStatsReporting.figureSummaryEnabled = readStoredFigureSummaryEnabledForTab(key);
           }
           payload.meta.statsReporting = nextStatsReporting;
           return payload;
@@ -2487,6 +2558,145 @@
     const tabId = options.tabId || resolveTargetStatsTabId(target, options) || null;
     return createDefaultPValueFormatControl(documentRef, target, { ...options, tabId });
   };
+
+
+  function hasFigureSummaryReport(tabId){
+    const key = normalizeStatsTabId(tabId);
+    if(!key){
+      return false;
+    }
+    return !!Shared.statsFigureSummary?.__getReportForTab?.(key);
+  }
+
+  function resolveFigureSummaryInputs(){
+    if(!global.document || typeof global.document.querySelectorAll !== 'function'){
+      return [];
+    }
+    return Array.from(global.document.querySelectorAll(
+      '.stats-figure-summary-checkbox[data-parameter-stats-figure-summary="1"]'
+    ));
+  }
+
+  function resolveSharedStatsReportControls(){
+    if(!global.document || typeof global.document.querySelectorAll !== 'function'){
+      return [];
+    }
+    return Array.from(global.document.querySelectorAll('[data-stats-report-control="shared"]'));
+  }
+
+  function setFigureControlDisabled(input, disabled){
+    if(!input){
+      return;
+    }
+    const nextDisabled = disabled === true;
+    input.disabled = nextDisabled;
+    input.setAttribute('aria-disabled', nextDisabled ? 'true' : 'false');
+    const label = input.closest?.('label');
+    label?.classList?.toggle('config-panel__checkbox--disabled', nextDisabled);
+  }
+
+  function bindFigureSummaryInput(input){
+    if(!input || input.nodeType !== 1 || input.__statsFigureSummaryBound){
+      return false;
+    }
+    input.__statsFigureSummaryBound = true;
+    input.addEventListener('change', event => {
+      event.stopPropagation();
+      const ownerTabId = normalizeStatsTabId(resolveTargetStatsTabId(input));
+      const next = reporting.setFigureSummaryEnabled(input.checked, {
+        target: input,
+        tabId: ownerTabId,
+        source: input.id || 'stats-figure-summary-control',
+        persist: true,
+        reason: 'stats-figure-summary-toggle'
+      });
+      input.checked = next;
+      statsReportingDebug('figureSummaryControlChange', { tabId: ownerTabId || null, enabled: next });
+    });
+    return true;
+  }
+
+  function syncFigureSummaryControlsForTab(tabId){
+    const key = normalizeStatsTabId(tabId);
+    if(!key){
+      return 0;
+    }
+    const ready = hasFigureSummaryReport(key);
+    let count = 0;
+    resolveFigureSummaryInputs().forEach(input => {
+      if(normalizeStatsTabId(resolveTargetStatsTabId(input)) !== key){
+        return;
+      }
+      bindFigureSummaryInput(input);
+      setFigureControlDisabled(input, !ready);
+      if(ready){
+        input.checked = readStoredFigureSummaryEnabledForTab(key);
+      }else{
+        // A recovered legacy report may retain the old preference without a
+        // usable figure summary. Keep the control visibly off until a valid
+        // report is registered; the stored preference can be restored later.
+        input.checked = false;
+      }
+      count += 1;
+    });
+    resolveSharedStatsReportControls().forEach(input => {
+      if(normalizeStatsTabId(resolveTargetStatsTabId(input)) !== key){
+        return;
+      }
+      setFigureControlDisabled(input, !ready);
+    });
+    return count;
+  }
+
+  function syncAllFigureSummaryControls(){
+    const tabIds = new Set();
+    resolveFigureSummaryInputs().forEach(input => {
+      bindFigureSummaryInput(input);
+      const tabId = normalizeStatsTabId(resolveTargetStatsTabId(input));
+      if(tabId){
+        tabIds.add(tabId);
+      }
+    });
+    resolveSharedStatsReportControls().forEach(input => {
+      const tabId = normalizeStatsTabId(resolveTargetStatsTabId(input));
+      if(tabId){
+        tabIds.add(tabId);
+      }
+    });
+    tabIds.forEach(tabId => syncFigureSummaryControlsForTab(tabId));
+    return tabIds.size;
+  }
+
+  function deferFigureSummaryReadinessSync(tabId){
+    const key = normalizeStatsTabId(tabId);
+    if(!key){
+      return;
+    }
+    const sync = () => {
+      // A report host is cleared immediately before its replacement report is
+      // appended. Let that synchronous render transaction finish first.
+      if(!hasFigureSummaryReport(key)){
+        reporting.syncFigureSummaryControls(key);
+      }
+    };
+    if(typeof global.queueMicrotask === 'function'){
+      global.queueMicrotask(sync);
+    }else if(typeof global.setTimeout === 'function'){
+      global.setTimeout(sync, 0);
+    }else{
+      sync();
+    }
+  }
+
+  reporting.bindFigureSummaryControls = function bindFigureSummaryControls(){
+    return syncAllFigureSummaryControls();
+  };
+
+  reporting.syncFigureSummaryControls = function syncFigureSummaryControls(tabId){
+    return syncFigureSummaryControlsForTab(tabId);
+  };
+
+  reporting.hasFigureSummaryReport = hasFigureSummaryReport;
 
   function setReportBlockCopyText(panel, blockName, text){
     if(!panel || typeof panel.querySelector !== 'function'){
@@ -2903,6 +3113,11 @@
 
   reporting.clearReportHost = function clearReportHost(target){
     const reportHost = resolveReportingHost(target);
+    const tabId = resolveTargetStatsTabId(target);
+    if(tabId){
+      Shared.statsFigureSummary?.clearReportModel?.(tabId);
+      deferFigureSummaryReadinessSync(tabId);
+    }
     if(!reportHost || reportHost.nodeType !== 1){
       return false;
     }
@@ -3312,7 +3527,10 @@
     if(reportHost && reportHost !== target){
       if(normalized.reportModel?.kind === 'stats-report'){
         reportHost.textContent = '';
-        reporting.appendReportPanel(target, normalized.reportModel, { replaceExisting: false });
+        reporting.appendReportPanel(target, normalized.reportModel, {
+          replaceExisting: false,
+          scheduleFigureSummary: options.scheduleFigureSummary !== false
+        });
         restoredReport = true;
       }else if(normalized.reportModel){
         restoredReport = renderStatsPanelModel(reportHost, normalized.reportModel);
@@ -3320,7 +3538,10 @@
         reportHost.textContent = '';
       }
     }else if(reportHost === target && normalized.reportModel?.kind === 'stats-report'){
-      reporting.appendReportPanel(target, normalized.reportModel, { replaceExisting: false });
+      reporting.appendReportPanel(target, normalized.reportModel, {
+        replaceExisting: false,
+        scheduleFigureSummary: options.scheduleFigureSummary !== false
+      });
       restoredReport = true;
     }else if(reportHost === target && normalized.reportModel){
       restoredReport = renderStatsPanelModel(target, normalized.reportModel);
@@ -3358,10 +3579,8 @@
     return !!target.querySelector('.stats-table-card, table, .stats-report-panel, .stats-assumption-container');
   }
 
-  function suppressReportingControlsForPanel(target){
-    if(!target){
-      return false;
-    }
+  function suppressPValueControlForPanel(target){
+    if(!target){ return false; }
     const targetId = typeof target.id === 'string' ? target.id : '';
     return targetId === 'surfaceStatsSummary'
       || targetId === 'pcaStatsResults'
@@ -3377,12 +3596,11 @@
     }
     const documentRef = target.ownerDocument;
     ensurePanelPValueTabId(target);
-    const suppressReportingControls = suppressReportingControlsForPanel(target);
+    const suppressPValueControl = suppressPValueControlForPanel(target);
     let controls = findDirectChildByClass(target, 'stats-reporting-controls');
-    if(suppressReportingControls){
-      if(controls && controls.parentNode){
-        controls.parentNode.removeChild(controls);
-      }
+    const needsControls = !suppressPValueControl;
+    if(!needsControls){
+      if(controls && controls.parentNode){ controls.parentNode.removeChild(controls); }
       controls = null;
     }else if(!controls){
       controls = documentRef.createElement('div');
@@ -3393,16 +3611,14 @@
     }
     if(controls){
       controls.textContent = '';
-      const extraFactory = typeof target.__statsExtraControlFactory === 'function'
-        ? target.__statsExtraControlFactory
-        : ((context) => createDefaultPValueFormatControl(context.document, context.target));
-      const extraNode = extraFactory ? extraFactory({ document: documentRef, target, controls }) : null;
-      if(extraNode){
-        controls.appendChild(extraNode);
-        controls.hidden = false;
-      }else{
-        controls.hidden = true;
+      if(!suppressPValueControl){
+        const extraFactory = typeof target.__statsExtraControlFactory === 'function'
+          ? target.__statsExtraControlFactory
+          : ((context) => createDefaultPValueFormatControl(context.document, context.target));
+        const extraNode = extraFactory ? extraFactory({ document: documentRef, target, controls }) : null;
+        if(extraNode){ controls.appendChild(extraNode); }
       }
+      controls.hidden = !controls.childNodes.length;
     }
     let main = findDirectChildByClass(target, 'stats-results-main');
     if(!main){
@@ -3810,6 +4026,9 @@
     if(hasStoredPValueScientificForTab(resolved.tabId)){
       captured.pValueScientific = readStoredPValueScientificForTab(resolved.tabId);
     }
+    if(hasStoredFigureSummaryEnabledForTab(resolved.tabId)){
+      captured.figureSummaryEnabled = readStoredFigureSummaryEnabledForTab(resolved.tabId);
+    }
     return Object.keys(captured).length ? captured : null;
   };
 
@@ -3831,8 +4050,16 @@
         reason: applyReason
       });
     }
+    let figureSummaryEnabled = DEFAULT_FIGURE_SUMMARY_ENABLED;
+    if(source && Object.prototype.hasOwnProperty.call(source, 'figureSummaryEnabled')){
+      figureSummaryEnabled = setTabFigureSummaryEnabled(tabLike, source.figureSummaryEnabled, { reason:applyReason });
+    }else{
+      figureSummaryEnabled = clearTabFigureSummaryEnabled(tabLike, { reason:applyReason });
+    }
     refreshEnhancedPanelsForTab(tabId, `${applyReason}:project`);
-    return { pValueScientific };
+    reporting.syncFigureSummaryControls(tabId);
+    Shared.statsFigureSummary?.scheduleRender?.(tabId);
+    return { pValueScientific, figureSummaryEnabled };
   };
 
   reporting.getPValueFormatScientific = function getPValueFormatScientific(options = {}){
@@ -3891,6 +4118,25 @@
     return next;
   };
 
+  reporting.getFigureSummaryEnabled = function getFigureSummaryEnabled(options = {}){
+    const tabId = normalizeStatsTabId(options?.tabId || options?.tab?.id || resolveTargetStatsTabId(options?.target || null, options));
+    return tabId ? readStoredFigureSummaryEnabledForTab(tabId) : DEFAULT_FIGURE_SUMMARY_ENABLED;
+  };
+
+  reporting.setFigureSummaryEnabled = function setFigureSummaryEnabled(value, options = {}){
+    const tabId = normalizeStatsTabId(options?.tabId || options?.tab?.id || resolveTargetStatsTabId(options?.target || null, options) || resolveActiveStatsTabId());
+    const next = setTabFigureSummaryEnabled(tabId, value, { reason:options.reason || 'stats-figure-summary-set' });
+    if(options.persist === true && tabId){
+      persistStatsReportingStateForTab(tabId, {
+        source: options.source || null,
+        reason: options.reason || 'stats-figure-summary-set'
+      });
+    }
+    reporting.syncFigureSummaryControls(tabId);
+    Shared.statsFigureSummary?.scheduleRender?.(tabId);
+    return next;
+  };
+
   reporting.enhancePanelNow = function enhancePanelNow(target, reason){
     if(!target || target.nodeType !== 1){
       return false;
@@ -3913,6 +4159,7 @@
     }
     const panels = resolveStatsPanelsFromSelectors(options?.selectors || STATS_PANEL_SELECTORS);
     panels.forEach(panel => observeStatsPanel(panel));
+    reporting.bindFigureSummaryControls();
     statsReportingDebug('installEnhancedPanels', { panelCount: panels.length });
     return panels.length;
   };
@@ -3926,6 +4173,28 @@
     reporting.installEnhancedPanels();
     ensurePanelInstallRescanObserver();
   }
+
+  let figureSummaryLifecycleInstalled = false;
+  function installFigureSummaryLifecycle(){
+    if(figureSummaryLifecycleInstalled || typeof global.addEventListener !== 'function'){
+      return;
+    }
+    figureSummaryLifecycleInstalled = true;
+    global.addEventListener('graphitix:lifecycle-event', event => {
+      const detail = event?.detail || {};
+      const action = String(detail.action || '').toLowerCase();
+      if(!['activate-complete', 'restore-complete', 'draw-settled', 'draw-complete'].includes(action)){
+        return;
+      }
+      reporting.bindFigureSummaryControls();
+      const tabId = normalizeStatsTabId(detail.tabId);
+      if(tabId){
+        reporting.syncFigureSummaryControls(tabId);
+      }
+    });
+  }
+
+  installFigureSummaryLifecycle();
 
   if(global.document){
     if(global.document.readyState === 'loading'){
@@ -3946,7 +4215,7 @@
       aliases: cfg.aliases ? cfg.aliases.slice() : [],
       footnote: cfg.footnote
     };
-    console.debug('Debug: stats.getCorrectionMeta',{ method: methodKey, label: meta.label });
+    statsDebug('Debug: stats.getCorrectionMeta',{ method: methodKey, label: meta.label });
     return meta;
   };
 

@@ -714,6 +714,33 @@ describe('Box layout reserves under horizontal shrink', () => {
     expect(metrics.bottomViewportExtensionPx).toBeGreaterThan(0);
   });
 
+  test('deferred canonical capture keeps shared graph sizing metadata', async () => {
+    await activateWorkspace('box');
+    await loadBoxExample();
+
+    const session = window.Main?.session;
+    const tab = session?.getActiveTab?.();
+    const component = window.Components?.box;
+    expect(session).toBeTruthy();
+    expect(tab?.type).toBe('box');
+    expect(component?.getPayload).toBeInstanceOf(Function);
+
+    const payloadWithoutGraphSizing = session.clonePayload(tab.payload || {});
+    if (payloadWithoutGraphSizing.meta) {
+      delete payloadWithoutGraphSizing.meta.graphSizing;
+    }
+    tab.payload = payloadWithoutGraphSizing;
+    tab.payloadSignature = session.serializePayloadSignature(payloadWithoutGraphSizing);
+    tab.payloadDirty = false;
+
+    const changed = session.captureCanonicalUserMutationState(tab, {
+      reason: 'test-deferred-canonical-graph-sizing'
+    });
+
+    expect(changed).toBe(true);
+    expect(tab.payload?.meta?.graphSizing).toBeTruthy();
+  });
+
   test('x-label and significance reserves stay integrated under 50% width shrink', async () => {
     await activateWorkspace('box');
     await loadBoxExample();

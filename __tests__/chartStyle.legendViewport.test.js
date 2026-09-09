@@ -59,6 +59,35 @@ describe('chartStyle legend viewport', () => {
     expect(plot.dataset.graphContentViewport).toBe('true');
   });
 
+  test('extends the outer viewport when a canonical legend is taller than the graph frame', () => {
+    const { chartStyle } = window.Shared;
+    const svgBox = document.createElement('div');
+    const plot = document.createElement('div');
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    const legend = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    legend.setAttribute('data-legend-viewport-content', 'true');
+    legend.dataset.legendCanonicalOriginX = '652';
+    legend.dataset.legendCanonicalOriginY = '260';
+    legend.getBBox = jest.fn(() => ({ x: 0, y: 0, width: 160, height: 240 }));
+    svgBox.appendChild(plot);
+    plot.appendChild(svg);
+    svg.appendChild(legend);
+
+    const projection = chartStyle.stageLegendViewport({
+      svgBox,
+      plot,
+      svg,
+      baseWidth: 640,
+      baseHeight: 400,
+      legendWidth: 180
+    });
+
+    expect(projection.commit()).toBe(true);
+    expect(svg.getAttribute('viewBox')).toBe('0 0 820 500');
+    expect(svgBox.style.getPropertyValue('--graph-content-extra-bottom')).toBe('100px');
+    expect(plot.style.getPropertyValue('--graph-content-viewport-height')).toBe('500px');
+  });
+
   test('extends bottom content without changing the canonical graph viewport', () => {
     const { chartStyle } = window.Shared;
     const svgBox = document.createElement('div');
@@ -86,6 +115,67 @@ describe('chartStyle legend viewport', () => {
     expect(svg.dataset.graphContentReserveBottom).toBe('84');
     expect(svgBox.style.getPropertyValue('--graph-content-extra-bottom')).toBe('84px');
     expect(plot.style.getPropertyValue('--graph-content-viewport-height')).toBe('484px');
+  });
+
+  test('does not include the statistical summary in refined graph bounds', () => {
+    const { chartStyle } = window.Shared;
+    const svgBox = document.createElement('div');
+    const plot = document.createElement('div');
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    const summary = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    summary.setAttribute('data-stats-figure-summary', '1');
+    svg.appendChild(summary);
+    svgBox.appendChild(plot);
+    plot.appendChild(svg);
+    svg.getBBox = jest.fn(() => summary.parentNode
+      ? { x: 0, y: 0, width: 640, height: 400 }
+      : { x: 0, y: 0, width: 640, height: 120 });
+
+    const projection = chartStyle.stageGraphContentViewport({
+      svgBox,
+      plot,
+      svg,
+      baseWidth: 640,
+      baseHeight: 120,
+      refineContentBounds: true
+    });
+
+    expect(projection.commit()).toBe(true);
+    expect(svg.getBBox).toHaveBeenCalled();
+    expect(svg.querySelector('g[data-stats-figure-summary="1"]')).toBe(summary);
+    expect(svg.dataset.graphContentReserveBottom).toBe('0');
+    expect(svg.getAttribute('viewBox')).toBe('0 0 640 120');
+  });
+
+  test('preserves a carried statistical summary envelope during frame staging', () => {
+    const { chartStyle } = window.Shared;
+    const svgBox = document.createElement('div');
+    const plot = document.createElement('div');
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    const summary = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    summary.setAttribute('data-stats-figure-summary', '1');
+    summary.dataset.statsSummaryReserveBottom = '80';
+    svg.dataset.statsFigureSummaryCarried = '1';
+    svg.dataset.statsFigureSummaryCarryReserveBottom = '80';
+    svg.appendChild(summary);
+    svgBox.appendChild(plot);
+    plot.appendChild(svg);
+
+    const projection = chartStyle.stageGraphContentViewport({
+      svgBox,
+      plot,
+      svg,
+      baseWidth: 640,
+      baseHeight: 120,
+      bottomHeight: 20,
+      refineContentBounds: false
+    });
+
+    expect(projection.commit()).toBe(true);
+    expect(projection.measure().bottomHeight).toBe(20);
+    expect(projection.getViewport().bottomHeight).toBe(20);
+    expect(svg.dataset.graphContentReserveBottom).toBe('100');
+    expect(svg.getAttribute('viewBox')).toBe('0 0 640 220');
   });
 
   test('content envelope can extend on every side without changing the canonical base frame', () => {
@@ -178,6 +268,156 @@ describe('chartStyle legend viewport', () => {
     expect(layeredPlot.dataset.graphContentViewport).toBeUndefined();
     expect(svgBox.dataset.graphContentEnvelope).toBe('true');
     expect(svgBox.style.getPropertyValue('--graph-content-extra-right')).toBe('180px');
+  });
+
+  test('rehydrates a 3D envelope idempotently from its authoritative viewport', () => {
+    const { chartStyle } = window.Shared;
+    const svgBox = document.createElement('div');
+    svgBox.className = 'svgbox';
+    const plot = document.createElement('div');
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svgBox.appendChild(plot);
+    plot.appendChild(svg);
+    const safeViewport = {
+      baseWidth: 820,
+      baseHeight: 400,
+      minX: -36,
+      minY: -36,
+      maxX: 856,
+      maxY: 436,
+      left: 36,
+      top: 36,
+      right: 36,
+      bottom: 36,
+      rotationLimits: { x: { min: -Math.PI, max: Math.PI } }
+    };
+    const projection = chartStyle.stagePlot3dViewport({
+      svgBox,
+      plot,
+      svg,
+      baseWidth: 640,
+      baseHeight: 400,
+      canonicalWidth: 820,
+      canonicalHeight: 400,
+      legendWidth: 180,
+      safeViewport
+    });
+    projection.commit();
+    const initialViewBox = svg.getAttribute('viewBox');
+    const initialEnvelope = [
+      svgBox.style.getPropertyValue('--graph-content-extra-left'),
+      svgBox.style.getPropertyValue('--graph-content-extra-top'),
+      svgBox.style.getPropertyValue('--graph-content-extra-right'),
+      svgBox.style.getPropertyValue('--graph-content-extra-bottom')
+    ];
+    svg.getBBox = jest.fn(() => ({ x: -500, y: -500, width: 5000, height: 5000 }));
+
+    expect(chartStyle.rehydrateContentViewports(plot)).toBe(1);
+    expect(svg.getAttribute('viewBox')).toBe(initialViewBox);
+    expect([
+      svgBox.style.getPropertyValue('--graph-content-extra-left'),
+      svgBox.style.getPropertyValue('--graph-content-extra-top'),
+      svgBox.style.getPropertyValue('--graph-content-extra-right'),
+      svgBox.style.getPropertyValue('--graph-content-extra-bottom')
+    ]).toEqual(initialEnvelope);
+    expect(svg.getBBox).not.toHaveBeenCalled();
+    expect(svg.dataset.plot3dViewport).toBe('true');
+  });
+
+  test('allows direct 3D SVGs to keep legend width inside the graph box', () => {
+    const { chartStyle } = window.Shared;
+    const svgBox = document.createElement('div');
+    svgBox.className = 'svgbox';
+    const plot = document.createElement('div');
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svgBox.appendChild(plot);
+    plot.appendChild(svg);
+
+    const projection = chartStyle.stagePlot3dViewport({
+      svgBox,
+      plot,
+      svg,
+      baseWidth: 456,
+      baseHeight: 456,
+      canonicalWidth: 476.552,
+      canonicalHeight: 456,
+      legendWidth: 20.552,
+      applyOuterEnvelope: false,
+      safeViewport: { minX: 0, minY: 0, maxX: 476.552, maxY: 456 }
+    });
+    projection.commit();
+
+    expect(svg.getAttribute('viewBox')).toBe('0 0 476.552 456');
+    expect(svg.dataset.plot3dOuterEnvelope).toBe('false');
+    expect(svgBox.dataset.graphContentEnvelope).toBeUndefined();
+    expect(svgBox.style.getPropertyValue('--graph-content-extra-right')).toBe('');
+
+    expect(chartStyle.rehydratePlot3dViewports(svgBox)).toBe(1);
+    expect(svgBox.dataset.graphContentEnvelope).toBeUndefined();
+    expect(svgBox.style.getPropertyValue('--graph-content-extra-right')).toBe('');
+  });
+
+  test('rehydrates a cached 3D viewport without dropping its mounted figure-summary reserve', () => {
+    const { chartStyle } = window.Shared;
+    const svgBox = document.createElement('div');
+    svgBox.className = 'svgbox';
+    const plot = document.createElement('div');
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    const summary = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    summary.dataset.statsFigureSummary = '1';
+    summary.dataset.statsSummaryReserveBottom = '82';
+    svgBox.appendChild(plot);
+    plot.appendChild(svg);
+    svg.appendChild(summary);
+
+    chartStyle.stagePlot3dViewport({
+      svgBox,
+      plot,
+      svg,
+      baseWidth: 456,
+      baseHeight: 456,
+      canonicalWidth: 476.552,
+      canonicalHeight: 456,
+      legendWidth: 20.552,
+      applyOuterEnvelope: false,
+      safeViewport: { minX: 0, minY: 0, maxX: 476.552, maxY: 456 }
+    }).commit();
+    Object.assign(svg.dataset, {
+      statsFigureSummaryBaseWidth:'456',
+      statsFigureSummaryBaseHeight:'456',
+      statsFigureSummaryBaseReserveRight:'20.552',
+      statsFigureSummaryBaseReserveBottom:'0',
+      statsFigureSummaryBaseReserveLeft:'0',
+      statsFigureSummaryBaseReserveTop:'0',
+      statsFigureSummaryBaseEnvelopeMinX:'0',
+      statsFigureSummaryBaseEnvelopeMinY:'0',
+      statsFigureSummaryBaseEnvelopeMaxX:'476.552',
+      statsFigureSummaryBaseEnvelopeMaxY:'456',
+      statsFigureSummaryReserveBottom:'82',
+      statsFigureSummaryRenderedScaleX:'1',
+      statsFigureSummaryRenderedScaleY:'1'
+    });
+    chartStyle.stageGraphContentViewport({
+      svgBox,
+      plot,
+      svg,
+      baseWidth:456,
+      baseHeight:456,
+      rightWidth:20.552,
+      legendWidth:20.552,
+      bottomHeight:82,
+      contentBounds:{ minX:0, minY:0, maxX:476.552, maxY:538 },
+      refineContentBounds:false,
+      refineLegendReserve:false,
+      includeCarriedStatsFigureSummary:false
+    }).commit();
+    const cachedViewBox = svg.getAttribute('viewBox');
+
+    expect(chartStyle.rehydratePlot3dViewports(svgBox)).toBe(1);
+    expect(svg.getAttribute('viewBox')).toBe(cachedViewBox);
+    expect(svg.getAttribute('height')).toBe('538');
+    expect(svg.dataset.graphContentReserveBottom).toBe('82');
+    expect(svg.querySelector('g[data-stats-figure-summary="1"]')).toBe(summary);
   });
 
   test('legend envelope uses the canonical origin rather than a dragged position', () => {
@@ -278,6 +518,25 @@ describe('chartStyle legend viewport', () => {
     const columnSizes = Array.from(new Set(textX)).map(x => textX.filter(value => value === x).length);
     expect(Math.max(...columnSizes) - Math.min(...columnSizes)).toBeLessThanOrEqual(1);
   });
+
+  test('keeps a short-frame legend vertical instead of expanding sideways', () => {
+    const { chartStyle } = window.Shared;
+    const entries = Array.from({ length: 6 }, (_, index) => ({
+      key: `subject-${index + 1}`,
+      label: `Subject ${index + 1}`,
+      fill: '#0055cc'
+    }));
+    const layout = chartStyle.computeLegendLayout({
+      entries,
+      fontSize: 16,
+      viewportHeight: 110
+    });
+
+    expect(layout.renderer.columnCount).toBe(1);
+    expect(layout.renderer.width).toBeLessThan(200);
+    expect(layout.renderer.height).toBeGreaterThan(layout.renderer.maxHeight);
+  });
+
   test('uses one canonical horizontal gutter for axes and legends at every font size', () => {
     const { chartStyle } = window.Shared;
     const edge = chartStyle.GRAPH_HORIZONTAL_EDGE_PADDING_PX;

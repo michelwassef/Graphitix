@@ -39,6 +39,116 @@
     renderedHeight: 'graphViewportStableRenderedHeight'
   };
 
+  const DEFAULT_SVG_ROOT_ATTRIBUTES = Object.freeze([
+    'width',
+    'height',
+    'viewBox',
+    'preserveAspectRatio',
+    'font-family',
+    'color',
+    'font-size',
+    'aria-label'
+  ]);
+
+  const normalizeSvgRootNames = (names, fallback) => {
+    const source = Array.isArray(names) ? names : fallback;
+    return Array.from(new Set(source
+      .filter(name => typeof name === 'string')
+      .map(name => name.trim())
+      .filter(Boolean)));
+  };
+
+  function captureSvgRootState(svg, options = {}) {
+    if(!svg){
+      return null;
+    }
+    const attributeNames = normalizeSvgRootNames(options.attributes, DEFAULT_SVG_ROOT_ATTRIBUTES);
+    const styleNames = normalizeSvgRootNames(options.styles, ['display']);
+    const attributes = {};
+    const dataAttributes = {};
+    const style = {};
+    attributeNames.forEach(name => {
+      const value = svg.getAttribute?.(name);
+      if(typeof value === 'string' && value.length){
+        attributes[name] = value;
+      }
+    });
+    if(options.includeDataAttributes !== false && typeof svg.getAttributeNames === 'function'){
+      svg.getAttributeNames()
+        .filter(name => /^data-/i.test(name))
+        .forEach(name => {
+          const value = svg.getAttribute(name);
+          if(typeof value === 'string' && value.length){
+            dataAttributes[name] = value;
+          }
+        });
+    }
+    styleNames.forEach(name => {
+      const value = svg.style?.[name];
+      if(typeof value === 'string' && value.length){
+        style[name] = value;
+      }
+    });
+    return {
+      attributes: Object.keys(attributes).length ? attributes : null,
+      dataAttributes: Object.keys(dataAttributes).length ? dataAttributes : null,
+      style: Object.keys(style).length ? style : null
+    };
+  }
+
+  function restoreSvgRootState(svg, snapshot, options = {}) {
+    if(!svg){
+      return false;
+    }
+    const attributeNames = normalizeSvgRootNames(options.attributes, DEFAULT_SVG_ROOT_ATTRIBUTES);
+    const styleNames = normalizeSvgRootNames(options.styles, ['display']);
+    attributeNames.forEach(name => svg.removeAttribute?.(name));
+    if(options.clearDataAttributes !== false && typeof svg.getAttributeNames === 'function'){
+      svg.getAttributeNames()
+        .filter(name => /^data-/i.test(name))
+        .forEach(name => svg.removeAttribute(name));
+    }
+    if(svg.style){
+      styleNames.forEach(name => { svg.style[name] = ''; });
+    }
+    if(!snapshot || typeof snapshot !== 'object'){
+      return true;
+    }
+    const attributes = snapshot.attributes && typeof snapshot.attributes === 'object'
+      ? snapshot.attributes
+      : null;
+    const dataAttributes = snapshot.dataAttributes && typeof snapshot.dataAttributes === 'object'
+      ? snapshot.dataAttributes
+      : null;
+    const style = snapshot.style && typeof snapshot.style === 'object'
+      ? snapshot.style
+      : null;
+    if(attributes){
+      Object.entries(attributes).forEach(([name, value]) => {
+        if(value == null || value === ''){
+          svg.removeAttribute?.(name);
+        }else{
+          svg.setAttribute?.(name, String(value));
+        }
+      });
+    }
+    if(dataAttributes){
+      Object.entries(dataAttributes).forEach(([name, value]) => {
+        if(value == null || value === ''){
+          svg.removeAttribute?.(name);
+        }else{
+          svg.setAttribute?.(name, String(value));
+        }
+      });
+    }
+    if(style && svg.style){
+      Object.entries(style).forEach(([name, value]) => {
+        svg.style[name] = value == null ? '' : String(value);
+      });
+    }
+    return true;
+  }
+
   const parseFiniteNumber = value => {
     const numeric = Number(value);
     return Number.isFinite(numeric) ? numeric : NaN;
@@ -2076,6 +2186,8 @@
     return true;
   }
 
+  const SVG_BOUNDARY_LABEL_ROLES = new Set(['graphTitle', 'xTitle', 'yTitle', 'zTitle']);
+
   /**
    * Enable drag functionality for SVG text elements (titles, axis labels).
    * Allows users to reposition labels by dragging them within the SVG.
@@ -2090,7 +2202,156 @@
    * @param {number} options.dragThreshold - Minimum pointer movement before drag activates
    * @param {('x'|'y'|null)} options.axisLock - Constrain movement to a single axis
    * @param {boolean} options.recordUndo - Record element position changes in undo history
+   * @param {boolean} options.constrainToSvg - Keep the rendered label inside its SVG viewport
    */
+  function updateLabelTransformForPosition(el, x, y){
+    if(!el){
+      return;
+    }
+    const transform = el.getAttribute('transform');
+    if(!transform) {
+      return;
+    }
+    // Keep matrix-based aspect correction anchored to the updated x/y so drag
+    // movement remains 1:1 with the pointer.
+    const matrixMatch = transform.match(/^\s*matrix\(\s*([-+]?\d*\.?\d+(?:e[-+]?\d+)?)\s*,\s*0\s*,\s*0\s*,\s*([-+]?\d*\.?\d+(?:e[-+]?\d+)?)\s*,\s*([-+]?\d*\.?\d+(?:e[-+]?\d+)?)\s*,\s*([-+]?\d*\.?\d+(?:e[-+]?\d+)?)\s*\)\s*(.*)$/i);
+    if (matrixMatch) {
+      const scaleX = Number.parseFloat(matrixMatch[1]);
+      const scaleY = Number.parseFloat(matrixMatch[2]);
+      const tail = (matrixMatch[5] || '').trim();
+      if (Number.isFinite(scaleX) && Number.isFinite(scaleY)) {
+        const tx = x - (scaleX * x);
+        const ty = y - (scaleY * y);
+        const nextMatrix = `matrix(${scaleX},0,0,${scaleY},${tx},${ty})`;
+        el.setAttribute('transform', tail ? `${nextMatrix} ${tail}` : nextMatrix);
+        return;
+      }
+    }
+    // Update transforms for rotated elements (for example, y-axis labels).
+    if (transform.includes('rotate')) {
+      const rotateMatch = transform.match(/rotate\s*\(\s*(-?\d+\.?\d*)\s*/);
+      if (rotateMatch) {
+        el.setAttribute('transform', `rotate(${rotateMatch[1]} ${x} ${y})`);
+      }
+    }
+  }
+
+  function screenVectorToSvgVector(svg, dx, dy){
+    try {
+      const ctm = svg?.getScreenCTM?.();
+      if(!ctm || typeof ctm.inverse !== 'function'){
+        return null;
+      }
+      const inverse = ctm.inverse();
+      const createPoint = () => {
+        if(typeof svg.createSVGPoint === 'function'){
+          return svg.createSVGPoint();
+        }
+        return { x: 0, y: 0, matrixTransform(matrix){
+          return {
+            x: (this.x * Number(matrix?.a || 1)) + (this.y * Number(matrix?.c || 0)),
+            y: (this.x * Number(matrix?.b || 0)) + (this.y * Number(matrix?.d || 1))
+          };
+        }};
+      };
+      const origin = createPoint();
+      const offset = createPoint();
+      origin.x = 0;
+      origin.y = 0;
+      offset.x = dx;
+      offset.y = dy;
+      const mappedOrigin = origin.matrixTransform(inverse);
+      const mappedOffset = offset.matrixTransform(inverse);
+      const x = Number(mappedOffset?.x) - Number(mappedOrigin?.x);
+      const y = Number(mappedOffset?.y) - Number(mappedOrigin?.y);
+      return Number.isFinite(x) && Number.isFinite(y) ? { x, y } : null;
+    } catch (err) {
+      logDebug('constrainSvgLabelPosition coordinate conversion failed', { message: err?.message });
+      return null;
+    }
+  }
+
+  /**
+   * Keep a label's rendered bounds inside the complete SVG viewport. This
+   * uses screen geometry so text-anchor, rotation, CSS scaling, and preserve-
+   * aspect-ratio are all measured in the same coordinate space.
+   */
+  function constrainSvgLabelPosition(el, svg, position = {}, options = {}){
+    if(!el || !svg){
+      return {
+        x: Number(position.x) || 0,
+        y: Number(position.y) || 0
+      };
+    }
+    let next = {
+      x: Number.isFinite(Number(position.x)) ? Number(position.x) : 0,
+      y: Number.isFinite(Number(position.y)) ? Number(position.y) : 0
+    };
+    const applyPosition = typeof options.applyPosition === 'function'
+      ? options.applyPosition
+      : (x, y) => {
+          el.setAttribute('x', String(x));
+          el.setAttribute('y', String(y));
+          updateLabelTransformForPosition(el, x, y);
+        };
+    const iterations = Math.max(1, Math.min(6, Number(options.iterations) || 4));
+    const epsilon = Number.isFinite(Number(options.epsilon)) ? Math.max(0, Number(options.epsilon)) : 0.05;
+    for(let iteration = 0; iteration < iterations; iteration += 1){
+      applyPosition(next.x, next.y);
+      let svgRect;
+      let labelRect;
+      try {
+        svgRect = svg.getBoundingClientRect?.();
+        labelRect = el.getBoundingClientRect?.();
+      } catch (err) {
+        logDebug('constrainSvgLabelPosition measurement failed', { message: err?.message });
+        break;
+      }
+      if(!svgRect || !labelRect
+        || !Number.isFinite(svgRect.left) || !Number.isFinite(svgRect.right)
+        || !Number.isFinite(svgRect.top) || !Number.isFinite(svgRect.bottom)
+        || !Number.isFinite(labelRect.left) || !Number.isFinite(labelRect.right)
+        || !Number.isFinite(labelRect.top) || !Number.isFinite(labelRect.bottom)
+        || svgRect.right <= svgRect.left || svgRect.bottom <= svgRect.top
+        || labelRect.right <= labelRect.left || labelRect.bottom <= labelRect.top){
+        break;
+      }
+      const viewportWidth = svgRect.right - svgRect.left;
+      const viewportHeight = svgRect.bottom - svgRect.top;
+      let dx = 0;
+      let dy = 0;
+      if(labelRect.right - labelRect.left >= viewportWidth){
+        dx = ((svgRect.left + svgRect.right) / 2) - ((labelRect.left + labelRect.right) / 2);
+      }else if(labelRect.left < svgRect.left){
+        dx = svgRect.left - labelRect.left;
+      }else if(labelRect.right > svgRect.right){
+        dx = svgRect.right - labelRect.right;
+      }
+      if(labelRect.bottom - labelRect.top >= viewportHeight){
+        dy = ((svgRect.top + svgRect.bottom) / 2) - ((labelRect.top + labelRect.bottom) / 2);
+      }else if(labelRect.top < svgRect.top){
+        dy = svgRect.top - labelRect.top;
+      }else if(labelRect.bottom > svgRect.bottom){
+        dy = svgRect.bottom - labelRect.bottom;
+      }
+      if(Math.abs(dx) <= epsilon && Math.abs(dy) <= epsilon){
+        break;
+      }
+      const svgDelta = screenVectorToSvgVector(svg, dx, dy);
+      if(!svgDelta){
+        break;
+      }
+      if(options.axisLock !== 'y'){
+        next.x += svgDelta.x;
+      }
+      if(options.axisLock !== 'x'){
+        next.y += svgDelta.y;
+      }
+    }
+    applyPosition(next.x, next.y);
+    return next;
+  }
+
   function enableLabelDrag(el, svg, options = {}) {
     if (!el || !svg) {
       logDebug('enableLabelDrag skipped', { hasElement: !!el, hasSvg: !!svg });
@@ -2104,12 +2365,17 @@
       onPositionChange,
       cursor = 'move',
       syncChildX = false,
-      normalizeDuringDrag = false
+      normalizeDuringDrag = false,
+      deferInitialConstraint = false,
+      constrainToSvg = options.constrainToSvg
     } = options;
     const dragThreshold = Math.max(2, Number(options.dragThreshold) || 4);
     const dragThresholdSq = dragThreshold * dragThreshold;
     const axisLock = options.axisLock === 'x' || options.axisLock === 'y' ? options.axisLock : null;
     const shouldRecordUndo = options.recordUndo !== false;
+    const fontRole = String(el?.dataset?.fontRole || '').trim();
+    const shouldConstrainToSvg = constrainToSvg === true
+      || (constrainToSvg !== false && SVG_BOUNDARY_LABEL_ROLES.has(fontRole));
     let pointerDown = false;
     let dragging = false;
     let startPoint = { x: 0, y: 0 };
@@ -2197,34 +2463,22 @@
       return { x: clientX, y: clientY };
     };
 
-    const updateTransformForPosition = (x, y) => {
-      const transform = el.getAttribute('transform');
-      if (!transform) {
-        return;
+    const updateTransformForPosition = (x, y) => updateLabelTransformForPosition(el, x, y);
+    const applyPosition = (x, y) => {
+      el.setAttribute('x', String(x));
+      el.setAttribute('y', String(y));
+      applyChildAnchors(x);
+      updateTransformForPosition(x, y);
+    };
+    const constrainPosition = (position, reason) => {
+      if(!shouldConstrainToSvg){
+        return position;
       }
-      // Keep matrix-based aspect correction anchored to the updated x/y so drag
-      // movement remains 1:1 with the pointer.
-      const matrixMatch = transform.match(/^\s*matrix\(\s*([-+]?\d*\.?\d+(?:e[-+]?\d+)?)\s*,\s*0\s*,\s*0\s*,\s*([-+]?\d*\.?\d+(?:e[-+]?\d+)?)\s*,\s*([-+]?\d*\.?\d+(?:e[-+]?\d+)?)\s*,\s*([-+]?\d*\.?\d+(?:e[-+]?\d+)?)\s*\)\s*(.*)$/i);
-      if (matrixMatch) {
-        const scaleX = Number.parseFloat(matrixMatch[1]);
-        const scaleY = Number.parseFloat(matrixMatch[2]);
-        const tail = (matrixMatch[5] || '').trim();
-        if (Number.isFinite(scaleX) && Number.isFinite(scaleY)) {
-          const tx = x - (scaleX * x);
-          const ty = y - (scaleY * y);
-          const nextMatrix = `matrix(${scaleX},0,0,${scaleY},${tx},${ty})`;
-          el.setAttribute('transform', tail ? `${nextMatrix} ${tail}` : nextMatrix);
-          return;
-        }
-      }
-      // Update transform for rotated elements (like y-axis labels)
-      if (transform.includes('rotate')) {
-        const rotateMatch = transform.match(/rotate\s*\(\s*(-?\d+\.?\d*)\s*/);
-        if (rotateMatch) {
-          const angle = rotateMatch[1];
-          el.setAttribute('transform', `rotate(${angle} ${x} ${y})`);
-        }
-      }
+      return constrainSvgLabelPosition(el, svg, position, {
+        axisLock,
+        applyPosition,
+        reason
+      });
     };
 
     let activePointerId = null;
@@ -2298,11 +2552,11 @@
           newY = Number(normalized.y);
         }
       }
-      el.setAttribute('x', String(newX));
-      el.setAttribute('y', String(newY));
+      const constrained = constrainPosition({ x: newX, y: newY }, 'drag-move');
+      newX = constrained.x;
+      newY = constrained.y;
+      applyPosition(newX, newY);
       currentPos = { x: newX, y: newY };
-      applyChildAnchors(newX);
-      updateTransformForPosition(newX, newY);
       if(typeof onDragMove === 'function'){
         safeCall(onDragMove, [{ x: newX, y: newY, element: el }], 'enableLabelDrag onDragMove error');
       }
@@ -2344,12 +2598,12 @@
       if (normalized && Number.isFinite(Number(normalized.x)) && Number.isFinite(Number(normalized.y))) {
         finalX = Number(normalized.x);
         finalY = Number(normalized.y);
-        currentPos = { x: finalX, y: finalY };
-        el.setAttribute('x', String(finalX));
-        el.setAttribute('y', String(finalY));
-        applyChildAnchors(finalX);
-        updateTransformForPosition(finalX, finalY);
       }
+      const constrained = constrainPosition({ x: finalX, y: finalY }, 'drag-end');
+      finalX = constrained.x;
+      finalY = constrained.y;
+      currentPos = { x: finalX, y: finalY };
+      applyPosition(finalX, finalY);
       // Record undo/redo entry for label movement
       if (shouldRecordUndo) {
         try {
@@ -2397,27 +2651,61 @@
     el.addEventListener('pointerdown', handlePointerDown);
     el.addEventListener('mousedown', handlePointerDown);
 
+    if(shouldConstrainToSvg && !deferInitialConstraint){
+      const initial = {
+        x: parseFloat(el.getAttribute('x') || '0'),
+        y: parseFloat(el.getAttribute('y') || '0')
+      };
+      const constrained = constrainPosition(initial, 'initial-normalize');
+      if(constrained.x !== initial.x || constrained.y !== initial.y){
+        const payload = {
+          x: constrained.x,
+          y: constrained.y,
+          element: el,
+          reason: 'svg-boundary-normalize',
+          initial: true
+        };
+        // Persist the correction when the component supplied a state callback;
+        // otherwise the projection is still corrected without inventing one.
+        if(typeof onPositionChange === 'function'){
+          safeCall(onPositionChange, [payload], 'enableLabelDrag initial position callback error');
+        }else if(typeof onDragEnd === 'function'){
+          safeCall(onDragEnd, [payload], 'enableLabelDrag initial drag-end callback error');
+        }
+      }
+    }
+
     logDebug('enableLabelDrag bound', { element: el.tagName || 'unknown' });
   }
 
-  function enableLegendDrag(group, svg, options = {}) {
-    if (!group || !svg) {
-      logDebug('enableLegendDrag skipped', { hasGroup: !!group, hasSvg: !!svg });
-      return;
-    }
-    const dragThreshold = Math.max(2, Number(options.dragThreshold) || 4);
-    const dragThresholdSq = dragThreshold * dragThreshold;
-    const cursor = options.cursor || 'move';
-    if (group.style) {
-      group.style.cursor = cursor;
-      group.style.touchAction = 'none';
-    }
-
-    const normalizePoint = point => ({
+  function normalizeLegendPoint(point) {
+    return {
       x: Number.isFinite(point?.x) ? point.x : 0,
       y: Number.isFinite(point?.y) ? point.y : 0
-    });
+    };
+  }
 
+  function readLegendTranslate(group) {
+    const raw = group?.getAttribute?.('transform') || '';
+    const match = raw.match(/translate\s*\(\s*([-+]?\d*\.?\d+)(?:[\s,]+([-+]?\d*\.?\d+))?/i);
+    if (!match) {
+      return { x: 0, y: 0 };
+    }
+    const x = Number.parseFloat(match[1]);
+    const y = match[2] != null ? Number.parseFloat(match[2]) : x;
+    return {
+      x: Number.isFinite(x) ? x : 0,
+      y: Number.isFinite(y) ? y : 0
+    };
+  }
+
+  function constrainLegendPositionToViewport(group, svg, options = {}) {
+    const current = normalizeLegendPoint(options.position != null
+      ? options.position
+      : (typeof options.getPosition === 'function' ? options.getPosition() : readLegendTranslate(group)));
+    if (!group || !svg) {
+      return { position: current, changed: false };
+    }
     const readViewportBounds = () => {
       try{
         const rect = svg.getBoundingClientRect?.();
@@ -2449,7 +2737,7 @@
           }
         }
       }catch(err){
-        logDebug('enableLegendDrag rendered viewport unavailable', { message: err?.message });
+        logDebug('constrainLegendPositionToViewport rendered viewport unavailable', { message: err?.message });
       }
       const baseVal = svg.viewBox?.baseVal;
       if(baseVal && Number.isFinite(baseVal.x) && Number.isFinite(baseVal.y)
@@ -2486,7 +2774,7 @@
           return bounds;
         }
       }catch(err){
-        logDebug('enableLegendDrag bounds unavailable', { message: err?.message });
+        logDebug('constrainLegendPositionToViewport bounds unavailable', { message: err?.message });
       }
       return null;
     };
@@ -2498,38 +2786,51 @@
       return Math.min(Math.max(value, minimum), maximum);
     };
 
-    const constrainPosition = point => {
-      const next = normalizePoint(point);
-      const viewport = readViewportBounds();
-      const bounds = readLegendBounds();
-      if(!viewport || !bounds){
-        return next;
-      }
-      return {
-        x: clampAxis(next.x, viewport.left - bounds.x, viewport.right - bounds.x - bounds.width),
-        y: clampAxis(next.y, viewport.top - bounds.y, viewport.bottom - bounds.y - bounds.height)
-      };
+    const viewport = readViewportBounds();
+    const bounds = readLegendBounds();
+    if(!viewport || !bounds){
+      return { position: current, changed: false };
+    }
+    const position = {
+      x: clampAxis(current.x, viewport.left - bounds.x, viewport.right - bounds.x - bounds.width),
+      y: clampAxis(current.y, viewport.top - bounds.y, viewport.bottom - bounds.y - bounds.height)
     };
+    const changed = position.x !== current.x || position.y !== current.y;
+    if(changed && options.apply !== false){
+      const setPosition = typeof options.setPosition === 'function'
+        ? options.setPosition
+        : value => {
+          const next = normalizeLegendPoint(value);
+          group.setAttribute('transform', `translate(${next.x},${next.y})`);
+          return next;
+        };
+      setPosition(position);
+    }
+    return { position, changed };
+  }
 
-    const parseTranslate = () => {
-      const raw = group.getAttribute('transform') || '';
-      const match = raw.match(/translate\s*\(\s*([-+]?\d*\.?\d+)(?:[\s,]+([-+]?\d*\.?\d+))?/i);
-      if (!match) {
-        return { x: 0, y: 0 };
-      }
-      const x = Number.parseFloat(match[1]);
-      const y = match[2] != null ? Number.parseFloat(match[2]) : x;
-      return {
-        x: Number.isFinite(x) ? x : 0,
-        y: Number.isFinite(y) ? y : 0
-      };
-    };
+  function enableLegendDrag(group, svg, options = {}) {
+    if (!group || !svg) {
+      logDebug('enableLegendDrag skipped', { hasGroup: !!group, hasSvg: !!svg });
+      return;
+    }
+    const dragThreshold = Math.max(2, Number(options.dragThreshold) || 4);
+    const dragThresholdSq = dragThreshold * dragThreshold;
+    const cursor = options.cursor || 'move';
+    if (group.style) {
+      group.style.cursor = cursor;
+      group.style.touchAction = 'none';
+    }
 
     const writeTranslate = pos => {
-      const next = normalizePoint(pos);
+      const next = normalizeLegendPoint(pos);
       group.setAttribute('transform', `translate(${next.x},${next.y})`);
       return next;
     };
+    const constrainPosition = point => constrainLegendPositionToViewport(group, svg, {
+      position: point,
+      apply: false
+    }).position;
 
     const pointerToSvg = (clientX, clientY) => {
       try {
@@ -2546,26 +2847,26 @@
 
     const getPosition = typeof options.getPosition === 'function'
       ? options.getPosition
-      : () => parseTranslate();
+      : () => readLegendTranslate(group);
     const setPosition = typeof options.setPosition === 'function'
       ? options.setPosition
       : value => writeTranslate(value);
 
     const constrainCurrentPosition = () => {
-      const current = normalizePoint(getPosition());
-      const bounded = constrainPosition(current);
-      const changed = bounded.x !== current.x || bounded.y !== current.y;
-      if(changed){
-        setPosition(bounded);
-      }
-      return { position: bounded, changed };
+      const current = normalizeLegendPoint(getPosition());
+      return constrainLegendPositionToViewport(group, svg, {
+        position: current,
+        setPosition
+      });
     };
     // Reserve-anchored legends are rendered before the shared viewport
     // publication commits their outward extension. Constraining them against
     // that pre-publication base viewport would turn the default reserve
     // position into a false saved user position.
-    const initialConstraint = options.positionAnchor || options.deferInitialConstraint === true
-      ? { position: normalizePoint(getPosition()), changed: false }
+    const deferInitialConstraint = options.deferInitialConstraint === true
+      || (options.deferInitialConstraint !== false && !!options.positionAnchor);
+    const initialConstraint = deferInitialConstraint
+      ? { position: normalizeLegendPoint(getPosition()), changed: false }
       : constrainCurrentPosition();
     if(initialConstraint.changed){
       safeCall(options.onPositionConstrained, [initialConstraint.position], 'enableLegendDrag onPositionConstrained error');
@@ -2668,7 +2969,7 @@
       const nextPos = constrainPosition({ x: originPos.x + dx, y: originPos.y + dy });
       const appliedPosition = setPosition(nextPos);
       currentPos = appliedPosition && Number.isFinite(appliedPosition.x) && Number.isFinite(appliedPosition.y)
-        ? normalizePoint(appliedPosition)
+        ? normalizeLegendPoint(appliedPosition)
         : nextPos;
       if (typeof options.onPositionChange === 'function') {
         safeCall(options.onPositionChange, [currentPos], 'enableLegendDrag onPositionChange error');
@@ -2697,7 +2998,7 @@
       }
       event.preventDefault();
       event.stopPropagation();
-      const finalPos = normalizePoint(currentPos || getPosition());
+      const finalPos = normalizeLegendPoint(currentPos || getPosition());
       recordUndo(originPos, finalPos);
       if (typeof options.onDragEnd === 'function') {
         safeCall(options.onDragEnd, [{ x: finalPos.x, y: finalPos.y, element: group }], 'enableLegendDrag onDragEnd error');
@@ -2760,6 +3061,7 @@
     enableLegendDrag(group, svg, {
       undoLabel: options.undoLabel || 'legend-position',
       positionAnchor: options.positionAnchor || null,
+      deferInitialConstraint: options.deferInitialConstraint,
       onPositionConstrained: commitPosition,
       onDragEnd: commitPosition
     });
@@ -2829,8 +3131,8 @@
       try {
         if(fitContent === false){
           const resolvedBaseViewport = resolveAutoResizeBaseViewport(baseViewport);
-          const minX = 0;
-          const minY = 0;
+          const minX = Number.isFinite(Number(baseViewport?.minX)) ? Number(baseViewport.minX) : 0;
+          const minY = Number.isFinite(Number(baseViewport?.minY)) ? Number(baseViewport.minY) : 0;
           const viewW = Math.max(1, Math.max(Number(minWidth) || 0, resolvedBaseViewport.width));
           const viewH = Math.max(1, Math.max(Number(minHeight) || 0, resolvedBaseViewport.height));
           if(!Number.isFinite(viewW) || !Number.isFinite(viewH)){
@@ -2871,7 +3173,9 @@
           return;
         }
 
-        const excludeSelectors = [];
+        // Figure summaries are an outward report extension. They must never
+        // influence the graph frame discovered by content fitting.
+        const excludeSelectors = ['g[data-stats-figure-summary="1"]'];
         if(typeof excludeSelector === 'string' && excludeSelector.trim()){
           excludeSelectors.push(excludeSelector.trim());
         }
@@ -3260,6 +3564,28 @@
   }
 
   const stagedGraphFramePublications = new Map();
+  const STATS_FIGURE_SUMMARY_SELECTOR = 'g[data-stats-figure-summary="1"]';
+  const STATS_FIGURE_SUMMARY_DATASET_KEYS = Object.freeze([
+    'statsFigureSummaryReserveBottom',
+    'statsFigureSummaryBaseBottom',
+    'statsFigureSummaryBaseViewBoxX',
+    'statsFigureSummaryBaseViewBoxY',
+    'statsFigureSummaryBaseViewBoxWidth',
+    'statsFigureSummaryBaseViewBoxHeight',
+    'statsFigureSummaryBaseWidth',
+    'statsFigureSummaryBaseHeight',
+    'statsFigureSummaryBaseReserveRight',
+    'statsFigureSummaryBaseReserveBottom',
+    'statsFigureSummaryBaseReserveLeft',
+    'statsFigureSummaryBaseReserveTop',
+    'statsFigureSummaryBaseEnvelopeMinX',
+    'statsFigureSummaryBaseEnvelopeMinY',
+    'statsFigureSummaryBaseEnvelopeMaxX',
+    'statsFigureSummaryBaseEnvelopeMaxY',
+    'statsFigureSummaryBaseLegendWidth',
+    'statsFigureSummaryRenderedScaleX',
+    'statsFigureSummaryRenderedScaleY'
+  ]);
 
   function normalizeGraphFramePublicationOwner(options = {}){
     const component = String(options.component || '').trim();
@@ -3341,6 +3667,36 @@
     }
 
     const previousNodes = Array.from(container.childNodes || []);
+    const previousSummary = previousNodes
+      .filter(node => node?.dataset?.graphFramePublication !== 'staged')
+      .map(node => node?.matches?.(STATS_FIGURE_SUMMARY_SELECTOR)
+        ? node
+        : node?.querySelector?.(STATS_FIGURE_SUMMARY_SELECTOR) || null)
+      .find(node => {
+        const summaryTabId = String(node?.dataset?.statsSummaryTabId || '').trim();
+        const publicationTabId = String(options.tabId || '').trim();
+        return summaryTabId && publicationTabId && summaryTabId === publicationTabId;
+      });
+    if(previousSummary && !publishedNode.querySelector?.(STATS_FIGURE_SUMMARY_SELECTOR)){
+      const carriedSummary = previousSummary.cloneNode(true);
+      publishedNode.appendChild(carriedSummary);
+      const summaryReserve = Number(carriedSummary.dataset?.statsSummaryReserveBottom);
+      if(Number.isFinite(summaryReserve) && summaryReserve > 0 && publishedNode.dataset){
+        // The summary group is carried with the replacement frame, but its
+        // SVG-level viewport metadata must travel with it as well. Without
+        // this handoff the group remains visible while the frame loses the
+        // bottom reserve that keeps the table outside the plot.
+        const previousSvg = previousSummary.ownerSVGElement || previousSummary.closest?.('svg') || null;
+        STATS_FIGURE_SUMMARY_DATASET_KEYS.forEach(key => {
+          const value = previousSvg?.dataset?.[key];
+          if(value != null && value !== ''){
+            publishedNode.dataset[key] = String(value);
+          }
+        });
+        publishedNode.dataset.statsFigureSummaryCarried = '1';
+        publishedNode.dataset.statsFigureSummaryCarryReserveBottom = String(summaryReserve);
+      }
+    }
     const styleProperties = ['visibility', 'pointer-events', 'position', 'left', 'top', 'z-index'];
     const previousStyles = new Map(styleProperties.map(property => [
       property,
@@ -3422,6 +3778,8 @@
 
   Shared.makeEditable = makeEditable;
   Shared.enableLabelDrag = enableLabelDrag;
+  Shared.constrainSvgLabelPosition = constrainSvgLabelPosition;
+  Shared.constrainLegendPositionToViewport = constrainLegendPositionToViewport;
   Shared.enableLegendDrag = enableLegendDrag;
   Shared.bindLegendDragInteraction = bindLegendDragInteraction;
   Shared.isManagedLegendDragTarget = isManagedLegendDragTarget;
@@ -3430,6 +3788,8 @@
   Shared.graphViewport = Shared.graphViewport || {};
   Shared.graphViewport.ensure = ensureGraphViewport;
   Shared.graphViewport.createEnsurer = createGraphViewportEnsurer;
+  Shared.graphViewport.captureSvgRootState = captureSvgRootState;
+  Shared.graphViewport.restoreSvgRootState = restoreSvgRootState;
   Shared.graphViewport.captureStableAxes = captureGraphViewportStableAxes;
   Shared.graphViewport.applyLiveResizeLock = applyLiveResizeViewportLock;
   Shared.graphViewport.enforceLockedAxisRatio = enforceLockedAxisViewport;

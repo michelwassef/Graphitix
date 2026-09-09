@@ -525,7 +525,11 @@ async function seedRecoverySnapshot(page, archive, scenarioLabel) {
     });
     const db = await openDb();
     await new Promise((resolve, reject) => {
-      const tx = db.transaction('snapshots', 'readwrite');
+      const storeNames = ['snapshots'];
+      if (db.objectStoreNames.contains('canonical-journal')) {
+        storeNames.push('canonical-journal');
+      }
+      const tx = db.transaction(storeNames, 'readwrite');
       tx.objectStore('snapshots').put({
         meta: {
           app: 'Graphitix',
@@ -543,10 +547,14 @@ async function seedRecoverySnapshot(page, archive, scenarioLabel) {
         },
         blob
       }, 'active-recovery');
+      if (storeNames.includes('canonical-journal')) {
+        tx.objectStore('canonical-journal').clear();
+      }
       tx.oncomplete = () => resolve(true);
       tx.onerror = () => reject(tx.error || new Error('IndexedDB recovery snapshot write failed'));
     });
     db.close?.();
+    try { window.localStorage?.removeItem?.('graphitix.canonical-journal.v1'); } catch (_err) {}
   }, { b64: archive.base64, label: scenarioLabel });
 }
 

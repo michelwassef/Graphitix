@@ -38,48 +38,53 @@ describe('Main.desktopCommands', () => {
     });
   });
 
-  test('invokes Import on the active tab root only', async () => {
-    const activeImport = jest.fn();
-    const inactiveImport = jest.fn();
-    const activeRoot = document.createElement('section');
-    const inactiveRoot = document.createElement('section');
-    const activeButton = document.createElement('button');
-    const inactiveButton = document.createElement('button');
+  test('routes Import to the active component capability', async () => {
+    const executeCommand = jest.fn(() => ({ status: 'handled' }));
     const activeTab = { id: 'tab-active', type: 'scatter' };
 
-    activeButton.id = 'scatterImport';
-    inactiveButton.id = 'scatterImport';
-    activeButton.addEventListener('click', activeImport);
-    inactiveButton.addEventListener('click', inactiveImport);
-    activeRoot.appendChild(activeButton);
-    inactiveRoot.appendChild(inactiveButton);
-    document.body.appendChild(inactiveRoot);
-
-    const commands = loadDesktopCommands({
-      shared: {
-        workspaceTabs: {
-          getMountedRoot: jest.fn(() => activeRoot)
-        }
-      }
-    });
+    const commands = loadDesktopCommands();
 
     commands.init({
       session: { getActiveTab: jest.fn(() => activeTab) },
-      workspaces: {
-        scatter: { element: inactiveRoot }
-      }
+      workspaces: { scatter: { executeCommand } }
     });
 
     const result = await commands.execute('importData');
 
     expect(result).toMatchObject({
-      status: 'sent',
+      status: 'handled',
       command: 'importData',
-      type: 'scatter',
-      id: 'scatterImport'
+      type: 'scatter'
     });
-    expect(activeImport).toHaveBeenCalledTimes(1);
-    expect(inactiveImport).not.toHaveBeenCalled();
+    expect(executeCommand).toHaveBeenCalledWith('importData', expect.objectContaining({
+      tab: activeTab,
+      tabId: 'tab-active',
+      origin: 'desktop'
+    }));
+  });
+
+  test('does not contain component DOM lookup or button-id maps', () => {
+    const fs = require('fs');
+    const path = require('path');
+    const source = fs.readFileSync(path.join(__dirname, '../js/main/desktopCommands.js'), 'utf8');
+    expect(source).not.toContain('IMPORT_BUTTON_IDS');
+    expect(source).not.toContain('EXAMPLE_BUTTON_IDS');
+    expect(source).not.toContain('.click()');
+  });
+
+  test('keeps command execution inside component action registries', () => {
+    const fs = require('fs');
+    const path = require('path');
+    const components = ['box', 'scatter', 'pca', 'line', 'heatmap', 'surface', 'roc', 'survival', 'hist', 'pie', 'venn'];
+    components.forEach(type => {
+      const source = fs.readFileSync(path.join(__dirname, `../js/components/${type}.js`), 'utf8');
+      const start = source.indexOf(`${type}.executeDesktopCommand = function`);
+      expect(start).toBeGreaterThanOrEqual(0);
+      const block = source.slice(start, start + 500);
+      expect(block).toContain(`${type}.__desktopCommandActions`);
+      expect(block).not.toContain('get' + type[0].toUpperCase() + type.slice(1) + 'NodeById');
+      expect(block).not.toContain('.click()');
+    });
   });
 
   test('activates active-tab toolbar sections without crossing component type', async () => {

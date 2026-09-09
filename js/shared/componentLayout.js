@@ -1431,7 +1431,8 @@
         panelResizer: elements.panelResizer,
         skipSchedule,
         preserveGraphContent,
-        forceSchedule: options.forceSchedule === true
+        forceSchedule: options.forceSchedule === true,
+        preserveSvgBoxPresentation: options.preserveSvgBoxPresentation === true
       });
       let syncResult = null;
       panelState.programmaticSyncDepth += 1;
@@ -1458,7 +1459,7 @@
             componentName,
             options.reason || `${source}:${phase || 'resize'}`
           );
-        }else{
+        }else if(options.preserveSvgBoxPresentation !== true){
           harmonizeSvgBoxStyleWithGraphDataset(elements.svgBox, componentName, options.reason || source || 'sync-panels');
         }
       } finally {
@@ -1661,9 +1662,8 @@
         clearActiveResizeRenderCache(phase);
         const zoomDisplayOnly = isDisplayOnlyZoomPhase(phase);
         const phaseSkipSchedule = shouldSkipResizePhaseSchedule(phase);
-        // Zoom must behave like a pure magnifier: keep geometry/layout data stable
-        // and avoid triggering component draw callbacks that recompute chart geometry.
-        // Manual drag resize phases continue to use the normal redraw pipeline.
+        // Zoom is a visual magnifier. It changes the displayed envelope, not
+        // the component's graph geometry or draw state.
         console.debug('Debug: componentLayout resizable onResize', {
           component: componentName,
           phase,
@@ -1678,6 +1678,7 @@
         });
         syncPanels({
           skipSchedule: flags.skipSchedule || zoomDisplayOnly || hasComponentResizeOwner,
+          preserveSvgBoxPresentation: zoomDisplayOnly,
           source: 'resize',
           phase
         });

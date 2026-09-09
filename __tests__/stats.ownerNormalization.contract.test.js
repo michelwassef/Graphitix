@@ -43,7 +43,7 @@ describe('cross-component statistics ownership normalization', () => {
       /context\.canUseLiveProjection \? state\.statsPanelModel : null/,
       /heatmapStatsPanelModelHasContent\(captured\) \? captured : previous/,
       /durableStatsModel = normalizeHeatmapStatsPanelModel/,
-      /restoreHeatmapStatsPanelModel\(durableStatsModel, restoreSession\)/,
+      /restoreHeatmapStatsPanelModel\(durableStatsModel, restoreSession, \{/,
       /else if\(cache\.stats\)\{\s*restoredStats = restoreChildren\(stats, cache\.stats\)/,
       /captureStatsPanelForOwner:/,
       /restoreStatsPanelForOwner:/
@@ -69,8 +69,8 @@ describe('cross-component statistics ownership normalization', () => {
       /function resolveSurfaceStatsPanelContext\(session = null\)/,
       /context\.canUseLiveProjection \? state\.statsPanelModel : null/,
       /surfaceStatsPanelModelHasContent\(captured\) \? captured : previous/,
-      /durableStatsModel = normalizeSurfaceStatsPanelModel/,
-      /restoreSurfaceStatsPanelModel\(durableStatsModel, cacheSession\)/,
+      /const durableStatsModel = surfaceStatsPanelModelHasContent\(payloadStatsModel\)/,
+      /restoreSurfaceStatsPanelModel\(durableStatsModel, cacheSession, \{/,
       /else if\(cache\.stats\)\{\s*restoredStats = restoreChildren\(state\.statsEl, cache\.stats\)/,
       /captureStatsPanelForOwner:/,
       /restoreStatsPanelForOwner:/

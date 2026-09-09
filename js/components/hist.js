@@ -417,7 +417,7 @@
 
 
   function sanitizeHistDiagnosticsMode(value){
-    return value === 'off' || value === 'normal-fit'
+    return value === 'off' || value === 'normal-fit' || value === 'lognormal-fit'
       ? value
       : 'normal-vs-lognormal';
   }
@@ -1834,28 +1834,6 @@
     return queryHistRoot(`#${id}`, tabLike) || null;
   }
 
-  function releaseHistLegendViewportReservation(plotEl){
-    if(typeof chartStyle.stageLegendViewport !== 'function'){
-      return;
-    }
-    const plot = plotEl || getHistNodeById('histPlot');
-    const svgBox = state.svgBox
-      || state.layout?.elements?.svgBox
-      || plot?.closest?.('.svgbox')
-      || queryHistRoot('#histGraphPanel .svgbox')
-      || null;
-    chartStyle.stageLegendViewport({
-      svg: plot?.querySelector?.('#histSvg') || null,
-      plot,
-      svgBox,
-      baseWidth: Math.max(1, Number(plot?.clientWidth) || Number(svgBox?.clientWidth) || 1),
-      baseHeight: Math.max(1, Number(plot?.clientHeight) || Number(svgBox?.clientHeight) || 1),
-      legendWidth: 0,
-      minimumWidth: 0,
-      applySvgViewport: false
-    }).commit();
-  }
-
   function resolveHistDrawableFrame(plotEl){
     const plot = plotEl || getHistNodeById('histPlot');
     const svgBox = state.svgBox
@@ -2109,6 +2087,9 @@
   }
 
   function isHistFontStyleEvent(detail){
+    if(Shared.statsFigureSummary?.isSummaryStyleEvent?.(detail)){
+      return false;
+    }
     const scopeId = detail?.scopeId || null;
     const storeKey = typeof detail?.storeKey === 'string' ? detail.storeKey : '';
     return scopeId === 'hist' || storeKey.startsWith('hist::');
@@ -5254,35 +5235,51 @@
 
     // Example + Import
     const exampleBtn = getHistNodeById('histLoadExample');
-    if(exampleBtn){
-      exampleBtn.addEventListener('click', event => {
-        runHistEventOwnerCallback(event, 'hist-example-load', owner => {
-        const exampleRecord = Shared.exampleDatasets?.get?.('hist');
-        const example = exampleRecord?.data;
-        if(!Array.isArray(example)){
-          console.warn('histogram example load skipped: biomedical example registry unavailable');
-          return;
-        }
-        markHistOverlayPending('example-data');
-        state.hot.loadData(example, {
-          source: 'example-load',
-          recordUndo: true,
-          undoLabel: 'table:hist:example-load'
-        });
-        Shared.exampleDatasets?.applyNotesState?.(state.notes, exampleRecord);
-        histDebug('biomedical histogram example loaded', { rows: example.length - 1, series: example[0].length });
-        commitHistActiveStateToOwner(owner, { reason: 'hist-example-load' });
-        scheduleHistOwnerDraw(owner, { reason: 'hist-example-load', tabId: owner.tabId || undefined });
-        });
+    const loadExampleData = event => runHistEventOwnerCallback(event, 'hist-example-load', owner => {
+      const exampleRecord = Shared.exampleDatasets?.get?.('hist');
+      const example = exampleRecord?.data;
+      if(!Array.isArray(example)){
+        console.warn('histogram example load skipped: biomedical example registry unavailable');
+        return;
+      }
+      markHistOverlayPending('example-data');
+      state.hot.loadData(example, {
+        source: 'example-load',
+        recordUndo: true,
+        undoLabel: 'table:hist:example-load'
       });
+      Shared.exampleDatasets?.applyNotesState?.(state.notes, exampleRecord);
+      histDebug('biomedical histogram example loaded', { rows: example.length - 1, series: example[0].length });
+      commitHistActiveStateToOwner(owner, { reason: 'hist-example-load' });
+      scheduleHistOwnerDraw(owner, { reason: 'hist-example-load', tabId: owner.tabId || undefined });
+    });
+    if(exampleBtn){
+      exampleBtn.addEventListener('click', loadExampleData);
     } else {
       console.warn('hist example button missing');
     }
     const histImportBtn=getHistNodeById('histImport');
     const histFileInput=getHistNodeById('histFile');
     const tableImport = Shared.tableImport;
+    const openImportPicker = () => {
+      if(!histFileInput || typeof histFileInput.click !== 'function'){
+        return false;
+      }
+      histFileInput.value = '';
+      histFileInput.click();
+      return true;
+    };
+    hist.__desktopCommandActions = {
+      loadExampleData: () => {
+        loadExampleData(null);
+        return { status: 'handled' };
+      },
+      importData: () => openImportPicker()
+        ? { status: 'sent' }
+        : { status: 'skipped', reason: 'component-command-unavailable' }
+    };
     if(histImportBtn && histFileInput){
-      bindHistControlHandler(histImportBtn, 'click', 'import-table', ()=>{histFileInput.value=''; histFileInput.click();});
+      bindHistControlHandler(histImportBtn, 'click', 'import-table', openImportPicker);
       bindHistControlHandler(histFileInput, 'change', 'import-file', ()=>{
         const importOwner = getHistCallbackOwner({
           hot: state.hot,
@@ -6255,23 +6252,33 @@
     };
   }
 
-  function computeHistNormalFitDiagnostic(values, options = {}){
+  function getHistDiagnosticDistribution(mode){
+    return mode === 'lognormal-fit' ? 'lognormal' : 'normal';
+  }
+
+  function getHistDiagnosticDistributionLabel(distribution){
+    return distribution === 'lognormal' ? 'Log-normal' : 'Normal';
+  }
+
+  function computeHistFitDiagnostic(values, distribution = 'normal', options = {}){
     const statsHelpers = Shared.stats || {};
     if(typeof statsHelpers.fitDistribution !== 'function' || typeof statsHelpers.goodnessOfFit !== 'function'){
       return null;
     }
-    const fit = statsHelpers.fitDistribution(values, { distribution: 'normal' });
+    const distributionKey = distribution === 'lognormal' ? 'lognormal' : 'normal';
+    const distributionLabel = getHistDiagnosticDistributionLabel(distributionKey);
+    const fit = statsHelpers.fitDistribution(values, { distribution: distributionKey });
     if(!fit || fit.valid === false){
       return {
         available: false,
         fit,
         gof: null,
-        message: fit?.message || 'Normal fit unavailable.'
+        message: fit?.message || `${distributionLabel} fit unavailable.`
       };
     }
     const alpha = Number.isFinite(options.alpha) && options.alpha > 0 ? Number(options.alpha) : 0.05;
     const gof = statsHelpers.goodnessOfFit(values, {
-      distribution: 'normal',
+      distribution: distributionKey,
       fit,
       params: fit.params,
       pdf: fit.pdf,
@@ -6282,8 +6289,16 @@
       available: !!gof,
       fit,
       gof: gof || null,
-      message: gof ? null : 'Normal goodness-of-fit unavailable.'
+      message: gof ? null : `${distributionLabel} goodness-of-fit unavailable.`
     };
+  }
+
+  function computeHistNormalFitDiagnostic(values, options = {}){
+    return computeHistFitDiagnostic(values, 'normal', options);
+  }
+
+  function computeHistLognormalFitDiagnostic(values, options = {}){
+    return computeHistFitDiagnostic(values, 'lognormal', options);
   }
 
   function computeHistLognormalComparison(values){
@@ -6472,6 +6487,123 @@
     }
   }
 
+
+  function buildHistFigureSummary(summaries, options = {}){
+    const entries = Array.isArray(summaries) ? summaries.filter(Boolean) : [];
+    if(!entries.length){ return null; }
+    const diagnosticsMode = sanitizeHistDiagnosticsMode(options.diagnosticsMode);
+    const diagnosticDistribution = getHistDiagnosticDistribution(diagnosticsMode);
+    const diagnosticLabel = getHistDiagnosticDistributionLabel(diagnosticDistribution);
+    const diagnosticLabelLower = diagnosticLabel.toLowerCase();
+    const comparisonMode = sanitizeHistComparisonMode(options.comparisonMode);
+    const ksResult = options.ksResult || null;
+    const graphLabel = options.graphLabel || getHistGraphLabel(state.plotMode);
+    const totalObservations = entries.reduce((sum, entry) => sum + (Number(entry?.summary?.n) || 0), 0);
+    const analysisRows = [{
+      label:'Analysis',
+      value:`${graphLabel} descriptive summary · ${entries.length} visible series · ${totalObservations} finite observations`
+    }];
+    if(diagnosticsMode !== 'off'){
+      analysisRows.push({
+        label:'Distribution diagnostics',
+        value: diagnosticsMode === 'normal-vs-lognormal'
+          ? 'Fitted-normal KS and Anderson–Darling goodness-of-fit; normal vs log-normal AICc model comparison'
+          : `Fitted-${diagnosticLabelLower} KS and Anderson–Darling goodness-of-fit`
+      });
+      const diagnosticTestCount = entries.reduce((count, entry) => count + (entry?.diagnostics?.gof?.available ? 2 : 0), 0);
+      if(diagnosticTestCount > 1){
+        analysisRows.push({
+          label:'Diagnostic p-values',
+          value:`${diagnosticTestCount} goodness-of-fit p-values are reported as unadjusted model diagnostics, not as one multiplicity-controlled confirmatory family.`
+        });
+      }
+    }
+    if(comparisonMode === 'ks'){
+      analysisRows.push({
+        label:'Between-series test',
+        value: entries.length === 2
+          ? `${entries[0].label} vs ${entries[1].label}: two-sample Kolmogorov–Smirnov`
+          : `Two-sample Kolmogorov–Smirnov unavailable: exactly two visible series are required (current: ${entries.length})`
+      });
+    }
+
+    const diagnosticRows = [];
+    if(diagnosticsMode !== 'off'){
+      entries.forEach(entry => {
+        const gof = entry?.diagnostics?.gof || null;
+        const sampleSize = Number(entry?.summary?.n);
+        const sampleSizePrefix = Number.isFinite(sampleSize)
+          ? `n = ${Math.round(sampleSize)}; `
+          : 'n = unavailable; ';
+        if(gof?.available){
+          const calibration = gof.calibration || 'goodness-of-fit calibration';
+          diagnosticRows.push({
+            label:`${entry.label} ${diagnosticLabelLower} fit`,
+            valueParts:[
+              sampleSizePrefix,
+              `KS D = ${formatNumber(gof.ks?.statistic, 4)}, p = `,
+              histComparisonPValueToken(gof.ks?.pValue),
+              `; AD A² = ${formatNumber(gof.ad?.statistic, 4)}, p = `,
+              histComparisonPValueToken(gof.ad?.pValue),
+              ` (${calibration}${Number.isFinite(Number(gof.iterations)) && gof.iterations > 0 ? `; ${gof.iterations} successful simulations` : ''})`
+            ]
+          });
+        }else if(entry?.diagnostics?.message){
+          diagnosticRows.push({
+            label:`${entry.label} ${diagnosticLabelLower} fit`,
+            value:`${sampleSizePrefix}${String(entry.diagnostics.message)}`
+          });
+        }
+        if(diagnosticsMode === 'normal-vs-lognormal'){
+          const comparison = entry?.modelComparison || null;
+          if(comparison?.available){
+            diagnosticRows.push({
+              label:`${entry.label} model comparison`,
+              value:`AICc normal = ${formatNumber(comparison.normalAicc, 2)}; log-normal = ${formatNumber(comparison.lognormalAicc, 2)}; ΔAICc = ${formatNumber(comparison.deltaAicc, 2)}; preferred = ${comparison.preferred === 'lognormal' ? 'log-normal' : 'normal'}`
+            });
+          }else if(comparison?.message){
+            diagnosticRows.push({ label:`${entry.label} model comparison`, value:String(comparison.message) });
+          }
+        }
+      });
+    }
+    if(comparisonMode === 'ks' && entries.length === 2 && ksResult?.available){
+      const nA = Number(ksResult.nA ?? entries[0]?.summary?.n);
+      const nB = Number(ksResult.nB ?? entries[1]?.summary?.n);
+      diagnosticRows.push({
+        label:`${entries[0].label} vs ${entries[1].label}`,
+        valueParts:[
+          `${Number.isFinite(nA) && Number.isFinite(nB) ? `n = ${Math.round(nA)} vs ${Math.round(nB)}; ` : ''}two-sided two-sample KS D = ${formatNumber(ksResult.D, 4)}; p = `,
+          histComparisonPValueToken(ksResult.p),
+          ksResult.method ? ` (${ksResult.method})` : ''
+        ]
+      });
+      if(ksResult.hasTies || ksResult.warning){
+        diagnosticRows.push({
+          label:'KS approximation',
+          value:String(ksResult.warning || 'Tied observations are present; the continuous-distribution two-sample KS p-value is approximate.')
+        });
+      }
+    }
+    if(comparisonMode === 'ks' && entries.length === 2 && ksResult && ksResult.available === false){
+      diagnosticRows.push({
+        label:`${entries[0].label} vs ${entries[1].label}`,
+        value:String(ksResult.message || ksResult.reason || 'Two-sample Kolmogorov–Smirnov test could not be computed for these visible series.')
+      });
+    }
+    return {
+      schemaVersion:1,
+      kind: diagnosticRows.some(row => /p =|KS D/.test(String(row?.value || '')) || Array.isArray(row?.valueParts)) ? 'inferential' : 'analysis',
+      title: diagnosticsMode !== 'off' || (comparisonMode === 'ks' && entries.length === 2)
+        ? 'Statistical analysis summary'
+        : 'Analysis summary',
+      sections:[
+        { key:'analysis', label:'', rows:analysisRows },
+        ...(diagnosticRows.length ? [{ key:'diagnostics', label:'Diagnostics / comparisons', rows:diagnosticRows }] : [])
+      ]
+    };
+  }
+
   function updateHistStats(seriesEntries){
     const target = getHistNodeById('histStatsResults');
     const debugEnabled = typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled();
@@ -6503,6 +6635,8 @@
     }
     const alpha = Number(state.distributionSettings?.alpha);
     const diagnosticsMode = sanitizeHistDiagnosticsMode(state.statsSettings?.diagnosticsMode);
+    const diagnosticDistribution = getHistDiagnosticDistribution(diagnosticsMode);
+    const diagnosticLabel = getHistDiagnosticDistributionLabel(diagnosticDistribution);
     const comparisonMode = sanitizeHistComparisonMode(state.statsSettings?.comparisonMode);
     const summaries = entries.map(entry => {
       const summary = computeHistSummary(entry.values);
@@ -6516,7 +6650,7 @@
         summary,
         bestFit: bestFit?.fit?.label || null,
         diagnostics: diagnosticsMode !== 'off'
-          ? computeHistNormalFitDiagnostic(entry.values, { alpha: Number.isFinite(alpha) && alpha > 0 ? alpha : 0.05 })
+          ? computeHistFitDiagnostic(entry.values, diagnosticDistribution, { alpha: Number.isFinite(alpha) && alpha > 0 ? alpha : 0.05 })
           : null,
         modelComparison: diagnosticsMode === 'normal-vs-lognormal'
           ? computeHistLognormalComparison(entry.values)
@@ -6609,11 +6743,14 @@
     if(diagnosticRows.length){
       const diagnosticColumns = [
         { key: 'column', label: 'Column' },
-        { key: 'ksStatistic', label: 'Normal KS D', align: 'right' },
-        { key: 'ksPValue', label: 'Normal KS p', align: 'right' },
-        { key: 'adStatistic', label: 'Normal AD A\u00b2', align: 'right' },
-        { key: 'adPValue', label: 'Normal AD p', align: 'right' }
+        { key: 'ksStatistic', label: `${diagnosticLabel} KS D`, align: 'right' },
+        { key: 'ksPValue', label: `${diagnosticLabel} KS p`, align: 'right' },
+        { key: 'adStatistic', label: `${diagnosticLabel} AD A\u00b2`, align: 'right' },
+        { key: 'adPValue', label: `${diagnosticLabel} AD p`, align: 'right' }
       ];
+      const diagnosticMessages = summaries
+        .filter(entry => entry?.diagnostics?.message)
+        .map(entry => `${entry.label}: ${entry.diagnostics.message}`);
       if(diagnosticsMode === 'normal-vs-lognormal'){
         diagnosticColumns.push(
           { key: 'preferred', label: 'Preferred model' },
@@ -6623,13 +6760,18 @@
         );
       }
       renderHistStatsModel(target, {
-        caption: diagnosticsMode === 'normal-vs-lognormal' ? 'Fit diagnostics' : 'Normal fit diagnostics',
+        caption: diagnosticsMode === 'normal-vs-lognormal' ? 'Fit diagnostics' : `${diagnosticLabel} fit diagnostics`,
         section: 'diagnostics',
         columns: diagnosticColumns,
         rows: diagnosticRows,
-        footnotes: diagnosticsMode === 'normal-vs-lognormal'
-          ? ['Lower AICc indicates the preferred parametric model for that series.']
-          : [],
+        footnotes: [
+          ...(diagnosticsMode === 'normal-vs-lognormal'
+            ? ['Lower AICc indicates the preferred parametric model for that series.']
+            : diagnosticsMode === 'lognormal-fit'
+              ? ['Log-normal fitting and goodness-of-fit require strictly positive observations; invalid series are reported as unavailable.']
+              : []),
+          ...diagnosticMessages
+        ],
         options: {
           fileName: 'histogram-fit-diagnostics',
           contextLabel: 'hist-fit-diagnostics'
@@ -6684,6 +6826,8 @@
       ];
       if(diagnosticsMode === 'normal-fit'){
         methods.push('Normal fit diagnostics report KS and Anderson-Darling goodness-of-fit against the fitted normal model.');
+      }else if(diagnosticsMode === 'lognormal-fit'){
+        methods.push('Log-normal fit diagnostics report KS and Anderson-Darling goodness-of-fit against the fitted log-normal model; non-positive observations are unavailable for this fit.');
       }else if(diagnosticsMode === 'normal-vs-lognormal'){
         methods.push('Fit diagnostics report normal-model KS and Anderson-Darling results and compare normal versus log-normal fits with AICc.');
       }
@@ -6700,6 +6844,7 @@
         methodsText: methods.join(' '),
         resultsText: resultFragments.join(' '),
         resultsParts: resultParts,
+        figureSummary: buildHistFigureSummary(summaries, { diagnosticsMode, comparisonMode, ksResult, graphLabel }),
         analysisSpec: {
           component: 'hist',
           n: totalObservations,
@@ -8707,12 +8852,6 @@
     }
     const panelDisplayActive = isHistPanelDisplayActive(state.seriesLayout);
     const legendVisible = !panelDisplayActive && state.showLegend !== false && seriesEntries.length > 1;
-    if(!legendVisible){
-      // Legend viewport reservations are committed onto the shared graph box.
-      // Release that ownership before measuring panel/no-legend geometry so a
-      // previous overlay render cannot leave an artificial right-side envelope.
-      releaseHistLegendViewportReservation(plotEl);
-    }
     const drawableFrame = resolveHistDrawableFrame(plotEl);
     const baseWidth = Math.max(50, Math.floor(drawableFrame.width || 50));
     const H = Math.max(40, Math.floor(drawableFrame.height || 40));
@@ -10076,6 +10215,13 @@
         throw err;
       }finally{
         resolveHistOverlay({ reason: status, status, tabId: ownerTabId || null });
+        Shared.componentLifecycle?.emitLifecycleEvent?.({
+          componentKey: 'hist',
+          tabId: ownerTabId || null,
+          action: 'draw-settled',
+          reason: cycleOptions?.reason || 'hist-draw',
+          phase: status
+        });
       }
     };
     const scheduleHistBase = Shared.componentLifecycle?.createTabScopedFrameDebouncer
@@ -10383,7 +10529,10 @@
       return session ? restoreHistStatsPanelModel(model, session) : false;
     },
     computeSummary: values => computeHistSummary(values),
+    computeFitDiagnostic: (values, distribution = 'normal', options = {}) => computeHistFitDiagnostic(values, distribution, options || {}),
     computeNormalFitDiagnostic: (values, options = {}) => computeHistNormalFitDiagnostic(values, options || {}),
+    computeLognormalFitDiagnostic: (values, options = {}) => computeHistLognormalFitDiagnostic(values, options || {}),
+    buildFigureSummary: (summaries, options = {}) => buildHistFigureSummary(summaries, options),
     computeLognormalComparison: values => computeHistLognormalComparison(values),
     kolmogorovSmirnovTwoSample: (a, b) => computeHistKolmogorovSmirnovTwoSample(a, b),
     computeAutoBinWidth: (seriesEntries, options = {}) => computeHistAutoBinWidth(seriesEntries, options || {}),
@@ -10410,4 +10559,12 @@
       { key: 'notesState', get: () => state.notes, excludeKeys: ['control'] }
     ]
   });
+
+  hist.executeDesktopCommand = function executeDesktopCommand(command){
+    const action = hist.__desktopCommandActions?.[command];
+    if (typeof action !== 'function') {
+      return { status: 'skipped', reason: 'component-command-unavailable' };
+    }
+    return action() || { status: 'handled' };
+  };
 })(window);

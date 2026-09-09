@@ -145,6 +145,99 @@ describe('fontControls tab-scoped style isolation', () => {
     expect(text.getAttribute('fill')).toBe('#cc0000');
   });
 
+  test('a collection color broadcast changes paint without flattening multiline text', () => {
+    const fontControls = window.Shared?.fontControls;
+    const makeMultiline = values => {
+      const text = createSvgText('');
+      text.dataset.fontPreserveStructure = 'children';
+      values.forEach((value, index) => {
+        const line = document.createElementNS(NS, 'tspan');
+        line.dataset.fontStructurePart = 'line';
+        line.dataset.fontStructureText = value;
+        line.setAttribute('x', '100');
+        line.setAttribute('dy', index === 0 ? '0' : '1.2em');
+        line.textContent = value;
+        text.appendChild(line);
+      });
+      fontControls.markText(text, {
+        scopeId: 'heatmap',
+        role: 'stats-summary',
+        key: 'stats-summary',
+        collection: 'stats-summary',
+        tabId: 'tab-box-1'
+      });
+      return text;
+    };
+    const first = makeMultiline(['First statistic', 'Second statistic']);
+    const second = makeMultiline(['Another first line', 'Another second line']);
+
+    setActiveTab('tab-box-1');
+    fontControls.openForElement(first, { scopeId: 'heatmap', key: 'stats-summary', tabId: 'tab-box-1' });
+    setToolbarScope('collection');
+    const color = document.querySelector('input[aria-label="Font color"]');
+    color.value = '#123456';
+    color.dispatchEvent(new Event('input', { bubbles: true }));
+
+    expect(first.getAttribute('fill')).toBe('#123456');
+    expect(second.getAttribute('fill')).toBe('#123456');
+    expect(Array.from(first.children).map(node => node.textContent)).toEqual([
+      'First statistic', 'Second statistic'
+    ]);
+    expect(Array.from(second.children).map(node => node.textContent)).toEqual([
+      'Another first line', 'Another second line'
+    ]);
+    expect(first.children).toHaveLength(2);
+    expect(second.children).toHaveLength(2);
+  });
+
+  test('undo and redo of a collection color patch preserve multiline text structure', () => {
+    const fontControls = window.Shared?.fontControls;
+    const makeMultiline = values => {
+      const text = createSvgText('');
+      text.dataset.fontPreserveStructure = 'children';
+      values.forEach((value, index) => {
+        const line = document.createElementNS(NS, 'tspan');
+        line.dataset.fontStructurePart = 'line';
+        line.dataset.fontStructureText = value;
+        line.setAttribute('x', '100');
+        line.setAttribute('dy', index === 0 ? '0' : '1.2em');
+        line.textContent = value;
+        text.appendChild(line);
+      });
+      fontControls.markText(text, {
+        scopeId: 'heatmap',
+        role: 'stats-summary',
+        key: 'stats-summary',
+        collection: 'stats-summary',
+        tabId: 'tab-box-1'
+      });
+      return text;
+    };
+    const first = makeMultiline(['First result', 'Second result']);
+    const second = makeMultiline(['Other first result', 'Other second result']);
+
+    setActiveTab('tab-box-1');
+    fontControls.openForElement(first, { scopeId: 'heatmap', key: 'stats-summary', tabId: 'tab-box-1' });
+    setToolbarScope('collection');
+    const color = document.querySelector('input[aria-label="Font color"]');
+    color.value = '#123456';
+    color.dispatchEvent(new Event('input', { bubbles: true }));
+
+    expect(window.Shared.undoManager.undo()).toBe(true);
+    expect(first.getAttribute('fill')).toBeNull();
+    expect(second.getAttribute('fill')).toBeNull();
+    expect(Array.from(first.children).map(node => node.textContent)).toEqual(['First result', 'Second result']);
+    expect(Array.from(second.children).map(node => node.textContent)).toEqual(['Other first result', 'Other second result']);
+    expect(first.children).toHaveLength(2);
+    expect(second.children).toHaveLength(2);
+
+    expect(window.Shared.undoManager.redo()).toBe(true);
+    expect(first.getAttribute('fill')).toBe('#123456');
+    expect(second.getAttribute('fill')).toBe('#123456');
+    expect(first.children).toHaveLength(2);
+    expect(second.children).toHaveLength(2);
+  });
+
   test('selection font-family edit does not shield that text from later graph font-size edits', () => {
     const fontControls = window.Shared?.fontControls;
     const title = createSvgText('Title');

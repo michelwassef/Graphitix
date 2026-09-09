@@ -69,5 +69,7 @@ describe('Box statistics reporting surface contract', () => {
     expect(source).toContain("setAttribute('data-stats-section', 'diagnostics')");
     expect(source).toMatch(/refreshSharedStatsReportingPanels\('box-stats-before-capture',\s*\{\s*synchronous:\s*true\s*\}\)/);
     expect(source).toMatch(/enhancePanelNow\(target,/);
+    expect(source).toMatch(/figureSummary:\s*report\.figureSummary\s*\|\|\s*null/);
+    expect(source).toMatch(/tabId:\s*resolveBoxExplicitOrBoundTabId\(\)\s*\|\|\s*getActiveBoxWorkspaceTabId\(\)/);
   });
 });

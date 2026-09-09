@@ -45,7 +45,8 @@ async function buildVenn(page) {
   await page.waitForFunction(() => !!window.Components?.venn?.ready, null, { timeout: 30_000 });
   await clickExampleButtonIfPresent(page, 'sample');
   await page.waitForFunction(() => !!document.getElementById('stage'), null, { timeout: 30_000 });
-  await page.waitForTimeout(800);
+  await page.waitForFunction(() => window.Components?.venn?.isIdleForSnapshot?.() === true, null, { timeout: 30_000 });
+  await page.waitForTimeout(300);
 }
 
 async function openAdditionalVenn(page) {
@@ -53,7 +54,8 @@ async function openAdditionalVenn(page) {
   await openComponentFromWelcome(page, { type: 'venn', pageId: 'vennPage', exampleButtonId: 'sample' });
   await page.waitForFunction(() => !!window.Components?.venn?.ready, null, { timeout: 30_000 });
   await clickExampleButtonIfPresent(page, 'sample');
-  await page.waitForTimeout(800);
+  await page.waitForFunction(() => window.Components?.venn?.isIdleForSnapshot?.() === true, null, { timeout: 30_000 });
+  await page.waitForTimeout(300);
   const after = await getWorkspaceTabIds(page);
   const tabId = after.find(id => !before.has(id));
   expect(tabId).toBeTruthy();

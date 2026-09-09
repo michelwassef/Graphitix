@@ -23,6 +23,39 @@
     }
   }
 
+  const RENDER_IMPACT_ORDER = Object.freeze({
+    paint: 1,
+    layout: 2,
+    analysis: 3,
+    structural: 4
+  });
+
+  namespace.normalizeRenderImpact = function normalizeRenderImpact(value, fallback = 'analysis'){
+    const normalized = String(value || '').trim().toLowerCase();
+    return Object.prototype.hasOwnProperty.call(RENDER_IMPACT_ORDER, normalized)
+      ? normalized
+      : fallback;
+  };
+
+  namespace.mergeRenderImpact = function mergeRenderImpact(previous, next, fallback = 'analysis'){
+    if(previous == null && next != null){
+      return namespace.normalizeRenderImpact(next, fallback);
+    }
+    if(next == null && previous != null){
+      return namespace.normalizeRenderImpact(previous, fallback);
+    }
+    const previousImpact = namespace.normalizeRenderImpact(previous, fallback);
+    const nextImpact = namespace.normalizeRenderImpact(next, fallback);
+    return RENDER_IMPACT_ORDER[nextImpact] >= RENDER_IMPACT_ORDER[previousImpact]
+      ? nextImpact
+      : previousImpact;
+  };
+
+  namespace.isPresentationOnlyDraw = function isPresentationOnlyDraw(options = {}){
+    const impact = namespace.normalizeRenderImpact(options?.renderImpact, 'analysis');
+    return impact === 'paint' || impact === 'layout';
+  };
+
   function warn(message, payload){
     console.warn(message, payload || {});
   }
@@ -56,7 +89,7 @@
     }
     const prevView = !!prev.viewOnly;
     const nextView = !!next.viewOnly;
-    return {
+    const merged = {
       ...prev,
       ...next,
       force: !!(prev.force || next.force),
@@ -66,6 +99,14 @@
       resizePhase: next.resizePhase || prev.resizePhase,
       forceCanvasRecompute: !!(prev.forceCanvasRecompute || next.forceCanvasRecompute)
     };
+    if(Object.prototype.hasOwnProperty.call(prev, 'renderImpact')
+      || Object.prototype.hasOwnProperty.call(next, 'renderImpact')){
+      merged.renderImpact = namespace.mergeRenderImpact(
+        Object.prototype.hasOwnProperty.call(prev, 'renderImpact') ? prev.renderImpact : null,
+        Object.prototype.hasOwnProperty.call(next, 'renderImpact') ? next.renderImpact : 'analysis'
+      );
+    }
+    return merged;
   };
 
   function isPlainDrawObject(value){

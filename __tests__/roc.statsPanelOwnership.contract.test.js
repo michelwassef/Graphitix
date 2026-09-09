@@ -81,6 +81,8 @@ describe('ROC stats panel owner contract', () => {
 
     const payload = sourceBlock(source, '  function getPayload(context = {})', '  roc.getPayload = getPayload;');
     expect(payload).toContain("reason: 'roc-get-payload-canonicalize'");
+    expect(payload).toContain("{ apply: false, syncUi: false }");
+    expect(payload).not.toContain("{ apply: true, syncUi: true }");
     expect(payload).toContain('captureStatsPanel: true');
     expect(payload).toContain('const statsPanelModel = selectRocStatsPanelModel(');
 

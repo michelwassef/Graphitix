@@ -100,6 +100,17 @@ describe('Shared.enableLegendDrag viewport bounds', () => {
     expect(window.Shared.undoManager.recordStateChange).not.toHaveBeenCalled();
   });
 
+  test('constrains a live preview without binding drag state or committing it', () => {
+    const { svg, legend } = createLegend({ x: 260, y: 190 });
+
+    const result = window.Shared.constrainLegendPositionToViewport(legend, svg);
+
+    expect(result).toEqual({ position: { x: 220, y: 160 }, changed: true });
+    expect(legend.getAttribute('transform')).toBe('translate(220,160)');
+    expect(legend.__graphitixLegendDragControl).toBeUndefined();
+    expect(window.Shared.undoManager.recordStateChange).not.toHaveBeenCalled();
+  });
+
   test('keeps a reserve-anchored default until the expanded viewport is published', () => {
     const { svg, legend } = createLegend({ x: 260, y: 80 });
     const owner = { tabId: 'tab-a' };
@@ -117,6 +128,32 @@ describe('Shared.enableLegendDrag viewport bounds', () => {
 
     expect(legend.getAttribute('transform')).toBe('translate(260,80)');
     expect(onCommit).not.toHaveBeenCalled();
+  });
+
+  test('constrains a reserve-anchored legend when the caller finalizes its viewport', () => {
+    const { svg, legend } = createLegend({ x: 260, y: 190 });
+    const owner = { tabId: 'tab-a' };
+    const onCommit = jest.fn();
+
+    window.Shared.bindLegendDragInteraction(legend, svg, {
+      owner,
+      positionAnchor: 'right-reserve',
+      deferInitialConstraint: false,
+      originX: 300,
+      originY: 40,
+      scaleX: 20,
+      scaleY: 40,
+      onCommit
+    });
+
+    expect(legend.getAttribute('transform')).toBe('translate(220,160)');
+    expect(onCommit).toHaveBeenLastCalledWith({
+      x: 220,
+      y: 160,
+      relX: -4,
+      relY: 3,
+      anchor: 'right-reserve'
+    }, owner);
   });
 
   test('marks only a live bound legend as a managed graph drag target', () => {

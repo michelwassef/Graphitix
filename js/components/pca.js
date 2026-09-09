@@ -8153,6 +8153,9 @@
   }
 
   function isPcaFontStyleEvent(detail) {
+    if (Shared.statsFigureSummary?.isSummaryStyleEvent?.(detail)) {
+      return false;
+    }
     const scopeId = detail?.scopeId || null;
     const storeKey = typeof detail?.storeKey === 'string' ? detail.storeKey : '';
     return scopeId === 'pca' || storeKey.startsWith('pca::');
@@ -11093,6 +11096,56 @@
     }
   }
 
+  function buildPcaFigureSummary(statsSnapshot, methodValue){
+    const stats = statsSnapshot && typeof statsSnapshot === 'object' ? statsSnapshot : {};
+    const method = String(methodValue || stats.method || 'pca').toLowerCase();
+    const label = method === 'mds' ? 'Metric MDS' : method === 'tsne' ? 't-SNE' : method === 'umap' ? 'UMAP' : 'PCA';
+    const analysisRows = [{ label:'Analysis', value:`${label} dimensionality reduction` }];
+    const sampleCount = Number(stats.sampleCount);
+    const featureCount = Number(stats.featureCount);
+    if(Number.isFinite(sampleCount) || Number.isFinite(featureCount)){
+      analysisRows.push({ label:'Input', value:[Number.isFinite(sampleCount) ? `${sampleCount} samples` : null, Number.isFinite(featureCount) ? `${featureCount} variables/features analyzed` : null].filter(Boolean).join(' · ') });
+    }
+    const prep = stats.preprocessingMetadata && typeof stats.preprocessingMetadata === 'object' ? stats.preprocessingMetadata : null;
+    if(prep?.mode === PCA_PREPROCESSING_RNASEQ_LOG){
+      analysisRows.push({
+        label:'RNA-seq preprocessing',
+        value:`DESeq2 median-ratio size factors · log2(normalized count + 1) · ${Number(prep.selectedFeatureCount || 0)} most-variable genes retained from ${Number(prep.inputFeatureCount || featureCount || 0)} input genes${Number.isFinite(Number(prep.eligibleFeatureCount)) ? ` · ${Number(prep.eligibleFeatureCount)} genes eligible for size-factor estimation` : ''}`
+      });
+    }else if(method === 'pca'){
+      analysisRows.push({ label:'Scaling', value:stats.standardizeVariables ? 'Variables centered and scaled to unit variance.' : 'Variables centered without unit-variance scaling.' });
+    }
+
+    const resultRows = [];
+    if(method === 'pca'){
+      const eigen = Array.isArray(stats.eigenSummary) ? stats.eigenSummary : [];
+      const first = eigen[0] || null;
+      const second = eigen[1] || null;
+      if(first){ resultRows.push({ label:'PC1', value:`${Number(first.variancePercent).toFixed(1)}% variance explained · eigenvalue = ${Number(first.eigenvalue).toFixed(4)}` }); }
+      if(second){ resultRows.push({ label:'PC2', value:`${Number(second.variancePercent).toFixed(1)}% variance explained · eigenvalue = ${Number(second.eigenvalue).toFixed(4)}` }); }
+      if(first && second){ resultRows.push({ label:'Top two PCs', value:`${(Number(first.variancePercent) + Number(second.variancePercent)).toFixed(1)}% cumulative variance explained` }); }
+      const selection = stats.selectionSummary || null;
+      if(selection && Number.isFinite(Number(selection.retainedCount))){
+        resultRows.push({ label:'Component selection', value:`${selection.ruleLabel || selection.rule || 'Configured rule'} retained ${Number(selection.retainedCount)} of ${eigen.length || 'available'} components.` });
+      }
+    }else if(method === 'mds'){
+      resultRows.push({ label:'Dimensions', value:Number.isFinite(Number(stats.dimensions)) ? String(Number(stats.dimensions)) : 'Configured dimensions' });
+      if(Number.isFinite(Number(stats.stress))) resultRows.push({ label:'Stress-1', value:Number(stats.stress).toFixed(4) });
+      const eigen = Array.isArray(stats.eigenSummary) ? stats.eigenSummary : [];
+      eigen.slice(0,3).forEach((entry,index) => {
+        if(Number.isFinite(Number(entry.variancePercent))) resultRows.push({ label:`Dim${index+1}`, value:`${Number(entry.variancePercent).toFixed(1)}% inertia` });
+      });
+    }else if(method === 'tsne'){
+      resultRows.push({ label:'Embedding settings', value:`perplexity = ${Number(stats.perplexity).toFixed(1)} · learning rate = ${Number(stats.learningRate).toFixed(3)} · iterations = ${Number(stats.iterations)}` });
+      if(Number.isFinite(Number(stats.earlyExaggeration))) resultRows.push({ label:'Early exaggeration', value:Number(stats.earlyExaggeration).toFixed(3) });
+      if(Number.isFinite(Number(stats.klDivergence))) resultRows.push({ label:'Final KL divergence', value:Number(stats.klDivergence).toFixed(4) });
+    }else if(method === 'umap'){
+      resultRows.push({ label:'Embedding settings', value:`neighbors = ${Number(stats.neighbors)} · min distance = ${Number(stats.minDist).toFixed(3)} · learning rate = ${Number(stats.learningRate).toFixed(3)} · epochs = ${Number(stats.epochs)}` });
+      if(Number.isFinite(Number(stats.negativeSampleRate))) resultRows.push({ label:'Negative sampling', value:`rate = ${Number(stats.negativeSampleRate)}` });
+    }
+    return { schemaVersion:1, kind:'analysis', title:'Analysis summary', sections:[{ key:'analysis', label:'', rows:analysisRows }, ...(resultRows.length ? [{ key:'results', label:'Results', rows:resultRows }] : [])] };
+  }
+
   function renderPcaSummaryPanel(options = {}) {
     pcaStatsSummary?.setAttribute?.('data-stats-section', 'summary');
     pcaScreeVarianceRow?.setAttribute?.('data-stats-section', 'summary');
@@ -11167,6 +11220,7 @@
           Number.isFinite(statsSnapshot.stress) ? `Stress = ${statsSnapshot.stress.toFixed(4)}.` : null,
           Number.isFinite(statsSnapshot.selectionSummary?.retainedCount) ? `${statsSnapshot.selectionSummary.ruleLabel || 'Selected rule'} retained ${statsSnapshot.selectionSummary.retainedCount} component${statsSnapshot.selectionSummary.retainedCount === 1 ? '' : 's'}.` : null
         ].filter(Boolean).join(' '),
+        figureSummary: buildPcaFigureSummary(statsSnapshot, reportMethod),
         analysisSpec: {
           component: 'pca',
           method: method || statsSnapshot.method || null,
@@ -14136,6 +14190,10 @@
       }
 
       if (currentPcaStats) {
+        currentPcaStats.sampleCount = Number(sampleCountSnapshot) || points.length || null;
+        currentPcaStats.featureCount = Number(featureCountSnapshot) || null;
+        currentPcaStats.preprocessingMetadata = cloneSimple(preprocessingMetadata) || null;
+        currentPcaStats.standardizeVariables = !!normalizePcaRuntimeControls(pcaState.controls || {}).standardizeVariables;
         setPcaResultsState({
           method: normalizePcaResultsMethod(currentPcaStats.method || method),
           stats: currentPcaStats,
@@ -14322,20 +14380,16 @@
         const fallbackHeight = Math.round(fallbackWidth / targetAspect);
         const availableWidth = Math.floor(drawableFrame.width || 0);
         const availableHeight = Math.floor(drawableFrame.height || 0);
-        let W3 = availableWidth > 0 ? availableWidth : fallbackWidth;
-        let H3 = Math.round(W3 / targetAspect);
-        if (availableHeight > 0 && H3 > availableHeight) {
-          H3 = Math.max(1, availableHeight);
-          W3 = Math.max(1, Math.round(H3 * targetAspect));
-          if (availableWidth > 0 && W3 > availableWidth) {
-            W3 = Math.max(1, availableWidth);
-            H3 = Math.max(1, Math.round(W3 / targetAspect));
-          }
-        }
-        if (W3 <= 0 || H3 <= 0) {
-          W3 = fallbackWidth;
-          H3 = fallbackHeight;
-        }
+        const frameDimensions = typeof plot3d.resolveFrameDimensions === 'function'
+          ? plot3d.resolveFrameDimensions({
+              availableWidth,
+              availableHeight,
+              fallbackWidth,
+              fallbackHeight
+            })
+          : { width: fallbackWidth, height: fallbackHeight };
+        let W3 = frameDimensions.width;
+        let H3 = frameDimensions.height;
         const baseW3 = W3;
         const legendViewport3d = chartStyle.computeLegendViewport({
           baseWidth: baseW3,
@@ -14346,7 +14400,13 @@
         plotEl.style.position = 'relative';
         plotEl.style.minHeight = '';
         plotEl.style.aspectRatio = `${W3} / ${H3}`;
-        plotEl.style.padding = plotEl.style.padding || '12px';
+        // The outer .svgbox already supplies the user-frame padding. Keeping
+        // additional padding here would make the CSS SVG rectangle smaller
+        // than its viewBox and trigger preserveAspectRatio down-scaling.
+        plotEl.style.padding = '0';
+        // Match the sibling 3D renderers and keep the declared dimensions as
+        // the complete plot frame.
+        plotEl.style.boxSizing = 'border-box';
         debugLog('Debug: pca 3d dimensions resolved', {
           availableWidth,
           availableHeight,
@@ -14365,14 +14425,7 @@
       svg3.dataset.viewMode = '3d';
       svg3.dataset.pcaMethod = method;
         chartStyle.prepareSvg(svg3, { scopeId: 'pca' });
-        const legendProjection = chartStyle.stageLegendViewport({
-          svgBox: pcaSvgBox,
-          plot: plotEl,
-          svg: svg3,
-          baseWidth: baseW3,
-          baseHeight: H3,
-          legendWidth: legendVisible ? effectiveLegendWidth : 0
-        });
+        let legendProjection = null;
         if (!reuse3dSvg) {
           framePublication = Shared.framePublication.stage({
             container: plotEl,
@@ -14400,7 +14453,7 @@
           bottom: Math.max(fs * 3.2, 40),
           left: Math.max(fs * 3.2, 40)
         };
-        const legendShiftX = typeof plot3d.resolveLegendShiftX === 'function' ?
+        let legendShiftX = typeof plot3d.resolveLegendShiftX === 'function' ?
           plot3d.resolveLegendShiftX({
             legendVisible,
             margin: margin3,
@@ -14408,8 +14461,8 @@
             legendWidth
           }) :
           0;
-        const plotW3 = Math.max(20, W3 - margin3.left - margin3.right);
-        const plotH3 = Math.max(20, H3 - margin3.top - margin3.bottom);
+        let plotW3 = Math.max(20, W3 - margin3.left - margin3.right);
+        let plotH3 = Math.max(20, H3 - margin3.top - margin3.bottom);
         const rotatePoint = (pt) => plot3d.rotatePoint(pt, pcaState.rotation);
         const rangeForAxis = (axisKey) => {
           const values = points3d.map(pt => pt[axisKey]);
@@ -14512,7 +14565,20 @@
         };
         const rotatedCorners = allCorners.map(corner => rotatePoint(corner));
         const rotatedPoints = renderPoints3d.map(pt => rotatePoint(pt));
-        const projector = plot3d.createProjector({
+        const pca3dFontStyles = exportFontStyles('pca', { tabId: drawTabId });
+        const pca3dTickFontSize = (() => {
+          if (!chartStyle || typeof chartStyle.resolveScopedLabelMeasureFont !== 'function') {
+            return fs;
+          }
+          const roles = ['xTick', 'yTick', 'zTick'];
+          const sizes = roles.map(role => Number(chartStyle.resolveScopedLabelMeasureFont({
+            styles: pca3dFontStyles,
+            role,
+            fallbackPx: fs
+          }).fontSizePx)).filter(size => Number.isFinite(size) && size > 0);
+          return sizes.length ? Math.max(...sizes) : fs;
+        })();
+        let projector = plot3d.createProjector({
           rotatedPoints,
           rotatedCorners,
           width: W3,
@@ -14520,6 +14586,42 @@
           margin: margin3,
           shiftX: legendShiftX
         });
+        const pca3dAxisLabels = {
+          x: pcaXLabelText,
+          y: pcaYLabelText,
+          z: pcaZLabelText
+        };
+        const pca3dSafeViewport = typeof plot3d.resolveRotationSafeViewport === 'function'
+          ? plot3d.resolveRotationSafeViewport({
+              width: W3,
+              height: H3,
+              margin: margin3,
+              axisLabels: pca3dAxisLabels,
+              axisTicks: axisTicks3d,
+              axisTickFormatters: axisTickFormatters3d || undefined,
+              fontSize: fs,
+              tickFontSize: pca3dTickFontSize,
+              axisStrokeWidth,
+              chartStyle,
+              rotationLimits: plot3d.DEFAULT_ROTATION_LIMITS
+            })
+          : { minX: 0, minY: 0, maxX: W3, maxY: H3, left: 0, top: 0, right: 0, bottom: 0, width: W3, height: H3 };
+        if(typeof plot3d.resolveRotationSafeMargin === 'function'){
+          Object.assign(margin3, plot3d.resolveRotationSafeMargin({ margin: margin3, safeViewport: pca3dSafeViewport }));
+          legendShiftX = typeof plot3d.resolveLegendShiftX === 'function'
+            ? plot3d.resolveLegendShiftX({ legendVisible, margin: margin3, fontSize: fs, legendWidth })
+            : 0;
+          plotW3 = Math.max(20, W3 - margin3.left - margin3.right);
+          plotH3 = Math.max(20, H3 - margin3.top - margin3.bottom);
+          projector = plot3d.createProjector({
+            rotatedPoints,
+            rotatedCorners,
+            width: W3,
+            height: H3,
+            margin: margin3,
+            shiftX: legendShiftX
+          });
+        }
         const project3 = (pt) => projector.project(pt);
         const labelBounds3d = computePcaLabelBounds3d(rotatedCorners, project3);
         if (labelBounds3d) {
@@ -14542,19 +14644,6 @@
         const frontFrameLayer = document.createElementNS(NS, 'g');
         frontFrameLayer.setAttribute('data-layer', 'frame-front');
         svg3.appendChild(frontFrameLayer);
-        const pca3dFontStyles = exportFontStyles('pca', { tabId: drawTabId });
-        const pca3dTickFontSize = (() => {
-          if (!chartStyle || typeof chartStyle.resolveScopedLabelMeasureFont !== 'function') {
-            return fs;
-          }
-          const roles = ['xTick', 'yTick', 'zTick'];
-          const sizes = roles.map(role => Number(chartStyle.resolveScopedLabelMeasureFont({
-            styles: pca3dFontStyles,
-            role,
-            fallbackPx: fs
-          }).fontSizePx)).filter(size => Number.isFinite(size) && size > 0);
-          return sizes.length ? Math.max(...sizes) : fs;
-        })();
         plot3d.renderAxesAndGrid({
           svg: svg3,
           project: (pt) => project3(pt),
@@ -14635,8 +14724,11 @@
             }
           }
         }
-        const defaultTitleY3 = Math.max(fs, margin3.top * 0.5);
-        const defaultTitleX3 = margin3.left + plotW3 / 2;
+        const defaultTitle3 = typeof plot3d.resolveDefaultTitlePosition === 'function'
+          ? plot3d.resolveDefaultTitlePosition({ margin: margin3, plotWidth: plotW3, fontSize: fs })
+          : { x: margin3.left + plotW3 / 2, y: Math.max(margin3.top * 0.4, fs * 1.6) };
+        const defaultTitleX3 = defaultTitle3.x;
+        const defaultTitleY3 = defaultTitle3.y;
         const titlePos = pcaLabelPositionsState?.title;
         const hasTitlePos = !!titlePos;
 
@@ -14742,6 +14834,12 @@
               message: err?.message || String(err)
             });
           }
+        }
+        if (typeof Shared.constrainSvgLabelPosition === 'function') {
+          Shared.constrainSvgLabelPosition(title3d, svg3, {
+            x: Number(title3d.getAttribute('x')) || defaultTitleX3,
+            y: Number(title3d.getAttribute('y')) || defaultTitleY3
+          });
         }
         debugLog('Debug: pca title rendered', {
           mode: '3d',
@@ -15218,6 +15316,20 @@
         registerPcaGridControlTarget(svg3, {
           fallbackThickness: axisStrokeWidthBase
         });
+        legendProjection = typeof chartStyle.stagePlot3dViewport === 'function'
+          ? chartStyle.stagePlot3dViewport({
+              svgBox: pcaSvgBox,
+              plot: plotEl,
+              svg: svg3,
+              baseWidth: baseW3,
+              baseHeight: H3,
+              canonicalWidth: W3,
+              canonicalHeight: H3,
+              legendWidth: legendVisible ? effectiveLegendWidth : 0,
+              safeViewport: pca3dSafeViewport
+            })
+          : null;
+        const pca3dViewport = { minX: 0, minY: 0, width: W3, height: H3 };
         // 3D plots must scale uniformly so the projected cube, axis labels, title,
         // legend, and every glyph keep their proportions. preserveAspectRatio
         // "xMidYMid meet" (vs the 2D "none"/fill-distort default) prevents the SVG
@@ -15230,7 +15342,7 @@
           ensureGraphViewport(svg3, {
             padding: Math.max(fs, 18),
             debugLabel: 'pca-3d-graph',
-            baseViewport: { width: W3, height: H3 },
+            baseViewport: pca3dViewport,
             preserveAspectRatio: 'xMidYMid meet',
             fitContent: false
           });
@@ -15244,7 +15356,7 @@
           return false;
         }
         plotEl.style.removeProperty('min-width');
-        legendProjection.commit();
+        legendProjection?.commit?.();
         return;
       }
 
@@ -15285,6 +15397,7 @@
 
       plotEl.style.aspectRatio = '';
       plotEl.style.padding = '';
+      plotEl.style.boxSizing = '';
       const baseDrawableWidth = Math.max(50, Math.floor(drawableFrame.width || 50));
       const H = Math.max(40, Math.floor(drawableFrame.height || 40));
       // The canonical Cartesian user frame is the drawable graph frame.
@@ -18822,7 +18935,7 @@
     const svg = plot ? (plot.querySelector('#pcaSvg') || plot.querySelector('svg')) : null;
     projectPcaRenderedParameterMetadata(svg, session);
     if(restoredPlot){
-      chartStyle.rehydrateLegendViewports?.(plot);
+      (chartStyle.rehydrateContentViewports || chartStyle.rehydrateLegendViewports)?.(plot);
       bindPcaLegendInteractions(
         svg?.querySelector?.('[data-legend-viewport-content="true"]') || null,
         svg,
@@ -19057,7 +19170,7 @@
     }
     const pcaLoadExampleButton = getPcaNodeById('pcaLoadExample');
     if (pcaLoadExampleButton) {
-      pcaLoadExampleButton.addEventListener('click', () => {
+      const loadExampleData = () => {
         const requestedFormat = pcaState.tableFormat === 'grouped' ? 'grouped' : 'standard';
         let selectedFormat = requestedFormat;
         let exampleRecord = Shared.exampleDatasets?.get?.('pca', selectedFormat);
@@ -19117,21 +19230,37 @@
           force: true,
           reason: 'example-load'
         });
-      });
+      };
+      pcaLoadExampleButton.addEventListener('click', loadExampleData);
+      pcaState.__desktopLoadExample = loadExampleData;
     } else {
       debugLog('Debug: pca load example control unavailable during setup');
     }
     const pcaImportBtn = getPcaNodeById('pcaImport');
     const pcaFileInput = getPcaNodeById('pcaFile');
     const tableImport = Shared.tableImport;
-    bindPcaControlHandler(pcaImportBtn, 'click', 'import-table', () => {
+    const openImportPicker = () => {
       if (!pcaFileInput || typeof pcaFileInput.click !== 'function') {
         console.warn('pca import skipped: file input unavailable');
-        return;
+        return false;
       }
       setPcaInputValue(pcaFileInput, '');
       pcaFileInput.click();
-    });
+      return true;
+    };
+    pca.__desktopCommandActions = {
+      loadExampleData: () => {
+        if (typeof pcaState.__desktopLoadExample !== 'function') {
+          return { status: 'skipped', reason: 'component-command-unavailable' };
+        }
+        pcaState.__desktopLoadExample();
+        return { status: 'handled' };
+      },
+      importData: () => openImportPicker()
+        ? { status: 'sent' }
+        : { status: 'skipped', reason: 'component-command-unavailable' }
+    };
+    bindPcaControlHandler(pcaImportBtn, 'click', 'import-table', openImportPicker);
     bindPcaControlHandler(pcaFileInput, 'change', 'import-file', async () => {
       if (!tableImport || typeof tableImport.openFile !== 'function') {
         console.warn('pca import skipped: Shared.tableImport.openFile unavailable');
@@ -19764,6 +19893,7 @@
   }
 
   pca.__testHooks = Object.assign({}, pca.__testHooks, {
+    buildFigureSummary: (statsSnapshot, method) => buildPcaFigureSummary(statsSnapshot || {}, method),
     benchmarkLoad: opts => benchmarkPcaLoad(opts),
     resolveDrawableFrame: plotEl => resolvePcaDrawableFrame(plotEl),
     buildBiplotSnapshot: (points, loadingsRows, axisLabels, selectedAxes) => buildPcaBiplotSnapshot(points, loadingsRows, axisLabels, selectedAxes),
@@ -19821,4 +19951,12 @@
       excludeKeys: ['control']
     }]
   });
+
+  pca.executeDesktopCommand = function executeDesktopCommand(command){
+    const action = pca.__desktopCommandActions?.[command];
+    if (typeof action !== 'function') {
+      return { status: 'skipped', reason: 'component-command-unavailable' };
+    }
+    return action() || { status: 'handled' };
+  };
 })(window);

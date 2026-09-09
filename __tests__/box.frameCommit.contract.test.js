@@ -51,12 +51,24 @@ describe('box frame/layout commit contract', () => {
     expect(source).not.toContain('const removeRetainedPlotNodes = () =>');
   });
 
-  test('all view-only Box redraws keep the published frame until atomic commit', () => {
+  test('all Box redraws stage the replacement frame, and only live pointer moves reuse a prior canvas frame', () => {
     const source = boxSource();
-    const match = source.match(/function shouldRetainPreviousBoxFrame\(drawOptions\)\{([\s\S]*?)\n  \}\n\n  function partitionArray/);
-    expect(match).toBeTruthy();
-    expect(match[1]).toContain("drawOptions?.viewOnly !== true");
-    expect(match[1]).not.toMatch(/reason === 'resize'|significance-viewport-extension/);
+    expect(source).not.toContain('shouldRetainPreviousBoxFrame');
+    expect(source).toContain("const previousBoxSvg2d = isBoxLiveResize(drawOpts, { includeEnd: false })");
+    expect(source).toContain('resolveCommittedBoxFrame(plotDiv, renderTabId)');
+  });
+
+  test('orientation frame renderers receive the draw cancellation checkpoint explicitly', () => {
+    const source = boxSource();
+    const vertical = source.match(/async function renderBoxVerticalFrame\(context = \{\}\)\{([\s\S]*?)\n    \} = context;/);
+    const horizontal = source.match(/async function renderBoxHorizontalFrame\(context = \{\}\)\{([\s\S]*?)\n    \} = context;/);
+    const frameContext = source.match(/const orientationFrameContext = \{([\s\S]*?)\n    \};\n    const orientationResult/);
+    expect(vertical).toBeTruthy();
+    expect(horizontal).toBeTruthy();
+    expect(frameContext).toBeTruthy();
+    expect(vertical[1]).toMatch(/\bcheckpoint,/);
+    expect(horizontal[1]).toMatch(/\bcheckpoint,/);
+    expect(frameContext[1]).toMatch(/\bcheckpoint,/);
   });
 
   test('significance-label pixel scans request a readback-optimized canvas context', () => {

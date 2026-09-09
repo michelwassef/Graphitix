@@ -1576,6 +1576,7 @@
     applyEffectiveStyleForNode(node, {
       storeKey: storeContext.storeKey,
       style: storeSnapshot,
+      patchKeys: options?.patchKeys || STYLE_KEYS,
       clearWhenEmpty: true
     });
     if(node === currentTarget){
@@ -1609,7 +1610,8 @@
       importScopeStyles(storeContext.scopeId, styles || null, {
         tabId: storeContext.tabId || null,
         prune: true,
-        broadcast: true
+        broadcast: true,
+        patchKeys
       });
       if(node === currentTarget){
         syncPanelStateFromTarget();
@@ -1853,7 +1855,7 @@
     updatePanelContext();
   }
 
-  function syncScopeModeForCurrentTarget(){
+  function syncScopeModeForCurrentTarget(requestedMode){
     const targetCollection = normalizeFontCollection(
       currentTarget?.dataset?.fontCollection,
       currentTarget?.dataset?.fontRole
@@ -1887,14 +1889,33 @@
         : 'Collection';
     }
     const storedMode = getScopeMode(currentScope, { target: currentTarget || activeHost || panelEl || null });
-    const mode = supportsLegendScope || supportsScaleScope
+    const requested = requestedMode === FONT_SCOPE_GRAPH
+      || requestedMode === FONT_SCOPE_LABELS
+      || requestedMode === FONT_SCOPE_LEGEND
+      || requestedMode === FONT_SCOPE_SCALE
+      || requestedMode === FONT_SCOPE_COLLECTION
+      || requestedMode === FONT_SCOPE_SELECTION
+      ? requestedMode
+      : null;
+    const requestedIsSupported = requested === FONT_SCOPE_COLLECTION
+      ? !!customCollection
+      : requested === FONT_SCOPE_LABELS
+        ? supportsLabelsScope
+        : requested === FONT_SCOPE_LEGEND
+          ? supportsLegendScope
+          : requested === FONT_SCOPE_SCALE
+            ? supportsScaleScope
+            : !!requested;
+    const mode = requested && requestedIsSupported
+      ? requested
+      : (supportsLegendScope || supportsScaleScope
       ? (supportsLegendScope ? FONT_SCOPE_LEGEND : FONT_SCOPE_SCALE)
       : ((storedMode === FONT_SCOPE_LABELS && !supportsLabelsScope)
           || (storedMode === FONT_SCOPE_LEGEND && !supportsLegendScope)
           || (storedMode === FONT_SCOPE_SCALE && !supportsScaleScope)
           || (storedMode === FONT_SCOPE_COLLECTION && !customCollection)
         ? FONT_SCOPE_SELECTION
-        : storedMode);
+        : storedMode));
     activeScopeMode = mode;
     if(scopeSelectEl){
       scopeSelectEl.value = mode;
@@ -3643,9 +3664,13 @@
     if(legendBorderChipValueEl){ legendBorderChipValueEl.textContent = formatLegendBorderWidth(style.legendBorderWidth); }
   }
 
-  function applyStyleToNode(node, style){
+  function applyStyleToNode(node, style, options = {}){
     if(!node || !style){ return; }
     const resolvedStyle = cloneStyleSnapshot(style) || {};
+    const requestedPatchKeys = Array.isArray(options.patchKeys) && options.patchKeys.length
+      ? new Set(options.patchKeys)
+      : null;
+    const shouldApply = key => !requestedPatchKeys || requestedPatchKeys.has(key);
     if(resolvedStyle.fontSize){
       resolvedStyle.fontSize = resolveStoredFontSizeForNode(
         resolvedStyle.fontSize,
@@ -3656,10 +3681,14 @@
     }
     const isSvgNode = isSvgTextTarget(node);
     const applyToken = (styleKey, attrName, cssProp) => {
-      if(!Object.prototype.hasOwnProperty.call(resolvedStyle, styleKey)){
+      if(!shouldApply(styleKey)){
         return;
       }
-      const value = resolvedStyle[styleKey];
+      const hasValue = Object.prototype.hasOwnProperty.call(resolvedStyle, styleKey);
+      if(!hasValue && !requestedPatchKeys){
+        return;
+      }
+      const value = hasValue ? resolvedStyle[styleKey] : null;
       if(isSvgNode){
         if(value){ node.setAttribute(attrName, value); } else { node.removeAttribute(attrName); }
         return;
@@ -3682,7 +3711,7 @@
     applyToken('fill', 'fill', 'color');
     applyToken('textDecoration', 'text-decoration', 'textDecoration');
     applyToken('baselineShift', 'baseline-shift', 'verticalAlign');
-    if(node.style){
+    if(node.style && (!requestedPatchKeys || requestedPatchKeys.has('hidden'))){
       // Title visibility is presentation state, not layout state. Keeping the
       // text in SVG geometry prevents title toggles from changing a user-sized
       // graph's fitted viewport or plot proportions.
@@ -3690,21 +3719,29 @@
       node.style.visibility = resolvedStyle.hidden === true ? 'hidden' : '';
     }
     if(node.dataset){
-      if(Number.isFinite(Number(style.fontSizeDisplayScaleReference)) && Number(style.fontSizeDisplayScaleReference) > 0){
-        node.dataset.fontSizeDisplayScaleReference = String(Number(style.fontSizeDisplayScaleReference));
-      }else{
-        delete node.dataset.fontSizeDisplayScaleReference;
+      if(!requestedPatchKeys
+        || requestedPatchKeys.has('fontSize')
+        || requestedPatchKeys.has('fontSizeDisplayScaleReference')){
+        if(Number.isFinite(Number(style.fontSizeDisplayScaleReference)) && Number(style.fontSizeDisplayScaleReference) > 0){
+          node.dataset.fontSizeDisplayScaleReference = String(Number(style.fontSizeDisplayScaleReference));
+        }else{
+          delete node.dataset.fontSizeDisplayScaleReference;
+        }
       }
-      if(resolvedStyle.hidden === true){
-        node.dataset.fontHidden = 'true';
-      }else{
-        delete node.dataset.fontHidden;
+      if(!requestedPatchKeys || requestedPatchKeys.has('hidden')){
+        if(resolvedStyle.hidden === true){
+          node.dataset.fontHidden = 'true';
+        }else{
+          delete node.dataset.fontHidden;
+        }
       }
     }
-    if(styleHasInlineSegments(resolvedStyle)){
-      applyInlineSegmentsToNode(node, resolvedStyle.inlineSegments);
-    } else {
-      resetInlineSegments(node);
+    if(!requestedPatchKeys || requestedPatchKeys.has('inlineSegments')){
+      if(styleHasInlineSegments(resolvedStyle)){
+        applyInlineSegmentsToNode(node, resolvedStyle.inlineSegments);
+      } else {
+        resetInlineSegments(node);
+      }
     }
     logDebug('applyStyleToNode', {
       text: node?.textContent,
@@ -3714,6 +3751,17 @@
       style: resolvedStyle,
       storedStyle: style
     });
+  }
+
+  function clearStylePatchFromNode(node, patchKeys){
+    const keys = Array.isArray(patchKeys)
+      ? patchKeys.filter(key => STYLE_KEYS.includes(key) || key === 'fontSizeDisplayScaleReference' || key === 'hidden' || key === 'inlineSegments')
+      : [];
+    if(!node || !keys.length){ return false; }
+    const patch = {};
+    keys.forEach(key => { patch[key] = null; });
+    applyStyleToNode(node, patch, { patchKeys: keys });
+    return true;
   }
 
   function isStyleEmpty(style){
@@ -3901,10 +3949,13 @@
   function applyEffectiveStyleForNode(node, options = {}){
     const resolved = resolveEffectiveStyleForNode(node, options);
     if(resolved.style && !isStyleEmpty(resolved.style)){
-      applyStyleToNode(node, resolved.style);
+      applyStyleToNode(node, resolved.style, options);
       return true;
     }
     if(options.clearWhenEmpty && resolved.hasStoredStyle === false){
+      if(Array.isArray(options.patchKeys) && options.patchKeys.length){
+        return clearStylePatchFromNode(node, options.patchKeys);
+      }
       clearStyleFromNode(node);
       return true;
     }
@@ -4003,7 +4054,7 @@
     return pruned;
   }
 
-  function broadcastStyle(storeKey, style, sourceNode){
+  function broadcastStyle(storeKey, style, sourceNode, options = {}){
     if(!storeKey){ return; }
     if(storeKey.endsWith(`::${LEGEND_FRAME_TOKEN}`)){
       broadcastLegendFrame(storeKey, style);
@@ -4014,9 +4065,14 @@
     if(supportsWeakRef){
       entry.refs = entry.refs.filter(ref => {
         const node = ref?.deref?.();
-        if(!node){ return false; }
+        if(!node || node.isConnected === false){ return false; }
         if(node !== sourceNode){
-          applyEffectiveStyleForNode(node, { storeKey, style, clearWhenEmpty: true });
+          applyEffectiveStyleForNode(node, {
+            storeKey,
+            style,
+            patchKeys: options.patchKeys,
+            clearWhenEmpty: true
+          });
         }
         const frameGroup = resolveLegendFrameGroupFromTarget(node);
         if(frameGroup){ registerLegendFrameGroup(frameGroup); }
@@ -4030,7 +4086,12 @@
           return;
         }
         if(node === sourceNode){ return; }
-        applyEffectiveStyleForNode(node, { storeKey, style, clearWhenEmpty: true });
+        applyEffectiveStyleForNode(node, {
+          storeKey,
+          style,
+          patchKeys: options.patchKeys,
+          clearWhenEmpty: true
+        });
         const frameGroup = resolveLegendFrameGroupFromTarget(node);
         if(frameGroup){ registerLegendFrameGroup(frameGroup); }
       });
@@ -4070,7 +4131,7 @@
         );
       }
       deleteStoredStyle(storeKey, { tabId, reason: 'store-style-for-node-clear' });
-      broadcastStyle(storeKey, null, node);
+      broadcastStyle(storeKey, null, node, { patchKeys: options?.patchKeys });
       const frameGroup = resolveLegendFrameGroupFromTarget(node);
       if(frameGroup){ registerLegendFrameGroup(frameGroup); }
       logDebug('storeStyleForNode cleared', { scope, key, storeKey });
@@ -4091,7 +4152,7 @@
         );
       }
       setStoredStyle(storeKey, normalized, { tabId, reason: 'store-style-for-node-save' });
-      broadcastStyle(storeKey, normalized, node);
+      broadcastStyle(storeKey, normalized, node, { patchKeys: options?.patchKeys });
       const frameGroup = resolveLegendFrameGroupFromTarget(node);
       if(frameGroup){ registerLegendFrameGroup(frameGroup); }
       logDebug('storeStyleForNode saved', {
@@ -4112,7 +4173,14 @@
     }
     try{
       if(global.document && typeof global.document.dispatchEvent === 'function'){
-        const detail = { scopeId: scope || null, tabId: tabId || null, key: key || null, storeKey, style: normalized || null };
+        const detail = {
+          scopeId: scope || null,
+          tabId: tabId || null,
+          key: key || null,
+          storeKey,
+          style: normalized || null,
+          patchKeys: Array.isArray(options?.patchKeys) ? options.patchKeys.slice() : null
+        };
         let evt;
         if(typeof global.CustomEvent === 'function'){
           evt = new global.CustomEvent('fontControls:styleChanged', { detail });
@@ -4193,13 +4261,13 @@
         if(snapshot){
           setStoredStyle(storeKey, snapshot, { tabId: tabToken, reason: 'import-scope-styles-set' });
           if(opts.broadcast !== false){
-            broadcastStyle(storeKey, snapshot, null);
+            broadcastStyle(storeKey, snapshot, null, { patchKeys: opts.patchKeys });
           }
           logDebug('importScopeStyles applied', { scope, token, tabToken: tabToken || null });
         } else {
           deleteStoredStyle(storeKey, { tabId: tabToken, reason: 'import-scope-styles-clear' });
           if(opts.broadcast !== false){
-            broadcastStyle(storeKey, null, null);
+            broadcastStyle(storeKey, null, null, { patchKeys: opts.patchKeys });
           }
           logDebug('importScopeStyles cleared empty style', { scope, token, tabToken: tabToken || null });
         }
@@ -4231,7 +4299,7 @@
       stale.forEach(storeKey => {
         deleteStoredStyle(storeKey, { tabId: resolveTabTokenFromStoreKey(storeKey), reason: 'import-scope-styles-prune' });
         if(opts.broadcast !== false){
-          broadcastStyle(storeKey, null, null);
+          broadcastStyle(storeKey, null, null, { patchKeys: opts.patchKeys });
         }
         logDebug('importScopeStyles pruned stale style', { scope, storeKey });
       });
@@ -5742,7 +5810,10 @@
     if(isContentEditableTarget(currentTarget)){
       cacheContentEditableSelection(currentTarget, 'panel-open');
     }
-    syncScopeModeForCurrentTarget();
+    const requestedMode = options?.mode
+      || resolveInheritedFontDataset(target, 'fontScopeMode')
+      || null;
+    syncScopeModeForCurrentTarget(requestedMode);
     try {
       const editHighlight = Shared.editHighlight;
       if(editHighlight){
@@ -5958,7 +6029,8 @@
     if(frameGroup){
       registerLegendFrameGroup(frameGroup, { scopeId: scope, tabId });
     }
-    openPanelForTarget(target, { scopeId: scope, key, tabId, triggerEvent: evt });
+    const mode = resolveInheritedFontDataset(target, 'fontScopeMode') || null;
+    openPanelForTarget(target, { scopeId: scope, key, tabId, mode, triggerEvent: evt });
     // Ensure editable text/legend selection is handled by font controls only.
     try{ evt.stopPropagation(); }catch(e){}
   }

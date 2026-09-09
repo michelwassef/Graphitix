@@ -2271,7 +2271,8 @@
     const reason = normalizeReason(options.reason) || 'user-state-change';
     markTabUserModified(tab, reason, {
       origin: 'user',
-      affectsPayload: options.affectsPayload !== false
+      affectsPayload: options.affectsPayload !== false,
+      captureCanonical: options.captureCanonical
     });
     return persistActiveTabState(tab, {
       ...options,
@@ -2279,20 +2280,34 @@
     });
   }
 
-  function captureUserModifiedTabLayout(tabLike, options = {}) {
+  function captureTabLayoutSnapshot(tabLike, options = {}) {
     const tab = resolveTab(tabLike);
     if (!tab || tab.isWelcome || !tab.type) {
-      return false;
+      return null;
     }
     const reason = normalizeReason(options.reason) || 'user-layout-change';
     const layoutCapture = captureExactTabLayoutClone(tab, reason);
-    if (!layoutCapture.captured || layoutCapture.fallback || !layoutCapture.clone) {
+    const previousLayoutClone = clonePayload(tab.layoutState || null);
+    const layoutClone = layoutCapture.captured ? layoutCapture.clone : previousLayoutClone;
+    const previousSignature = tab.layoutSignature || serializePayloadSignature(tab.layoutState || null);
+    const nextSignature = serializePayloadSignature(layoutClone);
+    return {
+      tab,
+      layoutCapture,
+      layoutClone,
+      previousSignature,
+      nextSignature,
+      commit: !!(layoutCapture.captured && !layoutCapture.fallback && layoutCapture.clone)
+    };
+  }
+
+  function commitUserModifiedTabLayoutSnapshot(snapshot) {
+    if (!snapshot?.commit || !snapshot.tab) {
       return false;
     }
-    syncTabLayoutAspectStateFromClone(tab, layoutCapture.clone);
-    const previousSignature = tab.layoutSignature || serializePayloadSignature(tab.layoutState || null);
-    const nextSignature = serializePayloadSignature(layoutCapture.clone);
-    tab.layoutState = layoutCapture.clone;
+    const { tab, layoutClone, previousSignature, nextSignature } = snapshot;
+    syncTabLayoutAspectStateFromClone(tab, layoutClone);
+    tab.layoutState = layoutClone;
     tab.layoutSignature = nextSignature;
     const changed = previousSignature !== nextSignature;
     if (changed) {
@@ -2309,6 +2324,31 @@
       };
     }
     return changed;
+  }
+
+  function captureUserModifiedTabLayout(tabLike, options = {}) {
+    return commitUserModifiedTabLayoutSnapshot(
+      captureTabLayoutSnapshot(tabLike, options)
+    );
+  }
+
+  function enrichPayloadWithCapturedLayout(tab, payloadClone, layoutClone, context) {
+    if (!Shared.graphSizing?.enrichPayloadWithLayout) {
+      return payloadClone;
+    }
+    try {
+      return Shared.graphSizing.enrichPayloadWithLayout(tab.type, payloadClone, layoutClone, {
+        context
+      });
+    } catch (err) {
+      console.error('session graph sizing enrich error', {
+        tabId: tab.id,
+        type: tab.type,
+        context,
+        err
+      });
+      return payloadClone;
+    }
   }
 
   function captureCanonicalUserMutationState(tabLike, options = {}) {
@@ -2343,17 +2383,24 @@
     if (!payload) {
       return false;
     }
-    const payloadClone = clonePayload(payload);
+    let payloadClone = clonePayload(payload);
     if (Shared.workspaceTabs?.captureSharedPayloadState) {
       Shared.workspaceTabs.captureSharedPayloadState(tab, tab.type, payloadClone, config, {
         reason
       });
     }
+    const layoutSnapshot = captureTabLayoutSnapshot(tab, { reason });
+    payloadClone = enrichPayloadWithCapturedLayout(
+      tab,
+      payloadClone,
+      layoutSnapshot?.layoutClone || null,
+      `canonical-${tab.type}`
+    );
     const payloadChanged = assignTabPayload(tab, payloadClone, {
       reason,
       allowClear: false
     });
-    const layoutChanged = captureUserModifiedTabLayout(tab, { reason });
+    const layoutChanged = commitUserModifiedTabLayoutSnapshot(layoutSnapshot);
     return payloadChanged || layoutChanged;
   }
 
@@ -3370,9 +3417,9 @@
           console.error('persistActiveTabState payload round-trip self-test error', { tabId: tab.id, type: tab.type, reason, err });
         }
       }
-      const layoutCapture = captureExactTabLayoutClone(tab, reason);
-      const previousLayoutClone = clonePayload(tab.layoutState || null);
-      let layoutClone = layoutCapture.captured ? layoutCapture.clone : previousLayoutClone;
+      const layoutSnapshot = captureTabLayoutSnapshot(tab, { reason });
+      const layoutCapture = layoutSnapshot?.layoutCapture || { captured: false };
+      const layoutClone = layoutSnapshot?.layoutClone || clonePayload(tab.layoutState || null);
       if (layoutCapture.captured) {
         syncTabLayoutAspectStateFromClone(tab, layoutClone);
       } else {
@@ -3383,15 +3430,12 @@
           previousLayoutSignature: tab.layoutSignature || null
         });
       }
-      if (Shared.graphSizing?.enrichPayloadWithLayout) {
-        try {
-          payloadClone = Shared.graphSizing.enrichPayloadWithLayout(tab.type, payloadClone, layoutClone, {
-            context: `persist-${tab.type}`
-          });
-        } catch (err) {
-          console.error('persistActiveTabState graph sizing enrich error', { tabId: tab.id, type: tab.type, err });
-        }
-      }
+      payloadClone = enrichPayloadWithCapturedLayout(
+        tab,
+        payloadClone,
+        layoutClone,
+        `persist-${tab.type}`
+      );
       const previousLayoutSignature = tab.layoutSignature || null;
       // Drift detector: when the live read produces a different signature than the
       // clean cached payload, *something* in the component mutated state without
