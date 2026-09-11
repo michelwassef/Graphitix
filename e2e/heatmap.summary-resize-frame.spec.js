@@ -1,9 +1,10 @@
 const { test, expect } = require('@playwright/test');
 const {
-  installLocalCdnOverrides,
   openComponentFromWelcome,
   clickExampleButtonIfPresent
-} = require('./helpers/workspaceHarness');
+} = require('./helpers/workspaceDriver');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
+const { waitForComponentOwnerReady } = require('./helpers/contractWaits');
 
 async function waitForHeatmap(page){
   await page.waitForFunction(() => {
@@ -66,14 +67,20 @@ async function resizeVertically(page, delta){
   await page.mouse.move(x, y + delta, { steps:8 });
   await page.mouse.up();
   await waitForHeatmap(page);
-  await page.waitForTimeout(250);
+  await waitForComponentOwnerReady(page, 'heatmap', {
+    requireMountedRoot: true,
+    requireIdle: true
+  });
 }
 
 async function resetSize(page){
   const handle = page.locator('#heatmapPage:not([hidden]) .svgbox .resizer-horizontal').first();
   await handle.dblclick();
   await waitForHeatmap(page);
-  await page.waitForTimeout(250);
+  await waitForComponentOwnerReady(page, 'heatmap', {
+    requireMountedRoot: true,
+    requireIdle: true
+  });
 }
 
 function expectNear(actual, expected, tolerance, label){

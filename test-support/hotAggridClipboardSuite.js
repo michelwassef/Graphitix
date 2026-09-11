@@ -1,0 +1,6054 @@
+const hotAggridShard = globalThis.__GRAPHITIX_HOT_AGGRID_CLIPBOARD_SHARD__;
+const HOT_AGGRID_SHARD_RANGES = Object.freeze({
+  'paste-and-selection': Object.freeze({
+    first: 'pastes plain text into the selected cell via paste event',
+    last: 'fill handle uses pinned-top viewport clipping for pinned first row without center viewport ancestor',
+    expected: 22
+  }),
+  'selection-geometry': Object.freeze({
+    first: 'drag handle drag moves a column without affecting selection',
+    last: 'topmost pinned-first-column selected cell keeps borders even when selected-cell class is not present yet',
+    expected: 9
+  }),
+  'column-reorder': Object.freeze({
+    first: 'drag handle drag moves a selected column group together',
+    last: 'native AG onColumnMoved commit falls back to columnState ordering when displayed-columns API is unavailable',
+    expected: 14
+  }),
+  'menus-and-filtering': Object.freeze({
+    first: 'column header context menu supports insert/delete for selected columns',
+    last: 'column header selection keeps grid container focused for keyboard shortcuts',
+    expected: 23
+  }),
+  clipboard: Object.freeze({
+    first: 'Delete clears additive selected header columns',
+    last: 'paste selection lock ignores repeated anchor-only syncs until user makes a new selection',
+    expected: 16
+  }),
+  'clipboard-undo': Object.freeze({
+    first: 'undo after cut+paste restores both source and destination',
+    last: 'Ctrl+Z inside the grid follows the shared global undo order',
+    expected: 4
+  })
+});
+const hotAggridShardSpec = HOT_AGGRID_SHARD_RANGES[hotAggridShard];
+if (!hotAggridShardSpec) {
+  throw new Error('hotAggridClipboardSuite requires a declared shard.');
+}
+const originalJestTest = global.test;
+let observedTestCount = 0;
+let registeredTestCount = 0;
+let shardStarted = false;
+let shardEnded = false;
+global.test = (title, ...args) => {
+  const titleText = String(title);
+  observedTestCount += 1;
+  if (titleText === hotAggridShardSpec.first) {
+    shardStarted = true;
+  }
+  const include = shardStarted && !shardEnded;
+  if (include) {
+    registeredTestCount += 1;
+    const result = originalJestTest(title, ...args);
+    if (titleText === hotAggridShardSpec.last) {
+      shardEnded = true;
+    }
+    return result;
+  }
+  return undefined;
+};
+
+describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
+  let originalAgGrid;
+  let capturedGridOptions;
+  let capturedApi;
+  let originalClipboard;
+  let originalMain;
+  let createdTables;
+
+  beforeEach(() => {
+    jest.resetModules();
+    capturedGridOptions = null;
+    capturedApi = null;
+    createdTables = [];
+
+    originalAgGrid = global.window?.agGrid;
+    originalClipboard = global.window?.navigator?.clipboard;
+    originalMain = global.window?.Main;
+    const api = {
+      refreshCells: jest.fn(),
+      setRowData: jest.fn(next => {
+        if (capturedGridOptions) capturedGridOptions.rowData = next;
+      }),
+      setColumnDefs: jest.fn(next => {
+        if (capturedGridOptions) capturedGridOptions.columnDefs = next;
+      }),
+      destroy: jest.fn(),
+      getFocusedCell: jest.fn(() => null)
+    };
+    capturedApi = api;
+
+    global.window.agGrid = {
+      createGrid: (container, gridOptions) => {
+        capturedGridOptions = gridOptions;
+        gridOptions?.onGridReady?.({ api, columnApi: {} });
+        return api;
+      }
+    };
+
+    require('../js/vendor.js');
+    require('../js/shared/undo.js');
+    require('../js/shared/agGridAdapter.js');
+    require('../js/shared/hot.js');
+    global.window?.Shared?.undoManager?.clear?.();
+  });
+
+  afterEach(() => {
+    if (Array.isArray(createdTables)) {
+      createdTables.forEach(table => {
+        try {
+          table?.destroy?.();
+        } catch (_err) {
+          // best-effort teardown
+        }
+      });
+      createdTables.length = 0;
+    }
+    global.window?.Shared?.undoManager?.clear?.();
+    global.window.agGrid = originalAgGrid;
+    global.window.Main = originalMain;
+    if (global.window?.navigator) {
+      global.window.navigator.clipboard = originalClipboard;
+    }
+    if (global.document?.body) {
+      global.document.body.innerHTML = '';
+    }
+    capturedGridOptions = null;
+    capturedApi = null;
+  });
+
+  const waitForNextFrame = async () => {
+    if (typeof global.window.requestAnimationFrame === 'function') {
+      await new Promise(resolve => global.window.requestAnimationFrame(resolve));
+      return;
+    }
+    await new Promise(resolve => setTimeout(resolve, 20));
+  };
+
+  const createTable = (...args) => {
+    const table = global.window.Shared.hot.createStandardTable(...args);
+    createdTables.push(table);
+    return table;
+  };
+
+  const undoUntil = (undoManager, predicate, maxSteps = 8) => {
+    if (typeof predicate !== 'function') {
+      return { reached: false, steps: 0 };
+    }
+    if (predicate()) {
+      return { reached: true, steps: 0 };
+    }
+    let steps = 0;
+    while (steps < maxSteps) {
+      const didUndo = undoManager?.undo?.() === true;
+      if (!didUndo) {
+        return { reached: !!predicate(), steps };
+      }
+      steps += 1;
+      if (predicate()) {
+        return { reached: true, steps };
+      }
+    }
+    return { reached: !!predicate(), steps };
+  };
+
+  const redoUntil = (undoManager, predicate, maxSteps = 8) => {
+    if (typeof predicate !== 'function') {
+      return { reached: false, steps: 0 };
+    }
+    if (predicate()) {
+      return { reached: true, steps: 0 };
+    }
+    let steps = 0;
+    while (steps < maxSteps) {
+      const didRedo = undoManager?.redo?.() === true;
+      if (!didRedo) {
+        return { reached: !!predicate(), steps };
+      }
+      steps += 1;
+      if (predicate()) {
+        return { reached: true, steps };
+      }
+    }
+    return { reached: !!predicate(), steps };
+  };
+
+  test('pastes plain text into the selected cell via paste event', () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agPasteEventHot';
+    document.body.appendChild(container);
+
+    const hot = createTable(
+      container,
+      { rows: 3, cols: 3 },
+      () => {},
+      {
+        debugLabel: 'ag-paste-event',
+        data: Shared.createEmptyData(3, 3)
+      }
+    );
+
+    hot.selectCell(0, 0);
+
+    const evt = new global.window.Event('paste', { bubbles: true, cancelable: true });
+    evt.clipboardData = { getData: () => 'X' };
+    container.dispatchEvent(evt);
+
+    expect(evt.defaultPrevented).toBe(true);
+    expect(hot.getDataAtCell(0, 0)).toBe('X');
+  });
+
+  test('new active tab pastes into its highlighted cell without grid focus', () => {
+    const Shared = global.window.Shared;
+    const activeTab = { id: 'workspace-new-paste', type: 'box' };
+    global.window.Main = {
+      session: {
+        workspaceState: { tabs: [activeTab] },
+        getActiveTab: () => activeTab
+      }
+    };
+    const container = document.createElement('div');
+    container.id = 'agNewTabPasteHot';
+    container.dataset.workspaceTabId = activeTab.id;
+    const tabButton = document.createElement('button');
+    tabButton.textContent = 'Distribution Charts';
+    document.body.append(container, tabButton);
+
+    const hot = createTable(
+      container,
+      { rows: 3, cols: 3 },
+      () => {},
+      {
+        debugLabel: 'ag-new-tab-paste',
+        data: Shared.createEmptyData(3, 3)
+      }
+    );
+    hot.selectCell(0, 0);
+    tabButton.focus();
+
+    const event = new global.window.Event('paste', { bubbles: true, cancelable: true });
+    event.clipboardData = { getData: () => 'A\tB\n1\t2' };
+    tabButton.dispatchEvent(event);
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(hot.getSourceData().slice(0, 2).map(row => row.slice(0, 2))).toEqual([
+      ['A', 'B'],
+      ['1', '2']
+    ]);
+  });
+
+  test('tab switch routes unfocused paste only to the active tab selection', () => {
+    const Shared = global.window.Shared;
+    const tabA = { id: 'workspace-paste-a', type: 'box' };
+    const tabB = { id: 'workspace-paste-b', type: 'box' };
+    let activeTab = tabB;
+    global.window.Main = {
+      session: {
+        workspaceState: { tabs: [tabA, tabB] },
+        getActiveTab: () => activeTab
+      }
+    };
+    const containerA = document.createElement('div');
+    containerA.dataset.workspaceTabId = tabA.id;
+    const containerB = document.createElement('div');
+    containerB.dataset.workspaceTabId = tabB.id;
+    const tabButton = document.createElement('button');
+    tabButton.textContent = 'Active workspace tab';
+    document.body.append(containerA, containerB, tabButton);
+
+    const hotA = createTable(
+      containerA,
+      { rows: 4, cols: 3 },
+      () => {},
+      { debugLabel: 'ag-tab-paste-a', data: Shared.createEmptyData(4, 3) }
+    );
+    const hotB = createTable(
+      containerB,
+      { rows: 4, cols: 3 },
+      () => {},
+      { debugLabel: 'ag-tab-paste-b', data: Shared.createEmptyData(4, 3) }
+    );
+    hotA.selectCell(1, 1);
+    hotB.selectCell(2, 0);
+    tabButton.focus();
+
+    const pasteB = new global.window.Event('paste', { bubbles: true, cancelable: true });
+    pasteB.clipboardData = { getData: () => 'B' };
+    tabButton.dispatchEvent(pasteB);
+
+    expect(pasteB.defaultPrevented).toBe(true);
+    expect(hotB.getDataAtCell(2, 0)).toBe('B');
+    expect(hotA.getDataAtCell(1, 1)).toBe('');
+
+    activeTab = tabA;
+    tabButton.focus();
+    const pasteA = new global.window.Event('paste', { bubbles: true, cancelable: true });
+    pasteA.clipboardData = { getData: () => 'A' };
+    tabButton.dispatchEvent(pasteA);
+
+    expect(pasteA.defaultPrevented).toBe(true);
+    expect(hotA.getDataAtCell(1, 1)).toBe('A');
+    expect(hotB.getDataAtCell(2, 0)).toBe('B');
+  });
+
+  test('active-tab routing does not intercept paste into an editable control', () => {
+    const Shared = global.window.Shared;
+    const activeTab = { id: 'workspace-editable-paste', type: 'box' };
+    global.window.Main = {
+      session: {
+        workspaceState: { tabs: [activeTab] },
+        getActiveTab: () => activeTab
+      }
+    };
+    const container = document.createElement('div');
+    container.dataset.workspaceTabId = activeTab.id;
+    const input = document.createElement('input');
+    document.body.append(container, input);
+    const hot = createTable(
+      container,
+      { rows: 2, cols: 2 },
+      () => {},
+      { debugLabel: 'ag-editable-paste', data: Shared.createEmptyData(2, 2) }
+    );
+    hot.selectCell(0, 0);
+    input.focus();
+
+    const event = new global.window.Event('paste', { bubbles: true, cancelable: true });
+    event.clipboardData = { getData: () => 'input text' };
+    input.dispatchEvent(event);
+
+    expect(event.defaultPrevented).toBe(false);
+    expect(hot.getDataAtCell(0, 0)).toBe('');
+  });
+
+  test('first custom paste supersedes a pending projection and writes through to the owner payload', () => {
+    const Shared = global.window.Shared;
+    const clone = value => JSON.parse(JSON.stringify(value));
+    const tab = {
+      id: 'workspace-heatmap-first-paste',
+      type: 'heatmap',
+      payload: { type: 'heatmap', data: [['Old', 'Value'], ['row', 'old']] },
+      userDirty: false
+    };
+    const updateTabPayload = jest.fn((ownerTab, updater) => {
+      const draft = clone(ownerTab.payload);
+      ownerTab.payload = updater(draft) || draft;
+      ownerTab.userDirty = true;
+      return true;
+    });
+    global.window.Main = {
+      session: {
+        workspaceState: { tabs: [tab] },
+        getActiveTab: () => tab,
+        updateTabPayload,
+        commitTabPayload: jest.fn((ownerTab, payload) => {
+          ownerTab.payload = clone(payload);
+          ownerTab.userDirty = true;
+          return true;
+        }),
+        markTabUserModified: jest.fn((ownerTab) => {
+          ownerTab.userDirty = true;
+          return true;
+        })
+      },
+      components: { registry: { heatmap: {} } }
+    };
+
+    const container = document.createElement('div');
+    container.id = 'agFirstHeatmapPasteHot';
+    container.dataset.workspaceTabId = tab.id;
+    container.dataset.componentType = tab.type;
+    document.body.appendChild(container);
+    const scheduleDraw = jest.fn();
+    const hot = createTable(
+      container,
+      { rows: 6, cols: 3 },
+      scheduleDraw,
+      {
+        debugLabel: 'heatmap',
+        data: clone(tab.payload.data)
+      }
+    );
+    hot.selectCell(0, 0);
+    const transaction = Shared.hot.beginOwnerProjectionTransaction({
+      hotInstance: hot,
+      reason: 'table-import'
+    });
+
+    const event = new global.window.Event('paste', { bubbles: true, cancelable: true });
+    event.clipboardData = { getData: () => 'Gene\tS1\nA\t1\nB\t2' };
+    container.dispatchEvent(event);
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(Shared.hot.isOwnerProjectionTransactionCurrent(transaction)).toBe(false);
+    expect(Shared.hot.getLastOwnerProjectionTransaction(tab)).toEqual(expect.objectContaining({
+      interruptedByUserMutation: true,
+      interruptionReason: 'table-paste-start'
+    }));
+    expect(tab.payload.data.slice(0, 3).map(row => row.slice(0, 2))).toEqual([
+      ['Gene', 'S1'],
+      ['A', '1'],
+      ['B', '2']
+    ]);
+    expect(hot.getSourceData().slice(0, 3).map(row => row.slice(0, 2))).toEqual(
+      tab.payload.data.slice(0, 3).map(row => row.slice(0, 2))
+    );
+    expect(tab.userDirty).toBe(true);
+    expect(updateTabPayload).not.toHaveBeenCalled();
+    expect(global.window.Main.session.commitTabPayload).toHaveBeenCalledTimes(1);
+    expect(scheduleDraw).toHaveBeenCalledTimes(1);
+    expect(scheduleDraw).toHaveBeenCalledWith(expect.objectContaining({
+      reason: 'afterPaste',
+      changes: expect.arrayContaining([[0, 0, 'Old', 'Gene']])
+    }));
+  });
+
+  test('loadData adopts large matrices without mutating the source matrix or source rows', () => {
+    const container = document.createElement('div');
+    container.id = 'agLoadDataCowHot';
+    document.body.appendChild(container);
+
+    const hot = createTable(
+      container,
+      { rows: 1, cols: 1 },
+      () => {},
+      {
+        debugLabel: 'ag-load-data-cow',
+        data: [['']]
+      }
+    );
+    const source = [
+      ['A', 'B'],
+      ['1', '2']
+    ];
+
+    hot.loadData(source);
+
+    expect(source).toEqual([
+      ['A', 'B'],
+      ['1', '2']
+    ]);
+    expect(hot.getSourceData()).not.toBe(source);
+    expect(hot.getSourceData()[0]).toBe(source[0]);
+
+    hot.setDataAtCell(1, 1, 'changed', 'test-edit');
+
+    expect(hot.getDataAtCell(1, 1)).toBe('changed');
+    expect(source[1][1]).toBe('2');
+    expect(hot.getSourceData()[1]).not.toBe(source[1]);
+  });
+
+  test('paste handler stops other paste listeners (capture)', () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agPasteStopImmediateHot';
+    document.body.appendChild(container);
+
+    const hot = createTable(
+      container,
+      { rows: 3, cols: 3 },
+      () => {},
+      {
+        debugLabel: 'ag-paste-stop-immediate',
+        data: Shared.createEmptyData(3, 3)
+      }
+    );
+
+    hot.selectCell(0, 0);
+
+    const spy = jest.fn();
+    container.addEventListener(
+      'paste',
+      () => {
+        spy();
+      },
+      true
+    );
+
+    const evt = new global.window.Event('paste', { bubbles: true, cancelable: true });
+    evt.clipboardData = { getData: () => 'X' };
+    container.dispatchEvent(evt);
+
+    expect(spy).toHaveBeenCalledTimes(0);
+    expect(hot.getDataAtCell(0, 0)).toBe('X');
+  });
+
+  test('paste from text node inside contenteditable editor is not intercepted by table paste handler', () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agPasteEditableTextNodeHot';
+    document.body.appendChild(container);
+
+    const hot = createTable(
+      container,
+      { rows: 3, cols: 3 },
+      () => {},
+      {
+        debugLabel: 'ag-paste-editable-text-node',
+        data: Shared.createEmptyData(3, 3)
+      }
+    );
+    hot.setDataAtCell(0, 0, 'keep');
+    hot.selectCell(0, 0);
+
+    const editor = document.createElement('div');
+    editor.className = 'ag-cell-inline-editing';
+    editor.setAttribute('contenteditable', 'plaintext-only');
+    const textNode = document.createTextNode('x');
+    editor.appendChild(textNode);
+    container.appendChild(editor);
+
+    const evt = new global.window.Event('paste', { bubbles: true, cancelable: true });
+    evt.clipboardData = { getData: () => 'X' };
+    textNode.dispatchEvent(evt);
+
+    expect(evt.defaultPrevented).toBe(false);
+    expect(hot.getDataAtCell(0, 0)).toBe('keep');
+  });
+
+  test('paste is ignored when inline editor is active even if event targets container', () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agPasteInlineEditorActiveHot';
+    document.body.appendChild(container);
+
+    const hot = createTable(
+      container,
+      { rows: 3, cols: 3 },
+      () => {},
+      {
+        debugLabel: 'ag-paste-inline-editor-active',
+        data: Shared.createEmptyData(3, 3)
+      }
+    );
+    hot.setDataAtCell(0, 0, 'keep');
+    hot.selectCell(0, 0);
+
+    const inlineEdit = document.createElement('div');
+    inlineEdit.className = 'ag-cell-inline-editing';
+    const input = document.createElement('input');
+    input.className = 'ag-input-field-input';
+    inlineEdit.appendChild(input);
+    container.appendChild(inlineEdit);
+
+    const evt = new global.window.Event('paste', { bubbles: true, cancelable: true });
+    evt.clipboardData = { getData: () => 'X' };
+    container.dispatchEvent(evt);
+
+    expect(evt.defaultPrevented).toBe(false);
+    expect(hot.getDataAtCell(0, 0)).toBe('keep');
+  });
+
+  test('shift-click expands selection range using ag-row row-index', () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agSelectHot';
+    document.body.appendChild(container);
+
+    const hot = createTable(
+      container,
+      { rows: 3, cols: 3 },
+      () => {},
+      {
+        debugLabel: 'ag-select',
+        data: Shared.createEmptyData(3, 3)
+      }
+    );
+
+    hot.selectCell(0, 0);
+
+    const row = document.createElement('div');
+    row.className = 'ag-row';
+    row.setAttribute('row-index', '1');
+
+    const cell = document.createElement('div');
+    cell.className = 'ag-cell';
+    cell.setAttribute('col-id', 'c1');
+    row.appendChild(cell);
+    container.appendChild(row);
+
+    const mouseDown = new global.window.MouseEvent('mousedown', {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+      shiftKey: true
+    });
+    cell.dispatchEvent(mouseDown);
+
+    const mouseUp = new global.window.MouseEvent('mouseup', { bubbles: true, cancelable: true, button: 0 });
+    global.window.dispatchEvent(mouseUp);
+
+    expect(hot.getSelectedLast()).toEqual([0, 0, 1, 1]);
+  });
+
+  test('manual column resize persists after rebuildColumns-triggering update', () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agColumnResizePersistHot';
+    document.body.appendChild(container);
+
+    const hot = createTable(
+      container,
+      { rows: 3, cols: 3 },
+      () => {},
+      {
+        debugLabel: 'ag-column-resize-persist',
+        data: Shared.createEmptyData(3, 3)
+      }
+    );
+
+    const widthStateApi = {
+      getColumnState: jest.fn(() => [
+        { colId: 'c0', width: 96 },
+        { colId: 'c1', width: 222 },
+        { colId: 'c2', width: 96 }
+      ]),
+      applyColumnState: jest.fn()
+    };
+    hot.columnApi = widthStateApi;
+    hot.gridApi.columnApi = widthStateApi;
+
+    expect(typeof capturedGridOptions?.onColumnResized).toBe('function');
+    capturedGridOptions.onColumnResized({ finished: true, api: hot.gridApi, columnApi: widthStateApi });
+
+    hot.updateSettings({ minCols: 4 });
+
+    const defs = capturedGridOptions?.columnDefs || [];
+    const flattenDefs = list => (Array.isArray(list) ? list.flatMap(def => {
+      if(def && Array.isArray(def.children)){
+        return flattenDefs(def.children);
+      }
+      return [def];
+    }) : []);
+    const leafDefs = flattenDefs(defs);
+    const col1 = leafDefs.find(def => def && def.colId === 'c1');
+    expect(col1).toBeTruthy();
+    expect(col1.width).toBe(222);
+  });
+
+  test('user column resize writes widths to the owning tab UI state and marks it dirty', () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agColumnResizeOwnerStateHot';
+    document.body.appendChild(container);
+    const tab = { id: 'width-owner', type: 'box', uiState: null };
+    const markTabUserModified = jest.fn(() => true);
+    global.window.Main = {
+      session: {
+        workspaceState: { tabs: [tab], activeTabId: tab.id },
+        getActiveTab: () => tab,
+        markTabUserModified
+      }
+    };
+    const hot = createTable(
+      container,
+      { rows: 3, cols: 3 },
+      () => {},
+      { debugLabel: 'ag-column-resize-owner-state', data: Shared.createEmptyData(3, 3) }
+    );
+    const widthStateApi = {
+      getColumnState: () => [
+        { colId: 'c0', width: 101 },
+        { colId: 'c1', width: 202 },
+        { colId: 'c2', width: 303 }
+      ],
+      applyColumnState: jest.fn()
+    };
+    hot.columnApi = widthStateApi;
+    hot.gridApi.columnApi = widthStateApi;
+
+    capturedGridOptions.onColumnResized({
+      api: hot.gridApi,
+      columnApi: widthStateApi,
+      finished: true,
+      source: 'uiColumnResized'
+    });
+
+    expect(tab.uiState.component.table.columnWidths).toEqual({ c0: 101, c1: 202, c2: 303 });
+    expect(markTabUserModified).toHaveBeenCalledWith(
+      tab,
+      'table-column-width-changed',
+      expect.objectContaining({ affectsPayload: false })
+    );
+  });
+
+  test('uniform column groups expose only their outer resize handle', () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agUniformGroupResizeHandlesHot';
+    document.body.appendChild(container);
+
+    createTable(
+      container,
+      { rows: 3, cols: 5 },
+      () => {},
+      {
+        debugLabel: 'ag-uniform-group-resize-handles',
+        data: Shared.createEmptyData(3, 5),
+        columnGroups: [{ startCol: 1, span: 3 }]
+      }
+    );
+
+    const defs = capturedGridOptions?.columnDefs || [];
+    const flattenDefs = list => (Array.isArray(list) ? list.flatMap(def => {
+      if(def && Array.isArray(def.children)){
+        return flattenDefs(def.children);
+      }
+      return [def];
+    }) : []);
+    const leaves = flattenDefs(defs);
+    const byId = colId => leaves.find(def => def?.colId === colId);
+
+    expect(byId('c1')?.resizable).toBe(false);
+    expect(byId('c2')?.resizable).toBe(false);
+    expect(byId('c3')?.resizable).not.toBe(false);
+    expect(byId('c4')?.resizable).not.toBe(false);
+  });
+
+  test('dragging a group outer edge resizes every child uniformly', () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agUniformGroupResizeHot';
+    document.body.appendChild(container);
+
+    const hot = createTable(
+      container,
+      { rows: 3, cols: 5 },
+      () => {},
+      {
+        debugLabel: 'ag-uniform-group-resize',
+        data: Shared.createEmptyData(3, 5),
+        columnGroups: [{ startCol: 1, span: 3 }]
+      }
+    );
+    const widths = new Map([
+      ['c0', 100],
+      ['c1', 90],
+      ['c2', 110],
+      ['c3', 130],
+      ['c4', 100]
+    ]);
+    const widthStateApi = {
+      getColumnState: jest.fn(() => Array.from(widths, ([colId, width]) => ({ colId, width }))),
+      applyColumnState: jest.fn(({ state }) => {
+        state.forEach(({ colId, width }) => widths.set(colId, width));
+        return true;
+      })
+    };
+    hot.columnApi = widthStateApi;
+    hot.gridApi.columnApi = widthStateApi;
+
+    const header = document.createElement('div');
+    header.className = 'ag-header-cell';
+    header.setAttribute('col-id', 'c3');
+    const resizeHandle = document.createElement('div');
+    resizeHandle.className = 'ag-header-cell-resize';
+    header.appendChild(resizeHandle);
+    container.appendChild(header);
+    resizeHandle.dispatchEvent(new global.window.MouseEvent('mousedown', {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+      clientX: 300
+    }));
+
+    global.window.dispatchEvent(new global.window.MouseEvent('mousemove', {
+      bubbles: true,
+      cancelable: true,
+      buttons: 1,
+      clientX: 330
+    }));
+
+    expect([widths.get('c1'), widths.get('c2'), widths.get('c3')]).toEqual([100, 120, 140]);
+
+    global.window.dispatchEvent(new global.window.MouseEvent('mouseup', {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+      clientX: 330
+    }));
+
+    expect([widths.get('c1'), widths.get('c2'), widths.get('c3')]).toEqual([100, 120, 140]);
+    expect(widthStateApi.applyColumnState).toHaveBeenLastCalledWith({
+      state: [
+        { colId: 'c1', width: 100 },
+        { colId: 'c2', width: 120 },
+        { colId: 'c3', width: 140 }
+      ],
+      applyOrder: false
+    });
+  });
+
+  test('dragging column headers selects a multi-column range', async () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agHeaderDragColsHot';
+    document.body.appendChild(container);
+
+    const hot = createTable(
+      container,
+      { rows: 3, cols: 3 },
+      () => {},
+      {
+        debugLabel: 'ag-header-drag-cols',
+        data: Shared.createEmptyData(3, 3)
+      }
+    );
+    const lastRow = hot.countRows() - 1;
+
+    const header0 = document.createElement('div');
+    header0.className = 'ag-header-cell';
+    header0.setAttribute('col-id', 'c0');
+    container.appendChild(header0);
+
+    const header2 = document.createElement('div');
+    header2.className = 'ag-header-cell';
+    header2.setAttribute('col-id', 'c2');
+    container.appendChild(header2);
+
+    const mouseDown = new global.window.MouseEvent('mousedown', {
+      bubbles: true,
+      cancelable: true,
+      button: 0
+    });
+    header0.dispatchEvent(mouseDown);
+
+    const mouseMove = new global.window.MouseEvent('mousemove', { bubbles: true, cancelable: true, buttons: 1 });
+    header2.dispatchEvent(mouseMove);
+
+    if(typeof global.window.requestAnimationFrame === 'function'){
+      await new Promise(resolve => global.window.requestAnimationFrame(resolve));
+    }else{
+      await new Promise(resolve => setTimeout(resolve, 20));
+    }
+
+    const mouseUp = new global.window.MouseEvent('mouseup', { bubbles: true, cancelable: true, button: 0 });
+    global.window.dispatchEvent(mouseUp);
+
+    expect(hot.getSelectedLast()).toEqual([0, 0, lastRow, 2]);
+  });
+
+  test('data columns suppress native AG Grid header moving', () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agHeaderNativeMoveSuppressedHot';
+    document.body.appendChild(container);
+
+    createTable(
+      container,
+      { rows: 3, cols: 3 },
+      () => {},
+      {
+        debugLabel: 'ag-header-native-move-suppressed',
+        data: Shared.createEmptyData(3, 3)
+      }
+    );
+
+    const dataDefs = (capturedGridOptions?.columnDefs || []).filter(def => /^c\d+$/.test(def?.colId || ''));
+    expect(dataDefs.length).toBeGreaterThan(0);
+    dataDefs.forEach(def => {
+      expect(def.suppressMovable).toBe(true);
+    });
+  });
+
+  test('dragging row headers selects a multi-row range', async () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agHeaderDragRowsHot';
+    document.body.appendChild(container);
+
+    const hot = createTable(
+      container,
+      { rows: 3, cols: 3 },
+      () => {},
+      {
+        debugLabel: 'ag-header-drag-rows',
+        data: Shared.createEmptyData(3, 3)
+      }
+    );
+    const lastCol = hot.countCols() - 1;
+
+    const row0 = document.createElement('div');
+    row0.className = 'ag-row';
+    row0.setAttribute('row-index', '0');
+    const row0Header = document.createElement('div');
+    row0Header.className = 'ag-cell';
+    row0Header.setAttribute('col-id', '__rowHeader');
+    row0.appendChild(row0Header);
+    container.appendChild(row0);
+
+    const row2 = document.createElement('div');
+    row2.className = 'ag-row';
+    row2.setAttribute('row-index', '2');
+    const row2Header = document.createElement('div');
+    row2Header.className = 'ag-cell';
+    row2Header.setAttribute('col-id', '__rowHeader');
+    row2.appendChild(row2Header);
+    container.appendChild(row2);
+
+    const mouseDown = new global.window.MouseEvent('mousedown', {
+      bubbles: true,
+      cancelable: true,
+      button: 0
+    });
+    row0Header.dispatchEvent(mouseDown);
+
+    const mouseMove = new global.window.MouseEvent('mousemove', { bubbles: true, cancelable: true });
+    row2Header.dispatchEvent(mouseMove);
+
+    if(typeof global.window.requestAnimationFrame === 'function'){
+      await new Promise(resolve => global.window.requestAnimationFrame(resolve));
+    }else{
+      await new Promise(resolve => setTimeout(resolve, 20));
+    }
+
+    const mouseUp = new global.window.MouseEvent('mouseup', { bubbles: true, cancelable: true, button: 0 });
+    global.window.dispatchEvent(mouseUp);
+
+    expect(hot.getSelectedLast()).toEqual([0, 0, 2, lastCol]);
+  });
+
+  test('dragging pinned first-row cells replaces prior body selection', async () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agPinnedFirstRowDragHot';
+    document.body.appendChild(container);
+
+    const hot = createTable(
+      container,
+      { rows: 4, cols: 3 },
+      () => {},
+      {
+        debugLabel: 'ag-pinned-first-row-drag',
+        data: Shared.createEmptyData(4, 3),
+        pinFirstRow: true
+      }
+    );
+
+    hot.selectCell(2, 1);
+
+    const pinnedRow = document.createElement('div');
+    pinnedRow.className = 'ag-row';
+    pinnedRow.setAttribute('row-index', 't-0');
+
+    const cell0 = document.createElement('div');
+    cell0.className = 'ag-cell';
+    cell0.setAttribute('col-id', 'c0');
+    pinnedRow.appendChild(cell0);
+
+    const cell2 = document.createElement('div');
+    cell2.className = 'ag-cell';
+    cell2.setAttribute('col-id', 'c2');
+    pinnedRow.appendChild(cell2);
+
+    container.appendChild(pinnedRow);
+
+    const mouseDown = new global.window.MouseEvent('mousedown', {
+      bubbles: true,
+      cancelable: true,
+      button: 0
+    });
+    cell0.dispatchEvent(mouseDown);
+
+    const mouseMove = new global.window.MouseEvent('mousemove', {
+      bubbles: true,
+      cancelable: true,
+      buttons: 1
+    });
+    cell2.dispatchEvent(mouseMove);
+
+    if(typeof global.window.requestAnimationFrame === 'function'){
+      await new Promise(resolve => global.window.requestAnimationFrame(resolve));
+    }else{
+      await new Promise(resolve => setTimeout(resolve, 20));
+    }
+
+    const mouseUp = new global.window.MouseEvent('mouseup', { bubbles: true, cancelable: true, button: 0 });
+    global.window.dispatchEvent(mouseUp);
+
+    expect(hot.getSelectedLast()).toEqual([0, 0, 0, 2]);
+  });
+
+  test('pinned top rows use physical row index for selected-cell class rule', () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agPinnedSelectedClassHot';
+    document.body.appendChild(container);
+
+    const hot = createTable(
+      container,
+      { rows: 4, cols: 3 },
+      () => {},
+      {
+        debugLabel: 'ag-pinned-selected-class',
+        data: Shared.createEmptyData(4, 3),
+        pinFirstRow: true
+      }
+    );
+
+    const colDef = (capturedGridOptions?.columnDefs || []).find(def => def?.colId === 'c1');
+    expect(colDef).toBeTruthy();
+    const selectedRule = colDef?.cellClassRules?.['hot-selected-cell'];
+    expect(typeof selectedRule).toBe('function');
+
+    const applyRule = params => selectedRule(params);
+    hot.selectCell(0, 1, 0, 1);
+
+    expect(
+      applyRule({
+        node: { rowPinned: 'top', rowIndex: null },
+        data: { __rowIndex: 0 },
+        column: { getColId: () => 'c1' }
+      })
+    ).toBe(true);
+
+    expect(
+      applyRule({
+        node: { rowPinned: 'top', rowIndex: null },
+        data: { __rowIndex: 1 },
+        column: { getColId: () => 'c1' }
+      })
+    ).toBe(false);
+  });
+
+  test('fill handle appears for pinned header-row cells without a duplicate body row', async () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agPinnedFillHandleHot';
+    document.body.appendChild(container);
+
+    container.getBoundingClientRect = () => ({
+      left: 0,
+      top: 0,
+      right: 500,
+      bottom: 300,
+      width: 500,
+      height: 300
+    });
+
+    const hot = createTable(
+      container,
+      { rows: 4, cols: 3 },
+      () => {},
+      {
+        debugLabel: 'ag-pinned-fill-handle',
+        data: Shared.createEmptyData(4, 3),
+        pinFirstRow: true
+      }
+    );
+
+    const bodyViewport = document.createElement('div');
+    bodyViewport.className = 'ag-body-viewport';
+    bodyViewport.getBoundingClientRect = () => ({
+      left: 0,
+      top: 0,
+      right: 500,
+      bottom: 300,
+      width: 500,
+      height: 300
+    });
+    const ghostRow = document.createElement('div');
+    ghostRow.className = 'ag-row';
+    ghostRow.setAttribute('row-index', '0');
+    const ghostCell = document.createElement('div');
+    ghostCell.className = 'ag-cell';
+    ghostCell.setAttribute('col-id', 'c0');
+    ghostCell.getBoundingClientRect = () => ({
+      left: 0,
+      top: 0,
+      right: 100,
+      bottom: 0,
+      width: 100,
+      height: 0
+    });
+    ghostRow.appendChild(ghostCell);
+    bodyViewport.appendChild(ghostRow);
+    container.appendChild(bodyViewport);
+
+    const floatingTop = document.createElement('div');
+    floatingTop.className = 'ag-floating-top';
+    const pinnedViewport = document.createElement('div');
+    pinnedViewport.className = 'ag-center-cols-viewport';
+    pinnedViewport.getBoundingClientRect = () => ({
+      left: 0,
+      top: 0,
+      right: 500,
+      bottom: 30,
+      width: 500,
+      height: 30
+    });
+    const pinnedRow = document.createElement('div');
+    pinnedRow.className = 'ag-row';
+    pinnedRow.setAttribute('row-index', 't-0');
+    const pinnedCell = document.createElement('div');
+    pinnedCell.className = 'ag-cell';
+    pinnedCell.setAttribute('col-id', 'c0');
+    pinnedCell.getBoundingClientRect = () => ({
+      left: 0,
+      top: 0,
+      right: 100,
+      bottom: 28,
+      width: 100,
+      height: 28
+    });
+    pinnedRow.appendChild(pinnedCell);
+    pinnedViewport.appendChild(pinnedRow);
+    floatingTop.appendChild(pinnedViewport);
+    container.appendChild(floatingTop);
+
+    hot.selectCell(0, 0, 0, 0);
+
+    if(typeof global.window.requestAnimationFrame === 'function'){
+      await new Promise(resolve => global.window.requestAnimationFrame(resolve));
+    }else{
+      await new Promise(resolve => setTimeout(resolve, 20));
+    }
+
+    const handle = container.querySelector('.hot-fill-handle');
+    expect(handle).toBeTruthy();
+    expect(handle.style.display).toBe('block');
+  });
+
+  test('fill handle prefers pinned header-row cell when ghost body row is still renderable', async () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agPinnedFillHandlePreferPinnedHot';
+    document.body.appendChild(container);
+
+    container.getBoundingClientRect = () => ({
+      left: 0,
+      top: 0,
+      right: 500,
+      bottom: 300,
+      width: 500,
+      height: 300
+    });
+
+    const hot = createTable(
+      container,
+      { rows: 4, cols: 3 },
+      () => {},
+      {
+        debugLabel: 'ag-pinned-fill-handle-prefer-pinned',
+        data: Shared.createEmptyData(4, 3),
+        pinFirstRow: true
+      }
+    );
+
+    const bodyViewport = document.createElement('div');
+    bodyViewport.className = 'ag-body-viewport';
+    bodyViewport.getBoundingClientRect = () => ({
+      left: 0,
+      top: 30,
+      right: 500,
+      bottom: 90,
+      width: 500,
+      height: 60
+    });
+    const ghostRow = document.createElement('div');
+    ghostRow.className = 'ag-row';
+    ghostRow.setAttribute('row-index', '0');
+    const ghostCell = document.createElement('div');
+    ghostCell.className = 'ag-cell';
+    ghostCell.setAttribute('col-id', 'c1');
+    ghostCell.getBoundingClientRect = () => ({
+      left: 100,
+      top: 120,
+      right: 200,
+      bottom: 148,
+      width: 100,
+      height: 28
+    });
+    ghostRow.appendChild(ghostCell);
+    bodyViewport.appendChild(ghostRow);
+    container.appendChild(bodyViewport);
+
+    const floatingTop = document.createElement('div');
+    floatingTop.className = 'ag-floating-top';
+    const pinnedViewport = document.createElement('div');
+    pinnedViewport.className = 'ag-center-cols-viewport';
+    pinnedViewport.getBoundingClientRect = () => ({
+      left: 0,
+      top: 0,
+      right: 500,
+      bottom: 30,
+      width: 500,
+      height: 30
+    });
+    const pinnedRow = document.createElement('div');
+    pinnedRow.className = 'ag-row';
+    // Intentionally omit row-index to mirror AG Grid pinned-row variants.
+    const pinnedCell = document.createElement('div');
+    pinnedCell.className = 'ag-cell';
+    pinnedCell.setAttribute('col-id', 'c1');
+    pinnedCell.getBoundingClientRect = () => ({
+      left: 100,
+      top: 0,
+      right: 200,
+      bottom: 28,
+      width: 100,
+      height: 28
+    });
+    pinnedRow.appendChild(pinnedCell);
+    pinnedViewport.appendChild(pinnedRow);
+    floatingTop.appendChild(pinnedViewport);
+    container.appendChild(floatingTop);
+
+    hot.selectCell(0, 1, 0, 1);
+
+    if(typeof global.window.requestAnimationFrame === 'function'){
+      await new Promise(resolve => global.window.requestAnimationFrame(resolve));
+    }else{
+      await new Promise(resolve => setTimeout(resolve, 20));
+    }
+
+    const handle = container.querySelector('.hot-fill-handle');
+    expect(handle).toBeTruthy();
+    expect(handle.style.display).toBe('block');
+    expect(handle.style.left).toBe('200px');
+    expect(handle.style.top).toBe('28px');
+    expect(handle.style.zIndex).toBe('12');
+    expect(handle.dataset.pinnedSelection).toBe('1');
+  });
+
+  test('fill handle uses pinned-top viewport clipping for pinned first row without center viewport ancestor', async () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agPinnedFillHandleViewportFallbackHot';
+    document.body.appendChild(container);
+
+    container.getBoundingClientRect = () => ({
+      left: 0,
+      top: 0,
+      right: 500,
+      bottom: 300,
+      width: 500,
+      height: 300
+    });
+
+    const hot = createTable(
+      container,
+      { rows: 4, cols: 3 },
+      () => {},
+      {
+        debugLabel: 'ag-pinned-fill-handle-viewport-fallback',
+        data: Shared.createEmptyData(4, 3),
+        pinFirstRow: true
+      }
+    );
+
+    const bodyViewport = document.createElement('div');
+    bodyViewport.className = 'ag-body-viewport';
+    bodyViewport.getBoundingClientRect = () => ({
+      left: 0,
+      top: 60,
+      right: 500,
+      bottom: 300,
+      width: 500,
+      height: 240
+    });
+    const bodyCenterViewport = document.createElement('div');
+    bodyCenterViewport.className = 'ag-center-cols-viewport';
+    bodyCenterViewport.getBoundingClientRect = bodyViewport.getBoundingClientRect;
+    const ghostRow = document.createElement('div');
+    ghostRow.className = 'ag-row';
+    ghostRow.setAttribute('row-index', '0');
+    const ghostCell = document.createElement('div');
+    ghostCell.className = 'ag-cell';
+    ghostCell.setAttribute('col-id', 'c1');
+    ghostCell.getBoundingClientRect = () => ({
+      left: 100,
+      top: 80,
+      right: 200,
+      bottom: 108,
+      width: 100,
+      height: 28
+    });
+    ghostRow.appendChild(ghostCell);
+    bodyCenterViewport.appendChild(ghostRow);
+    bodyViewport.appendChild(bodyCenterViewport);
+    container.appendChild(bodyViewport);
+
+    const floatingTop = document.createElement('div');
+    floatingTop.className = 'ag-floating-top';
+    floatingTop.getBoundingClientRect = () => ({
+      left: 0,
+      top: 0,
+      right: 500,
+      bottom: 30,
+      width: 500,
+      height: 30
+    });
+    const floatingRow = document.createElement('div');
+    floatingRow.className = 'ag-row';
+    const floatingCell = document.createElement('div');
+    floatingCell.className = 'ag-cell';
+    floatingCell.setAttribute('col-id', 'c1');
+    floatingCell.getBoundingClientRect = () => ({
+      left: 100,
+      top: 0,
+      right: 200,
+      bottom: 28,
+      width: 100,
+      height: 28
+    });
+    floatingRow.appendChild(floatingCell);
+    floatingTop.appendChild(floatingRow);
+    container.appendChild(floatingTop);
+
+    hot.selectCell(0, 1, 0, 1);
+
+    if(typeof global.window.requestAnimationFrame === 'function'){
+      await new Promise(resolve => global.window.requestAnimationFrame(resolve));
+    }else{
+      await new Promise(resolve => setTimeout(resolve, 20));
+    }
+
+    const handle = container.querySelector('.hot-fill-handle');
+    expect(handle).toBeTruthy();
+    expect(handle.style.display).toBe('block');
+    expect(handle.style.left).toBe('200px');
+    expect(handle.style.top).toBe('28px');
+  });
+
+  test('drag handle drag moves a column without affecting selection', async () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agHeaderDragHandleMoveHot';
+    document.body.appendChild(container);
+
+    const hot = createTable(
+      container,
+      { rows: 3, cols: 3 },
+      () => {},
+      {
+        debugLabel: 'ag-header-drag-handle-move',
+        data: Shared.createEmptyData(3, 3)
+      }
+    );
+
+    const moveColumnSpy = jest.fn();
+    const moveColumnsSpy = jest.fn();
+    hot.columnApi = {
+      getAllDisplayedColumns: () => [
+        { getColId: () => 'c0' },
+        { getColId: () => 'c1' },
+        { getColId: () => 'c2' }
+      ],
+      moveColumns: moveColumnsSpy,
+      moveColumn: moveColumnSpy
+    };
+
+    hot.selectCell(0, 0);
+
+    const header0 = document.createElement('div');
+    header0.className = 'ag-header-cell';
+    header0.setAttribute('col-id', 'c0');
+    const handle = document.createElement('span');
+    handle.className = 'hot-col-drag-handle';
+    header0.appendChild(handle);
+    container.appendChild(header0);
+
+    const header2 = document.createElement('div');
+    header2.className = 'ag-header-cell';
+    header2.setAttribute('col-id', 'c2');
+    container.appendChild(header2);
+
+    const mouseDown = new global.window.MouseEvent('mousedown', {
+      bubbles: true,
+      cancelable: true,
+      button: 0
+    });
+    handle.dispatchEvent(mouseDown);
+
+    const mouseMove = new global.window.MouseEvent('mousemove', { bubbles: true, cancelable: true, buttons: 1 });
+    header2.dispatchEvent(mouseMove);
+
+    if(typeof global.window.requestAnimationFrame === 'function'){
+      await new Promise(resolve => global.window.requestAnimationFrame(resolve));
+    }else{
+      await new Promise(resolve => setTimeout(resolve, 20));
+    }
+
+    const mouseUp = new global.window.MouseEvent('mouseup', { bubbles: true, cancelable: true, button: 0 });
+    global.window.dispatchEvent(mouseUp);
+
+    expect(moveColumnsSpy).toHaveBeenCalled();
+    expect(hot.getSelectedLast()).toEqual([0, 0, 0, 0]);
+  });
+
+  test('fill handle stays above selection outline for non-pinned selection', async () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agFillHandleZIndexBodyHot';
+    document.body.appendChild(container);
+
+    container.getBoundingClientRect = () => ({
+      left: 0,
+      top: 0,
+      right: 500,
+      bottom: 300,
+      width: 500,
+      height: 300
+    });
+
+    const hot = createTable(
+      container,
+      { rows: 4, cols: 3 },
+      () => {},
+      {
+        debugLabel: 'ag-fill-handle-zindex-body',
+        data: Shared.createEmptyData(4, 3),
+        pinFirstRow: true
+      }
+    );
+
+    const bodyViewport = document.createElement('div');
+    bodyViewport.className = 'ag-body-viewport';
+    bodyViewport.getBoundingClientRect = () => ({
+      left: 0,
+      top: 30,
+      right: 500,
+      bottom: 300,
+      width: 500,
+      height: 270
+    });
+    const row = document.createElement('div');
+    row.className = 'ag-row';
+    row.setAttribute('row-index', '0');
+    const cell = document.createElement('div');
+    cell.className = 'ag-cell';
+    cell.setAttribute('col-id', 'c1');
+    cell.getBoundingClientRect = () => ({
+      left: 100,
+      top: 58,
+      right: 200,
+      bottom: 86,
+      width: 100,
+      height: 28
+    });
+    row.appendChild(cell);
+    bodyViewport.appendChild(row);
+    container.appendChild(bodyViewport);
+
+    hot.selectCell(1, 1, 1, 1);
+
+    if(typeof global.window.requestAnimationFrame === 'function'){
+      await new Promise(resolve => global.window.requestAnimationFrame(resolve));
+    }else{
+      await new Promise(resolve => setTimeout(resolve, 20));
+    }
+
+    const handle = container.querySelector('.hot-fill-handle');
+    expect(handle).toBeTruthy();
+    expect(handle.style.display).toBe('block');
+    const outline = container.querySelector('.hot-selection-outline');
+    expect(outline).toBeTruthy();
+    expect(Number(handle.style.zIndex)).toBeGreaterThan(Number(outline.style.zIndex));
+    expect(handle.dataset.pinnedSelection).toBeUndefined();
+  });
+
+  test('fill handle hides when selected body cell is clipped into header level', async () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agFillHandleHiddenAtHeaderLevelHot';
+    document.body.appendChild(container);
+
+    container.getBoundingClientRect = () => ({
+      left: 0,
+      top: 0,
+      right: 500,
+      bottom: 300,
+      width: 500,
+      height: 300
+    });
+
+    const hot = createTable(
+      container,
+      { rows: 8, cols: 3 },
+      () => {},
+      {
+        debugLabel: 'ag-fill-handle-hidden-header-level',
+        data: Shared.createEmptyData(8, 3),
+        pinFirstRow: true
+      }
+    );
+
+    const bodyViewport = document.createElement('div');
+    bodyViewport.className = 'ag-body-viewport';
+    bodyViewport.getBoundingClientRect = () => ({
+      left: 0,
+      top: 60,
+      right: 500,
+      bottom: 300,
+      width: 500,
+      height: 240
+    });
+    const row = document.createElement('div');
+    row.className = 'ag-row';
+    row.setAttribute('row-index', '2');
+    const cell = document.createElement('div');
+    cell.className = 'ag-cell';
+    cell.setAttribute('col-id', 'c1');
+    cell.getBoundingClientRect = () => ({
+      left: 100,
+      top: 34,
+      right: 200,
+      bottom: 63,
+      width: 100,
+      height: 29
+    });
+    row.appendChild(cell);
+    bodyViewport.appendChild(row);
+    container.appendChild(bodyViewport);
+
+    const header = document.createElement('div');
+    header.className = 'ag-header';
+    header.getBoundingClientRect = () => ({
+      left: 0,
+      top: 32,
+      right: 500,
+      bottom: 60,
+      width: 500,
+      height: 28
+    });
+    container.appendChild(header);
+
+    const floatingTop = document.createElement('div');
+    floatingTop.className = 'ag-floating-top';
+    floatingTop.getBoundingClientRect = () => ({
+      left: 0,
+      top: 32,
+      right: 500,
+      bottom: 60,
+      width: 500,
+      height: 28
+    });
+    container.appendChild(floatingTop);
+
+    hot.selectCell(2, 1, 2, 1);
+
+    if(typeof global.window.requestAnimationFrame === 'function'){
+      await new Promise(resolve => global.window.requestAnimationFrame(resolve));
+    }else{
+      await new Promise(resolve => setTimeout(resolve, 20));
+    }
+
+    const handle = container.querySelector('.hot-fill-handle');
+    expect(handle).toBeTruthy();
+    expect(handle.style.display).toBe('none');
+  });
+
+  test('selection outline does not spill into row headers when center columns in range are hidden behind pinned first column', async () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agSelectionOutlinePinnedLeftHiddenCenterHot';
+    document.body.appendChild(container);
+
+    container.getBoundingClientRect = () => ({
+      left: 0,
+      top: 0,
+      right: 500,
+      bottom: 320,
+      width: 500,
+      height: 320
+    });
+
+    const hot = createTable(
+      container,
+      { rows: 12, cols: 4 },
+      () => {},
+      {
+        debugLabel: 'ag-selection-outline-pinned-left-hidden-center',
+        data: Shared.createEmptyData(12, 4),
+        pinFirstColumn: true
+      }
+    );
+
+    const bodyViewport = document.createElement('div');
+    bodyViewport.className = 'ag-body-viewport';
+    bodyViewport.getBoundingClientRect = () => ({
+      left: 0,
+      top: 60,
+      right: 500,
+      bottom: 320,
+      width: 500,
+      height: 260
+    });
+    container.appendChild(bodyViewport);
+
+    const pinnedLeftViewport = document.createElement('div');
+    pinnedLeftViewport.className = 'ag-pinned-left-cols-viewport';
+    pinnedLeftViewport.getBoundingClientRect = () => ({
+      left: 0,
+      top: 60,
+      right: 156,
+      bottom: 320,
+      width: 156,
+      height: 260
+    });
+    bodyViewport.appendChild(pinnedLeftViewport);
+
+    const centerViewport = document.createElement('div');
+    centerViewport.className = 'ag-center-cols-viewport';
+    // Deliberately starts at x=0 to simulate center cells geometrically present
+    // under pinned-left overlay while being visually hidden.
+    centerViewport.getBoundingClientRect = () => ({
+      left: 0,
+      top: 60,
+      right: 500,
+      bottom: 320,
+      width: 500,
+      height: 260
+    });
+    bodyViewport.appendChild(centerViewport);
+
+    const makeCellRect = (left, top) => ({
+      left,
+      top,
+      right: left + 100,
+      bottom: top + 28,
+      width: 100,
+      height: 28
+    });
+
+    for(let rowIndex = 2; rowIndex <= 4; rowIndex += 1){
+      const rowTop = 60 + (rowIndex * 28);
+
+      const pinnedRow = document.createElement('div');
+      pinnedRow.className = 'ag-row';
+      pinnedRow.setAttribute('row-index', String(rowIndex));
+
+      const rowHeaderCell = document.createElement('div');
+      rowHeaderCell.className = 'ag-cell';
+      rowHeaderCell.setAttribute('col-id', '__rowHeader');
+      rowHeaderCell.getBoundingClientRect = () => ({
+        left: 0,
+        top: rowTop,
+        right: 56,
+        bottom: rowTop + 28,
+        width: 56,
+        height: 28
+      });
+      pinnedRow.appendChild(rowHeaderCell);
+
+      const colA = document.createElement('div');
+      colA.className = 'ag-cell hot-selected-cell';
+      colA.setAttribute('col-id', 'c0');
+      colA.setAttribute('row-index', String(rowIndex));
+      colA.getBoundingClientRect = () => makeCellRect(56, rowTop);
+      pinnedRow.appendChild(colA);
+      pinnedLeftViewport.appendChild(pinnedRow);
+
+      const centerRow = document.createElement('div');
+      centerRow.className = 'ag-row';
+      centerRow.setAttribute('row-index', String(rowIndex));
+
+      const hiddenCenterCell = document.createElement('div');
+      hiddenCenterCell.className = 'ag-cell hot-selected-cell';
+      hiddenCenterCell.setAttribute('col-id', 'c1');
+      hiddenCenterCell.setAttribute('row-index', String(rowIndex));
+      hiddenCenterCell.getBoundingClientRect = () => makeCellRect(20, rowTop);
+      centerRow.appendChild(hiddenCenterCell);
+
+      centerViewport.appendChild(centerRow);
+    }
+
+    hot.selectCell(2, 0, 4, 1);
+
+    if(typeof global.window.requestAnimationFrame === 'function'){
+      await new Promise(resolve => global.window.requestAnimationFrame(resolve));
+    }else{
+      await new Promise(resolve => setTimeout(resolve, 20));
+    }
+
+    const outline = container.querySelector('.hot-selection-outline');
+    expect(outline).toBeTruthy();
+    expect(outline.style.display).toBe('block');
+    expect(outline.style.left).toBe('56px');
+    expect(outline.style.borderRightColor).toBe('transparent');
+  });
+
+  test('selection outline does not spill into column headers when body rows in range are hidden behind pinned first row', async () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agSelectionOutlinePinnedTopHiddenBodyHot';
+    document.body.appendChild(container);
+
+    container.getBoundingClientRect = () => ({
+      left: 0,
+      top: 0,
+      right: 500,
+      bottom: 320,
+      width: 500,
+      height: 320
+    });
+
+    const hot = createTable(
+      container,
+      { rows: 12, cols: 4 },
+      () => {},
+      {
+        debugLabel: 'ag-selection-outline-pinned-top-hidden-body',
+        data: Shared.createEmptyData(12, 4),
+        pinFirstRow: true
+      }
+    );
+
+    const bodyViewport = document.createElement('div');
+    bodyViewport.className = 'ag-body-viewport';
+    bodyViewport.getBoundingClientRect = () => ({
+      left: 0,
+      top: 32,
+      right: 500,
+      bottom: 320,
+      width: 500,
+      height: 288
+    });
+    container.appendChild(bodyViewport);
+
+    const centerViewport = document.createElement('div');
+    centerViewport.className = 'ag-center-cols-viewport';
+    centerViewport.getBoundingClientRect = () => ({
+      left: 0,
+      top: 32,
+      right: 500,
+      bottom: 320,
+      width: 500,
+      height: 288
+    });
+    bodyViewport.appendChild(centerViewport);
+
+    const floatingTop = document.createElement('div');
+    floatingTop.className = 'ag-floating-top';
+    const floatingCenterViewport = document.createElement('div');
+    floatingCenterViewport.className = 'ag-floating-top-viewport';
+    floatingCenterViewport.getBoundingClientRect = () => ({
+      left: 0,
+      top: 32,
+      right: 500,
+      bottom: 60,
+      width: 500,
+      height: 28
+    });
+    const pinnedRow = document.createElement('div');
+    pinnedRow.className = 'ag-row';
+    pinnedRow.setAttribute('row-index', 't-0');
+    const pinnedCell1 = document.createElement('div');
+    pinnedCell1.className = 'ag-cell hot-selected-cell';
+    pinnedCell1.setAttribute('col-id', 'c1');
+    pinnedCell1.setAttribute('row-index', 't-0');
+    pinnedCell1.getBoundingClientRect = () => ({
+      left: 100,
+      top: 32,
+      right: 200,
+      bottom: 60,
+      width: 100,
+      height: 28
+    });
+    const pinnedCell2 = document.createElement('div');
+    pinnedCell2.className = 'ag-cell hot-selected-cell';
+    pinnedCell2.setAttribute('col-id', 'c2');
+    pinnedCell2.setAttribute('row-index', 't-0');
+    pinnedCell2.getBoundingClientRect = () => ({
+      left: 200,
+      top: 32,
+      right: 300,
+      bottom: 60,
+      width: 100,
+      height: 28
+    });
+    pinnedRow.appendChild(pinnedCell1);
+    pinnedRow.appendChild(pinnedCell2);
+    floatingCenterViewport.appendChild(pinnedRow);
+    floatingTop.appendChild(floatingCenterViewport);
+    container.appendChild(floatingTop);
+
+    // Simulate the body row selected in the range but fully hidden beneath the pinned row area.
+    const hiddenBodyRow = document.createElement('div');
+    hiddenBodyRow.className = 'ag-row';
+    hiddenBodyRow.setAttribute('row-index', '1');
+    const hiddenBodyCell1 = document.createElement('div');
+    hiddenBodyCell1.className = 'ag-cell hot-selected-cell';
+    hiddenBodyCell1.setAttribute('col-id', 'c1');
+    hiddenBodyCell1.setAttribute('row-index', '1');
+    hiddenBodyCell1.getBoundingClientRect = () => ({
+      left: 100,
+      top: 18,
+      right: 200,
+      bottom: 30,
+      width: 100,
+      height: 12
+    });
+    const hiddenBodyCell2 = document.createElement('div');
+    hiddenBodyCell2.className = 'ag-cell hot-selected-cell';
+    hiddenBodyCell2.setAttribute('col-id', 'c2');
+    hiddenBodyCell2.setAttribute('row-index', '1');
+    hiddenBodyCell2.getBoundingClientRect = () => ({
+      left: 200,
+      top: 18,
+      right: 300,
+      bottom: 30,
+      width: 100,
+      height: 12
+    });
+    hiddenBodyRow.appendChild(hiddenBodyCell1);
+    hiddenBodyRow.appendChild(hiddenBodyCell2);
+    centerViewport.appendChild(hiddenBodyRow);
+
+    hot.selectCell(0, 1, 1, 2);
+
+    if(typeof global.window.requestAnimationFrame === 'function'){
+      await new Promise(resolve => global.window.requestAnimationFrame(resolve));
+    }else{
+      await new Promise(resolve => setTimeout(resolve, 20));
+    }
+
+    const outline = container.querySelector('.hot-selection-outline');
+    expect(outline).toBeTruthy();
+    expect(outline.style.display).toBe('block');
+    expect(outline.style.top).toBe('32px');
+    expect(outline.style.borderTopColor).not.toBe('transparent');
+  });
+
+  test('selection outline right edge scrolls under the vertical scrollbar when a pinned top row is selected', async () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agSelectionOutlinePinnedTopHorizontalClipHot';
+    document.body.appendChild(container);
+
+    container.getBoundingClientRect = () => ({
+      left: 0,
+      top: 0,
+      right: 420,
+      bottom: 320,
+      width: 420,
+      height: 320
+    });
+
+    const hot = createTable(
+      container,
+      { rows: 8, cols: 4 },
+      () => {},
+      {
+        debugLabel: 'ag-selection-outline-pinned-top-horizontal-clip',
+        data: Shared.createEmptyData(8, 4),
+        pinFirstRow: true
+      }
+    );
+
+    const floatingTop = document.createElement('div');
+    floatingTop.className = 'ag-floating-top';
+    const floatingViewport = document.createElement('div');
+    floatingViewport.className = 'ag-floating-top-viewport';
+    floatingViewport.getBoundingClientRect = () => ({
+      left: 0,
+      top: 32,
+      right: 420,
+      bottom: 60,
+      width: 420,
+      height: 28
+    });
+    let horizontalOffset = 0;
+    const pinnedRow = document.createElement('div');
+    pinnedRow.className = 'ag-row';
+    pinnedRow.setAttribute('row-index', 't-0');
+    const pinnedStartCell = document.createElement('div');
+    pinnedStartCell.className = 'ag-cell hot-selected-cell';
+    pinnedStartCell.setAttribute('col-id', 'c1');
+    pinnedStartCell.setAttribute('row-index', 't-0');
+    pinnedStartCell.getBoundingClientRect = () => ({
+      left: 240 + horizontalOffset,
+      top: 32,
+      right: 340 + horizontalOffset,
+      bottom: 60,
+      width: 100,
+      height: 28
+    });
+    const pinnedClippedCell = document.createElement('div');
+    pinnedClippedCell.className = 'ag-cell hot-selected-cell';
+    pinnedClippedCell.setAttribute('col-id', 'c2');
+    pinnedClippedCell.setAttribute('row-index', 't-0');
+    pinnedClippedCell.getBoundingClientRect = () => ({
+      left: 340 + horizontalOffset,
+      top: 32,
+      right: 440 + horizontalOffset,
+      bottom: 60,
+      width: 100,
+      height: 28
+    });
+    pinnedRow.appendChild(pinnedStartCell);
+    pinnedRow.appendChild(pinnedClippedCell);
+    floatingViewport.appendChild(pinnedRow);
+    floatingTop.appendChild(floatingViewport);
+    container.appendChild(floatingTop);
+
+    const bodyViewport = document.createElement('div');
+    bodyViewport.className = 'ag-body-viewport';
+    bodyViewport.getBoundingClientRect = () => ({
+      left: 0,
+      top: 60,
+      right: 420,
+      bottom: 320,
+      width: 420,
+      height: 260
+    });
+    const centerViewport = document.createElement('div');
+    centerViewport.className = 'ag-center-cols-viewport';
+    centerViewport.getBoundingClientRect = bodyViewport.getBoundingClientRect;
+    const bodyRow = document.createElement('div');
+    bodyRow.className = 'ag-row';
+    bodyRow.setAttribute('row-index', '3');
+    const bodyStartCell = document.createElement('div');
+    bodyStartCell.className = 'ag-cell hot-selected-cell';
+    bodyStartCell.setAttribute('col-id', 'c1');
+    bodyStartCell.setAttribute('row-index', '3');
+    bodyStartCell.getBoundingClientRect = () => ({
+      left: 240 + horizontalOffset,
+      top: 116,
+      right: 340 + horizontalOffset,
+      bottom: 144,
+      width: 100,
+      height: 28
+    });
+    const bodyClippedCell = document.createElement('div');
+    bodyClippedCell.className = 'ag-cell hot-selected-cell';
+    bodyClippedCell.setAttribute('col-id', 'c2');
+    bodyClippedCell.setAttribute('row-index', '3');
+    bodyClippedCell.getBoundingClientRect = () => ({
+      left: 340 + horizontalOffset,
+      top: 116,
+      right: 440 + horizontalOffset,
+      bottom: 144,
+      width: 100,
+      height: 28
+    });
+    bodyRow.appendChild(bodyStartCell);
+    bodyRow.appendChild(bodyClippedCell);
+    centerViewport.appendChild(bodyRow);
+    bodyViewport.appendChild(centerViewport);
+    container.appendChild(bodyViewport);
+
+    const verticalScrollbar = document.createElement('div');
+    verticalScrollbar.className = 'ag-body-vertical-scroll';
+    verticalScrollbar.getBoundingClientRect = () => ({
+      left: 400,
+      top: 60,
+      right: 420,
+      bottom: 320,
+      width: 20,
+      height: 260
+    });
+    container.appendChild(verticalScrollbar);
+
+    const readOutlineRight = outline => (
+      Number.parseFloat(outline.style.left || '0')
+      + Number.parseFloat(outline.style.width || '0')
+    );
+
+    hot.selectCell(0, 1, 3, 2);
+    await waitForNextFrame();
+
+    const outline = container.querySelector('.hot-selection-outline');
+    expect(outline).toBeTruthy();
+    expect(outline.style.display).toBe('block');
+    expect(outline.style.borderRightColor).toBe('transparent');
+    expect(outline.querySelector('.hot-selection-outline-edge[data-edge="right"]').style.display).toBe('none');
+    expect(readOutlineRight(outline)).toBeLessThanOrEqual(400);
+
+    horizontalOffset = -30;
+    hot.selectCell(0, 1, 3, 2);
+    await waitForNextFrame();
+
+    expect(outline.querySelector('.hot-selection-outline-edge[data-edge="right"]').style.display).toBe('none');
+    expect(readOutlineRight(outline)).toBeLessThanOrEqual(400);
+
+    horizontalOffset = -50;
+    hot.selectCell(0, 1, 3, 2);
+    await waitForNextFrame();
+
+    expect(outline.querySelector('.hot-selection-outline-edge[data-edge="right"]').style.display).toBe('block');
+    expect(readOutlineRight(outline)).toBeLessThan(400);
+  });
+
+  test('first body row selection keeps top border visible below pinned first row', async () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agSelectionOutlineFirstBodyBelowPinnedTopHot';
+    document.body.appendChild(container);
+
+    container.getBoundingClientRect = () => ({
+      left: 0,
+      top: 0,
+      right: 500,
+      bottom: 320,
+      width: 500,
+      height: 320
+    });
+
+    const hot = createTable(
+      container,
+      { rows: 8, cols: 4 },
+      () => {},
+      {
+        debugLabel: 'ag-selection-outline-first-body-below-pinned-top',
+        data: Shared.createEmptyData(8, 4),
+        pinFirstRow: true
+      }
+    );
+
+    const bodyViewport = document.createElement('div');
+    bodyViewport.className = 'ag-body-viewport';
+    bodyViewport.getBoundingClientRect = () => ({
+      left: 0,
+      top: 60,
+      right: 500,
+      bottom: 320,
+      width: 500,
+      height: 260
+    });
+    container.appendChild(bodyViewport);
+
+    const centerViewport = document.createElement('div');
+    centerViewport.className = 'ag-center-cols-viewport';
+    centerViewport.getBoundingClientRect = () => ({
+      left: 0,
+      top: 60,
+      right: 500,
+      bottom: 320,
+      width: 500,
+      height: 260
+    });
+    bodyViewport.appendChild(centerViewport);
+
+    const floatingTop = document.createElement('div');
+    floatingTop.className = 'ag-floating-top';
+    floatingTop.getBoundingClientRect = () => ({
+      left: 0,
+      top: 32,
+      right: 500,
+      bottom: 60,
+      width: 500,
+      height: 28
+    });
+    const floatingCenterViewport = document.createElement('div');
+    floatingCenterViewport.className = 'ag-floating-top-viewport';
+    floatingCenterViewport.getBoundingClientRect = () => ({
+      left: 0,
+      top: 32,
+      right: 500,
+      bottom: 60,
+      width: 500,
+      height: 28
+    });
+    floatingTop.appendChild(floatingCenterViewport);
+    container.appendChild(floatingTop);
+
+    const bodyRow = document.createElement('div');
+    bodyRow.className = 'ag-row';
+    bodyRow.setAttribute('row-index', '0');
+    const bodyCell = document.createElement('div');
+    bodyCell.className = 'ag-cell hot-selected-cell';
+    bodyCell.setAttribute('col-id', 'c1');
+    bodyCell.setAttribute('row-index', '0');
+    bodyCell.getBoundingClientRect = () => ({
+      left: 100,
+      top: 60,
+      right: 200,
+      bottom: 88,
+      width: 100,
+      height: 28
+    });
+    bodyRow.appendChild(bodyCell);
+    centerViewport.appendChild(bodyRow);
+
+    hot.selectCell(1, 1, 1, 1);
+
+    if(typeof global.window.requestAnimationFrame === 'function'){
+      await new Promise(resolve => global.window.requestAnimationFrame(resolve));
+    }else{
+      await new Promise(resolve => setTimeout(resolve, 20));
+    }
+
+    const outline = container.querySelector('.hot-selection-outline');
+    expect(outline).toBeTruthy();
+    expect(outline.style.display).toBe('block');
+    expect(outline.style.top).toBe('60px');
+    expect(outline.style.borderTopColor).not.toBe('transparent');
+  });
+
+  test('topmost pinned-first-column selected cell keeps visible top and side borders despite 1px seam clipping', async () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agSelectionOutlineTopPinnedFirstColumnSeamHot';
+    document.body.appendChild(container);
+
+    container.getBoundingClientRect = () => ({
+      left: 0,
+      top: 0,
+      right: 500,
+      bottom: 320,
+      width: 500,
+      height: 320
+    });
+
+    const hot = createTable(
+      container,
+      { rows: 12, cols: 4 },
+      () => {},
+      {
+        debugLabel: 'ag-selection-outline-top-pinned-first-column-seam',
+        data: Shared.createEmptyData(12, 4),
+        pinFirstColumn: true
+      }
+    );
+
+    const bodyViewport = document.createElement('div');
+    bodyViewport.className = 'ag-body-viewport';
+    bodyViewport.getBoundingClientRect = () => ({
+      left: 0,
+      top: 61, // 1px lower than selected top-row cell top
+      right: 500,
+      bottom: 320,
+      width: 500,
+      height: 259
+    });
+    container.appendChild(bodyViewport);
+
+    const pinnedLeftViewport = document.createElement('div');
+    pinnedLeftViewport.className = 'ag-pinned-left-cols-viewport';
+    pinnedLeftViewport.getBoundingClientRect = () => ({
+      left: 0,
+      top: 61,
+      right: 156,
+      bottom: 320,
+      width: 156,
+      height: 259
+    });
+    bodyViewport.appendChild(pinnedLeftViewport);
+
+    const row = document.createElement('div');
+    row.className = 'ag-row';
+    row.setAttribute('row-index', '0');
+
+    const rowHeaderCell = document.createElement('div');
+    rowHeaderCell.className = 'ag-cell';
+    rowHeaderCell.setAttribute('col-id', '__rowHeader');
+    rowHeaderCell.getBoundingClientRect = () => ({
+      left: 0,
+      top: 60,
+      right: 56,
+      bottom: 88,
+      width: 56,
+      height: 28
+    });
+    row.appendChild(rowHeaderCell);
+
+    const cell = document.createElement('div');
+    cell.className = 'ag-cell hot-selected-cell';
+    cell.setAttribute('col-id', 'c0');
+    cell.setAttribute('row-index', '0');
+    cell.getBoundingClientRect = () => ({
+      left: 56,
+      top: 60,
+      right: 156,
+      bottom: 88,
+      width: 100,
+      height: 28
+    });
+    row.appendChild(cell);
+    pinnedLeftViewport.appendChild(row);
+
+    hot.selectCell(0, 0, 0, 0);
+
+    if(typeof global.window.requestAnimationFrame === 'function'){
+      await new Promise(resolve => global.window.requestAnimationFrame(resolve));
+    }else{
+      await new Promise(resolve => setTimeout(resolve, 20));
+    }
+
+    const outline = container.querySelector('.hot-selection-outline');
+    expect(outline).toBeTruthy();
+    expect(outline.style.display).toBe('block');
+    expect(outline.style.borderTopColor).not.toBe('transparent');
+    expect(outline.style.borderLeftColor).not.toBe('transparent');
+    expect(outline.style.borderRightColor).not.toBe('transparent');
+  });
+
+  test('topmost pinned-first-column selected cell keeps borders even when selected-cell class is not present yet', async () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agSelectionOutlineTopPinnedFirstColumnNoSelectedClassHot';
+    document.body.appendChild(container);
+
+    container.getBoundingClientRect = () => ({
+      left: 0,
+      top: 0,
+      right: 500,
+      bottom: 320,
+      width: 500,
+      height: 320
+    });
+
+    const hot = createTable(
+      container,
+      { rows: 12, cols: 4 },
+      () => {},
+      {
+        debugLabel: 'ag-selection-outline-top-pinned-first-column-no-selected-class',
+        data: Shared.createEmptyData(12, 4),
+        pinFirstColumn: true
+      }
+    );
+
+    const bodyViewport = document.createElement('div');
+    bodyViewport.className = 'ag-body-viewport';
+    bodyViewport.getBoundingClientRect = () => ({
+      left: 0,
+      top: 60,
+      right: 500,
+      bottom: 320,
+      width: 500,
+      height: 260
+    });
+    container.appendChild(bodyViewport);
+
+    const pinnedLeftViewport = document.createElement('div');
+    pinnedLeftViewport.className = 'ag-pinned-left-cols-viewport';
+    pinnedLeftViewport.getBoundingClientRect = () => ({
+      left: 0,
+      top: 60,
+      right: 156,
+      bottom: 320,
+      width: 156,
+      height: 260
+    });
+    bodyViewport.appendChild(pinnedLeftViewport);
+
+    const row = document.createElement('div');
+    row.className = 'ag-row';
+    row.setAttribute('row-index', '0');
+
+    const rowHeaderCell = document.createElement('div');
+    rowHeaderCell.className = 'ag-cell';
+    rowHeaderCell.setAttribute('col-id', '__rowHeader');
+    rowHeaderCell.getBoundingClientRect = () => ({
+      left: 0,
+      top: 60,
+      right: 56,
+      bottom: 88,
+      width: 56,
+      height: 28
+    });
+    row.appendChild(rowHeaderCell);
+
+    const cell = document.createElement('div');
+    cell.className = 'ag-cell';
+    cell.setAttribute('col-id', 'c0');
+    cell.setAttribute('row-index', '0');
+    cell.getBoundingClientRect = () => ({
+      left: 56,
+      top: 60,
+      right: 156,
+      bottom: 88,
+      width: 100,
+      height: 28
+    });
+    row.appendChild(cell);
+    pinnedLeftViewport.appendChild(row);
+
+    hot.selectCell(0, 0, 0, 0);
+
+    if(typeof global.window.requestAnimationFrame === 'function'){
+      await new Promise(resolve => global.window.requestAnimationFrame(resolve));
+    }else{
+      await new Promise(resolve => setTimeout(resolve, 20));
+    }
+
+    const outline = container.querySelector('.hot-selection-outline');
+    expect(outline).toBeTruthy();
+    expect(outline.style.display).toBe('block');
+    expect(outline.style.borderTopColor).not.toBe('transparent');
+    expect(outline.style.borderLeftColor).not.toBe('transparent');
+    expect(outline.style.borderRightColor).not.toBe('transparent');
+  });
+
+  test('drag handle drag moves a selected column group together', async () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agHeaderDragHandleGroupMoveHot';
+    document.body.appendChild(container);
+
+    const hot = createTable(
+      container,
+      { rows: 3, cols: 4 },
+      () => {},
+      {
+        debugLabel: 'ag-header-drag-handle-group-move',
+        data: Shared.createEmptyData(3, 4)
+      }
+    );
+
+    const lastRow = hot.countRows() - 1;
+    hot.selectCell(0, 1, lastRow, 2); // selects columns 1..2 (full height)
+
+    const moveColumnsSpy = jest.fn();
+    hot.columnApi = {
+      getAllDisplayedColumns: () => [
+        { getColId: () => 'c0' },
+        { getColId: () => 'c1' },
+        { getColId: () => 'c2' },
+        { getColId: () => 'c3' }
+      ],
+      moveColumns: moveColumnsSpy
+    };
+
+    const header1 = document.createElement('div');
+    header1.className = 'ag-header-cell';
+    header1.setAttribute('col-id', 'c1');
+    const handle = document.createElement('span');
+    handle.className = 'hot-col-drag-handle';
+    header1.appendChild(handle);
+    container.appendChild(header1);
+
+    const header3 = document.createElement('div');
+    header3.className = 'ag-header-cell';
+    header3.setAttribute('col-id', 'c3');
+    header3.getBoundingClientRect = () => ({ left: 0, width: 100, top: 0, height: 20, right: 100, bottom: 20 });
+    container.appendChild(header3);
+
+    const mouseDown = new global.window.MouseEvent('mousedown', {
+      bubbles: true,
+      cancelable: true,
+      button: 0
+    });
+    handle.dispatchEvent(mouseDown);
+
+    const originalElementFromPoint = document.elementFromPoint;
+    document.elementFromPoint = () => header3;
+
+    const mouseMove = new global.window.MouseEvent('mousemove', {
+      bubbles: true,
+      cancelable: true,
+      buttons: 1,
+      clientX: 80,
+      clientY: 10
+    });
+    header3.dispatchEvent(mouseMove);
+
+    if(typeof global.window.requestAnimationFrame === 'function'){
+      await new Promise(resolve => global.window.requestAnimationFrame(resolve));
+    }else{
+      await new Promise(resolve => setTimeout(resolve, 20));
+    }
+
+    const mouseUp = new global.window.MouseEvent('mouseup', { bubbles: true, cancelable: true, button: 0 });
+    global.window.dispatchEvent(mouseUp);
+    document.elementFromPoint = originalElementFromPoint;
+
+    expect(moveColumnsSpy).toHaveBeenCalled();
+    expect(moveColumnsSpy.mock.calls[0][0]).toEqual(['c1', 'c2']);
+  });
+
+  test('column groups expose one reorder handle on each group anchor', () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agHeaderDragHandleGroupedVisibilityHot';
+    document.body.appendChild(container);
+
+    const hot = createTable(
+      container,
+      { rows: 3, cols: 5 },
+      () => {},
+      {
+        debugLabel: 'ag-header-drag-handle-grouped-visibility',
+        data: Shared.createEmptyData(3, 5)
+      }
+    );
+
+    hot.updateSettings({
+      columnGroups: [
+        { startCol: 1, span: 2 },
+        { startCol: 3, span: 2 }
+      ]
+    });
+
+    const instantiateHeader = colId => {
+      const colDef = capturedGridOptions?.columnDefs?.find(col => col.colId === colId);
+      expect(colDef?.headerComponent).toBeTruthy();
+      const headerComponent = new colDef.headerComponent();
+      headerComponent.init({
+        api: {
+          addEventListener: jest.fn(),
+          removeEventListener: jest.fn()
+        },
+        column: {
+          getColId: () => colId,
+          getSort: () => '',
+          getColDef: () => ({ headerName: colId })
+        },
+        displayName: colId
+      });
+      return headerComponent.getGui();
+    };
+
+    const firstAnchorGui = instantiateHeader('c1');
+    const firstFollowerGui = instantiateHeader('c2');
+    const secondAnchorGui = instantiateHeader('c3');
+    const secondFollowerGui = instantiateHeader('c4');
+    const outsideGui = instantiateHeader('c0');
+    const firstAnchorHandle = firstAnchorGui.querySelector('.hot-col-drag-handle');
+    const firstFollowerHandle = firstFollowerGui.querySelector('.hot-col-drag-handle');
+    const secondAnchorHandle = secondAnchorGui.querySelector('.hot-col-drag-handle');
+    const secondFollowerHandle = secondFollowerGui.querySelector('.hot-col-drag-handle');
+    const outsideHandle = outsideGui.querySelector('.hot-col-drag-handle');
+
+    for(const [gui, handle] of [
+      [firstAnchorGui, firstAnchorHandle],
+      [secondAnchorGui, secondAnchorHandle]
+    ]){
+      expect(handle).toBeTruthy();
+      expect(handle.classList.contains('hot-col-drag-handle--hidden')).toBe(false);
+      expect(handle.classList.contains('hot-col-drag-handle--group-anchor')).toBe(true);
+      expect(handle.getAttribute('aria-hidden')).toBeNull();
+      expect(handle.getAttribute('aria-label')).toBe('Drag to reorder column group');
+      expect(gui.classList.contains('hot-ag-header--group-anchor')).toBe(true);
+    }
+
+    for(const handle of [firstFollowerHandle, secondFollowerHandle]){
+      expect(handle).toBeTruthy();
+      expect(handle.classList.contains('hot-col-drag-handle--hidden')).toBe(true);
+      expect(handle.getAttribute('aria-hidden')).toBe('true');
+    }
+
+    expect(outsideHandle).toBeTruthy();
+    expect(outsideHandle.classList.contains('hot-col-drag-handle--hidden')).toBe(false);
+    expect(outsideHandle.getAttribute('aria-hidden')).toBeNull();
+    expect(outsideHandle.getAttribute('aria-label')).toBe('Drag to reorder columns');
+  });
+
+  test('drag handle drag moves a configured column group without preselecting it', async () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agHeaderDragHandleConfiguredGroupMoveHot';
+    document.body.appendChild(container);
+
+    const hot = createTable(
+      container,
+      { rows: 3, cols: 5 },
+      () => {},
+      {
+        debugLabel: 'ag-header-drag-handle-configured-group-move',
+        data: Shared.createEmptyData(3, 5)
+      }
+    );
+
+    hot.updateSettings({
+      columnGroups: [{ startCol: 1, span: 3 }]
+    });
+
+    const moveColumnsSpy = jest.fn();
+    hot.columnApi = {
+      getAllDisplayedColumns: () => [
+        { getColId: () => 'c0' },
+        { getColId: () => 'c1' },
+        { getColId: () => 'c2' },
+        { getColId: () => 'c3' },
+        { getColId: () => 'c4' }
+      ],
+      moveColumns: moveColumnsSpy
+    };
+
+    const header1 = document.createElement('div');
+    header1.className = 'ag-header-cell';
+    header1.setAttribute('col-id', 'c1');
+    const handle = document.createElement('span');
+    handle.className = 'hot-col-drag-handle';
+    header1.appendChild(handle);
+    container.appendChild(header1);
+
+    const header4 = document.createElement('div');
+    header4.className = 'ag-header-cell';
+    header4.setAttribute('col-id', 'c4');
+    header4.getBoundingClientRect = () => ({ left: 0, width: 100, top: 0, height: 20, right: 100, bottom: 20 });
+    container.appendChild(header4);
+
+    const originalElementFromPoint = document.elementFromPoint;
+    document.elementFromPoint = () => header4;
+
+    handle.dispatchEvent(new global.window.MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0 }));
+    header4.dispatchEvent(new global.window.MouseEvent('mousemove', {
+      bubbles: true,
+      cancelable: true,
+      buttons: 1,
+      clientX: 80,
+      clientY: 10
+    }));
+
+    if(typeof global.window.requestAnimationFrame === 'function'){
+      await new Promise(resolve => global.window.requestAnimationFrame(resolve));
+    }else{
+      await new Promise(resolve => setTimeout(resolve, 20));
+    }
+
+    global.window.dispatchEvent(new global.window.MouseEvent('mouseup', { bubbles: true, cancelable: true, button: 0 }));
+    document.elementFromPoint = originalElementFromPoint;
+
+    expect(moveColumnsSpy).toHaveBeenCalled();
+    expect(moveColumnsSpy.mock.calls[0][0]).toEqual(['c1', 'c2', 'c3']);
+  });
+
+  test('drag handle group moves snap before another column group instead of inside it', async () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agHeaderDragHandleGroupBoundaryBeforeHot';
+    document.body.appendChild(container);
+
+    const hot = createTable(
+      container,
+      { rows: 3, cols: 7 },
+      () => {},
+      {
+        debugLabel: 'ag-header-drag-handle-group-boundary-before',
+        data: Shared.createEmptyData(3, 7)
+      }
+    );
+
+    hot.updateSettings({
+      columnGroups: [
+        { startCol: 1, span: 2 },
+        { startCol: 4, span: 3 }
+      ]
+    });
+
+    const moveColumnsSpy = jest.fn();
+    hot.columnApi = {
+      getAllDisplayedColumns: () => [
+        { getColId: () => 'c0' },
+        { getColId: () => 'c1' },
+        { getColId: () => 'c2' },
+        { getColId: () => 'c3' },
+        { getColId: () => 'c4' },
+        { getColId: () => 'c5' },
+        { getColId: () => 'c6' }
+      ],
+      moveColumns: moveColumnsSpy
+    };
+
+    const header1 = document.createElement('div');
+    header1.className = 'ag-header-cell';
+    header1.setAttribute('col-id', 'c1');
+    const handle = document.createElement('span');
+    handle.className = 'hot-col-drag-handle';
+    header1.appendChild(handle);
+    container.appendChild(header1);
+
+    const header5 = document.createElement('div');
+    header5.className = 'ag-header-cell';
+    header5.setAttribute('col-id', 'c5');
+    header5.getBoundingClientRect = () => ({ left: 100, width: 100, top: 0, height: 20, right: 200, bottom: 20 });
+    container.appendChild(header5);
+
+    const originalElementFromPoint = document.elementFromPoint;
+    document.elementFromPoint = () => header5;
+
+    handle.dispatchEvent(new global.window.MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0 }));
+    header5.dispatchEvent(new global.window.MouseEvent('mousemove', {
+      bubbles: true,
+      cancelable: true,
+      buttons: 1,
+      clientX: 125,
+      clientY: 10
+    }));
+
+    if(typeof global.window.requestAnimationFrame === 'function'){
+      await new Promise(resolve => global.window.requestAnimationFrame(resolve));
+    }else{
+      await new Promise(resolve => setTimeout(resolve, 20));
+    }
+
+    global.window.dispatchEvent(new global.window.MouseEvent('mouseup', { bubbles: true, cancelable: true, button: 0 }));
+    document.elementFromPoint = originalElementFromPoint;
+
+    expect(moveColumnsSpy).toHaveBeenCalled();
+    expect(moveColumnsSpy.mock.calls[0][0]).toEqual(['c1', 'c2']);
+    expect(moveColumnsSpy.mock.calls[0][1]).toBe(2);
+  });
+
+  test('drag handle group moves snap after another column group instead of inside it', async () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agHeaderDragHandleGroupBoundaryAfterHot';
+    document.body.appendChild(container);
+
+    const hot = createTable(
+      container,
+      { rows: 3, cols: 7 },
+      () => {},
+      {
+        debugLabel: 'ag-header-drag-handle-group-boundary-after',
+        data: Shared.createEmptyData(3, 7)
+      }
+    );
+
+    hot.updateSettings({
+      columnGroups: [
+        { startCol: 1, span: 2 },
+        { startCol: 4, span: 3 }
+      ]
+    });
+
+    const moveColumnsSpy = jest.fn();
+    hot.columnApi = {
+      getAllDisplayedColumns: () => [
+        { getColId: () => 'c0' },
+        { getColId: () => 'c1' },
+        { getColId: () => 'c2' },
+        { getColId: () => 'c3' },
+        { getColId: () => 'c4' },
+        { getColId: () => 'c5' },
+        { getColId: () => 'c6' }
+      ],
+      moveColumns: moveColumnsSpy
+    };
+
+    const header1 = document.createElement('div');
+    header1.className = 'ag-header-cell';
+    header1.setAttribute('col-id', 'c1');
+    const handle = document.createElement('span');
+    handle.className = 'hot-col-drag-handle';
+    header1.appendChild(handle);
+    container.appendChild(header1);
+
+    const header5 = document.createElement('div');
+    header5.className = 'ag-header-cell';
+    header5.setAttribute('col-id', 'c5');
+    header5.getBoundingClientRect = () => ({ left: 100, width: 100, top: 0, height: 20, right: 200, bottom: 20 });
+    container.appendChild(header5);
+
+    const originalElementFromPoint = document.elementFromPoint;
+    document.elementFromPoint = () => header5;
+
+    handle.dispatchEvent(new global.window.MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0 }));
+    header5.dispatchEvent(new global.window.MouseEvent('mousemove', {
+      bubbles: true,
+      cancelable: true,
+      buttons: 1,
+      clientX: 175,
+      clientY: 10
+    }));
+
+    if(typeof global.window.requestAnimationFrame === 'function'){
+      await new Promise(resolve => global.window.requestAnimationFrame(resolve));
+    }else{
+      await new Promise(resolve => setTimeout(resolve, 20));
+    }
+
+    global.window.dispatchEvent(new global.window.MouseEvent('mouseup', { bubbles: true, cancelable: true, button: 0 }));
+    document.elementFromPoint = originalElementFromPoint;
+
+    expect(moveColumnsSpy).toHaveBeenCalled();
+    expect(moveColumnsSpy.mock.calls[0][0]).toEqual(['c1', 'c2']);
+    expect(moveColumnsSpy.mock.calls[0][1]).toBe(5);
+  });
+
+  test('drag handle commits new column order into underlying data', async () => {
+    const container = document.createElement('div');
+    container.id = 'agHeaderDragHandleCommitHot';
+    document.body.appendChild(container);
+
+    // Track displayed order for the mocked columnApi (createStandardTable enforces MIN_INPUT_COLS).
+    let displayed = Array.from({ length: 12 }, (_, idx) => `c${idx}`);
+
+    // Override grid creation to provide an api we can mutate for this test.
+    const originalAgGrid = global.window.agGrid;
+    global.window.agGrid = {
+      createGrid: (_container, gridOptions) => {
+        const api = {
+          refreshCells: jest.fn(),
+          setRowData: jest.fn(),
+          setColumnDefs: jest.fn(() => {
+            // Simulate AG Grid resetting order when defs are reapplied.
+            displayed = Array.from({ length: 12 }, (_, idx) => `c${idx}`);
+          }),
+          destroy: jest.fn(),
+          getFocusedCell: jest.fn(() => null)
+        };
+        gridOptions?.onGridReady?.({ api, columnApi: {} });
+        return api;
+      }
+    };
+
+    const hot = createTable(
+      container,
+      { rows: 2, cols: 3 },
+      () => {},
+      {
+        debugLabel: 'ag-header-drag-handle-commit',
+        data: [
+          ['A0', 'B0', 'C0'],
+          ['A1', 'B1', 'C1']
+        ]
+      }
+    );
+
+    // Mock columnApi so handle-drag moves update the displayed order.
+    hot.columnApi = {
+      getAllDisplayedColumns: () => displayed.map(id => ({ getColId: () => id })),
+      moveColumns: (ids, toIndex) => {
+        const list = Array.isArray(ids) ? ids : [ids];
+        const remaining = displayed.filter(id => !list.includes(id));
+        const idx = Math.max(0, Math.min(Number(toIndex) || 0, remaining.length));
+        displayed = remaining.slice(0, idx).concat(list).concat(remaining.slice(idx));
+      }
+    };
+
+    // Build minimal header nodes for hit-testing.
+    const header0 = document.createElement('div');
+    header0.className = 'ag-header-cell';
+    header0.setAttribute('col-id', 'c0');
+    const handle = document.createElement('span');
+    handle.className = 'hot-col-drag-handle';
+    header0.appendChild(handle);
+    container.appendChild(header0);
+
+    const header2 = document.createElement('div');
+    header2.className = 'ag-header-cell';
+    header2.setAttribute('col-id', 'c2');
+    header2.getBoundingClientRect = () => ({ left: 0, width: 100, top: 0, height: 20, right: 100, bottom: 20 });
+    container.appendChild(header2);
+
+    const originalElementFromPoint = document.elementFromPoint;
+    document.elementFromPoint = () => header2;
+
+    handle.dispatchEvent(new global.window.MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0 }));
+    header2.dispatchEvent(new global.window.MouseEvent('mousemove', { bubbles: true, cancelable: true, buttons: 1, clientX: 80, clientY: 10 }));
+
+    if(typeof global.window.requestAnimationFrame === 'function'){
+      await new Promise(resolve => global.window.requestAnimationFrame(resolve));
+    }else{
+      await new Promise(resolve => setTimeout(resolve, 20));
+    }
+
+    global.window.dispatchEvent(new global.window.MouseEvent('mouseup', { bubbles: true, cancelable: true, button: 0 }));
+    document.elementFromPoint = originalElementFromPoint;
+
+    // After commit, underlying data should match the new visual order and be stable.
+    // We dragged c0 to the right over c2 (after), so expected order is [c1, c2, c0].
+    expect(hot.getDataAtCell(0, 0)).toBe('B0');
+    expect(hot.getDataAtCell(0, 1)).toBe('C0');
+    expect(hot.getDataAtCell(0, 2)).toBe('A0');
+
+    global.window.agGrid = originalAgGrid;
+  });
+
+  test('programmatic column order commits through the same data reorder path', () => {
+    const container = document.createElement('div');
+    container.id = 'agProgrammaticColumnOrderHot';
+    document.body.appendChild(container);
+    const moveEvents = [];
+    const hot = createTable(
+      container,
+      { rows: 2, cols: 3 },
+      () => {},
+      {
+        debugLabel: 'ag-programmatic-column-order',
+        data: [
+          ['A0', 'B0', 'C0'],
+          ['A1', 'B1', 'C1']
+        ],
+        hotOptions: {
+          afterColumnMove: (...args) => moveEvents.push(args)
+        }
+      }
+    );
+    let displayed = Array.from({ length: hot.countCols() }, (_, index) => `c${index}`);
+    hot.columnApi = {
+      getAllDisplayedColumns: () => displayed.map(colId => ({ getColId: () => colId })),
+      applyColumnState: ({ state, applyOrder }) => {
+        if(applyOrder){
+          displayed = state.map(entry => entry.colId);
+        }
+        return true;
+      }
+    };
+    const permutation = Array.from({ length: hot.countCols() }, (_, index) => index);
+    permutation.splice(0, 3, 1, 2, 0);
+    global.window.Shared.undoManager.clear();
+    const lifecycle = [];
+    expect(hot.applyColumnOrder(permutation, {
+      reason: 'box-graph-dataset-reorder',
+      onApplied: order => lifecycle.push(['apply', order.slice(0, 3)]),
+      onUndo: order => lifecycle.push(['undo', order.slice(0, 3)]),
+      onRedo: order => lifecycle.push(['redo', order.slice(0, 3)])
+    })).toBe(true);
+    expect(hot.getDataAtCell(0, 0)).toBe('B0');
+    expect(hot.getDataAtCell(0, 1)).toBe('C0');
+    expect(hot.getDataAtCell(0, 2)).toBe('A0');
+    expect(lifecycle).toEqual([['apply', [1, 2, 0]]]);
+    expect(moveEvents).toHaveLength(1);
+    expect(moveEvents[0][4]).toBe(true);
+    expect(moveEvents[0][5].slice(0, 3)).toEqual([1, 2, 0]);
+    expect(moveEvents[0][6]).toBe('box-graph-dataset-reorder');
+  });
+
+  test('column reorder commit records undo/redo steps', async () => {
+    const Shared = global.window.Shared;
+    const undoManager = Shared.undoManager;
+    const container = document.createElement('div');
+    container.id = 'agHeaderDragHandleUndoHot';
+    document.body.appendChild(container);
+
+    let displayed = Array.from({ length: 12 }, (_, idx) => `c${idx}`);
+
+    const originalAgGrid = global.window.agGrid;
+    global.window.agGrid = {
+      createGrid: (_container, gridOptions) => {
+        const api = {
+          refreshCells: jest.fn(),
+          setRowData: jest.fn(),
+          setColumnDefs: jest.fn(() => {
+            displayed = Array.from({ length: 12 }, (_, idx) => `c${idx}`);
+          }),
+          destroy: jest.fn(),
+          getFocusedCell: jest.fn(() => null)
+        };
+        capturedApi = api;
+        capturedGridOptions = gridOptions;
+        gridOptions?.onGridReady?.({ api, columnApi: {} });
+        return api;
+      }
+    };
+
+    const hot = createTable(
+      container,
+      { rows: 2, cols: 3 },
+      () => {},
+      {
+        debugLabel: 'ag-header-drag-handle-undo',
+        data: [
+          ['A0', 'B0', 'C0'],
+          ['A1', 'B1', 'C1']
+        ]
+      }
+    );
+
+    hot.columnApi = {
+      getAllDisplayedColumns: () => displayed.map(id => ({ getColId: () => id })),
+      moveColumns: (ids, toIndex) => {
+        const list = Array.isArray(ids) ? ids : [ids];
+        const remaining = displayed.filter(id => !list.includes(id));
+        const idx = Math.max(0, Math.min(Number(toIndex) || 0, remaining.length));
+        displayed = remaining.slice(0, idx).concat(list).concat(remaining.slice(idx));
+      }
+    };
+
+    const header0 = document.createElement('div');
+    header0.className = 'ag-header-cell';
+    header0.setAttribute('col-id', 'c0');
+    const handle = document.createElement('span');
+    handle.className = 'hot-col-drag-handle';
+    header0.appendChild(handle);
+    container.appendChild(header0);
+
+    const header2 = document.createElement('div');
+    header2.className = 'ag-header-cell';
+    header2.setAttribute('col-id', 'c2');
+    header2.getBoundingClientRect = () => ({ left: 0, width: 100, top: 0, height: 20, right: 100, bottom: 20 });
+    container.appendChild(header2);
+
+    const originalElementFromPoint = document.elementFromPoint;
+    document.elementFromPoint = () => header2;
+
+    handle.dispatchEvent(new global.window.MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0 }));
+    header2.dispatchEvent(new global.window.MouseEvent('mousemove', { bubbles: true, cancelable: true, buttons: 1, clientX: 80, clientY: 10 }));
+
+    if(typeof global.window.requestAnimationFrame === 'function'){
+      await new Promise(resolve => global.window.requestAnimationFrame(resolve));
+    }else{
+      await new Promise(resolve => setTimeout(resolve, 20));
+    }
+
+    global.window.dispatchEvent(new global.window.MouseEvent('mouseup', { bubbles: true, cancelable: true, button: 0 }));
+    document.elementFromPoint = originalElementFromPoint;
+
+    expect(hot.getDataAtCell(0, 0)).toBe('B0');
+
+    expect(typeof undoManager?.undo).toBe('function');
+    expect(typeof undoManager?.redo).toBe('function');
+
+    undoManager.undo();
+    expect(hot.getDataAtCell(0, 0)).toBe('A0');
+
+    undoManager.redo();
+    expect(hot.getDataAtCell(0, 0)).toBe('B0');
+
+    global.window.agGrid = originalAgGrid;
+  });
+
+  test('undo flushes pending deferred column reorder commits before popping the stack', async () => {
+    const Shared = global.window.Shared;
+    const undoManager = Shared.undoManager;
+    const container = document.createElement('div');
+    container.id = 'agHeaderDragHandleUndoRaceHot';
+    document.body.appendChild(container);
+
+    let displayed = Array.from({ length: 12 }, (_, idx) => `c${idx}`);
+
+    const originalAgGrid = global.window.agGrid;
+    global.window.agGrid = {
+      createGrid: (_container, gridOptions) => {
+        const api = {
+          refreshCells: jest.fn(),
+          setRowData: jest.fn(),
+          setColumnDefs: jest.fn(() => {
+            displayed = Array.from({ length: 12 }, (_, idx) => `c${idx}`);
+          }),
+          destroy: jest.fn(),
+          getFocusedCell: jest.fn(() => null)
+        };
+        capturedApi = api;
+        capturedGridOptions = gridOptions;
+        gridOptions?.onGridReady?.({ api, columnApi: {} });
+        return api;
+      }
+    };
+
+    const hot = createTable(
+      container,
+      { rows: 4, cols: 3 },
+      () => {},
+      {
+        debugLabel: 'ag-header-drag-handle-undo-race',
+        data: [
+          ['Control', 'Treatment A', 'Treatment B'],
+          [12, 15, 14],
+          [14.3, 17, 15.3],
+          [11, 14.6, 13]
+        ]
+      }
+    );
+
+    hot.columnApi = {
+      getAllDisplayedColumns: () => displayed.map(id => ({ getColId: () => id })),
+      moveColumns: (ids, toIndex) => {
+        const list = Array.isArray(ids) ? ids : [ids];
+        const remaining = displayed.filter(id => !list.includes(id));
+        const idx = Math.max(0, Math.min(Number(toIndex) || 0, remaining.length));
+        displayed = remaining.slice(0, idx).concat(list).concat(remaining.slice(idx));
+      }
+    };
+
+    const header0 = document.createElement('div');
+    header0.className = 'ag-header-cell';
+    header0.setAttribute('col-id', 'c0');
+    const handle = document.createElement('span');
+    handle.className = 'hot-col-drag-handle';
+    header0.appendChild(handle);
+    container.appendChild(header0);
+
+    const header1 = document.createElement('div');
+    header1.className = 'ag-header-cell';
+    header1.setAttribute('col-id', 'c1');
+    header1.getBoundingClientRect = () => ({ left: 0, width: 100, top: 0, height: 20, right: 100, bottom: 20 });
+    container.appendChild(header1);
+
+    const originalElementFromPoint = document.elementFromPoint;
+    document.elementFromPoint = () => header1;
+
+    handle.dispatchEvent(new global.window.MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0 }));
+    header1.dispatchEvent(new global.window.MouseEvent('mousemove', { bubbles: true, cancelable: true, buttons: 1, clientX: 80, clientY: 10 }));
+
+    if(typeof global.window.requestAnimationFrame === 'function'){
+      await new Promise(resolve => global.window.requestAnimationFrame(resolve));
+    }else{
+      await new Promise(resolve => setTimeout(resolve, 20));
+    }
+
+    global.window.dispatchEvent(new global.window.MouseEvent('mouseup', { bubbles: true, cancelable: true, button: 0 }));
+    document.elementFromPoint = originalElementFromPoint;
+
+    expect(hot.getDataAtCell(0, 0)).toBe('Treatment A');
+    expect(undoManager.undo()).toBe(true);
+    expect(hot.getDataAtCell(0, 0)).toBe('Control');
+    expect(hot.getDataAtCell(0, 1)).toBe('Treatment A');
+    expect(hot.getDataAtCell(0, 2)).toBe('Treatment B');
+
+    global.window.agGrid = originalAgGrid;
+  });
+
+  test('grid undo interleaves with non-grid shared undo entries in strict reverse order', () => {
+    const Shared = global.window.Shared;
+    const undoManager = Shared.undoManager;
+    const container = document.createElement('div');
+    container.id = 'agUndoInterleaveHot';
+    document.body.appendChild(container);
+
+    const hot = createTable(
+      container,
+      { rows: 3, cols: 2 },
+      () => {},
+      {
+        debugLabel: 'ag-undo-interleave',
+        data: [
+          ['Header A', 'Header B'],
+          ['A1', 'B1'],
+          ['A2', 'B2']
+        ]
+      }
+    );
+
+    let graphMode = 'initial';
+
+    hot.setDataAtCell(1, 0, 'A1-edit', 'edit:first');
+    graphMode = 'changed';
+    undoManager.record({
+      label: 'graph:mode-change',
+      undo: () => {
+        graphMode = 'initial';
+        return true;
+      },
+      redo: () => {
+        graphMode = 'changed';
+        return true;
+      }
+    });
+    hot.setDataAtCell(1, 1, 'B1-edit', 'edit:second');
+
+    expect(hot.undo()).toBe(true);
+    expect(hot.getDataAtCell(1, 1)).toBe('B1');
+    expect(graphMode).toBe('changed');
+    expect(hot.getDataAtCell(1, 0)).toBe('A1-edit');
+
+    expect(hot.undo()).toBe(true);
+    expect(graphMode).toBe('initial');
+    expect(hot.getDataAtCell(1, 0)).toBe('A1-edit');
+
+    expect(hot.undo()).toBe(true);
+    expect(hot.getDataAtCell(1, 0)).toBe('A1');
+
+    expect(hot.redo()).toBe(true);
+    expect(hot.getDataAtCell(1, 0)).toBe('A1-edit');
+
+    expect(hot.redo()).toBe(true);
+    expect(graphMode).toBe('changed');
+
+    expect(hot.redo()).toBe(true);
+    expect(hot.getDataAtCell(1, 1)).toBe('B1-edit');
+  });
+
+  test('grid keyboard undo flushes pending column reorder transactions through the shared undo stack', async () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agHeaderDragHandleKeyboardUndoHot';
+    document.body.appendChild(container);
+
+    let displayed = Array.from({ length: 12 }, (_, idx) => `c${idx}`);
+
+    const originalAgGrid = global.window.agGrid;
+    global.window.agGrid = {
+      createGrid: (_container, gridOptions) => {
+        const api = {
+          refreshCells: jest.fn(),
+          setRowData: jest.fn(),
+          setColumnDefs: jest.fn(() => {
+            displayed = Array.from({ length: 12 }, (_, idx) => `c${idx}`);
+          }),
+          destroy: jest.fn(),
+          getFocusedCell: jest.fn(() => null)
+        };
+        capturedApi = api;
+        capturedGridOptions = gridOptions;
+        gridOptions?.onGridReady?.({ api, columnApi: {} });
+        return api;
+      }
+    };
+
+    const hot = createTable(
+      container,
+      { rows: 4, cols: 3 },
+      () => {},
+      {
+        debugLabel: 'ag-header-drag-handle-keyboard-undo',
+        data: [
+          ['Control', 'Treatment A', 'Treatment B'],
+          [12, 15, 14],
+          [14.3, 17, 15.3],
+          [11, 14.6, 13]
+        ]
+      }
+    );
+
+    hot.columnApi = {
+      getAllDisplayedColumns: () => displayed.map(id => ({ getColId: () => id })),
+      moveColumns: (ids, toIndex) => {
+        const list = Array.isArray(ids) ? ids : [ids];
+        const remaining = displayed.filter(id => !list.includes(id));
+        const idx = Math.max(0, Math.min(Number(toIndex) || 0, remaining.length));
+        displayed = remaining.slice(0, idx).concat(list).concat(remaining.slice(idx));
+      }
+    };
+
+    const header0 = document.createElement('div');
+    header0.className = 'ag-header-cell';
+    header0.setAttribute('col-id', 'c0');
+    const handle = document.createElement('span');
+    handle.className = 'hot-col-drag-handle';
+    header0.appendChild(handle);
+    container.appendChild(header0);
+
+    const header1 = document.createElement('div');
+    header1.className = 'ag-header-cell';
+    header1.setAttribute('col-id', 'c1');
+    header1.getBoundingClientRect = () => ({ left: 0, width: 100, top: 0, height: 20, right: 100, bottom: 20 });
+    container.appendChild(header1);
+
+    const originalElementFromPoint = document.elementFromPoint;
+    document.elementFromPoint = () => header1;
+
+    handle.dispatchEvent(new global.window.MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0 }));
+    header1.dispatchEvent(new global.window.MouseEvent('mousemove', { bubbles: true, cancelable: true, buttons: 1, clientX: 80, clientY: 10 }));
+
+    if(typeof global.window.requestAnimationFrame === 'function'){
+      await new Promise(resolve => global.window.requestAnimationFrame(resolve));
+    }else{
+      await new Promise(resolve => setTimeout(resolve, 20));
+    }
+
+    global.window.dispatchEvent(new global.window.MouseEvent('mouseup', { bubbles: true, cancelable: true, button: 0 }));
+    document.elementFromPoint = originalElementFromPoint;
+
+    expect(hot.getDataAtCell(0, 0)).toBe('Treatment A');
+    expect(Shared.undoManager.performCommand('undo', { target: container })).toBe(true);
+    expect(hot.getDataAtCell(0, 0)).toBe('Control');
+    expect(hot.getDataAtCell(0, 1)).toBe('Treatment A');
+    expect(hot.getDataAtCell(0, 2)).toBe('Treatment B');
+
+    global.window.agGrid = originalAgGrid;
+  });
+
+  test('column handle drag commits reorder on window blur if mouseup is missed', async () => {
+    const Shared = global.window.Shared;
+    const undoManager = Shared.undoManager;
+    const container = document.createElement('div');
+    container.id = 'agHeaderDragHandleBlurCommitHot';
+    document.body.appendChild(container);
+
+    let displayed = Array.from({ length: 12 }, (_, idx) => `c${idx}`);
+
+    const originalAgGrid = global.window.agGrid;
+    global.window.agGrid = {
+      createGrid: (_container, gridOptions) => {
+        const api = {
+          refreshCells: jest.fn(),
+          setRowData: jest.fn(),
+          setColumnDefs: jest.fn(() => {
+            displayed = Array.from({ length: 12 }, (_, idx) => `c${idx}`);
+          }),
+          destroy: jest.fn(),
+          getFocusedCell: jest.fn(() => null)
+        };
+        capturedApi = api;
+        capturedGridOptions = gridOptions;
+        gridOptions?.onGridReady?.({ api, columnApi: {} });
+        return api;
+      }
+    };
+
+    const hot = createTable(
+      container,
+      { rows: 2, cols: 3 },
+      () => {},
+      {
+        debugLabel: 'ag-header-drag-handle-blur-commit',
+        data: [
+          ['A0', 'B0', 'C0'],
+          ['A1', 'B1', 'C1']
+        ]
+      }
+    );
+
+    hot.columnApi = {
+      getAllDisplayedColumns: () => displayed.map(id => ({ getColId: () => id })),
+      moveColumns: (ids, toIndex) => {
+        const list = Array.isArray(ids) ? ids : [ids];
+        const remaining = displayed.filter(id => !list.includes(id));
+        const idx = Math.max(0, Math.min(Number(toIndex) || 0, remaining.length));
+        displayed = remaining.slice(0, idx).concat(list).concat(remaining.slice(idx));
+      }
+    };
+
+    const header0 = document.createElement('div');
+    header0.className = 'ag-header-cell';
+    header0.setAttribute('col-id', 'c0');
+    const handle = document.createElement('span');
+    handle.className = 'hot-col-drag-handle';
+    header0.appendChild(handle);
+    container.appendChild(header0);
+
+    const header2 = document.createElement('div');
+    header2.className = 'ag-header-cell';
+    header2.setAttribute('col-id', 'c2');
+    header2.getBoundingClientRect = () => ({ left: 0, width: 100, top: 0, height: 20, right: 100, bottom: 20 });
+    container.appendChild(header2);
+
+    const originalElementFromPoint = document.elementFromPoint;
+    document.elementFromPoint = () => header2;
+
+    handle.dispatchEvent(new global.window.MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0 }));
+    header2.dispatchEvent(new global.window.MouseEvent('mousemove', { bubbles: true, cancelable: true, buttons: 1, clientX: 80, clientY: 10 }));
+
+    if(typeof global.window.requestAnimationFrame === 'function'){
+      await new Promise(resolve => global.window.requestAnimationFrame(resolve));
+    }else{
+      await new Promise(resolve => setTimeout(resolve, 20));
+    }
+
+    // Mouseup can be missed if the pointer leaves the window while dragging.
+    // Blurring the window must still finalize and commit the reorder.
+    global.window.dispatchEvent(new global.window.Event('blur'));
+    document.elementFromPoint = originalElementFromPoint;
+
+    expect(hot.getDataAtCell(0, 0)).toBe('B0');
+    expect(undoManager.undo()).toBe(true);
+    expect(hot.getDataAtCell(0, 0)).toBe('A0');
+
+    global.window.agGrid = originalAgGrid;
+  });
+
+  test('native AG onColumnMoved commit records undo even without moved-column metadata', () => {
+    const Shared = global.window.Shared;
+    const undoManager = Shared.undoManager;
+    const container = document.createElement('div');
+    container.id = 'agNativeColumnMoveUndoHot';
+    document.body.appendChild(container);
+
+    const hot = createTable(
+      container,
+      { rows: 2, cols: 3 },
+      () => {},
+      {
+        debugLabel: 'ag-native-column-move-undo',
+        data: [
+          ['A0', 'B0', 'C0'],
+          ['A1', 'B1', 'C1']
+        ]
+      }
+    );
+    undoManager.clear();
+
+    const totalCols = hot.countCols();
+    let displayed = Array.from({ length: totalCols }, (_, idx) => `c${idx}`);
+    const moveDisplayed = (ids, toIndex) => {
+      const list = Array.isArray(ids) ? ids : [ids];
+      const remaining = displayed.filter(id => !list.includes(id));
+      const idx = Math.max(0, Math.min(Number(toIndex) || 0, remaining.length));
+      displayed = remaining.slice(0, idx).concat(list).concat(remaining.slice(idx));
+    };
+
+    hot.columnApi = {
+      getAllDisplayedColumns: () => displayed.map(id => ({ getColId: () => id })),
+      moveColumns: moveDisplayed
+    };
+    hot.gridApi.columnApi = hot.columnApi;
+    hot.gridApi.setColumnDefs = jest.fn(() => {
+      displayed = Array.from({ length: totalCols }, (_, idx) => `c${idx}`);
+    });
+
+    // Simulate AG Grid native drag result: display order changed first, then
+    // onColumnMoved fires with missing params.columns / params.column metadata.
+    moveDisplayed(['c0'], 2);
+    capturedGridOptions.onColumnMoved({
+      api: hot.gridApi,
+      columnApi: hot.columnApi,
+      source: 'uiColumnMoved',
+      finished: true
+    });
+
+    expect(hot.getDataAtCell(0, 0)).toBe('B0');
+    expect(hot.getDataAtCell(0, 1)).toBe('C0');
+    expect(hot.getDataAtCell(0, 2)).toBe('A0');
+
+    const undoResult = undoUntil(undoManager, () => (
+      hot.getDataAtCell(0, 0) === 'A0'
+      && hot.getDataAtCell(0, 1) === 'B0'
+      && hot.getDataAtCell(0, 2) === 'C0'
+    ));
+    expect(undoResult.reached).toBe(true);
+
+    const redoResult = redoUntil(undoManager, () => (
+      hot.getDataAtCell(0, 0) === 'B0'
+      && hot.getDataAtCell(0, 1) === 'C0'
+      && hot.getDataAtCell(0, 2) === 'A0'
+    ));
+    expect(redoResult.reached).toBe(true);
+  });
+
+  test('native AG onColumnMoved commit falls back to columnState ordering when displayed-columns API is unavailable', () => {
+    const Shared = global.window.Shared;
+    const undoManager = Shared.undoManager;
+    const container = document.createElement('div');
+    container.id = 'agNativeColumnMoveColumnStateFallbackHot';
+    document.body.appendChild(container);
+
+    const hot = createTable(
+      container,
+      { rows: 2, cols: 3 },
+      () => {},
+      {
+        debugLabel: 'ag-native-column-move-column-state-fallback',
+        data: [
+          ['A0', 'B0', 'C0'],
+          ['A1', 'B1', 'C1']
+        ]
+      }
+    );
+
+    const movedColumnState = [
+      { colId: '__rowHeader' },
+      { colId: 'c1' },
+      { colId: 'c2' },
+      { colId: 'c3' },
+      { colId: 'c4' },
+      { colId: 'c5' },
+      { colId: 'c6' },
+      { colId: 'c7' },
+      { colId: 'c8' },
+      { colId: 'c9' },
+      { colId: 'c10' },
+      { colId: 'c11' },
+      { colId: 'c0' }
+    ];
+    const identityColumnState = [
+      { colId: '__rowHeader' },
+      ...Array.from({ length: 12 }, (_, idx) => ({ colId: `c${idx}` }))
+    ];
+    let columnState = movedColumnState.slice();
+    hot.columnApi = {
+      getColumnState: () => columnState
+    };
+    hot.gridApi.columnApi = hot.columnApi;
+    hot.gridApi.setColumnDefs = jest.fn(() => {
+      columnState = identityColumnState.slice();
+    });
+
+    capturedGridOptions.onColumnMoved({
+      api: hot.gridApi,
+      columnApi: hot.columnApi,
+      source: 'uiColumnMoved',
+      finished: true
+    });
+
+    expect(hot.getDataAtCell(0, 0)).toBe('B0');
+    expect(hot.getDataAtCell(0, 1)).toBe('C0');
+    expect(hot.getDataAtCell(0, 11)).toBe('A0');
+
+    const undoResult = undoUntil(undoManager, () => (
+      hot.getDataAtCell(0, 0) === 'A0'
+      && hot.getDataAtCell(0, 1) === 'B0'
+      && hot.getDataAtCell(0, 2) === 'C0'
+    ));
+    expect(undoResult.reached).toBe(true);
+  });
+
+  test('column header context menu supports insert/delete for selected columns', () => {
+    const Shared = global.window.Shared;
+    const undoManager = Shared.undoManager;
+    const container = document.createElement('div');
+    container.id = 'agHeaderContextMenuColsHot';
+    document.body.appendChild(container);
+
+    const hot = createTable(
+      container,
+      { rows: 2, cols: 4 },
+      () => {},
+      {
+        debugLabel: 'ag-header-contextmenu-cols',
+        data: [
+          ['A0', 'B0', 'C0', 'D0'],
+          ['A1', 'B1', 'C1', 'D1']
+        ]
+      }
+    );
+
+    const lastRow = hot.countRows() - 1;
+    hot.selectCell(0, 1, lastRow, 2); // full-height selection for columns 1..2
+
+    const header = document.createElement('div');
+    header.className = 'ag-header-cell';
+    header.setAttribute('col-id', 'c1');
+    container.appendChild(header);
+
+    const evt = new global.window.MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 10, clientY: 10 });
+    header.dispatchEvent(evt);
+
+    const menu = document.querySelector('.ag-hot-menu');
+    expect(menu).toBeTruthy();
+    const labels = Array.from(menu.querySelectorAll('div')).map(node => node.textContent).filter(Boolean);
+    expect(labels).toContain('Insert 2 column(s) before');
+    expect(labels).toContain('Insert 2 column(s) after');
+    expect(labels).toContain('Delete 2 column(s)');
+    expect(labels).toContain('Copy columns');
+    expect(labels).toContain('Cut columns');
+    expect(labels).toContain('Paste into columns');
+    expect(labels).not.toContain('Include columns in analysis');
+
+    const deleteEntry = Array.from(menu.querySelectorAll('div')).find(node => node.textContent === 'Delete 2 column(s)');
+    expect(deleteEntry).toBeTruthy();
+    deleteEntry.dispatchEvent(new global.window.MouseEvent('click', { bubbles: true }));
+
+    // After deleting cols 1..2, col1 should now contain former col3 (D0).
+    expect(hot.getDataAtCell(0, 1)).toBe('D0');
+
+    const undoResult = undoUntil(undoManager, () => hot.getDataAtCell(0, 1) === 'B0');
+    expect(undoResult.reached).toBe(true);
+
+    const redoResult = redoUntil(undoManager, () => hot.getDataAtCell(0, 1) === 'D0');
+    expect(redoResult.reached).toBe(true);
+  });
+
+  test('row header context menu insert row supports undo/redo', () => {
+    const Shared = global.window.Shared;
+    const undoManager = Shared.undoManager;
+    const container = document.createElement('div');
+    container.id = 'agRowHeaderContextMenuUndoHot';
+    document.body.appendChild(container);
+
+    const hot = createTable(
+      container,
+      { rows: 2, cols: 2 },
+      () => {},
+      {
+        debugLabel: 'ag-row-header-contextmenu-undo',
+        data: [
+          ['A0', 'B0'],
+          ['A1', 'B1']
+        ]
+      }
+    );
+
+    const evt = new global.window.MouseEvent('contextmenu', {
+      bubbles: true,
+      cancelable: true,
+      clientX: 10,
+      clientY: 10
+    });
+    capturedGridOptions.onCellContextMenu({
+      event: evt,
+      column: { getColId: () => '__rowHeader' },
+      node: { rowIndex: 1, data: { __rowIndex: 1 } }
+    });
+
+    const menu = document.querySelector('.ag-hot-menu');
+    expect(menu).toBeTruthy();
+
+    const insertAboveEntry = Array.from(menu.querySelectorAll('div')).find(node => node.textContent === 'Insert 1 row(s) above');
+    expect(insertAboveEntry).toBeTruthy();
+    insertAboveEntry.dispatchEvent(new global.window.MouseEvent('click', { bubbles: true }));
+
+    expect(hot.countRows()).toBe(3);
+    expect(hot.getDataAtCell(2, 0)).toBe('A1');
+
+    const undoResult = undoUntil(undoManager, () => hot.countRows() === 2 && hot.getDataAtCell(1, 0) === 'A1');
+    expect(undoResult.reached).toBe(true);
+
+    const redoResult = redoUntil(undoManager, () => hot.countRows() === 3 && hot.getDataAtCell(2, 0) === 'A1');
+    expect(redoResult.reached).toBe(true);
+  });
+
+  test('column header context menu shows Include only when selected column is excluded', () => {
+    const container = document.createElement('div');
+    container.id = 'agHeaderContextMenuIncludeColsHot';
+    document.body.appendChild(container);
+
+    createTable(
+      container,
+      { rows: 2, cols: 2 },
+      () => {},
+      {
+        debugLabel: 'ag-header-contextmenu-include-cols',
+        data: [
+          ['A0', 'B0'],
+          ['A1', 'B1']
+        ]
+      }
+    );
+
+    const header = document.createElement('div');
+    header.className = 'ag-header-cell';
+    header.setAttribute('col-id', 'c0');
+    container.appendChild(header);
+
+    header.dispatchEvent(new global.window.MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 10, clientY: 10 }));
+    let menu = document.querySelector('.ag-hot-menu');
+    expect(menu).toBeTruthy();
+    let labels = Array.from(menu.querySelectorAll('div')).map(node => node.textContent).filter(Boolean);
+    expect(labels).toContain('Exclude column from analysis');
+    expect(labels).not.toContain('Include column in analysis');
+
+    const excludeEntry = Array.from(menu.querySelectorAll('div')).find(node => node.textContent === 'Exclude column from analysis');
+    expect(excludeEntry).toBeTruthy();
+    excludeEntry.dispatchEvent(new global.window.MouseEvent('click', { bubbles: true }));
+
+    header.dispatchEvent(new global.window.MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 12, clientY: 12 }));
+    menu = document.querySelector('.ag-hot-menu');
+    expect(menu).toBeTruthy();
+    labels = Array.from(menu.querySelectorAll('div')).map(node => node.textContent).filter(Boolean);
+    expect(labels).toContain('Include column in analysis');
+  });
+
+  test('column header context menu copy/cut/paste actions operate on header-selected column', async () => {
+    const container = document.createElement('div');
+    container.id = 'agHeaderContextMenuClipboardColsHot';
+    document.body.appendChild(container);
+
+    const writeText = jest.fn(async () => {});
+    const readText = jest.fn(async () => 'P0\nP1');
+    global.window.navigator.clipboard = { writeText, readText };
+
+    const hot = createTable(
+      container,
+      { rows: 2, cols: 2 },
+      () => {},
+      {
+        debugLabel: 'ag-header-contextmenu-clipboard-cols',
+        data: [
+          ['A0', 'B0'],
+          ['A1', 'B1']
+        ]
+      }
+    );
+
+    const header = document.createElement('div');
+    header.className = 'ag-header-cell';
+    header.setAttribute('col-id', 'c0');
+    container.appendChild(header);
+
+    header.dispatchEvent(new global.window.MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 20, clientY: 20 }));
+    let menu = document.querySelector('.ag-hot-menu');
+    expect(menu).toBeTruthy();
+    const copyEntry = Array.from(menu.querySelectorAll('div')).find(node => node.textContent === 'Copy column');
+    expect(copyEntry).toBeTruthy();
+    copyEntry.dispatchEvent(new global.window.MouseEvent('click', { bubbles: true }));
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(writeText).toHaveBeenCalled();
+    expect(writeText.mock.calls.at(-1)[0]).toBe('A0\nA1');
+
+    header.dispatchEvent(new global.window.MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 21, clientY: 21 }));
+    menu = document.querySelector('.ag-hot-menu');
+    const cutEntry = Array.from(menu.querySelectorAll('div')).find(node => node.textContent === 'Cut column');
+    expect(cutEntry).toBeTruthy();
+    cutEntry.dispatchEvent(new global.window.MouseEvent('click', { bubbles: true }));
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(writeText.mock.calls.at(-1)[0]).toBe('A0\nA1');
+    expect(hot.getDataAtCell(0, 0)).toBe('');
+    expect(hot.getDataAtCell(1, 0)).toBe('');
+    expect(hot.getDataAtCell(0, 1)).toBe('B0');
+
+    header.dispatchEvent(new global.window.MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 22, clientY: 22 }));
+    menu = document.querySelector('.ag-hot-menu');
+    const pasteEntry = Array.from(menu.querySelectorAll('div')).find(node => node.textContent === 'Paste into column');
+    expect(pasteEntry).toBeTruthy();
+    pasteEntry.dispatchEvent(new global.window.MouseEvent('click', { bubbles: true }));
+    await new Promise(resolve => setTimeout(resolve, 0));
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(readText).toHaveBeenCalled();
+    expect(hot.getDataAtCell(0, 0)).toBe('P0');
+    expect(hot.getDataAtCell(1, 0)).toBe('P1');
+  });
+
+  test('cell context menu shows Copy, Cut, Paste at the top in order', () => {
+    const Shared = global.window.Shared;
+    const undoManager = Shared.undoManager;
+    const container = document.createElement('div');
+    container.id = 'agCellContextMenuClipboardHot';
+    document.body.appendChild(container);
+
+    global.window.navigator.clipboard = {
+      writeText: jest.fn(async () => {}),
+      readText: jest.fn(async () => 'X')
+    };
+
+    createTable(
+      container,
+      { rows: 3, cols: 3 },
+      () => {},
+      {
+        debugLabel: 'ag-cell-contextmenu-clipboard',
+        data: [
+          ['A0', 'B0', 'C0'],
+          ['A1', 'B1', 'C1'],
+          ['A2', 'B2', 'C2']
+        ]
+      }
+    );
+    undoManager.clear();
+
+    capturedGridOptions.onCellContextMenu({
+      event: new global.window.MouseEvent('contextmenu', {
+        bubbles: true,
+        cancelable: true,
+        clientX: 30,
+        clientY: 40
+      }),
+      node: {
+        rowIndex: 1,
+        data: { __rowIndex: 1 }
+      },
+      column: {
+        getColId: () => 'c1'
+      }
+    });
+
+    const menu = document.querySelector('.ag-hot-menu');
+    expect(menu).toBeTruthy();
+    const labels = Array.from(menu.children)
+      .map(node => (node.textContent || '').trim())
+      .filter(Boolean);
+
+    expect(labels.slice(0, 4)).toEqual([
+      'Copy',
+      'Cut',
+      'Paste',
+      'Paste -> Transposed'
+    ]);
+    expect(labels).toContain('Exclude selection from analysis');
+  });
+
+  test('right-clicking a pinned first-row cell keeps transpose paste on that row', async () => {
+    const container = document.createElement('div');
+    container.id = 'agPinnedFirstRowContextMenuHot';
+    document.body.appendChild(container);
+
+    global.window.navigator.clipboard = {
+      readText: jest.fn(async () => 'P0\tP1\nQ0\tQ1')
+    };
+
+    const hot = createTable(
+      container,
+      { rows: 3, cols: 3 },
+      () => {},
+      {
+        debugLabel: 'ag-pinned-first-row-contextmenu',
+        data: [
+          ['A0', 'B0', 'C0'],
+          ['A1', 'B1', 'C1'],
+          ['A2', 'B2', 'C2']
+        ],
+        pinFirstRow: true
+      }
+    );
+
+    const column = { getColId: () => 'c1' };
+    capturedGridOptions.onCellFocused({
+      api: capturedApi,
+      rowIndex: 0,
+      rowPinned: 'top',
+      column
+    });
+    expect(hot.getSelectedLast()).toEqual([0, 1, 0, 1]);
+
+    capturedGridOptions.onCellContextMenu({
+      event: new global.window.MouseEvent('contextmenu', {
+        bubbles: true,
+        cancelable: true,
+        clientX: 30,
+        clientY: 40
+      }),
+      node: {
+        rowIndex: 0,
+        rowPinned: 'top',
+        data: { __rowIndex: 0 }
+      },
+      column
+    });
+
+    const menu = document.querySelector('.ag-hot-menu');
+    expect(menu).toBeTruthy();
+    const transposeEntry = Array.from(menu.children)
+      .find(node => (node.textContent || '').trim() === 'Paste -> Transposed');
+    expect(transposeEntry).toBeTruthy();
+    transposeEntry.dispatchEvent(new global.window.MouseEvent('click', { bubbles: true }));
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    expect(hot.getDataAtCell(0, 1)).toBe('P0');
+    expect(hot.getDataAtCell(0, 2)).toBe('Q0');
+    expect(hot.getDataAtCell(1, 1)).toBe('P1');
+    expect(hot.getDataAtCell(1, 2)).toBe('Q1');
+  });
+
+  test('row header context menu supports insert/delete for selected rows', () => {
+    const container = document.createElement('div');
+    container.id = 'agHeaderContextMenuRowsHot';
+    document.body.appendChild(container);
+
+    const hot = createTable(
+      container,
+      { rows: 4, cols: 3 },
+      () => {},
+      {
+        debugLabel: 'ag-header-contextmenu-rows',
+        data: [
+          ['R0', 'x', 'x'],
+          ['R1', 'x', 'x'],
+          ['R2', 'x', 'x'],
+          ['R3', 'x', 'x']
+        ]
+      }
+    );
+
+    const lastCol = hot.countCols() - 1;
+    hot.selectCell(1, 0, 2, lastCol); // full-width selection for rows 1..2
+
+    const evt = new global.window.MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 10, clientY: 10 });
+    capturedGridOptions.onCellContextMenu({
+      event: evt,
+      column: { getColId: () => '__rowHeader' },
+      node: { rowIndex: 1, data: { __rowIndex: 1 } }
+    });
+
+    const menu = document.querySelector('.ag-hot-menu');
+    expect(menu).toBeTruthy();
+    const labels = Array.from(menu.querySelectorAll('div')).map(node => node.textContent).filter(Boolean);
+    expect(labels).toContain('Insert 2 row(s) above');
+    expect(labels).toContain('Insert 2 row(s) below');
+    expect(labels).toContain('Delete 2 row(s)');
+
+    const deleteEntry = Array.from(menu.querySelectorAll('div')).find(node => node.textContent === 'Delete 2 row(s)');
+    expect(deleteEntry).toBeTruthy();
+    deleteEntry.dispatchEvent(new global.window.MouseEvent('click', { bubbles: true }));
+
+    // After deleting rows 1..2, visual row 1 should now contain former row 3 (R3).
+    expect(hot.getDataAtCell(1, 0)).toBe('R3');
+  });
+
+  test('postSortRows keeps the first data row anchored', () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agSortHot';
+    document.body.appendChild(container);
+
+    createTable(
+      container,
+      { rows: 3, cols: 3 },
+      () => {},
+      {
+        debugLabel: 'ag-sort',
+        data: Shared.createEmptyData(3, 3)
+      }
+    );
+
+    expect(typeof capturedGridOptions?.postSortRows).toBe('function');
+
+    const nodes = [
+      { data: { __rowIndex: 2 } },
+      { data: { __rowIndex: 0 } },
+      { data: { __rowIndex: 1 } }
+    ];
+    capturedGridOptions.postSortRows({ nodes, api: { getSortModel: () => [{ colId: 'c0', sort: 'asc' }] } });
+
+    expect(nodes[0]?.data?.__rowIndex).toBe(0);
+  });
+
+  test('postSortRows keeps all-empty rows at the bottom', () => {
+    const container = document.createElement('div');
+    container.id = 'agSortEmptyHot';
+    document.body.appendChild(container);
+
+    createTable(
+      container,
+      { rows: 4, cols: 3 },
+      () => {},
+      {
+        debugLabel: 'ag-sort-empty',
+        data: [
+          ['H1', 'H2', 'H3'],
+          ['2', '', ''],
+          ['', '', ''],
+          ['1', '', '']
+        ]
+      }
+    );
+
+    expect(typeof capturedGridOptions?.postSortRows).toBe('function');
+
+    const nodes = [
+      { data: { __rowIndex: 2 } }, // empty row (would float to top on ascending sort)
+      { data: { __rowIndex: 3 } },
+      { data: { __rowIndex: 1 } },
+      { data: { __rowIndex: 0 } }
+    ];
+    capturedGridOptions.postSortRows({ nodes, api: { getSortModel: () => [{ colId: 'c0', sort: 'asc' }] } });
+
+    expect(nodes.map(node => node?.data?.__rowIndex)).toEqual([0, 3, 1, 2]);
+  });
+
+  test('suppresses browser context menu over the grid container', () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agContextMenuHot';
+    document.body.appendChild(container);
+
+    createTable(
+      container,
+      { rows: 3, cols: 3 },
+      () => {},
+      {
+        debugLabel: 'ag-context-menu',
+        data: Shared.createEmptyData(3, 3)
+      }
+    );
+
+    const evt = new global.window.Event('contextmenu', { bubbles: true, cancelable: true });
+    container.dispatchEvent(evt);
+    expect(evt.defaultPrevented).toBe(true);
+
+    const input = document.createElement('input');
+    container.appendChild(input);
+    const evtInput = new global.window.Event('contextmenu', { bubbles: true, cancelable: true });
+    input.dispatchEvent(evtInput);
+    expect(evtInput.defaultPrevented).toBe(false);
+  });
+
+  test('excluded cells are flagged via cellClassRules', () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agExcludedCellHot';
+    document.body.appendChild(container);
+
+    const hot = createTable(
+      container,
+      { rows: 3, cols: 3 },
+      () => {},
+      {
+        debugLabel: 'ag-exclusions',
+        data: Shared.createEmptyData(3, 3)
+      }
+    );
+
+    const colDef = capturedGridOptions?.columnDefs?.find(def => def?.colId === 'c0');
+    expect(colDef).toBeTruthy();
+    expect(typeof colDef?.cellClassRules?.['hot-cell-excluded']).toBe('function');
+
+    hot.applyExclusions({ cells: [[1, 0]] });
+
+    const params = {
+      data: { __rowIndex: 1 },
+      column: { getColId: () => 'c0' },
+      colDef: { colId: 'c0' }
+    };
+
+    expect(colDef.cellClassRules['hot-cell-excluded'](params)).toBe(true);
+    expect(colDef.cellClassRules['hot-cell-excluded-cell'](params)).toBe(true);
+    expect(colDef.cellClassRules['hot-cell-excluded-row'](params)).toBe(false);
+    expect(colDef.cellClassRules['hot-cell-excluded-column'](params)).toBe(false);
+  });
+
+  test('plain column header click selects the full column', () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agColHeaderSelectHot';
+    document.body.appendChild(container);
+
+    const hot = createTable(
+      container,
+      { rows: 4, cols: 3 },
+      () => {},
+      { debugLabel: 'ag-col-header-select', data: Shared.createEmptyData(4, 3) }
+    );
+
+    const header = document.createElement('div');
+    header.className = 'ag-header-cell';
+    header.setAttribute('col-id', 'c1');
+    container.appendChild(header);
+
+    hot.selectCell(2, 2);
+
+    const evt = new global.window.MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0 });
+    header.dispatchEvent(evt);
+    header.dispatchEvent(new global.window.MouseEvent('click', { bubbles: true, cancelable: true, button: 0 }));
+
+    expect(hot.getSelectedLast()).toEqual([0, 1, 3, 1]);
+  });
+
+  test('grouped header clicks select the group first and the pointed child second', () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agGroupedHeaderProgressiveSelectHot';
+    document.body.appendChild(container);
+
+    const hot = createTable(
+      container,
+      { rows: 4, cols: 5 },
+      () => {},
+      {
+        debugLabel: 'ag-grouped-header-progressive-select',
+        data: Shared.createEmptyData(4, 5),
+        columnGroups: [{ startCol: 1, span: 3 }]
+      }
+    );
+
+    const header = document.createElement('div');
+    header.className = 'ag-header-cell';
+    header.setAttribute('col-id', 'c2');
+    container.appendChild(header);
+
+    const clickHeader = () => {
+      header.dispatchEvent(new global.window.MouseEvent('mousedown', {
+        bubbles: true,
+        cancelable: true,
+        button: 0
+      }));
+      header.dispatchEvent(new global.window.MouseEvent('click', {
+        bubbles: true,
+        cancelable: true,
+        button: 0
+      }));
+    };
+
+    clickHeader();
+    expect(hot.getSelectedLast()).toEqual([0, 1, 3, 3]);
+
+    clickHeader();
+    expect(hot.getSelectedLast()).toEqual([0, 2, 3, 2]);
+
+    clickHeader();
+    expect(hot.getSelectedLast()).toEqual([0, 1, 3, 3]);
+  });
+
+  test('column-mode groups keep single-column header selection', () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agColumnModeGroupHeaderSelectHot';
+    document.body.appendChild(container);
+
+    const hot = createTable(
+      container,
+      { rows: 4, cols: 4 },
+      () => {},
+      {
+        debugLabel: 'ag-column-mode-group-header-select',
+        data: Shared.createEmptyData(4, 4),
+        columnGroups: [{ startCol: 0, span: 3, selectionMode: 'column' }]
+      }
+    );
+
+    const header = document.createElement('div');
+    header.className = 'ag-header-cell';
+    header.setAttribute('col-id', 'c1');
+    container.appendChild(header);
+    header.dispatchEvent(new global.window.MouseEvent('mousedown', {
+      bubbles: true,
+      cancelable: true,
+      button: 0
+    }));
+    header.dispatchEvent(new global.window.MouseEvent('click', {
+      bubbles: true,
+      cancelable: true,
+      button: 0
+    }));
+
+    expect(hot.getSelectedLast()).toEqual([0, 1, 3, 1]);
+  });
+
+  test('full column selection outline hides top edge and stays below horizontal scrollbar layer', async () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agFullColumnOutlineHot';
+    container.getBoundingClientRect = () => ({
+      left: 0,
+      top: 0,
+      right: 420,
+      bottom: 180,
+      width: 420,
+      height: 180
+    });
+    document.body.appendChild(container);
+
+    const hot = createTable(
+      container,
+      { rows: 4, cols: 3 },
+      () => {},
+      {
+        debugLabel: 'ag-full-column-outline',
+        data: Shared.createEmptyData(4, 3),
+        pinFirstRow: true
+      }
+    );
+
+    const floatingTop = document.createElement('div');
+    floatingTop.className = 'ag-floating-top';
+    const floatingViewport = document.createElement('div');
+    floatingViewport.className = 'ag-floating-top-viewport';
+    floatingViewport.getBoundingClientRect = () => ({
+      left: 0,
+      top: 32,
+      right: 420,
+      bottom: 60,
+      width: 420,
+      height: 28
+    });
+    const pinnedRow = document.createElement('div');
+    pinnedRow.className = 'ag-row';
+    pinnedRow.setAttribute('row-index', 't-0');
+    const pinnedCell = document.createElement('div');
+    pinnedCell.className = 'ag-cell';
+    pinnedCell.setAttribute('col-id', 'c1');
+    pinnedCell.setAttribute('row-index', 't-0');
+    pinnedCell.getBoundingClientRect = () => ({
+      left: 100,
+      top: 32,
+      right: 200,
+      bottom: 60,
+      width: 100,
+      height: 28
+    });
+    pinnedRow.appendChild(pinnedCell);
+    floatingViewport.appendChild(pinnedRow);
+    floatingTop.appendChild(floatingViewport);
+    container.appendChild(floatingTop);
+
+    const bodyViewport = document.createElement('div');
+    bodyViewport.className = 'ag-body-viewport';
+    bodyViewport.getBoundingClientRect = () => ({
+      left: 0,
+      top: 60,
+      right: 420,
+      bottom: 172,
+      width: 420,
+      height: 112
+    });
+    const centerViewport = document.createElement('div');
+    centerViewport.className = 'ag-center-cols-viewport';
+    centerViewport.getBoundingClientRect = bodyViewport.getBoundingClientRect;
+    bodyViewport.appendChild(centerViewport);
+    container.appendChild(bodyViewport);
+
+    for (let rowIndex = 1; rowIndex <= 3; rowIndex += 1) {
+      const row = document.createElement('div');
+      row.className = 'ag-row';
+      row.setAttribute('row-index', String(rowIndex));
+      const top = 60 + ((rowIndex - 1) * 28);
+      const cell = document.createElement('div');
+      cell.className = 'ag-cell';
+      cell.setAttribute('col-id', 'c1');
+      cell.setAttribute('row-index', String(rowIndex));
+      cell.getBoundingClientRect = () => ({
+        left: 100,
+        top,
+        right: 200,
+        bottom: top + 28,
+        width: 100,
+        height: 28
+      });
+      row.appendChild(cell);
+      centerViewport.appendChild(row);
+    }
+
+    const header = document.createElement('div');
+    header.className = 'ag-header-cell';
+    header.setAttribute('col-id', 'c1');
+    container.appendChild(header);
+    header.dispatchEvent(new global.window.MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0 }));
+    header.dispatchEvent(new global.window.MouseEvent('click', { bubbles: true, cancelable: true, button: 0 }));
+
+    await waitForNextFrame();
+
+    const outline = container.querySelector('.hot-selection-outline');
+    expect(hot.getSelectedLast()).toEqual([0, 1, 3, 1]);
+    expect(outline).toBeTruthy();
+    expect(outline.style.display).toBe('block');
+    expect(outline.style.borderTopColor).toBe('transparent');
+    expect(outline.style.borderLeftColor).not.toBe('transparent');
+    expect(outline.style.borderRightColor).not.toBe('transparent');
+    expect(outline.style.zIndex).toBe('7');
+    expect(outline.querySelector('.hot-selection-outline-edge[data-edge="top"]').style.display).toBe('none');
+    expect(outline.querySelector('.hot-selection-outline-edge[data-edge="left"]').style.display).toBe('block');
+    expect(outline.querySelector('.hot-selection-outline-edge[data-edge="right"]').style.display).toBe('block');
+
+    container.dispatchEvent(new global.window.KeyboardEvent('keydown', {
+      key: 'a',
+      ctrlKey: true,
+      bubbles: true,
+      cancelable: true
+    }));
+    await waitForNextFrame();
+
+    expect(hot.getSelectedLast()).toEqual([0, 0, 3, hot.countCols() - 1]);
+    expect(outline.style.borderTopColor).not.toBe('transparent');
+    expect(outline.querySelector('.hot-selection-outline-edge[data-edge="top"]').style.display).toBe('block');
+
+    global.window.navigator.clipboard = { writeText: jest.fn().mockResolvedValue(undefined) };
+    container.dispatchEvent(new global.window.KeyboardEvent('keydown', {
+      key: 'c',
+      ctrlKey: true,
+      bubbles: true,
+      cancelable: true
+    }));
+    await new Promise(resolve => setTimeout(resolve, 0));
+    await waitForNextFrame();
+
+    const clipboardOutline = container.querySelector('.hot-clipboard-outline');
+    expect(clipboardOutline).toBeTruthy();
+    expect(clipboardOutline.querySelector('.hot-clipboard-outline-edge[data-edge="top"]').style.display).toBe('block');
+  });
+
+  test('first child selection ignores the grouped pinned-header colspan when placing its outline', async () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agGroupedFirstChildOutlineHot';
+    container.getBoundingClientRect = () => ({
+      left: 0,
+      top: 0,
+      right: 500,
+      bottom: 200,
+      width: 500,
+      height: 200
+    });
+    document.body.appendChild(container);
+
+    const hot = createTable(
+      container,
+      { rows: 4, cols: 4 },
+      () => {},
+      {
+        debugLabel: 'ag-grouped-first-child-outline',
+        data: Shared.createEmptyData(4, 4),
+        pinFirstRow: true,
+        columnGroups: [{ startCol: 1, span: 3 }]
+      }
+    );
+
+    const floatingTop = document.createElement('div');
+    floatingTop.className = 'ag-floating-top';
+    const floatingViewport = document.createElement('div');
+    floatingViewport.className = 'ag-floating-top-viewport';
+    floatingViewport.getBoundingClientRect = () => ({
+      left: 0,
+      top: 32,
+      right: 500,
+      bottom: 60,
+      width: 500,
+      height: 28
+    });
+    const pinnedRow = document.createElement('div');
+    pinnedRow.className = 'ag-row';
+    pinnedRow.setAttribute('row-index', 't-0');
+    const groupedCell = document.createElement('div');
+    groupedCell.className = 'ag-cell';
+    groupedCell.setAttribute('col-id', 'c1');
+    groupedCell.setAttribute('row-index', 't-0');
+    groupedCell.getBoundingClientRect = () => ({
+      left: 100,
+      top: 32,
+      right: 400,
+      bottom: 60,
+      width: 300,
+      height: 28
+    });
+    pinnedRow.appendChild(groupedCell);
+    floatingViewport.appendChild(pinnedRow);
+    floatingTop.appendChild(floatingViewport);
+    container.appendChild(floatingTop);
+
+    const bodyViewport = document.createElement('div');
+    bodyViewport.className = 'ag-body-viewport';
+    bodyViewport.getBoundingClientRect = () => ({
+      left: 0,
+      top: 60,
+      right: 500,
+      bottom: 172,
+      width: 500,
+      height: 112
+    });
+    const centerViewport = document.createElement('div');
+    centerViewport.className = 'ag-center-cols-viewport';
+    centerViewport.getBoundingClientRect = bodyViewport.getBoundingClientRect;
+    bodyViewport.appendChild(centerViewport);
+    container.appendChild(bodyViewport);
+
+    for(let rowIndex = 1; rowIndex <= 3; rowIndex += 1){
+      const row = document.createElement('div');
+      row.className = 'ag-row';
+      row.setAttribute('row-index', String(rowIndex));
+      const top = 60 + ((rowIndex - 1) * 28);
+      const cell = document.createElement('div');
+      cell.className = 'ag-cell';
+      cell.setAttribute('col-id', 'c1');
+      cell.setAttribute('row-index', String(rowIndex));
+      cell.getBoundingClientRect = () => ({
+        left: 100,
+        top,
+        right: 200,
+        bottom: top + 28,
+        width: 100,
+        height: 28
+      });
+      row.appendChild(cell);
+      centerViewport.appendChild(row);
+    }
+
+    const header = document.createElement('div');
+    header.className = 'ag-header-cell';
+    header.setAttribute('col-id', 'c1');
+    container.appendChild(header);
+    const clickHeader = () => {
+      header.dispatchEvent(new global.window.MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0 }));
+      header.dispatchEvent(new global.window.MouseEvent('click', { bubbles: true, cancelable: true, button: 0 }));
+    };
+
+    clickHeader();
+    clickHeader();
+    await waitForNextFrame();
+
+    const outline = container.querySelector('.hot-selection-outline');
+    expect(hot.getSelectedLast()).toEqual([0, 1, 3, 1]);
+    expect(parseFloat(outline.style.width)).toBeLessThan(110);
+  });
+
+  test('plain header click selects full column and header action click preserves selection coordinates', () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agColHeaderSortGateHot';
+    document.body.appendChild(container);
+
+    const hot = createTable(
+      container,
+      { rows: 4, cols: 3 },
+      () => {},
+      { debugLabel: 'ag-col-header-sort-gate', data: Shared.createEmptyData(4, 3) }
+    );
+
+    const header = document.createElement('div');
+    header.className = 'ag-header-cell';
+    header.setAttribute('col-id', 'c1');
+    const headerAction = document.createElement('button');
+    headerAction.className = 'hot-header-action hot-filter-indicator';
+    header.appendChild(headerAction);
+    container.appendChild(header);
+
+    const sortSpy = jest.fn();
+    header.addEventListener('click', sortSpy);
+    hot.selectCell(1, 2);
+
+    header.dispatchEvent(new global.window.MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0 }));
+    header.dispatchEvent(new global.window.MouseEvent('click', { bubbles: true, cancelable: true, button: 0 }));
+
+    expect(hot.getSelectedLast()).toEqual([0, 1, 3, 1]);
+    expect(sortSpy).toHaveBeenCalledTimes(0);
+
+    hot.selectCell(1, 2);
+    headerAction.dispatchEvent(new global.window.MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0 }));
+    headerAction.dispatchEvent(new global.window.MouseEvent('click', { bubbles: true, cancelable: true, button: 0 }));
+
+    expect(hot.getSelectedLast()).toEqual([1, 2, 1, 2]);
+    expect(sortSpy).toHaveBeenCalledTimes(1);
+  });
+
+  test('filter popup only shows condition inputs for operators that need them', () => {
+    const container = document.createElement('div');
+    container.id = 'agFilterPopupModesHot';
+    document.body.appendChild(container);
+
+    createTable(
+      container,
+      { rows: 4, cols: 2 },
+      () => {},
+      {
+        debugLabel: 'ag-filter-popup-modes',
+        data: [
+          ['A', 'B'],
+          [1, 2],
+          [3, 4],
+          [5, 6]
+        ]
+      }
+    );
+
+    const colDef = capturedGridOptions?.columnDefs?.find(col => col.colId === 'c1');
+    expect(colDef?.headerComponent).toBeTruthy();
+    const headerComponent = new colDef.headerComponent();
+    const headerApi = {
+      addEventListener: jest.fn(),
+      removeEventListener: jest.fn()
+    };
+    headerComponent.init({
+      api: headerApi,
+      column: {
+        getColId: () => 'c1',
+        getSort: () => '',
+        getColDef: () => ({ headerName: 'B' })
+      },
+      displayName: 'B'
+    });
+    const headerGui = headerComponent.getGui();
+    container.appendChild(headerGui);
+    const headerAction = headerGui.querySelector('.hot-header-action');
+    expect(headerAction).toBeTruthy();
+
+    headerAction.dispatchEvent(new global.window.MouseEvent('click', { bubbles: true, cancelable: true, button: 0 }));
+
+    const menu = document.querySelector('.ag-hot-filter-menu');
+    expect(menu).toBeTruthy();
+    expect(menu.querySelector('.ag-hot-filter-menu__heading')).toBeNull();
+    expect(menu.querySelector('.ag-hot-filter-menu__heading-meta')).toBeNull();
+    expect(menu.getAttribute('aria-label')).toBe('Filter B');
+
+    const modeSelect = menu.querySelector('.ag-hot-filter-menu__select');
+    const inputWrap = menu.querySelector('.ag-hot-filter-menu__inputs');
+    const inputs = menu.querySelectorAll('.ag-hot-filter-menu__input');
+    expect(modeSelect).toBeTruthy();
+    expect(inputWrap).toBeTruthy();
+    expect(inputs.length).toBeGreaterThanOrEqual(2);
+
+    expect(inputWrap.hidden).toBe(true);
+    expect(inputWrap.style.display).toBe('none');
+
+    modeSelect.value = 'greaterThan';
+    modeSelect.dispatchEvent(new global.window.Event('change', { bubbles: true }));
+    expect(inputWrap.hidden).toBe(false);
+    expect(inputWrap.style.display).toBe('');
+    expect(inputs[0].hidden).toBe(false);
+    expect(inputs[1].hidden).toBe(true);
+
+    modeSelect.value = 'between';
+    modeSelect.dispatchEvent(new global.window.Event('change', { bubbles: true }));
+    expect(inputWrap.hidden).toBe(false);
+    expect(inputs[0].hidden).toBe(false);
+    expect(inputs[1].hidden).toBe(false);
+
+    modeSelect.value = 'aboveAverage';
+    modeSelect.dispatchEvent(new global.window.Event('change', { bubbles: true }));
+    expect(inputWrap.hidden).toBe(true);
+    expect(inputWrap.style.display).toBe('none');
+
+    modeSelect.value = 'set';
+    modeSelect.dispatchEvent(new global.window.Event('change', { bubbles: true }));
+    expect(inputWrap.hidden).toBe(true);
+    expect(inputWrap.style.display).toBe('none');
+  });
+
+  test('set-filter search applies matching values on OK and Enter', () => {
+    const container = document.createElement('div');
+    container.id = 'agFilterPopupSearchApplyHot';
+    document.body.appendChild(container);
+
+    const hot = createTable(
+      container,
+      { rows: 5, cols: 2 },
+      () => {},
+      {
+        debugLabel: 'ag-filter-popup-search-apply',
+        data: [
+          ['Label', 'Group'],
+          ['a', 'alpha'],
+          ['b', 'beta'],
+          ['c', 'gamma'],
+          ['d', 'delta']
+        ]
+      }
+    );
+
+    const colDef = capturedGridOptions?.columnDefs?.find(col => col.colId === 'c1');
+    expect(colDef?.headerComponent).toBeTruthy();
+    const headerComponent = new colDef.headerComponent();
+    const headerApi = {
+      addEventListener: jest.fn(),
+      removeEventListener: jest.fn()
+    };
+    headerComponent.init({
+      api: headerApi,
+      column: {
+        getColId: () => 'c1',
+        getSort: () => '',
+        getColDef: () => ({ headerName: 'Group' })
+      },
+      displayName: 'Group'
+    });
+    const headerGui = headerComponent.getGui();
+    container.appendChild(headerGui);
+    const headerAction = headerGui.querySelector('.hot-header-action');
+    expect(headerAction).toBeTruthy();
+
+    const openMenu = () => {
+      headerAction.dispatchEvent(new global.window.MouseEvent('click', { bubbles: true, cancelable: true, button: 0 }));
+      const menu = document.querySelector('.ag-hot-filter-menu');
+      expect(menu).toBeTruthy();
+      return menu;
+    };
+
+    let menu = openMenu();
+    let searchInput = menu.querySelector('.ag-hot-filter-menu__search');
+    let applyButton = menu.querySelector('.ag-hot-filter-menu__button');
+    expect(searchInput).toBeTruthy();
+    expect(applyButton?.textContent).toBe('OK');
+    searchInput.value = 'be';
+    searchInput.dispatchEvent(new global.window.Event('input', { bubbles: true }));
+    applyButton.dispatchEvent(new global.window.MouseEvent('click', { bubbles: true, cancelable: true, button: 0 }));
+
+    expect(hot.countRows()).toBe(2);
+    expect(hot.getDataAtCell(0, 1)).toBe('Group');
+    expect(hot.getDataAtCell(1, 1)).toBe('beta');
+
+    hot.clearFilters({ schedule: false });
+    expect(hot.countRows()).toBe(5);
+
+    menu = openMenu();
+    searchInput = menu.querySelector('.ag-hot-filter-menu__search');
+    expect(searchInput).toBeTruthy();
+    searchInput.value = 'de';
+    searchInput.dispatchEvent(new global.window.Event('input', { bubbles: true }));
+    searchInput.dispatchEvent(new global.window.KeyboardEvent('keydown', {
+      key: 'Enter',
+      bubbles: true,
+      cancelable: true
+    }));
+
+    expect(hot.countRows()).toBe(2);
+    expect(hot.getDataAtCell(0, 1)).toBe('Group');
+    expect(hot.getDataAtCell(1, 1)).toBe('delta');
+  });
+
+  test('set-filter value list scroll does not dismiss the popup', () => {
+    const container = document.createElement('div');
+    container.id = 'agFilterPopupScrollHot';
+    document.body.appendChild(container);
+
+    const rows = [['Label']];
+    for(let i = 0; i < 40; i += 1){
+      rows.push([`value-${i}`]);
+    }
+
+    createTable(
+      container,
+      { rows: rows.length, cols: 1 },
+      () => {},
+      {
+        debugLabel: 'ag-filter-popup-scroll',
+        data: rows
+      }
+    );
+
+    const colDef = capturedGridOptions?.columnDefs?.find(col => col.colId === 'c0');
+    expect(colDef?.headerComponent).toBeTruthy();
+    const headerComponent = new colDef.headerComponent();
+    const headerApi = {
+      addEventListener: jest.fn(),
+      removeEventListener: jest.fn()
+    };
+    headerComponent.init({
+      api: headerApi,
+      column: {
+        getColId: () => 'c0',
+        getSort: () => '',
+        getColDef: () => ({ headerName: 'Label' })
+      },
+      displayName: 'Label'
+    });
+    const headerGui = headerComponent.getGui();
+    container.appendChild(headerGui);
+    const headerAction = headerGui.querySelector('.hot-header-action');
+    expect(headerAction).toBeTruthy();
+
+    headerAction.dispatchEvent(new global.window.MouseEvent('click', { bubbles: true, cancelable: true, button: 0 }));
+
+    const menu = document.querySelector('.ag-hot-filter-menu');
+    const valueList = menu?.querySelector('.ag-hot-filter-menu__values');
+    expect(menu).toBeTruthy();
+    expect(valueList).toBeTruthy();
+    expect(valueList.style.maxHeight).toBe('108px');
+
+    valueList.dispatchEvent(new global.window.Event('scroll', { bubbles: false, cancelable: false }));
+
+    expect(document.querySelector('.ag-hot-filter-menu')).toBe(menu);
+  });
+
+  test('filter apply and clear actions are undoable', () => {
+    const Shared = global.window.Shared;
+    const undoManager = Shared.undoManager;
+    const container = document.createElement('div');
+    container.id = 'agFilterUndoHot';
+    document.body.appendChild(container);
+
+    const hot = createTable(
+      container,
+      { rows: 5, cols: 2 },
+      () => {},
+      {
+        debugLabel: 'ag-filter-undo',
+        data: [
+          ['Label', 'Value'],
+          ['a', 1],
+          ['b', 2],
+          ['c', 3],
+          ['d', 4]
+        ]
+      }
+    );
+
+    const colDef = capturedGridOptions?.columnDefs?.find(col => col.colId === 'c1');
+    expect(colDef?.headerComponent).toBeTruthy();
+    const headerComponent = new colDef.headerComponent();
+    const headerApi = {
+      addEventListener: jest.fn(),
+      removeEventListener: jest.fn()
+    };
+    headerComponent.init({
+      api: headerApi,
+      column: {
+        getColId: () => 'c1',
+        getSort: () => '',
+        getColDef: () => ({ headerName: 'Value' })
+      },
+      displayName: 'Value'
+    });
+    const headerGui = headerComponent.getGui();
+    container.appendChild(headerGui);
+    const headerAction = headerGui.querySelector('.hot-header-action');
+    expect(headerAction).toBeTruthy();
+
+    const openMenu = () => {
+      headerAction.dispatchEvent(new global.window.MouseEvent('click', { bubbles: true, cancelable: true, button: 0 }));
+      const menu = document.querySelector('.ag-hot-filter-menu');
+      expect(menu).toBeTruthy();
+      return menu;
+    };
+
+    let menu = openMenu();
+    let modeSelect = menu.querySelector('.ag-hot-filter-menu__select');
+    let valueInput = menu.querySelector('.ag-hot-filter-menu__input');
+    let buttons = Array.from(menu.querySelectorAll('.ag-hot-filter-menu__button'));
+    let okButton = buttons.find(button => button.textContent === 'OK');
+    expect(modeSelect).toBeTruthy();
+    expect(valueInput).toBeTruthy();
+    expect(okButton).toBeTruthy();
+
+    modeSelect.value = 'greaterThan';
+    modeSelect.dispatchEvent(new global.window.Event('change', { bubbles: true }));
+    valueInput.value = '2';
+    okButton.dispatchEvent(new global.window.MouseEvent('click', { bubbles: true, cancelable: true, button: 0 }));
+
+    expect(hot.countRows()).toBe(3);
+    expect(hot.getDataAtCell(1, 1)).toBe(3);
+    const undoApplyResult = undoUntil(undoManager, () => hot.countRows() === 5);
+    expect(undoApplyResult.reached).toBe(true);
+    const redoApplyResult = redoUntil(undoManager, () => hot.countRows() === 3);
+    expect(redoApplyResult.reached).toBe(true);
+
+    menu = openMenu();
+    buttons = Array.from(menu.querySelectorAll('.ag-hot-filter-menu__button'));
+    const clearButton = buttons.find(button => button.textContent === 'Clear');
+    expect(clearButton).toBeTruthy();
+    clearButton.dispatchEvent(new global.window.MouseEvent('click', { bubbles: true, cancelable: true, button: 0 }));
+
+    expect(hot.countRows()).toBe(5);
+    const undoClearResult = undoUntil(undoManager, () => hot.countRows() === 3);
+    expect(undoClearResult.reached).toBe(true);
+    const redoClearResult = redoUntil(undoManager, () => hot.countRows() === 5);
+    expect(redoClearResult.reached).toBe(true);
+  });
+
+  test('clicking row header selects the full row', () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agRowHeaderSelectHot';
+    document.body.appendChild(container);
+
+    const hot = createTable(
+      container,
+      { rows: 4, cols: 3 },
+      () => {},
+      { debugLabel: 'ag-row-header-select', data: Shared.createEmptyData(4, 3) }
+    );
+
+    const row = document.createElement('div');
+    row.className = 'ag-row';
+    row.setAttribute('row-index', '2');
+
+    const cell = document.createElement('div');
+    cell.className = 'ag-cell hot-row-header';
+    cell.setAttribute('col-id', '__rowHeader');
+    row.appendChild(cell);
+    container.appendChild(row);
+
+    const evt = new global.window.MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0 });
+    cell.dispatchEvent(evt);
+
+    expect(hot.getSelectedLast()).toEqual([2, 0, 2, 11]);
+  });
+
+  test('column header selection keeps grid container focused for keyboard shortcuts', () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agHeaderFocusHot';
+    document.body.appendChild(container);
+
+    createTable(
+      container,
+      { rows: 4, cols: 3 },
+      () => {},
+      { debugLabel: 'ag-header-focus', data: Shared.createEmptyData(4, 3) }
+    );
+
+    const header = document.createElement('div');
+    header.className = 'ag-header-cell';
+    header.setAttribute('col-id', 'c1');
+    container.appendChild(header);
+
+    header.dispatchEvent(new global.window.MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0 }));
+
+    expect(document.activeElement).toBe(container);
+  });
+
+  test('Delete clears additive selected header columns', () => {
+    const container = document.createElement('div');
+    container.id = 'agDeleteHeaderColumnsHot';
+    document.body.appendChild(container);
+
+    const hot = createTable(
+      container,
+      { rows: 4, cols: 3 },
+      () => {},
+      {
+        debugLabel: 'ag-delete-header-columns',
+        data: [
+          ['A0', 'B0', 'C0'],
+          ['A1', 'B1', 'C1'],
+          ['A2', 'B2', 'C2'],
+          ['A3', 'B3', 'C3']
+        ]
+      }
+    );
+
+    const header0 = document.createElement('div');
+    header0.className = 'ag-header-cell';
+    header0.setAttribute('col-id', 'c0');
+    container.appendChild(header0);
+    const header2 = document.createElement('div');
+    header2.className = 'ag-header-cell';
+    header2.setAttribute('col-id', 'c2');
+    container.appendChild(header2);
+
+    header0.dispatchEvent(new global.window.MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0, ctrlKey: true }));
+    header2.dispatchEvent(new global.window.MouseEvent('mousedown', {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+      ctrlKey: true
+    }));
+
+    const activeTarget = document.activeElement || container;
+    activeTarget.dispatchEvent(new global.window.KeyboardEvent('keydown', {
+      bubbles: true,
+      cancelable: true,
+      key: 'Delete',
+      keyCode: 46
+    }));
+
+    expect(hot.getDataAtCell(0, 0)).toBe('');
+    expect(hot.getDataAtCell(1, 0)).toBe('');
+    expect(hot.getDataAtCell(0, 2)).toBe('');
+    expect(hot.getDataAtCell(1, 2)).toBe('');
+    expect(hot.getDataAtCell(0, 1)).toBe('B0');
+    expect(hot.getDataAtCell(1, 1)).toBe('B1');
+  });
+
+  test('Ctrl+C copies additive selected header columns only', async () => {
+    const container = document.createElement('div');
+    container.id = 'agCopyHeaderColumnsHot';
+    document.body.appendChild(container);
+
+    const writeText = jest.fn(async () => {});
+    global.window.navigator.clipboard = { writeText };
+
+    createTable(
+      container,
+      { rows: 4, cols: 3 },
+      () => {},
+      {
+        debugLabel: 'ag-copy-header-columns',
+        data: [
+          ['A0', 'B0', 'C0'],
+          ['A1', 'B1', 'C1'],
+          ['A2', 'B2', 'C2'],
+          ['A3', 'B3', 'C3']
+        ]
+      }
+    );
+
+    const header0 = document.createElement('div');
+    header0.className = 'ag-header-cell';
+    header0.setAttribute('col-id', 'c0');
+    container.appendChild(header0);
+    const header2 = document.createElement('div');
+    header2.className = 'ag-header-cell';
+    header2.setAttribute('col-id', 'c2');
+    container.appendChild(header2);
+
+    header0.dispatchEvent(new global.window.MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0, ctrlKey: true }));
+    header2.dispatchEvent(new global.window.MouseEvent('mousedown', {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+      ctrlKey: true
+    }));
+
+    const activeTarget = document.activeElement || container;
+    activeTarget.dispatchEvent(new global.window.KeyboardEvent('keydown', {
+      bubbles: true,
+      cancelable: true,
+      key: 'c',
+      ctrlKey: true
+    }));
+
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    expect(writeText).toHaveBeenCalledTimes(1);
+    expect(writeText.mock.calls[0][0]).toBe('A0\tC0\nA1\tC1\nA2\tC2\nA3\tC3');
+  });
+
+  test('Ctrl+X cuts additive selected header columns only', async () => {
+    const container = document.createElement('div');
+    container.id = 'agCutHeaderColumnsHot';
+    document.body.appendChild(container);
+
+    const writeText = jest.fn(async () => {});
+    global.window.navigator.clipboard = { writeText };
+
+    const hot = createTable(
+      container,
+      { rows: 4, cols: 3 },
+      () => {},
+      {
+        debugLabel: 'ag-cut-header-columns',
+        data: [
+          ['A0', 'B0', 'C0'],
+          ['A1', 'B1', 'C1'],
+          ['A2', 'B2', 'C2'],
+          ['A3', 'B3', 'C3']
+        ]
+      }
+    );
+
+    const header0 = document.createElement('div');
+    header0.className = 'ag-header-cell';
+    header0.setAttribute('col-id', 'c0');
+    container.appendChild(header0);
+    const header2 = document.createElement('div');
+    header2.className = 'ag-header-cell';
+    header2.setAttribute('col-id', 'c2');
+    container.appendChild(header2);
+
+    header0.dispatchEvent(new global.window.MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0, ctrlKey: true }));
+    header2.dispatchEvent(new global.window.MouseEvent('mousedown', {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+      ctrlKey: true
+    }));
+
+    const activeTarget = document.activeElement || container;
+    activeTarget.dispatchEvent(new global.window.KeyboardEvent('keydown', {
+      bubbles: true,
+      cancelable: true,
+      key: 'x',
+      ctrlKey: true
+    }));
+
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    expect(writeText).toHaveBeenCalledTimes(1);
+    expect(writeText.mock.calls[0][0]).toBe('A0\tC0\nA1\tC1\nA2\tC2\nA3\tC3');
+    expect(hot.getDataAtCell(0, 0)).toBe('');
+    expect(hot.getDataAtCell(1, 0)).toBe('');
+    expect(hot.getDataAtCell(0, 2)).toBe('');
+    expect(hot.getDataAtCell(1, 2)).toBe('');
+    expect(hot.getDataAtCell(0, 1)).toBe('B0');
+    expect(hot.getDataAtCell(1, 1)).toBe('B1');
+  });
+
+  test('Ctrl+C copies non-contiguous rows selected through row headers', async () => {
+    const container = document.createElement('div');
+    container.id = 'agCopyHeaderRowsHot';
+    document.body.appendChild(container);
+    const writeText = jest.fn(async () => {});
+    global.window.navigator.clipboard = { writeText };
+
+    const hot = createTable(
+      container,
+      { rows: 4, cols: 3 },
+      () => {},
+      {
+        debugLabel: 'ag-copy-header-rows',
+        data: [
+          ['A0', 'B0', 'C0'],
+          ['A1', 'B1', 'C1'],
+          ['A2', 'B2', 'C2'],
+          ['A3', 'B3', 'C3']
+        ]
+      }
+    );
+
+    const createRowHeader = rowIndex => {
+      const row = document.createElement('div');
+      row.className = 'ag-row';
+      row.setAttribute('row-index', String(rowIndex));
+      const cell = document.createElement('div');
+      cell.className = 'ag-cell hot-row-header';
+      cell.setAttribute('col-id', '__rowHeader');
+      row.appendChild(cell);
+      container.appendChild(row);
+      return cell;
+    };
+    createRowHeader(0).dispatchEvent(new global.window.MouseEvent('mousedown', {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+      ctrlKey: true
+    }));
+    createRowHeader(2).dispatchEvent(new global.window.MouseEvent('mousedown', {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+      ctrlKey: true
+    }));
+    // AG Grid may emit a selection-changed event after its own mouse handling.
+    // That event must not replace the adapter-owned additive row selection.
+    capturedGridOptions.onSelectionChanged({ api: capturedApi });
+
+    container.blur();
+    const keyboardTarget = document.activeElement === container ? document.body : document.activeElement;
+    const copyEvent = new global.window.KeyboardEvent('keydown', {
+      bubbles: true,
+      cancelable: true,
+      key: 'c',
+      ctrlKey: true
+    });
+    (keyboardTarget || document.body).dispatchEvent(copyEvent);
+
+    expect(copyEvent.defaultPrevented).toBe(true);
+    expect(writeText).toHaveBeenCalledTimes(1);
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    const padRow = values => values.concat(Array(Math.max(0, hot.countCols() - values.length)).fill('')).join('\t');
+    expect(writeText).toHaveBeenCalledWith(`${padRow(['A0', 'B0', 'C0'])}\n${padRow(['A2', 'B2', 'C2'])}`);
+  });
+
+  test('multi-row clipboard output follows the current sorted display order', async () => {
+    const container = document.createElement('div');
+    container.id = 'agCopySortedHeaderRowsHot';
+    document.body.appendChild(container);
+    const writeText = jest.fn(async () => {});
+    global.window.navigator.clipboard = { writeText };
+
+    const hot = createTable(
+      container,
+      { rows: 4, cols: 3 },
+      () => {},
+      {
+        debugLabel: 'ag-copy-sorted-header-rows',
+        data: [
+          ['A0', 'B0', 'C0'],
+          ['A1', 'B1', 'C1'],
+          ['A2', 'B2', 'C2'],
+          ['A3', 'B3', 'C3']
+        ]
+      }
+    );
+    const displayedPhysicalRows = [2, 0, 3, 1];
+    capturedApi.getDisplayedRowCount = jest.fn(() => displayedPhysicalRows.length);
+    capturedApi.getDisplayedRowAtIndex = jest.fn(index => ({
+      data: { __rowIndex: displayedPhysicalRows[index] }
+    }));
+
+    const selectDisplayedRow = visualRow => {
+      const row = document.createElement('div');
+      row.className = 'ag-row';
+      row.setAttribute('row-index', String(visualRow));
+      const cell = document.createElement('div');
+      cell.className = 'ag-cell hot-row-header';
+      cell.setAttribute('col-id', '__rowHeader');
+      row.appendChild(cell);
+      container.appendChild(row);
+      cell.dispatchEvent(new global.window.MouseEvent('mousedown', {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+        ctrlKey: true
+      }));
+    };
+    selectDisplayedRow(0);
+    selectDisplayedRow(3);
+
+    container.dispatchEvent(new global.window.KeyboardEvent('keydown', {
+      bubbles: true,
+      cancelable: true,
+      key: 'c',
+      ctrlKey: true
+    }));
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    const padRow = values => values.concat(Array(Math.max(0, hot.countCols() - values.length)).fill('')).join('\t');
+    expect(writeText).toHaveBeenCalledWith(`${padRow(['A2', 'B2', 'C2'])}\n${padRow(['A1', 'B1', 'C1'])}`);
+  });
+
+  test('Ctrl+X clears every non-contiguous row selected through row headers', async () => {
+    const container = document.createElement('div');
+    container.id = 'agCutHeaderRowsHot';
+    document.body.appendChild(container);
+    const writeText = jest.fn(async () => {});
+    global.window.navigator.clipboard = { writeText };
+
+    const hot = createTable(
+      container,
+      { rows: 4, cols: 3 },
+      () => {},
+      {
+        debugLabel: 'ag-cut-header-rows',
+        data: [
+          ['A0', 'B0', 'C0'],
+          ['A1', 'B1', 'C1'],
+          ['A2', 'B2', 'C2'],
+          ['A3', 'B3', 'C3']
+        ]
+      }
+    );
+
+    const selectRow = rowIndex => {
+      const row = document.createElement('div');
+      row.className = 'ag-row';
+      row.setAttribute('row-index', String(rowIndex));
+      const cell = document.createElement('div');
+      cell.className = 'ag-cell hot-row-header';
+      cell.setAttribute('col-id', '__rowHeader');
+      row.appendChild(cell);
+      container.appendChild(row);
+      cell.dispatchEvent(new global.window.MouseEvent('mousedown', {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+        ctrlKey: true
+      }));
+    };
+    selectRow(1);
+    selectRow(3);
+    capturedGridOptions.onSelectionChanged({ api: capturedApi });
+
+    container.blur();
+    const keyboardTarget = document.activeElement === container ? document.body : document.activeElement;
+    const cutEvent = new global.window.KeyboardEvent('keydown', {
+      bubbles: true,
+      cancelable: true,
+      key: 'x',
+      ctrlKey: true
+    });
+    (keyboardTarget || document.body).dispatchEvent(cutEvent);
+
+    expect(cutEvent.defaultPrevented).toBe(true);
+    expect(writeText).toHaveBeenCalledTimes(1);
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    expect(hot.getDataAtCell(0, 0)).toBe('A0');
+    expect(hot.getDataAtCell(2, 2)).toBe('C2');
+    for(const rowIndex of [1, 3]){
+      for(let col = 0; col < hot.countCols(); col += 1){
+        expect(hot.getDataAtCell(rowIndex, col)).toBe('');
+      }
+    }
+  });
+
+  test('document-level clipboard routing stops after an outside pointer interaction', async () => {
+    const container = document.createElement('div');
+    container.id = 'agClipboardOutsideInteractionHot';
+    const outsideButton = document.createElement('button');
+    outsideButton.type = 'button';
+    outsideButton.textContent = 'Outside';
+    document.body.append(container, outsideButton);
+    const writeText = jest.fn(async () => {});
+    global.window.navigator.clipboard = { writeText };
+
+    createTable(
+      container,
+      { rows: 3, cols: 2 },
+      () => {},
+      {
+        debugLabel: 'ag-clipboard-outside-interaction',
+        data: [
+          ['A0', 'B0'],
+          ['A1', 'B1'],
+          ['A2', 'B2']
+        ]
+      }
+    );
+
+    const row = document.createElement('div');
+    row.className = 'ag-row';
+    row.setAttribute('row-index', '1');
+    const rowHeader = document.createElement('div');
+    rowHeader.className = 'ag-cell hot-row-header';
+    rowHeader.setAttribute('col-id', '__rowHeader');
+    row.appendChild(rowHeader);
+    container.appendChild(row);
+    rowHeader.dispatchEvent(new global.window.MouseEvent('mousedown', {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+      ctrlKey: true
+    }));
+
+    outsideButton.dispatchEvent(new global.window.MouseEvent('mousedown', {
+      bubbles: true,
+      cancelable: true,
+      button: 0
+    }));
+    outsideButton.focus();
+    const copyEvent = new global.window.KeyboardEvent('keydown', {
+      bubbles: true,
+      cancelable: true,
+      key: 'c',
+      ctrlKey: true
+    });
+    outsideButton.dispatchEvent(copyEvent);
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    expect(copyEvent.defaultPrevented).toBe(false);
+    expect(writeText).not.toHaveBeenCalled();
+  });
+
+  test('double-clicking one separator auto-sizes every titled column when all titled columns are selected', async () => {
+    const container = document.createElement('div');
+    container.id = 'agAutosizeAllSelectedColumnsHot';
+    document.body.appendChild(container);
+    capturedApi.autoSizeColumns = jest.fn();
+    capturedApi.ensureColumnVisible = jest.fn(colId => {
+      const cell = document.createElement('div');
+      cell.className = 'ag-cell';
+      cell.setAttribute('col-id', colId);
+      container.appendChild(cell);
+    });
+
+    const hot = createTable(
+      container,
+      { rows: 3, cols: 5 },
+      () => {},
+      {
+        debugLabel: 'ag-autosize-all-selected-columns',
+        pinFirstRow: true,
+        data: [
+          ['A very long pinned title', 'B', 'C', '', ''],
+          [1, 2, 3, null, null],
+          [4, 5, 6, null, null]
+        ]
+      }
+    );
+    hot.selectCell(0, 0, hot.countRows() - 1, 1);
+
+    capturedGridOptions.onColumnResized({
+      api: capturedApi,
+      finished: true,
+      source: 'uiColumnResized'
+    });
+    expect(capturedApi.autoSizeColumns).not.toHaveBeenCalled();
+
+    const header = document.createElement('div');
+    header.className = 'ag-header-cell';
+    header.setAttribute('col-id', 'c0');
+    const separator = document.createElement('div');
+    separator.className = 'ag-header-cell-resize';
+    header.appendChild(separator);
+    container.appendChild(header);
+    separator.dispatchEvent(new global.window.MouseEvent('dblclick', {
+      bubbles: true,
+      cancelable: true,
+      button: 0
+    }));
+    expect(capturedApi.autoSizeColumns).not.toHaveBeenCalled();
+
+    container.dispatchEvent(new global.window.KeyboardEvent('keydown', {
+      key: 'a',
+      ctrlKey: true,
+      bubbles: true,
+      cancelable: true
+    }));
+    expect(hot.getSelectedLast()).toEqual([
+      0,
+      0,
+      hot.countRows() - 1,
+      hot.countCols() - 1
+    ]);
+    separator.dispatchEvent(new global.window.MouseEvent('dblclick', {
+      bubbles: true,
+      cancelable: true,
+      button: 0
+    }));
+
+    await waitForNextFrame();
+    await waitForNextFrame();
+    await waitForNextFrame();
+    await waitForNextFrame();
+    const autosizedIds = capturedApi.autoSizeColumns.mock.calls
+      .flatMap(call=>call[0]);
+    expect(new Set(autosizedIds)).toEqual(new Set(['c0', 'c1', 'c2']));
+    expect(capturedApi.ensureColumnVisible).toHaveBeenCalledWith('c1', 'middle');
+    expect(capturedApi.ensureColumnVisible).toHaveBeenCalledWith('c2', 'middle');
+  });
+
+  test('paste writes into all additive selected header columns', () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agPasteHeaderColumnsHot';
+    document.body.appendChild(container);
+
+    const hot = createTable(
+      container,
+      { rows: 4, cols: 3 },
+      () => {},
+      {
+        debugLabel: 'ag-paste-header-columns',
+        data: Shared.createEmptyData(4, 3)
+      }
+    );
+
+    const header0 = document.createElement('div');
+    header0.className = 'ag-header-cell';
+    header0.setAttribute('col-id', 'c0');
+    container.appendChild(header0);
+    const header2 = document.createElement('div');
+    header2.className = 'ag-header-cell';
+    header2.setAttribute('col-id', 'c2');
+    container.appendChild(header2);
+
+    header0.dispatchEvent(new global.window.MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0, ctrlKey: true }));
+    header2.dispatchEvent(new global.window.MouseEvent('mousedown', {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+      ctrlKey: true
+    }));
+
+    const activeTarget = document.activeElement || container;
+    const pasteEvent = new global.window.Event('paste', { bubbles: true, cancelable: true });
+    pasteEvent.clipboardData = { getData: () => 'X\tY\nM\tN' };
+    activeTarget.dispatchEvent(pasteEvent);
+
+    expect(hot.getDataAtCell(0, 0)).toBe('X');
+    expect(hot.getDataAtCell(0, 2)).toBe('Y');
+    expect(hot.getDataAtCell(1, 0)).toBe('M');
+    expect(hot.getDataAtCell(1, 2)).toBe('N');
+    expect(hot.getDataAtCell(0, 1)).toBe('');
+    expect(hot.getDataAtCell(1, 1)).toBe('');
+  });
+
+  test('Delete clears all selected cells', () => {
+    const container = document.createElement('div');
+    container.id = 'agDeleteSelectionHot';
+    document.body.appendChild(container);
+
+    const hot = createTable(
+      container,
+      { rows: 3, cols: 3 },
+      () => {},
+      {
+        debugLabel: 'ag-delete-selection',
+        data: [
+          ['H1', 'H2', 'H3'],
+          ['A', 'B', 'C'],
+          ['D', 'E', 'F']
+        ]
+      }
+    );
+
+    hot.selectCell(1, 0, 2, 1);
+
+    const evt = new global.window.KeyboardEvent('keydown', { bubbles: true, cancelable: true, key: 'Delete', keyCode: 46 });
+    container.dispatchEvent(evt);
+
+    expect(hot.getDataAtCell(1, 0)).toBe('');
+    expect(hot.getDataAtCell(1, 1)).toBe('');
+    expect(hot.getDataAtCell(2, 0)).toBe('');
+    expect(hot.getDataAtCell(2, 1)).toBe('');
+    expect(hot.getDataAtCell(1, 2)).toBe('C');
+  });
+
+  test('copy outline follows copied cells while scrolling', async () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agCopyOutlineScrollHot';
+    document.body.appendChild(container);
+
+    container.getBoundingClientRect = () => ({
+      left: 0,
+      top: 0,
+      right: 420,
+      bottom: 260,
+      width: 420,
+      height: 260
+    });
+
+    global.window.navigator.clipboard = {
+      writeText: jest.fn(async () => {})
+    };
+
+    const hot = createTable(
+      container,
+      { rows: 6, cols: 3 },
+      () => {},
+      {
+        debugLabel: 'ag-copy-outline-scroll',
+        data: Shared.createEmptyData(6, 3)
+      }
+    );
+
+    const bodyViewport = document.createElement('div');
+    bodyViewport.className = 'ag-body-viewport';
+    bodyViewport.getBoundingClientRect = () => ({
+      left: 0,
+      top: 60,
+      right: 420,
+      bottom: 260,
+      width: 420,
+      height: 200
+    });
+    container.appendChild(bodyViewport);
+
+    const centerViewport = document.createElement('div');
+    centerViewport.className = 'ag-center-cols-viewport';
+    centerViewport.getBoundingClientRect = bodyViewport.getBoundingClientRect;
+    bodyViewport.appendChild(centerViewport);
+
+    let verticalOffset = 0;
+    const makeRect = (left, top) => ({
+      left,
+      top: top + verticalOffset,
+      right: left + 100,
+      bottom: top + verticalOffset + 28,
+      width: 100,
+      height: 28
+    });
+
+    const row = document.createElement('div');
+    row.className = 'ag-row';
+    row.setAttribute('row-index', '2');
+    const cellA = document.createElement('div');
+    cellA.className = 'ag-cell hot-selected-cell';
+    cellA.setAttribute('col-id', 'c0');
+    cellA.setAttribute('row-index', '2');
+    cellA.getBoundingClientRect = () => makeRect(60, 116);
+    row.appendChild(cellA);
+    const cellB = document.createElement('div');
+    cellB.className = 'ag-cell hot-selected-cell';
+    cellB.setAttribute('col-id', 'c1');
+    cellB.setAttribute('row-index', '2');
+    cellB.getBoundingClientRect = () => makeRect(160, 116);
+    row.appendChild(cellB);
+    centerViewport.appendChild(row);
+
+    capturedGridOptions?.onFirstDataRendered?.();
+
+    hot.selectCell(2, 0, 2, 1);
+
+    const copyEvt = new global.window.KeyboardEvent('keydown', {
+      bubbles: true,
+      cancelable: true,
+      key: 'c',
+      ctrlKey: true
+    });
+    container.dispatchEvent(copyEvt);
+    await waitForNextFrame();
+
+    const outline = container.querySelector('.hot-clipboard-outline');
+    expect(outline).toBeTruthy();
+    expect(outline.style.display).toBe('block');
+    expect(outline.style.left).toBe('59px');
+    expect(outline.style.top).toBe('115px');
+    const selectionOutline = container.querySelector('.hot-selection-outline');
+    if (selectionOutline) {
+      expect(selectionOutline.style.display).toBe('none');
+    }
+
+    verticalOffset = 56;
+    bodyViewport.dispatchEvent(new global.window.Event('scroll', { bubbles: true }));
+    await waitForNextFrame();
+
+    expect(outline.style.top).toBe('171px');
+  });
+
+  test('cut keeps clipboard outline visible until paste clears it', async () => {
+    const container = document.createElement('div');
+    container.id = 'agCutOutlineHot';
+    document.body.appendChild(container);
+
+    container.getBoundingClientRect = () => ({
+      left: 0,
+      top: 0,
+      right: 320,
+      bottom: 220,
+      width: 320,
+      height: 220
+    });
+
+    let clipboardText = '';
+    global.window.navigator.clipboard = {
+      writeText: jest.fn(async text => {
+        clipboardText = text;
+      })
+    };
+
+    const hot = createTable(
+      container,
+      { rows: 4, cols: 3 },
+      () => {},
+      {
+        debugLabel: 'ag-cut-outline',
+        data: [
+          ['H1', 'H2', 'H3'],
+          ['A', '', ''],
+          ['', '', ''],
+          ['', '', '']
+        ]
+      }
+    );
+
+    const bodyViewport = document.createElement('div');
+    bodyViewport.className = 'ag-body-viewport';
+    bodyViewport.getBoundingClientRect = () => ({
+      left: 0,
+      top: 32,
+      right: 320,
+      bottom: 220,
+      width: 320,
+      height: 188
+    });
+    container.appendChild(bodyViewport);
+
+    const centerViewport = document.createElement('div');
+    centerViewport.className = 'ag-center-cols-viewport';
+    centerViewport.getBoundingClientRect = bodyViewport.getBoundingClientRect;
+    bodyViewport.appendChild(centerViewport);
+
+    const row = document.createElement('div');
+    row.className = 'ag-row';
+    row.setAttribute('row-index', '1');
+    const cell = document.createElement('div');
+    cell.className = 'ag-cell hot-selected-cell';
+    cell.setAttribute('col-id', 'c0');
+    cell.setAttribute('row-index', '1');
+    cell.getBoundingClientRect = () => ({
+      left: 60,
+      top: 60,
+      right: 160,
+      bottom: 88,
+      width: 100,
+      height: 28
+    });
+    row.appendChild(cell);
+    centerViewport.appendChild(row);
+
+    capturedGridOptions?.onFirstDataRendered?.();
+
+    hot.selectCell(1, 0);
+
+    const cutEvt = new global.window.KeyboardEvent('keydown', {
+      bubbles: true,
+      cancelable: true,
+      key: 'x',
+      ctrlKey: true
+    });
+    container.dispatchEvent(cutEvt);
+    await waitForNextFrame();
+
+    const outline = container.querySelector('.hot-clipboard-outline');
+    expect(clipboardText.trim()).toBe('A');
+    expect(hot.getDataAtCell(1, 0)).toBe('');
+    expect(outline).toBeTruthy();
+    expect(outline.style.display).toBe('block');
+
+    const pasteEvt = new global.window.Event('paste', { bubbles: true, cancelable: true });
+    pasteEvt.clipboardData = { getData: () => clipboardText };
+    container.dispatchEvent(pasteEvt);
+    await waitForNextFrame();
+
+    expect(outline.style.display).toBe('none');
+  });
+
+  test('paste into another AG Grid clears the original clipboard outline', async () => {
+    const Shared = global.window.Shared;
+    const sourceContainer = document.createElement('div');
+    sourceContainer.id = 'agCopySourceHot';
+    document.body.appendChild(sourceContainer);
+
+    sourceContainer.getBoundingClientRect = () => ({
+      left: 0,
+      top: 0,
+      right: 320,
+      bottom: 220,
+      width: 320,
+      height: 220
+    });
+
+    let clipboardText = '';
+    global.window.navigator.clipboard = {
+      writeText: jest.fn(async text => {
+        clipboardText = text;
+      })
+    };
+
+    const sourceHot = createTable(
+      sourceContainer,
+      { rows: 4, cols: 3 },
+      () => {},
+      {
+        debugLabel: 'ag-copy-source',
+        data: [
+          ['H1', 'H2', 'H3'],
+          ['A', '', ''],
+          ['', '', ''],
+          ['', '', '']
+        ]
+      }
+    );
+
+    const sourceBodyViewport = document.createElement('div');
+    sourceBodyViewport.className = 'ag-body-viewport';
+    sourceBodyViewport.getBoundingClientRect = () => ({
+      left: 0,
+      top: 32,
+      right: 320,
+      bottom: 220,
+      width: 320,
+      height: 188
+    });
+    sourceContainer.appendChild(sourceBodyViewport);
+
+    const sourceCenterViewport = document.createElement('div');
+    sourceCenterViewport.className = 'ag-center-cols-viewport';
+    sourceCenterViewport.getBoundingClientRect = sourceBodyViewport.getBoundingClientRect;
+    sourceBodyViewport.appendChild(sourceCenterViewport);
+
+    const sourceRow = document.createElement('div');
+    sourceRow.className = 'ag-row';
+    sourceRow.setAttribute('row-index', '1');
+    const sourceCell = document.createElement('div');
+    sourceCell.className = 'ag-cell hot-selected-cell';
+    sourceCell.setAttribute('col-id', 'c0');
+    sourceCell.setAttribute('row-index', '1');
+    sourceCell.getBoundingClientRect = () => ({
+      left: 60,
+      top: 60,
+      right: 160,
+      bottom: 88,
+      width: 100,
+      height: 28
+    });
+    sourceRow.appendChild(sourceCell);
+    sourceCenterViewport.appendChild(sourceRow);
+
+    capturedGridOptions?.onFirstDataRendered?.();
+
+    sourceHot.selectCell(1, 0);
+    const copyEvt = new global.window.KeyboardEvent('keydown', {
+      bubbles: true,
+      cancelable: true,
+      key: 'c',
+      ctrlKey: true
+    });
+    sourceContainer.dispatchEvent(copyEvt);
+    await waitForNextFrame();
+
+    const outline = sourceContainer.querySelector('.hot-clipboard-outline');
+    expect(clipboardText.trim()).toBe('A');
+    expect(outline).toBeTruthy();
+    expect(outline.style.display).toBe('block');
+
+    const targetContainer = document.createElement('div');
+    targetContainer.id = 'agCopyTargetHot';
+    document.body.appendChild(targetContainer);
+
+    const targetHot = createTable(
+      targetContainer,
+      { rows: 4, cols: 3 },
+      () => {},
+      {
+        debugLabel: 'ag-copy-target',
+        data: Shared.createEmptyData(4, 3)
+      }
+    );
+
+    targetHot.selectCell(0, 0);
+
+    const pasteEvt = new global.window.Event('paste', { bubbles: true, cancelable: true });
+    pasteEvt.clipboardData = { getData: () => clipboardText };
+    targetContainer.dispatchEvent(pasteEvt);
+    await waitForNextFrame();
+
+    expect(targetHot.getDataAtCell(0, 0)).toBe('A');
+    expect(outline.style.display).toBe('none');
+  });
+
+  test('paste selects the full pasted block with live selection chrome', async () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agPasteSelectionBlockHot';
+    document.body.appendChild(container);
+
+    container.getBoundingClientRect = () => ({
+      left: 0,
+      top: 0,
+      right: 420,
+      bottom: 260,
+      width: 420,
+      height: 260
+    });
+
+    const hot = createTable(
+      container,
+      { rows: 5, cols: 5 },
+      () => {},
+      {
+        debugLabel: 'ag-paste-selection-block',
+        data: Shared.createEmptyData(5, 5)
+      }
+    );
+
+    const bodyViewport = document.createElement('div');
+    bodyViewport.className = 'ag-body-viewport';
+    bodyViewport.getBoundingClientRect = () => ({
+      left: 0,
+      top: 32,
+      right: 420,
+      bottom: 260,
+      width: 420,
+      height: 228
+    });
+    container.appendChild(bodyViewport);
+
+    const centerViewport = document.createElement('div');
+    centerViewport.className = 'ag-center-cols-viewport';
+    centerViewport.getBoundingClientRect = bodyViewport.getBoundingClientRect;
+    bodyViewport.appendChild(centerViewport);
+
+    const makeCellRect = (left, top) => ({
+      left,
+      top,
+      right: left + 100,
+      bottom: top + 28,
+      width: 100,
+      height: 28
+    });
+
+    for (let rowIndex = 1; rowIndex <= 2; rowIndex += 1) {
+      const row = document.createElement('div');
+      row.className = 'ag-row';
+      row.setAttribute('row-index', String(rowIndex));
+      const rowTop = 32 + (rowIndex * 28);
+      for (let colIndex = 1; colIndex <= 2; colIndex += 1) {
+        const cell = document.createElement('div');
+        cell.className = 'ag-cell hot-selected-cell';
+        cell.setAttribute('col-id', `c${colIndex}`);
+        cell.setAttribute('row-index', String(rowIndex));
+        cell.getBoundingClientRect = () => makeCellRect(60 + ((colIndex - 1) * 100), rowTop);
+        row.appendChild(cell);
+      }
+      centerViewport.appendChild(row);
+    }
+
+    capturedGridOptions?.onFirstDataRendered?.();
+
+    hot.selectCell(1, 1);
+    const pasteEvt = new global.window.Event('paste', { bubbles: true, cancelable: true });
+    pasteEvt.clipboardData = { getData: () => 'A\tB\nC\tD' };
+    container.dispatchEvent(pasteEvt);
+    await waitForNextFrame();
+
+    expect(hot.getSelectedLast()).toEqual([1, 1, 2, 2]);
+    const outline = container.querySelector('.hot-selection-outline');
+    expect(outline).toBeTruthy();
+    expect(outline.style.display).toBe('block');
+    expect(outline.style.left).toBe('59px');
+    expect(outline.style.top).toBe('59px');
+    expect(outline.style.width).toBe('202px');
+    expect(outline.style.height).toBe('58px');
+    const clipboardOutline = container.querySelector('.hot-clipboard-outline');
+    if (clipboardOutline) {
+      expect(clipboardOutline.style.display).toBe('none');
+    }
+  });
+
+  test('paste keeps full pasted block selected even if AG sync reports only the anchor cell', async () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agPasteSelectionStabilizedHot';
+    document.body.appendChild(container);
+
+    container.getBoundingClientRect = () => ({
+      left: 0,
+      top: 0,
+      right: 420,
+      bottom: 260,
+      width: 420,
+      height: 260
+    });
+
+    const hot = createTable(
+      container,
+      { rows: 5, cols: 5 },
+      () => {},
+      {
+        debugLabel: 'ag-paste-selection-stabilized',
+        data: Shared.createEmptyData(5, 5)
+      }
+    );
+
+    const bodyViewport = document.createElement('div');
+    bodyViewport.className = 'ag-body-viewport';
+    bodyViewport.getBoundingClientRect = () => ({
+      left: 0,
+      top: 32,
+      right: 420,
+      bottom: 260,
+      width: 420,
+      height: 228
+    });
+    container.appendChild(bodyViewport);
+
+    const centerViewport = document.createElement('div');
+    centerViewport.className = 'ag-center-cols-viewport';
+    centerViewport.getBoundingClientRect = bodyViewport.getBoundingClientRect;
+    bodyViewport.appendChild(centerViewport);
+
+    const makeCellRect = (left, top) => ({
+      left,
+      top,
+      right: left + 100,
+      bottom: top + 28,
+      width: 100,
+      height: 28
+    });
+
+    for (let rowIndex = 1; rowIndex <= 2; rowIndex += 1) {
+      const row = document.createElement('div');
+      row.className = 'ag-row';
+      row.setAttribute('row-index', String(rowIndex));
+      const rowTop = 32 + (rowIndex * 28);
+      for (let colIndex = 1; colIndex <= 2; colIndex += 1) {
+        const cell = document.createElement('div');
+        cell.className = 'ag-cell hot-selected-cell';
+        cell.setAttribute('col-id', `c${colIndex}`);
+        cell.setAttribute('row-index', String(rowIndex));
+        cell.getBoundingClientRect = () => makeCellRect(60 + ((colIndex - 1) * 100), rowTop);
+        row.appendChild(cell);
+      }
+      centerViewport.appendChild(row);
+    }
+
+    capturedGridOptions?.onFirstDataRendered?.();
+    hot.selectCell(1, 1);
+
+    capturedApi.getFocusedCell = jest.fn(() => ({
+      rowIndex: 1,
+      column: { getColId: () => 'c1' }
+    }));
+
+    const pasteEvt = new global.window.Event('paste', { bubbles: true, cancelable: true });
+    pasteEvt.clipboardData = { getData: () => 'A\tB\nC\tD' };
+    container.dispatchEvent(pasteEvt);
+
+    capturedGridOptions?.onSelectionChanged?.({ api: capturedApi });
+
+    for (let i = 0; i < 3; i += 1) {
+      await waitForNextFrame();
+    }
+
+    expect(hot.getSelectedLast()).toEqual([1, 1, 2, 2]);
+    const outline = container.querySelector('.hot-selection-outline');
+    expect(outline).toBeTruthy();
+    expect(outline.style.display).toBe('block');
+    expect(outline.style.width).toBe('202px');
+    expect(outline.style.height).toBe('58px');
+  });
+
+  test('paste selection lock ignores repeated anchor-only syncs until user makes a new selection', async () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agPasteSelectionLockHot';
+    document.body.appendChild(container);
+
+    container.getBoundingClientRect = () => ({
+      left: 0,
+      top: 0,
+      right: 420,
+      bottom: 260,
+      width: 420,
+      height: 260
+    });
+
+    const hot = createTable(
+      container,
+      { rows: 5, cols: 5 },
+      () => {},
+      {
+        debugLabel: 'ag-paste-selection-lock',
+        data: Shared.createEmptyData(5, 5)
+      }
+    );
+
+    const bodyViewport = document.createElement('div');
+    bodyViewport.className = 'ag-body-viewport';
+    bodyViewport.getBoundingClientRect = () => ({
+      left: 0,
+      top: 32,
+      right: 420,
+      bottom: 260,
+      width: 420,
+      height: 228
+    });
+    container.appendChild(bodyViewport);
+
+    const centerViewport = document.createElement('div');
+    centerViewport.className = 'ag-center-cols-viewport';
+    centerViewport.getBoundingClientRect = bodyViewport.getBoundingClientRect;
+    bodyViewport.appendChild(centerViewport);
+
+    const makeCellRect = (left, top) => ({
+      left,
+      top,
+      right: left + 100,
+      bottom: top + 28,
+      width: 100,
+      height: 28
+    });
+
+    for (let rowIndex = 1; rowIndex <= 2; rowIndex += 1) {
+      const row = document.createElement('div');
+      row.className = 'ag-row';
+      row.setAttribute('row-index', String(rowIndex));
+      const rowTop = 32 + (rowIndex * 28);
+      for (let colIndex = 1; colIndex <= 2; colIndex += 1) {
+        const cell = document.createElement('div');
+        cell.className = 'ag-cell hot-selected-cell';
+        cell.setAttribute('col-id', `c${colIndex}`);
+        cell.setAttribute('row-index', String(rowIndex));
+        cell.getBoundingClientRect = () => makeCellRect(60 + ((colIndex - 1) * 100), rowTop);
+        row.appendChild(cell);
+      }
+      centerViewport.appendChild(row);
+    }
+
+    capturedGridOptions?.onFirstDataRendered?.();
+    hot.selectCell(1, 1);
+
+    capturedApi.getFocusedCell = jest.fn(() => ({
+      rowIndex: 1,
+      column: { getColId: () => 'c1' }
+    }));
+
+    const pasteEvt = new global.window.Event('paste', { bubbles: true, cancelable: true });
+    pasteEvt.clipboardData = { getData: () => 'A\tB\nC\tD' };
+    container.dispatchEvent(pasteEvt);
+
+    for (let i = 0; i < 4; i += 1) {
+      capturedGridOptions?.onSelectionChanged?.({ api: capturedApi });
+      await waitForNextFrame();
+      expect(hot.getSelectedLast()).toEqual([1, 1, 2, 2]);
+    }
+
+    const clickEvt = new global.window.MouseEvent('mousedown', {
+      bubbles: true,
+      cancelable: true,
+      button: 0
+    });
+    const clickedCell = document.createElement('div');
+    clickedCell.className = 'ag-cell';
+    clickedCell.setAttribute('col-id', 'c3');
+    const clickedRow = document.createElement('div');
+    clickedRow.className = 'ag-row';
+    clickedRow.setAttribute('row-index', '3');
+    clickedRow.appendChild(clickedCell);
+    centerViewport.appendChild(clickedRow);
+    clickedCell.dispatchEvent(clickEvt);
+    hot.selectCell(3, 3);
+    expect(hot.getSelectedLast()).toEqual([3, 3, 3, 3]);
+  });
+
+  test('undo after cut+paste restores both source and destination', async () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agUndoMoveHot';
+    document.body.appendChild(container);
+
+    let clipboardText = '';
+    global.window.navigator.clipboard = {
+      writeText: jest.fn(async text => {
+        clipboardText = text;
+      })
+    };
+
+    const hot = createTable(
+      container,
+      { rows: 3, cols: 3 },
+      () => {},
+      {
+        debugLabel: 'ag-undo-move',
+        data: [
+          ['H1', 'H2', 'H3'],
+          ['A', '', ''],
+          ['', '', '']
+        ]
+      }
+    );
+
+    hot.selectCell(1, 0);
+
+    const cutEvt = new global.window.KeyboardEvent('keydown', {
+      bubbles: true,
+      cancelable: true,
+      key: 'x',
+      ctrlKey: true
+    });
+    container.dispatchEvent(cutEvt);
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    expect(clipboardText.trim()).toBe('A');
+    expect(hot.getDataAtCell(1, 0)).toBe('');
+
+    hot.selectCell(1, 1);
+    const pasteEvt = new global.window.Event('paste', { bubbles: true, cancelable: true });
+    pasteEvt.clipboardData = { getData: () => clipboardText };
+    container.dispatchEvent(pasteEvt);
+
+    expect(hot.getDataAtCell(1, 1)).toBe('A');
+    expect(hot.getDataAtCell(1, 0)).toBe('');
+
+    expect(typeof hot.undo).toBe('function');
+    const undoResult = undoUntil(Shared.undoManager, () => (
+      hot.getDataAtCell(1, 0) === 'A'
+      && hot.getDataAtCell(1, 1) === ''
+    ));
+    expect(undoResult.reached).toBe(true);
+  });
+
+  test('undo after cut without paste restores the cleared source range', async () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agUndoCutOnlyHot';
+    document.body.appendChild(container);
+
+    global.window.navigator.clipboard = {
+      writeText: jest.fn(async () => {})
+    };
+
+    const hot = createTable(
+      container,
+      { rows: 4, cols: 4 },
+      () => {},
+      {
+        debugLabel: 'ag-undo-cut-only',
+        data: [
+          ['H1', 'H2', 'H3', 'H4'],
+          ['A', 'B', '', ''],
+          ['C', 'D', '', ''],
+          ['', '', '', '']
+        ]
+      }
+    );
+
+    hot.selectCell(1, 0, 2, 1);
+
+    const cutEvt = new global.window.KeyboardEvent('keydown', {
+      bubbles: true,
+      cancelable: true,
+      key: 'x',
+      ctrlKey: true
+    });
+    container.dispatchEvent(cutEvt);
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    expect(hot.getDataAtCell(1, 0)).toBe('');
+    expect(hot.getDataAtCell(1, 1)).toBe('');
+    expect(hot.getDataAtCell(2, 0)).toBe('');
+    expect(hot.getDataAtCell(2, 1)).toBe('');
+
+    const undoResult = undoUntil(Shared.undoManager, () => (
+      hot.getDataAtCell(1, 0) === 'A'
+      && hot.getDataAtCell(1, 1) === 'B'
+      && hot.getDataAtCell(2, 0) === 'C'
+      && hot.getDataAtCell(2, 1) === 'D'
+    ));
+    expect(undoResult.reached).toBe(true);
+  });
+
+  test('global undo after cut+paste restores the moved block as a single step', async () => {
+    const Shared = global.window.Shared;
+    const undoManager = Shared.undoManager;
+    const container = document.createElement('div');
+    container.id = 'agUndoMoveGlobalHot';
+    document.body.appendChild(container);
+
+    let clipboardText = '';
+    global.window.navigator.clipboard = {
+      writeText: jest.fn(async text => {
+        clipboardText = text;
+      })
+    };
+
+    const hot = createTable(
+      container,
+      { rows: 4, cols: 4 },
+      () => {},
+      {
+        debugLabel: 'ag-undo-move-global',
+        data: [
+          ['H1', 'H2', 'H3', 'H4'],
+          ['A', 'B', '', ''],
+          ['C', 'D', '', ''],
+          ['', '', '', '']
+        ]
+      }
+    );
+
+    hot.selectCell(1, 0, 2, 1);
+
+    const cutEvt = new global.window.KeyboardEvent('keydown', {
+      bubbles: true,
+      cancelable: true,
+      key: 'x',
+      ctrlKey: true
+    });
+    container.dispatchEvent(cutEvt);
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    hot.selectCell(1, 2);
+    const pasteEvt = new global.window.Event('paste', { bubbles: true, cancelable: true });
+    pasteEvt.clipboardData = { getData: () => clipboardText };
+    container.dispatchEvent(pasteEvt);
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    expect(hot.getDataAtCell(1, 0)).toBe('');
+    expect(hot.getDataAtCell(1, 1)).toBe('');
+    expect(hot.getDataAtCell(2, 0)).toBe('');
+    expect(hot.getDataAtCell(2, 1)).toBe('');
+    expect(hot.getDataAtCell(1, 2)).toBe('A');
+    expect(hot.getDataAtCell(1, 3)).toBe('B');
+    expect(hot.getDataAtCell(2, 2)).toBe('C');
+    expect(hot.getDataAtCell(2, 3)).toBe('D');
+
+    const undoResult = undoUntil(undoManager, () => (
+      hot.getDataAtCell(1, 0) === 'A'
+      && hot.getDataAtCell(1, 1) === 'B'
+      && hot.getDataAtCell(2, 0) === 'C'
+      && hot.getDataAtCell(2, 1) === 'D'
+      && hot.getDataAtCell(1, 2) === ''
+      && hot.getDataAtCell(1, 3) === ''
+      && hot.getDataAtCell(2, 2) === ''
+      && hot.getDataAtCell(2, 3) === ''
+    ));
+    expect(undoResult.reached).toBe(true);
+
+    const redoResult = redoUntil(undoManager, () => (
+      hot.getDataAtCell(1, 0) === ''
+      && hot.getDataAtCell(1, 1) === ''
+      && hot.getDataAtCell(2, 0) === ''
+      && hot.getDataAtCell(2, 1) === ''
+      && hot.getDataAtCell(1, 2) === 'A'
+      && hot.getDataAtCell(1, 3) === 'B'
+      && hot.getDataAtCell(2, 2) === 'C'
+      && hot.getDataAtCell(2, 3) === 'D'
+    ));
+    expect(redoResult.reached).toBe(true);
+  });
+
+  test('Ctrl+Z inside the grid follows the shared global undo order', async () => {
+    const Shared = global.window.Shared;
+    const undoManager = Shared.undoManager;
+    const container = document.createElement('div');
+    container.id = 'agUndoBridgeHot';
+    document.body.appendChild(container);
+
+    let clipboardText = '';
+    global.window.navigator.clipboard = {
+      writeText: jest.fn(async text => {
+        clipboardText = text;
+      })
+    };
+
+    const hot = createTable(
+      container,
+      { rows: 4, cols: 4 },
+      () => {},
+      {
+        debugLabel: 'ag-undo-bridge',
+        data: [
+          ['H1', 'H2', 'H3', 'H4'],
+          ['A', 'B', '', ''],
+          ['C', 'D', '', ''],
+          ['', '', '', '']
+        ]
+      }
+    );
+
+    hot.selectCell(1, 0, 2, 1);
+    container.dispatchEvent(new global.window.KeyboardEvent('keydown', {
+      bubbles: true,
+      cancelable: true,
+      key: 'x',
+      ctrlKey: true
+    }));
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    hot.selectCell(1, 2);
+    const pasteEvt = new global.window.Event('paste', { bubbles: true, cancelable: true });
+    pasteEvt.clipboardData = { getData: () => clipboardText };
+    container.dispatchEvent(pasteEvt);
+
+    expect(hot.getDataAtCell(1, 0)).toBe('');
+    expect(hot.getDataAtCell(1, 2)).toBe('A');
+
+    let marker = 'after';
+    undoManager.record({
+      label: 'manual:later-entry',
+      scope: 'manual',
+      undo: () => {
+        marker = 'before';
+        return true;
+      },
+      redo: () => {
+        marker = 'after';
+        return true;
+      }
+    });
+
+    expect(undoManager.performCommand('undo', { target: container })).toBe(true);
+
+    expect(marker).toBe('before');
+    expect(hot.getDataAtCell(1, 0)).toBe('');
+    expect(hot.getDataAtCell(1, 2)).toBe('A');
+
+    const undoMoveResult = undoUntil(undoManager, () => (
+      hot.getDataAtCell(1, 0) === 'A'
+      && hot.getDataAtCell(1, 1) === 'B'
+      && hot.getDataAtCell(2, 0) === 'C'
+      && hot.getDataAtCell(2, 1) === 'D'
+      && hot.getDataAtCell(1, 2) === ''
+      && hot.getDataAtCell(1, 3) === ''
+      && hot.getDataAtCell(2, 2) === ''
+      && hot.getDataAtCell(2, 3) === ''
+    ));
+    expect(undoMoveResult.reached).toBe(true);
+  });
+});
+
+global.test = originalJestTest;
+if (!shardStarted || !shardEnded || observedTestCount !== 88 || registeredTestCount !== hotAggridShardSpec.expected) {
+  throw new Error(`Invalid AG Grid clipboard shard ${hotAggridShard}: observed ${observedTestCount}, registered ${registeredTestCount}.`);
+}

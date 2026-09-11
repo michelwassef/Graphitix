@@ -1,6 +1,7 @@
 const loadUndoDeps = () => {
   require('../js/vendor.js');
   require('../js/shared/undo.js');
+  require('../js/shared/workspaceToolbar.js');
   require('../js/shared/colorPicker.js');
   require('../js/shared/symbolToolbar.js');
   require('../js/shared/additionalLineControls.js');

@@ -1,12 +1,9 @@
 const fs = require('fs');
 const path = require('path');
 const { test, expect } = require('@playwright/test');
-const {
-  installLocalCdnOverrides,
-  registerIssueCollectors,
-  openComponentFromWelcome,
-  waitForDocumentOpenComplete
-} = require('./helpers/workspaceHarness');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
+const { registerIssueCollectors } = require('./helpers/diagnostics');
+const { openComponentFromWelcome, waitForDocumentOpenComplete } = require('./helpers/workspaceDriver');
 
 const TMP = path.resolve(__dirname, '.tmp');
 
@@ -84,7 +81,7 @@ async function installSpeciesMock(page) {
 }
 
 async function configureUpSetListTab(page) {
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const activeId = window.Main?.session?.workspaceState?.activeTabId;
     const root = window.Shared?.workspaceTabs?.getMountedRoot?.(activeId, 'venn');
     if (!root) throw new Error('Active Venn root not found');
@@ -128,7 +125,7 @@ async function configureUpSetListTab(page) {
     const regionValues = Array.from(root?.querySelectorAll?.('#regionSelect option') || []).map(option => option.value);
     return root?.querySelector?.('#stage [data-upset-trace-kind]') && regionValues.some(value => value.includes('A') && value.includes('B'));
   }, null, { timeout: 20_000 });
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const activeId = window.Main?.session?.workspaceState?.activeTabId;
     const root = window.Shared?.workspaceTabs?.getMountedRoot?.(activeId, 'venn');
     const region = root.querySelector('#regionSelect');
@@ -138,7 +135,7 @@ async function configureUpSetListTab(page) {
     const species = root.querySelector('#speciesSelect');
     species.value = '';
     species.dispatchEvent(new Event('change', { bubbles: true }));
-    window.Components.venn.recognizeSpeciesFromInput({ reason: 'e2e-upset-species' }).catch(() => {});
+    await window.Components.venn.recognizeSpeciesFromInput({ reason: 'e2e-upset-species' });
   });
   await page.waitForFunction(() => {
     const activeId = window.Main?.session?.workspaceState?.activeTabId;

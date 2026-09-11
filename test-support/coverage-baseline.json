@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "capturedOn": "2026-09-09",
+  "source": "npm run test:coverage",
+  "metrics": {
+    "statements": 65.67,
+    "branches": 51.25,
+    "functions": 68.64,
+    "lines": 66.6
+  },
+  "critical": {
+    "js/shared/componentLifecycle.js": {
+      "statements": 50,
+      "branches": 35,
+      "functions": 50,
+      "lines": 50
+    },
+    "js/shared/graphArchive.js": {
+      "statements": 50,
+      "branches": 35,
+      "functions": 50,
+      "lines": 50
+    },
+    "js/shared/dataViews.js": {
+      "statements": 50,
+      "branches": 35,
+      "functions": 50,
+      "lines": 50
+    },
+    "js/main/session.js": {
+      "statements": 50,
+      "branches": 35,
+      "functions": 50,
+      "lines": 50
+    },
+    "js/main/sessionActions.js": {
+      "statements": 50,
+      "branches": 35,
+      "functions": 50,
+      "lines": 50
+    }
+  }
+}

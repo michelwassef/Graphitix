@@ -12,7 +12,14 @@
  */
 const fs = require('fs'); const path = require('path');
 const { test, expect } = require('@playwright/test');
-const { installLocalCdnOverrides, registerIssueCollectors, openComponentFromWelcome, clickExampleButtonIfPresent, waitForDocumentOpenComplete } = require('./helpers/workspaceHarness');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
+const { registerIssueCollectors } = require('./helpers/diagnostics');
+const {
+  openComponentFromWelcome,
+  clickExampleButtonIfPresent,
+  waitForDocumentOpenComplete
+} = require('./helpers/workspaceDriver');
+const { waitForComponentOwnerReady } = require('./helpers/contractWaits');
 const TMP = path.resolve(__dirname, '.tmp');
 
 const GENES = {
@@ -35,7 +42,11 @@ async function activateTabById(page, tabId) {
   await tab.click({ force: true });
   await page.waitForFunction(id => window.Main?.session?.workspaceState?.activeTabId === id, tabId, { timeout: 20_000 });
   await page.waitForSelector('#vennPage:not([hidden]) #stage', { timeout: 30_000 });
-  await page.waitForTimeout(300);
+  await waitForComponentOwnerReady(page, 'venn', {
+    expectedTabId: tabId,
+    requireMountedRoot: true,
+    requireIdle: true
+  });
 }
 
 async function buildVenn(page) {
@@ -46,7 +57,10 @@ async function buildVenn(page) {
   await clickExampleButtonIfPresent(page, 'sample');
   await page.waitForFunction(() => !!document.getElementById('stage'), null, { timeout: 30_000 });
   await page.waitForFunction(() => window.Components?.venn?.isIdleForSnapshot?.() === true, null, { timeout: 30_000 });
-  await page.waitForTimeout(300);
+  await waitForComponentOwnerReady(page, 'venn', {
+    requireMountedRoot: true,
+    requireIdle: true
+  });
 }
 
 async function openAdditionalVenn(page) {
@@ -55,7 +69,10 @@ async function openAdditionalVenn(page) {
   await page.waitForFunction(() => !!window.Components?.venn?.ready, null, { timeout: 30_000 });
   await clickExampleButtonIfPresent(page, 'sample');
   await page.waitForFunction(() => window.Components?.venn?.isIdleForSnapshot?.() === true, null, { timeout: 30_000 });
-  await page.waitForTimeout(300);
+  await waitForComponentOwnerReady(page, 'venn', {
+    requireMountedRoot: true,
+    requireIdle: true
+  });
   const after = await getWorkspaceTabIds(page);
   const tabId = after.find(id => !before.has(id));
   expect(tabId).toBeTruthy();
@@ -87,7 +104,10 @@ async function injectAnalysis(page) {
     payload.analysis.activeResultsTab = 'string';
     venn.loadFromPayload(payload, { reason: 'e2e-inject-analysis' });
   }, GENES);
-  await page.waitForTimeout(600);
+  await waitForComponentOwnerReady(page, 'venn', {
+    requireMountedRoot: true,
+    requireIdle: true
+  });
 }
 
 function goChartState() {
@@ -97,7 +117,10 @@ function goChartState() {
 }
 async function switchAnalysisTab(page, which) {
   await page.evaluate((w) => { const b = document.getElementById(w === 'go' ? 'analysisTabGo' : 'analysisTabString'); if (b) b.click(); }, which);
-  await page.waitForTimeout(400);
+  await waitForComponentOwnerReady(page, 'venn', {
+    requireMountedRoot: true,
+    requireIdle: true
+  });
 }
 async function captureArchive(page, stem) {
   const a = await page.evaluate(async () => {
@@ -114,9 +137,11 @@ async function reopen(page, archivePath) {
   await expect(page.locator('#welcomeScreen')).toBeVisible({ timeout: 20_000 });
   await page.locator('#workspaceSessionInput').setInputFiles(archivePath);
   await waitForDocumentOpenComplete(page);
-  await page.waitForTimeout(1000);
   await page.waitForSelector('#vennPage:not([hidden])', { timeout: 30_000 }).catch(() => {});
-  await page.waitForTimeout(1000);
+  await waitForComponentOwnerReady(page, 'venn', {
+    requireMountedRoot: true,
+    requireIdle: true
+  });
 }
 
 async function installButtonRunAnalysisMocks(page) {
@@ -594,12 +619,18 @@ test('venn undo redraws the diagram', async ({ page }) => {
     const hot = window.Components.venn.__getState?.()?.ui?.hot || null;
     if (hot && typeof hot.setDataAtCell === 'function') { hot.setDataAtCell(1, 0, ''); }
   });
-  await page.waitForTimeout(700);
+  await waitForComponentOwnerReady(page, 'venn', {
+    requireMountedRoot: true,
+    requireIdle: true
+  });
   const afterDelete = await page.evaluate(sig);
   expect(afterDelete, 'deleting a cell should redraw the diagram').not.toBe(before);
 
   await page.evaluate(() => window.Shared?.undoManager?.undo?.());
-  await page.waitForTimeout(700);
+  await waitForComponentOwnerReady(page, 'venn', {
+    requireMountedRoot: true,
+    requireIdle: true
+  });
   const afterUndo = await page.evaluate(sig);
   expect(afterUndo, 'undo should redraw the diagram').not.toBe(afterDelete);
   expect(issues.critical.filter(e => e.kind !== 'requestfailed')).toEqual([]);

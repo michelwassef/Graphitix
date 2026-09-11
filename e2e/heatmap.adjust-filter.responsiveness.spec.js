@@ -1,9 +1,7 @@
 const { test, expect } = require('@playwright/test');
-const {
-  installLocalCdnOverrides,
-  openComponentFromWelcome,
-  registerIssueCollectors
-} = require('./helpers/workspaceHarness');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
+const { openComponentFromWelcome } = require('./helpers/workspaceDriver');
+const { registerIssueCollectors } = require('./helpers/diagnostics');
 
 test('large Adjust data changes paint before tab-owned transformation work', async ({ page }) => {
   test.setTimeout(60_000);

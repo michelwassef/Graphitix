@@ -1,10 +1,10 @@
 const { test, expect } = require('@playwright/test');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
+const { registerIssueCollectors } = require('./helpers/diagnostics');
 const {
-  installLocalCdnOverrides,
-  registerIssueCollectors,
   openComponentFromWelcome,
   clickExampleButtonIfPresent
-} = require('./helpers/workspaceHarness');
+} = require('./helpers/workspaceDriver');
 
 async function activateTabById(page, tabId) {
   const tab = page.locator(`#workspaceTabsList .workspace-tab[data-tab-id="${tabId}"]`).first();

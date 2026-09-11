@@ -1,9 +1,7 @@
 const { test, expect } = require('@playwright/test');
-const {
-  installLocalCdnOverrides,
-  registerIssueCollectors,
-  openComponentFromWelcome
-} = require('./helpers/workspaceHarness');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
+const { openComponentFromWelcome } = require('./helpers/workspaceDriver');
+const { registerIssueCollectors } = require('./helpers/diagnostics');
 
 test('ag-grid column drag reorder supports ctrl+z / ctrl+y undo-redo in real browser flow', async ({ page }) => {
   test.setTimeout(120_000);

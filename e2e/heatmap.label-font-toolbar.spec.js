@@ -1,9 +1,14 @@
 const { test, expect } = require('@playwright/test');
-const {
-  installLocalCdnOverrides,
-  openComponentFromWelcome,
-  clickExampleButtonIfPresent
-} = require('./helpers/workspaceHarness');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
+const { openComponentFromWelcome } = require('./helpers/workspaceDriver');
+const { clickExampleButton } = require('./helpers/uiDriver');
+const { waitForComponentOwnerReady } = require('./helpers/contractWaits');
+
+const HEATMAP_COMPONENT = {
+  type: 'heatmap',
+  pageId: 'heatmapPage',
+  exampleButtonId: 'heatmapLoadExample'
+};
 
 async function openLabelFontPanel(page, role) {
   const label = page.locator(`#heatmapPage:not([hidden]) #heatmapSvg text[data-font-role="${role}"]`).first();
@@ -90,12 +95,8 @@ test('Heatmap Selection font size changes only the selected dense label', async 
   test.setTimeout(120_000);
   await installLocalCdnOverrides(page);
   await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
-  await openComponentFromWelcome(
-    page,
-    { type: 'heatmap', pageId: 'heatmapPage', exampleButtonId: 'heatmapLoadExample' },
-    { first: true }
-  );
-  await clickExampleButtonIfPresent(page, 'heatmapLoadExample');
+  await openComponentFromWelcome(page, HEATMAP_COMPONENT, { first: true });
+  await clickExampleButton(page, HEATMAP_COMPONENT, { requireMountedRoot: true });
   await page.waitForFunction(() => {
     const rows = document.querySelectorAll('#heatmapSvg text[data-font-role="rowLabel"]');
     const columns = document.querySelectorAll('#heatmapSvg text[data-font-role="columnLabel"]');
@@ -136,12 +137,8 @@ test('Heatmap label toolbar reports the rendered SVG font size through live resi
   test.setTimeout(120_000);
   await installLocalCdnOverrides(page);
   await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
-  await openComponentFromWelcome(
-    page,
-    { type: 'heatmap', pageId: 'heatmapPage', exampleButtonId: 'heatmapLoadExample' },
-    { first: true }
-  );
-  await clickExampleButtonIfPresent(page, 'heatmapLoadExample');
+  await openComponentFromWelcome(page, HEATMAP_COMPONENT, { first: true });
+  await clickExampleButton(page, HEATMAP_COMPONENT, { requireMountedRoot: true });
   await page.waitForFunction(() => {
     const row = document.querySelector('#heatmapSvg text[data-font-role="rowLabel"]');
     const column = document.querySelector('#heatmapSvg text[data-font-role="columnLabel"]');
@@ -189,7 +186,11 @@ test('Heatmap label toolbar reports the rendered SVG font size through live resi
   await page.mouse.down();
   await page.mouse.move(box.x + box.width / 2 + 120, box.y + box.height / 2, { steps: 12 });
   await page.mouse.up();
-  await page.waitForTimeout(300);
+  await waitForComponentOwnerReady(page, 'heatmap', {
+    requireMountedRoot: true,
+    requirePublished: true,
+    requireIdle: true
+  });
 
   size = await openLabelFontPanel(page, 'rowLabel');
   await page.locator('.font-controls-panel[data-open="1"] .font-controls-panel__field--scope select')

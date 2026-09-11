@@ -1,9 +1,10 @@
+const { waitForComponentOwnerReady } = require('./helpers/contractWaits');
 const { test, expect } = require('@playwright/test');
 const {
-  installLocalCdnOverrides,
-  registerIssueCollectors,
   openComponentFromWelcome
-} = require('./helpers/workspaceHarness');
+} = require('./helpers/workspaceDriver');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
+const { registerIssueCollectors } = require('./helpers/diagnostics');
 
 async function loadScatterExample(page) {
   await expect(page.locator('#scatterLoadExample')).toBeVisible({ timeout: 20_000 });
@@ -27,7 +28,7 @@ test('scatter trend line and stats-on-plot are disabled until statistics are cal
   await openComponentFromWelcome(page, { type: 'scatter', pageId: 'scatterPage' }, { first: true });
 
   await loadScatterExample(page);
-  await page.waitForTimeout(600);
+  await waitForComponentOwnerReady(page, 'scatter', { requireMountedRoot: true, requireIdle: true, timeout: 30_000 });
 
   const showLine = page.locator('#scatterPage:not([hidden]) #scatterShowLine');
   const showPlotStats = page.locator('#scatterPage:not([hidden]) #scatterShowPlotStats');
@@ -80,7 +81,7 @@ test('scatter trend line and stats-on-plot are disabled until statistics are cal
   await expect(page.locator('#scatterComputeStats')).toBeEnabled({ timeout: 20_000 });
   await page.locator('#scatterComputeStats').click();
   await expect(page.locator('#scatterStatsStatus')).toContainText('Statistics up to date.', { timeout: 35_000 });
-  await page.waitForTimeout(400);
+  await waitForComponentOwnerReady(page, 'scatter', { requireMountedRoot: true, requireIdle: true, timeout: 30_000 });
 
   // After calculating statistics: both must be enabled.
   await expect(showLine, 'Show trend line must be enabled after stats are calculated').toBeEnabled();

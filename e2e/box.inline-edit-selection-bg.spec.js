@@ -1,8 +1,6 @@
 const { test, expect } = require('@playwright/test');
-const {
-  installLocalCdnOverrides,
-  openComponentFromWelcome
-} = require('./helpers/workspaceHarness');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
+const { openComponentFromWelcome } = require('./helpers/workspaceDriver');
 
 test('box keeps selected-cell background color during inline edit', async ({ page }) => {
   test.setTimeout(120_000);

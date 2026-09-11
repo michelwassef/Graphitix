@@ -3,13 +3,17 @@ const path = require('path');
 const { test, expect } = require('@playwright/test');
 const {
   COMPONENT_MATRIX,
-  installLocalCdnOverrides,
   openComponentFromWelcome,
   clickExampleButtonIfPresent,
   waitForDocumentOpenComplete
-} = require('./helpers/workspaceHarness');
+} = require('./helpers/workspaceDriver');
+const { waitForArchiveCheckpoint, waitForRenderCacheOutcome } = require('./helpers/contractWaits');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
 
-const TMP_DIR = path.resolve(__dirname, '.tmp', 'render-cache-contract');
+// Playwright workers execute this file concurrently. Keep each worker's
+// archive scratch space independent so afterAll cleanup cannot remove a file
+// that another worker is about to reopen.
+const TMP_DIR = path.resolve(__dirname, '.tmp', `render-cache-contract-${process.pid}`);
 const DEFAULT_CARTESIAN_CACHE_TYPES = new Set(['box', 'scatter', 'pca', 'line', 'roc', 'survival', 'hist', 'pie']);
 const STATS_CONTROLS = {
   box: { method: '#boxStatsTest', compute: '#boxComputeStats' },
@@ -235,7 +239,7 @@ async function configureStatsVariant(page, type, variant) {
 }
 
 async function buildArchive(page, label, options = {}) {
-  return page.evaluate(async ({ archiveLabel, archiveOptions }) => {
+  const archive = await page.evaluate(async ({ archiveLabel, archiveOptions }) => {
     const diagnostics = window.Shared?.renderCacheDiagnostics;
     const session = window.Main.session;
     const normalizeComparablePayload = payload => {
@@ -274,6 +278,7 @@ async function buildArchive(page, label, options = {}) {
     }
     return {
       base64: btoa(binary),
+      diagnosticCursor: cursor,
       tabs: parsed.session.tabs.map(tab => ({
         type: tab.type,
         title: tab.title,
@@ -292,6 +297,31 @@ async function buildArchive(page, label, options = {}) {
       events: diagnostics?.getEvents?.({ afterCursor: cursor }) || []
     };
   }, { archiveLabel: label, archiveOptions: options });
+  for (const tab of archive.tabs || []) {
+    if (!tab.hasCache || !tab.ownerTabId || !tab.type) {
+      continue;
+    }
+    const emittedCheckpoint = (archive.events || []).some(event => (
+      String(event?.tabId || '') === String(tab.ownerTabId)
+      && String(event?.component || '') === String(tab.type)
+      && event?.phase === 'archive-checkpoint'
+      && event?.outcome === 'stored'
+    ));
+    // A previously archive-ready cache can be copied into a new archive
+    // without another store event. Its embedded owner and signatures are the
+    // evidence; wait for a checkpoint only when this operation emitted one.
+    if (!emittedCheckpoint) {
+      continue;
+    }
+    await waitForArchiveCheckpoint(page, tab.type, {
+      expectedTabId: tab.ownerTabId,
+      afterCursor: archive.diagnosticCursor,
+      payloadSignature: tab.payloadSignature,
+      layoutSignature: tab.layoutSignature,
+      timeout: 120_000
+    });
+  }
+  return archive;
 }
 
 async function auditRestoredTabs(page, cursor) {
@@ -325,6 +355,18 @@ async function auditRestoredTabs(page, cursor) {
         reason: 'e2e-cache-contract-audit'
       }) === true);
     }, tabId, { timeout: 120_000 });
+    const tabType = await page.evaluate(id => (
+      window.Main?.session?.workspaceState?.tabs?.find(item => item?.id === id)?.type || null
+    ), tabId);
+    if (tabType) {
+      await waitForRenderCacheOutcome(page, tabType, {
+        expectedTabId: tabId,
+        afterCursor: cursor,
+        phase: 'hydrate',
+        outcome: 'hit',
+        timeout: 120_000
+      });
+    }
 
     auditedTabs.push(await page.evaluate(({ id, statsControls, initial }) => {
       const session = window.Main.session;

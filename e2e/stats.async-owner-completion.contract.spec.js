@@ -1,10 +1,9 @@
 const { test, expect } = require('@playwright/test');
-const {
-  installLocalCdnOverrides,
-  registerIssueCollectors,
-  openComponentFromWelcome,
-  clickExampleButtonIfPresent
-} = require('./helpers/workspaceHarness');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
+const { openComponentFromWelcome, clickExampleButtonIfPresent } = require('./helpers/workspaceDriver');
+const { registerIssueCollectors } = require('./helpers/diagnostics');
+const { waitForComponentOwnerReady } = require('./helpers/contractWaits');
+const { activateTab: activateTabWithUi } = require('./helpers/uiDriver');
 
 async function activeTabId(page) {
   return page.evaluate(() => window.Main?.session?.workspaceState?.activeTabId || null);
@@ -21,20 +20,12 @@ async function openSiblingTab(page, type, pageId, exampleButtonId) {
   }, type);
   await expect(page.locator(`#${pageId}:not([hidden])`)).toBeVisible({ timeout: 30_000 });
   await clickExampleButtonIfPresent(page, exampleButtonId);
-  await page.waitForTimeout(700);
+  await waitForComponentOwnerReady(page, type, { requireMountedRoot: true });
   return activeTabId(page);
 }
 
 async function activateTab(page, tabId, type) {
-  await page.evaluate(async ({ id }) => {
-    await Promise.resolve(window.Main?.tabs?.activateTab?.(id, { reason: 'e2e-stats-async-owner-activate' }));
-  }, { id: tabId });
-  await page.waitForFunction(({ id, componentType }) => {
-    const state = window.Main?.session?.workspaceState;
-    if (state?.activeTabId !== id) return false;
-    const root = window.Shared?.workspaceTabs?.getMountedRoot?.(id, componentType) || null;
-    return !!root?.isConnected;
-  }, { id: tabId, componentType: type }, { timeout: 30_000 });
+  await activateTabWithUi(page, tabId, type, { requireMountedRoot: true });
 }
 
 async function installDelayedStatsWorker(page, action, key) {

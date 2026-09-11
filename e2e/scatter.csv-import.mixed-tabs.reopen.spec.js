@@ -3,12 +3,14 @@ const path = require('path');
 const { test, expect } = require('@playwright/test');
 const JSZip = require('jszip');
 const {
-  installLocalCdnOverrides,
-  registerIssueCollectors,
   openComponentFromWelcome,
   clickExampleButtonIfPresent,
-  importDataFile
-} = require('./helpers/workspaceHarness');
+  importDataFile,
+  waitForDocumentOpenComplete
+} = require('./helpers/workspaceDriver');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
+const { registerIssueCollectors } = require('./helpers/diagnostics');
+const { waitForComponentOwnerReady } = require('./helpers/contractWaits');
 
 const TMP_DIR = path.resolve(__dirname, '.tmp');
 const CSV_PATH = path.resolve(__dirname, '../__tests__/test-scatter-medium.csv');
@@ -63,7 +65,16 @@ async function activateTab(page, tabId) {
     const p = fn(id, { reason: 'e2e-csv-activate' });
     if (p && typeof p.then === 'function') await p;
   }, tabId);
-  await page.waitForTimeout(350);
+  await page.waitForFunction(id => window.Main?.session?.workspaceState?.activeTabId === id, tabId, { timeout: 20_000 });
+  const type = await page.evaluate(id => {
+    const tab = window.Main?.session?.workspaceState?.tabs?.find(item => item?.id === id);
+    return tab?.type || null;
+  }, tabId);
+  await waitForComponentOwnerReady(page, type, {
+    expectedTabId: tabId,
+    requireMountedRoot: true,
+    requireIdle: true
+  });
 }
 
 async function waitForScatterRender(page) {
@@ -157,7 +168,7 @@ async function loadWorkspaceArchiveFromPath(page, archivePath) {
   const input = page.locator('#workspaceSessionInput');
   await expect(input).toHaveCount(1, { timeout: 20_000 });
   await input.setInputFiles(archivePath);
-  await page.waitForTimeout(2_000);
+  await waitForDocumentOpenComplete(page);
 }
 
 async function inspectArchiveForScatterTab(archivePath) {
@@ -278,14 +289,22 @@ test('scatter CSV import + box tab: save and reopen preserves data, render cache
   expect(boxTabId).toBeTruthy();
   await expect(page.locator('#boxPage:not([hidden])')).toBeVisible({ timeout: 20_000 });
   await clickExampleButtonIfPresent(page, 'boxLoadExample');
-  await page.waitForTimeout(800);
+  await waitForComponentOwnerReady(page, 'box', {
+    requireMountedRoot: true,
+    requireIdle: true
+  });
   await page.waitForFunction(() => !!document.querySelector('#boxPlot svg'), null, { timeout: 60_000 });
 
   // ── Step 4: Activate scatter tab again and let its render cache settle ───────
   await activateTab(page, beforeSave.tabId);
   await waitForScatterSnapshotReady(page);
-  // Extra settle time for async render-cache capture after switching back to Scatter
-  await page.waitForTimeout(2_000);
+  await page.waitForFunction(id => {
+    const tab = window.Main?.session?.workspaceState?.tabs?.find(item => item?.id === id) || null;
+    const markup = typeof tab?.previewMarkup === 'string' ? tab.previewMarkup : '';
+    return tab?.previewMeta?.format === 'png'
+      && markup.length > 500
+      && markup.includes('data-tab-preview-format="png"');
+  }, beforeSave.tabId, { timeout: 120_000 });
 
   // ── Step 5: Save (capture workspace archive) ────────────────────────────────
   const { archivePath, byteLength } = await captureWorkspaceArchive(page, 'scatter-csv-box-reopen');

@@ -1,12 +1,10 @@
+const { waitForComponentOwnerReady } = require('./helpers/contractWaits');
 const fs = require('fs');
 const path = require('path');
 const { test, expect } = require('@playwright/test');
-const {
-  installLocalCdnOverrides,
-  registerIssueCollectors,
-  openComponentFromWelcome,
-  waitForDocumentOpenComplete
-} = require('./helpers/workspaceHarness');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
+const { openComponentFromWelcome, waitForDocumentOpenComplete } = require('./helpers/workspaceDriver');
+const { registerIssueCollectors } = require('./helpers/diagnostics');
 
 const TMP_DIR = path.resolve(__dirname, '.tmp');
 
@@ -215,7 +213,7 @@ test('survival style, reporting, advisor, and tab-scoped font refresh survive sw
       detail: { scopeId: 'survival', tabId, storeKey: `survival::@tab:${tabId}::__graph__` }
     }));
   }, firstTabId);
-  await page.waitForTimeout(250);
+  await waitForComponentOwnerReady(page, 'survival', { requireMountedRoot: true, requireIdle: true, timeout: 30_000 });
   expectSnapshot(await readSnapshot(page), SECOND);
 
   await activateTab(page, firstTabId);

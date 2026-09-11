@@ -1,9 +1,8 @@
 const { test, expect } = require('@playwright/test');
-const {
-  installLocalCdnOverrides,
-  registerIssueCollectors,
-  openComponentFromWelcome
-} = require('./helpers/workspaceHarness');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
+const { openComponentFromWelcome } = require('./helpers/workspaceDriver');
+const { registerIssueCollectors } = require('./helpers/diagnostics');
+const { waitForComponentOwnerReady } = require('./helpers/contractWaits');
 
 function readVerticalBoxLayoutMetrics() {
   const workspaceState = window.Main?.session?.workspaceState || null;
@@ -227,6 +226,14 @@ async function ensureBoxStatsAndSignificanceReady(page) {
   await expect(page.locator('#boxShowSignificance')).toBeVisible();
 }
 
+async function waitForBoxOwnerIdle(page) {
+  await waitForComponentOwnerReady(page, 'box', {
+    requireMountedRoot: true,
+    requireIdle: true,
+    timeout: 30_000
+  });
+}
+
 async function loadBoxExampleData(page) {
   await expect(page.locator('#boxLoadExample')).toBeVisible({ timeout: 20_000 });
   await page.waitForFunction(() => {
@@ -250,7 +257,6 @@ async function loadBoxExampleData(page) {
       return numericCount >= 12;
     }, null, { timeout: 4_000 }).then(() => true).catch(() => false);
     if (loaded) {
-      await page.waitForTimeout(300);
       return;
     }
   }
@@ -292,7 +298,11 @@ async function setBoxSignificanceToggle(page, enabled) {
     } else {
       await toggle.uncheck();
     }
-    await page.waitForTimeout(250);
+    await waitForComponentOwnerReady(page, 'box', {
+      requireMountedRoot: true,
+      requireIdle: true,
+      timeout: 20_000
+    });
     return;
   }
   await page.evaluate((value) => {
@@ -373,7 +383,11 @@ async function setBoxLockRatioToggle(page, enabled) {
     el.checked = !!value;
     el.dispatchEvent(new Event('change', { bubbles: true }));
   }, enabled);
-  await page.waitForTimeout(250);
+  await waitForComponentOwnerReady(page, 'box', {
+    requireMountedRoot: true,
+    requireIdle: true,
+    timeout: 20_000
+  });
 }
 
 async function readBoxDrawToken(page) {
@@ -410,6 +424,7 @@ async function activateWorkspaceTab(page, tabId) {
     window.Main.tabs.activateTab(id, { reason: 'e2e-box-pairwise-back' });
   }, tabId);
   await page.waitForSelector('#boxPage:not([hidden])', { timeout: 20_000 });
+  await waitForBoxOwnerIdle(page);
 }
 
 async function openAdditionalEmptyComponentTab(page, component) {
@@ -572,7 +587,7 @@ test('box versus-reference significance stacks correctly when the reference is t
   await openComponentFromWelcome(page, { type: 'box', pageId: 'boxPage' }, { first: true });
   await loadBoxExampleData(page);
   await page.locator('#boxGraphType').selectOption('strip');
-  await page.waitForTimeout(300);
+  await waitForBoxOwnerIdle(page);
 
   await page.locator('#boxStatsScope').selectOption('reference');
   await page.waitForFunction(() => Array.from(document.querySelectorAll('label')).some(label => label.textContent?.trim() === 'Reference:'));
@@ -592,7 +607,7 @@ test('box versus-reference significance stacks correctly when the reference is t
   await ensureBoxStatsAndSignificanceReady(page);
   await setBoxSignificanceToggle(page, true);
   await waitForVerticalSignificanceAnnotations(page);
-  await page.waitForTimeout(700);
+  await waitForBoxOwnerIdle(page);
 
   const layout = await page.evaluate(() => {
     const state = window.Components?.box?.__getState?.() || null;
@@ -627,12 +642,11 @@ test('box pairwise significance stays stable without manual resize and after tab
   await loadBoxExampleData(page);
   await page.locator('#boxGraphType').selectOption('strip');
   await page.locator('#boxShowFrame').check();
-  await page.waitForTimeout(350);
+  await waitForBoxOwnerIdle(page);
   await ensureBoxStatsAndSignificanceReady(page);
   await setBoxSignificanceToggle(page, true);
-  await page.waitForTimeout(250);
   await waitForVerticalSignificanceAnnotations(page);
-  await page.waitForTimeout(900);
+  await waitForBoxOwnerIdle(page);
   await expectBoxDrawsToSettle(page, 2);
   await expect.poll(
     () => page.locator('#boxPlot path.box-significance-annotation[data-sig-orientation="vertical"]').count(),
@@ -662,7 +676,6 @@ test('box pairwise significance stays stable without manual resize and after tab
   expect(frameContainment.hasLeftExtension).toBe(true);
 
   await activateWelcomeTab(page);
-  await page.waitForTimeout(300);
   await activateWorkspaceTab(page, boxTabId);
   await page.waitForFunction(
     () => document.querySelector('#boxPlot svg')
@@ -670,7 +683,7 @@ test('box pairwise significance stays stable without manual resize and after tab
     null,
     { timeout: 20_000 }
   );
-  await page.waitForTimeout(900);
+  await waitForBoxOwnerIdle(page);
   await expectBoxDrawsToSettle(page, 2);
   await expect.poll(
     () => page.locator('#boxPlot path.box-significance-annotation[data-sig-orientation="vertical"]').count(),
@@ -693,15 +706,15 @@ test('box pairwise layout remains isolated after switching between box tabs', as
 
   await loadBoxExampleData(page);
   await page.locator('#boxGraphType').selectOption('strip');
-  await page.waitForTimeout(350);
+  await waitForBoxOwnerIdle(page);
   await setBoxLockRatioToggle(page, true);
   await ensureBoxStatsAndSignificanceReady(page);
   await setBoxSignificanceToggle(page, true);
   await waitForVerticalSignificanceAnnotations(page);
-  await page.waitForTimeout(700);
+  await waitForBoxOwnerIdle(page);
 
   await dragBoxVerticalHandle(page, 90);
-  await page.waitForTimeout(2_200);
+  await waitForBoxOwnerIdle(page);
   await expectBoxDrawsToSettle(page, 3);
   const firstPairwise = await page.evaluate(readVerticalBoxLayoutMetrics);
   expect(firstPairwise).not.toBeNull();
@@ -717,13 +730,13 @@ test('box pairwise layout remains isolated after switching between box tabs', as
   expect(secondTabId).not.toBe(firstTabId);
   await loadBoxExampleData(page);
   await page.locator('#boxGraphType').selectOption('box');
-  await page.waitForTimeout(350);
+  await waitForBoxOwnerIdle(page);
   await dragBoxVerticalHandle(page, -55);
-  await page.waitForTimeout(600);
+  await waitForBoxOwnerIdle(page);
 
   await activateWorkspaceTab(page, firstTabId);
   await waitForVerticalSignificanceAnnotations(page);
-  await page.waitForTimeout(900);
+  await waitForBoxOwnerIdle(page);
   await expectBoxDrawsToSettle(page, 3);
 
   await setBoxSignificanceToggle(page, false);
@@ -732,7 +745,7 @@ test('box pairwise layout remains isolated after switching between box tabs', as
     null,
     { timeout: 20_000 }
   );
-  await page.waitForTimeout(900);
+  await waitForBoxOwnerIdle(page);
   await expectBoxDrawsToSettle(page, 3);
   const pairwiseOff = await page.evaluate(readVerticalBoxLayoutMetrics);
   expect(pairwiseOff).not.toBeNull();
@@ -742,7 +755,7 @@ test('box pairwise layout remains isolated after switching between box tabs', as
 
   await setBoxSignificanceToggle(page, true);
   await waitForVerticalSignificanceAnnotations(page);
-  await page.waitForTimeout(1_200);
+  await waitForBoxOwnerIdle(page);
   await expectBoxDrawsToSettle(page, 3);
   const restoredPairwise = await page.evaluate(readVerticalBoxLayoutMetrics);
   expect(restoredPairwise).not.toBeNull();
@@ -812,16 +825,14 @@ test('box significance bars keep plot height while shifting plot downward', asyn
 
   await loadBoxExampleData(page);
   await page.locator('#boxGraphType').selectOption('box');
-  await page.waitForTimeout(350);
+  await waitForBoxOwnerIdle(page);
 
   await ensureBoxStatsAndSignificanceReady(page);
 
   const significanceToggle = page.locator('#boxShowSignificance');
   await setBoxLockRatioToggle(page, true);
-  await page.waitForTimeout(250);
   if (await significanceToggle.isChecked()) {
     await setBoxSignificanceToggle(page, false);
-    await page.waitForTimeout(300);
   }
   await page.waitForFunction(() => document.querySelectorAll('#boxPlot .box-significance-annotation').length === 0);
 
@@ -841,7 +852,7 @@ test('box significance bars keep plot height while shifting plot downward', asyn
   expect(before.controlsOverlapPx).toBeLessThanOrEqual(2.5);
 
   await dragBoxVerticalHandle(page, 70);
-  await page.waitForTimeout(350);
+  await waitForBoxOwnerIdle(page);
   const afterManualResize = await page.evaluate(readVerticalBoxLayoutMetrics);
   expect(afterManualResize).not.toBeNull();
   expect(afterManualResize.svgBoxHeightPx).not.toBeNull();
@@ -856,7 +867,7 @@ test('box significance bars keep plot height while shifting plot downward', asyn
   await page.waitForFunction(
     () => document.querySelectorAll('#boxPlot path.box-significance-annotation[data-sig-orientation="vertical"]').length > 0
   );
-  await page.waitForTimeout(700);
+  await waitForBoxOwnerIdle(page);
 
   const after = await page.evaluate(readVerticalBoxLayoutMetrics);
   expect(after).not.toBeNull();
@@ -889,7 +900,7 @@ test('box significance bars keep plot height while shifting plot downward', asyn
   expect(after.controlsOverlapPx).toBeLessThanOrEqual(2.5);
 
   await dragBoxVerticalHandle(page, 60);
-  await page.waitForTimeout(350);
+  await waitForBoxOwnerIdle(page);
   const afterSignificanceManualResize = await page.evaluate(readVerticalBoxLayoutMetrics);
   expect(afterSignificanceManualResize).not.toBeNull();
   expect(afterSignificanceManualResize.aspectLockMeta).toBe(true);
@@ -912,16 +923,15 @@ test('box width resize keeps the graph clear of the bottom tray', async ({ page 
     const plot = document.getElementById('boxPlot');
     return !!plot && (plot.innerHTML || '').length > 0;
   }, null, { timeout: 20_000 });
-  await page.waitForTimeout(700);
+  await waitForBoxOwnerIdle(page);
   await ensureBoxStatsAndSignificanceReady(page);
   await setBoxSignificanceToggle(page, true);
   await page.waitForFunction(
     () => document.querySelectorAll('#boxPlot path.box-significance-annotation[data-sig-orientation="vertical"]').length > 0
   );
-  await page.waitForTimeout(600);
+  await waitForBoxOwnerIdle(page);
 
   await setBoxLockRatioToggle(page, true);
-  await page.waitForTimeout(250);
 
   const before = await page.evaluate(readVerticalBoxLayoutMetrics);
   if(!before){
@@ -936,7 +946,7 @@ test('box width resize keeps the graph clear of the bottom tray', async ({ page 
   expect(before.svgBoxWidthPx).not.toBeNull();
 
   await dragBoxWidthHandle(page, -190);
-  await page.waitForTimeout(900);
+  await waitForBoxOwnerIdle(page);
 
   const after = await page.evaluate(readVerticalBoxLayoutMetrics);
   expect(after).not.toBeNull();

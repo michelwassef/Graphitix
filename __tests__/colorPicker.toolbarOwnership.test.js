@@ -21,6 +21,7 @@ function showBoxSymbolToolbar(){
   if(!toolbarOwner || !anchor){
     throw new Error('Box workspace toolbar did not render its Format dock.');
   }
+  toolbarOwner.appendChild(anchor);
 
   const state = Shared.symbolToolbar.show({
     document,
@@ -59,6 +60,13 @@ function showBoxSymbolToolbar(){
 describe('shared color picker toolbar ownership', () => {
   beforeEach(() => {
     jest.resetModules();
+    document.body.innerHTML = `
+      <div id="boxPage" class="workspace-page">
+        <div class="workspace-page__topbar" data-toolbar="box">
+          <div data-toolbar-root></div>
+        </div>
+        <button id="boxFontHost" type="button">Format</button>
+      </div>`;
     loadToolbarModules();
   });
 

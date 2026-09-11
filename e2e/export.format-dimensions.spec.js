@@ -1,5 +1,6 @@
 const { test, expect } = require('@playwright/test');
-const { installLocalCdnOverrides, registerIssueCollectors } = require('./helpers/workspaceHarness');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
+const { registerIssueCollectors } = require('./helpers/diagnostics');
 
 test('SVG, PNG, TIFF, PDF and EMF share one physical projection', async ({ page }) => {
   test.setTimeout(60_000);

@@ -5,10 +5,10 @@
   "previewSource": "Graphitix owner-scoped SVG projection",
   "width": 320,
   "height": 220,
-  "sourceFingerprint": "fe871cfb92883a36527810fc3705b375b762f4b0e9ebb7a9cdddee64e54f5d75",
+  "sourceFingerprint": "a55ae46b8b6ff47f1999294b1fc1efdbe202a803a143480d955c47448755db5b",
   "registry": {
     "file": "thumbnails.js",
-    "sha256": "36531039e623860f62c1c242dc6ff3492b646d77d5b28e15ef68396ca2182932",
+    "sha256": "e53214315a89cbd5970ce2211b3abc84743d58c02deac8f05badb2d3a8ec6c6e",
     "inline": true
   },
   "examples": [
@@ -20,13 +20,13 @@
       "source": "Graphitix owner-scoped SVG projection",
       "captureMode": "canonical-export",
       "sourceFormat": "svg",
-      "sourceWidth": 385.615966,
-      "sourceHeight": 377,
+      "sourceWidth": 384.865966,
+      "sourceHeight": 381,
       "sourceViewBox": {
         "x": 0,
         "y": 0,
-        "width": 385.615966,
-        "height": 377
+        "width": 384.865966,
+        "height": 381
       },
       "sourcePreserveAspectRatio": "none",
       "exportProjection": "svg",
@@ -47,10 +47,10 @@
         "verified": true
       },
       "proportionalStrokeContract": "source-viewport-baked-strokes-v1",
-      "visualScale": 0.53050397878,
+      "visualScale": 0.524934383202,
       "nonScalingStrokeCount": 0,
-      "sourceFingerprint": "dfbf5c9f29854f38e2730c57988870279ad81ada186f04706ac427bf08eae070",
-      "sha256": "adc84be5b065ac82759d984a8051dc65eed3587e0d43556957c41ba6417c5521"
+      "sourceFingerprint": "4480236be968e3c32190a2d74a613de8174e250aadb5cb1cc2f6fb3394069eed",
+      "sha256": "98ecd9c15a2787a7109380b93c9fbbf4e66ac5703e789ecd10c0a03ed59ce5bc"
     },
     {
       "type": "scatter",
@@ -60,13 +60,13 @@
       "source": "Graphitix owner-scoped SVG projection",
       "captureMode": "canonical-export",
       "sourceFormat": "svg",
-      "sourceWidth": 391.592878,
-      "sourceHeight": 336,
+      "sourceWidth": 391.584033,
+      "sourceHeight": 339.771,
       "sourceViewBox": {
         "x": 0,
         "y": 0,
-        "width": 391.592878,
-        "height": 336
+        "width": 391.584033,
+        "height": 339.771
       },
       "sourcePreserveAspectRatio": "xMidYMid meet",
       "exportProjection": "svg",
@@ -87,10 +87,10 @@
         "verified": true
       },
       "proportionalStrokeContract": "source-viewport-baked-strokes-v1",
-      "visualScale": 0.595238095238,
+      "visualScale": 0.588631754917,
       "nonScalingStrokeCount": 0,
-      "sourceFingerprint": "e5f729bc66ac765419d0fe9292403df216416d68e453ceabc3f338e71ea9701f",
-      "sha256": "c0b89366d4c0a0d64aebe3d1c2bb9d1198b033541d287c168d6376ee8027e4dd"
+      "sourceFingerprint": "28e184c5806bf5c628cbcf523edd22c08372189a869c67bacd809087de430287",
+      "sha256": "c9a69f3b22662aef46d64bd6c90831831c8393c6b1166f6ea3e1f704ee3a9c7f"
     },
     {
       "type": "line",
@@ -100,13 +100,13 @@
       "source": "Graphitix owner-scoped SVG projection",
       "captureMode": "canonical-export",
       "sourceFormat": "svg",
-      "sourceWidth": 391.595784,
-      "sourceHeight": 340,
+      "sourceWidth": 391.585931,
+      "sourceHeight": 343.77,
       "sourceViewBox": {
         "x": 0,
         "y": 0,
-        "width": 391.595784,
-        "height": 340
+        "width": 391.585931,
+        "height": 343.77
       },
       "sourcePreserveAspectRatio": "xMidYMid meet",
       "exportProjection": "svg",
@@ -127,10 +127,10 @@
         "verified": true
       },
       "proportionalStrokeContract": "source-viewport-baked-strokes-v1",
-      "visualScale": 0.588235294118,
+      "visualScale": 0.581784332548,
       "nonScalingStrokeCount": 0,
-      "sourceFingerprint": "0ca9a9bf6d73345cad8690d70e7816172393dbd3d493e8dc954a31025d468a64",
-      "sha256": "8d3d4f5c22131974a825234de9ba19d7239721fcb43091133857ed2621bb1dc8"
+      "sourceFingerprint": "34c8c7a854b16004a80d8b522a072d5a16574293b6971936f9ba94813cfc6e71",
+      "sha256": "3e2cfb00ccf1249517ee33de7b55347a22e639ba1dd2e3fc19568ac286c77c1f"
     },
     {
       "type": "hist",
@@ -141,12 +141,12 @@
       "captureMode": "canonical-export",
       "sourceFormat": "svg",
       "sourceWidth": 394.043,
-      "sourceHeight": 343,
+      "sourceHeight": 346.771,
       "sourceViewBox": {
         "x": 0,
         "y": 0,
         "width": 394.043,
-        "height": 343
+        "height": 346.771
       },
       "sourcePreserveAspectRatio": "xMidYMid meet",
       "exportProjection": "svg",
@@ -167,10 +167,10 @@
         "verified": true
       },
       "proportionalStrokeContract": "source-viewport-baked-strokes-v1",
-      "visualScale": 0.583090379009,
+      "visualScale": 0.576749497507,
       "nonScalingStrokeCount": 0,
-      "sourceFingerprint": "954e039850b986b774f934dc4d081fd33f4748f00354fc77f614eb6eb12bef10",
-      "sha256": "9634b3f93f9d594b058d8d54598caa0ab07a18912944a21f6ab26e91dcbfa3f3"
+      "sourceFingerprint": "23eba0bed4577a8ede56909540c21064a5161d9ac3f673f2dd895b8da1dfbc3f",
+      "sha256": "b4de824ff74ab9db49a47588b365d25cfe72a40dbf952b65bbef3fdfc3198176"
     },
     {
       "type": "heatmap",
@@ -207,7 +207,7 @@
       "proportionalStrokeContract": "source-viewport-baked-strokes-v1",
       "visualScale": 0.058499473084,
       "nonScalingStrokeCount": 10,
-      "sourceFingerprint": "cda638865d933433c7def60fd0cb66ee5c66fbe4732ec826775d97b28547f564",
+      "sourceFingerprint": "089bd9c57771140b0e29a72b36491760b0867a827f3ec278773e202ac0ec2f45",
       "sha256": "e24fcfa9482d74aedfd7df5022cba55de7f1e56e0a1003046c0c84104acdb779"
     },
     {
@@ -218,13 +218,13 @@
       "source": "Graphitix owner-scoped SVG projection",
       "captureMode": "canonical-export",
       "sourceFormat": "svg",
-      "sourceWidth": 388.018771,
-      "sourceHeight": 334,
+      "sourceWidth": 388.009392,
+      "sourceHeight": 337.771,
       "sourceViewBox": {
         "x": 0,
         "y": 0,
-        "width": 388.018771,
-        "height": 334
+        "width": 388.009392,
+        "height": 337.771
       },
       "sourcePreserveAspectRatio": "xMidYMid meet",
       "exportProjection": "svg",
@@ -245,10 +245,10 @@
         "verified": true
       },
       "proportionalStrokeContract": "source-viewport-baked-strokes-v1",
-      "visualScale": 0.59880239521,
+      "visualScale": 0.592117144456,
       "nonScalingStrokeCount": 0,
-      "sourceFingerprint": "28f75a9af2b68e47fd081e735bb48b09c8f613384462b2806feb484773b0a7ff",
-      "sha256": "b5a4e49451fbb73edaa553994f14cb025a58174d97e7b18f059691c134a2945e"
+      "sourceFingerprint": "3ad3ceffff2c579c2b8d86cc5afff47b1750911b5b1ec7aaac5f102a6c7757bd",
+      "sha256": "00422e2df38e05ba54188091d581a0d0fe0284ccf8e7a1f67eeac5b8f6dd9ea6"
     },
     {
       "type": "pie",
@@ -287,7 +287,7 @@
       "proportionalStrokeContract": "source-viewport-baked-strokes-v1",
       "visualScale": 0.609756097561,
       "nonScalingStrokeCount": 0,
-      "sourceFingerprint": "f5be7933b7f23fb411615d3e99a4f84a89b589c45f693cff34c255e75c5bdcc4",
+      "sourceFingerprint": "fbddef317793e0be3cb61901726573fa45c16a9b71379fb89cfaf8b434c9b3ed",
       "sha256": "5c3a05287418981f8df5444cb117c43eb1d689ea2264ab832000df62cd5b77e5"
     },
     {
@@ -298,13 +298,13 @@
       "source": "Graphitix owner-scoped SVG projection",
       "captureMode": "canonical-export",
       "sourceFormat": "svg",
-      "sourceWidth": 382.691208,
-      "sourceHeight": 340,
+      "sourceWidth": 382.681958,
+      "sourceHeight": 343.771,
       "sourceViewBox": {
         "x": 0,
         "y": 0,
-        "width": 382.691208,
-        "height": 340
+        "width": 382.681958,
+        "height": 343.771
       },
       "sourcePreserveAspectRatio": "xMidYMid meet",
       "exportProjection": "svg",
@@ -325,10 +325,10 @@
         "verified": true
       },
       "proportionalStrokeContract": "source-viewport-baked-strokes-v1",
-      "visualScale": 0.588235294118,
+      "visualScale": 0.581782640188,
       "nonScalingStrokeCount": 0,
-      "sourceFingerprint": "1cf588d532dfe40371836a2e0322ccf1d0f67305839aef6f8d36102e9ed9a4c7",
-      "sha256": "5ea420eff468c2fa06f21c979606b629f862dfb98c02cc6c7c9c8a737a1c8116"
+      "sourceFingerprint": "60004bdc58981ae0205a2a8bcbb8905979de75f85d8b89a4539e1bcd7c953b4e",
+      "sha256": "65d573dad2f6f45b4e0da9e0d5efd0502e34ac92fd432034f72b762c9d8dfd74"
     },
     {
       "type": "survival",
@@ -338,13 +338,13 @@
       "source": "Graphitix owner-scoped SVG projection",
       "captureMode": "canonical-export",
       "sourceFormat": "svg",
-      "sourceWidth": 400.488167,
-      "sourceHeight": 343,
+      "sourceWidth": 400.47901,
+      "sourceHeight": 346.771,
       "sourceViewBox": {
         "x": 0,
         "y": 0,
-        "width": 400.488167,
-        "height": 343
+        "width": 400.47901,
+        "height": 346.771
       },
       "sourcePreserveAspectRatio": "xMidYMid meet",
       "exportProjection": "svg",
@@ -365,10 +365,10 @@
         "verified": true
       },
       "proportionalStrokeContract": "source-viewport-baked-strokes-v1",
-      "visualScale": 0.583090379009,
+      "visualScale": 0.576749497507,
       "nonScalingStrokeCount": 0,
-      "sourceFingerprint": "1e033ecddd6afa6b9fba6a12ecbca82471717ff8de564a5c7fd5cceb3484528e",
-      "sha256": "86097e4f6b2aa54e35cf53d133ceae361850d6446d308fe9bcb15b7effe23178"
+      "sourceFingerprint": "03b62118695d1daef3dfebe5b88378cc36eea650af90c0ecf30ee3e9d6a8e17f",
+      "sha256": "c46a06d3fd953ddc865a770156096f266a30643e06688156ac75ef7227953161"
     },
     {
       "type": "venn",
@@ -405,7 +405,7 @@
       "proportionalStrokeContract": "source-viewport-baked-strokes-v1",
       "visualScale": 0.609756097561,
       "nonScalingStrokeCount": 0,
-      "sourceFingerprint": "59c99d9c662681631c6ba7f1cdd99be7fe7abbe2ad47f36572b7cec56da0d599",
+      "sourceFingerprint": "7096e5cbbba34829583fe9f5bb959e5f66e6277cd34b14a919e5e99d81448dcb",
       "sha256": "0592513cbc0d49c4b6e2f1dfd3449f68cba1c7223c85fd57a85f012673ff7171"
     },
     {
@@ -445,8 +445,8 @@
       "proportionalStrokeContract": "source-viewport-baked-strokes-v1",
       "visualScale": 0.595238095238,
       "nonScalingStrokeCount": 0,
-      "sourceFingerprint": "8e4a519488b638ffbdcec9e1da0d7eb43f736ec08a4ebf43da9d96575540146d",
-      "sha256": "0f73fc4395fa348c602103cecab9430d9f79f139fcfcec0d55af3c338f416a7e"
+      "sourceFingerprint": "9626697a82f0c96d1f1bfdddebd45097a5c7126d84d6af9ba423b53297136ae6",
+      "sha256": "ce1226c67dbdd497f1d618a0f92b050ccf27e14c27a5907e01f57e19f4cb3327"
     }
   ]
 }

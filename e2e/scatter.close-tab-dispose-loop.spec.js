@@ -1,10 +1,7 @@
 const { test, expect } = require('@playwright/test');
-const {
-  COMPONENT_MATRIX,
-  installLocalCdnOverrides,
-  registerIssueCollectors,
-  openComponentFromWelcome
-} = require('./helpers/workspaceHarness');
+const { COMPONENT_MATRIX, openComponentFromWelcome } = require('./helpers/workspaceDriver');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
+const { registerIssueCollectors } = require('./helpers/diagnostics');
 
 const scatterComponent = COMPONENT_MATRIX.find(component => component.type === 'scatter');
 

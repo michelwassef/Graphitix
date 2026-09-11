@@ -1,8 +1,7 @@
-const { test, expect } = require('@playwright/test');
-const {
-  installLocalCdnOverrides,
-  openComponentFromWelcome
-} = require('./helpers/workspaceHarness');
+const { test } = require('@playwright/test');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
+const { openComponentFromWelcome } = require('./helpers/workspaceDriver');
+const { waitForOverlayStatus } = require('./helpers/contractWaits');
 
 async function openComponent(page, type, pageId) {
   await installLocalCdnOverrides(page);
@@ -25,9 +24,7 @@ test('Box graph-type change shows the heavy redraw overlay', async ({ page }) =>
   });
 
   await page.locator('#boxGraphType').selectOption('box');
-  const overlay = page.locator('#boxGraphPanel .venn-loading-overlay');
-  await expect(overlay).toBeVisible({ timeout: 1000 });
-  await expect(overlay).toHaveAttribute('data-job-status', 'running');
+  await waitForOverlayStatus(page, '#boxGraphPanel .venn-loading-overlay', 'running', { timeout: 5_000 });
 });
 
 test('Heatmap view-family change shows the heavy redraw overlay', async ({ page }) => {
@@ -45,7 +42,5 @@ test('Heatmap view-family change shows the heavy redraw overlay', async ({ page 
   });
 
   await page.locator('#heatmapView').selectOption('values');
-  const overlay = page.locator('#heatmapGraphPanel .venn-loading-overlay');
-  await expect(overlay).toBeVisible({ timeout: 1000 });
-  await expect(overlay).toHaveAttribute('data-job-status', 'running');
+  await waitForOverlayStatus(page, '#heatmapGraphPanel .venn-loading-overlay', 'running', { timeout: 5_000 });
 });

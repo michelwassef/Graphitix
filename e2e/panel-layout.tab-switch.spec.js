@@ -1,8 +1,8 @@
 const { test, expect } = require('@playwright/test');
 const {
-  installLocalCdnOverrides,
   openComponentFromWelcome
-} = require('./helpers/workspaceHarness');
+} = require('./helpers/workspaceDriver');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
 
 const COMPONENTS = [
   { type: 'scatter', pageId: 'scatterPage' },
@@ -46,21 +46,28 @@ for (const component of COMPONENTS) {
     await page.mouse.move(handleBox.x + handleBox.width / 2 + 220, y, { steps: 10 });
     await page.mouse.up();
 
-    const draggedWidth = await page.evaluate(({ table }) => (
-      document.getElementById(table)?.getBoundingClientRect?.().width || 0
-    ), ids);
-    expect(draggedWidth).toBeGreaterThan(before.tableWidth + 100);
+    const draggedGeometry = await page.evaluate(({ table, graph }) => {
+      const tableWidth = document.getElementById(table)?.getBoundingClientRect?.().width || 0;
+      const graphWidth = document.getElementById(graph)?.getBoundingClientRect?.().width || 0;
+      return {
+        tableWidth,
+        split: tableWidth + graphWidth > 0 ? tableWidth / (tableWidth + graphWidth) : 0
+      };
+    }, ids);
+    expect(draggedGeometry.tableWidth).toBeGreaterThan(before.tableWidth + 100);
+    expect(draggedGeometry.split).toBeGreaterThan(0);
     const tabId = before.tabId;
 
     await page.locator('#workspaceTabsList .workspace-tab').filter({ hasText: 'Welcome' }).first().click();
     await expect(page.locator('#welcomeScreen')).toBeVisible();
     await page.locator(`#workspaceTabsList .workspace-tab[data-tab-id="${tabId}"]`).click();
 
-    await expect.poll(() => page.evaluate(({ table, tabId }) => {
+    await expect.poll(() => page.evaluate(({ table, graph, tabId }) => {
       const active = window.Main?.session?.workspaceState?.activeTabId || null;
-      return active === tabId
-        ? document.getElementById(table)?.getBoundingClientRect?.().width || 0
-        : 0;
-    }, { table: ids.table, tabId }), { timeout: 10_000 }).toBeCloseTo(draggedWidth, 0);
+      if (active !== tabId) return 0;
+      const tableWidth = document.getElementById(table)?.getBoundingClientRect?.().width || 0;
+      const graphWidth = document.getElementById(graph)?.getBoundingClientRect?.().width || 0;
+      return tableWidth + graphWidth > 0 ? tableWidth / (tableWidth + graphWidth) : 0;
+    }, { table: ids.table, graph: ids.graph, tabId }), { timeout: 10_000 }).toBeCloseTo(draggedGeometry.split, 2);
   });
 }

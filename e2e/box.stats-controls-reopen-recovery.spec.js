@@ -2,12 +2,11 @@ const fs = require('fs');
 const path = require('path');
 const { test, expect } = require('@playwright/test');
 const {
-  installLocalCdnOverrides,
-  registerIssueCollectors,
   openComponentFromWelcome,
-  clickExampleButtonIfPresent,
   waitForDocumentOpenComplete
-} = require('./helpers/workspaceHarness');
+} = require('./helpers/workspaceDriver');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
+const { registerIssueCollectors } = require('./helpers/diagnostics');
 
 const TMP_DIR = path.resolve(__dirname, '.tmp');
 
@@ -77,9 +76,12 @@ function expectRestoredBoxStatsControls(after, before, label) {
 async function openBoxWithExampleButDoNotCompute(page) {
   await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
   await expect(page.locator('#welcomeScreen')).toBeVisible({ timeout: 20_000 });
-  await openComponentFromWelcome(page, { type: 'box', pageId: 'boxPage', exampleButtonId: 'boxLoadExample' }, { first: true });
+  await openComponentFromWelcome(
+    page,
+    { type: 'box', pageId: 'boxPage', exampleButtonId: 'boxLoadExample' },
+    { first: true, loadExample: true }
+  );
   await page.waitForFunction(() => !!window.Components?.box?.ready, null, { timeout: 30_000 });
-  await clickExampleButtonIfPresent(page, 'boxLoadExample');
   await waitForBoxStatsControlsReady(page);
   await expect(page.locator('#boxComputeStats')).toHaveText(/Calculate statistics/i, { timeout: 20_000 });
   await expect(page.locator('#boxStatsStatus')).toContainText('Statistics ready to calculate.', { timeout: 20_000 });

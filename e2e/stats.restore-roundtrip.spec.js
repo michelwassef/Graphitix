@@ -1,10 +1,7 @@
 const { test, expect } = require('@playwright/test');
-const {
-  installLocalCdnOverrides,
-  registerIssueCollectors,
-  openComponentFromWelcome,
-  clickExampleButtonIfPresent
-} = require('./helpers/workspaceHarness');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
+const { openComponentFromWelcome, clickExampleButtonIfPresent } = require('./helpers/workspaceDriver');
+const { registerIssueCollectors } = require('./helpers/diagnostics');
 
 async function openWorkspace(page, component) {
   await page.goto('/index.html', { waitUntil: 'domcontentloaded' });

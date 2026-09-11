@@ -1,9 +1,10 @@
 const { test, expect } = require('@playwright/test');
 const {
-  installLocalCdnOverrides,
-  registerIssueCollectors,
   openComponentFromWelcome
-} = require('./helpers/workspaceHarness');
+} = require('./helpers/workspaceDriver');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
+const { registerIssueCollectors } = require('./helpers/diagnostics');
+const { waitForComponentOwnerReady } = require('./helpers/contractWaits');
 
 function readAxisMetrics(config = {}) {
   const plotSelector = config.plotSelector || '#scatterPlot';
@@ -108,7 +109,11 @@ async function setScatterWidth(page, width) {
     });
     window.Components?.scatter?.draw?.({ force: true, reason: 'e2e-scatter-horizontal-resize', resizePhase: 'move' });
   }, width);
-  await page.waitForTimeout(450);
+  await waitForComponentOwnerReady(page, 'scatter', {
+    requireMountedRoot: true,
+    requireIdle: true,
+    timeout: 30_000
+  });
 }
 
 async function dragWidthDense(page, config, dx, options = {}) {
@@ -137,7 +142,11 @@ async function dragWidthDense(page, config, dx, options = {}) {
     samples.push({ phase: `move-${step}`, metrics: await page.evaluate(readAxisMetrics, config) });
   }
   await page.mouse.up();
-  await page.waitForTimeout(options.endDelayMs || 450);
+  await waitForComponentOwnerReady(page, 'scatter', {
+    requireMountedRoot: true,
+    requireIdle: true,
+    timeout: 30_000
+  });
   samples.push({ phase: 'end', metrics: await page.evaluate(readAxisMetrics, config) });
   return samples;
 }
@@ -161,7 +170,11 @@ async function dragWidthBackAndForth(page, config, amplitude, cycles) {
   }
   await page.mouse.move(x, y, { steps: 5 });
   await page.mouse.up();
-  await page.waitForTimeout(700);
+  await waitForComponentOwnerReady(page, 'scatter', {
+    requireMountedRoot: true,
+    requireIdle: true,
+    timeout: 30_000
+  });
 }
 
 async function clickHeightHandleWithoutResize(page, config) {
@@ -176,7 +189,11 @@ async function clickHeightHandleWithoutResize(page, config) {
   await page.mouse.move(x, y);
   await page.mouse.down();
   await page.mouse.up();
-  await page.waitForTimeout(700);
+  await waitForComponentOwnerReady(page, 'scatter', {
+    requireMountedRoot: true,
+    requireIdle: true,
+    timeout: 30_000
+  });
 }
 
 function summarizeDrift(samples) {
@@ -204,7 +221,7 @@ test('scatter horizontal resize keeps y-axis line and y-title stable', async ({ 
   await openComponentFromWelcome(page, { type: 'scatter', pageId: 'scatterPage' }, { first: true, loadExample: true });
   await page.waitForFunction(() => !!document.querySelector('#scatterPlot svg'), null, { timeout: 30_000 });
   await page.locator('#scatterOriginMode').selectOption('zero');
-  await page.waitForTimeout(400);
+  await waitForComponentOwnerReady(page, 'scatter', { requireMountedRoot: true, requireIdle: true, timeout: 30_000 });
 
   await setScatterWidth(page, 482);
   const before = await page.evaluate(readAxisMetrics, scatterAxisConfig);
@@ -232,7 +249,7 @@ test('scatter pointer horizontal drag keeps y-axis line and y-title stable', asy
   await openComponentFromWelcome(page, { type: 'scatter', pageId: 'scatterPage' }, { first: true, loadExample: true });
   await page.waitForFunction(() => !!document.querySelector('#scatterPlot svg'), null, { timeout: 30_000 });
   await page.locator('#scatterOriginMode').selectOption('zero');
-  await page.waitForTimeout(400);
+  await waitForComponentOwnerReady(page, 'scatter', { requireMountedRoot: true, requireIdle: true, timeout: 30_000 });
 
   const drag = await dragWidthDense(page, scatterAxisConfig, -160, { captureImmediate: true });
   const summary = summarizeDrift(drag);
@@ -259,7 +276,7 @@ test('scatter repeated horizontal drag does not need a no-op handle click to rea
   await openComponentFromWelcome(page, { type: 'scatter', pageId: 'scatterPage' }, { first: true, loadExample: true });
   await page.waitForFunction(() => !!document.querySelector('#scatterPlot svg'), null, { timeout: 30_000 });
   await page.locator('#scatterOriginMode').selectOption('zero');
-  await page.waitForTimeout(400);
+  await waitForComponentOwnerReady(page, 'scatter', { requireMountedRoot: true, requireIdle: true, timeout: 30_000 });
 
   const before = await page.evaluate(readAxisMetrics, scatterAxisConfig);
   await dragWidthBackAndForth(page, scatterAxisConfig, 90, 10);

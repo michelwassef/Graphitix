@@ -1,10 +1,7 @@
 const { test, expect } = require('@playwright/test');
-const {
-  installLocalCdnOverrides,
-  registerIssueCollectors,
-  openComponentFromWelcome,
-  clickExampleButtonIfPresent
-} = require('./helpers/workspaceHarness');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
+const { openComponentFromWelcome } = require('./helpers/workspaceDriver');
+const { registerIssueCollectors } = require('./helpers/diagnostics');
 
 test('font toolbar size control has no native spin buttons', async ({ page }) => {
   test.setTimeout(120_000);
@@ -13,8 +10,11 @@ test('font toolbar size control has no native spin buttons', async ({ page }) =>
 
   await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
   await expect(page.locator('#welcomeScreen')).toBeVisible();
-  await openComponentFromWelcome(page, { type: 'line', pageId: 'linePage' }, { first: true });
-  await clickExampleButtonIfPresent(page, 'lineLoadExample');
+  await openComponentFromWelcome(
+    page,
+    { type: 'line', pageId: 'linePage', exampleButtonId: 'lineLoadExample' },
+    { first: true, loadExample: true }
+  );
 
   await page.waitForFunction(
     () => document.querySelectorAll('#linePlot svg text[data-font-editable="1"]').length > 0,

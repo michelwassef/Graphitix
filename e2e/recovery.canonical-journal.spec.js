@@ -1,33 +1,11 @@
 const { test, expect } = require('@playwright/test');
 const {
-  installLocalCdnOverrides,
   openComponentFromWelcome,
   clickExampleButtonIfPresent
-} = require('./helpers/workspaceHarness');
-
-async function clearDocumentStateDb(page) {
-  await page.evaluate(() => {
-    window.localStorage.removeItem('graphitix.canonical-journal.v1');
-    return new Promise((resolve, reject) => {
-    const request = window.indexedDB.open('graphitix-document-state', 2);
-    request.onupgradeneeded = () => {
-      const db = request.result;
-      if (!db.objectStoreNames.contains('snapshots')) db.createObjectStore('snapshots');
-      if (!db.objectStoreNames.contains('canonical-journal')) db.createObjectStore('canonical-journal');
-    };
-    request.onsuccess = () => {
-      const db = request.result;
-      const stores = Array.from(db.objectStoreNames).filter(name => name === 'snapshots' || name === 'canonical-journal');
-      if (!stores.length) { db.close(); resolve(); return; }
-      const tx = db.transaction(stores, 'readwrite');
-      stores.forEach(name => tx.objectStore(name).clear());
-      tx.oncomplete = () => { db.close(); resolve(); };
-      tx.onerror = () => { db.close(); reject(tx.error); };
-    };
-    request.onerror = () => reject(request.error);
-    });
-  });
-}
+} = require('./helpers/workspaceDriver');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
+const { waitForComponentOwnerReady } = require('./helpers/contractWaits');
+const { clearRecoverySnapshot } = require('./helpers/recoveryDriver');
 
 async function readJournalMeta(page) {
   return page.evaluate(() => new Promise(resolve => {
@@ -67,8 +45,11 @@ test('canonical recovery journal restores an edit made immediately before reload
   await openComponentFromWelcome(page, { type: 'box', pageId: 'boxPage' }, { first: true });
   await page.waitForSelector('#boxPage:not([hidden])', { timeout: 30_000 });
   await clickExampleButtonIfPresent(page, 'boxLoadExample');
-  await page.waitForTimeout(1_000);
-  await clearDocumentStateDb(page);
+  await waitForComponentOwnerReady(page, 'box', {
+    requireMountedRoot: true,
+    requireIdle: true
+  });
+  await clearRecoverySnapshot(page);
 
   const mutation = await page.evaluate(() => {
     const session = window.Main?.session;
@@ -128,7 +109,7 @@ test('canonical recovery journal preserves immediate Box control changes', async
   await page.waitForSelector('#boxPage:not([hidden])', { timeout: 30_000 });
   await clickExampleButtonIfPresent(page, 'boxLoadExample');
   await page.waitForSelector('#boxPage:not([hidden]) #boxPlot svg', { timeout: 30_000 });
-  await clearDocumentStateDb(page);
+  await clearRecoverySnapshot(page);
 
   const graphType = page.locator('#boxGraphType');
   await graphType.click();
@@ -213,7 +194,7 @@ test('canonical recovery journal preserves an immediate Histogram density change
   await page.waitForSelector('#histPage:not([hidden])', { timeout: 30_000 });
   await clickExampleButtonIfPresent(page, 'histLoadExample');
   await page.waitForSelector('#histPage:not([hidden]) #histPlot svg', { timeout: 30_000 });
-  await clearDocumentStateDb(page);
+  await clearRecoverySnapshot(page);
 
   const plotMode = page.locator('#histPlotMode');
   await plotMode.click();
@@ -254,8 +235,11 @@ test('canonical recovery journal preserves an immediate Scatter resize', async (
   await openComponentFromWelcome(page, { type: 'scatter', pageId: 'scatterPage' }, { first: true });
   await clickExampleButtonIfPresent(page, 'scatterLoadExample');
   await page.waitForFunction(() => !!document.querySelector('#scatterPage:not([hidden]) #scatterPlot svg'), null, { timeout: 30_000 });
-  await page.waitForTimeout(700);
-  await clearDocumentStateDb(page);
+  await waitForComponentOwnerReady(page, 'scatter', {
+    requireMountedRoot: true,
+    requireIdle: true
+  });
+  await clearRecoverySnapshot(page);
 
   const before = await page.evaluate(() => {
     const state = window.Main?.session?.workspaceState || {};
@@ -280,7 +264,10 @@ test('canonical recovery journal preserves an immediate Scatter resize', async (
   await page.mouse.down();
   await page.mouse.move(x + 120, y, { steps: 12 });
   await page.mouse.up();
-  await page.waitForTimeout(250);
+  await waitForComponentOwnerReady(page, 'scatter', {
+    requireMountedRoot: true,
+    requireIdle: true
+  });
 
   const after = await page.evaluate(() => {
     const state = window.Main?.session?.workspaceState || {};

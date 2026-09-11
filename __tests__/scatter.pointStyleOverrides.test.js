@@ -1,9 +1,9 @@
-const { initializeWorkspaceHarness } = require('./setup/workspaceHarness');
-
 describe('Scatter point Fill/Shape overrides', () => {
   beforeEach(() => {
     jest.resetModules();
-    initializeWorkspaceHarness();
+    global.Main = {};
+    global.Components = {};
+    global.Shared = {};
     require('../js/components/scatter.js');
   });
 

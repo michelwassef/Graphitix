@@ -1925,6 +1925,23 @@
             ...drawMeta
           });
         }
+        // Payload hydration may reset component projections to archive/default values.
+        // Runtime state is the live owner after hydration, so apply it again at the
+        // owner boundary before layout/cache projection can capture the reset mirror.
+        if (guardWorkspaceMutation('apply-runtime-after-payload')
+          && Shared.workspaceTabs?.applyRuntimeState) {
+          Shared.workspaceTabs.applyRuntimeState(tab, tab.type, config, {
+            ...drawMeta,
+            tabId: tab.id,
+            type: tab.type,
+            reason: `${options.reason || 'workspace-view'}:apply-runtime-after-payload`,
+            passiveControls: deferInitialDraw,
+            suppressDraw: deferInitialDraw,
+            suppressAutoDraw: deferInitialDraw,
+            suppressResizeDraw: deferInitialDraw,
+            suppressStatsRecompute: deferInitialDraw
+          });
+        }
       }
       if (typeof config.applyLayoutState === 'function') {
         let defaultLayout = moduleState.workspaceLayoutDefaults[tab.type] || null;

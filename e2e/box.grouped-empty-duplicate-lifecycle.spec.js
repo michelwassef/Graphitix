@@ -1,9 +1,8 @@
 const { test, expect } = require('@playwright/test');
-const {
-  installLocalCdnOverrides,
-  registerIssueCollectors,
-  openComponentFromWelcome
-} = require('./helpers/workspaceHarness');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
+const { openComponentFromWelcome } = require('./helpers/workspaceDriver');
+const { registerIssueCollectors } = require('./helpers/diagnostics');
+const { waitForComponentOwnerReady } = require('./helpers/contractWaits');
 
 function isLifecycleRegression(entry) {
   const text = String(entry?.text || '');
@@ -65,10 +64,19 @@ test('empty grouped Box duplicate switches components without stale grid refresh
   }, duplicateTabId, { timeout: 20_000 });
 
   await openComponentFromWelcome(page, { type: 'scatter', pageId: 'scatterPage' }, { first: false });
-  await page.waitForTimeout(500);
+  await waitForComponentOwnerReady(page, 'scatter', {
+    requireMountedRoot: true,
+    requireIdle: true,
+    timeout: 20_000
+  });
   await page.locator(`#workspaceTabsList .workspace-tab[data-tab-id="${duplicateTabId}"]`).click();
   await page.waitForSelector('#boxPage:not([hidden])', { timeout: 20_000 });
-  await page.waitForTimeout(500);
+  await waitForComponentOwnerReady(page, 'box', {
+    expectedTabId: duplicateTabId,
+    requireMountedRoot: true,
+    requireIdle: true,
+    timeout: 20_000
+  });
 
   const duplicateState = await page.evaluate(tabId => {
     const tab = window.Main?.session?.workspaceState?.tabs?.find(item => item?.id === tabId);

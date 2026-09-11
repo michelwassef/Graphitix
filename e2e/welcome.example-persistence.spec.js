@@ -1,9 +1,6 @@
 const { test, expect } = require('@playwright/test');
-const {
-  COMPONENT_MATRIX,
-  installLocalCdnOverrides,
-  openComponentFromWelcome
-} = require('./helpers/workspaceHarness');
+const { COMPONENT_MATRIX, openComponentFromWelcome } = require('./helpers/workspaceDriver');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
 
 test.setTimeout(90_000);
 
@@ -21,7 +18,18 @@ for (const component of COMPONENT_MATRIX) {
     await installLocalCdnOverrides(page);
     await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
     await openComponentFromWelcome(page, component, { first: true, loadExample: true });
-    await page.waitForTimeout(6_000);
+    await page.waitForFunction(type => {
+      const session = window.Main?.session;
+      const tab = session?.getActiveTab?.();
+      return tab?.type === type
+        && !!tab.payload
+        && session?.tabHasTableData?.(tab) === true
+        && tab.payloadDirty === false
+        && !!tab.payloadSignature;
+    }, component.type, {
+      timeout: 30_000,
+      polling: 'raf'
+    });
 
     const state = await page.evaluate(() => {
       const session = window.Main?.session;

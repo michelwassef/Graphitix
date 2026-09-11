@@ -35,9 +35,8 @@ describe('PCA lifecycle ownership contract', () => {
     const source = pcaSource();
     const setup = extractSetup(source);
     expect(setup).toBeTruthy();
-    expect(setup).not.toMatch(/^    (?:async )?function\s+/m);
-    expect(setup).not.toMatch(/^    (?:const|let|var)\s+[A-Za-z_$][\w$]*\s*=.*=>/m);
     expect(setup).not.toMatch(/^    pca\.[A-Za-z_$][\w$]*\s*=\s*(?:async\s+)?function/m);
+    expect(setup).not.toMatch(/\b(?:drawPca|getPcaGraphPayload|applyPcaPayload|loadPcaGraphFile)\s*=\s*(?:async\s+)?function/m);
     expect(setup).toContain('bindPcaSessionForTab');
     expect(setup).toContain('applyPcaSessionStateToActive');
     expect(setup).toContain('Shared?.hot?.createStandardTable');

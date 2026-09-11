@@ -2,10 +2,11 @@ const { test, expect } = require('@playwright/test');
 const fs = require('fs');
 const path = require('path');
 const {
-  installLocalCdnOverrides,
-  registerIssueCollectors,
   waitForDocumentOpenComplete
-} = require('./helpers/workspaceHarness');
+} = require('./helpers/workspaceDriver');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
+const { registerIssueCollectors } = require('./helpers/diagnostics');
+const { waitForComponentOwnerReady } = require('./helpers/contractWaits');
 
 const TMP_DIR = path.resolve(__dirname, '.tmp');
 
@@ -53,6 +54,11 @@ async function waitForLockRatioCheckbox(page, pageId, tabId = null) {
   }, { pageId, tabId }, {
     timeout: 30_000,
   });
+}
+
+async function waitForComponentIdle(page, pageId) {
+  const type = pageId.replace(/Page$/, '').toLowerCase();
+  await waitForComponentOwnerReady(page, type, { requireMountedRoot: true, requireIdle: true, timeout: 30_000 });
 }
 
 async function getLockRatioState(page, pageId) {
@@ -153,7 +159,7 @@ async function persistActiveTab(page, reason = 'e2e-lock-ratio-persist') {
 
 async function selectMode(page, pageId, selector, value) {
   await page.locator(`#${pageId}:not([hidden]) ${selector}`).selectOption(value);
-  await page.waitForTimeout(450);
+  await waitForComponentIdle(page, pageId);
 }
 
 async function setLockRatio(page, pageId, checked) {
@@ -171,7 +177,7 @@ async function setLockRatio(page, pageId, checked) {
       checkbox.dispatchEvent(new Event('change', { bubbles: true }));
     }
   }, { pageId, checked });
-  await page.waitForTimeout(250);
+  await waitForComponentIdle(page, pageId);
 }
 
 async function readActiveLockSnapshot(page, pageId, modeSelector) {
@@ -246,7 +252,7 @@ test.describe('Lock ratio subtype enforcement', () => {
     await openGraphTab(page, 'line', 'linePage', { first: true });
     await waitForLockRatioCheckbox(page, 'linePage');
     await page.selectOption('#lineViewMode', '3d');
-    await page.waitForTimeout(350);
+    await waitForComponentIdle(page, 'linePage');
     const state = await getLockRatioState(page, 'linePage');
     expect(state.present).toBe(true);
     expect(state.checked).toBe(true);
@@ -260,7 +266,7 @@ test.describe('Lock ratio subtype enforcement', () => {
     await openGraphTab(page, 'scatter', 'scatterPage', { first: true });
     await waitForLockRatioCheckbox(page, 'scatterPage');
     await page.selectOption('#scatterViewMode', '3d');
-    await page.waitForTimeout(350);
+    await waitForComponentIdle(page, 'scatterPage');
     const state = await getLockRatioState(page, 'scatterPage');
     expect(state.present).toBe(true);
     expect(state.checked).toBe(true);
@@ -272,7 +278,7 @@ test.describe('Lock ratio subtype enforcement', () => {
     await installLocalCdnOverrides(page);
     await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
     await openGraphTab(page, 'pca', 'pcaPage', { first: true, expectLockControl: false });
-    await page.waitForTimeout(500);
+    await waitForComponentIdle(page, 'pcaPage');
     await expect(page.locator('#pcaPage:not([hidden]) .resizer-aspect-checkbox')).toHaveCount(0);
     await expect(page.locator('#pcaPage:not([hidden]) .resizer-axeslength-control')).toHaveCount(1);
     await expect(page.locator('#pcaPage:not([hidden]) .resizer-axeslength-checkbox--equal-scale')).toBeChecked();
@@ -291,14 +297,14 @@ test.describe('Lock ratio subtype enforcement', () => {
     await waitForLockRatioCheckbox(page, 'vennPage');
 
     await page.selectOption('#vennPlotType', 'venn');
-    await page.waitForTimeout(300);
+    await waitForComponentIdle(page, 'vennPage');
     let state = await getLockRatioState(page, 'vennPage');
     expect(state.present).toBe(true);
     expect(state.checked).toBe(true);
     expect(state.disabled).toBe(true);
 
     await page.selectOption('#vennPlotType', 'upset');
-    await page.waitForTimeout(300);
+    await waitForComponentIdle(page, 'vennPage');
     state = await getLockRatioState(page, 'vennPage');
     expect(state.present).toBe(true);
     expect(state.checked).toBe(false);
@@ -311,9 +317,9 @@ test.describe('Lock ratio subtype enforcement', () => {
     expect(snapshot.aspectLocked).toBe('true');
 
     await page.selectOption('#vennPlotType', 'venn');
-    await page.waitForTimeout(300);
+    await waitForComponentIdle(page, 'vennPage');
     await page.selectOption('#vennPlotType', 'upset');
-    await page.waitForTimeout(300);
+    await waitForComponentIdle(page, 'vennPage');
     snapshot = await readActiveLockSnapshot(page, 'vennPage', '#vennPlotType');
     expect(snapshot.checked).toBe(true);
     expect(snapshot.disabled).toBe(false);
@@ -331,7 +337,7 @@ test.describe('Lock ratio subtype enforcement', () => {
     await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
     await openGraphTab(page, 'surface', 'surfacePage', { first: true });
     await waitForLockRatioCheckbox(page, 'surfacePage');
-    await page.waitForTimeout(350);
+    await waitForComponentIdle(page, 'surfacePage');
     const state = await getLockRatioState(page, 'surfacePage');
     expect(state.present).toBe(true);
     expect(state.checked).toBe(true);

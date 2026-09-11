@@ -1,9 +1,7 @@
 const { test, expect } = require('@playwright/test');
-const {
-  installLocalCdnOverrides,
-  registerIssueCollectors,
-  openComponentFromWelcome
-} = require('./helpers/workspaceHarness');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
+const { openComponentFromWelcome } = require('./helpers/workspaceDriver');
+const { registerIssueCollectors } = require('./helpers/diagnostics');
 
 async function computeBoxStatsAndShowSignificance(page) {
   const computeButton = page.locator('#boxComputeStats');
@@ -121,12 +119,11 @@ function expectBoxStatsFidelityRestored(actual, expected, label) {
 }
 
 async function expectMultipleComparisonsTabLive(page, label) {
-  await page.evaluate(() => {
-    const buttons = Array.from(document.querySelectorAll('#statsResults .box-stats-summary-tabs__tab'));
-    const button = buttons.find(node => /Multiple comparisons/i.test(node.textContent || ''));
-    if (!button) throw new Error('Multiple comparisons tab button not found');
-    button.click();
-  });
+  const button = page.locator('#statsResults .box-stats-summary-tabs__tab')
+    .filter({ hasText: /Multiple comparisons/i })
+    .first();
+  await expect(button, `${label}: multiple comparisons tab button`).toBeVisible();
+  await button.click();
   const snapshot = await page.evaluate(() => {
     const wrapper = document.querySelector('#statsResults .box-stats-summary-tabs');
     const button = Array.from(wrapper?.querySelectorAll?.('.box-stats-summary-tabs__tab') || [])
@@ -208,7 +205,6 @@ test('box significance bars render after saved payload is restored', async ({ pa
     null,
     { timeout: 20_000 }
   );
-  await page.waitForTimeout(750);
   await expect.poll(
     () => page.locator('#boxPlot path.box-significance-annotation').count(),
     { timeout: 20_000 }
@@ -221,7 +217,6 @@ test('box significance bars render after saved payload is restored', async ({ pa
     }
     state.scheduleDraw({ viewOnly: true, reason: 'significance-viewport-extension' });
   });
-  await page.waitForTimeout(1_500);
   await expect.poll(
     () => page.locator('#boxPlot path.box-significance-annotation').count(),
     { timeout: 20_000 }

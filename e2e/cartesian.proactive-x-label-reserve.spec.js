@@ -1,5 +1,7 @@
 const { test, expect } = require('@playwright/test');
-const { installLocalCdnOverrides, openComponentFromWelcome } = require('./helpers/workspaceHarness');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
+const { openComponentFromWelcome } = require('./helpers/workspaceDriver');
+const { waitForComponentOwnerReady } = require('./helpers/contractWaits');
 
 async function readLineReserve(page) {
   return page.evaluate(() => {
@@ -33,7 +35,7 @@ test('Line reserves rotated x-label space before rotation and keeps its x title 
   });
   await page.waitForFunction(() => Array.from(document.querySelectorAll('#linePage:not([hidden]) text[data-font-role="xTick"]'))
     .some(node => String(node.textContent || '').includes('1000')));
-  await page.waitForTimeout(500);
+  await waitForComponentOwnerReady(page, 'line', { requireIdle: true, timeout: 30_000 });
   const wide = await readLineReserve(page);
 
   await page.evaluate(() => {
@@ -49,7 +51,7 @@ test('Line reserves rotated x-label space before rotation and keeps its x title 
   });
   await page.waitForFunction(() => Array.from(document.querySelectorAll('#linePage:not([hidden]) text[data-font-role="xTick"]'))
     .some(node => /rotate\(/.test(node.getAttribute('transform') || '')));
-  await page.waitForTimeout(500);
+  await waitForComponentOwnerReady(page, 'line', { requireIdle: true, timeout: 30_000 });
   const narrow = await readLineReserve(page);
 
   expect(wide.rotated).toBe(false);

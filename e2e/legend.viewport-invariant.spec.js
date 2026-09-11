@@ -1,10 +1,10 @@
 const { test, expect } = require('@playwright/test');
 const {
   COMPONENT_MATRIX,
-  installLocalCdnOverrides,
-  openComponentFromWelcome,
-  clickExampleButtonIfPresent
-} = require('./helpers/workspaceHarness');
+  openComponentFromWelcome
+} = require('./helpers/workspaceDriver');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
+const { clickExampleButton } = require('./helpers/uiDriver');
 
 const CASES = [
   { type: 'box', svg: '#boxSvg', toggle: '#boxShowLegend', example: 'boxLoadExample' },
@@ -34,7 +34,7 @@ test('Pie example honors the initially checked legend option', async ({ page }) 
   await openComponentFromWelcome(page, box, { first: true });
   const component = COMPONENT_MATRIX.find(entry => entry.type === 'pie');
   await openComponentFromWelcome(page, component);
-  await clickExampleButtonIfPresent(page, 'pieLoadExample');
+  await clickExampleButton(page, component, { requireMountedRoot: true });
 
   await expect(page.locator('#piePage:not([hidden]) #pieShowLegend')).toBeChecked();
   const pieCase = { type: 'pie', svg: '#pieSvg', toggle: '#pieShowLegend' };
@@ -362,7 +362,7 @@ test('a restored Box legend moves on the first drag gesture', async ({ page }) =
       format.dispatchEvent(new Event('change', { bubbles: true }));
     }
   });
-  await clickExampleButtonIfPresent(page, 'boxLoadExample');
+  await clickExampleButton(page, component, { requireMountedRoot: true });
   await page.evaluate(async () => {
     const box = window.Components.box;
     const tab = window.Main.session.getActiveTab();
@@ -392,7 +392,7 @@ test('a dragged grouped Box legend stays in the right reserve after graph resize
     format.value = 'grouped';
     format.dispatchEvent(new Event('change', { bubbles: true }));
   });
-  await clickExampleButtonIfPresent(page, 'boxLoadExample');
+  await clickExampleButton(page, component, { requireMountedRoot: true });
   await setLegend(page, componentCase, true);
 
   const initial = await readBoxLegendPosition(page);
@@ -486,7 +486,7 @@ for (const componentCase of CASES) {
         format.value = 'grouped';
         format.dispatchEvent(new Event('change', { bubbles: true }));
       });
-      await clickExampleButtonIfPresent(page, componentCase.example);
+      await clickExampleButton(page, component, { requireMountedRoot: true });
     }
 
     if (componentCase.type === 'hist') {
@@ -511,7 +511,7 @@ for (const componentCase of CASES) {
         control.dispatchEvent(new Event('change', { bubbles: true }));
       }, { selector: componentCase.viewMode });
       if (componentCase.reloadExample) {
-        await clickExampleButtonIfPresent(page, componentCase.reloadExample);
+        await clickExampleButton(page, component, { requireMountedRoot: true });
       } else {
         await page.evaluate(async type => {
           const tabId = window.Main.session.getActiveTab().id;

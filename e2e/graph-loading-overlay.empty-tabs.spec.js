@@ -1,8 +1,7 @@
 const { test, expect } = require('@playwright/test');
-const {
-  installLocalCdnOverrides,
-  openComponentFromWelcome
-} = require('./helpers/workspaceHarness');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
+const { openComponentFromWelcome } = require('./helpers/workspaceDriver');
+const { waitForComponentOwnerReady } = require('./helpers/contractWaits');
 
 const CASES = [
   { type: 'scatter', pageId: 'scatterPage', panelId: 'scatterGraphPanel' },
@@ -23,7 +22,11 @@ test('fresh empty graph tabs do not show graph loading overlays', async ({ page 
   for(let index = 0; index < CASES.length; index += 1){
     const component = CASES[index];
     await openComponentFromWelcome(page, component, { first: index === 0 });
-    await page.waitForTimeout(400);
+    await waitForComponentOwnerReady(page, component.type, {
+      requireMountedRoot: true,
+      requireIdle: true,
+      timeout: 20_000
+    });
     const state = await page.evaluate(panelId => {
       const panel = document.getElementById(panelId);
       const overlays = Array.from(panel?.querySelectorAll?.('.venn-loading-overlay') || []);

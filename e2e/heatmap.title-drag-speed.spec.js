@@ -1,9 +1,10 @@
+const { waitForComponentOwnerReady } = require('./helpers/contractWaits');
 const { test, expect } = require('@playwright/test');
 const {
-  installLocalCdnOverrides,
   openComponentFromWelcome,
   clickExampleButtonIfPresent
-} = require('./helpers/workspaceHarness');
+} = require('./helpers/workspaceDriver');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
 
 test.describe('Heatmap title drag', () => {
   test('title follows mouse movement without accelerated drift', async ({ page }) => {
@@ -17,7 +18,7 @@ test.describe('Heatmap title drag', () => {
       { first: true }
     );
     await clickExampleButtonIfPresent(page, 'heatmapLoadExample');
-    await page.waitForTimeout(1200);
+    await waitForComponentOwnerReady(page, 'heatmap', { requireMountedRoot: true, requireIdle: true, timeout: 30_000 });
 
     const before = await page.evaluate(() => {
       const title = document.querySelector('#heatmapSvg text[data-font-role="graphTitle"]');
@@ -57,7 +58,7 @@ test.describe('Heatmap title drag', () => {
       fire(window, 'mousemove', startX + dx, startY + dy);
       fire(window, 'mouseup', startX + dx, startY + dy);
     }, { startX: before.cx, startY: before.cy, dx: dragDx, dy: dragDy });
-    await page.waitForTimeout(250);
+    await waitForComponentOwnerReady(page, 'heatmap', { requireMountedRoot: true, requireIdle: true, timeout: 30_000 });
 
     const after = await page.evaluate(() => {
       const title = document.querySelector('#heatmapSvg text[data-font-role="graphTitle"]');

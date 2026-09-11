@@ -3,6 +3,8 @@ describe('Surface legend resize metrics', () => {
     jest.resetModules();
     window.Shared = window.Shared || {};
     window.Components = window.Components || {};
+    require('../js/shared/workspaceToolbarAccess.js');
+    require('../js/shared/workspaceToolbar.js');
     require('../js/shared/chartStyle.js');
     require('../js/shared/plot3d.js');
     require('../js/shared/fontControls.js');

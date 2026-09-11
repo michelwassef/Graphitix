@@ -1,9 +1,14 @@
 const { test, expect } = require('@playwright/test');
-const {
-  installLocalCdnOverrides,
-  registerIssueCollectors,
-  openComponentFromWelcome
-} = require('./helpers/workspaceHarness');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
+const { openComponentFromWelcome } = require('./helpers/workspaceDriver');
+const { waitForComponentOwnerReady } = require('./helpers/contractWaits');
+const { registerIssueCollectors } = require('./helpers/diagnostics');
+
+const BOX_COMPONENT = { type: 'box', pageId: 'boxPage' };
+
+async function waitForBoxIdle(page) {
+  return waitForComponentOwnerReady(page, BOX_COMPONENT, { requireIdle: true });
+}
 
 function readBoxLayoutInvariantMetrics() {
   const svg = document.querySelector('#boxPlot svg');
@@ -137,7 +142,7 @@ async function loadStripExample(page) {
     { timeout: 25_000 }
   );
   await page.locator('#boxGraphType').selectOption('strip');
-  await page.waitForTimeout(600);
+  await waitForBoxIdle(page);
 }
 
 async function setBoxLabelsFromList(page, labels) {
@@ -162,7 +167,7 @@ async function setBoxLabelsFromList(page, labels) {
       await box.draw();
     }
   }, labels);
-  await page.waitForTimeout(700);
+  await waitForBoxIdle(page);
 }
 
 async function ensureStatsAndSignificance(page) {
@@ -188,7 +193,7 @@ async function ensureStatsAndSignificance(page) {
     null,
     { timeout: 25_000 }
   );
-  await page.waitForTimeout(700);
+  await waitForBoxIdle(page);
 }
 
 async function resizeBoxWidthOnly(page, targetWidthPx) {
@@ -234,7 +239,7 @@ async function resizeBoxWidthOnly(page, targetWidthPx) {
     const current = svgBox.getBoundingClientRect().width;
     return Number.isFinite(current) && Math.abs(current - Number(targetWidth)) <= 4;
   }, payload.targetWidth, { timeout: 20_000 });
-  await page.waitForTimeout(900);
+  await waitForBoxIdle(page);
   return payload;
 }
 
@@ -251,7 +256,7 @@ async function dragBoxWidthHandleBy(page, deltaX) {
   await page.mouse.down();
   await page.mouse.move(startX + deltaX, startY, { steps: 12 });
   await page.mouse.up();
-  await page.waitForTimeout(900);
+  await waitForBoxIdle(page);
 }
 
 function assertStableShrinkInvariants(before, after, withSignificance) {

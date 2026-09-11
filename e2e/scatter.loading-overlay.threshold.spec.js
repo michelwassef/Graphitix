@@ -1,10 +1,10 @@
 const path = require('path');
 const { test, expect } = require('@playwright/test');
 const {
-  installLocalCdnOverrides,
-  openComponentFromWelcome,
-  confirmDataImportPrompt
-} = require('./helpers/workspaceHarness');
+  openComponentFromWelcome
+} = require('./helpers/workspaceDriver');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
+const { waitForComponentOwnerReady } = require('./helpers/contractWaits');
 
 const MEDIUM_SCATTER_CSV = path.resolve(__dirname, '..', '__tests__', 'test-scatter-medium.csv');
 
@@ -79,7 +79,10 @@ test('scatter graph overlay is gated by the large point threshold', async ({ pag
 
   await installOverlayProbe(page);
   await loadScatterRows(page, 12);
-  await page.waitForTimeout(350);
+  await waitForComponentOwnerReady(page, 'scatter', {
+    requireIdle: true,
+    timeout: 30_000
+  });
   await expect.poll(() => page.evaluate(() => window.__scatterOverlaySeen === true)).toBe(false);
 
   await installOverlayProbe(page);
@@ -115,10 +118,8 @@ test('scatter import shows its owner-scoped progress wheel before parsing', asyn
   await expect(overlay.locator('.venn-loading-overlay__spinner')).toBeVisible();
   await expect(overlay).toContainText('Importing table data...');
 
-  await confirmDataImportPrompt(page);
-  await expect(overlay).toBeVisible({ timeout: 1000 });
-  await overlay.locator('[data-overlay-action="cancel"]').click({ timeout: 5000 });
-  await expect(overlay).toContainText('Drawing stopped');
+  await page.locator('#welcomeDataImportCancel').click();
+  await expect(page.locator('#welcomeDataImportPrompt')).toBeHidden();
 });
 
 test('scatter stopped heavy draw can be drawn again', async ({ page }) => {
@@ -128,10 +129,11 @@ test('scatter stopped heavy draw can be drawn again', async ({ page }) => {
   await openComponentFromWelcome(page, { type: 'scatter', pageId: 'scatterPage' }, { first: true });
   await waitForScatterTable(page);
 
-  await loadScatterRows(page, 7200);
   const overlay = page.locator('#scatterGraphPanel .venn-loading-overlay');
-  await expect(overlay).toBeVisible({ timeout: 5000 });
-  await overlay.locator('[data-overlay-action="cancel"]').click();
+  const cancel = overlay.locator('[data-overlay-action="cancel"]');
+  const cancelWhenRunning = cancel.click({ timeout: 5000 });
+  await loadScatterRows(page, 7200);
+  await cancelWhenRunning;
   await expect(overlay).toContainText('Drawing stopped');
 
   await overlay.locator('[data-overlay-action="retry"]').click();

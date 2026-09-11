@@ -1,51 +1,23 @@
+const { loadProductionBootstrap } = require('../test-support/productionLoader');
+
+// Full production-derived bootstrap is intentionally covered here. Its
+// startup budget is explicit and local to this integration case; assertions
+// still require the real component and rendered toolbar behavior.
+const FULL_BOOTSTRAP_TEST_TIMEOUT_MS = 30_000;
+
 /**
  * Regression test: ensure component-created toolbar forms do not remain
  * visible when the singleton font (FORMAT) panel is opened for the same host.
  */
 describe('Format toolbar exclusivity', () => {
+  jest.setTimeout(FULL_BOOTSTRAP_TEST_TIMEOUT_MS);
+
   beforeEach(() => {
     jest.resetModules();
   });
 
   test('box point controls removed when font panel opens', async () => {
-    // Load core scripts in the same order as the app
-    require('../js/vendor.js');
-    require('../js/shared/fileIO.js');
-    require('../js/shared/debounce.js');
-    require('../js/shared/undo.js');
-    require('../js/shared/resizer.js');
-    require('../js/shared/dom.js');
-    require('../js/shared/exporter.js');
-    require('../js/shared/chartStyle.js');
-    require('../js/shared/graphSizing.js');
-    require('../js/shared/regression.js');
-    require('../js/shared/stats.js');
-    require('../js/shared/stats-table.js');
-    require('../js/shared/colorPicker.js');
-    require('../js/shared/editHighlight.js');
-    require('../js/shared/workspaceToolbar.js');
-    require('../js/shared/axisControls.js');
-    require('../js/shared/additionalLineControls.js');
-    require('../js/shared/significanceControls.js');
-    require('../js/shared/fontControls.js');
-    require('../js/shared/formControls.js');
-    require('../js/shared/hot.js');
-    require('../js/shared/workspaceTabs.js');
-    require('../js/shared/componentLifecycle.js');
-    require('../js/shared/componentLayout.js');
-    require('../js/shared/tableImport.js');
-    require('../js/main/components.js');
-    require('../js/main/session.js');
-    require('../js/main/domControls.js');
-    require('../js/main/sessionActions.js');
-    require('../js/main/styleSync.js');
-    require('../js/main/tabDrag.js');
-    require('../js/main/previews.js');
-    require('../js/main/tabs/unsavedPrompt.js');
-    require('../js/main/tabs/duplicatePrompt.js');
-    require('../js/main/tabs/render.js');
-    require('../js/main/tabs.js');
-    require('../js/main.js');
+    loadProductionBootstrap({ vendorMode: 'fake', preloadComponents: ['box', 'heatmap'] });
 
     const doc = global.document;
     const Components = global.Components;
@@ -94,10 +66,7 @@ describe('Format toolbar exclusivity', () => {
   });
 
   test('heatmap font controls preserve side-by-side palette toolbar layout', () => {
-    require('../js/vendor.js');
-    require('../js/shared/colorPicker.js');
-    require('../js/shared/workspaceToolbar.js');
-    require('../js/shared/fontControls.js');
+    loadProductionBootstrap({ vendorMode: 'fake', includeMain: false, preloadComponents: ['box', 'heatmap'] });
 
     const doc = global.document;
     const Shared = global.Shared;
@@ -124,43 +93,7 @@ describe('Format toolbar exclusivity', () => {
   });
 
   test('heatmap palette toolbar does not appear just by opening the workspace', async () => {
-    require('../js/vendor.js');
-    require('../js/shared/fileIO.js');
-    require('../js/shared/debounce.js');
-    require('../js/shared/undo.js');
-    require('../js/shared/resizer.js');
-    require('../js/shared/dom.js');
-    require('../js/shared/exporter.js');
-    require('../js/shared/chartStyle.js');
-    require('../js/shared/graphSizing.js');
-    require('../js/shared/regression.js');
-    require('../js/shared/stats.js');
-    require('../js/shared/stats-table.js');
-    require('../js/shared/colorPicker.js');
-    require('../js/shared/editHighlight.js');
-    require('../js/shared/workspaceToolbar.js');
-    require('../js/shared/axisControls.js');
-    require('../js/shared/additionalLineControls.js');
-    require('../js/shared/significanceControls.js');
-    require('../js/shared/fontControls.js');
-    require('../js/shared/formControls.js');
-    require('../js/shared/hot.js');
-    require('../js/shared/workspaceTabs.js');
-    require('../js/shared/componentLifecycle.js');
-    require('../js/shared/componentLayout.js');
-    require('../js/shared/tableImport.js');
-    require('../js/main/components.js');
-    require('../js/main/session.js');
-    require('../js/main/domControls.js');
-    require('../js/main/sessionActions.js');
-    require('../js/main/styleSync.js');
-    require('../js/main/tabDrag.js');
-    require('../js/main/previews.js');
-    require('../js/main/tabs/unsavedPrompt.js');
-    require('../js/main/tabs/duplicatePrompt.js');
-    require('../js/main/tabs/render.js');
-    require('../js/main/tabs.js');
-    require('../js/main.js');
+    loadProductionBootstrap({ vendorMode: 'fake', preloadComponents: ['box', 'heatmap'] });
 
     const graphSelection = window.Main?.tabs?.handleGraphSelection;
     expect(typeof graphSelection).toBe('function');
@@ -176,43 +109,7 @@ describe('Format toolbar exclusivity', () => {
   });
 
   test('clicking a heatmap cell opens the heatmap palette toolbar', async () => {
-    require('../js/vendor.js');
-    require('../js/shared/fileIO.js');
-    require('../js/shared/debounce.js');
-    require('../js/shared/undo.js');
-    require('../js/shared/resizer.js');
-    require('../js/shared/dom.js');
-    require('../js/shared/exporter.js');
-    require('../js/shared/chartStyle.js');
-    require('../js/shared/graphSizing.js');
-    require('../js/shared/regression.js');
-    require('../js/shared/stats.js');
-    require('../js/shared/stats-table.js');
-    require('../js/shared/colorPicker.js');
-    require('../js/shared/editHighlight.js');
-    require('../js/shared/workspaceToolbar.js');
-    require('../js/shared/axisControls.js');
-    require('../js/shared/additionalLineControls.js');
-    require('../js/shared/significanceControls.js');
-    require('../js/shared/fontControls.js');
-    require('../js/shared/formControls.js');
-    require('../js/shared/hot.js');
-    require('../js/shared/workspaceTabs.js');
-    require('../js/shared/componentLifecycle.js');
-    require('../js/shared/componentLayout.js');
-    require('../js/shared/tableImport.js');
-    require('../js/main/components.js');
-    require('../js/main/session.js');
-    require('../js/main/domControls.js');
-    require('../js/main/sessionActions.js');
-    require('../js/main/styleSync.js');
-    require('../js/main/tabDrag.js');
-    require('../js/main/previews.js');
-    require('../js/main/tabs/unsavedPrompt.js');
-    require('../js/main/tabs/duplicatePrompt.js');
-    require('../js/main/tabs/render.js');
-    require('../js/main/tabs.js');
-    require('../js/main.js');
+    loadProductionBootstrap({ vendorMode: 'fake', preloadComponents: ['box', 'heatmap'] });
 
     const flushAsyncWork = async (iterations = 10) => {
       for(let i = 0; i < iterations; i += 1){
@@ -285,5 +182,5 @@ describe('Format toolbar exclusivity', () => {
       expect(field.hidden).toBe(false);
       expect(field.querySelector('input')?.disabled).toBe(false);
     });
-  });
+  }, FULL_BOOTSTRAP_TEST_TIMEOUT_MS);
 });

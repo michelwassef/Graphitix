@@ -1,9 +1,9 @@
-const { initializeWorkspaceHarness } = require('./setup/workspaceHarness');
-
 describe('Scatter regression overlay range', () => {
   beforeEach(() => {
     jest.resetModules();
-    initializeWorkspaceHarness();
+    global.Main = {};
+    global.Components = {};
+    global.Shared = {};
     require('../js/components/scatter.js');
   });
 

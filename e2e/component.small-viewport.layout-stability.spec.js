@@ -1,10 +1,8 @@
 const { test, expect } = require('@playwright/test');
-const {
-  installLocalCdnOverrides,
-  openComponentFromWelcome,
-  clickExampleButtonIfPresent,
-  registerIssueCollectors
-} = require('./helpers/workspaceHarness');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
+const { openComponentFromWelcome } = require('./helpers/workspaceDriver');
+const { registerIssueCollectors } = require('./helpers/diagnostics');
+const { waitForComponentOwnerReady } = require('./helpers/contractWaits');
 
 test.describe('small viewport layout stability', () => {
   test.use({ viewport: { width: 709, height: 923 } });
@@ -23,14 +21,18 @@ test.describe('small viewport layout stability', () => {
     });
     await installLocalCdnOverrides(page);
     await page.goto('/index.html');
-    await openComponentFromWelcome(page, { type: 'roc', pageId: 'rocPage' }, { first: true });
-    await clickExampleButtonIfPresent(page, 'rocLoadExample');
+    await openComponentFromWelcome(page, { type: 'roc', pageId: 'rocPage' }, { first: true, loadExample: true });
     await page.waitForFunction(() => {
       const svg = document.querySelector('#rocPage:not([hidden]) #rocSvg');
       return !!svg && svg.querySelectorAll('path').length > 0;
     });
 
-    await page.waitForTimeout(400);
+    await waitForComponentOwnerReady(page, 'roc', {
+      requireMountedRoot: true,
+      requirePublished: true,
+      requireIdle: true,
+      timeout: 30_000
+    });
     const startCount = await page.evaluate(() => window.__rocDrawStarts || 0);
     await page.waitForTimeout(1000);
     const endCount = await page.evaluate(() => window.__rocDrawStarts || 0);
@@ -44,8 +46,7 @@ test.describe('small viewport layout stability', () => {
     const issues = registerIssueCollectors(page);
     await installLocalCdnOverrides(page);
     await page.goto('/index.html');
-    await openComponentFromWelcome(page, { type: 'surface', pageId: 'surfacePage' }, { first: true });
-    await clickExampleButtonIfPresent(page, 'surfaceLoadExample');
+    await openComponentFromWelcome(page, { type: 'surface', pageId: 'surfacePage' }, { first: true, loadExample: true });
     await page.waitForFunction(() => (
       document.querySelectorAll('#surfacePage:not([hidden]) #surfaceSvg g.surface-faces polygon').length > 0
     ));
@@ -54,7 +55,9 @@ test.describe('small viewport layout stability', () => {
     await expect(report).toBeVisible();
     await report.locator(':scope > summary').click();
     await expect(report).toHaveJSProperty('open', true);
-    await page.waitForTimeout(1000);
+    await page.evaluate(() => new Promise(resolve => {
+      requestAnimationFrame(() => requestAnimationFrame(resolve));
+    }));
     await expect(report).toHaveJSProperty('open', true);
     expect(issues.critical).toEqual([]);
   });

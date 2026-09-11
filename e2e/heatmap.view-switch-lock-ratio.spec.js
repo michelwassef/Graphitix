@@ -1,8 +1,7 @@
 const { test, expect } = require('@playwright/test');
-const {
-  installLocalCdnOverrides,
-  openComponentFromWelcome
-} = require('./helpers/workspaceHarness');
+const { openComponentFromWelcome } = require('./helpers/workspaceDriver');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
+const { waitForComponentOwnerReady } = require('./helpers/contractWaits');
 
 async function waitForHeatmapCells(page) {
   await page.waitForFunction(() => {
@@ -154,8 +153,13 @@ test.describe('Heatmap view switch and lock ratio behavior', () => {
       await loadHeatmapFixture(page);
       await waitForHeatmapCells(page);
 
+      const correlationTimestamp = await drawTimestamp(page);
       await page.selectOption('#heatmapView', correlationView);
-      await page.waitForTimeout(300);
+      await waitForDrawAdvance(page, correlationTimestamp);
+      await waitForComponentOwnerReady(page, 'heatmap', {
+        requireMountedRoot: true,
+        requireIdle: true
+      });
 
       let snapshot = await getHeatmapStateSnapshot(page);
       expect(snapshot.view).toBe(correlationView);

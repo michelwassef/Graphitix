@@ -27356,8 +27356,13 @@ Technical analysis record (advanced)
     return ensureBoxStatsReportHost(options);
   }
 
-  function clearBoxStatsReportHost(){
-    const host = getBoxStatsReportHost();
+  function clearBoxStatsReportHost(target = null){
+    const statsTarget = target || els.statsResults || getBoxNodeById('statsResults') || null;
+    const reporting = Shared.statsReporting;
+    if(statsTarget && reporting && typeof reporting.clearReportHost === 'function'){
+      return reporting.clearReportHost(statsTarget);
+    }
+    const host = getBoxStatsReportHost({ target: statsTarget });
     if(!host){
       return false;
     }

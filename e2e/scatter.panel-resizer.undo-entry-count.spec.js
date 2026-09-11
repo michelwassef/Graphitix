@@ -1,5 +1,8 @@
 const { test, expect } = require('@playwright/test');
-const { installLocalCdnOverrides, registerIssueCollectors, openComponentFromWelcome, clickExampleButtonIfPresent } = require('./helpers/workspaceHarness');
+const { openComponentFromWelcome, clickExampleButtonIfPresent } = require('./helpers/workspaceDriver');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
+const { registerIssueCollectors } = require('./helpers/diagnostics');
+const { waitForComponentOwnerReady } = require('./helpers/contractWaits');
 
 async function dragPanelResizerOnce(page) {
   const handle = page.locator('#scatterPage:not([hidden]) .panel-resizer').first();
@@ -12,7 +15,10 @@ async function dragPanelResizerOnce(page) {
   await page.mouse.down();
   await page.mouse.move(x - 90, y, { steps: 10 });
   await page.mouse.up();
-  await page.waitForTimeout(700);
+  await waitForComponentOwnerReady(page, 'scatter', {
+    requireMountedRoot: true,
+    requireIdle: true
+  });
 }
 
 test('scatter panel drag records exactly one undo entry per drag', async ({ page }) => {
@@ -24,7 +30,10 @@ test('scatter panel drag records exactly one undo entry per drag', async ({ page
   await expect(page.locator('#welcomeScreen')).toBeVisible();
   await openComponentFromWelcome(page, { type: 'scatter', pageId: 'scatterPage' }, { first: true });
   await clickExampleButtonIfPresent(page, 'scatterLoadExample');
-  await page.waitForTimeout(600);
+  await waitForComponentOwnerReady(page, 'scatter', {
+    requireMountedRoot: true,
+    requireIdle: true
+  });
 
   const activeTabId = await page.evaluate(() => window.Main?.session?.workspaceState?.activeTabId || null);
   expect(activeTabId).toBeTruthy();

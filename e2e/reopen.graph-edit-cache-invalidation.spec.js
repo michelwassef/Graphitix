@@ -1,12 +1,23 @@
-const fs = require('fs');
 const path = require('path');
 const { test, expect } = require('@playwright/test');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
+const { registerIssueCollectors } = require('./helpers/diagnostics');
 const {
-  installLocalCdnOverrides,
-  registerIssueCollectors,
   openComponentFromWelcome,
-  clickExampleButtonIfPresent
-} = require('./helpers/workspaceHarness');
+  waitForDocumentOpenComplete
+} = require('./helpers/workspaceDriver');
+const {
+  waitForComponentOwnerReady,
+  waitForOwnerProjection
+} = require('./helpers/contractWaits');
+const {
+  activateTab,
+  clickExampleButton
+} = require('./helpers/uiDriver');
+const {
+  openWorkspaceArchive,
+  saveWorkspaceArchive
+} = require('./helpers/archiveDriver');
 
 const TMP_DIR = path.resolve(__dirname, '.tmp');
 
@@ -42,86 +53,76 @@ function graphSignatureInPage(type) {
   return `${text.length}:${h1}:${h2}`;
 }
 
-async function waitForSelectorInPage(page, selector, timeout = 30_000) {
-  await page.waitForFunction((sel) => !!document.querySelector(sel), selector, { timeout });
-}
-
-async function awaitComponentIdle(page, type) {
-  await page.evaluate(async (componentType) => {
-    const component = window.Components?.[componentType];
-    if (component && typeof component.awaitReadyForSnapshot === 'function') {
-      await component.awaitReadyForSnapshot({
-        reason: 'e2e-reopen-graph-edit-idle',
-        timeoutMs: 12_000,
-        settleFrames: 3
-      });
-      return;
+async function awaitComponentIdle(page, component, expectedTabId = null) {
+  const owner = await waitForComponentOwnerReady(page, component, {
+    expectedTabId,
+    timeout: 20_000,
+    requireMountedRoot: true,
+    requireIdle: true
+  });
+  const snapshot = await page.evaluate(async ({ type, tabId }) => {
+    const target = window.Components?.[type];
+    if (typeof target?.awaitReadyForSnapshot !== 'function') {
+      throw new Error(`${type}: snapshot-readiness contract is unavailable`);
     }
-    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-  }, type);
+    return target.awaitReadyForSnapshot({
+      reason: 'e2e-reopen-graph-edit-idle',
+      tabId,
+      timeoutMs: 20_000,
+      settleFrames: 3
+    });
+  }, { type: component.type, tabId: expectedTabId || owner?.owner?.activeTabId || null });
+  if (!snapshot?.ok) {
+    throw new Error(`${component.type}: snapshot readiness rejected (${snapshot?.reason || 'unknown'})`);
+  }
+  return { owner, snapshot };
 }
 
 async function loadExampleAndWait(page, component, graphSelector) {
-  for (let attempt = 0; attempt < 6; attempt += 1) {
-    await clickExampleButtonIfPresent(page, component.exampleButtonId);
-    try {
-      await waitForSelectorInPage(page, graphSelector, 5_000);
-      await awaitComponentIdle(page, component.type);
-      return;
-    } catch (err) {
-      await page.waitForTimeout(500 + attempt * 150);
-    }
-  }
-  await waitForSelectorInPage(page, graphSelector, 20_000);
-  await awaitComponentIdle(page, component.type);
+  await clickExampleButton(page, component, {
+    timeout: 30_000,
+    requireMountedRoot: true
+  });
+  await waitForOwnerProjection(page, component, graphSelector, {
+    timeout: 30_000,
+    requireMountedRoot: true
+  });
+  await awaitComponentIdle(page, component);
 }
 
 async function captureWorkspaceArchive(page, fileStem) {
-  const archive = await page.evaluate(async (stem) => {
-    const tabsApi = window.Main?.tabs;
-    const sessionActions = window.Main?.sessionActions;
-    const context = tabsApi.getSessionActionsContext();
-    const blob = await sessionActions.buildWorkspaceArchiveBlob(context, {
-      scope: 'workspace',
-      snapshotKind: 'document-snapshot',
-      compression: 'STORE',
-      reason: 'e2e-reopen-graph-edit-archive'
-    });
-    const bytes = new Uint8Array(await blob.arrayBuffer());
-    const chunk = 0x8000;
-    let binary = '';
-    for (let i = 0; i < bytes.length; i += chunk) {
-      binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
-    }
-    return { fileName: `${stem}.graph`, base64: btoa(binary) };
-  }, fileStem);
-  fs.mkdirSync(TMP_DIR, { recursive: true });
-  const archivePath = path.join(TMP_DIR, archive.fileName);
-  fs.writeFileSync(archivePath, Buffer.from(archive.base64, 'base64'));
+  const archivePath = path.join(TMP_DIR, `${fileStem}.graph`);
+  await saveWorkspaceArchive(page, archivePath, {
+    scope: 'workspace',
+    snapshotKind: 'document-snapshot',
+    compression: 'STORE',
+    reason: 'e2e-reopen-graph-edit-archive',
+    fileName: `${fileStem}.graph`
+  });
   return archivePath;
 }
 
-async function reopenArchiveAndActivate(page, archivePath, type) {
+async function reopenArchiveAndActivate(page, archivePath, component) {
   await page.reload({ waitUntil: 'domcontentloaded' });
   await expect(page.locator('#welcomeScreen')).toBeVisible({ timeout: 20_000 });
   const input = page.locator('#workspaceSessionInput');
   await expect(input).toHaveCount(1, { timeout: 20_000 });
-  await input.setInputFiles(archivePath);
-  await page.waitForTimeout(1_500);
+  await openWorkspaceArchive(page, archivePath, {
+    reload: false,
+    componentType: component.type,
+    timeout: 120_000
+  });
+  await waitForDocumentOpenComplete(page, 120_000);
   const tabId = await page.evaluate((componentType) => {
     const tabs = window.Main?.session?.workspaceState?.tabs || [];
     return (tabs.find(tab => tab && tab.type === componentType && !tab.isWelcome) || {}).id || null;
-  }, type);
-  expect(tabId, `${type} tab not found after archive reopen`).toBeTruthy();
-  await page.evaluate(async (id) => {
-    const activate = window.Main?.tabs?.activateTab;
-    if (typeof activate === 'function') {
-      const result = activate(id, { reason: 'e2e-reopen-graph-edit-activate' });
-      if (result && typeof result.then === 'function') {
-        await result;
-      }
-    }
-  }, tabId);
+  }, component.type);
+  expect(tabId, `${component.type} tab not found after archive reopen`).toBeTruthy();
+  await activateTab(page, tabId, component, {
+    timeout: 30_000,
+    requireMountedRoot: true
+  });
+  await awaitComponentIdle(page, component, tabId);
   return tabId;
 }
 
@@ -226,9 +227,12 @@ test.describe('Reopened graph edits invalidate restored render caches', () => {
     await loadExampleAndWait(page, component, textSelector);
 
     const archivePath = await captureWorkspaceArchive(page, 'reopen-graph-edit-box');
-    const tabId = await reopenArchiveAndActivate(page, archivePath, component.type);
-    await waitForSelectorInPage(page, textSelector, 30_000);
-    await awaitComponentIdle(page, component.type);
+    const tabId = await reopenArchiveAndActivate(page, archivePath, component);
+    await waitForOwnerProjection(page, component, textSelector, {
+      timeout: 30_000,
+      requireMountedRoot: true
+    });
+    await awaitComponentIdle(page, component, tabId);
 
     const beforeRedraws = await graphEditEventCount(page, component.type, tabId, 'graph-edit-redraw-requested');
     await page.evaluate(() => {
@@ -305,17 +309,23 @@ test.describe('Reopened graph edits invalidate restored render caches', () => {
     await loadExampleAndWait(page, component, cellSelector);
 
     const archivePath = await captureWorkspaceArchive(page, 'reopen-graph-edit-heatmap');
-    const tabId = await reopenArchiveAndActivate(page, archivePath, component.type);
-    await waitForSelectorInPage(page, cellSelector, 30_000);
-    await awaitComponentIdle(page, component.type);
+    const tabId = await reopenArchiveAndActivate(page, archivePath, component);
+    await waitForOwnerProjection(page, component, cellSelector, {
+      timeout: 30_000,
+      requireMountedRoot: true
+    });
+    await awaitComponentIdle(page, component, tabId);
 
     const beforeRedraws = await graphEditEventCount(page, component.type, tabId, 'graph-edit-redraw-requested');
 
-    await waitForSelectorInPage(page, paletteTriggerSelector, 30_000);
+    await waitForOwnerProjection(page, component, paletteTriggerSelector, {
+      timeout: 30_000,
+      requireMountedRoot: true
+    });
     await page.locator(paletteTriggerSelector).first().click({ force: true });
     await expect(page.locator(paletteSelector)).toBeVisible({ timeout: 12_000 });
     expect(await graphEditEventCount(page, component.type, tabId, 'graph-edit-redraw-requested')).toBe(beforeRedraws);
-    await awaitComponentIdle(page, component.type);
+    await awaitComponentIdle(page, component, tabId);
 
     const beforeColorSignature = await page.evaluate(graphSignatureInPage, component.type);
     const colorInput = page.locator(`${paletteSelector} input[data-heatmap-palette-key="positive"]`).first();
@@ -336,6 +346,64 @@ test.describe('Reopened graph edits invalidate restored render caches', () => {
     expect(issues.critical.filter(entry => entry.kind !== 'requestfailed')).toEqual([]);
   });
 
+  test('surface rotation uses restored handlers on the first archive-reopen drag', async ({ page }) => {
+    test.setTimeout(180_000);
+    const issues = registerIssueCollectors(page);
+    await installLocalCdnOverrides(page);
+
+    const component = { type: 'surface', pageId: 'surfacePage', exampleButtonId: 'surfaceLoadExample' };
+    const hitSelector = '#surfacePage:not([hidden]) #surfaceSvg [data-plot3d-rotation-hit-surface="1"]';
+
+    await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
+    await expect(page.locator('#welcomeScreen')).toBeVisible({ timeout: 20_000 });
+    await openComponentFromWelcome(page, component, { first: true });
+    await loadExampleAndWait(page, component, hitSelector);
+
+    const archivePath = await captureWorkspaceArchive(page, 'reopen-graph-edit-surface');
+    const tabId = await reopenArchiveAndActivate(page, archivePath, component);
+    await waitForOwnerProjection(page, component, hitSelector, {
+      timeout: 30_000,
+      requireMountedRoot: true
+    });
+    await awaitComponentIdle(page, component, tabId);
+
+    const before = await page.evaluate(id => {
+      const session = window.Components?.surface?.__testHooks?.getSession?.(id);
+      const rotation = session?.state?.rotation || {};
+      const svg = session?.refs?.svg || null;
+      return {
+        x: Number(rotation.x) || 0,
+        y: Number(rotation.y) || 0,
+        z: Number(rotation.z) || 0,
+        controlsAttached: svg?.dataset?.rotationControlsAttached || null
+      };
+    }, tabId);
+    expect(before.controlsAttached).toBe('true');
+
+    const hit = page.locator(hitSelector).first();
+    const box = await hit.boundingBox();
+    expect(box).toBeTruthy();
+    const startX = box.x + box.width / 2;
+    const startY = box.y + box.height / 2;
+    await page.mouse.move(startX, startY);
+    await page.mouse.down();
+    await page.mouse.move(startX + 80, startY + 20, { steps: 4 });
+    await page.mouse.up();
+    await awaitComponentIdle(page, component, tabId);
+
+    const after = await page.evaluate(id => {
+      const session = window.Components?.surface?.__testHooks?.getSession?.(id);
+      const rotation = session?.state?.rotation || {};
+      return {
+        x: Number(rotation.x) || 0,
+        y: Number(rotation.y) || 0,
+        z: Number(rotation.z) || 0
+      };
+    }, tabId);
+    expect(after.y).not.toBeCloseTo(before.y, 4);
+    expect(issues.critical).toEqual([]);
+  });
+
   for(const component of [
     { type: 'scatter', pageId: 'scatterPage', exampleButtonId: 'scatterLoadExample', targetSelector: '#scatterPage:not([hidden]) #scatterPlot svg text[data-font-editable="1"]' },
     { type: 'pca', pageId: 'pcaPage', exampleButtonId: 'pcaLoadExample', targetSelector: '#pcaPage:not([hidden]) [data-plot-point="1"]' }
@@ -352,9 +420,12 @@ test.describe('Reopened graph edits invalidate restored render caches', () => {
       await loadExampleAndWait(page, component, targetSelector);
 
       const archivePath = await captureWorkspaceArchive(page, `reopen-graph-edit-${component.type}`);
-      const tabId = await reopenArchiveAndActivate(page, archivePath, component.type);
-      await waitForSelectorInPage(page, targetSelector, 30_000);
-      await awaitComponentIdle(page, component.type);
+      const tabId = await reopenArchiveAndActivate(page, archivePath, component);
+      await waitForOwnerProjection(page, component, targetSelector, {
+        timeout: 30_000,
+        requireMountedRoot: true
+      });
+      await awaitComponentIdle(page, component, tabId);
       const beforeRedraws = await graphEditEventCount(page, component.type, tabId, 'graph-edit-redraw-requested');
       if(component.type === 'pca'){
         expect(await page.locator(targetSelector).first().getAttribute('data-pca-point-interaction')).toBeTruthy();
@@ -398,13 +469,19 @@ test.describe('Reopened graph edits invalidate restored render caches', () => {
       if(component.chartType){
         await page.locator(`#${component.pageId}:not([hidden]) #pieChartType`).selectOption(component.chartType);
       }
-      await waitForSelectorInPage(page, axisSelector, 30_000);
-      await awaitComponentIdle(page, component.type);
+      await waitForOwnerProjection(page, component, axisSelector, {
+        timeout: 30_000,
+        requireMountedRoot: true
+      });
+      await awaitComponentIdle(page, component);
 
       const archivePath = await captureWorkspaceArchive(page, `reopen-axis-interaction-${component.type}${component.chartType ? `-${component.chartType}` : ''}`);
-      const tabId = await reopenArchiveAndActivate(page, archivePath, component.type);
-      await waitForSelectorInPage(page, axisSelector, 30_000);
-      await awaitComponentIdle(page, component.type);
+      const tabId = await reopenArchiveAndActivate(page, archivePath, component);
+      await waitForOwnerProjection(page, component, axisSelector, {
+        timeout: 30_000,
+        requireMountedRoot: true
+      });
+      await awaitComponentIdle(page, component, tabId);
 
       const restoredAxis = page.locator(axisSelector).first();
       await expect(restoredAxis).toHaveAttribute('data-axis-control', '1');
@@ -449,9 +526,12 @@ test.describe('Reopened graph edits invalidate restored render caches', () => {
       const titleSelector = `#${component.pageId}:not([hidden]) svg text[data-font-role="graphTitle"]`;
       await loadExampleAndWait(page, component, titleSelector);
       const archivePath = await captureWorkspaceArchive(page, `reopen-inline-edit-${component.type}`);
-      const tabId = await reopenArchiveAndActivate(page, archivePath, component.type);
-      await waitForSelectorInPage(page, titleSelector, 30_000);
-      await awaitComponentIdle(page, component.type);
+      const tabId = await reopenArchiveAndActivate(page, archivePath, component);
+      await waitForOwnerProjection(page, component, titleSelector, {
+        timeout: 30_000,
+        requireMountedRoot: true
+      });
+      await awaitComponentIdle(page, component, tabId);
 
       const assertInlineEditorOpens = async selector => {
         const target = page.locator(selector).first();
@@ -467,7 +547,10 @@ test.describe('Reopened graph edits invalidate restored render caches', () => {
       await assertInlineEditorOpens(titleSelector);
       if(component.axisTitle){
         const axisTitleSelector = `#${component.pageId}:not([hidden]) svg text[data-font-role="xTitle"], #${component.pageId}:not([hidden]) svg text[data-font-role="yTitle"]`;
-        await waitForSelectorInPage(page, axisTitleSelector, 12_000);
+        await waitForOwnerProjection(page, component, axisTitleSelector, {
+          timeout: 12_000,
+          requireMountedRoot: true
+        });
         await assertInlineEditorOpens(axisTitleSelector);
       }
       expect(issues.critical.filter(entry => entry.kind !== 'requestfailed')).toEqual([]);

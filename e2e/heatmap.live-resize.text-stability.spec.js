@@ -1,9 +1,10 @@
 const { test, expect } = require('@playwright/test');
 const {
-  installLocalCdnOverrides,
   openComponentFromWelcome,
   clickExampleButtonIfPresent
-} = require('./helpers/workspaceHarness');
+} = require('./helpers/workspaceDriver');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
+const { waitForComponentOwnerReady } = require('./helpers/contractWaits');
 
 test('Heatmap graph resize redraws text live without a second settled-size jump', async ({ page }) => {
   test.setTimeout(120_000);
@@ -26,7 +27,10 @@ test('Heatmap graph resize redraws text live without a second settled-size jump'
       checkbox.dispatchEvent(new Event('change', { bubbles: true }));
     }
   });
-  await page.waitForTimeout(100);
+  await waitForComponentOwnerReady(page, 'heatmap', {
+    requireMountedRoot: true,
+    requireIdle: true
+  });
 
   await page.evaluate(() => {
     const svg = document.getElementById('heatmapSvg');
@@ -65,7 +69,10 @@ test('Heatmap graph resize redraws text live without a second settled-size jump'
 
   const renderCountBeforeRelease = await page.evaluate(() => window.__heatmapResizeRenderCount);
   await page.mouse.up();
-  await page.waitForTimeout(250);
+  await waitForComponentOwnerReady(page, 'heatmap', {
+    requireMountedRoot: true,
+    requireIdle: true
+  });
 
   const result = await page.evaluate(() => {
     window.__heatmapResizeObserver?.disconnect();

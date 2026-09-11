@@ -1,11 +1,8 @@
 const { test, expect } = require('@playwright/test');
-const {
-  COMPONENT_MATRIX,
-  installLocalCdnOverrides,
-  registerIssueCollectors,
-  openComponentFromWelcome,
-  clickExampleButtonIfPresent
-} = require('./helpers/workspaceHarness');
+const { COMPONENT_MATRIX, openComponentFromWelcome, clickExampleButtonIfPresent } = require('./helpers/workspaceDriver');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
+const { registerIssueCollectors } = require('./helpers/diagnostics');
+const { waitForComponentOwnerReady } = require('./helpers/contractWaits');
 
 const COMPONENTS = COMPONENT_MATRIX.filter(component => component.type === 'line' || component.type === 'hist');
 
@@ -81,7 +78,10 @@ async function activateTabById(page, tabId, component) {
     await page.waitForFunction(id => window.Main?.session?.workspaceState?.activeTabId === id, tabId, { timeout: 20_000 });
   }
   await waitForGraphSvg(page, component);
-  await page.waitForTimeout(250);
+  await waitForComponentOwnerReady(page, component, {
+    requireMountedRoot: true,
+    requireIdle: true
+  });
 }
 
 async function setLockRatio(page, component, checked) {
@@ -111,7 +111,10 @@ async function setLockRatio(page, component, checked) {
       checkbox.dispatchEvent(new Event('change', { bubbles: true }));
     }
   }, { type: component.type, pageId: component.pageId, checked });
-  await page.waitForTimeout(500);
+  await waitForComponentOwnerReady(page, component, {
+    requireMountedRoot: true,
+    requireIdle: true
+  });
 }
 
 async function dragSvgBoxHandle(page, component, handleSelector, dx, dy) {
@@ -129,7 +132,10 @@ async function dragSvgBoxHandle(page, component, handleSelector, dx, dy) {
   await page.mouse.down();
   await page.mouse.move(startX + dx, startY + dy, { steps: 14 });
   await page.mouse.up();
-  await page.waitForTimeout(900);
+  await waitForComponentOwnerReady(page, component, {
+    requireMountedRoot: true,
+    requireIdle: true
+  });
   await waitForGraphSvg(page, component);
 }
 

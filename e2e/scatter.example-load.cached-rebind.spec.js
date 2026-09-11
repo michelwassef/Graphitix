@@ -1,9 +1,8 @@
 const { test, expect } = require('@playwright/test');
-const {
-  installLocalCdnOverrides,
-  registerIssueCollectors,
-  openComponentFromWelcome
-} = require('./helpers/workspaceHarness');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
+const { openComponentFromWelcome } = require('./helpers/workspaceDriver');
+const { registerIssueCollectors } = require('./helpers/diagnostics');
+const { waitForComponentOwnerReady, waitForOwnerProjection } = require('./helpers/contractWaits');
 
 const SCATTER_COMPONENT = {
   type: 'scatter',
@@ -18,21 +17,27 @@ test('scatter example load survives cached component DOM rebind and schedules a 
   await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
 
   await openComponentFromWelcome(page, SCATTER_COMPONENT, { first: true });
-  await page.waitForFunction(() => window.Components?.scatter?.ready === true, null, { timeout: 30000 });
+  await waitForComponentOwnerReady(page, SCATTER_COMPONENT, {
+    requireMountedRoot: true,
+    timeout: 30000
+  });
 
   await openComponentFromWelcome(page, SCATTER_COMPONENT, { loadExample: true });
 
+  await waitForOwnerProjection(page, SCATTER_COMPONENT, '#scatterPlot svg', {
+    requireMountedRoot: true,
+    requirePublished: true,
+    requireIdle: true,
+    visible: true,
+    timeout: 120000
+  });
   await page.waitForFunction(() => {
     const component = window.Components?.scatter;
     const hot = component?.__getActiveHot?.() || component?.__ensureHotForActiveTab?.();
     const data = hot?.getData?.() || [];
     const hasExampleData = data.some(row => Array.isArray(row) && row.some(value => value !== '' && value != null));
     const state = component?.__testGetState?.() || null;
-    const plot = document.querySelector('#scatterPlot svg');
-    return component?.ready === true
-      && hasExampleData
-      && !!plot
-      && state?.drawInProgress !== true;
+    return hasExampleData && state?.drawInProgress !== true;
   }, null, { timeout: 120000 });
 
   const active = await page.evaluate(() => {
@@ -53,6 +58,5 @@ test('scatter example load survives cached component DOM rebind and schedules a 
   expect(active.rows).toBeGreaterThan(1);
   expect(active.hasSvg).toBe(true);
 
-  await page.waitForTimeout(500);
   expect(issues.critical).toEqual([]);
 });

@@ -1,9 +1,8 @@
 const { test, expect } = require('@playwright/test');
-const {
-  installLocalCdnOverrides,
-  registerIssueCollectors,
-  openComponentFromWelcome
-} = require('./helpers/workspaceHarness');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
+const { openComponentFromWelcome } = require('./helpers/workspaceDriver');
+const { registerIssueCollectors } = require('./helpers/diagnostics');
+const { waitForComponentOwnerReady } = require('./helpers/contractWaits');
 
 function readInitialBottomReserveMetrics() {
   const svg = document.querySelector('#boxPlot svg');
@@ -80,7 +79,12 @@ test(`box initial ${graphType} draw preserves non-significance bottom reserve`, 
     null,
     { timeout: 25_000 }
   );
-  await page.waitForTimeout(900);
+  await waitForComponentOwnerReady(page, 'box', {
+    requireMountedRoot: true,
+    requirePublished: true,
+    requireIdle: true,
+    timeout: 25_000
+  });
 
   const metrics = await page.evaluate(readInitialBottomReserveMetrics);
   expect(metrics).not.toBeNull();

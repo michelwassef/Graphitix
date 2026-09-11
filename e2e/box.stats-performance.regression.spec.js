@@ -1,8 +1,7 @@
 const { test, expect } = require('@playwright/test');
-const {
-  installLocalCdnOverrides,
-  openComponentFromWelcome
-} = require('./helpers/workspaceHarness');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
+const { openComponentFromWelcome } = require('./helpers/workspaceDriver');
+const { waitForComponentOwnerReady } = require('./helpers/contractWaits');
 
 async function installBoxPerfProbe(page) {
   await page.evaluate(() => {
@@ -112,7 +111,11 @@ async function activateTab(page, tabId) {
     const state = window.Main?.session?.workspaceState;
     return String(state?.activeTabId || '') === String(id || '');
   }, tabId, { timeout: 20_000 });
-  await page.waitForTimeout(300);
+  await waitForComponentOwnerReady(page, 'box', {
+    expectedTabId: tabId,
+    requireMountedRoot: true,
+    timeout: 20_000
+  });
   return Date.now() - startedAt;
 }
 
@@ -130,7 +133,13 @@ async function dragBoxGraphWidth(page) {
     await page.waitForTimeout(40);
   }
   await page.mouse.up();
-  await page.waitForTimeout(500);
+  await waitForComponentOwnerReady(page, 'box', {
+    expectedTabId: await getActiveTabId(page),
+    requireMountedRoot: true,
+    requirePublished: true,
+    requireIdle: true,
+    timeout: 20_000
+  });
 }
 
 test('box stats do not recompute or make resize and tab return sluggish', async ({ page }) => {

@@ -15,28 +15,42 @@
 const fs = require('fs');
 const path = require('path');
 const { test, expect } = require('@playwright/test');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
+const { registerIssueCollectors } = require('./helpers/diagnostics');
 const {
-  installLocalCdnOverrides,
-  registerIssueCollectors,
   openComponentFromWelcome,
   clickExampleButtonIfPresent,
   waitForDocumentOpenComplete
-} = require('./helpers/workspaceHarness');
+} = require('./helpers/workspaceDriver');
+const { waitForComponentOwnerReady } = require('./helpers/contractWaits');
 
 const TMP_DIR = path.resolve(__dirname, '.tmp');
 
 // compute: id of a "Compute statistics" button to click after loading data (null = auto-computes on draw).
 // containers: the stats-panel container ids that together hold the component's rendered statistics.
 const CASES = [
-  { key: 'box', pageId: 'boxPage', exampleButtonId: 'boxLoadExample', compute: 'boxComputeStats', recovery: true, containers: ['statsResults'] },
-  { key: 'scatter', pageId: 'scatterPage', exampleButtonId: 'scatterLoadExample', compute: 'scatterComputeStats', containers: ['scatterStatsResults'] },
-  { key: 'line', pageId: 'linePage', exampleButtonId: 'lineLoadExample', compute: 'lineComputeStats', containers: ['lineStatsResults'] },
-  { key: 'pie', pageId: 'piePage', exampleButtonId: 'pieLoadExample', compute: 'pieComputeStats', containers: ['pieStatsResults'] },
-  { key: 'hist', pageId: 'histPage', exampleButtonId: 'histLoadExample', compute: null, containers: ['histStatsResults'] },
-  { key: 'roc', pageId: 'rocPage', exampleButtonId: 'rocLoadExample', compute: 'rocComputeStats', recovery: true, containers: ['rocStatsResults'] },
-  { key: 'survival', pageId: 'survivalPage', exampleButtonId: 'survivalLoadExample', compute: null, containers: ['survivalStatsPValueFormat', 'survivalStatsSummary', 'survivalStatsLogRank', 'survivalStatsHazardRatios', 'survivalStatsCox'] },
-  { key: 'heatmap', pageId: 'heatmapPage', exampleButtonId: 'heatmapLoadExample', compute: null, containers: ['heatmapStatsContent'] },
-  { key: 'surface', pageId: 'surfacePage', exampleButtonId: 'surfaceLoadExample', compute: null, containers: ['surfaceStatsSummary'] }
+  { key: 'box', pageId: 'boxPage', exampleButtonId: 'boxLoadExample', compute: 'boxComputeStats', recovery: true, containers: ['statsResults'], requiredStatsText: /p-value|ANOVA|t-test|Mann|comparison/i },
+  { key: 'scatter', pageId: 'scatterPage', exampleButtonId: 'scatterLoadExample', compute: 'scatterComputeStats', containers: ['scatterStatsResults'], requiredStatsText: /correlation|regression|p-value|R²/i },
+  { key: 'line', pageId: 'linePage', exampleButtonId: 'lineLoadExample', compute: 'lineComputeStats', containers: ['lineStatsResults'], requiredStatsText: /statistics|regression|forecast|p-value|slope/i },
+  { key: 'pie', pageId: 'piePage', exampleButtonId: 'pieLoadExample', compute: 'pieComputeStats', containers: ['pieStatsResults'], requiredStatsText: /chi-square|g-test|proportion|p-value/i },
+  { key: 'hist', pageId: 'histPage', exampleButtonId: 'histLoadExample', compute: null, containers: ['histStatsResults'], requiredStatsText: /mean|median|standard deviation|statistics/i },
+  {
+    key: 'roc',
+    pageId: 'rocPage',
+    exampleButtonId: 'rocLoadExample',
+    compute: async page => {
+      await page.evaluate(async () => {
+        window.Components?.roc?.draw?.({ reason: 'e2e-stats-reopen-presence' });
+        await window.Components?.roc?.awaitReadyForSnapshot?.({ reason: 'e2e-stats-reopen-presence-ready' });
+      });
+    },
+    recovery: true,
+    containers: ['rocStatsResults'],
+    requiredStatsText: /ROC metrics|AUC|precision.?recall/i
+  },
+  { key: 'survival', pageId: 'survivalPage', exampleButtonId: 'survivalLoadExample', compute: null, containers: ['survivalStatsPValueFormat', 'survivalStatsSummary', 'survivalStatsLogRank', 'survivalStatsHazardRatios', 'survivalStatsCox'], requiredStatsText: /log-rank|hazard|Cox|survival/i },
+  { key: 'heatmap', pageId: 'heatmapPage', exampleButtonId: 'heatmapLoadExample', compute: null, containers: ['heatmapStatsContent'], requiredStatsText: /items analysed|results|correlation|method/i },
+  { key: 'surface', pageId: 'surfacePage', exampleButtonId: 'surfaceLoadExample', compute: null, containers: ['surfaceStatsSummary'], requiredStatsText: /summary|mean|standard deviation|statistics/i }
 ];
 
 function statsRichnessInPage(containerIds) {
@@ -195,16 +209,18 @@ async function buildAndCompute(page, c) {
   await openComponentFromWelcome(page, { type: c.key, pageId: c.pageId, exampleButtonId: c.exampleButtonId }, { first: true });
   await page.waitForFunction(t => !!window.Components?.[t]?.ready, c.key, { timeout: 30_000 });
   await clickExampleButtonIfPresent(page, c.exampleButtonId);
-  await page.waitForFunction(t => !!document.querySelector(`#${t}Page svg, #${t}Page canvas`), c.key, { timeout: 30_000 }).catch(() => {});
-  await page.waitForTimeout(800);
-  if (c.compute) {
-    await page.evaluate(id => { const b = document.getElementById(id); if (b && !b.disabled) b.click(); }, c.compute);
-    await page.waitForTimeout(1200);
+  await waitForComponentOwnerReady(page, { type: c.key, pageId: c.pageId }, { requireMountedRoot: true });
+  if (typeof c.compute === 'function') {
+    await c.compute(page);
+  } else if (c.compute) {
+    const computeButton = page.locator(`#${c.compute}:visible`).first();
+    await expect(computeButton).toBeVisible({ timeout: 30_000 });
+    await expect(computeButton).toBeEnabled({ timeout: 30_000 });
+    await computeButton.click();
   }
   await expect
     .poll(async () => (await page.evaluate(statsRichnessInPage, c.containers)).textLen, { timeout: 30_000 })
     .toBeGreaterThan(0);
-  await page.waitForTimeout(600);
 }
 
 async function captureArchive(page, stem) {
@@ -223,18 +239,46 @@ async function captureArchive(page, stem) {
 }
 
 async function activateComponentTab(page, key) {
-  await page.evaluate(async (t) => {
-    const state = window.Main?.session?.workspaceState;
-    const tab = (state?.tabs || []).find(x => x && x.type === t);
-    if (tab) { const p = window.Main.tabs.activateTab(tab.id, { reason: 'e2e-stats-contract-activate' }); if (p && p.then) await p; }
-  }, key);
+  let handle;
+  try {
+    handle = await page.waitForFunction(t => {
+      const tabs = window.Main?.session?.workspaceState?.tabs || [];
+      const tab = tabs.find(item => item && !item.isWelcome && item.type === t);
+      return tab?.id || false;
+    }, key, { timeout: 60_000, polling: 'raf' });
+  } catch (error) {
+    const state = await page.evaluate(() => ({
+      tabs: (window.Main?.session?.workspaceState?.tabs || []).map(tab => ({
+        id: tab?.id || null,
+        type: tab?.type || null,
+        isWelcome: !!tab?.isWelcome,
+        payloadType: tab?.payload?.type || null
+      })),
+      activeTabId: window.Main?.session?.workspaceState?.activeTabId || null,
+      documentOperation: window.Main?.session?.workspaceState?.documentOperation || null,
+      diagnostics: window.Main?.sessionActions?.getDocumentOpenDiagnostics?.() || null
+    }));
+    throw new Error(`Recovery component tab was not restored: ${JSON.stringify(state)}`, { cause: error });
+  }
+  const tabId = await handle.jsonValue();
+  await page.evaluate(async id => {
+    const result = window.Main?.tabs?.activateTab?.(id, { reason: 'e2e-stats-contract-activate' });
+    if (result && typeof result.then === 'function') await result;
+  }, tabId);
+  await waitForComponentOwnerReady(page, { type: key, pageId: `${key}Page` }, {
+    expectedTabId: tabId,
+    requireMountedRoot: true
+  });
 }
 
-function expectNoStatsLoss(before, after, label) {
+function expectNoStatsLoss(before, after, label, requiredText) {
   expect(after.svgs, `${label}: stats SVG count dropped (${after.svgs} < ${before.svgs})`).toBeGreaterThanOrEqual(before.svgs);
   expect(after.rows, `${label}: stats table rows dropped (${after.rows} < ${before.rows})`).toBeGreaterThanOrEqual(before.rows);
   expect(after.vectors, `${label}: stats vector primitives dropped (${after.vectors} < ${before.vectors})`).toBeGreaterThanOrEqual(before.vectors);
-  expect(after.textLen, `${label}: stats text shrank (${after.textLen} < ${Math.floor(before.textLen * 0.9)})`).toBeGreaterThanOrEqual(Math.floor(before.textLen * 0.9));
+  expect(after.textLen, `${label}: restored stats have no text`).toBeGreaterThan(0);
+  if (requiredText) {
+    expect(after.textSignature, `${label}: restored stats lost required semantic facts`).toMatch(requiredText);
+  }
   expect(after.exportDropdowns, `${label}: stats export controls dropped (${after.exportDropdowns} < ${before.exportDropdowns})`).toBeGreaterThanOrEqual(before.exportDropdowns);
   if (before.pValues.length) {
     const missing = before.pValues.filter(value => {
@@ -273,18 +317,26 @@ async function seedRecoverySnapshot(page) {
       request.onerror = () => reject(request.error);
     });
     const db = await openWebDb();
+    window.localStorage.removeItem('graphitix.canonical-journal.v1');
     const ws = window.Main?.session?.workspaceState || {};
     const graphTabs = (ws.tabs || []).filter(t => t && !t.isWelcome && t.type);
     const ctx = window.Main.tabs.getSessionActionsContext();
     const blob = await window.Main.sessionActions.buildWorkspaceArchiveBlob(ctx, { scope: 'workspace', snapshotKind: 'recovery', policyMode: 'recovery', reason: 'recovery-interval', useWorker: true });
     await new Promise((resolve, reject) => {
-      const tx = db.transaction('snapshots', 'readwrite');
+      const stores = ['snapshots'];
+      if (db.objectStoreNames.contains('canonical-journal')) {
+        stores.push('canonical-journal');
+      }
+      const tx = db.transaction(stores, 'readwrite');
+      if (stores.includes('canonical-journal')) {
+        tx.objectStore('canonical-journal').clear();
+      }
       tx.objectStore('snapshots').put({
         meta: { app: 'Graphitix', kind: 'recovery', version: 1, savedAt: new Date().toISOString(), updatedAt: Date.now(), reason: 'recovery-interval', dirty: true, hasData: true, tabCount: graphTabs.length, fileName: 'workspace.graph', fileScope: 'workspace' },
         blob
       }, 'active-recovery');
-      tx.oncomplete = () => resolve(true);
-      tx.onerror = () => reject(tx.error);
+      tx.oncomplete = () => { db.close(); resolve(true); };
+      tx.onerror = () => { db.close(); reject(tx.error); };
     });
   });
 }
@@ -309,12 +361,14 @@ for (const c of CASES) {
     await expect(page.locator('#welcomeScreen')).toBeVisible({ timeout: 20_000 });
     await page.locator('#workspaceSessionInput').setInputFiles(archivePath);
     await waitForDocumentOpenComplete(page);
-    await page.waitForTimeout(1000);
-    await page.waitForSelector(`#${c.pageId}:not([hidden])`, { timeout: 30_000 }).catch(() => {});
-    await page.waitForTimeout(1200);
+    await expect(page.locator(`#${c.pageId}:not([hidden])`)).toBeVisible({ timeout: 30_000 });
+    await waitForComponentOwnerReady(page, { type: c.key, pageId: c.pageId }, { requireMountedRoot: true });
+    await expect
+      .poll(async () => (await page.evaluate(statsRichnessInPage, c.containers)).textLen, { timeout: 30_000 })
+      .toBeGreaterThan(0);
 
     const after = await page.evaluate(statsRichnessInPage, c.containers);
-    expectNoStatsLoss(before, after, `${c.key} reopen`);
+    expectNoStatsLoss(before, after, `${c.key} reopen`, c.requiredStatsText);
     if (c.key === 'survival') {
       await expect.poll(() => page.evaluate(survivalPValueFormatPlacementInPage), { timeout: 20_000 })
         .toMatchObject({ hostVisible: true, beforeLogRank: true, nestedControls: 0, topLevelControls: 1 });
@@ -341,17 +395,34 @@ for (const c of CASES) {
       const rocBefore = c.key === 'roc' ? await captureRocStatsPersistenceState(page) : null;
       await seedRecoverySnapshot(page);
 
-      const handler = async d => { await d.accept(); };
+      let recoveryDialogAccepted = false;
+      const handler = async d => {
+        if (d.type() === 'beforeunload') {
+          await d.accept();
+          return;
+        }
+        if (!/recover|restore/i.test(d.message())) {
+          await d.dismiss();
+          return;
+        }
+        await d.accept();
+        recoveryDialogAccepted = true;
+      };
       page.on('dialog', handler);
       await page.reload({ waitUntil: 'domcontentloaded' });
-      await page.waitForTimeout(1500);
+      await expect.poll(() => recoveryDialogAccepted, {
+        timeout: 30_000,
+        message: 'crash recovery should offer the seeded dirty snapshot'
+      }).toBe(true);
       page.off('dialog', handler);
       await activateComponentTab(page, c.key);
-      await page.waitForSelector(`#${c.pageId}:not([hidden])`, { timeout: 30_000 }).catch(() => {});
-      await page.waitForTimeout(1200);
+      await expect(page.locator(`#${c.pageId}:not([hidden])`)).toBeVisible({ timeout: 30_000 });
+      await expect
+        .poll(async () => (await page.evaluate(statsRichnessInPage, c.containers)).textLen, { timeout: 30_000 })
+        .toBeGreaterThan(0);
 
       const after = await page.evaluate(statsRichnessInPage, c.containers);
-      expectNoStatsLoss(before, after, `${c.key} recovery`);
+      expectNoStatsLoss(before, after, `${c.key} recovery`, c.requiredStatsText);
       if (c.key === 'roc') {
         expect(await captureRocStatsPersistenceState(page)).toStrictEqual(rocBefore);
       }

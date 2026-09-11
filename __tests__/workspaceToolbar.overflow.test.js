@@ -1,3 +1,5 @@
+require('../js/shared/workspaceToolbar.js');
+
 let toolbarKeyCounter = 0;
 const mountedContainers = new Set();
 

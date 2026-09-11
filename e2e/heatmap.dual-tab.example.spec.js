@@ -1,9 +1,6 @@
 const { test, expect } = require('@playwright/test');
-const {
-  installLocalCdnOverrides,
-  openComponentFromWelcome,
-  clickExampleButtonIfPresent
-} = require('./helpers/workspaceHarness');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
+const { openComponentFromWelcome, clickExampleButtonIfPresent } = require('./helpers/workspaceDriver');
 
 async function waitForHeatmapCells(page) {
   await page.waitForFunction(() => {

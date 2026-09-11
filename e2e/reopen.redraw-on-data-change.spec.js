@@ -1,12 +1,13 @@
 const fs = require('fs');
 const path = require('path');
 const { test, expect } = require('@playwright/test');
+const { COMPONENT_MATRIX, openComponentFromWelcome } = require('./helpers/workspaceDriver');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
+const { registerIssueCollectors } = require('./helpers/diagnostics');
 const {
-  COMPONENT_MATRIX,
-  installLocalCdnOverrides,
-  registerIssueCollectors,
-  openComponentFromWelcome
-} = require('./helpers/workspaceHarness');
+  waitForComponentOwnerReady,
+  waitForComponentSnapshotReady
+} = require('./helpers/contractWaits');
 
 const TMP_DIR = path.resolve(__dirname, '.tmp');
 
@@ -100,16 +101,26 @@ function findEditableCellInPage(type) {
 async function loadExampleTrusted(page, component) {
   const button = page.locator(`#${component.pageId}:not([hidden]) #${component.exampleButtonId}`).first();
   await expect(button).toBeVisible({ timeout: 20_000 });
+  const clickErrors = [];
   for (let attempt = 0; attempt < 6; attempt += 1) {
-    await button.click({ force: true, timeout: 10_000 }).catch(() => {});
+    try {
+      await button.click({ force: true, timeout: 10_000 });
+    } catch (error) {
+      clickErrors.push(error?.message || String(error));
+    }
     try {
       await page.waitForFunction(activeGridHasDataInPage, component.type, { timeout: 4_000 });
       return;
     } catch (e) {
-      await page.waitForTimeout(600);
+      // Retry immediately; the bounded data predicate above is the readiness signal.
     }
   }
-  await page.waitForFunction(activeGridHasDataInPage, component.type, { timeout: 8_000 });
+  try {
+    await page.waitForFunction(activeGridHasDataInPage, component.type, { timeout: 8_000 });
+  } catch (error) {
+    const detail = clickErrors.length ? ` Click attempts: ${clickErrors.join(' | ')}` : '';
+    throw new Error(`${component.type}: example data did not become available.${detail}`, { cause: error });
+  }
 }
 
 // Edit one body cell through the real AG grid editor (double-click → type → Enter),
@@ -171,7 +182,10 @@ async function reopenArchiveAndActivate(page, archivePath, type) {
   const input = page.locator('#workspaceSessionInput');
   await expect(input).toHaveCount(1, { timeout: 20_000 });
   await input.setInputFiles(archivePath);
-  await page.waitForTimeout(2_500);
+  await page.waitForFunction((t) => {
+    const tabs = window.Main?.session?.workspaceState?.tabs || [];
+    return tabs.some(tab => tab && tab.type === t && !tab.isWelcome);
+  }, type, { timeout: 60_000, polling: 'raf' });
 
   const tabId = await page.evaluate((t) => {
     const tabs = window.Main?.session?.workspaceState?.tabs || [];
@@ -197,6 +211,8 @@ async function reopenArchiveAndActivate(page, archivePath, type) {
 // ---------------------------------------------------------------------------
 
 test.describe('Reopen → data edit redraws immediately (all components)', () => {
+  test.describe.configure({ mode: 'parallel' });
+
   for (const component of COMPONENT_MATRIX) {
     test(`reopen + table edit redraws without resize: ${component.type}`, async ({ page }) => {
       test.setTimeout(240_000);
@@ -208,7 +224,7 @@ test.describe('Reopen → data edit redraws immediately (all components)', () =>
       await openComponentFromWelcome(page, component, { first: true });
       await loadExampleTrusted(page, component);
       await waitForGraph(page, component.type);
-      await page.waitForTimeout(1_200);
+      await waitForComponentSnapshotReady(page, component.type, { timeout: 60_000 });
 
       const archivePath = await captureWorkspaceArchive(page, `reopen-redraw-${component.type}`);
 
@@ -216,7 +232,7 @@ test.describe('Reopen → data edit redraws immediately (all components)', () =>
       expect(tabId, `${component.type} tab not found after reopen`).toBeTruthy();
       await waitForGraph(page, component.type);
       await page.waitForFunction(activeGridHasDataInPage, component.type, { timeout: 20_000 });
-      await page.waitForTimeout(900);
+      await waitForComponentOwnerReady(page, component.type, { requireIdle: true, timeout: 60_000 });
 
       // Deterministically recreate the just-reopened state: re-arm the
       // post-render-cache-restore draw suppression for this tab. On the buggy code

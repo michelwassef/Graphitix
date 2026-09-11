@@ -1,9 +1,9 @@
-const { initializeWorkspaceHarness } = require('./setup/workspaceHarness');
-
 describe('Line regression overlay segmentation', () => {
   beforeEach(() => {
     jest.resetModules();
-    initializeWorkspaceHarness();
+    global.Main = {};
+    global.Components = {};
+    global.Shared = {};
     require('../js/components/line.js');
   });
 

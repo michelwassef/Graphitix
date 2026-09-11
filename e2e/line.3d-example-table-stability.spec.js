@@ -1,9 +1,7 @@
 const { test, expect } = require('@playwright/test');
-const {
-  installLocalCdnOverrides,
-  openComponentFromWelcome,
-  clickExampleButtonIfPresent
-} = require('./helpers/workspaceHarness');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
+const { openComponentFromWelcome } = require('./helpers/workspaceDriver');
+const { clickExampleButton } = require('./helpers/uiDriver');
 
 async function captureLine3dTable(page) {
   return page.evaluate(() => {
@@ -38,7 +36,7 @@ test('Line 3D example load keeps its canonical table stable', async ({ page }) =
 
   await page.locator('#lineTableFormat').selectOption('3d');
   await page.locator('#lineViewMode').selectOption('3d');
-  await clickExampleButtonIfPresent(page, 'lineLoadExample');
+  await clickExampleButton(page, { type: 'line', pageId: 'linePage', exampleButtonId: 'lineLoadExample' }, { requireMountedRoot: true });
   await expect(page.locator('#linePlot svg[data-view-mode="3d"]')).toBeVisible();
 
   await expect.poll(async () => {

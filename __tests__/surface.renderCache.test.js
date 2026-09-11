@@ -1,3 +1,5 @@
+const { loadProductionBootstrap } = require('../test-support/productionLoader');
+
 describe('Surface render cache redraw', () => {
   jest.setTimeout(240000);
 
@@ -66,52 +68,10 @@ describe('Surface render cache redraw', () => {
       global.__resetGrid__();
     }
 
-    require('../js/vendor.js');
-    require('../js/shared/fileIO.js');
-    require('../js/shared/debounce.js');
-    require('../js/shared/componentLifecycle.js');
-    require('../js/shared/exampleDatasets.js');
-    require('../js/shared/dataTransforms.js');
-    require('../js/shared/dataViews.js');
-    require('../js/shared/tabContext.js');
-    require('../js/shared/undo.js');
-    require('../js/shared/resizer.js');
-    require('../js/shared/dom.js');
-    require('../js/shared/exporter.js');
-    require('../js/shared/chartStyle.js');
-    require('../js/shared/plot3d.js');
-    require('../js/shared/graphSizing.js');
-    require('../js/shared/regression.js');
-    require('../js/shared/stats.js');
-    require('../js/shared/stats-table.js');
-    require('../js/shared/colorPicker.js');
-    require('../js/shared/editHighlight.js');
-    require('../js/shared/axisControls.js');
-    require('../js/shared/additionalLineControls.js');
-    require('../js/shared/significanceControls.js');
-    require('../js/shared/fontControls.js');
-    require('../js/shared/formControls.js');
-    require('../js/shared/hot.js');
-    require('../js/shared/componentLayout.js');
-    require('../js/shared/tableImport.js');
-    require('../js/shared/uniprot.js');
-    require('../js/shared/goAnalysis.js');
-    require('../js/shared/stringAnalysis.js');
-    require('../js/main/components.js');
-    if (window.Main?.components?.preloadAllBundlesSync) {
-      window.Main.components.preloadAllBundlesSync();
-    }
-    require('../js/main/session.js');
-    require('../js/main/domControls.js');
-    require('../js/main/sessionActions.js');
-    require('../js/main/styleSync.js');
-    require('../js/main/tabDrag.js');
-    require('../js/main/previews.js');
-    require('../js/main/tabs/render.js');
-    require('../js/main/tabs/unsavedPrompt.js');
-    require('../js/main/tabs/duplicatePrompt.js');
-    require('../js/main/tabs.js');
-    require('../js/main.js');
+    loadProductionBootstrap({
+      vendorMode: 'fake',
+      preloadComponents: ['surface']
+    });
   });
 
   afterEach(() => {
@@ -180,13 +140,13 @@ describe('Surface render cache redraw', () => {
       margin: null
     })).toBeNull();
     expect(svg.getAttribute('preserveAspectRatio')).toBe('xMidYMid meet');
-    expect(svg.getAttribute('width')).toBe('100%');
-    expect(svg.getAttribute('height')).toBe('100%');
+    expect(Number(svg.getAttribute('width'))).toBeGreaterThan(0);
+    expect(Number(svg.getAttribute('height'))).toBeGreaterThan(0);
     let viewBox = parseViewBox(svg);
     expect(viewBox).toEqual([
       0,
       0,
-      Number(svg.getAttribute('data-surface-base-width')),
+      Number(svg.getAttribute('data-plot3d-canonical-width')),
       Number(svg.getAttribute('data-surface-base-height'))
     ]);
     expect(cache.svgRootState.attributes['data-surface-base-width']).toBeTruthy();
@@ -242,13 +202,13 @@ describe('Surface render cache redraw', () => {
     expect(svg.querySelectorAll('g.surface-faces polygon').length).toBe(originalFaceCount);
     expect(svg.querySelectorAll('g.surface-points circle').length).toBe(originalPointCount);
     expect(svg.getAttribute('preserveAspectRatio')).toBe('xMidYMid meet');
-    expect(svg.getAttribute('width')).toBe('100%');
-    expect(svg.getAttribute('height')).toBe('100%');
+    expect(Number(svg.getAttribute('width'))).toBeGreaterThan(0);
+    expect(Number(svg.getAttribute('height'))).toBeGreaterThan(0);
     viewBox = parseViewBox(svg);
     expect(viewBox).toEqual([
       0,
       0,
-      Number(cache.svgRootState.attributes['data-surface-base-width']),
+      Number(svg.getAttribute('data-plot3d-canonical-width')),
       Number(cache.svgRootState.attributes['data-surface-base-height'])
     ]);
     expect(svg.getAttribute('data-surface-base-width'))

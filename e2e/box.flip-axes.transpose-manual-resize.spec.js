@@ -1,9 +1,17 @@
 const { test, expect } = require('@playwright/test');
-const {
-  installLocalCdnOverrides,
-  registerIssueCollectors,
-  openComponentFromWelcome
-} = require('./helpers/workspaceHarness');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
+const { openComponentFromWelcome } = require('./helpers/workspaceDriver');
+const { registerIssueCollectors } = require('./helpers/diagnostics');
+const { waitForComponentOwnerReady } = require('./helpers/contractWaits');
+
+async function waitForBoxReady(page) {
+  return waitForComponentOwnerReady(page, 'box', {
+    requireMountedRoot: true,
+    requirePublished: true,
+    requireIdle: true,
+    timeout: 30_000
+  });
+}
 
 function readFlipTransposeMetrics() {
   const svg = document.querySelector('#boxPlot svg');
@@ -193,7 +201,7 @@ async function loadStripExample(page) {
     );
   }).toPass({ timeout: 40_000, intervals: [500, 1000, 2000] });
   await page.locator('#boxGraphType').selectOption('strip');
-  await page.waitForTimeout(650);
+  await waitForBoxReady(page);
 }
 
 async function dragBoxWidthHandle(page, deltaX) {
@@ -241,18 +249,7 @@ async function clickBoxHeightHandleWithoutDrag(page) {
   await page.mouse.move(startX, startY);
   await page.mouse.down();
   await page.mouse.up();
-  await page.waitForFunction(() => {
-    const state = window.Components?.box?.__getState?.();
-    if (!state) return false;
-    const now = Date.now();
-    const marker = window.__boxNoopResizeIdleMarker || null;
-    if (!marker || marker.token !== state.drawToken) {
-      window.__boxNoopResizeIdleMarker = { token: state.drawToken, since: now };
-      return false;
-    }
-    return now - marker.since >= 350;
-  }, null, { timeout: 20_000 });
-  await page.waitForTimeout(250);
+  await waitForBoxReady(page);
 }
 
 async function doubleClickBoxResizeHandle(page) {
@@ -266,7 +263,7 @@ async function doubleClickBoxResizeHandle(page) {
     const token = Number(component?.__getState?.()?.drawToken) || 0;
     return token > previousToken && component?.isIdleForSnapshot?.() === true;
   }, beforeToken, { timeout: 20_000 });
-  await page.waitForTimeout(350);
+  await waitForBoxReady(page);
 }
 
 async function shrinkBoxWidthByHalf(page) {
@@ -288,7 +285,7 @@ async function shrinkBoxWidthByHalf(page) {
   if (await lockToggle.isVisible().catch(() => false)) {
     if (await lockToggle.isChecked()) {
       await lockToggle.uncheck();
-      await page.waitForTimeout(250);
+      await waitForBoxReady(page);
     }
   }
   await dragBoxWidthHandle(page, -Math.round(start.width * 0.5));
@@ -299,7 +296,7 @@ async function shrinkBoxWidthByHalf(page) {
     const liveWidth = Number(rect?.width);
     return Number.isFinite(liveWidth) && liveWidth <= startWidth * 0.65;
   }, start.width, { timeout: 20_000 });
-  await page.waitForTimeout(1_000);
+  await waitForBoxReady(page);
 }
 
 async function resizeBoxWidthByRatio(page, ratio) {
@@ -331,7 +328,7 @@ async function resizeBoxWidthByRatio(page, ratio) {
     initialWidth: start.width,
     minDelta: Math.max(16, Math.abs(deltaX) * 0.35)
   }, { timeout: 20_000 });
-  await page.waitForTimeout(900);
+  await waitForBoxReady(page);
   const end = await page.evaluate(() => {
     const svgBox = document.querySelector('#boxGraphPanel .svgbox');
     if (!svgBox) {
@@ -371,7 +368,7 @@ async function resizeBoxHeightByRatio(page, ratio) {
     initialHeight: start.height,
     minDelta: Math.max(16, Math.abs(deltaY) * 0.35)
   }, { timeout: 20_000 });
-  await page.waitForTimeout(900);
+  await waitForBoxReady(page);
   const end = await page.evaluate(() => {
     const svgBox = document.querySelector('#boxGraphPanel .svgbox');
     if (!svgBox) {
@@ -394,18 +391,7 @@ async function setFlipAxes(page, enabled) {
     const state = window.Components?.box?.__getState?.();
     return !!state && !!state.flipAxes === !!expected;
   }, enabled, { timeout: 20_000 });
-  await page.waitForFunction(() => {
-    const state = window.Components?.box?.__getState?.();
-    if (!state) return false;
-    const now = Date.now();
-    const marker = window.__boxFlipIdleMarker || null;
-    if (!marker || marker.token !== state.drawToken) {
-      window.__boxFlipIdleMarker = { token: state.drawToken, since: now };
-      return false;
-    }
-    return now - marker.since >= 350;
-  }, null, { timeout: 20_000 });
-  await page.waitForTimeout(350);
+  await waitForBoxReady(page);
 }
 
 async function computeStatsAndEnableSignificance(page, options = {}) {
@@ -464,18 +450,7 @@ async function setShowSignificance(page, enabled, options = {}) {
     expectedEnabled: !!enabled,
     expectedFlipState: expectedFlipTri
   }, { timeout: 30_000 });
-  await page.waitForFunction(() => {
-    const state = window.Components?.box?.__getState?.();
-    if (!state) return false;
-    const now = Date.now();
-    const marker = window.__boxSignificanceIdleMarker || null;
-    if (!marker || marker.token !== state.drawToken) {
-      window.__boxSignificanceIdleMarker = { token: state.drawToken, since: now };
-      return false;
-    }
-    return now - marker.since >= 350;
-  }, null, { timeout: 20_000 });
-  await page.waitForTimeout(350);
+  await waitForBoxReady(page);
 }
 
 function expectApprox(actual, expected, tolerance, label) {

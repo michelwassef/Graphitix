@@ -1,10 +1,8 @@
 const { test, expect } = require('@playwright/test');
-const {
-  installLocalCdnOverrides,
-  registerIssueCollectors,
-  openComponentFromWelcome,
-  clickExampleButtonIfPresent
-} = require('./helpers/workspaceHarness');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
+const { openComponentFromWelcome } = require('./helpers/workspaceDriver');
+const { clickExampleButton } = require('./helpers/uiDriver');
+const { registerIssueCollectors } = require('./helpers/diagnostics');
 
 const PIE = { type: 'pie', pageId: 'piePage', exampleButtonId: 'pieLoadExample' };
 
@@ -24,7 +22,7 @@ test.describe('Pie chart type controls', () => {
     await expect(graphFieldset.locator('[data-pie-radial-options="1"]')).toHaveCount(1);
     await expect(page.locator('.resizer-options-menu #pieShowLegend')).toHaveCount(1);
     await expect(page.locator('#pieGraphPanel .config-panel > fieldset').filter({ hasText: 'Options' })).toHaveCount(0);
-    await clickExampleButtonIfPresent(page, PIE.exampleButtonId);
+    await clickExampleButton(page, PIE, { requireMountedRoot: true });
     const waitForTraceMode = mode => page.waitForFunction(expectedMode => {
       const traces = Array.from(document.querySelectorAll('#piePage:not([hidden]) #piePlot svg [data-pie-trace-mode]'));
       return traces.length > 0 && traces.every(trace => trace.getAttribute('data-pie-trace-mode') === expectedMode);

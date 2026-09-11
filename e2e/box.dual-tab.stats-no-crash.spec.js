@@ -1,9 +1,8 @@
 const { test, expect } = require('@playwright/test');
-const {
-  installLocalCdnOverrides,
-  registerIssueCollectors,
-  openComponentFromWelcome
-} = require('./helpers/workspaceHarness');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
+const { openComponentFromWelcome } = require('./helpers/workspaceDriver');
+const { registerIssueCollectors } = require('./helpers/diagnostics');
+const { waitForComponentOwnerReady } = require('./helpers/contractWaits');
 
 async function openBoxTab(page, { first = false } = {}) {
   if (first) {
@@ -23,7 +22,6 @@ async function openBoxTab(page, { first = false } = {}) {
       const duplicateEmpty = document.querySelector('#duplicateEmpty');
       if (prompt && duplicateEmpty && !duplicateEmpty.disabled) {
         duplicateEmpty.click();
-        await new Promise(resolve => setTimeout(resolve, 200));
       }
     });
     const visibleCard = page.locator('#graphSelectionGrid [data-graph-type="box"]').first();
@@ -50,7 +48,12 @@ async function activateTabById(page, tabId) {
   const tab = page.locator(`#workspaceTabsList .workspace-tab[data-tab-id="${tabId}"]`).first();
   await expect(tab).toBeVisible({ timeout: 20_000 });
   await tab.click({ force: true });
-  await page.waitForTimeout(350);
+  await waitForComponentOwnerReady(page, 'box', {
+    expectedTabId: tabId,
+    requireMountedRoot: true,
+    requireIdle: true,
+    timeout: 20_000
+  });
 }
 
 async function computeStats(page) {

@@ -1,8 +1,8 @@
 const { test, expect } = require('@playwright/test');
 const {
-  installLocalCdnOverrides,
   openComponentFromWelcome
-} = require('./helpers/workspaceHarness');
+} = require('./helpers/workspaceDriver');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
 
 test('Pie biomedical example calculates its two-cohort comparison', async ({ page }) => {
   await installLocalCdnOverrides(page);

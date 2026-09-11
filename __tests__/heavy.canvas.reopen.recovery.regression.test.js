@@ -1,3 +1,5 @@
+const { loadProductionBootstrap } = require('../test-support/productionLoader');
+
 describe('heavy canvas reopen/recovery regression guards', () => {
   function ensureWorkspaceRootResolver() {
     window.Shared = window.Shared || {};
@@ -102,20 +104,17 @@ describe('heavy canvas reopen/recovery regression guards', () => {
   beforeEach(() => {
     jest.resetModules();
     const activeTab = { id: 'workspace-scatter-a', type: 'scatter' };
-    window.Main = window.Main || {};
+    loadProductionBootstrap({
+      vendorMode: 'fake',
+      preloadComponents: ['scatter', 'box']
+    });
     window.Main.session = {
       workspaceState: { tabs: [activeTab], activeTabId: activeTab.id },
       getActiveTab: () => activeTab
     };
     ensureWorkspaceRootResolver();
     stampWorkspaceOwnerRoot(document.getElementById('scatterPage'), activeTab);
-    require('../js/shared/workspaceTabs.js');
-    require('../js/shared/componentLifecycle.js');
-    require('../js/shared/hot.js');
-    require('../js/shared/chartStyle.js');
     window.Shared.workspaceTabs.activateSession(activeTab, 'scatter', { reason: 'unit-heavy-setup' });
-    require('../js/components/scatter.js');
-    require('../js/components/box.js');
     window.Components.scatter.activateTab(activeTab, { reason: 'unit-heavy-setup' });
   });
 

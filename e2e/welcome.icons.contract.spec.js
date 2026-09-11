@@ -1,5 +1,5 @@
 const { test, expect } = require('@playwright/test');
-const { installLocalCdnOverrides } = require('./helpers/workspaceHarness');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
 
 async function readWelcomeIconMetrics(page, type) {
   return page.locator(`.graph-card[data-graph-type="${type}"] .graph-card__icon`).evaluate(tile => {

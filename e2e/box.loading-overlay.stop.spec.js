@@ -1,10 +1,7 @@
 const path = require('path');
 const { test, expect } = require('@playwright/test');
-const {
-  installLocalCdnOverrides,
-  openComponentFromWelcome,
-  confirmDataImportPrompt
-} = require('./helpers/workspaceHarness');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
+const { openComponentFromWelcome, confirmDataImportPrompt } = require('./helpers/workspaceDriver');
 
 const LARGE_BOX_CSV = path.resolve(__dirname, '..', '__tests__', 'test-box-large.csv');
 

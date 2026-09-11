@@ -1,8 +1,7 @@
 const { test, expect } = require('@playwright/test');
-const {
-  installLocalCdnOverrides,
-  openComponentFromWelcome
-} = require('./helpers/workspaceHarness');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
+const { openComponentFromWelcome } = require('./helpers/workspaceDriver');
+const { waitForComponentOwnerReady } = require('./helpers/contractWaits');
 
 async function readExportLayout(page, component) {
   return page.evaluate(type => {
@@ -146,7 +145,7 @@ test('dark graph surfaces continue through the export footer junction', async ({
   await openComponentFromWelcome(page, { type: 'scatter', pageId: 'scatterPage' }, { first: true, loadExample: true });
   await page.evaluate(() => window.Shared.colorSchemes.applyToActiveTab('scatter', 'dark'));
   await page.waitForFunction(() => document.querySelector('#scatterPage:not([hidden]) .svgbox')?.dataset?.colorScheme === 'dark');
-  await page.waitForTimeout(120);
+  await waitForComponentOwnerReady(page, { type: 'scatter', pageId: 'scatterPage' }, { requireIdle: true });
   const metrics = await readExportLayout(page, 'scatter');
   expect(metrics.graphBackgroundColor, 'dark graph surface is not black').toBe('rgb(0, 0, 0)');
   expect(metrics.controlsBackgroundColor, 'export controls should remain white').toBe('rgb(255, 255, 255)');
@@ -169,7 +168,6 @@ async function assertZoomDoesNotScaleExportRow(page, component) {
     const controls = document.querySelector(`#${type}Page:not([hidden]) #${type}ExportControls`);
     if (controls) controls.style.display = '';
   }, component);
-  await page.waitForTimeout(80);
   const shownFrame = await readExportLayout(page, component);
   expect(shownFrame.svgBox.width).toBeCloseTo(hiddenFrame.width, 0);
   expect(shownFrame.svgBox.height).toBeCloseTo(hiddenFrame.height, 0);
@@ -183,7 +181,7 @@ async function assertZoomDoesNotScaleExportRow(page, component) {
     const svgBox = document.querySelector(`#${type}Page:not([hidden]) .svgbox`);
     return Number(svgBox?.dataset?.resizerZoomLevel || 1) === 1.5;
   }, component);
-  await page.waitForTimeout(120);
+  await waitForComponentOwnerReady(page, { type: component, pageId: `${component}Page` }, { requireIdle: true });
   const zoomed = await readExportLayout(page, component);
   expectExportRowBelowGraph(zoomed, `${component} zoomed`);
   expect(zoomed.select.width).toBeCloseTo(before.select.width, 0);
@@ -210,7 +208,7 @@ test('Line keeps a long axis envelope separate from primary export chrome', asyn
   });
   await page.waitForFunction(() => document.querySelector('#linePage:not([hidden]) text[data-font-role="xTitle"]')?.textContent
     === 'A deliberately long experimental time-course axis title');
-  await page.waitForTimeout(250);
+  await waitForComponentOwnerReady(page, { type: 'line', pageId: 'linePage' }, { requireIdle: true });
   const metrics = await readExportLayout(page, 'line');
   expectExportRowBelowGraph(metrics, 'Line');
   await assertZoomDoesNotScaleExportRow(page, 'line');
@@ -226,7 +224,7 @@ test('Box keeps the envelope frame above the rendered graph', async ({ page }) =
     return !!document.querySelector('#boxPage:not([hidden]) #boxPlot svg')
       && svgBox?.dataset?.graphContentEnvelope === 'true';
   });
-  await page.waitForTimeout(250);
+  await waitForComponentOwnerReady(page, { type: 'box', pageId: 'boxPage' }, { requireIdle: true });
   const metrics = await readExportLayout(page, 'box');
   expectExportRowBelowGraph(metrics, 'Box');
 });
@@ -237,7 +235,7 @@ test('Venn keeps primary export chrome outside its graph frame', async ({ page }
   await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
   await openComponentFromWelcome(page, { type: 'venn', pageId: 'vennPage' }, { first: true, loadExample: true });
   await page.waitForFunction(() => !!document.querySelector('#vennPage:not([hidden]) #stage'));
-  await page.waitForTimeout(250);
+  await waitForComponentOwnerReady(page, { type: 'venn', pageId: 'vennPage' }, { requireIdle: true });
   const metrics = await readExportLayout(page, 'venn');
   expectExportRowBelowGraph(metrics, 'Venn');
   await assertZoomDoesNotScaleExportRow(page, 'venn');

@@ -21,7 +21,7 @@
     '- tabs/<Tab Name>/raw/data.csv: raw tabular input.',
     '- tabs/<Tab Name>/graph-config.json: graph/stat settings.',
     '- tabs/<Tab Name>/payload.json: payload snapshot (may omit raw data in lite mode).',
-    '- tabs/<Tab Name>/layout.json: panel/layout state.',
+    '- tabs/<Tab Name>/layout.json: absolute graph-frame geometry and viewport-relative workspace split.',
     '- tabs/<Tab Name>/preview.json: cached tab preview markup (when available).',
     '- tabs/<Tab Name>/render-cache.json: serialized one-shot render snapshot for redraw-free restore (when available).',
     '- tabs/<Tab Name>/ui-state.json: toolbar, table viewport, and component UI state (when available).'

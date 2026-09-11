@@ -1,10 +1,8 @@
 const { test, expect } = require('@playwright/test');
-const {
-  installLocalCdnOverrides,
-  registerIssueCollectors,
-  openComponentFromWelcome,
-  clickExampleButtonIfPresent
-} = require('./helpers/workspaceHarness');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
+const { openComponentFromWelcome } = require('./helpers/workspaceDriver');
+const { clickExampleButton } = require('./helpers/uiDriver');
+const { registerIssueCollectors } = require('./helpers/diagnostics');
 
 const COMPONENT = { type: 'line', pageId: 'linePage', exampleButtonId: 'lineLoadExample' };
 const TOOLBAR_PANEL = '.font-toolbar-host[data-font-toolbar-scope="line"] .line-uncertainty-inline-panel:visible';
@@ -48,7 +46,7 @@ async function openLineTab(page, { first = false } = {}) {
     return true;
   });
   expect(grouped).toBe(true);
-  await clickExampleButtonIfPresent(page, COMPONENT.exampleButtonId);
+  await clickExampleButton(page, COMPONENT, { requireMountedRoot: true });
   await waitForLineGraph(page);
   const after = await getLineTabIds(page);
   const tabId = after.find(id => !before.has(id));

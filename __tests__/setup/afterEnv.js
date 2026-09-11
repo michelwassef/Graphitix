@@ -25,20 +25,27 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  if (typeof global.__isStrictConsoleErrorsEnabled !== 'function' || !global.__isStrictConsoleErrorsEnabled()) {
-    return;
+  let consoleFailure = null;
+  try {
+    if (typeof global.__isStrictConsoleErrorsEnabled === 'function'
+      && global.__isStrictConsoleErrorsEnabled()
+      && typeof global.__consumeUnexpectedConsoleErrors === 'function') {
+      const errors = global.__consumeUnexpectedConsoleErrors();
+      if (Array.isArray(errors) && errors.length > 0) {
+        const preview = errors
+          .slice(0, 3)
+          .map((entry, index) => `#${index + 1} ${entry.map(value => String(value)).join(' ')}`)
+          .join('\n');
+        consoleFailure = new Error(`Unexpected console.error detected (${errors.length}).\n${preview}`);
+      }
+    }
+  } finally {
+    // A failed assertion must not leave spies or fake timers active for the
+    // next test in the same integration worker.
+    jest.restoreAllMocks();
+    jest.useRealTimers();
   }
-  if (typeof global.__consumeUnexpectedConsoleErrors !== 'function') {
-    return;
+  if (consoleFailure) {
+    throw consoleFailure;
   }
-  const errors = global.__consumeUnexpectedConsoleErrors();
-  if (!Array.isArray(errors) || errors.length === 0) {
-    return;
-  }
-  const preview = errors
-    .slice(0, 3)
-    .map((entry, index) => `#${index + 1} ${entry.map(value => String(value)).join(' ')}`)
-    .join('\n');
-  throw new Error(`Unexpected console.error detected (${errors.length}).\n${preview}`);
 });
-

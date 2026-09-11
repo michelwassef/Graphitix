@@ -1,9 +1,8 @@
 const { test, expect } = require('@playwright/test');
-const {
-  installLocalCdnOverrides,
-  registerIssueCollectors,
-  openComponentFromWelcome
-} = require('./helpers/workspaceHarness');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
+const { openComponentFromWelcome } = require('./helpers/workspaceDriver');
+const { registerIssueCollectors } = require('./helpers/diagnostics');
+const { waitForComponentOwnerReady } = require('./helpers/contractWaits');
 
 function readHistFrameMetrics() {
   const root = document.querySelector('#histPage:not([hidden])') || null;
@@ -56,7 +55,10 @@ async function prepareHistogram(page) {
     const box = document.querySelector('#histPage:not([hidden]) #histGraphPanel .svgbox');
     return !!box && box.dataset.resizerAspectLocked === 'false';
   }, null, { timeout: 20_000 });
-  await page.waitForTimeout(300);
+  await waitForComponentOwnerReady(page, 'hist', {
+    requireMountedRoot: true,
+    requireIdle: true
+  });
 }
 
 async function seedHistogramRecoverySnapshot(page) {
@@ -138,7 +140,10 @@ async function reloadAndAcceptHistogramRecovery(page) {
         && window.Components?.hist?.ready === true
         && !!root?.querySelector?.('#histSvg');
     }, null, { timeout: 60_000 });
-    await page.waitForTimeout(350);
+    await waitForComponentOwnerReady(page, 'hist', {
+      requireMountedRoot: true,
+      requireIdle: true
+    });
   } finally {
     page.off('dialog', dialogHandler);
   }
@@ -201,7 +206,10 @@ test('Histogram recovery redraws graph contents on the first resize gesture', as
     timeout: 20_000,
     message: 'The first post-recovery resize must publish a fresh Histogram SVG frame'
   }).toBe('');
-  await page.waitForTimeout(400);
+  await waitForComponentOwnerReady(page, 'hist', {
+    requireMountedRoot: true,
+    requireIdle: true
+  });
 
   const after = await page.evaluate(readHistFrameMetrics);
   await testInfo.attach('hist-recovery-first-resize.metrics.json', {

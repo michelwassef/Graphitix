@@ -1,9 +1,8 @@
 const { test, expect } = require('@playwright/test');
-const {
-  installLocalCdnOverrides,
-  openComponentFromWelcome,
-  clickExampleButtonIfPresent
-} = require('./helpers/workspaceHarness');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
+const { openComponentFromWelcome } = require('./helpers/workspaceDriver');
+const { clickExampleButton } = require('./helpers/uiDriver');
+const { waitForComponentOwnerReady } = require('./helpers/contractWaits');
 
 const CASES = [
   { type: 'scatter', pageId: 'scatterPage', exampleButtonId: 'scatterLoadExample' },
@@ -17,8 +16,11 @@ async function openCase(page, componentCase) {
   await expect(page.locator('#welcomeScreen')).toBeVisible({ timeout: 20_000 });
   await openComponentFromWelcome(page, componentCase, { first: true });
   await page.waitForSelector(`#${componentCase.pageId}:not([hidden])`, { timeout: 30_000 });
-  await clickExampleButtonIfPresent(page, componentCase.exampleButtonId);
-  await page.waitForTimeout(500);
+  await clickExampleButton(page, componentCase, { requireMountedRoot: true });
+  await waitForComponentOwnerReady(page, componentCase, {
+    requireMountedRoot: true,
+    requireIdle: true
+  });
 }
 
 async function runRoundTrip(page, type) {

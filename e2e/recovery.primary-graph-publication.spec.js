@@ -7,11 +7,19 @@
  */
 const { test, expect } = require('@playwright/test');
 const {
-  installLocalCdnOverrides,
-  registerIssueCollectors,
   openComponentFromWelcome,
   clickExampleButtonIfPresent
-} = require('./helpers/workspaceHarness');
+} = require('./helpers/workspaceDriver');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
+const { registerIssueCollectors } = require('./helpers/diagnostics');
+const {
+  buildWorkspaceArchive
+} = require('./helpers/archiveDriver');
+const {
+  clearRecoverySnapshot,
+  reloadAndAcceptRecovery,
+  seedRecoveryArchive
+} = require('./helpers/recoveryDriver');
 
 const CASES = [
   {
@@ -61,83 +69,25 @@ const CASES = [
   }
 ];
 
-async function clearRecoverySnapshot(page) {
-  await page.evaluate(async () => {
-    const request = window.indexedDB.open('graphitix-document-state', 2);
-    const db = await new Promise((resolve, reject) => {
-      request.onupgradeneeded = () => {
-        const opened = request.result;
-        if (!opened.objectStoreNames.contains('snapshots')) {
-          opened.createObjectStore('snapshots');
-        }
-      };
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error || new Error('IndexedDB open failed.'));
-    });
-    await new Promise(resolve => {
-      const tx = db.transaction('snapshots', 'readwrite');
-      tx.objectStore('snapshots').delete('active-recovery');
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => resolve();
-    });
-    db.close();
-  });
-}
-
 async function seedLeanRecoverySnapshot(page) {
-  await page.evaluate(async () => {
-    const request = window.indexedDB.open('graphitix-document-state', 2);
-    const db = await new Promise((resolve, reject) => {
-      request.onupgradeneeded = () => {
-        const opened = request.result;
-        if (!opened.objectStoreNames.contains('snapshots')) {
-          opened.createObjectStore('snapshots');
-        }
-      };
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error || new Error('IndexedDB open failed.'));
-    });
-
-    const workspaceState = window.Main?.session?.workspaceState || {};
-    const graphTabs = Array.isArray(workspaceState.tabs)
-      ? workspaceState.tabs.filter(tab => tab && !tab.isWelcome && tab.type)
-      : [];
-    const context = window.Main.tabs.getSessionActionsContext();
-    const blob = await window.Main.sessionActions.buildWorkspaceArchiveBlob(context, {
-      scope: 'workspace',
-      snapshotKind: 'recovery',
-      policyMode: 'recovery',
-      reason: 'e2e-primary-graph-recovery',
-      captureRenderCacheBeforeSnapshot: false,
-      includeRenderCacheInSnapshot: false,
-      useWorker: false
-    });
-    if (!blob) {
-      throw new Error('Recovery archive was not created.');
-    }
-
-    await new Promise((resolve, reject) => {
-      const tx = db.transaction('snapshots', 'readwrite');
-      tx.objectStore('snapshots').put({
-        meta: {
-          app: 'Graphitix',
-          kind: 'recovery',
-          version: 1,
-          savedAt: new Date().toISOString(),
-          updatedAt: Date.now(),
-          reason: 'e2e-primary-graph-recovery',
-          dirty: true,
-          hasData: true,
-          tabCount: graphTabs.length,
-          fileName: workspaceState.sessionFileName || 'workspace.graph',
-          fileScope: workspaceState.sessionFileScope || 'workspace'
-        },
-        blob
-      }, 'active-recovery');
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error || new Error('IndexedDB recovery write failed.'));
-    });
-    db.close();
+  const workspaceState = await page.evaluate(() => window.Main?.session?.workspaceState || {});
+  const graphTabs = Array.isArray(workspaceState.tabs)
+    ? workspaceState.tabs.filter(tab => tab && !tab.isWelcome && tab.type)
+    : [];
+  const archive = await buildWorkspaceArchive(page, {
+    scope: 'workspace',
+    snapshotKind: 'recovery',
+    policyMode: 'recovery',
+    reason: 'e2e-primary-graph-recovery',
+    captureRenderCacheBeforeSnapshot: false,
+    includeRenderCacheInSnapshot: false,
+    useWorker: false
+  });
+  await seedRecoveryArchive(page, archive.base64, {
+    reason: 'e2e-primary-graph-recovery',
+    tabCount: graphTabs.length,
+    fileName: workspaceState.sessionFileName || 'workspace.graph',
+    fileScope: workspaceState.sessionFileScope || 'workspace'
   });
 }
 
@@ -177,15 +127,8 @@ async function waitForPrimaryGraph(page, component, timeout = 90_000) {
   }, { timeout });
 }
 
-async function reloadAndAcceptRecovery(page, component) {
-  let recoveryAccepted = false;
-  page.on('dialog', async dialog => {
-    if (/recover|restore/i.test(dialog.message())) {
-      recoveryAccepted = true;
-    }
-    await dialog.accept().catch(() => {});
-  });
-  await page.reload({ waitUntil: 'domcontentloaded' });
+async function reloadPrimaryRecovery(page, component) {
+  const recoveryAccepted = await reloadAndAcceptRecovery(page);
   await expect.poll(() => recoveryAccepted, {
     timeout: 20_000,
     message: `${component.type}: recovery prompt should be accepted`
@@ -214,7 +157,7 @@ for (const component of CASES) {
     await waitForPrimaryGraph(page, component);
 
     await seedLeanRecoverySnapshot(page);
-    await reloadAndAcceptRecovery(page, component);
+    await reloadPrimaryRecovery(page, component);
 
     // This assertion is deliberately made before any pointer, resize, tab-switch, or graph-type
     // interaction. The recovered payload itself must publish the graph.

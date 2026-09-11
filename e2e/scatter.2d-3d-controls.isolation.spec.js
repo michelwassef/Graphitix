@@ -1,10 +1,11 @@
+const { waitForComponentOwnerReady } = require('./helpers/contractWaits');
 const { test, expect } = require('@playwright/test');
 const {
-  installLocalCdnOverrides,
-  registerIssueCollectors,
   openComponentFromWelcome,
   clickExampleButtonIfPresent
-} = require('./helpers/workspaceHarness');
+} = require('./helpers/workspaceDriver');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
+const { registerIssueCollectors } = require('./helpers/diagnostics');
 
 async function activeScatterTabId(page) {
   return page.evaluate(() => {
@@ -66,7 +67,7 @@ async function setLockRatio(page, checked) {
       lock.dispatchEvent(new Event('change', { bubbles: true }));
     }
   }, checked);
-  await page.waitForTimeout(250);
+  await waitForComponentOwnerReady(page, 'scatter', { requireMountedRoot: true, requireIdle: true, timeout: 30_000 });
 }
 
 async function setShowFrame(page, checked) {
@@ -77,7 +78,7 @@ async function setShowFrame(page, checked) {
   } else {
     await frame.uncheck({ force: true });
   }
-  await page.waitForTimeout(250);
+  await waitForComponentOwnerReady(page, 'scatter', { requireMountedRoot: true, requireIdle: true, timeout: 30_000 });
 }
 
 async function loadScatterExampleForMode(page, mode) {
@@ -114,7 +115,7 @@ async function dragScatter3d(page) {
   await page.mouse.down();
   await page.mouse.move(startX + 90, startY + 35, { steps: 8 });
   await page.mouse.up();
-  await page.waitForTimeout(700);
+  await waitForComponentOwnerReady(page, 'scatter', { requireIdle: true, timeout: 30_000 });
 }
 
 async function captureActiveScatterTab(page) {

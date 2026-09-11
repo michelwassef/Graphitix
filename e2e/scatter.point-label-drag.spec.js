@@ -1,9 +1,10 @@
 const { test, expect } = require('@playwright/test');
 const {
-  installLocalCdnOverrides,
-  registerIssueCollectors,
   openComponentFromWelcome
-} = require('./helpers/workspaceHarness');
+} = require('./helpers/workspaceDriver');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
+const { registerIssueCollectors } = require('./helpers/diagnostics');
+const { waitForComponentOwnerReady } = require('./helpers/contractWaits');
 
 const FIXTURE = [
   ['Sample', 'X', 'Y'],
@@ -239,7 +240,7 @@ test('Scatter 3D rotation keeps resized point-label leaders attached', async ({ 
   await page.mouse.down();
   await page.mouse.move(startX + 90, startY + 45, { steps: 8 });
   await page.mouse.up();
-  await page.waitForTimeout(500);
+  await waitForComponentOwnerReady(page, 'scatter', { requireIdle: true, timeout: 30_000 });
 
   const after = await readGeometry(page, 'A');
   const rotationAfter = await page.evaluate(() => ({ ...window.Components?.scatter?.getPayload?.()?.config?.rotation }));
@@ -256,7 +257,7 @@ test('Scatter 3D rotation keeps resized point-label leaders attached', async ({ 
     const tab = (state.tabs || []).find(item => item?.id === state.activeTabId) || null;
     const svg = document.querySelector('#scatterPage:not([hidden]) #scatterPlot #scatterSvg');
     const legendCount = svg?.querySelectorAll?.('[data-layer="scatter-3d-legend"], [data-legend-viewport-content="true"]').length || 0;
-    const persisted = window.Main?.session?.persistActiveTabState?.(tab, {
+    const changed = window.Main?.session?.persistActiveTabState?.(tab, {
       reason: 'e2e-scatter-3d-label-cache-capture',
       origin: 'lifecycle',
       captureLivePayload: true,
@@ -264,11 +265,21 @@ test('Scatter 3D rotation keeps resized point-label leaders attached', async ({ 
       captureRenderCache: true
     });
     return {
-      persisted: persisted !== false,
+      payloadCheckpointed: !!tab?.payload && !!tab?.payloadSignature,
+      cacheCheckpointed: tab?.renderCache?.tabId === tab?.id
+        && tab?.archiveRenderCacheSignature === tab?.payloadSignature
+        && tab?.archiveRenderCacheLayoutSignature === tab?.layoutSignature,
+      changed: changed !== false,
       legendCount,
       svgRestored: !!document.querySelector('#scatterPage:not([hidden]) #scatterPlot #scatterSvg')
     };
   });
-  expect(capture).toEqual({ persisted: true, legendCount: 0, svgRestored: true });
+  expect(capture).toEqual({
+    payloadCheckpointed: true,
+    cacheCheckpointed: true,
+    changed: false,
+    legendCount: 0,
+    svgRestored: true
+  });
   expect(issues.critical.filter(entry => entry.kind !== 'requestfailed')).toEqual([]);
 });

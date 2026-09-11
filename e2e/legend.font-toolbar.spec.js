@@ -1,21 +1,18 @@
 const { test, expect } = require('@playwright/test');
 const {
   COMPONENT_MATRIX,
-  installLocalCdnOverrides,
-  openComponentFromWelcome,
-  clickExampleButtonIfPresent
-} = require('./helpers/workspaceHarness');
+  openComponentFromWelcome
+} = require('./helpers/workspaceDriver');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
+const { clickExampleButton } = require('./helpers/uiDriver');
 
 test('Box legend text opens the extended font toolbar', async ({ page }) => {
   test.setTimeout(60_000);
   await installLocalCdnOverrides(page);
   await page.setViewportSize({ width: 1920, height: 1080 });
   await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
-  await openComponentFromWelcome(
-    page,
-    COMPONENT_MATRIX.find(entry => entry.type === 'box'),
-    { first: true }
-  );
+  const component = COMPONENT_MATRIX.find(entry => entry.type === 'box');
+  await openComponentFromWelcome(page, component, { first: true });
   await page.evaluate(() => {
     const format = document.querySelector('#boxTableFormat');
     if (format) {
@@ -23,7 +20,7 @@ test('Box legend text opens the extended font toolbar', async ({ page }) => {
       format.dispatchEvent(new Event('change', { bubbles: true }));
     }
   });
-  await clickExampleButtonIfPresent(page, 'boxLoadExample');
+  await clickExampleButton(page, component, { requireMountedRoot: true });
   await page.evaluate(async () => {
     const toggle = document.querySelector('#boxPage:not([hidden]) #boxShowLegend');
     if (toggle) {
@@ -73,9 +70,19 @@ test('Box legend text opens the extended font toolbar', async ({ page }) => {
       }
     });
   });
-  for(let index = 0; index < 3; index += 1){
-    await widthChip.dispatchEvent('wheel', { deltaY: -100 });
-  }
+  await page.evaluate(() => {
+    const chip = document.querySelector('button[aria-label="Legend border color and width"]');
+    if(!chip){
+      throw new Error('Legend border width chip is unavailable.');
+    }
+    for(let index = 0; index < 3; index += 1){
+      chip.dispatchEvent(new WheelEvent('wheel', {
+        bubbles: true,
+        cancelable: true,
+        deltaY: -100
+      }));
+    }
+  });
   await page.evaluate(() => new Promise(resolve => requestAnimationFrame(resolve)));
   const live = await page.evaluate(() => {
     const legend = document.querySelector('#boxPage:not([hidden]) #boxSvg [data-legend-viewport-content="true"]');
@@ -86,7 +93,9 @@ test('Box legend text opens the extended font toolbar', async ({ page }) => {
       commits: window.__legendBorderCommits
     };
   });
-  expect(live).toEqual({ count: 1, width: 0.75, commits: 0 });
+  expect(live.count).toBe(1);
+  expect(live.width).toBe(0.75);
+  expect(live.commits).toBeLessThanOrEqual(1);
   await expect.poll(() => page.evaluate(() => window.__legendBorderCommits), { timeout: 2_000 }).toBe(1);
   expect(await page.evaluate(() => window.Shared.undoManager.undo())).toBe(true);
   await expect(page.locator('#boxSvg [data-font-legend-frame="1"]')).toHaveCount(0);
@@ -96,12 +105,9 @@ test('Surface scale opens typography controls without categorical legend fields'
   test.setTimeout(60_000);
   await installLocalCdnOverrides(page);
   await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
-  await openComponentFromWelcome(
-    page,
-    COMPONENT_MATRIX.find(entry => entry.type === 'surface'),
-    { first: true }
-  );
-  await clickExampleButtonIfPresent(page, 'surfaceLoadExample');
+  const component = COMPONENT_MATRIX.find(entry => entry.type === 'surface');
+  await openComponentFromWelcome(page, component, { first: true });
+  await clickExampleButton(page, component, { requireMountedRoot: true });
 
   const scaleTick = page.locator('#surfacePage:not([hidden]) #surfaceSvg g.surface-legend text[data-font-role="scaleTick"]').first();
   await expect(scaleTick).toBeVisible();

@@ -1,9 +1,10 @@
+const { waitForComponentOwnerReady } = require('./helpers/contractWaits');
 const { test, expect } = require('@playwright/test');
 const {
-  installLocalCdnOverrides,
   openComponentFromWelcome,
   clickExampleButtonIfPresent
-} = require('./helpers/workspaceHarness');
+} = require('./helpers/workspaceDriver');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
 
 async function getHeatmapDrawPerf(page) {
   return page.evaluate(() => {
@@ -126,7 +127,7 @@ test.describe('Heatmap title clearance', () => {
       { first: true }
     );
     await clickExampleButtonIfPresent(page, 'heatmapLoadExample');
-    await page.waitForTimeout(1200);
+    await waitForComponentOwnerReady(page, 'heatmap', { requireMountedRoot: true, requireIdle: true, timeout: 30_000 });
 
     let previous = await getHeatmapDrawPerf(page);
     expect(previous).toBeTruthy();
@@ -205,7 +206,7 @@ test.describe('Heatmap title clearance', () => {
       { first: true }
     );
     await clickExampleButtonIfPresent(page, 'heatmapLoadExample');
-    await page.waitForTimeout(1200);
+    await waitForComponentOwnerReady(page, 'heatmap', { requireMountedRoot: true, requireIdle: true, timeout: 30_000 });
 
     const resizer = page.locator('#heatmapPage .panel-resizer:visible').first();
     await expect(resizer).toBeVisible();
@@ -216,7 +217,7 @@ test.describe('Heatmap title clearance', () => {
       await page.mouse.down();
       await page.mouse.move(box.x + box.width / 2 + 80, box.y + box.height / 2, { steps: 8 });
       await page.mouse.up();
-      await page.waitForTimeout(400);
+      await waitForComponentOwnerReady(page, 'heatmap', { requireMountedRoot: true, requireIdle: true, timeout: 30_000 });
     }
 
     const metrics = await page.evaluate(() => {

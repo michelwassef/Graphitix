@@ -1,13 +1,18 @@
 const fs = require('fs');
 const path = require('path');
 const { test, expect } = require('@playwright/test');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
+const { registerIssueCollectors } = require('./helpers/diagnostics');
 const {
-  installLocalCdnOverrides,
-  registerIssueCollectors,
   openComponentFromWelcome,
   clickExampleButtonIfPresent,
   waitForDocumentOpenComplete
-} = require('./helpers/workspaceHarness');
+} = require('./helpers/workspaceDriver');
+const {
+  waitForComponentOwnerReady,
+  waitForOwnerProjection
+} = require('./helpers/contractWaits');
+const { activateTab: activateTabWithUi } = require('./helpers/uiDriver');
 
 const TMP_DIR = path.resolve(__dirname, '.tmp');
 
@@ -32,7 +37,7 @@ const CASES = [
         select.value = value;
         select.dispatchEvent(new Event('change', { bubbles: true }));
       }, variant === 'A' ? 'parametric' : 'nonparametric');
-      await page.waitForTimeout(50);
+      await waitForOwnerProjection(page, 'box', '#statsControls .stats-advisor', { visible: true });
       await page.evaluate((shouldOpen) => {
         const state = window.Main?.session?.workspaceState;
         const active = state?.tabs?.find(tab => tab?.id === state.activeTabId) || null;
@@ -92,7 +97,7 @@ const CASES = [
         select.value = value;
         select.dispatchEvent(new Event('change', { bubbles: true }));
       }, variant === 'A' ? 'linear' : 'exponential');
-      await page.waitForTimeout(50);
+      await waitForOwnerProjection(page, 'scatter', '#scatterStatsAdvisor .stats-advisor', { visible: true });
       await page.evaluate((shouldOpen) => {
         const state = window.Main?.session?.workspaceState;
         const active = state?.tabs?.find(tab => tab?.id === state.activeTabId) || null;
@@ -313,31 +318,11 @@ async function getTabIds(page) {
   );
 }
 
-async function activateTab(page, tabId, componentCase = null) {
-  const tab = page.locator(`#workspaceTabsList .workspace-tab[data-tab-id="${tabId}"]`).first();
-  await expect(tab).toBeVisible({ timeout: 20_000 });
-  await page.evaluate(async id => {
-    if(window.Main?.tabs?.activateTab){
-      await Promise.resolve(window.Main.tabs.activateTab(id, { reason: 'e2e-stats-same-component-activate' }));
-      return;
-    }
-    document.querySelector(`#workspaceTabsList .workspace-tab[data-tab-id="${CSS.escape(id)}"]`)?.click();
-  }, tabId);
-  await page.waitForFunction(id => {
-    const state = window.Main?.session?.workspaceState;
-    return String(state?.activeTabId || '') === String(id || '');
-  }, tabId, { timeout: 20_000 });
-  if (componentCase) {
-    await page.waitForFunction(({ id, type, pageId }) => {
-      const root = window.Shared?.workspaceTabs?.getMountedRoot?.(id || null, type) || null;
-      if(root && typeof root.querySelector === 'function'){
-        return !!root.querySelector(`#${pageId}, .workspace-page, #${type}Plot, #${type}StatsResults, #pieStatsResults, #statsResults, #rocStatsResults`);
-      }
-      const pageNode = document.querySelector(`#${pageId}:not([hidden])`);
-      return !!pageNode;
-    }, { id: tabId, type: componentCase.key, pageId: componentCase.component.pageId }, { timeout: 20_000 });
+async function activateTab(page, tabId, componentCase) {
+  if (!componentCase) {
+    throw new Error('Stats isolation activation requires its component case');
   }
-  await page.waitForTimeout(500);
+  await activateTabWithUi(page, tabId, componentCase.key, { requireMountedRoot: true });
 }
 
 async function openComponentTab(page, componentCase, { first = false } = {}) {
@@ -364,7 +349,7 @@ async function openComponentTab(page, componentCase, { first = false } = {}) {
   await expect(page.locator(`#${componentCase.component.pageId}:not([hidden])`)).toBeVisible({ timeout: 25_000 });
   await page.waitForFunction(type => !!window.Components?.[type]?.getPayload, componentCase.key, { timeout: 25_000 });
   await clickExampleButtonIfPresent(page, componentCase.exampleButtonId);
-  await page.waitForTimeout(900);
+  await waitForComponentOwnerReady(page, componentCase.component, { requireMountedRoot: true });
 }
 
 async function computeStats(page, componentCase) {
@@ -396,7 +381,7 @@ async function computeStats(page, componentCase) {
       if(version > 0 && version === contextVersion && !!(stats?.resultsModel || stats?.reportModel)){
         return true;
       }
-    }else if(!!(stats?.resultsModel || stats?.reportModel)){
+    }else if(stats?.resultsModel || stats?.reportModel){
       return true;
     }
     const root = window.Shared?.workspaceTabs?.getMountedRoot?.(active?.id || null, type) || document;
@@ -547,7 +532,7 @@ for (const componentCase of CASES) {
       reporting: true
     });
 
-    await activateTab(page, tabA);
+    await activateTab(page, tabA, componentCase);
     const switchedA = await componentCase.capture(page);
     componentCase.assertVariant(switchedA);
     expect(switchedA.option).toBe(snapshotA.option);
@@ -559,7 +544,7 @@ for (const componentCase of CASES) {
     });
     expect(switchedAPFormat.payload).not.toBe(true);
 
-    await activateTab(page, tabB);
+    await activateTab(page, tabB, componentCase);
     const switchedB = await componentCase.capture(page);
     componentCase.assertVariant(switchedB);
     expect(switchedB.option).toBe(snapshotB.option);

@@ -16,11 +16,12 @@
 // regressed.
 
 const { test, expect } = require('@playwright/test');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
 const {
-  installLocalCdnOverrides,
   openComponentFromWelcome,
   clickExampleButtonIfPresent
-} = require('./helpers/workspaceHarness');
+} = require('./helpers/workspaceDriver');
+const { waitForComponentOwnerReady } = require('./helpers/contractWaits');
 
 const PAGE_IDS = {
   box: 'boxPage', line: 'linePage', scatter: 'scatterPage', hist: 'histPage', heatmap: 'heatmapPage'
@@ -35,7 +36,10 @@ async function runScenario(page, type) {
   await openComponentFromWelcome(page, { type, pageId: PAGE_IDS[type] }, { first: true });
   await page.waitForSelector(`#${PAGE_IDS[type]}:not([hidden])`, { timeout: 30_000 });
   await clickExampleButtonIfPresent(page, EXAMPLE_BUTTONS[type]);
-  await page.waitForTimeout(1500);
+  await waitForComponentOwnerReady(page, type, {
+    requireMountedRoot: true,
+    requireIdle: true
+  });
 
   return page.evaluate(async (componentType) => {
     const session = window.Main.session;

@@ -1,78 +1,47 @@
 const { test, expect } = require('@playwright/test');
 const { installLocalCdnOverrides, openComponentFromWelcome } = require('./helpers/workspaceHarness');
+const { waitForComponentOwnerReady } = require('./helpers/contractWaits');
 
-test('scatter AG Grid pastes clipboard text with Ctrl+V', async ({ page, context }) => {
+test('scatter AG Grid accepts a browser paste event in the visible table', async ({ page }) => {
   test.setTimeout(120_000);
   await installLocalCdnOverrides(page);
-  await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: 'http://127.0.0.1:4173' }).catch(() => {});
 
   await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
   await openComponentFromWelcome(page, { type: 'scatter', pageId: 'scatterPage' }, { first: true });
+  await waitForComponentOwnerReady(page, 'scatter');
   await page.waitForSelector('#scatterHot .ag-root', { timeout: 20000 });
 
-  await page.evaluate(() => {
-    const hot = window.Components?.scatter?.__ensureHotForActiveTab?.();
-    hot?.setDataAtCell?.(0, 0, '');
-    hot?.setDataAtCell?.(0, 1, '');
-    hot?.selectCell?.(0, 0, 0, 0);
-  });
-
-  const targetCell = page.locator('#scatterHot [role=\"gridcell\"]').nth(2);
+  const targetCell = page.locator('#scatterHot .ag-center-cols-container .ag-row .ag-cell[col-id^=\"c\"]').first();
   await expect(targetCell, 'Expected a visible scatter data cell').toBeVisible();
-  await targetCell.click({ force: true });
-  const clipboardWrite = await page.evaluate(async () => {
-    const writeAttempt = (async () => {
-      try {
-        await navigator.clipboard.writeText('11\t22');
-        return { ok: true };
-      } catch (err) {
-        return { ok: false, message: err?.message || String(err), name: err?.name || null };
-      }
-    })();
-    const timeout = new Promise(resolve => {
-      setTimeout(() => resolve({ ok: false, name: 'ClipboardTimeout', message: 'clipboard.writeText timed out' }), 2500);
-    });
-    try {
-      return await Promise.race([writeAttempt, timeout]);
-    } catch (err) {
-      return { ok: false, message: err?.message || String(err), name: err?.name || null };
-    }
+  const targetBox = await targetCell.boundingBox();
+  expect(targetBox).toBeTruthy();
+  await page.mouse.click(targetBox.x + (targetBox.width / 2), targetBox.y + (targetBox.height / 2));
+  const handled = await page.evaluate(() => {
+    const host = document.getElementById('scatterHot');
+    if (!host) return false;
+    const transfer = new DataTransfer();
+    transfer.setData('text/plain', '11\t22');
+    const event = new Event('paste', { bubbles: true, cancelable: true });
+    Object.defineProperty(event, 'clipboardData', { value: transfer });
+    host.dispatchEvent(event);
+    return event.defaultPrevented;
   });
-
-  await page.keyboard.press('Control+V');
-  await page.waitForTimeout(800);
-
-  let state = await page.evaluate(() => {
-    const hot = window.Components?.scatter?.__ensureHotForActiveTab?.();
+  expect(handled).toBe(true);
+  await expect.poll(() => page.evaluate(() => {
+    const host = document.getElementById('scatterHot');
+    const cellTexts = Array.from(host?.querySelectorAll('.ag-center-cols-container .ag-row .ag-cell') || [])
+      .map(cell => String(cell.textContent || '').trim());
+    const selection = host?.querySelector('.ag-cell-range-selected, .ag-cell-focus') || null;
     return {
-      cell00: hot?.getDataAtCell?.(0, 0),
-      cell01: hot?.getDataAtCell?.(0, 1),
-      selected: hot?.getSelectedLast?.()
+      cell00: cellTexts.includes('11') ? '11' : '',
+      cell01: cellTexts.includes('22') ? '22' : '',
+      selected: !!selection
     };
+  }), { timeout: 20_000, intervals: [50, 100, 250, 500] }).toMatchObject({
+    cell00: '11',
+    cell01: '22',
+    selected: true
   });
-  if (state.cell00 !== '11' || state.cell01 !== '22') {
-    await page.evaluate(() => {
-      const hot = window.Components?.scatter?.__ensureHotForActiveTab?.();
-      if (!hot || typeof hot.setDataAtCell !== 'function') {
-        return;
-      }
-      hot.setDataAtCell(0, 0, '11');
-      hot.setDataAtCell(0, 1, '22');
-      hot.selectCell?.(0, 0, 0, 0);
-    });
-    await page.waitForTimeout(120);
-    state = await page.evaluate(() => {
-      const hot = window.Components?.scatter?.__ensureHotForActiveTab?.();
-      return {
-        cell00: hot?.getDataAtCell?.(0, 0),
-        cell01: hot?.getDataAtCell?.(0, 1),
-        selected: hot?.getSelectedLast?.()
-      };
-    });
-  }
-  expect(state.cell00).toBe('11');
-  expect(state.cell01).toBe('22');
-  expect(state.selected).toBeTruthy();
 });
 
 test('AG Grid distinguishes spreadsheet decimal commas from plain CSV', async ({ page }) => {

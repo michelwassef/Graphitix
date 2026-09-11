@@ -10,7 +10,9 @@
  */
 
 const { test, expect } = require('@playwright/test');
-const { installLocalCdnOverrides, registerIssueCollectors, openComponentFromWelcome, clickExampleButtonIfPresent } = require('./helpers/workspaceHarness');
+const { openComponentFromWelcome, clickExampleButtonIfPresent } = require('./helpers/workspaceDriver');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
+const { registerIssueCollectors } = require('./helpers/diagnostics');
 
 // Simulate dragging a legend starting from a child element (closest to real user behavior)
 async function dragLegendFromChild(page, { svgId, startFromChild = true, deltaX = 70, deltaY = 35 }) {
@@ -218,7 +220,7 @@ test('recovered Line legend drag preserves the SVG container and does not redraw
   let accepted = false;
   page.on('dialog', async dialog => {
     accepted = /recover|restore/i.test(dialog.message()) || accepted;
-    await dialog.accept().catch(() => {});
+    await dialog.accept();
   });
   await page.reload({ waitUntil: 'domcontentloaded' });
   await expect.poll(() => accepted, { timeout: 20_000 }).toBe(true);

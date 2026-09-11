@@ -1,5 +1,8 @@
 const { test, expect } = require('@playwright/test');
-const { installLocalCdnOverrides, registerIssueCollectors, openComponentFromWelcome } = require('./helpers/workspaceHarness');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
+const { openComponentFromWelcome } = require('./helpers/workspaceDriver');
+const { registerIssueCollectors } = require('./helpers/diagnostics');
+const { waitForComponentOwnerReady } = require('./helpers/contractWaits');
 
 const COMPONENTS = [
   { type: 'box', pageId: 'boxPage' },
@@ -19,24 +22,32 @@ async function getWorkspaceTabIds(page) {
   );
 }
 
-async function activateTabById(page, tabId) {
+async function activateTabById(page, tabId, component) {
   const tab = page.locator(`#workspaceTabsList .workspace-tab[data-tab-id="${tabId}"]`).first();
   await tab.click({ force: true });
-  await page.waitForTimeout(300);
+  await page.waitForFunction(id => window.Main?.session?.workspaceState?.activeTabId === id, tabId, { timeout: 20_000 });
+  await waitForComponentOwnerReady(page, component, {
+    expectedTabId: tabId,
+    requireMountedRoot: true,
+    requireIdle: true
+  });
 }
 
-async function dragResizeHandle(page, pageId) {
-  const handle = page.locator(`#${pageId}:not([hidden]) .svgbox .resizer-horizontal`).first();
+async function dragResizeHandle(page, component) {
+  const handle = page.locator(`#${component.pageId}:not([hidden]) .svgbox .resizer-horizontal`).first();
   await expect(handle).toHaveCount(1);
   const box = await handle.boundingBox();
-  if (!box) throw new Error(`Missing resizer handle for ${pageId}`);
+  if (!box) throw new Error(`Missing resizer handle for ${component.pageId}`);
   const x = box.x + box.width / 2;
   const y = box.y + Math.max(2, Math.min(box.height - 2, box.height / 2));
   await page.mouse.move(x, y);
   await page.mouse.down();
   await page.mouse.move(x, y + 90, { steps: 12 });
   await page.mouse.up();
-  await page.waitForTimeout(600);
+  await waitForComponentOwnerReady(page, component, {
+    requireMountedRoot: true,
+    requireIdle: true
+  });
 }
 
 async function readSvgBoxSize(page, pageId) {
@@ -72,13 +83,13 @@ test('manual graph resize undo/redo works on second same-type tab', async ({ pag
       expect(secondId).toBeTruthy();
       expect(secondId).not.toBe(firstId);
 
-      await activateTabById(page, secondId);
+      await activateTabById(page, secondId, component);
       await page.evaluate((tabId) => {
         window.Shared?.undoManager?.clearTab?.(tabId, { reason: 'e2e-second-tab-resize-clear' });
       }, secondId);
 
       const before = await readSvgBoxSize(page, component.pageId);
-      await dragResizeHandle(page, component.pageId);
+      await dragResizeHandle(page, component);
       const after = await readSvgBoxSize(page, component.pageId);
 
       const undoStatus = await page.evaluate((tabId) => {
@@ -88,12 +99,22 @@ test('manual graph resize undo/redo works on second same-type tab', async ({ pag
         const canRedo = !!manager?.canRedo?.({ tabId });
         return { canUndo, undoApplied, canRedo };
       }, secondId);
+      await waitForComponentOwnerReady(page, component, {
+        expectedTabId: secondId,
+        requireMountedRoot: true,
+        requireIdle: true
+      });
       const undone = await readSvgBoxSize(page, component.pageId);
       const redoStatus = await page.evaluate((tabId) => {
         const manager = window.Shared?.undoManager;
         const redoApplied = !!manager?.redo?.({ tabId });
         return { redoApplied };
       }, secondId);
+      await waitForComponentOwnerReady(page, component, {
+        expectedTabId: secondId,
+        requireMountedRoot: true,
+        requireIdle: true
+      });
       const redone = await readSvgBoxSize(page, component.pageId);
 
       expect(undoStatus.canUndo, `${component.type}: second-tab resize should create undo entry`).toBeTruthy();

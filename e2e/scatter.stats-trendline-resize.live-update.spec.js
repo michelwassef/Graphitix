@@ -1,9 +1,7 @@
 const { test, expect } = require('@playwright/test');
-const {
-  installLocalCdnOverrides,
-  registerIssueCollectors,
-  openComponentFromWelcome
-} = require('./helpers/workspaceHarness');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
+const { registerIssueCollectors } = require('./helpers/diagnostics');
+const { openComponentFromWelcome } = require('./helpers/workspaceDriver');
 
 async function loadScatterExample(page) {
   await expect(page.locator('#scatterLoadExample')).toBeVisible({ timeout: 20_000 });

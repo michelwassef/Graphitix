@@ -1,8 +1,6 @@
 const { test, expect } = require('@playwright/test');
-const {
-  installLocalCdnOverrides,
-  openComponentFromWelcome
-} = require('./helpers/workspaceHarness');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
+const { openComponentFromWelcome } = require('./helpers/workspaceDriver');
 
 async function openExample(page, component, graphSelector){
   await installLocalCdnOverrides(page);
@@ -31,7 +29,7 @@ async function openBlankScatter(page){
 
 async function pasteScatterMatrix(page, matrix){
   const text = matrix.map(row => row.map(value => value == null ? '' : String(value)).join('\t')).join('\n');
-  await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin: 'http://127.0.0.1:4173' });
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin: new URL(page.url()).origin });
   await page.evaluate(async value => {
     await navigator.clipboard.writeText(value);
     const hot = window.Components?.scatter?.__ensureHotForActiveTab?.();

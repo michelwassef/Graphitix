@@ -1,11 +1,12 @@
 const { test, expect } = require('@playwright/test');
-const {
-  COMPONENT_MATRIX,
-  installLocalCdnOverrides,
-  openComponentFromWelcome,
-  clickExampleButtonIfPresent,
-  registerIssueCollectors
-} = require('./helpers/workspaceHarness');
+const { COMPONENT_MATRIX, openComponentFromWelcome, clickExampleButtonIfPresent } = require('./helpers/workspaceDriver');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
+const { registerIssueCollectors } = require('./helpers/diagnostics');
+const { waitForComponentOwnerReady } = require('./helpers/contractWaits');
+
+// Each test owns a separate browser context. Keep the gesture itself ordered,
+// but allow independent axis cases to use Chromium workers in parallel.
+test.describe.configure({ mode: 'parallel' });
 
 const HISTOGRAM = COMPONENT_MATRIX.find(entry => entry.type === 'hist');
 if(!HISTOGRAM){
@@ -27,6 +28,41 @@ async function clearActiveUndoHistory(page) {
   await page.evaluate(() => {
     window.Shared?.undoManager?.clear?.({ all: false, reason: 'numeric-wheel-e2e-reset' });
   });
+}
+
+async function waitForNumericWheelCommit(page, inputSelector, { requireResizeCommit = false } = {}) {
+  await page.waitForFunction(({ selector, requireResizeCommit: requireCommit }) => {
+    const input = document.querySelector(selector);
+    const phase = window.Shared?.workspaceToolbar?.getNumericWheelPhase?.(input) || null;
+    const requests = window.__numericWheelResizeRequests || [];
+    return !!input
+      && phase === null
+      && !!window.Shared?.undoManager?.canUndo?.()
+      && (!requireCommit || requests.some(request => request.reason === 'axis-length-wheel-commit'));
+  }, { selector: inputSelector, requireResizeCommit }, { timeout: 20_000 });
+  await waitForComponentOwnerReady(page, 'hist', {
+    requireMountedRoot: true,
+    requireIdle: true,
+    timeout: 30_000
+  });
+}
+
+async function waitForHistogramDimension(page, dimensionKey, expected, tolerance = 4) {
+  await waitForComponentOwnerReady(page, 'hist', {
+    requireMountedRoot: true,
+    requireIdle: true,
+    timeout: 30_000
+  });
+  await page.waitForFunction(({ pageId, dimensionKey: key, expectedValue, toleranceValue }) => {
+    const root = document.querySelector(`#${pageId}:not([hidden])`);
+    const value = root?.querySelector('.svgbox')?.getBoundingClientRect?.()?.[key];
+    return Number.isFinite(value) && Math.abs(value - expectedValue) <= toleranceValue;
+  }, {
+    pageId: HISTOGRAM.pageId,
+    dimensionKey,
+    expectedValue: expected,
+    toleranceValue: tolerance
+  }, { timeout: 20_000 });
 }
 
 function expectMonotonic(values, direction, tolerance = 0.01) {
@@ -60,22 +96,32 @@ test('axis thickness wheel burst is monotonic, uses the declared step, and recor
   }));
   expect(initial.step).toBe(0.25);
 
-  const samples = [];
-  for(let index = 0; index < 6; index += 1){
-    await thicknessChip.dispatchEvent('wheel', { deltaY: -100 });
-    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => resolve())));
-    samples.push(await page.evaluate(({ pageId }) => {
-      const root = document.querySelector(`#${pageId}:not([hidden])`);
-      const panel = document.querySelector('.axis-controls-panel[data-open="1"]');
-      const input = panel?.querySelector('.axis-controls-panel__field--style input[type="number"]');
-      const axis = root?.querySelector('#histSvg [data-axis-control="1"][data-axis-key="y"]');
-      return {
-        input: Number(input?.value),
-        stroke: Number(axis?.getAttribute?.('stroke-width'))
-      };
-    }, { pageId: HISTOGRAM.pageId }));
-  }
-  await page.waitForTimeout(220);
+  // Keep the six events inside one physical-style burst. Waiting for a frame
+  // between events can exceed the 120 ms idle deadline and create multiple
+  // undo entries, which is not the gesture contract being tested.
+  const samples = await thicknessChip.evaluate((chip, { pageId }) => new Promise(resolve => {
+    const panel = chip.closest('.axis-controls-panel');
+    const input = panel?.querySelector('.axis-controls-panel__field--style input[type="number"]');
+    const root = document.querySelector(`#${pageId}:not([hidden])`);
+    const axis = root?.querySelector('#histSvg [data-axis-control="1"][data-axis-key="y"]');
+    const inputs = [];
+    for(let index = 0; index < 6; index += 1){
+      chip.dispatchEvent(new WheelEvent('wheel', {
+        bubbles: true,
+        cancelable: true,
+        deltaY: -100
+      }));
+      inputs.push(Number(input?.value));
+    }
+    requestAnimationFrame(() => {
+      const stroke = Number(axis?.getAttribute?.('stroke-width'));
+      resolve(inputs.map(value => ({ input: value, stroke })));
+    });
+  }), { pageId: HISTOGRAM.pageId });
+  await waitForNumericWheelCommit(
+    page,
+    '.axis-controls-panel[data-open="1"] .axis-controls-panel__field--style input[type="number"]'
+  );
 
   expectMonotonic(samples.map(sample => sample.input), 'increase');
   expect(samples.map(sample => sample.input)).toEqual([
@@ -95,7 +141,6 @@ test('axis thickness wheel burst is monotonic, uses the declared step, and recor
   }));
   expect(undoState.canUndo).toBe(true);
   expect(await page.evaluate(() => window.Shared?.undoManager?.undo?.())).toBe(true);
-  await page.waitForTimeout(250);
   await expect(thicknessInput).toHaveValue(String(initial.value));
 
   await testInfo.attach('axis-thickness-wheel-samples.json', {
@@ -136,7 +181,12 @@ for(const axisKey of ['x', 'y']){
     const requestedLength = before.axisLength + 20;
     await lengthInput.fill(String(requestedLength));
     await lengthInput.dispatchEvent('change');
-    await page.waitForTimeout(1_000);
+    await waitForComponentOwnerReady(page, 'hist', {
+      requireMountedRoot: true,
+      requireIdle: true,
+      timeout: 30_000
+    });
+    await expect(lengthInput).toHaveValue(String(requestedLength), { timeout: 20_000 });
 
     const after = await page.evaluate(({ pageId, dimensionKey }) => {
       const root = document.querySelector(`#${pageId}:not([hidden])`);
@@ -254,7 +304,11 @@ for(const axisKey of ['x', 'y']){
     expect(burst.input).toBeGreaterThan(before.input);
     expect(burst.boxDimension).toBeGreaterThan(before.boxDimension);
 
-    await page.waitForTimeout(1_000);
+    await waitForNumericWheelCommit(
+      page,
+      '.axis-controls-panel[data-open="1"] .axis-controls-panel__field--length input[type="number"]',
+      { requireResizeCommit: true }
+    );
     const after = await page.evaluate(({ pageId, dimensionKey }) => {
       const root = document.querySelector(`#${pageId}:not([hidden])`);
       const box = root?.querySelector('.svgbox');
@@ -288,7 +342,7 @@ for(const axisKey of ['x', 'y']){
     ).toBeLessThanOrEqual(30);
 
     expect(await page.evaluate(() => window.Shared?.undoManager?.undo?.())).toBe(true);
-    await page.waitForTimeout(350);
+    await waitForHistogramDimension(page, dimensionKey, before.boxDimension);
     const undoneDimension = await page.evaluate(({ pageId, dimensionKey }) => {
       const root = document.querySelector(`#${pageId}:not([hidden])`);
       const rect = root?.querySelector('.svgbox')?.getBoundingClientRect?.();

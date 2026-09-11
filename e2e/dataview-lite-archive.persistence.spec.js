@@ -1,5 +1,5 @@
 const { test, expect } = require('@playwright/test');
-const { installLocalCdnOverrides } = require('./helpers/workspaceHarness');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
 
 test('lite archive preserves Raw plus replayable, materialized, and user-edited DataViews exactly', async ({ page }) => {
   await installLocalCdnOverrides(page);

@@ -1,10 +1,10 @@
 const { test, expect } = require('@playwright/test');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
 const {
   COMPONENT_MATRIX,
-  installLocalCdnOverrides,
   openComponentFromWelcome,
   clickExampleButtonIfPresent
-} = require('./helpers/workspaceHarness');
+} = require('./helpers/workspaceDriver');
 
 const CASES = ['scatter', 'pca', 'roc'].map(type => {
   const component = COMPONENT_MATRIX.find(item => item.type === type);

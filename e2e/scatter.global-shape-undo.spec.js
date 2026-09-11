@@ -1,5 +1,6 @@
 const { test, expect } = require('@playwright/test');
-const { installLocalCdnOverrides, openComponentFromWelcome } = require('./helpers/workspaceHarness');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
+const { openComponentFromWelcome } = require('./helpers/workspaceDriver');
 
 async function waitForScatterIdle(page) {
   await page.waitForFunction(() => {

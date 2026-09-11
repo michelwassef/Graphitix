@@ -1,9 +1,8 @@
 const { test, expect } = require('@playwright/test');
-const {
-  installLocalCdnOverrides,
-  registerIssueCollectors,
-  openComponentFromWelcome
-} = require('./helpers/workspaceHarness');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
+const { openComponentFromWelcome } = require('./helpers/workspaceDriver');
+const { registerIssueCollectors } = require('./helpers/diagnostics');
+const { waitForComponentOwnerReady } = require('./helpers/contractWaits');
 
 async function getWorkspaceTabIds(page) {
   return page.evaluate(() =>
@@ -85,11 +84,11 @@ test('box delayed global opacity frame stays scoped to its originating tab', asy
     window.Main?.tabs?.activateTab?.(secondTabId, { reason: 'e2e-box-opacity-immediate-switch' });
   }, secondId);
   await page.waitForFunction(id => window.Main?.session?.workspaceState?.activeTabId === id, secondId, { timeout: 20_000 });
-  await page.waitForTimeout(300);
+  await waitForComponentOwnerReady(page, 'box', { expectedTabId: secondId, requireIdle: true, timeout: 30_000 });
   const secondAfterPendingFrame = await readBoxOpacitySnapshot(page);
 
   await activateTabById(page, firstId);
-  await page.waitForTimeout(300);
+  await waitForComponentOwnerReady(page, 'box', { expectedTabId: firstId, requireIdle: true, timeout: 30_000 });
   const firstAfterReturn = await readBoxOpacitySnapshot(page);
 
   await testInfo.attach('box-opacity-style-tab-isolation.snapshots.json', {

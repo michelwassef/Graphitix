@@ -1,16 +1,14 @@
 const { test, expect } = require('@playwright/test');
 const fs = require('fs');
 const path = require('path');
+const { COMPONENT_MATRIX, openComponentFromWelcome, clickExampleButtonIfPresent } = require('./helpers/workspaceDriver');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
 const {
-  COMPONENT_MATRIX,
-  installLocalCdnOverrides,
   registerIssueCollectors,
-  openComponentFromWelcome,
-  clickExampleButtonIfPresent,
-  exerciseVisibleComponentControls,
+  runDiagnosticComponentExercise,
   collectComponentPerformanceSnapshot,
   shouldIgnoreConsoleEntry
-} = require('./helpers/workspaceHarness');
+} = require('./helpers/diagnostics');
 
 function writePerfSummary(fileName, payload) {
   const outDir = path.resolve('artifacts', 'perf-summaries');
@@ -113,7 +111,7 @@ test.describe('Workspace Stress Matrix', () => {
       const exampleMs = Date.now() - exampleStart;
       const perfBeforeExercise = await collectComponentPerformanceSnapshot(page, component.type);
       const exerciseStart = Date.now();
-      const exerciseDetails = await exerciseVisibleComponentControls(page, component);
+      const exerciseDetails = await runDiagnosticComponentExercise(page, component);
       const exerciseMs = Date.now() - exerciseStart;
       const perfAfterExercise = await collectComponentPerformanceSnapshot(page, component.type);
       const slowestSteps = (exerciseDetails?.steps || [])

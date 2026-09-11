@@ -1,9 +1,7 @@
 const { test, expect } = require('@playwright/test');
-const {
-  installLocalCdnOverrides,
-  openComponentFromWelcome,
-  clickExampleButtonIfPresent
-} = require('./helpers/workspaceHarness');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
+const { openComponentFromWelcome, clickExampleButtonIfPresent } = require('./helpers/workspaceDriver');
+const { waitForComponentOwnerReady } = require('./helpers/contractWaits');
 
 function parseAspectRatio(value) {
   const raw = String(value || '').trim();
@@ -35,7 +33,7 @@ async function setHeatmapView(page, view) {
     return;
   }
   await page.locator('#heatmapPage:not([hidden]) #heatmapView').selectOption(view);
-  await page.waitForTimeout(300);
+  await waitForComponentOwnerReady(page, 'heatmap', { requireMountedRoot: true, requireIdle: true, timeout: 30_000 });
 }
 
 async function captureHeatmapGeometry(page) {
@@ -172,7 +170,7 @@ for (const scenario of [
 
     await clickExampleButtonIfPresent(page, 'heatmapLoadExample');
     await waitForHeatmapCells(page);
-    await page.waitForTimeout(900);
+    await waitForComponentOwnerReady(page, 'heatmap', { requireMountedRoot: true, requireIdle: true, timeout: 30_000 });
 
     const initialTabId = await page.evaluate(() => window.Main?.session?.workspaceState?.activeTabId || null);
     expect(initialTabId).toBeTruthy();
@@ -192,13 +190,18 @@ for (const scenario of [
 
     await openSecondTab(page, { type: 'box', pageId: 'boxPage' });
     await page.waitForSelector('#boxPage:not([hidden])', { timeout: 20_000 });
-    await page.waitForTimeout(400);
+    await waitForComponentOwnerReady(page, 'box', { requireMountedRoot: true, requireIdle: true, timeout: 30_000 });
 
     await page.evaluate((tabId) => {
       document.querySelector(`#workspaceTabsList .workspace-tab[data-tab-id="${tabId}"]`)?.click();
     }, initialTabId);
     await page.waitForSelector('#heatmapPage:not([hidden])', { timeout: 20_000 });
-    await page.waitForTimeout(900);
+    await waitForComponentOwnerReady(page, 'heatmap', {
+      expectedTabId: initialTabId,
+      requireMountedRoot: true,
+      requireIdle: true,
+      timeout: 30_000
+    });
 
     const restored = await captureHeatmapGeometry(page);
     expectHeatmapVisualInvariants(restored, initial);

@@ -1,12 +1,11 @@
 const { test, expect } = require('@playwright/test');
-const {
-  installLocalCdnOverrides,
-  openComponentFromWelcome
-} = require('./helpers/workspaceHarness');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
+const { openComponentFromWelcome } = require('./helpers/workspaceDriver');
 
 test('welcome primary actions and popular examples form one responsive entry row', async ({ page }) => {
   await installLocalCdnOverrides(page);
   await page.setViewportSize({ width: 1280, height: 900 });
+  await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
 
   const fileTool = page.locator('#welcomeFileDropZone');
@@ -58,17 +57,32 @@ test('welcome primary actions and popular examples form one responsive entry row
   await nextButton.click();
   await expect.poll(() => carousel.evaluate(node => node.scrollLeft)).toBeGreaterThan(0);
   await expect(previousButton).toBeEnabled();
+  await expect.poll(
+    () => carousel.evaluate(node => new Promise(resolve => {
+      const before = node.scrollLeft;
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve(Math.abs(node.scrollLeft - before))));
+    })),
+    { timeout: 2000, intervals: [32, 64] }
+  ).toBe(0);
+
+  await previousButton.click();
+  await expect.poll(() => carousel.evaluate(node => node.scrollLeft)).toBe(0);
+  await expect.poll(
+    () => carousel.evaluate(node => new Promise(resolve => {
+      const before = node.scrollLeft;
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve(Math.abs(node.scrollLeft - before))));
+    })),
+    { timeout: 2000, intervals: [32, 64] }
+  ).toBe(0);
 
   const scrollBeforeWheel = await carousel.evaluate(node => node.scrollLeft);
   await carousel.hover();
   await page.mouse.wheel(0, 120);
   await expect(carousel).toHaveClass(/is-wheel-scrolling/);
-  const wheelSamples = [];
-  for (let sample = 0; sample < 4; sample += 1) {
-    await page.waitForTimeout(16);
-    wheelSamples.push(await carousel.evaluate(node => node.scrollLeft));
-  }
-  expect(wheelSamples[0]).toBeGreaterThan(scrollBeforeWheel);
+  await expect.poll(
+    () => carousel.evaluate(node => node.scrollLeft),
+    { timeout: 3000, intervals: [16, 32, 64, 128] }
+  ).toBeGreaterThan(scrollBeforeWheel);
   await expect.poll(() => carousel.evaluate(node => node.classList.contains('is-wheel-scrolling'))).toBe(false);
 
   const thumbnailContracts = await popular.locator('.welcome-example-card__thumb > svg').evaluateAll(nodes => nodes.map(svg => {

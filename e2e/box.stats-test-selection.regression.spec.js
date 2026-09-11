@@ -1,9 +1,8 @@
 const { test, expect } = require('@playwright/test');
-const {
-  installLocalCdnOverrides,
-  registerIssueCollectors,
-  openComponentFromWelcome
-} = require('./helpers/workspaceHarness');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
+const { openComponentFromWelcome } = require('./helpers/workspaceDriver');
+const { registerIssueCollectors } = require('./helpers/diagnostics');
+const { waitForComponentOwnerReady } = require('./helpers/contractWaits');
 
 const active = selector => `#boxPage:not([hidden]) ${selector}`;
 
@@ -23,7 +22,11 @@ async function selectControl(page, selector, value) {
   const locator = page.locator(active(selector));
   await expect(locator).toBeVisible({ timeout: 20_000 });
   await locator.selectOption(value);
-  await page.waitForTimeout(100);
+  await waitForComponentOwnerReady(page, 'box', {
+    requireMountedRoot: true,
+    requireIdle: true,
+    timeout: 20_000
+  });
 }
 
 async function setConditionCount(page, count) {
@@ -34,7 +37,11 @@ async function setConditionCount(page, count) {
     const checked = index < count;
     if ((await checkbox.isChecked()) !== checked) {
       await checkbox.setChecked(checked);
-      await page.waitForTimeout(75);
+      await waitForComponentOwnerReady(page, 'box', {
+        requireMountedRoot: true,
+        requireIdle: true,
+        timeout: 20_000
+      });
     }
   }
 }

@@ -88,6 +88,17 @@ work and validate tab owner, payload, layout, and generation before persisting i
 
 The toolbar fields are captured/applied by `Main.session.captureWorkspaceToolbarUiState` / `applyWorkspaceToolbarUiState`. The `component` sub-tree is dispatched via the workspace registry (`Main.components.registry[type].captureUiState` / `applyUiState`) — each component reads its `Shared.hot` instance and uses `Shared.hot.captureHotUiState` / `applyHotUiState` for the table sub-state. Missing fields fall back to component defaults so older `.graph` archives still load.
 
+The component `layout` snapshot keeps graph-frame width and height in absolute CSS pixels. Its surrounding workspace split is separate:
+
+```js
+layout.workspace = {
+  version: 1,
+  tableFraction: number // relative share of the horizontal table/graph split
+}
+```
+
+Panel width/flex pixels are not archived. On reopen, the split is recalculated against the recipient viewport and normal component minimum widths; vertical responsive layouts use their CSS stacking rules. Older archives with two panel pixel widths are converted to a proportion when possible, otherwise they use responsive defaults.
+
 Document lifecycle state is shared by the web and Electron builds. `sessionFileHandle` is a File System Access API handle in browsers and a lightweight desktop path handle in Electron. `sessionFilePath` is populated only when the desktop bridge has a real filesystem path. Dirty-state updates increment `sessionRevision` and emit `graphitix:document-state-change` so document UI, Autosave, and recovery do not need to duplicate tab-change logic or repeatedly snapshot an unchanged dirty session.
 
 `documentOperation` is transient, plain-data UI state for an active document-level transaction. It is never archived. While it is active, tab activation, add/close, rename, context, and drag mutations are rejected at their command boundaries and the application shell is inert.

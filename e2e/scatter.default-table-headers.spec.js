@@ -1,8 +1,6 @@
 const { test, expect } = require('@playwright/test');
-const {
-  installLocalCdnOverrides,
-  openComponentFromWelcome
-} = require('./helpers/workspaceHarness');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
+const { openComponentFromWelcome } = require('./helpers/workspaceDriver');
 
 test('new Scatter tables explain identifiers and point-label selection', async ({ page }) => {
   test.setTimeout(60_000);

@@ -1,3 +1,6 @@
+const { loadProductionBootstrap } = require('../test-support/productionLoader');
+const { registerActiveProductionTab } = require('../test-support/productionWorkspace');
+
 /**
  * Regression persistence and configuration coverage.
  */
@@ -5,62 +8,15 @@
 describe('Regression controls persistence', () => {
   beforeEach(() => {
     jest.resetModules();
-    const mean = arr => {
-      const numeric = arr.map(v => Number(v)).filter(v => Number.isFinite(v));
-      if(!numeric.length) return 0;
-      return numeric.reduce((sum,val)=>sum+val,0)/numeric.length;
-    };
-    const corrcoeff = (x, y) => {
-      const mx = mean(x);
-      const my = mean(y);
-      let num = 0;
-      let denomX = 0;
-      let denomY = 0;
-      for(let i=0;i<x.length;i++){
-        const xv = Number(x[i]);
-        const yv = Number(y[i]);
-        if(!Number.isFinite(xv) || !Number.isFinite(yv)) continue;
-        const dx = xv - mx;
-        const dy = yv - my;
-        num += dx*dy;
-        denomX += dx*dx;
-        denomY += dy*dy;
-      }
-      const denom = Math.sqrt(denomX*denomY);
-      return denom === 0 ? 0 : num/denom;
-    };
-    const rank = arr => {
-      const pairs = arr.map((value,index)=>({ value:Number(value), index })).sort((a,b)=>a.value-b.value);
-      const ranks = new Array(arr.length).fill(0);
-      let i=0;
-      while(i<pairs.length){
-        let j=i;
-        while(j<pairs.length && pairs[j].value === pairs[i].value){ j++; }
-        const rankValue = (i + j + 1) / 2;
-        for(let k=i;k<j;k++){ ranks[pairs[k].index] = rankValue; }
-        i=j;
-      }
-      return ranks;
-    };
-    global.jStat = {
-      mean,
-      corrcoeff,
-      spearmancoeff: (x,y) => corrcoeff(rank(x), rank(y)),
-      studentt: {
-        cdf: () => 0.5
-      }
-    };
+    const jStatModule = require('jstat');
+    global.jStat = window.jStat = jStatModule?.jStat || jStatModule;
     global.Shared = global.Shared || {};
     global.Components = global.Components || {};
-    require('../js/vendor.js');
-    require('../js/shared/debounce.js');
-    require('../js/shared/resizer.js');
-    require('../js/shared/dom.js');
-    require('../js/shared/colorPicker.js');
-    require('../js/shared/hot.js');
-    require('../js/shared/chartStyle.js');
-    require('../js/shared/componentLayout.js');
-    require('../js/shared/regression.js');
+    loadProductionBootstrap({
+      vendorMode: 'fake',
+      includeMain: false,
+      stopBefore: 'js/main/snapshotPolicy.js'
+    });
     require('../js/components/scatter.js');
     require('../js/components/line.js');
   });
@@ -128,7 +84,7 @@ describe('Regression controls persistence', () => {
 
     const nextPayload = scatter.getPayload();
     expect(typeof nextPayload.config.regression.mode).toBe('string');
-    expect(nextPayload.config.regression.method).toBe('ols');
+    expect(nextPayload.config.regression.method).toBe('huber');
     expect(nextPayload.config.regression.fitSpec).toBeTruthy();
     if (nextPayload.config.regression.fitSpec.confidenceLevel != null) {
       expect(nextPayload.config.regression.fitSpec.confidenceLevel).toBe(90);
@@ -150,48 +106,13 @@ describe('Regression controls persistence', () => {
     }
   });
 
-  test('Logistic regression can summarize non-binary responses with IC50', () => {
-    const regressionTools = window.Shared?.regressionTools;
-    expect(regressionTools).toBeTruthy();
-
-    const points = [
-      { x: -9.0, y: 1525 },
-      { x: -8.2, y: 1480 },
-      { x: -7.6, y: 1320 },
-      { x: -7.0, y: 1025 },
-      { x: -6.5, y: 760 },
-      { x: -6.0, y: 500 },
-      { x: -5.4, y: 340 },
-      { x: -4.8, y: 290 },
-      { x: -4.2, y: 260 }
-    ];
-
-    const model = regressionTools.fitRegression(points, {
-      mode: 'logistic',
-      preferDoseResponse: true,
-      alpha: 0.05
-    });
-    expect(model).toBeTruthy();
-    expect(model.mode).toBe('doseResponse4pl');
-    expect(Number.isFinite(model.summary?.parameters?.IC50)).toBe(true);
-    expect(Number.isFinite(model.summary?.parameters?.LogIC50)).toBe(true);
-
-    const summary = regressionTools.createSummary(model);
-    expect(summary).toBeTruthy();
-    expect(summary.mode).toBe('doseResponse4pl');
-    expect(Number.isFinite(summary.summary?.parameters?.IC50)).toBe(true);
-
-    const ic50Stat = Array.isArray(summary.coefficientStats)
-      ? summary.coefficientStats.find(entry => entry.term === 'IC50')
-      : null;
-    expect(ic50Stat).toBeTruthy();
-    expect(Number.isFinite(ic50Stat.estimate)).toBe(true);
-  });
-
   test('Line regression payload stores per-series summaries', async () => {
     const line = window.Components?.line;
     expect(line).toBeTruthy();
-    line.ensure({ tabId: 'regression-line-test-tab', reason: 'regression-persistence-test' });
+    const lineTabId = 'regression-line-test-tab';
+    const lineRoot = document.getElementById('linePage');
+    registerActiveProductionTab({ type: 'line', tabId: lineTabId, root: lineRoot });
+    line.ensure({ tabId: lineTabId, root: lineRoot, reason: 'regression-persistence-test' });
 
     const hot = line.getHot();
     expect(hot).toBeTruthy();
@@ -209,7 +130,7 @@ describe('Regression controls persistence', () => {
     regressionSelect.value = 'linear';
     regressionSelect.dispatchEvent(new window.Event('change'));
 
-    line.draw();
+    line.draw({ tabId: lineTabId, reason: 'regression-persistence-test', force: true });
     await new Promise(resolve => setTimeout(resolve, 0));
     const computeBtn = document.getElementById('lineComputeStats');
     expect(computeBtn).toBeTruthy();

@@ -1,3 +1,5 @@
+const { loadProductionBootstrap } = require('../test-support/productionLoader');
+
 describe('Pie percentage labels', () => {
   jest.setTimeout(240000);
 
@@ -63,51 +65,10 @@ describe('Pie percentage labels', () => {
       global.__resetGrid__();
     }
 
-    require('../js/vendor.js');
-    require('../js/shared/fileIO.js');
-    require('../js/shared/debounce.js');
-    require('../js/shared/dataTransforms.js');
-    require('../js/shared/dataViews.js');
-    require('../js/shared/componentLifecycle.js');
-    require('../js/shared/workspaceTabs.js');
-    require('../js/shared/tabContext.js');
-    require('../js/shared/undo.js');
-    require('../js/shared/resizer.js');
-    require('../js/shared/dom.js');
-    require('../js/shared/exporter.js');
-    require('../js/shared/chartStyle.js');
-    require('../js/shared/graphSizing.js');
-    require('../js/shared/regression.js');
-    require('../js/shared/stats.js');
-    require('../js/shared/stats-table.js');
-    require('../js/shared/colorPicker.js');
-    require('../js/shared/editHighlight.js');
-    require('../js/shared/axisControls.js');
-    require('../js/shared/additionalLineControls.js');
-    require('../js/shared/significanceControls.js');
-    require('../js/shared/fontControls.js');
-    require('../js/shared/formControls.js');
-    require('../js/shared/hot.js');
-    require('../js/shared/componentLayout.js');
-    require('../js/shared/tableImport.js');
-    require('../js/shared/uniprot.js');
-    require('../js/shared/goAnalysis.js');
-    require('../js/shared/stringAnalysis.js');
-    require('../js/main/components.js');
-    if(window.Main?.components?.preloadAllBundlesSync){
-      window.Main.components.preloadAllBundlesSync();
-    }
-    require('../js/main/session.js');
-    require('../js/main/domControls.js');
-    require('../js/main/sessionActions.js');
-    require('../js/main/styleSync.js');
-    require('../js/main/tabDrag.js');
-    require('../js/main/previews.js');
-    require('../js/main/tabs/render.js');
-    require('../js/main/tabs/unsavedPrompt.js');
-    require('../js/main/tabs/duplicatePrompt.js');
-    require('../js/main/tabs.js');
-    require('../js/main.js');
+    loadProductionBootstrap({
+      vendorMode: 'fake',
+      preloadComponents: ['pie']
+    });
   });
 
   afterEach(() => {

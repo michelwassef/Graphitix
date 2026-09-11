@@ -1,0 +1,46 @@
+name: Nightly Full Browser Suite
+
+on:
+  schedule:
+    - cron: '15 2 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: e2e-nightly-full-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  browser:
+    name: Full Chromium suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+
+      - name: Run full browser lane
+        run: npm run test:lane -- --lane full-chromium --report-file artifacts/test-reports/full-chromium.json
+
+      - name: Upload Playwright artifacts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-full-chromium
+          path: |
+            playwright-report
+            test-results
+            artifacts/perf-summaries
+            artifacts/test-reports
+          if-no-files-found: ignore

@@ -1,10 +1,8 @@
 const { test, expect } = require('@playwright/test');
 
 const HEAVY_HEATMAP_ROWS = 5000;
-const {
-  installLocalCdnOverrides,
-  openComponentFromWelcome
-} = require('./helpers/workspaceHarness');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
+const { openComponentFromWelcome } = require('./helpers/workspaceDriver');
 
 async function activateWelcomeTab(page) {
   await page.evaluate(() => {

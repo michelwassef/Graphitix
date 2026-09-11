@@ -1,8 +1,7 @@
+const { waitForComponentOwnerReady } = require('./helpers/contractWaits');
 const { test, expect } = require('@playwright/test');
-const {
-  installLocalCdnOverrides,
-  openComponentFromWelcome
-} = require('./helpers/workspaceHarness');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
+const { openComponentFromWelcome } = require('./helpers/workspaceDriver');
 
 const PCA_FIXTURE = [
   ['Label point', false, false, false, false],
@@ -29,7 +28,7 @@ async function loadPcaFixture(page) {
   }, null, { timeout: 30_000 });
 
   await page.waitForSelector('#pcaSvg', { timeout: 30_000 });
-  await page.waitForTimeout(1200);
+  await waitForComponentOwnerReady(page, 'pca', { requireMountedRoot: true, requireIdle: true, timeout: 30_000 });
 }
 
 async function readPcaManualLabels(page) {
@@ -57,7 +56,7 @@ async function clickPcaLabelToggle(page, colId) {
   const cell = page.locator(`#pcaHot .ag-floating-top .ag-cell[col-id="${colId}"]`).first();
   await expect(cell).toBeVisible();
   await cell.click({ force: true });
-  await page.waitForTimeout(900);
+  await waitForComponentOwnerReady(page, 'pca', { requireMountedRoot: true, requireIdle: true, timeout: 30_000 });
 }
 
 async function waitForPcaDrawStable(page) {
@@ -277,7 +276,7 @@ test.describe('PCA label toggle regression', () => {
       return svg?.dataset?.viewMode === '3d'
         && svg.querySelectorAll('[data-point-label-key]').length === 2;
     }, null, { timeout: 30_000 });
-    await page.waitForTimeout(500);
+    await waitForComponentOwnerReady(page, 'pca', { requireMountedRoot: true, requireIdle: true, timeout: 30_000 });
 
     await setPcaPointLabelFontSize(page, 'A', 'labels', 16);
     const before = await readPcaLabelGeometry(page, 'A');
@@ -291,7 +290,7 @@ test.describe('PCA label toggle regression', () => {
     await page.mouse.down();
     await page.mouse.move(startX + 90, startY + 45, { steps: 8 });
     await page.mouse.up();
-    await page.waitForTimeout(500);
+    await waitForComponentOwnerReady(page, 'pca', { requireIdle: true, timeout: 30_000 });
 
     const after = await readPcaLabelGeometry(page, 'A');
     const rotationAfter = await page.evaluate(() => ({ ...window.Components?.pca?.getPayload?.()?.config?.rotation }));

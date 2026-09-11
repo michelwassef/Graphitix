@@ -1,10 +1,8 @@
 const { test, expect } = require('@playwright/test');
-const {
-  installLocalCdnOverrides,
-  registerIssueCollectors,
-  openComponentFromWelcome,
-  clickExampleButtonIfPresent
-} = require('./helpers/workspaceHarness');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
+const { registerIssueCollectors } = require('./helpers/diagnostics');
+const { openComponentFromWelcome } = require('./helpers/workspaceDriver');
+const { clickExampleButton } = require('./helpers/uiDriver');
 
 const CASES = [
   { type:'box', pageId:'boxPage', plot:'#boxPlot', example:'boxLoadExample', compute:'#boxComputeStats', status:'#boxStatsStatus', pairwise:'boxShowSignificance' },
@@ -30,15 +28,11 @@ async function getActiveRoot(page, type) {
 }
 
 async function loadExample(page, componentCase) {
-  if(componentCase.example && await clickExampleButtonIfPresent(page, componentCase.example)) return;
-  await page.evaluate(({ type, id }) => {
-    const ws = window.Main?.session?.workspaceState;
-    const active = ws?.tabs?.find(tab => tab?.id === ws?.activeTabId) || null;
-    const root = window.Shared?.workspaceTabs?.getMountedRoot?.(active?.id || null, type) || document;
-    const button = root?.querySelector?.(`#${id}`) || document.getElementById(id);
-    if(!button || button.disabled) throw new Error(`Example button unavailable: ${id}`);
-    button.click();
-  }, { type:componentCase.type, id:componentCase.example });
+  await clickExampleButton(page, {
+    type: componentCase.type,
+    pageId: componentCase.pageId,
+    exampleButtonId: componentCase.example
+  });
 }
 
 async function prepareStats(page, componentCase) {
@@ -270,7 +264,11 @@ test('surface summary registration does not render the same draw twice', async (
   await installLocalCdnOverrides(page);
   await page.goto('/index.html', { waitUntil:'domcontentloaded' });
   await openComponentFromWelcome(page, { type:'surface', pageId:'surfacePage' }, { first:true });
-  await clickExampleButtonIfPresent(page, 'surfaceLoadExample');
+  await clickExampleButton(page, {
+    type: 'surface',
+    pageId: 'surfacePage',
+    exampleButtonId: 'surfaceLoadExample'
+  });
   await page.waitForTimeout(1500);
   await enableSummary(page);
   await page.waitForSelector('#surfaceSvg g[data-stats-figure-summary="1"]', { state:'attached', timeout:45_000 });

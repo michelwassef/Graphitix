@@ -1176,7 +1176,17 @@
         list.classList.remove('is-wheel-scrolling');
         return;
       }
-      list.scrollLeft += distance * 0.24;
+      const nextScrollLeft = list.scrollLeft + distance * 0.24;
+      // Firefox exposes element scroll positions as whole pixels. Once the
+      // eased step rounds back to the current value, continuing the RAF loop
+      // can never reach the target.
+      if (Math.abs(nextScrollLeft - list.scrollLeft) < 0.5) {
+        list.scrollLeft = welcomePopularCarouselWheelTarget;
+        welcomePopularCarouselWheelFrame = 0;
+        list.classList.remove('is-wheel-scrolling');
+        return;
+      }
+      list.scrollLeft = nextScrollLeft;
       welcomePopularCarouselWheelFrame = requestAnimationFrame(() => animateWelcomeCarouselWheel(list));
     }
 
@@ -1184,13 +1194,18 @@
       welcomePopularCarouselWheelIdleTimer = 0;
       const step = getWelcomeCarouselStep();
       const maxScrollLeft = Math.max(0, list.scrollWidth - list.clientWidth);
-      const snappedTarget = step
-        ? Math.min(maxScrollLeft, Math.max(0, Math.round(list.scrollLeft / step) * step))
+      const positionForSnap = welcomePopularCarouselWheelFrame
+        ? welcomePopularCarouselWheelTarget
         : list.scrollLeft;
+      const snappedTarget = step
+        ? Math.min(maxScrollLeft, Math.max(0, Math.round(positionForSnap / step) * step))
+        : positionForSnap;
       welcomePopularCarouselWheelTarget = snappedTarget;
       if (welcomePopularCarouselWheelFrame) {
-        cancelAnimationFrame(welcomePopularCarouselWheelFrame);
-        welcomePopularCarouselWheelFrame = 0;
+        // Let the custom animation continue toward the retargeted card.
+        // Sampling the still-intermediate scrollLeft here can snap a short wheel
+        // gesture back to its starting card before the animation reaches it.
+        return;
       }
       list.classList.remove('is-wheel-scrolling');
       list.scrollTo({ left: snappedTarget, behavior: 'smooth' });

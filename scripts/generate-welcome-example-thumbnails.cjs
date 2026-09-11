@@ -1436,8 +1436,6 @@ async function generateAssets(selectedTypes = TYPES) {
         process.stdout.write(`Generated ${record.file} from ${record.source}.\n`);
       }
       records.sort((left, right) => TYPES.indexOf(left.type) - TYPES.indexOf(right.type));
-      publishGeneratedAssets(temporaryDir, records, fingerprints.aggregate);
-      checkGeneratedAssets();
     } finally {
       if (page && !page.isClosed()) {
         await page.close();
@@ -1451,6 +1449,8 @@ async function generateAssets(selectedTypes = TYPES) {
         });
       }
     }
+    publishGeneratedAssets(temporaryDir, records, fingerprints.aggregate);
+    checkGeneratedAssets();
   });
 }
 

@@ -1,11 +1,12 @@
 const { test, expect } = require('@playwright/test');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
 const {
   COMPONENT_MATRIX,
-  installLocalCdnOverrides,
   openComponentFromWelcome,
-  clickExampleButtonIfPresent,
-  registerIssueCollectors
-} = require('./helpers/workspaceHarness');
+  clickExampleButtonIfPresent
+} = require('./helpers/workspaceDriver');
+const { registerIssueCollectors } = require('./helpers/diagnostics');
+const { waitForComponentOwnerReady } = require('./helpers/contractWaits');
 
 async function waitForGraphSvg(page, pageId) {
   await page.waitForFunction(
@@ -58,7 +59,9 @@ async function setLockRatio(page, pageId, checked) {
       checkbox.dispatchEvent(new Event('change', { bubbles: true }));
     }
   }, { pageId, checked });
-  await page.waitForTimeout(600);
+  const component = COMPONENT_MATRIX.find(entry => entry.pageId === pageId);
+  if (!component) throw new Error(`Unknown component page: ${pageId}`);
+  await waitForComponentOwnerReady(page, component.type, { requireMountedRoot: true, requireIdle: true, timeout: 30_000 });
 }
 
 async function clearActiveUndoHistory(page) {
@@ -104,7 +107,9 @@ async function dragSvgBoxHandle(page, pageId, handleSelector, dx, dy) {
   await page.mouse.down();
   await page.mouse.move(startX + dx, startY + dy, { steps: 12 });
   await page.mouse.up();
-  await page.waitForTimeout(900);
+  const component = COMPONENT_MATRIX.find(entry => entry.pageId === pageId);
+  if (!component) throw new Error(`Unknown component page: ${pageId}`);
+  await waitForComponentOwnerReady(page, component.type, { requireMountedRoot: true, requireIdle: true, timeout: 30_000 });
 }
 
 async function pressUndo(page) {
@@ -145,7 +150,7 @@ test('svgbox drag resize undo and redo restore dimensions in every component', a
         await setLockRatio(page, component.pageId, false);
         await waitForGraphSvg(page, component.pageId);
       }
-      await page.waitForTimeout(350);
+      await waitForComponentOwnerReady(page, component.type, { requireMountedRoot: true, requireIdle: true, timeout: 30_000 });
 
       const before = await collectResizeState(page, component.pageId);
       expect(before, `${component.type} should expose a resize state`).not.toBeNull();

@@ -2,10 +2,12 @@ const fs = require('fs');
 const path = require('path');
 const { test, expect } = require('@playwright/test');
 const {
-  installLocalCdnOverrides,
-  registerIssueCollectors,
   openComponentFromWelcome
-} = require('./helpers/workspaceHarness');
+} = require('./helpers/workspaceDriver');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
+const { registerIssueCollectors } = require('./helpers/diagnostics');
+const { clickExampleButton } = require('./helpers/uiDriver');
+const { waitForComponentOwnerReady } = require('./helpers/contractWaits');
 
 function expectEditableGridCapacity(snapshot) {
   expect(snapshot.rowCount).toBeGreaterThanOrEqual(100);
@@ -82,7 +84,7 @@ async function getGraphTabIds(page) {
   );
 }
 
-async function activateTab(page, tabId) {
+async function activateTab(page, tabId, component) {
   await page.evaluate(id => {
     if (window.Main?.tabs?.activateTab) {
       window.Main.tabs.activateTab(id, { reason: 'e2e-table-format-isolation' });
@@ -94,7 +96,11 @@ async function activateTab(page, tabId) {
     const state = window.Main?.session?.workspaceState;
     return String(state?.activeTabId || '') === String(id || '');
   }, tabId, { timeout: 20_000 });
-  await page.waitForTimeout(500);
+  await waitForComponentOwnerReady(page, component, {
+    expectedTabId: tabId,
+    requireMountedRoot: true,
+    requireIdle: true
+  });
 }
 
 async function openComponentTab(page, component, first = false) {
@@ -119,7 +125,7 @@ async function openComponentTab(page, component, first = false) {
 }
 
 async function configureExample(page, component, formatValue) {
-  await page.evaluate(({ type, selectId, replicateId, exampleButtonId, format }) => {
+  await page.evaluate(({ type, selectId, replicateId, format }) => {
     const state = window.Main?.session?.workspaceState;
     const active = state?.tabs?.find(tab => tab?.id === state.activeTabId) || null;
     const root = window.Shared?.workspaceTabs?.getMountedRoot?.(active?.id || null, type)
@@ -159,13 +165,14 @@ async function configureExample(page, component, formatValue) {
       });
       return;
     }
-    const button = root.querySelector(`#${exampleButtonId}`);
-    if (!button) {
-      throw new Error(`${exampleButtonId} not found`);
-    }
-    button.click();
-  }, { type: component.type, selectId: component.selectId, replicateId: component.replicateId, exampleButtonId: component.exampleButtonId, format: formatValue });
-  await page.waitForTimeout(1200);
+  }, { type: component.type, selectId: component.selectId, replicateId: component.replicateId, format: formatValue });
+  if (!(component.type === 'pca' && formatValue === 'standard')) {
+    await clickExampleButton(page, component);
+  }
+  await waitForComponentOwnerReady(page, component, {
+    requireMountedRoot: true,
+    requireIdle: true
+  });
 }
 
 async function captureTableSnapshot(page, component) {
@@ -235,13 +242,16 @@ async function loadArchive(page, archivePath, component) {
     const tabs = window.Main?.session?.workspaceState?.tabs;
     return Array.isArray(tabs) && tabs.filter(tab => tab?.type === type).length >= 2;
   }, component.type, { timeout: 40_000 });
-  await page.waitForTimeout(1000);
+  await waitForComponentOwnerReady(page, component, {
+    requireMountedRoot: true,
+    requireIdle: true
+  });
 }
 
 async function findRestoredTabsByFormat(page, component, tabIds) {
   const result = { standard: null, grouped: null };
   for (const tabId of tabIds) {
-    await activateTab(page, tabId);
+    await activateTab(page, tabId, component);
     const snapshot = await captureTableSnapshot(page, component);
     if (snapshot.controlValue === component.groupedValue || snapshot.payloadFormat === component.groupedValue) {
       result.grouped = { tabId, snapshot };
@@ -268,11 +278,11 @@ for (const component of CASES) {
     await configureExample(page, component, component.groupedValue);
     component.assertGrouped(await captureTableSnapshot(page, component));
 
-    await activateTab(page, standardTabId);
+    await activateTab(page, standardTabId, component);
     component.assertStandard(await captureTableSnapshot(page, component));
-    await activateTab(page, groupedTabId);
+    await activateTab(page, groupedTabId, component);
     component.assertGrouped(await captureTableSnapshot(page, component));
-    await activateTab(page, standardTabId);
+    await activateTab(page, standardTabId, component);
     component.assertStandard(await captureTableSnapshot(page, component));
 
     const archivePath = await captureArchive(
@@ -288,7 +298,7 @@ for (const component of CASES) {
     expect(restored.grouped?.tabId).toBeTruthy();
     component.assertStandard(restored.standard.snapshot);
     component.assertGrouped(restored.grouped.snapshot);
-    await activateTab(page, restored.standard.tabId);
+    await activateTab(page, restored.standard.tabId, component);
     component.assertStandard(await captureTableSnapshot(page, component));
 
     expect(issues.critical).toEqual([]);

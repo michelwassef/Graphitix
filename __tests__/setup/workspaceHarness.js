@@ -99,16 +99,21 @@ function bindElementToTab(element, tabId) {
 }
 
 function initializeWorkspaceHarness(options = {}) {
-  const mode = options.mode === 'full-app' ? 'full-app' : 'tab-scoped';
+  const requestedMode = options.mode || 'tab-scoped';
+  if (requestedMode !== 'tab-scoped' && requestedMode !== 'module-bootstrap') {
+    throw new Error(`Unsupported workspace harness mode: ${String(requestedMode)}`);
+  }
+  const mode = requestedMode;
   if (options.resetNamespaces === true) {
     resetGlobalNamespaces();
   }
   if (typeof options.html === 'string') {
     document.body.innerHTML = options.html;
   }
-  if (mode === 'full-app') {
+  if (mode === 'module-bootstrap') {
     window.__WORKSPACE_HARNESS__ = {
       mode,
+      productionBootstrap: false,
       initializedAt: Date.now()
     };
     return {

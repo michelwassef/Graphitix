@@ -14,13 +14,11 @@
 const fs = require('fs');
 const path = require('path');
 const { test, expect } = require('@playwright/test');
-const {
-  installLocalCdnOverrides,
-  registerIssueCollectors,
-  openComponentFromWelcome,
-  clickExampleButtonIfPresent,
-  waitForDocumentOpenComplete
-} = require('./helpers/workspaceHarness');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
+const { openComponentFromWelcome, clickExampleButtonIfPresent, waitForDocumentOpenComplete } = require('./helpers/workspaceDriver');
+const { registerIssueCollectors } = require('./helpers/diagnostics');
+const { reloadAndAcceptRecovery } = require('./helpers/recoveryDriver');
+const { waitForComponentOwnerReady, waitForComponentSnapshotReady } = require('./helpers/contractWaits');
 
 const TMP_DIR = path.resolve(__dirname, '.tmp');
 
@@ -163,7 +161,11 @@ async function buildPca(page) {
   await page.waitForFunction(() => !!window.Components?.pca?.ready, null, { timeout: 30_000 });
   await clickExampleButtonIfPresent(page, 'pcaLoadExample');
   await page.waitForFunction(() => !!document.querySelector('#pcaPlot svg'), null, { timeout: 30_000 });
-  await page.waitForTimeout(1200);
+  await waitForComponentOwnerReady(page, 'pca', {
+    requireMountedRoot: true,
+    requireIdle: true,
+    timeout: 30_000
+  });
 }
 
 async function captureWorkspaceArchive(page, fileStem) {
@@ -228,7 +230,7 @@ test('PCA scree + biplot survive file reopen (archive load)', async ({ page }) =
   await expect(page.locator('#welcomeScreen')).toBeVisible({ timeout: 20_000 });
   await page.locator('#workspaceSessionInput').setInputFiles(archivePath);
   await waitForDocumentOpenComplete(page);
-  await page.waitForTimeout(1000);
+  await waitForComponentSnapshotReady(page, 'pca', { timeout: 30_000 });
   await page.waitForSelector('#pcaPage:not([hidden])', { timeout: 30_000 });
 
   await expectFullPcaStats(page, 'after file reopen');
@@ -274,17 +276,23 @@ test('PCA scree + biplot survive crash recovery', async ({ page }) => {
   });
   await seedRecoverySnapshot(page);
 
-  const dialogHandler = async d => { await d.accept(); };
-  page.on('dialog', dialogHandler);
-  await page.reload({ waitUntil: 'domcontentloaded' });
-  await page.waitForTimeout(1500);
-  page.off('dialog', dialogHandler);
+  const recoveryAccepted = await reloadAndAcceptRecovery(page, { timeout: 30_000 });
+  expect(recoveryAccepted).toBe(true);
+  await page.waitForFunction(() => {
+    const state = window.Main?.session?.workspaceState || null;
+    return (state?.tabs || []).some(tab => tab && tab.type === 'pca');
+  }, null, { timeout: 30_000 });
   await page.evaluate(async () => {
     const state = window.Main?.session?.workspaceState;
     const tab = (state?.tabs || []).find(t => t && t.type === 'pca');
     if (tab) { const p = window.Main.tabs.activateTab(tab.id, { reason: 'e2e-activate-pca-recovery' }); if (p && p.then) await p; }
   });
   await page.waitForSelector('#pcaPage:not([hidden])', { timeout: 30_000 });
+  await waitForComponentOwnerReady(page, 'pca', {
+    requireMountedRoot: true,
+    requireIdle: true,
+    timeout: 30_000
+  });
 
   await expectFullPcaStats(page, 'after crash recovery');
   const recoveredLegend = await page.evaluate(pcaLegendRecoveryStateInPage);

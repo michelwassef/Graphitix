@@ -1,10 +1,8 @@
 const { test, expect } = require('@playwright/test');
-const {
-  COMPONENT_MATRIX,
-  installLocalCdnOverrides,
-  registerIssueCollectors,
-  openComponentFromWelcome
-} = require('./helpers/workspaceHarness');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
+const { COMPONENT_MATRIX, openComponentFromWelcome } = require('./helpers/workspaceDriver');
+const { registerIssueCollectors } = require('./helpers/diagnostics');
+const { waitForComponentOwnerReady } = require('./helpers/contractWaits');
 
 const COMPONENTS = ['hist', 'roc', 'survival', 'line', 'pie'].map(type => {
   const component = COMPONENT_MATRIX.find(entry => entry.type === type);
@@ -29,11 +27,15 @@ for (const component of COMPONENTS) {
     if (component.type === 'pie') {
       await page.locator('#piePage:not([hidden]) #pieChartType').selectOption('stacked');
     }
+    await waitForComponentOwnerReady(page, component.type, {
+      requireMountedRoot: true,
+      requireIdle: true,
+      timeout: 30_000
+    });
 
     const axis = page.locator(`${component.svgSelector} [data-axis-control="1"]`).first();
     await expect(axis).toHaveCount(1, { timeout: 30_000 });
     await expect(axis).toHaveAttribute('data-graphitix-visual-target', '1', { timeout: 30_000 });
-    await page.waitForTimeout(400);
     await page.evaluate(({ svgSelector, plotSelector }) => {
       const svg = document.querySelector(svgSelector);
       const plot = document.querySelector(plotSelector);
@@ -64,7 +66,14 @@ for (const component of COMPONENTS) {
       input.value = '3';
       input.dispatchEvent(new Event('input', { bubbles: true }));
     });
-    await page.waitForTimeout(350);
+    await page.waitForFunction(({ type, svgSelector }) => {
+      const payload = window.Components?.[type]?.getPayload?.();
+      const svg = document.querySelector(svgSelector);
+      const widths = Array.from(svg?.querySelectorAll?.('[data-graphitix-visual-target="1"][data-visual-channel="axis"]') || [])
+        .map(node => Number(node.getAttribute('stroke-width')))
+        .filter(Number.isFinite);
+      return Number(payload?.config?.axis?.strokeWidth) === 3 && widths.length > 0 && widths.every(width => width > 0);
+    }, component, { timeout: 30_000, polling: 'raf' });
 
     const result = await page.evaluate(({ type, svgSelector }) => {
       window.__liveStyleObserver?.disconnect?.();
@@ -129,7 +138,13 @@ test('histogram applies live trace color without redrawing and persists it to it
     input.value = '#2f9d84';
     input.dispatchEvent(new Event('input', { bubbles: true }));
   });
-  await page.waitForTimeout(300);
+  await page.waitForFunction(({ type, svgSelector, seriesKey: key }) => {
+    const payload = window.Components?.[type]?.getPayload?.();
+    const svg = document.querySelector(svgSelector);
+    const nodes = Array.from(svg?.querySelectorAll?.(`[data-series-key="${CSS.escape(key)}"]`) || []);
+    return String(payload?.config?.seriesColors?.[key] || '').toLowerCase() === '#2f9d84'
+      && nodes.some(node => String(node.getAttribute('fill') || '').toLowerCase() === '#2f9d84');
+  }, { ...component, seriesKey }, { timeout: 30_000, polling: 'raf' });
 
   const result = await page.evaluate(({ svgSelector, type, seriesKey: key }) => {
     window.__liveTraceObserver?.disconnect?.();

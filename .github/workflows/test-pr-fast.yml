@@ -1,0 +1,76 @@
+name: Fast Test Quality Gate
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: test-fast-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  static:
+    name: Static and discovery contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run static lane
+        run: npm run test:lane -- --lane static --report-file artifacts/test-reports/static.json
+
+      - name: Upload static report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-report-static
+          path: artifacts/test-reports/static.json
+          if-no-files-found: ignore
+
+  jest:
+    name: Jest ${{ matrix.lane }} lane
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        lane: [unit, dom, architecture, stats, workers, integration]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run Jest lane
+        run: npm run test:lane -- --lane ${{ matrix.lane }} --report-file artifacts/test-reports/${{ matrix.lane }}.json
+
+      - name: Upload Jest report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-report-jest-${{ matrix.lane }}
+          path: artifacts/test-reports/${{ matrix.lane }}.json
+          if-no-files-found: ignore

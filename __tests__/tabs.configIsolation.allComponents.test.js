@@ -1,3 +1,6 @@
+const { loadProductionBootstrap } = require('../test-support/productionLoader');
+const { COMPONENT_MUTATION_CATALOG } = require('../test-support/componentMutationCatalog');
+
 describe('Cross-tab graph config isolation (all components)', () => {
   jest.setTimeout(240000);
 
@@ -14,10 +17,6 @@ describe('Cross-tab graph config isolation (all components)', () => {
     'hist',
     'pie'
   ];
-
-  function isPlainObject(value) {
-    return !!value && typeof value === 'object' && !Array.isArray(value);
-  }
 
   function deepClone(value) {
     return value == null ? value : JSON.parse(JSON.stringify(value));
@@ -61,164 +60,92 @@ describe('Cross-tab graph config isolation (all components)', () => {
     return JSON.stringify(a) === JSON.stringify(b);
   }
 
-  function isLikelyColorString(value) {
-    if (typeof value !== 'string') {
-      return false;
-    }
-    const trimmed = value.trim();
-    if (!trimmed) {
-      return false;
-    }
-    return /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(trimmed)
-      || /^rgb(a)?\(/i.test(trimmed)
-      || /color/i.test(trimmed);
+  function resolveMutationPath(mutation) {
+    return String(mutation?.path || '')
+      .split('.')
+      .filter(Boolean)
+      .map(part => /^\d+$/.test(part) ? Number(part) : part);
   }
 
-  function proposeMutation(path, value, variant) {
-    const key = String(path[path.length - 1] || '').toLowerCase();
-    const keyPath = path.map(part => String(part).toLowerCase());
-    const blocked = new Set([
-      'stats',
-      'assumptions',
-      'result',
-      'contexthtml',
-      'contextsignature',
-      'lastrunversion',
-      'contextversion',
-      'rotation',
-      'quaternion',
-      'segments',
-      'dataview',
-      'activeviewid',
-      'filehandle',
-      'filename',
-      'savedat'
-    ]);
-    for (let i = 0; i < keyPath.length; i += 1) {
-      if (blocked.has(keyPath[i])) {
-        return undefined;
-      }
-    }
-
-    if (typeof value === 'boolean') {
+  function resolveCatalogMutationValue(mutation, current, variant) {
+    const operation = String(mutation?.operation || '');
+    if (operation === 'boolean-toggle') {
       return variant === 'A' ? false : true;
     }
-    if (typeof value === 'number' && Number.isFinite(value)) {
-      if (/alpha|opacity|transparen|ratio/.test(key)) {
-        return value <= 1 ? (variant === 'A' ? 0.23 : 0.77) : (variant === 'A' ? 23 : 77);
+    if (operation === 'enum-cycle' || operation === 'scheme-cycle') {
+      const values = Array.isArray(mutation.values) ? mutation.values : [];
+      if (values.length < 2) {
+        throw new Error(`Mutation ${mutation.id} needs at least two explicit values`);
       }
-      if (/size|width|thick|stroke|font|radius|line|tick|gap|padding|offset/.test(key)) {
-        return variant === 'A' ? 2.5 : 5.5;
-      }
-      if (/count|bins|iter|samples|replicates|points|rows|cols/.test(key)) {
-        return variant === 'A' ? Math.max(1, Math.round((value || 1) + 1)) : Math.max(2, Math.round((value || 1) + 3));
-      }
-      if (/min|max|threshold|limit|seed/.test(key)) {
-        return variant === 'A' ? 1 : 2;
-      }
-      return variant === 'A' ? 3 : 9;
+      return values[variant === 'A' ? 0 : 1];
     }
-    if (typeof value === 'string') {
-      const trimmed = value.trim();
-      if (isLikelyColorString(value) || /color/.test(key)) {
-        return variant === 'A' ? '#1f77b4' : '#d62728';
+    if (operation === 'number-delta') {
+      const base = Number(current);
+      const delta = Number(mutation.delta);
+      if (!Number.isFinite(base) || !Number.isFinite(delta)) {
+        throw new Error(`Mutation ${mutation.id} needs a finite numeric baseline`);
       }
-      if (/pattern|dash/.test(key)) {
-        const normalized = trimmed.toLowerCase();
-        if (normalized === 'solid' || normalized === 'continuous' || normalized === 'dashed' || normalized === 'dotted') {
-          return variant === 'A' ? 'dashed' : 'dotted';
-        }
-      }
-      if (/title|label|name|text/.test(key) && trimmed.length < 80) {
-        return `${trimmed || key}-iso-${variant.toLowerCase()}`;
-      }
-      if (/fontsize|size|width|thick|stroke|alpha|opacity/.test(key) && /^-?\d+(\.\d+)?$/.test(trimmed)) {
-        return variant === 'A' ? '2.5' : '5.5';
-      }
-      return undefined;
+      return base + (variant === 'A' ? delta : delta * 2);
     }
-    return undefined;
+    if (operation === 'color-alternative') {
+      return variant === 'A' ? '#e8eef7' : String(mutation.value || '#f2f5fa');
+    }
+    if (operation === 'text-suffix') {
+      return `${String(current || '')}${String(mutation.suffix || '')} ${variant}`;
+    }
+    throw new Error(`Unsupported catalog mutation operation ${operation}`);
   }
 
-  function collectMutationPaths(configRoot, variant, maxCount = 24) {
-    const paths = [];
-    if (!isPlainObject(configRoot)) {
-      return paths;
-    }
-
-    const walk = (node, path) => {
-      if (paths.length >= maxCount) {
-        return;
+  function applyCatalogSideEffects(payload, mutation) {
+    (mutation.sideEffects || []).forEach(effect => {
+      const path = resolveMutationPath(effect);
+      if (getAtPath(payload, path) === undefined) {
+        throw new Error(`Catalog side-effect path ${effect.path} is absent from payload`);
       }
-      if (Array.isArray(node)) {
-        const key = String(path[path.length - 1] || '').toLowerCase();
-        if (/color/.test(key) && node.length && node.every(item => typeof item === 'string')) {
-          const color = variant === 'A' ? '#1f77b4' : '#d62728';
-          if (!valueEquals(node[0], color)) {
-            node[0] = color;
-            paths.push(path.concat(0));
-          }
-        }
-        return;
-      }
-      if (isPlainObject(node)) {
-        const keys = Object.keys(node).sort();
-        keys.forEach(k => walk(node[k], path.concat(k)));
-        return;
-      }
-      const nextValue = proposeMutation(path, node, variant);
-      if (nextValue === undefined || valueEquals(nextValue, node)) {
-        return;
-      }
-      if (setAtPath(configRoot, path, nextValue)) {
-        paths.push(path.slice());
-      }
-    };
-
-    walk(configRoot, []);
-    return paths;
-  }
-
-  function applyFallbackMutations(target, variant) {
-    if (!target || typeof target !== 'object') {
-      return [];
-    }
-    const fallbackPaths = [
-      ['title'],
-      ['subtitle'],
-      ['xLabel'],
-      ['yLabel'],
-      ['zLabel'],
-      ['fontSize'],
-      ['fill'],
-      ['border'],
-      ['dotSize'],
-      ['lineWidth'],
-      ['strokeWidth'],
-      ['axis', 'strokeWidth'],
-      ['axis', 'color'],
-      ['showGrid'],
-      ['showFrame'],
-      ['showLegend'],
-      ['colors', 0],
-      ['borderColors', 0]
-    ];
-    const applied = [];
-    fallbackPaths.forEach(path => {
-      const current = getAtPath(target, path);
-      if (current === undefined) {
-        return;
-      }
-      const keyPath = path.map(part => String(part));
-      const next = proposeMutation(keyPath, current, variant);
-      if (next === undefined || valueEquals(next, current)) {
-        return;
-      }
-      if (setAtPath(target, path, next)) {
-        applied.push(path);
+      if (!setAtPath(payload, path, deepClone(effect.value))) {
+        throw new Error(`Catalog side-effect path ${effect.path} could not be written`);
       }
     });
-    return applied;
+  }
+
+  function buildCatalogVariantPayload(basePayload, type, variant, options = {}) {
+    const plan = COMPONENT_MUTATION_CATALOG[type];
+    if (!plan) {
+      throw new Error(`No explicit component mutation plan for ${type}`);
+    }
+    const payload = deepClone(basePayload);
+    const paths = [];
+    const unavailable = [];
+    (plan.mutations || []).forEach(mutation => {
+      const path = resolveMutationPath(mutation);
+      const current = getAtPath(payload, path);
+      if (current === undefined) {
+        if (options.skipUnavailable === true) {
+          unavailable.push(mutation.path);
+          return;
+        }
+        throw new Error(`Catalog path ${mutation.path} is absent from ${type} payload`);
+      }
+      const next = resolveCatalogMutationValue(mutation, current, variant);
+      if (!setAtPath(payload, path, next)) {
+        throw new Error(`Catalog path ${mutation.path} could not be written for ${type}`);
+      }
+      applyCatalogSideEffects(payload, mutation);
+      paths.push(path);
+    });
+    return { payload, paths, unavailable };
+  }
+
+  function applyPayloadToOwner(workspace, session, tab, payload, source) {
+    workspace.loadFromPayload?.(payload, {
+      source,
+      tab,
+      tabId: tab.id
+    });
+    session.updateTabPayload(tab, () => deepClone(payload), {
+      reason: source,
+      origin: 'test'
+    });
   }
 
   async function flush() {
@@ -259,6 +186,12 @@ describe('Cross-tab graph config isolation (all components)', () => {
 
   beforeEach(() => {
     jest.resetModules();
+    delete window.Main;
+    delete window.Components;
+    delete window.Shared;
+    delete global.Main;
+    delete global.Components;
+    delete global.Shared;
     if (typeof global.__restoreTestDebugLogs === 'function') {
       global.__restoreTestDebugLogs();
     }
@@ -266,51 +199,10 @@ describe('Cross-tab graph config isolation (all components)', () => {
       global.__resetGrid__();
     }
 
-    require('../js/vendor.js');
-    require('../js/shared/fileIO.js');
-    require('../js/shared/debounce.js');
-    require('../js/shared/dataTransforms.js');
-    require('../js/shared/dataViews.js');
-    require('../js/shared/undo.js');
-    require('../js/shared/resizer.js');
-    require('../js/shared/dom.js');
-    require('../js/shared/exporter.js');
-    require('../js/shared/chartStyle.js');
-    require('../js/shared/graphSizing.js');
-    require('../js/shared/regression.js');
-    require('../js/shared/stats.js');
-    require('../js/shared/boxStatsModel.js');
-    require('../js/shared/stats-table.js');
-    require('../js/shared/colorPicker.js');
-    require('../js/shared/editHighlight.js');
-    require('../js/shared/axisControls.js');
-    require('../js/shared/additionalLineControls.js');
-    require('../js/shared/significanceControls.js');
-    require('../js/shared/fontControls.js');
-    require('../js/shared/formControls.js');
-    require('../js/shared/hot.js');
-    require('../js/shared/workspaceTabs.js');
-    require('../js/shared/componentLifecycle.js');
-    require('../js/shared/componentLayout.js');
-    require('../js/shared/tableImport.js');
-    require('../js/shared/uniprot.js');
-    require('../js/shared/goAnalysis.js');
-    require('../js/shared/stringAnalysis.js');
-    require('../js/main/components.js');
-    if (window.Main?.components?.preloadAllBundlesSync) {
-      window.Main.components.preloadAllBundlesSync();
-    }
-    require('../js/main/session.js');
-    require('../js/main/domControls.js');
-    require('../js/main/sessionActions.js');
-    require('../js/main/styleSync.js');
-    require('../js/main/tabDrag.js');
-    require('../js/main/previews.js');
-    require('../js/main/tabs/render.js');
-    require('../js/main/tabs/unsavedPrompt.js');
-    require('../js/main/tabs/duplicatePrompt.js');
-    require('../js/main/tabs.js');
-    require('../js/main.js');
+    loadProductionBootstrap({
+      vendorMode: 'fake',
+      preloadComponents: WORKSPACE_TYPES
+    });
   });
 
   afterEach(() => {
@@ -344,62 +236,38 @@ describe('Cross-tab graph config isolation (all components)', () => {
           failures.push(`${type}: failed to activate first tab`);
           continue;
         }
+        session.persistActiveTabState(tabA, {
+          workspaces: registry,
+          previews: Main.previews,
+          reason: `test-isolation-${type}-capture-baseline`
+        });
+        await flush();
 
         const livePayload = (typeof workspace.getPayload === 'function')
           ? workspace.getPayload({ tab: tabA, tabId: tabA.id, reason: 'test-config-isolation-live-payload' })
           : null;
         const emptyPayload = (typeof workspace.createEmptyPayload === 'function') ? workspace.createEmptyPayload() : null;
-        const liveTarget = isPlainObject(livePayload?.config) ? livePayload.config : livePayload;
-        const emptyTarget = isPlainObject(emptyPayload?.config) ? emptyPayload.config : emptyPayload;
-        const basePayload = (isPlainObject(liveTarget) && Object.keys(liveTarget).length > 0)
-          ? livePayload
+        const canonicalPayload = tabA.payload || livePayload;
+        const basePayload = (canonicalPayload && typeof canonicalPayload === 'object' && Object.keys(canonicalPayload).length > 0)
+          ? canonicalPayload
           : emptyPayload;
         if (!basePayload || typeof basePayload !== 'object') {
           failures.push(`${type}: missing payload for isolation check`);
           continue;
         }
-        const targetKey = isPlainObject(basePayload.config) ? 'config' : null;
-        const targetBase = targetKey ? basePayload.config : basePayload;
-        if (!isPlainObject(targetBase)) {
-          failures.push(`${type}: missing mutable payload object for isolation check`);
-          continue;
-        }
-
-        const payloadA = deepClone(basePayload);
-        const payloadB = deepClone(basePayload);
-        const targetA = targetKey ? payloadA.config : payloadA;
-        const targetB = targetKey ? payloadB.config : payloadB;
-        const mutationPathsA = collectMutationPaths(targetA, 'A', 24);
-        const mutationPathsB = collectMutationPaths(targetB, 'B', 24);
-        if (!mutationPathsA.length) {
-          mutationPathsA.push(...applyFallbackMutations(targetA, 'A'));
-        }
-        if (!mutationPathsB.length) {
-          mutationPathsB.push(...applyFallbackMutations(targetB, 'B'));
-        }
-        const mutationKeys = Array.from(new Set(
-          mutationPathsA.concat(mutationPathsB).map(pathToKey)
-        ));
-        const combinedPaths = mutationKeys.map(key => {
-          const parts = [];
-          key.split('.').forEach(part => {
-            if (!part) {
-              return;
-            }
-            if (/^\[\d+\]$/.test(part)) {
-              parts.push(Number(part.slice(1, -1)));
-            } else {
-              parts.push(part);
-            }
-          });
-          return parts;
-        });
+        const variantA = buildCatalogVariantPayload(basePayload, type, 'A', { skipUnavailable: true });
+        const variantB = buildCatalogVariantPayload(basePayload, type, 'B', { skipUnavailable: true });
+        const payloadA = variantA.payload;
+        const payloadB = variantB.payload;
+        const combinedPaths = Array.from(new Map(
+          variantA.paths.concat(variantB.paths).map(path => [pathToKey(path), path])
+        ).values());
         if (!combinedPaths.length) {
-          failures.push(`${type}: no mutable paths discovered (keys=${Object.keys(targetBase).slice(0, 20).join(',')})`);
+          failures.push(`${type}: no catalog mutation paths declared`);
           continue;
         }
 
-        workspace.loadFromPayload?.(payloadA, { source: 'test-isolation-a', tab: tabA, tabId: tabA.id });
+        applyPayloadToOwner(workspace, session, tabA, payloadA, 'test-isolation-a');
         await flush();
         session.persistActiveTabState(tabA, {
           workspaces: registry,
@@ -407,8 +275,8 @@ describe('Cross-tab graph config isolation (all components)', () => {
           reason: `test-isolation-${type}-persist-a`
         });
         await flush();
-        const observedA = workspace.getPayload?.({ tab: tabA, tabId: tabA.id, reason: 'test-isolation-observed-a' });
-        const observedATarget = targetKey ? observedA?.config : observedA;
+        const observedA = tabA.payload || workspace.getPayload?.({ tab: tabA, tabId: tabA.id, reason: 'test-isolation-observed-a' });
+        const observedATarget = observedA;
         if (!observedATarget || typeof observedATarget !== 'object') {
           failures.push(`${type}: could not capture observed payload A`);
           continue;
@@ -423,7 +291,7 @@ describe('Cross-tab graph config isolation (all components)', () => {
           continue;
         }
 
-        workspace.loadFromPayload?.(payloadB, { source: 'test-isolation-b', tab: tabB, tabId: tabB.id });
+        applyPayloadToOwner(workspace, session, tabB, payloadB, 'test-isolation-b');
         await flush();
         session.persistActiveTabState(tabB, {
           workspaces: registry,
@@ -431,8 +299,8 @@ describe('Cross-tab graph config isolation (all components)', () => {
           reason: `test-isolation-${type}-persist-b`
         });
         await flush();
-        const observedB = workspace.getPayload?.({ tab: tabB, tabId: tabB.id, reason: 'test-isolation-observed-b' });
-        const observedBTarget = targetKey ? observedB?.config : observedB;
+        const observedB = tabB.payload || workspace.getPayload?.({ tab: tabB, tabId: tabB.id, reason: 'test-isolation-observed-b' });
+        const observedBTarget = observedB;
         if (!observedBTarget || typeof observedBTarget !== 'object') {
           failures.push(`${type}: could not capture observed payload B`);
           continue;
@@ -444,7 +312,11 @@ describe('Cross-tab graph config isolation (all components)', () => {
           return !valueEquals(aValue, bValue);
         });
         if (!diffPaths.length) {
-          failures.push(`${type}: no effective divergent config paths after mutation`);
+          const attempted = combinedPaths.map(path => `${pathToKey(path)}=${JSON.stringify({
+            a: getAtPath(observedATarget, path),
+            b: getAtPath(observedBTarget, path)
+          })}`).join(', ');
+          failures.push(`${type}: no effective divergent config paths after mutation (${attempted})`);
           continue;
         }
 
@@ -452,8 +324,8 @@ describe('Cross-tab graph config isolation (all components)', () => {
         const snapshotB = capturePathValues(observedBTarget, diffPaths);
 
         await activateTabById(Main, tabA.id, `test-isolation-${type}-switch-a`);
-        const observedA2 = workspace.getPayload?.({ tab: tabA, tabId: tabA.id, reason: 'test-isolation-observed-a2' });
-        const observedA2Target = targetKey ? observedA2?.config : observedA2;
+        const observedA2 = tabA.payload || workspace.getPayload?.({ tab: tabA, tabId: tabA.id, reason: 'test-isolation-observed-a2' });
+        const observedA2Target = observedA2;
         if (!observedA2Target || typeof observedA2Target !== 'object') {
           failures.push(`${type}: could not capture observed payload A after switch`);
           continue;
@@ -469,8 +341,8 @@ describe('Cross-tab graph config isolation (all components)', () => {
         });
 
         await activateTabById(Main, tabB.id, `test-isolation-${type}-switch-b`);
-        const observedB2 = workspace.getPayload?.();
-        const observedB2Target = targetKey ? observedB2?.config : observedB2;
+        const observedB2 = tabB.payload || workspace.getPayload?.({ tab: tabB, tabId: tabB.id, reason: 'test-isolation-observed-b2' });
+        const observedB2Target = observedB2;
         if (!observedB2Target || typeof observedB2Target !== 'object') {
           failures.push(`${type}: could not capture observed payload B after switch`);
           continue;
@@ -494,6 +366,7 @@ describe('Cross-tab graph config isolation (all components)', () => {
 
   test('empty payload factories are not derived from live component state', async () => {
     const Main = window.Main;
+    const session = Main.session;
     const registry = Main.components.registry;
     const failures = [];
 
@@ -516,21 +389,16 @@ describe('Cross-tab graph config isolation (all components)', () => {
           failures.push(`${type}: failed to activate tab for default factory check`);
           continue;
         }
-
         const baseline = workspace.createEmptyPayload();
-        const contaminated = deepClone(baseline);
-        const targetKey = isPlainObject(contaminated.config) ? 'config' : null;
-        const target = targetKey ? contaminated.config : contaminated;
-        const paths = collectMutationPaths(target, 'B', 16);
+        const variant = buildCatalogVariantPayload(baseline, type, 'B', { skipUnavailable: true });
+        const contaminated = variant.payload;
+        const paths = variant.paths;
         if (!paths.length) {
-          paths.push(...applyFallbackMutations(target, 'B'));
-        }
-        if (!paths.length) {
-          failures.push(`${type}: no mutable default paths to contaminate`);
+          failures.push(`${type}: no catalog mutation paths to contaminate`);
           continue;
         }
 
-        workspace.loadFromPayload?.(contaminated, { source: 'test-default-factory-contamination', tab: activeTab, tabId: activeTab.id });
+        applyPayloadToOwner(workspace, session, activeTab, contaminated, 'test-default-factory-contamination');
         await flush();
 
         const afterLiveMutation = workspace.createEmptyPayload();
@@ -552,6 +420,7 @@ describe('Cross-tab graph config isolation (all components)', () => {
 
   test('new empty tabs do not inherit live parameters from previous tabs', async () => {
     const Main = window.Main;
+    const session = Main.session;
     const registry = Main.components.registry;
     const failures = [];
 
@@ -571,24 +440,15 @@ describe('Cross-tab graph config isolation (all components)', () => {
         await handleGraphSelection(Main, type);
         const tabA = Main.tabs.getActiveTab();
         const baseline = workspace.createEmptyPayload();
-        const contaminated = deepClone(baseline);
-        const targetKey = isPlainObject(contaminated.config) ? 'config' : null;
-        const target = targetKey ? contaminated.config : contaminated;
-        const mutationPaths = collectMutationPaths(target, 'B', 20);
+        const variant = buildCatalogVariantPayload(baseline, type, 'B', { skipUnavailable: true });
+        const contaminated = variant.payload;
+        const mutationPaths = variant.paths;
         if (!mutationPaths.length) {
-          mutationPaths.push(...applyFallbackMutations(target, 'B'));
-        }
-        if (!mutationPaths.length) {
-          failures.push(`${type}: no mutable paths to contaminate`);
+          failures.push(`${type}: no catalog mutation paths to contaminate`);
           continue;
         }
-        if (type === 'box') {
-          contaminated.config = contaminated.config || {};
-          contaminated.config.connectPointsAcrossDatasets = true;
-          mutationPaths.push(['connectPointsAcrossDatasets']);
-        }
 
-        workspace.loadFromPayload?.(contaminated, { source: 'test-new-empty-contaminated', tab: tabA, tabId: tabA.id });
+        applyPayloadToOwner(workspace, session, tabA, contaminated, 'test-new-empty-contaminated');
         await flush();
         Main.session.persistActiveTabState(tabA, {
           workspaces: registry,
@@ -606,10 +466,18 @@ describe('Cross-tab graph config isolation (all components)', () => {
           continue;
         }
 
-        const observed = workspace.getPayload?.();
-        const observedTarget = targetKey ? observed?.config : observed;
-        const baselineTarget = targetKey ? baseline?.config : baseline;
-        const contaminatedTarget = targetKey ? contaminated?.config : contaminated;
+        const observed = workspace.getPayload?.({
+          tab: tabB,
+          tabId: tabB.id,
+          reason: 'test-new-empty-observed'
+        });
+        const observedTarget = observed;
+        const baselineTarget = workspace.getPayload?.({
+          tab: tabB,
+          tabId: tabB.id,
+          reason: 'test-new-empty-clean-baseline'
+        }) || baseline;
+        const contaminatedTarget = contaminated;
         mutationPaths.forEach(path => {
           const actual = getAtPath(observedTarget, path);
           const clean = getAtPath(baselineTarget, path);
@@ -665,10 +533,14 @@ describe('Cross-tab graph config isolation (all components)', () => {
       }
     };
 
-    workspace.loadFromPayload?.(densityPayload, { source: 'test-hist-density-fit', tab: tabA, tabId: tabA.id });
+    applyPayloadToOwner(workspace, session, tabA, densityPayload, 'test-hist-density-fit');
     await flush();
-    window.Components?.hist?.draw?.();
-    await flush();
+    await window.Components?.hist?.draw?.({
+      tab: tabA,
+      tabId: tabA.id,
+      force: true,
+      reason: 'test-hist-density-fit-draw'
+    });
 
     expect(document.querySelector('#histSvg .hist-overlay--pdf')).toBeTruthy();
 

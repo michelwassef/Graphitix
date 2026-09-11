@@ -1,51 +1,67 @@
-const loadSharedModules = () => {
-  require('../js/vendor.js');
-  require('../js/shared/fileIO.js');
-  require('../js/shared/debounce.js');
-  require('../js/shared/undo.js');
-  require('../js/shared/resizer.js');
-  require('../js/shared/dom.js');
-  require('../js/shared/exporter.js');
-  require('../js/shared/chartStyle.js');
-  require('../js/shared/graphSizing.js');
-  require('../js/shared/regression.js');
-  require('../js/shared/stats.js');
-  require('../js/shared/boxStatsModel.js');
-  require('../js/shared/stats-table.js');
-  require('../js/shared/colorPicker.js');
-  require('../js/shared/editHighlight.js');
-  require('../js/shared/axisControls.js');
-  require('../js/shared/additionalLineControls.js');
-  require('../js/shared/significanceControls.js');
-  require('../js/shared/fontControls.js');
-  require('../js/shared/formControls.js');
-};
+const { loadProductionBootstrap } = require('../test-support/productionLoader');
 
-const bootstrapApp = () => {
-  require('../js/shared/hot.js');
-  require('../js/shared/workspaceTabs.js');
-  require('../js/shared/componentLifecycle.js');
-  require('../js/shared/componentLayout.js');
-  require('../js/shared/tableImport.js');
-  require('../js/shared/uniprot.js');
-  require('../js/shared/goAnalysis.js');
-  require('../js/shared/stringAnalysis.js');
-  require('../js/main/components.js');
-  if (window.Main?.components?.preloadAllBundlesSync) {
-    window.Main.components.preloadAllBundlesSync();
+jest.setTimeout(90_000);
+
+const INTERACTIONS = Object.freeze([
+  { component: 'scatter', id: 'scatterGraphType', value: 'volcano' },
+  { component: 'line', id: 'lineRegressionMode', value: 'quadratic' },
+  { component: 'box', id: 'boxGraphType', value: 'violin' },
+  { component: 'venn', id: 'regionSelect', value: 'B' },
+  { component: 'pca', id: 'pcaViewMode', value: '3d' },
+  { component: 'heatmap', id: 'heatmapView', value: 'values' },
+  { component: 'roc', id: 'rocGraphType', value: 'pr' },
+  { component: 'pie', id: 'pieChartType', value: 'donut' }
+]);
+
+async function flushAsyncWork(iterations = 2) {
+  for (let i = 0; i < iterations; i += 1) {
+    await new Promise(resolve => setTimeout(resolve, 0));
   }
-  require('../js/main/session.js');
-  require('../js/main/domControls.js');
-  require('../js/main/sessionActions.js');
-  require('../js/main/styleSync.js');
-  require('../js/main/tabDrag.js');
-  require('../js/main/previews.js');
-  require('../js/main/tabs/render.js');
-  require('../js/main/tabs/unsavedPrompt.js');
-  require('../js/main/tabs/duplicatePrompt.js');
-  require('../js/main/tabs.js');
-  require('../js/main.js');
-};
+}
+
+async function activateWorkspace(type) {
+  const selectGraph = window.Main?.tabs?.handleGraphSelection;
+  expect(typeof selectGraph).toBe('function');
+  const maybePromise = selectGraph(type, { reason: 'form-controls-autosize-test' });
+  if (maybePromise && typeof maybePromise.then === 'function') {
+    await maybePromise;
+  }
+  const duplicatePrompt = document.getElementById('duplicatePrompt');
+  if (duplicatePrompt && !duplicatePrompt.hasAttribute('hidden')) {
+    const emptyButton = document.getElementById('duplicateEmpty');
+    expect(emptyButton).toBeTruthy();
+    emptyButton.click();
+  }
+  await flushAsyncWork();
+}
+
+function ensureComponent(name) {
+  const component = window.Components?.[name];
+  expect(component).toBeTruthy();
+  const ensure = component.ensure || component.init;
+  expect(typeof ensure).toBe('function');
+  ensure.call(component);
+}
+
+async function prepareSurvivalCovariateSelect() {
+  await activateWorkspace('survival');
+  let select = document.querySelector('#survivalCovariateControls select');
+  if (!select) {
+    const state = window.Components?.survival?.__getState?.();
+    expect(state?.hot?.loadData).toBeInstanceOf(Function);
+    state.hot.loadData([
+      ['A', 1, 1, 0, 10, '', ''],
+      ['A', 2, 0, 0, 12, '', ''],
+      ['B', 1.4, 1, 0, 9, '', ''],
+      ['B', 3.1, 0, 0, 11, '', '']
+    ]);
+    window.Components.survival.draw();
+    await flushAsyncWork(2);
+    select = document.querySelector('#survivalCovariateControls select');
+  }
+  expect(select).toBeTruthy();
+  return select;
+}
 
 describe('Shared formControls auto-sizing', () => {
   beforeEach(() => {
@@ -61,153 +77,51 @@ describe('Shared formControls auto-sizing', () => {
     }
   });
 
-  test('autoSizeSelect applies width respecting minimum constraints', () => {
-    loadSharedModules();
-    const { formControls } = window.Shared;
-    const measure = formControls.ensureSelectMeasure(document);
-    Object.defineProperty(measure, 'offsetWidth', {
-      configurable: true,
-      get(){
-        const length = (this.textContent || '').length;
-        return length * 9;
-      }
-    });
+  test.each(INTERACTIONS)('$component select changes trigger auto-size', async ({ component, id, value }) => {
+    loadProductionBootstrap({ vendorMode: 'fake' });
+    const autoSizeSpy = jest.spyOn(window.Shared.formControls, 'autoSizeSelect');
 
-    const select = document.createElement('select');
-    select.dataset.minSelectWidth = '150';
-    const optionA = document.createElement('option');
-    optionA.textContent = 'A';
-    select.appendChild(optionA);
-    const optionB = document.createElement('option');
-    optionB.textContent = 'B';
-    select.appendChild(optionB);
-    document.body.appendChild(select);
+    await activateWorkspace(component);
+    ensureComponent(component);
+    const select = document.getElementById(id);
+    expect(select).toBeTruthy();
+    const callsBeforeChange = autoSizeSpy.mock.calls.length;
 
-    formControls.autoSizeSelect(select);
-    expect(select.style.width).toBe('150px');
-    expect(select.style.minWidth).toBe('150px');
+    select.value = value;
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+    await flushAsyncWork();
 
-    select.removeAttribute('data-min-select-width');
-    const optionLong = document.createElement('option');
-    optionLong.textContent = 'Longest label here';
-    select.appendChild(optionLong);
-    formControls.autoSizeSelect(select);
-    const measuredWidth = parseInt(select.style.width, 10);
-    expect(Number.isNaN(measuredWidth)).toBe(false);
-    expect(measuredWidth).toBeGreaterThanOrEqual(optionLong.textContent.length * 9 + 1);
-
-    delete measure.offsetWidth;
+    expect(autoSizeSpy.mock.calls.length).toBeGreaterThan(callsBeforeChange);
   });
 
-  test('components trigger select auto-size when values change', async () => {
-    loadSharedModules();
-    const { formControls } = window.Shared;
-    const autoSizeSpy = jest.spyOn(formControls, 'autoSizeSelect');
-    bootstrapApp();
-    const activateWorkspace = async (type) => {
-      const selectGraph = window.Main?.tabs?.handleGraphSelection;
-      if (typeof selectGraph !== 'function') {
-        return;
-      }
-      const maybePromise = selectGraph(type, { reason: 'form-controls-autosize-test' });
-      if (maybePromise && typeof maybePromise.then === 'function') {
-        await maybePromise;
-      }
-      const duplicatePrompt = document.getElementById('duplicatePrompt');
-      if (duplicatePrompt && !duplicatePrompt.hasAttribute('hidden')) {
-        const emptyButton = document.getElementById('duplicateEmpty');
-        if (emptyButton && typeof emptyButton.click === 'function') {
-          emptyButton.click();
-          await new Promise(resolve => setTimeout(resolve, 0));
-        }
-      }
-      await new Promise(resolve => setTimeout(resolve, 0));
-    };
+  test('survival covariate changes trigger auto-size after data creates the control', async () => {
+    loadProductionBootstrap({ vendorMode: 'fake' });
+    const autoSizeSpy = jest.spyOn(window.Shared.formControls, 'autoSizeSelect');
+    const select = await prepareSurvivalCovariateSelect();
+    const callsBeforeChange = autoSizeSpy.mock.calls.length;
 
-    const ensureComponent = (name) => {
-      const component = window.Components?.[name];
-      if(!component){ return; }
-      if(typeof component.ensure === 'function'){
-        component.ensure();
-        return;
-      }
-      if(typeof component.init === 'function'){
-        component.init();
-      }
-    };
+    select.value = select.value === 'time' ? 'baseline' : 'time';
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+    await flushAsyncWork();
 
-    const interactWithSelect = (id, value) => {
-      const select = document.getElementById(id);
-      expect(select).toBeTruthy();
-      select.value = value;
-      select.dispatchEvent(new Event('change', { bubbles: true }));
-      return select;
-    };
+    expect(autoSizeSpy.mock.calls.length).toBeGreaterThan(callsBeforeChange);
+  });
 
-    const interactions = [
-      { component: 'scatter', id: 'scatterGraphType', value: 'volcano' },
-      { component: 'line', id: 'lineRegressionMode', value: 'quadratic' },
-      { component: 'box', id: 'boxGraphType', value: 'violin' },
-      { component: 'venn', id: 'regionSelect', value: 'B' },
-      { component: 'pca', id: 'pcaViewMode', value: '3d' },
-      { component: 'heatmap', id: 'heatmapView', value: 'values' },
-      { component: 'roc', id: 'rocGraphType', value: 'pr' },
-      { component: 'pie', id: 'pieChartType', value: 'donut' }
-    ];
-
-    for (const interaction of interactions) {
-      await activateWorkspace(interaction.component);
-      ensureComponent(interaction.component);
-      await new Promise(resolve => setTimeout(resolve, 0));
-    }
-
-    autoSizeSpy.mockClear();
-
-    for (const interaction of interactions) {
-      await activateWorkspace(interaction.component);
-      ensureComponent(interaction.component);
-      await new Promise(resolve => setTimeout(resolve, 0));
-      interactWithSelect(interaction.id, interaction.value);
-    }
-
-    await activateWorkspace('survival');
-    ensureComponent('survival');
-    await new Promise(resolve => setTimeout(resolve, 0));
-    let survivalCovariateSelect = document.querySelector('#survivalCovariateControls select');
-    if(!survivalCovariateSelect){
-      const survivalState = window.Components?.survival?.__getState?.();
-      if(survivalState?.hot?.loadData){
-        survivalState.hot.loadData([
-          ['A', 1, 1, 0, 10, '', ''],
-          ['A', 2, 0, 0, 12, '', ''],
-          ['B', 1.4, 1, 0, 9, '', ''],
-          ['B', 3.1, 0, 0, 11, '', '']
-        ]);
-        window.Components?.survival?.draw?.();
-        await new Promise(resolve => setTimeout(resolve, 0));
-        survivalCovariateSelect = document.querySelector('#survivalCovariateControls select');
-      }
-    }
-    if(survivalCovariateSelect){
-      survivalCovariateSelect.value = survivalCovariateSelect.value === 'time' ? 'baseline' : 'time';
-      survivalCovariateSelect.dispatchEvent(new Event('change', { bubbles: true }));
-    }
-
+  test('adding a long Scatter option triggers auto-size without broad component preload', async () => {
+    loadProductionBootstrap({ vendorMode: 'fake' });
+    const autoSizeSpy = jest.spyOn(window.Shared.formControls, 'autoSizeSelect');
     await activateWorkspace('scatter');
     ensureComponent('scatter');
-    await new Promise(resolve => setTimeout(resolve, 0));
-    const scatterSelect = document.getElementById('scatterGraphType');
-    expect(scatterSelect).toBeTruthy();
-    const preMutationCalls = autoSizeSpy.mock.calls.length;
-    const longOption = document.createElement('option');
-    longOption.value = 'long-option';
-    longOption.textContent = 'Extremely verbose scatter option label';
-    scatterSelect.appendChild(longOption);
+    const select = document.getElementById('scatterGraphType');
+    expect(select).toBeTruthy();
+    const callsBeforeMutation = autoSizeSpy.mock.calls.length;
 
-    await new Promise(resolve => setTimeout(resolve, 0));
+    const option = document.createElement('option');
+    option.value = 'long-option';
+    option.textContent = 'Extremely verbose scatter option label';
+    select.appendChild(option);
+    await flushAsyncWork();
 
-    const expectedInteractionCount = interactions.length + (survivalCovariateSelect ? 1 : 0);
-    expect(autoSizeSpy.mock.calls.length).toBeGreaterThanOrEqual(expectedInteractionCount + 1);
-    expect(autoSizeSpy.mock.calls.length).toBeGreaterThan(preMutationCalls);
-  }, 90000);
+    expect(autoSizeSpy.mock.calls.length).toBeGreaterThan(callsBeforeMutation);
+  });
 });

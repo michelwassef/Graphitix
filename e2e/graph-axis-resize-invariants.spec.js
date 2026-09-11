@@ -1,11 +1,12 @@
 const { test, expect } = require('@playwright/test');
 const {
   COMPONENT_MATRIX,
-  installLocalCdnOverrides,
   openComponentFromWelcome,
-  clickExampleButtonIfPresent,
-  registerIssueCollectors
-} = require('./helpers/workspaceHarness');
+  clickExampleButtonIfPresent
+} = require('./helpers/workspaceDriver');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
+const { registerIssueCollectors } = require('./helpers/diagnostics');
+const { waitForComponentOwnerReady } = require('./helpers/contractWaits');
 
 // This contract is for 2-D Cartesian renderers whose orthogonal SVG axis scale
 // must remain invariant during a one-axis resize. Heatmap has no Cartesian axes.
@@ -39,7 +40,8 @@ async function waitForGraphSvg(page, pageId) {
   );
 }
 
-async function unlockRatio(page, pageId) {
+async function unlockRatio(page, component) {
+  const { pageId } = component;
   await page.waitForSelector(`#${pageId}:not([hidden]) .svgbox .resizer-aspect-checkbox`, { timeout: 30_000, state: 'attached' });
   await page.evaluate(({ pageId }) => {
     const root = document.querySelector(`#${pageId}:not([hidden])`);
@@ -51,7 +53,10 @@ async function unlockRatio(page, pageId) {
       }
     });
   }, { pageId });
-  await page.waitForTimeout(300);
+  await waitForComponentOwnerReady(page, component, {
+    requireMountedRoot: true,
+    requireIdle: true
+  });
   await page.evaluate(({ pageId }) => {
     const root = document.querySelector(`#${pageId}:not([hidden])`);
     const checkbox = root?.querySelector?.('.svgbox .resizer-aspect-checkbox');
@@ -60,7 +65,10 @@ async function unlockRatio(page, pageId) {
       checkbox.dispatchEvent(new Event('change', { bubbles: true }));
     }
   }, { pageId });
-  await page.waitForTimeout(500);
+  await waitForComponentOwnerReady(page, component, {
+    requireMountedRoot: true,
+    requireIdle: true
+  });
 }
 
 async function collectViewportMetrics(page, pageId) {
@@ -135,7 +143,8 @@ async function collectViewportMetrics(page, pageId) {
   }, { pageId });
 }
 
-async function dragSvgBoxHandle(page, pageId, handleSelector, dx, dy) {
+async function dragSvgBoxHandle(page, component, handleSelector, dx, dy) {
+  const { pageId } = component;
   const handle = page.locator(`#${pageId}:not([hidden]) .svgbox ${handleSelector}`).first();
   await expect(handle).toHaveCount(1);
   await handle.scrollIntoViewIfNeeded();
@@ -149,7 +158,10 @@ async function dragSvgBoxHandle(page, pageId, handleSelector, dx, dy) {
   await page.mouse.down();
   await page.mouse.move(startX + dx, startY + dy, { steps: 14 });
   await page.mouse.up();
-  await page.waitForTimeout(900);
+  await waitForComponentOwnerReady(page, component, {
+    requireMountedRoot: true,
+    requireIdle: true
+  });
 }
 
 function expectClose(actual, expected, tolerance, label) {
@@ -174,7 +186,7 @@ test('unlocked one-axis graph resize preserves the orthogonal SVG axis scale in 
       await openComponentFromWelcome(page, component, { first: index === 0, loadExample: true });
       await clickExampleButtonIfPresent(page, component.exampleButtonId);
       await waitForGraphSvg(page, component.pageId);
-      await unlockRatio(page, component.pageId);
+      await unlockRatio(page, component);
       await waitForGraphSvg(page, component.pageId);
 
       const before = await collectViewportMetrics(page, component.pageId);
@@ -188,7 +200,7 @@ test('unlocked one-axis graph resize preserves the orthogonal SVG axis scale in 
       }
       expect(before.lock.aspectLocked, `${component.type} should be in unlocked ratio mode`).toBe('false');
 
-      await dragSvgBoxHandle(page, component.pageId, '.resizer-horizontal', 0, 84);
+      await dragSvgBoxHandle(page, component, '.resizer-horizontal', 0, 84);
       await waitForGraphSvg(page, component.pageId);
       const afterVertical = await collectViewportMetrics(page, component.pageId);
       expect(afterVertical, `${component.type} should still expose an SVG graph after vertical resize`).not.toBeNull();
@@ -198,7 +210,7 @@ test('unlocked one-axis graph resize preserves the orthogonal SVG axis scale in 
         expectClose(afterVertical.maxHorizontalLineLength, before.maxHorizontalLineLength, 2.5, `${component.type} drawn horizontal axis length after vertical resize`);
       }
 
-      await dragSvgBoxHandle(page, component.pageId, '.resizer-vertical', 96, 0);
+      await dragSvgBoxHandle(page, component, '.resizer-vertical', 96, 0);
       await waitForGraphSvg(page, component.pageId);
       const afterHorizontal = await collectViewportMetrics(page, component.pageId);
       expect(afterHorizontal, `${component.type} should still expose an SVG graph after horizontal resize`).not.toBeNull();

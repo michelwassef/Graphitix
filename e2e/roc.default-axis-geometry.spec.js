@@ -1,11 +1,7 @@
 const { test, expect } = require('@playwright/test');
-const {
-  COMPONENT_MATRIX,
-  installLocalCdnOverrides,
-  openComponentFromWelcome,
-  clickExampleButtonIfPresent,
-  registerIssueCollectors
-} = require('./helpers/workspaceHarness');
+const { COMPONENT_MATRIX, openComponentFromWelcome, clickExampleButtonIfPresent } = require('./helpers/workspaceDriver');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
+const { registerIssueCollectors } = require('./helpers/diagnostics');
 
 const ROC_COMPONENT = COMPONENT_MATRIX.find(component => component.type === 'roc');
 

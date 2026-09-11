@@ -1,8 +1,6 @@
 const { test, expect } = require('@playwright/test');
-const {
-  installLocalCdnOverrides,
-  openComponentFromWelcome
-} = require('./helpers/workspaceHarness');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
+const { openComponentFromWelcome } = require('./helpers/workspaceDriver');
 
 test('Standard PCA example uses six Indomethacin subjects in 2D and 3D', async ({ page }) => {
   await installLocalCdnOverrides(page);

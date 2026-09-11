@@ -1,10 +1,8 @@
 const { test, expect } = require('@playwright/test');
-const {
-  COMPONENT_MATRIX,
-  installLocalCdnOverrides,
-  registerIssueCollectors,
-  openComponentFromWelcome
-} = require('./helpers/workspaceHarness');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
+const { COMPONENT_MATRIX, openComponentFromWelcome } = require('./helpers/workspaceDriver');
+const { registerIssueCollectors } = require('./helpers/diagnostics');
+const { waitForComponentOwnerReady } = require('./helpers/contractWaits');
 
 const COMPONENTS = ['scatter', 'hist', 'roc', 'survival', 'line', 'pie'].map(type => {
   const component = COMPONENT_MATRIX.find(entry => entry.type === type);
@@ -90,7 +88,10 @@ async function dragWidthAndReadBeforeRelease(page, component) {
     return samples;
   });
   await page.mouse.up();
-  await page.waitForTimeout(350);
+  await waitForComponentOwnerReady(page, component, {
+    requireMountedRoot: true,
+    requireIdle: true
+  });
   const after = await page.evaluate(readGraphGeometry, component);
   return { before, live, animationFrames, during, after };
 }
@@ -113,7 +114,10 @@ for (const component of COMPONENTS) {
       { config: component, reader: readGraphGeometry.toString() },
       { timeout: 30_000 }
     );
-    await page.waitForTimeout(300);
+    await waitForComponentOwnerReady(page, component, {
+      requireMountedRoot: true,
+      requireIdle: true
+    });
 
     const snapshots = await dragWidthAndReadBeforeRelease(page, component);
     await testInfo.attach(`${component.type}-live-resize.json`, {

@@ -1,9 +1,9 @@
 const { test, expect } = require('@playwright/test');
 const {
-  installLocalCdnOverrides,
-  registerIssueCollectors,
   openComponentFromWelcome
-} = require('./helpers/workspaceHarness');
+} = require('./helpers/workspaceDriver');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
+const { registerIssueCollectors } = require('./helpers/diagnostics');
 
 test('mixed Heatmap copy exports retain the matrix and enter the clipboard before heavy projection work', async ({ page }) => {
   test.setTimeout(60_000);

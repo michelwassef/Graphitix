@@ -1,9 +1,7 @@
 const { test, expect } = require('@playwright/test');
-const {
-  COMPONENT_MATRIX,
-  installLocalCdnOverrides,
-  openComponentFromWelcome
-} = require('./helpers/workspaceHarness');
+const { COMPONENT_MATRIX, openComponentFromWelcome } = require('./helpers/workspaceDriver');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
+const { waitForComponentOwnerReady } = require('./helpers/contractWaits');
 
 const HOT_ID_BY_COMPONENT = {
   venn: 'vennHot',
@@ -41,6 +39,7 @@ test.describe('Cross-browser Feature Matrix', () => {
       const component = COMPONENT_MATRIX[i];
       await test.step(`open ${component.type}`, async () => {
         await openComponentFromWelcome(page, component, { first: i === 0 });
+        await waitForComponentOwnerReady(page, component);
         const pageRoot = page.locator(`#${component.pageId}:not([hidden])`);
         await expect(pageRoot).toBeVisible();
         await expect(pageRoot.locator('.panel-resizer').first()).toBeVisible();
@@ -52,19 +51,16 @@ test.describe('Cross-browser Feature Matrix', () => {
     }
   });
 
-  test('clipboard paste contract works across AG Grid wrappers', async ({ page, context }) => {
+  test('browser paste contract works across AG Grid wrappers', async ({ page }) => {
     await installLocalCdnOverrides(page);
 
     await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
     await expect(page.locator('#welcomeScreen')).toBeVisible();
-    await context.grantPermissions(['clipboard-read', 'clipboard-write'], {
-      origin: new URL(page.url()).origin
-    }).catch(() => {});
-
     for (let i = 0; i < PASTE_CONTRACT_COMPONENTS.length; i += 1) {
       const component = PASTE_CONTRACT_COMPONENTS[i];
       await test.step(`paste contract ${component.type}`, async () => {
         await openComponentFromWelcome(page, component, { first: i === 0 });
+        await waitForComponentOwnerReady(page, component);
         await expect(page.locator(`#${component.pageId}:not([hidden])`)).toBeVisible();
         await page.waitForSelector(`#${component.hotId} .ag-root`, { timeout: 20_000 });
 
@@ -94,18 +90,18 @@ test.describe('Cross-browser Feature Matrix', () => {
         await page.mouse.click(targetCell.x, targetCell.y);
 
         const token = `fx_${component.type}_${Date.now()}_${Math.floor(Math.random() * 10000)}`;
-        const writeResult = await page.evaluate(async (value) => {
-          try {
-            await navigator.clipboard.writeText(value);
-            return { ok: true };
-          } catch (err) {
-            return { ok: false, message: err?.message || String(err) };
-          }
-        }, token);
-        await page.keyboard.press('Control+V');
-        await page.waitForTimeout(700);
-
-        let pasted = await page.evaluate(({ hotId, token }) => {
+        const handled = await page.evaluate(({ hotId, token }) => {
+          const host = document.getElementById(hotId);
+          if (!host) return false;
+          const transfer = new DataTransfer();
+          transfer.setData('text/plain', token);
+          const event = new Event('paste', { bubbles: true, cancelable: true });
+          Object.defineProperty(event, 'clipboardData', { value: transfer });
+          host.dispatchEvent(event);
+          return event.defaultPrevented;
+        }, { hotId: component.hotId, token });
+        expect(handled, `Paste event was not handled for ${component.type}`).toBe(true);
+        await expect.poll(() => page.evaluate(({ hotId, token }) => {
           const host = document.getElementById(hotId);
           if (!host) {
             return false;
@@ -118,44 +114,10 @@ test.describe('Cross-browser Feature Matrix', () => {
             }
           }
           return false;
-        }, { hotId: component.hotId, token });
-        if (!pasted) {
-          await page.evaluate(({ hotId, token, type, targetCell }) => {
-            let hot = null;
-            if (type === 'box') hot = window.Components?.box?.__getState?.()?.hot || null;
-            if (type === 'scatter') hot = window.Components?.scatter?.__ensureHotForActiveTab?.() || null;
-            if (type === 'pca') hot = window.Components?.pca?.getHotInstance?.() || null;
-            if (type === 'line') hot = window.Components?.line?.getHotInstance?.() || null;
-            if (type === 'heatmap') hot = window.__LAST_HEATMAP_HOT__ || null;
-            if (type === 'roc') hot = window.Components?.roc?.getHotInstance?.() || null;
-            if (!hot && hotId === 'hot') hot = window.Components?.box?.__getState?.()?.hot || null;
-            if (!hot || typeof hot.setDataAtCell !== 'function') {
-              return;
-            }
-            const bodyRowIndex = Number.isInteger(targetCell?.rowIndex) ? targetCell.rowIndex : 0;
-            const rowIndex = bodyRowIndex + (Number(hot.getSettings?.().fixedRowsTop) || 0);
-            const colIndex = Number.isInteger(targetCell?.colIndex) ? targetCell.colIndex : 0;
-            hot.setDataAtCell(rowIndex, colIndex, token);
-            hot.selectCell?.(rowIndex, colIndex, rowIndex, colIndex);
-          }, { hotId: component.hotId, token, type: component.type, targetCell });
-          await page.waitForTimeout(150);
-          pasted = await page.evaluate(({ hotId, token }) => {
-            const host = document.getElementById(hotId);
-            if (!host) {
-              return false;
-            }
-            const cells = host.querySelectorAll('.ag-center-cols-container .ag-row .ag-cell[col-id^="c"]');
-            for (let i = 0; i < cells.length; i += 1) {
-              const text = String(cells[i].textContent || '').trim();
-              if (text === token || text.includes(token)) {
-                return true;
-              }
-            }
-            return false;
-          }, { hotId: component.hotId, token });
-        }
-
-        expect(pasted, `Paste token not observed in ${component.type}`).toBe(true);
+        }, { hotId: component.hotId, token }), {
+          timeout: 20_000,
+          intervals: [50, 100, 250, 500]
+        }).toBe(true);
       });
     }
   });

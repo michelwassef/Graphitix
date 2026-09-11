@@ -3445,6 +3445,27 @@
         scope.promises.add(wrapped);
         return wrapped;
       },
+      snapshot(tabId, meta = {}){
+        const id = String(tabId || '').trim();
+        const scope = getScope(id, 'snapshot', { ...meta, tabId: id });
+        if(!scope){
+          return null;
+        }
+        return {
+          componentKey: key,
+          tabId: id,
+          generation: scope.generation,
+          pending: {
+            timers: scope.timers.size,
+            animationFrames: scope.rafs.size,
+            promises: scope.promises.size,
+            cleanups: scope.cleanups.size
+          },
+          idle: scope.timers.size === 0
+            && scope.rafs.size === 0
+            && scope.promises.size === 0
+        };
+      },
       cancelAllForTab(tabId, reason = 'cancel-all'){
         const id = String(tabId || '').trim();
         const scope = getScope(id, 'cancel-all', { tabId: id, reason });

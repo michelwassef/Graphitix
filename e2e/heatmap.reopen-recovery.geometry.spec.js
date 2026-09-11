@@ -15,12 +15,14 @@ const fs = require('fs');
 const path = require('path');
 const { test, expect } = require('@playwright/test');
 const {
-  installLocalCdnOverrides,
-  registerIssueCollectors,
   openComponentFromWelcome,
   clickExampleButtonIfPresent,
   waitForDocumentOpenComplete
-} = require('./helpers/workspaceHarness');
+} = require('./helpers/workspaceDriver');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
+const { registerIssueCollectors } = require('./helpers/diagnostics');
+const { waitForComponentOwnerReady } = require('./helpers/contractWaits');
+const { reloadAndAcceptRecovery: reloadAndAcceptRecoveryDriver } = require('./helpers/recoveryDriver');
 
 const TMP_DIR = path.resolve(__dirname, '.tmp');
 
@@ -42,6 +44,15 @@ async function waitForHeatmapCells(page) {
       && svg?.getAttribute?.('data-heatmap-render-state') === 'complete'
       && published === true;
   }, null, { timeout: 60_000 });
+}
+
+async function waitForHeatmapOwnerIdle(page) {
+  await waitForComponentOwnerReady(page, 'heatmap', {
+    requireMountedRoot: true,
+    requirePublished: true,
+    requireIdle: true,
+    timeout: 60_000
+  });
 }
 
 // Identical capture to heatmap.correlation-tab-restore.spec.js so the two paths are
@@ -163,7 +174,7 @@ async function dragSvgBoxHandle(page, handleSelector, dx, dy) {
   await page.mouse.down();
   await page.mouse.move(startX + dx, startY + dy, { steps: 12 });
   await page.mouse.up();
-  await page.waitForTimeout(400);
+  await waitForHeatmapOwnerIdle(page);
 }
 
 async function buildCorrelationHeatmap(page, { resize = false } = {}) {
@@ -176,13 +187,13 @@ async function buildCorrelationHeatmap(page, { resize = false } = {}) {
   );
   await clickExampleButtonIfPresent(page, 'heatmapLoadExample');
   await waitForHeatmapCells(page);
-  await page.waitForTimeout(900);
+  await waitForHeatmapOwnerIdle(page);
   if (resize) {
     // Enlarge the graph well beyond the default square so a failure to restore the
     // manual resizer dimensions becomes a visible size/geometry divergence on reopen.
     await dragSvgBoxHandle(page, '.resizer-horizontal', 0, 150);
     await waitForHeatmapCells(page);
-    await page.waitForTimeout(500);
+    await waitForHeatmapOwnerIdle(page);
   }
   const initial = await captureHeatmapGeometry(page);
   expect(initial.aspectLocked).toBe('true');
@@ -237,7 +248,7 @@ async function loadWorkspaceArchiveFromPath(page, archivePath) {
   await expect(input).toHaveCount(1, { timeout: 20_000 });
   await input.setInputFiles(archivePath);
   await assertDocumentOpenSettled(page);
-  await page.waitForTimeout(1_000);
+  await waitForHeatmapOwnerIdle(page);
 }
 
 async function seedRecoverySnapshot(page) {
@@ -297,19 +308,7 @@ async function seedRecoverySnapshot(page) {
 }
 
 async function reloadAndAcceptRecovery(page) {
-  let acceptedDialog = false;
-  const dialogHandler = async dialog => {
-    acceptedDialog = true;
-    await dialog.accept();
-  };
-  page.on('dialog', dialogHandler);
-  try {
-    await page.reload({ waitUntil: 'domcontentloaded' });
-    await page.waitForTimeout(1_200);
-  } finally {
-    page.off('dialog', dialogHandler);
-  }
-  return acceptedDialog;
+  return reloadAndAcceptRecoveryDriver(page, { timeout: 30_000 });
 }
 
 test('Heatmap correlation geometry survives file reopen (archive load)', async ({ page }) => {
@@ -326,7 +325,7 @@ test('Heatmap correlation geometry survives file reopen (archive load)', async (
   await loadWorkspaceArchiveFromPath(page, archivePath);
   await page.waitForSelector('#heatmapPage:not([hidden])', { timeout: 30_000 });
   await waitForHeatmapCells(page);
-  await page.waitForTimeout(900);
+  await waitForHeatmapOwnerIdle(page);
 
   const restored = await captureHeatmapGeometry(page);
   expectHeatmapVisualInvariants(restored, initial);
@@ -356,7 +355,6 @@ async function activateWelcomeOrNewTab(page) {
     }
     return { via: 'none', id: null };
   });
-  await page.waitForTimeout(400);
   return switched;
 }
 
@@ -373,6 +371,7 @@ async function activateHeatmapTab(page) {
     }
   });
   await page.waitForSelector('#heatmapPage:not([hidden])', { timeout: 30_000 });
+  await waitForHeatmapOwnerIdle(page);
 }
 
 test('Heatmap correlation geometry survives recovery while restored in the background (Welcome active)', async ({ page }) => {
@@ -387,7 +386,7 @@ test('Heatmap correlation geometry survives recovery while restored in the backg
   await assertDocumentOpenSettled(page);
   await activateHeatmapTab(page);
   await waitForHeatmapCells(page);
-  await page.waitForTimeout(1200);
+  await waitForHeatmapOwnerIdle(page);
 
   const restored = await captureHeatmapGeometry(page);
   expectHeatmapVisualInvariants(restored, initial);
@@ -405,7 +404,7 @@ test('Heatmap correlation geometry survives crash-recovery restore', async ({ pa
   await assertDocumentOpenSettled(page);
   await page.waitForSelector('#heatmapPage:not([hidden])', { timeout: 30_000 });
   await waitForHeatmapCells(page);
-  await page.waitForTimeout(900);
+  await waitForHeatmapOwnerIdle(page);
 
   const restored = await captureHeatmapGeometry(page);
   expectHeatmapVisualInvariants(restored, initial);

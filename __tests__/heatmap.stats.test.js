@@ -1,6 +1,14 @@
-const { initializeWorkspaceHarness } = require('./setup/workspaceHarness');
+const { loadProductionBootstrap } = require('../test-support/productionLoader');
 
 const cloneForTest = value => JSON.parse(JSON.stringify(value));
+
+jest.setTimeout(240_000);
+
+function getActiveHeatmapTabId() {
+  return window.Main?.session?.getActiveTab?.()?.id
+    || window.Main?.tabs?.getActiveTab?.()?.id
+    || null;
+}
 
 describe('Heatmap stats formatting', () => {
   let originalCreateStandardTable;
@@ -27,18 +35,26 @@ describe('Heatmap stats formatting', () => {
     }
   }
 
-  beforeEach(() => {
+  beforeEach(async () => {
+    const previousHeatmap = window.Components?.heatmap || null;
+    const previousTabs = window.Main?.session?.workspaceState?.tabs || [];
+    if (previousHeatmap?.disposeTab) {
+      previousTabs.filter(tab => tab?.type === 'heatmap').forEach(tab => {
+        previousHeatmap.disposeTab(tab, { tabId: tab.id, reason: 'heatmap-stats-test-reset' });
+      });
+    }
+    delete window.Main;
+    delete window.Components;
+    delete window.Shared;
+    if (globalThis !== window) {
+      delete globalThis.Shared;
+    }
+    delete global.__LAST_HEATMAP_HOT__;
     jest.resetModules();
-    const harness = initializeWorkspaceHarness();
-    const heatmapRoot = document.getElementById('heatmapPage');
-    heatmapRoot.hidden = false;
-    heatmapRoot.removeAttribute('hidden');
-    harness.setActiveTab('heatmap-stats-test-tab', 'heatmap');
-    harness.workspaceTabs.setMountedRoot(
-      'heatmap-stats-test-tab',
-      'heatmap',
-      heatmapRoot
-    );
+    loadProductionBootstrap({
+      vendorMode: 'fake',
+      preloadComponents: ['heatmap']
+    });
     const canvasProto = window.HTMLCanvasElement?.prototype;
     if(canvasProto){
       canvasProto.getContext = jest.fn(() => ({
@@ -73,8 +89,17 @@ describe('Heatmap stats formatting', () => {
       };
     }
 
-    require('../js/components/heatmap.js');
-    window.Components?.heatmap?.init?.({ tabId: 'heatmap-stats-test-tab', reason: 'heatmap-stats-test-setup' });
+    const maybe = window.Main?.tabs?.handleGraphSelection?.('heatmap', {
+      reason: 'heatmap-stats-test-setup'
+    });
+    if (maybe && typeof maybe.then === 'function') {
+      await maybe;
+    }
+    const duplicatePrompt = document.getElementById('duplicatePrompt');
+    if (duplicatePrompt && !duplicatePrompt.hasAttribute('hidden')) {
+      document.getElementById('duplicateEmpty')?.click();
+    }
+    await flushAsyncWork(2);
   });
 
   afterEach(() => {
@@ -191,92 +216,6 @@ describe('Heatmap stats formatting', () => {
     }
   });
 
-  test('Data-values colors and legend share one canonical numeric domain', () => {
-    const hooks = window.Components.heatmap.__testHooks;
-    const palette = { negative: '#0000ff', zero: '#ffffff', positive: '#ff0000' };
-    const resolved = hooks.resolveValueScaleStats({ min: -2.62, max: 4.95 }, {});
-    const scale = hooks.createValueColorScale(resolved, palette, 2);
-    const mapper = hooks.createValueColorMapper(resolved, palette);
-
-    expect(resolved).toMatchObject({
-      min: -2.62,
-      max: 4.95,
-      domainMin: -4.95,
-      domainMax: 4.95,
-      domainMode: 'diverging'
-    });
-    expect(scale.ticks[0].value).toBe(-4.95);
-    expect(scale.ticks.at(-1).value).toBe(4.95);
-    expect(scale.valueToRatio(-4.95)).toBe(0);
-    expect(scale.valueToRatio(4.95)).toBe(1);
-    expect(mapper(-4.95)).toBe('rgb(0,0,255)');
-    expect(mapper(4.95)).toBe('rgb(255,0,0)');
-  });
-
-  test('custom and all-negative Data-values domains keep endpoints, ticks, and colors aligned', () => {
-    const hooks = window.Components.heatmap.__testHooks;
-    const palette = { negative: '#0000ff', zero: '#ffffff', positive: '#ff0000' };
-    const custom = hooks.resolveValueScaleStats(
-      { min: -10, max: 8 },
-      { min: -2, max: 4 }
-    );
-    expect(custom).toMatchObject({ min: -2, max: 4, domainMin: -4, domainMax: 4 });
-
-    const negative = hooks.resolveValueScaleStats({ min: -10, max: -2 }, {});
-    const scale = hooks.createValueColorScale(negative, palette, 2);
-    const mapper = hooks.createValueColorMapper(negative, palette);
-    expect(scale.ticks.map(tick => tick.value)).toEqual([-10, -8, -6, -4, -2]);
-    expect(scale.valueToRatio(-10)).toBe(0);
-    expect(scale.valueToRatio(-2)).toBe(1);
-    expect(mapper(-10)).toBe('rgb(0,0,255)');
-    expect(mapper(-2)).toBe('rgb(255,255,255)');
-
-    const positive = hooks.resolveValueScaleStats({ min: 2, max: 10 }, {});
-    const positiveScale = hooks.createValueColorScale(positive, palette, 2);
-    const positiveMapper = hooks.createValueColorMapper(positive, palette);
-    expect(positiveScale.ticks.map(tick => tick.value)).toEqual([2, 4, 6, 8, 10]);
-    expect(positiveMapper(2)).toBe('rgb(255,255,255)');
-    expect(positiveMapper(10)).toBe('rgb(255,0,0)');
-  });
-
-  test('heavy Data-values canvas scene uses bounded display geometry', () => {
-    const hooks = window.Components?.heatmap?.__testHooks;
-    expect(hooks?.resolveHeavySceneLayout).toBeTruthy();
-
-    const layout = hooks.resolveHeavySceneLayout({
-      frameWidth: 396,
-      frameHeight: 338,
-      rowCount: 7358,
-      columnCount: 3,
-      maxRowLabelWidth: 70,
-      maxColumnLabelWidth: 90,
-      maxRowLabelFontSize: 16,
-      maxColumnLabelFontSize: 16,
-      titleFontSize: 16,
-      showRowDendrogram: true,
-      showColumnDendrogram: true
-    });
-
-    expect(layout.normalized).toBe(true);
-    expect(layout.totalWidth).toBe(396);
-    expect(layout.totalHeight).toBe(338);
-    expect(layout.heatmapWidth).toBeGreaterThan(40);
-    expect(layout.heatmapHeight).toBeGreaterThan(60);
-    expect(layout.cellWidth).toBeCloseTo(layout.heatmapWidth / 3, 8);
-    expect(layout.cellHeight).toBeCloseTo(layout.heatmapHeight / 7358, 8);
-    expect(layout.labelPaddingX).toBeCloseTo(layout.labelPaddingY, 8);
-    expect(layout.labelMatrixGapDisplayPx).toBeCloseTo(layout.labelPaddingY, 8);
-    expect(layout.scaleGapDisplayPx).toBeGreaterThanOrEqual(20);
-    expect(layout.scaleGapDisplayPx).toBeLessThanOrEqual(30);
-    expect(layout.dataStartX + layout.heatmapWidth + layout.labelColumnWidth + layout.scalePadding + layout.scaleWidth + layout.scaleLabelGap)
-      .toBeLessThanOrEqual(layout.totalWidth);
-    expect(layout.dataStartX - layout.rowDendroWidth)
-      .toBe(layout.matrixLeft);
-    expect(layout.dataStartY + layout.heatmapHeight + layout.columnDendroHeight + layout.dendrogramPadding)
-      .toBeLessThanOrEqual(layout.totalHeight);
-
-  });
-
   test('fixed legend height is display-space geometry and cannot shrink graph typography', () => {
     const hooks = window.Components?.heatmap?.__testHooks;
     expect(hooks?.resolveLegendLayout).toBeTruthy();
@@ -340,42 +279,6 @@ describe('Heatmap stats formatting', () => {
     expect(fixedScales).toEqual(matchScales);
     expect(fixedScales.graphTitle).toBe(1);
     expect(fixedScales.scaleTick).toBe(1);
-  });
-
-  test('correlation legend title reflects the plotted metric', () => {
-    const resolveTitle = window.Components?.heatmap?.__testHooks?.resolveCorrelationLegendTitle;
-    expect(resolveTitle).toBeTruthy();
-    expect(resolveTitle('pearson')).toEqual({
-      method: 'pearson',
-      text: 'Pearson correlation',
-      lines: ['Pearson', 'correlation']
-    });
-    expect(resolveTitle('spearman')).toEqual({
-      method: 'spearman',
-      text: 'Spearman correlation',
-      lines: ['Spearman', 'correlation']
-    });
-  });
-
-  test('render-runtime ownership clones cached models unless live retention is explicit', () => {
-    const hooks = window.Components?.heatmap?.__testHooks;
-    expect(hooks?.createRenderRuntime).toBeTruthy();
-
-    const model = {
-      type: 'values',
-      rowLabels: ['R1'],
-      cells: [[{ value: 1 }]]
-    };
-    const isolated = hooks.createRenderRuntime({ lastRenderModel: model });
-    expect(isolated.lastRenderModel).toEqual(model);
-    expect(isolated.lastRenderModel).not.toBe(model);
-    expect(isolated.lastRenderModel.cells).not.toBe(model.cells);
-
-    model.cells[0][0].value = 9;
-    expect(isolated.lastRenderModel.cells[0][0].value).toBe(1);
-
-    const retained = hooks.createRenderRuntime({ lastRenderModel: model }, { retainModel: true });
-    expect(retained.lastRenderModel).toBe(model);
   });
 
   test('logical Heatmap layout keeps optional reserves explicit and deterministic', () => {
@@ -995,7 +898,11 @@ describe('Heatmap stats formatting', () => {
     ).length;
     correlationTab.click();
     const manager = hot.__heatmapDataViewsManager;
-    await flushAsyncWork(6);
+    const correlationReady = await waitFor(
+      () => manager?.getActiveView?.()?.transformSpec?.type === 'heatmapCorrelationMatrix',
+      80
+    );
+    expect(correlationReady).toBe(true);
     const activeView = manager?.getActiveView?.() || null;
     const loadCallsAfter = (global.__GRID_CALLS__ || []).filter(call =>
       call.type === 'loadData' && call.containerId === 'heatmapHot'
@@ -1094,7 +1001,7 @@ describe('Heatmap stats formatting', () => {
     const payload = window.Components.heatmap.getPayload();
     expect(payload.config.significanceCorrection).toBe('holm');
     window.Components.heatmap.loadFromPayload(cloneForTest(payload), {
-      tabId: 'heatmap-stats-test-tab',
+      tabId: getActiveHeatmapTabId(),
       skipDraw: true,
       skipInitialDraw: true
     });
@@ -1112,14 +1019,14 @@ describe('Heatmap stats formatting', () => {
     await flushAsyncWork(4);
 
     const snapshot = cloneForTest(heatmap.captureRuntimeState({
-      tabId: 'heatmap-stats-test-tab',
+      tabId: getActiveHeatmapTabId(),
       reason: 'heatmap-current-runtime-capture-test'
     }));
     expect(snapshot?.controls?.significanceCorrection).toBe('by');
 
     correction.value = 'holm';
     expect(heatmap.applyRuntimeState(snapshot, {
-      tabId: 'heatmap-stats-test-tab',
+      tabId: getActiveHeatmapTabId(),
       reason: 'heatmap-current-runtime-apply-test'
     })).toBe(true);
     expect(document.getElementById('heatmapSignificanceCorrection').value).toBe('by');

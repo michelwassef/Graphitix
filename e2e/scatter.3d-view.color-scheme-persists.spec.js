@@ -1,9 +1,8 @@
+const { waitForComponentOwnerReady } = require('./helpers/contractWaits');
 const { test, expect } = require('@playwright/test');
-const {
-  installLocalCdnOverrides,
-  registerIssueCollectors,
-  openComponentFromWelcome
-} = require('./helpers/workspaceHarness');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
+const { openComponentFromWelcome } = require('./helpers/workspaceDriver');
+const { registerIssueCollectors } = require('./helpers/diagnostics');
 
 function readViewState(page) {
   return page.evaluate(() => {
@@ -72,7 +71,7 @@ test('scatter 3D view survives a color scheme change', async ({ page }) => {
   expect(schemeInfo, 'color scheme select not found').toBeTruthy();
   const target = schemeInfo.options.find(o => o !== schemeInfo.current && o !== 'custom') || schemeInfo.current;
   await page.locator('#scatterPage:not([hidden]) select[data-color-scheme-select="1"]').first().selectOption(target);
-  await page.waitForTimeout(1200);
+  await waitForComponentOwnerReady(page, 'scatter', { requireMountedRoot: true, requireIdle: true, timeout: 30_000 });
 
   const after = await readViewState(page);
   expect(after.svgViewMode, 'scatter must still render in 3D after the color scheme change').toBe('3d');

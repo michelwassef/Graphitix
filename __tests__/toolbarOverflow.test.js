@@ -1,3 +1,5 @@
+require('../js/shared/toolbarOverflow.js');
+
 const originalInnerWidth = window.innerWidth;
 const originalInnerHeight = window.innerHeight;
 const mountedNodes = new Set();

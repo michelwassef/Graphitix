@@ -1,10 +1,9 @@
 const { test, expect } = require('@playwright/test');
-const {
-  installLocalCdnOverrides,
-  registerIssueCollectors,
-  openComponentFromWelcome,
-  clickExampleButtonIfPresent
-} = require('./helpers/workspaceHarness');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
+const { openComponentFromWelcome } = require('./helpers/workspaceDriver');
+const { activateTab, clickExampleButton } = require('./helpers/uiDriver');
+const { waitForComponentOwnerReady } = require('./helpers/contractWaits');
+const { registerIssueCollectors } = require('./helpers/diagnostics');
 
 const CASES = [
   {
@@ -34,9 +33,9 @@ async function open3dComponent(page, component) {
   await page.waitForFunction(type => !!window.Components?.[type]?.ready, component.type, { timeout: 30_000 });
   if (component.type === 'scatter') {
     await page.locator(`#${component.viewModeId}`).selectOption('3d');
-    await page.waitForTimeout(300);
+    await waitForComponentOwnerReady(page, component, { requireIdle: true });
   }
-  await clickExampleButtonIfPresent(page, component.exampleButtonId);
+  await clickExampleButton(page, component, { timeout: 30_000 });
   await page.waitForFunction((selector) => !!document.querySelector(selector), component.svgSelector, { timeout: 30_000 });
   if (component.type !== 'scatter') {
     await page.locator(`#${component.viewModeId}`).selectOption('3d');
@@ -45,37 +44,16 @@ async function open3dComponent(page, component) {
     const svg = document.querySelector(selector);
     return !!svg && svg.dataset?.viewMode === '3d';
   }, component.svgSelector, { timeout: 30_000 });
-  await page.waitForTimeout(800);
+  await waitForComponentOwnerReady(page, component, { requireIdle: true });
   return page.evaluate(type => {
     const state = window.Main?.session?.workspaceState;
     return state?.tabs?.find(tab => tab && tab.type === type)?.id || null;
   }, component.type);
 }
 
-async function switchAwayAndBack(page, awayComponent, tabId) {
-  if (awayComponent.sameTypeBlank) {
-    await page.evaluate(async (type) => {
-      window.Main?.tabs?.handleAddTabClick?.();
-      await new Promise(resolve => setTimeout(resolve, 50));
-      const result = window.Main?.tabs?.handleGraphSelection?.(type, {
-        reason: 'e2e-same-component-3d-rotation-switch',
-        forceBlankWorkspace: true,
-        disableDuplicatePrompt: true
-      });
-      if (result && typeof result.then === 'function') {
-        await result;
-      }
-    }, awayComponent.type);
-  } else {
-    await openComponentFromWelcome(page, awayComponent, { first: false });
-  }
-  await page.waitForSelector(`#${awayComponent.pageId}:not([hidden])`, { timeout: 20_000 });
-  await page.evaluate(async (id) => {
-    const result = window.Main?.tabs?.activateTab?.(id, { reason: 'e2e-3d-rotation-tab-switch-return' });
-    if (result && typeof result.then === 'function') {
-      await result;
-    }
-  }, tabId);
+async function switchAwayAndBack(page, component, awayComponent, tabId) {
+  await openComponentFromWelcome(page, awayComponent, { first: false, loadExample: false });
+  await activateTab(page, tabId, component, { timeout: 30_000 });
 }
 
 async function readPayloadRotation(page, type) {
@@ -196,7 +174,7 @@ async function dragSvg(page, component) {
   await page.waitForTimeout(80);
   await page.mouse.move(startX + 100, startY + 40, { steps: 8 });
   await page.mouse.up();
-  await page.waitForTimeout(800);
+  await waitForComponentOwnerReady(page, component, { requireIdle: true });
 
   const rotationFrameResult = await page.evaluate(({ svgSelector, dynamicLayerSelector, titleLayerSelector, legendLayerSelector, identityToken }) => {
     const probe = window.__rotationFrameProbe;
@@ -237,12 +215,12 @@ async function dragSvg(page, component) {
 }
 
 async function expectRotationAfterTabSwitch(page, component, tabId, awayComponent, label) {
-  await switchAwayAndBack(page, awayComponent, tabId);
-  await page.waitForSelector(`#${component.pageId}:not([hidden])`, { timeout: 20_000 });
+  await switchAwayAndBack(page, component, awayComponent, tabId);
   await page.waitForFunction((selector) => {
     const svg = document.querySelector(selector);
     return !!svg && svg.dataset?.viewMode === '3d' && svg.dataset?.rotationControlsAttached === 'true';
   }, component.svgSelector, { timeout: 20_000 });
+  await waitForComponentOwnerReady(page, component, { requireIdle: true });
 
   const before = await readPayloadRotation(page, component.type);
   const beforeSvg = await readSvgSignature(page, component.svgSelector);

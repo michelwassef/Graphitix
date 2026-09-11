@@ -1,10 +1,8 @@
 const { test, expect } = require('@playwright/test');
-const {
-  installLocalCdnOverrides,
-  openComponentFromWelcome,
-  clickExampleButtonIfPresent,
-  registerIssueCollectors
-} = require('./helpers/workspaceHarness');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
+const { openComponentFromWelcome, clickExampleButtonIfPresent } = require('./helpers/workspaceDriver');
+const { registerIssueCollectors } = require('./helpers/diagnostics');
+const { waitForComponentOwnerReady } = require('./helpers/contractWaits');
 
 async function readSurfaceFrame(page) {
   return page.evaluate(() => {
@@ -35,7 +33,7 @@ async function resizeSurfaceGraphPanel(page, dx) {
   await page.mouse.down();
   await page.mouse.move(startX + dx, startY, { steps: 14 });
   await page.mouse.up();
-  await page.waitForTimeout(500);
+  await waitForComponentOwnerReady(page, 'surface', { requireMountedRoot: true, requireIdle: true, timeout: 30_000 });
 }
 
 async function leaveAndReturnToSurface(page, surfaceTabId) {
@@ -51,7 +49,7 @@ async function leaveAndReturnToSurface(page, surfaceTabId) {
     window.Main?.session?.workspaceState?.activeTabId === tabId
   ), surfaceTabId);
   await expect(page.locator('#surfacePage:not([hidden]) #surfaceSvg')).toBeVisible();
-  await page.waitForTimeout(350);
+  await waitForComponentOwnerReady(page, 'surface', { requireMountedRoot: true, requireIdle: true, timeout: 30_000 });
 }
 
 test('surface rotation keeps the graph viewport and rendered frame stable', async ({ page }) => {
@@ -63,7 +61,7 @@ test('surface rotation keeps the graph viewport and rendered frame stable', asyn
   await page.waitForFunction(() => (
     document.querySelectorAll('#surfacePage:not([hidden]) #surfaceSvg g.surface-faces polygon').length > 0
   ));
-  await page.waitForTimeout(100);
+  await waitForComponentOwnerReady(page, 'surface', { requireMountedRoot: true, requireIdle: true, timeout: 30_000 });
 
   const surfaceTabId = await page.evaluate(() => window.Main?.session?.workspaceState?.activeTabId || null);
   expect(surfaceTabId).toBeTruthy();
@@ -132,7 +130,7 @@ test('surface rotation keeps the graph viewport and rendered frame stable', asyn
     clientY: startY + 36,
     bubbles: true
   });
-  await page.waitForTimeout(100);
+  await waitForComponentOwnerReady(page, 'surface', { requireMountedRoot: true, requireIdle: true, timeout: 30_000 });
 
   const after = await readSurfaceFrame(page);
   expect(after.viewBox).toEqual(before.viewBox);

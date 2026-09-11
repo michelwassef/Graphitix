@@ -1,10 +1,8 @@
 const path = require('path');
 const { test, expect } = require('@playwright/test');
-const {
-  installLocalCdnOverrides,
-  openComponentFromWelcome,
-  confirmDataImportPrompt
-} = require('./helpers/workspaceHarness');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
+const { openComponentFromWelcome, confirmDataImportPrompt } = require('./helpers/workspaceDriver');
+const { waitForComponentOwnerReady } = require('./helpers/contractWaits');
 
 function distinctRounded(values, digits = 2) {
   const factor = Math.pow(10, digits);
@@ -118,7 +116,12 @@ test.describe('Box large strip resize behavior', () => {
     const preReleaseSample = await sample('pre-release');
     moveSamples.push(preReleaseSample);
     await page.mouse.up();
-    await page.waitForTimeout(250);
+    await waitForComponentOwnerReady(page, 'box', {
+      requireMountedRoot: true,
+      requirePublished: true,
+      requireIdle: true,
+      timeout: 120_000
+    });
     const postReleaseSample = await sample('post-release');
 
     const liveMoveSamples = moveSamples.filter(entry => entry?.ok);

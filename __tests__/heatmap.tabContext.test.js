@@ -1,3 +1,5 @@
+const { loadProductionBootstrap } = require('../test-support/productionLoader');
+
 describe('Heatmap tab context isolation', () => {
   jest.setTimeout(240000);
 
@@ -48,52 +50,10 @@ describe('Heatmap tab context isolation', () => {
       global.__resetGrid__();
     }
 
-    require('../js/vendor.js');
-    require('../js/shared/fileIO.js');
-    require('../js/shared/debounce.js');
-    require('../js/shared/dataTransforms.js');
-    require('../js/shared/dataViews.js');
-    require('../js/shared/tabContext.js');
-    require('../js/shared/undo.js');
-    require('../js/shared/resizer.js');
-    require('../js/shared/dom.js');
-    require('../js/shared/exporter.js');
-    require('../js/shared/chartStyle.js');
-    require('../js/shared/graphSizing.js');
-    require('../js/shared/regression.js');
-    require('../js/shared/stats.js');
-    require('../js/shared/stats-table.js');
-    require('../js/shared/exampleDatasets.js');
-    require('../js/shared/colorPicker.js');
-    require('../js/shared/editHighlight.js');
-    require('../js/shared/axisControls.js');
-    require('../js/shared/additionalLineControls.js');
-    require('../js/shared/significanceControls.js');
-    require('../js/shared/fontControls.js');
-    require('../js/shared/formControls.js');
-    require('../js/shared/hot.js');
-    require('../js/shared/componentLayout.js');
-    require('../js/shared/tableImport.js');
-    require('../js/shared/workspaceTabs.js');
-    require('../js/shared/componentLifecycle.js');
-    require('../js/shared/uniprot.js');
-    require('../js/shared/goAnalysis.js');
-    require('../js/shared/stringAnalysis.js');
-    require('../js/main/components.js');
-    if (window.Main?.components?.preloadAllBundlesSync) {
-      window.Main.components.preloadAllBundlesSync();
-    }
-    require('../js/main/session.js');
-    require('../js/main/domControls.js');
-    require('../js/main/sessionActions.js');
-    require('../js/main/styleSync.js');
-    require('../js/main/tabDrag.js');
-    require('../js/main/previews.js');
-    require('../js/main/tabs/render.js');
-    require('../js/main/tabs/unsavedPrompt.js');
-    require('../js/main/tabs/duplicatePrompt.js');
-    require('../js/main/tabs.js');
-    require('../js/main.js');
+    loadProductionBootstrap({
+      vendorMode: 'fake',
+      preloadComponents: ['heatmap']
+    });
   });
 
   afterEach(() => {
@@ -135,6 +95,9 @@ describe('Heatmap tab context isolation', () => {
       labelPositions: { title: { x: 30, y: 40 } },
       dendrogramSettings: { mode: 'auto', thicknessPt: 2, color: '#445566' }
     }, { tabId: tabB.id, reason: 'test-seed-heatmap-b' });
+    expect(heatmap.__testHooks.getSession(tabB.id)?.state?.dendrogramSettings).toEqual({
+      mode: 'auto', thicknessPt: 2, color: '#445566'
+    });
 
     await activateTabById(Main, tabA.id, 'test-heatmap-return-a');
     const restoredA = heatmap.__getState();
@@ -143,8 +106,14 @@ describe('Heatmap tab context isolation', () => {
     expect(restoredA.clusterDefaultsAutoApplied).toBe(true);
     expect(restoredA.labelPositions).toEqual({ title: { x: 10, y: 20 } });
     expect(restoredA.dendrogramSettings).toEqual({ mode: 'fixed', thicknessPt: 5, color: '#112233' });
+    expect(heatmap.__testHooks.getSession(tabB.id)?.state?.dendrogramSettings).toEqual({
+      mode: 'auto', thicknessPt: 2, color: '#445566'
+    });
 
     await activateTabById(Main, tabB.id, 'test-heatmap-return-b');
+    expect(heatmap.__testHooks.getSession(tabB.id)?.state?.dendrogramSettings).toEqual({
+      mode: 'auto', thicknessPt: 2, color: '#445566'
+    });
     const restoredB = heatmap.__getState();
     expect(restoredB.fileName).toBe('heatmap-b.graph');
     expect(restoredB.clusterControlsTouched).toBe(false);

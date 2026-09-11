@@ -4,8 +4,13 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 
 const root = path.resolve(__dirname, '..');
+const indexHash = crypto.createHash('sha256')
+  .update(fs.readFileSync(path.join(root, 'index.html')))
+  .digest('hex');
+const serverStartedAt = new Date().toISOString();
 const args = process.argv.slice(2);
 const portArgIndex = args.findIndex(arg => arg === '--port');
 const port = portArgIndex >= 0 ? Number(args[portArgIndex + 1]) : 4173;
@@ -44,6 +49,15 @@ function sendNotFound(res) {
 const server = http.createServer((req, res) => {
   try {
     const parsed = new URL(req.url || '/', 'http://127.0.0.1');
+    if (parsed.pathname === '/__graphitix_provenance') {
+      const body = JSON.stringify({ schemaVersion: 1, indexHash, serverStartedAt });
+      res.writeHead(200, {
+        'Content-Type': 'application/json; charset=utf-8',
+        'Cache-Control': 'no-store'
+      });
+      res.end(body);
+      return;
+    }
     const filePath = safeResolvePath(parsed.pathname || '/');
     if (!filePath) {
       sendNotFound(res);

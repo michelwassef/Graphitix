@@ -1,9 +1,10 @@
+const { waitForComponentOwnerReady } = require('./helpers/contractWaits');
 const { test, expect } = require('@playwright/test');
 const {
-  installLocalCdnOverrides,
-  registerIssueCollectors,
   openComponentFromWelcome
-} = require('./helpers/workspaceHarness');
+} = require('./helpers/workspaceDriver');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
+const { registerIssueCollectors } = require('./helpers/diagnostics');
 
 function readBoxVisualMetrics() {
   const svg = document.querySelector('#boxPlot svg');
@@ -152,13 +153,13 @@ test('box dark theme keeps significance and points visible and stats recalculabl
   await openComponentFromWelcome(page, { type: 'box', pageId: 'boxPage' }, { first: true });
 
   await page.locator('#boxLoadExample').click();
-  await page.waitForTimeout(700);
+  await waitForComponentOwnerReady(page, 'box', { requireMountedRoot: true, requireIdle: true, timeout: 30_000 });
   await page.locator('#boxGraphType').selectOption('box');
   const pointMode = page.locator('#boxPointMode');
   if (await pointMode.count()) {
-    await pointMode.selectOption('overlay').catch(() => {});
+    await pointMode.selectOption('overlay');
   }
-  await page.waitForTimeout(400);
+  await waitForComponentOwnerReady(page, 'box', { requireMountedRoot: true, requireIdle: true, timeout: 30_000 });
 
   await ensureBoxStatsAndSignificanceReady(page);
   const computeButton = page.locator('#boxComputeStats');
@@ -167,12 +168,12 @@ test('box dark theme keeps significance and points visible and stats recalculabl
   await expect(significanceToggle).toBeVisible();
   if (!(await significanceToggle.isChecked())) {
     await setBoxSignificanceToggle(page, true);
-    await page.waitForTimeout(450);
+    await waitForComponentOwnerReady(page, 'box', { requireMountedRoot: true, requireIdle: true, timeout: 30_000 });
   }
   const hasSignificance = await waitForSignificanceAnnotations(page, 20_000);
 
   await page.locator('#boxColorSchemeSelect').selectOption('dark');
-  await page.waitForTimeout(900);
+  await waitForComponentOwnerReady(page, 'box', { requireMountedRoot: true, requireIdle: true, timeout: 30_000 });
   const hasSvg = await ensureBoxSvgReady(page, 20_000);
   if (!hasSvg) {
     test.info().annotations.push({
@@ -197,7 +198,7 @@ test('box dark theme keeps significance and points visible and stats recalculabl
 
   if (await significanceToggle.isChecked()) {
     await setBoxSignificanceToggle(page, false);
-    await page.waitForTimeout(500);
+    await waitForComponentOwnerReady(page, 'box', { requireMountedRoot: true, requireIdle: true, timeout: 30_000 });
   }
   if (hasSignificance) {
     await page.waitForFunction(() => document.querySelectorAll('#boxPlot .box-significance-annotation').length === 0, null, { timeout: 20_000 });

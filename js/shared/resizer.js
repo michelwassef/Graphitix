@@ -4000,7 +4000,75 @@
     const tableManualPanel = tablePanel?.dataset?.panelManualWidth === 'true';
     const graphManualPanel = graphPanel?.dataset?.panelManualWidth === 'true';
     const hasManualPanelSizing = tableManualPanel || graphManualPanel;
-    if(!lockGraphPanelWidth && !hasManualPanelSizing && graphPanel?.style){
+    const requestedWorkspaceFraction = Number(
+      opts.workspaceSplit?.tableFraction
+        ?? opts.workspaceTableFraction
+    );
+    const hasWorkspaceSplit = Number.isFinite(requestedWorkspaceFraction)
+      && requestedWorkspaceFraction > 0
+      && requestedWorkspaceFraction < 1;
+    const applyWorkspaceSplit = () => {
+      if(!hasWorkspaceSplit || hasManualPanelSizing){
+        return false;
+      }
+      const fraction = Math.min(0.95, Math.max(0.05, requestedWorkspaceFraction));
+      const graphFraction = 1 - fraction;
+      const wrap = graphPanel?.parentElement || tablePanel?.parentElement || null;
+      let vertical = false;
+      if(wrap && global.getComputedStyle){
+        try{
+          vertical = String(global.getComputedStyle(wrap)?.flexDirection || '').toLowerCase() === 'column';
+        }catch(_err){
+          vertical = false;
+        }
+      }
+      const isResponsivePanel = panel => {
+        if(!panel?.style) return false;
+        const flex = String(panel.style.flex || '').trim();
+        return !panel.style.width
+          && !panel.style.height
+          && String(panel.style.flexBasis || '').trim() === '0px'
+          && /^\S+\s+1\s+0px$/.test(flex);
+      };
+      const panelStyleProps = [
+        'width', 'height', 'minWidth', 'minHeight', 'maxWidth', 'maxHeight',
+        'flex', 'flexBasis'
+      ];
+      [tablePanel, graphPanel].forEach(panel => {
+        if(panel?.style){
+          const preserveResponsiveMin = isResponsivePanel(panel);
+          panelStyleProps.forEach(prop => {
+            if(preserveResponsiveMin && prop === 'minWidth') return;
+            setStyleValueIfChanged(panel.style, prop, '');
+          });
+        }
+        if(panel?.dataset){
+          delete panel.dataset.panelManualWidth;
+          delete panel.dataset.panelDefaultWidth;
+          delete panel.dataset.panelMinWidth;
+        }
+      });
+      if(svgBox?.dataset){
+        delete svgBox.dataset.resizerTableWidth;
+      }
+      if(wrap?.dataset?.panelMinWidthLocked === 'true'){
+        setStyleValueIfChanged(wrap.style, 'minWidth', '');
+        delete wrap.dataset.panelMinWidthLocked;
+      }
+      if(vertical){
+        return false;
+      }
+      if(tablePanel?.style){
+        setStyleValueIfChanged(tablePanel.style, 'flex', `${fraction} 1 0px`);
+        setStyleValueIfChanged(tablePanel.style, 'flexBasis', '0px');
+      }
+      if(graphPanel?.style){
+        setStyleValueIfChanged(graphPanel.style, 'flex', `${graphFraction} 1 0px`);
+        setStyleValueIfChanged(graphPanel.style, 'flexBasis', '0px');
+      }
+      return true;
+    };
+    if(!lockGraphPanelWidth && !hasManualPanelSizing && !hasWorkspaceSplit && graphPanel?.style){
       const needsReset = graphPanel.style.width || graphPanel.style.minWidth || graphPanel.style.flexBasis || graphPanel.style.flex;
       if(needsReset){
         setStyleValueIfChanged(graphPanel.style, 'width', '');
@@ -4046,6 +4114,7 @@
       }); // Debug: skip adjustments for hidden panels
       return null;
     }
+    applyWorkspaceSplit();
     let gap = 0;
     if(diagramArea){
       try{
@@ -4418,7 +4487,7 @@
         appliedWidth = widthToApply;
       }
     }
-    if(isManualResize){
+    if(isManualResize && !hasWorkspaceSplit){
       const safeAppliedWidth = Number.isFinite(appliedWidth) && appliedWidth > 0 ? appliedWidth : manualWidth;
       const liveTableWidth = Number.isFinite(tableWidth) && tableWidth > 0 ? tableWidth : (tablePanel.getBoundingClientRect().width || 0);
       const lockedTableWidth = Number.isFinite(liveTableWidth) && liveTableWidth > 0

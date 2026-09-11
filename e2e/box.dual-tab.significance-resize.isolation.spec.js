@@ -1,9 +1,8 @@
 const { test, expect } = require('@playwright/test');
-const {
-  installLocalCdnOverrides,
-  registerIssueCollectors,
-  openComponentFromWelcome
-} = require('./helpers/workspaceHarness');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
+const { openComponentFromWelcome } = require('./helpers/workspaceDriver');
+const { registerIssueCollectors } = require('./helpers/diagnostics');
+const { waitForComponentOwnerReady } = require('./helpers/contractWaits');
 
 async function getWorkspaceTabIds(page) {
   return page.evaluate(() =>
@@ -30,7 +29,12 @@ async function activateTabById(page, tabId) {
     window.Components?.box?.draw?.({ force: true, viewOnly: true, reason: 'e2e-box-activation-draw' });
     return false;
   }, null, { timeout: 45_000 });
-  await page.waitForTimeout(250);
+  await waitForComponentOwnerReady(page, 'box', {
+    requireMountedRoot: true,
+    requirePublished: true,
+    requireIdle: true,
+    timeout: 30_000
+  });
 }
 
 async function computeStatsWithPairwise(page) {
@@ -90,7 +94,7 @@ async function resizeActiveBoxFrame(page, dy) {
     return !state?.showSignificanceBars
       || document.querySelectorAll('#boxPage:not([hidden]) #boxPlot .box-significance-annotation').length > 0;
   }, null, { timeout: 25_000 });
-  await page.waitForTimeout(300);
+  await waitForComponentOwnerReady(page, 'box', { requireIdle: true, timeout: 30_000 });
 }
 
 async function runResizeMovePreview(page) {
@@ -100,7 +104,7 @@ async function runResizeMovePreview(page) {
     }
     return window.Components.box.__testHooks.drawResizeMoveForTest();
   });
-  await page.waitForTimeout(300);
+  await waitForComponentOwnerReady(page, 'box', { requireIdle: true, timeout: 30_000 });
   return result;
 }
 
@@ -143,7 +147,7 @@ async function setPairwiseComparisons(page, enabled) {
         && document.querySelectorAll('#boxPage:not([hidden]) #boxPlot .box-significance-annotation').length === 0;
     }, null, { timeout: 25_000 });
   }
-  await page.waitForTimeout(500);
+  await waitForComponentOwnerReady(page, 'box', { requireIdle: true, timeout: 30_000 });
 }
 
 async function readBoxMetrics(page) {
@@ -335,11 +339,11 @@ test('box dual-tab pairwise resize keeps per-tab scope isolation and stable plot
   await activateTabById(page, secondId);
   const secondAfterLineReturnBeforeDrag = await readBoxMetrics(page);
   await dragActiveBoxWidthHandle(page, -35);
-  await page.waitForTimeout(1200);
+  await waitForComponentOwnerReady(page, 'box', { requireIdle: true, timeout: 30_000 });
   const secondAfterLineReturnDrag = await readBoxMetrics(page);
   const secondAfterLineReturnDragSignificanceLayout = await readSignificanceLayoutMetrics(page);
   await dragActiveBoxWidthHandle(page, 0);
-  await page.waitForTimeout(1200);
+  await waitForComponentOwnerReady(page, 'box', { requireIdle: true, timeout: 30_000 });
   const secondAfterLineReturnHandleClick = await readBoxMetrics(page);
   const secondAfterLineReturnHandleClickSignificanceLayout = await readSignificanceLayoutMetrics(page);
 

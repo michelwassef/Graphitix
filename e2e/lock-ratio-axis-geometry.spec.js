@@ -1,10 +1,13 @@
 const { test, expect } = require('@playwright/test');
 const {
-  installLocalCdnOverrides,
   openComponentFromWelcome,
-  clickExampleButtonIfPresent,
-  registerIssueCollectors
-} = require('./helpers/workspaceHarness');
+  clickExampleButtonIfPresent
+} = require('./helpers/workspaceDriver');
+const { activateTab: activateTabUi } = require('./helpers/uiDriver');
+const { buildWorkspaceArchive, openWorkspaceArchive } = require('./helpers/archiveDriver');
+const { waitForDocumentOpenComplete } = require('./helpers/workspaceDriver');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
+const { registerIssueCollectors } = require('./helpers/diagnostics');
 
 const LOCK_RATIO_COMPONENTS = [
   {
@@ -13,7 +16,6 @@ const LOCK_RATIO_COMPONENTS = [
     exampleButtonId: 'sample',
     prepare: async page => {
       await page.locator('#vennPage:not([hidden]) #vennPlotType').selectOption('upset');
-      await page.waitForTimeout(500);
     }
   },
   { type: 'box', pageId: 'boxPage', exampleButtonId: 'boxLoadExample' },
@@ -29,7 +31,6 @@ const LOCK_RATIO_COMPONENTS = [
     exampleButtonId: 'pieLoadExample',
     prepare: async page => {
       await page.locator('#piePage:not([hidden]) #pieChartType').selectOption('stacked');
-      await page.waitForTimeout(500);
     }
   }
 ];
@@ -262,7 +263,6 @@ async function setLock(page, pageId, checked) {
       checkbox.dispatchEvent(new Event('change', { bubbles: true }));
     }
   }, { pageId, checked });
-  await page.waitForTimeout(250);
 }
 
 async function dragHandle(page, pageId, selector, dx, dy) {
@@ -357,46 +357,18 @@ function expectLockTargetMatchesRenderedAxes(geometry, renderedGeometry, label, 
   ).toBeLessThanOrEqual(pixelTolerance);
 }
 
-async function activateTab(page, tabId, pageId) {
-  await page.evaluate(async ({ tabId }) => {
-    const result = window.Main?.tabs?.activateTab?.(tabId, { reason: 'lock-ratio-geometry-restore' });
-    if(result && typeof result.then === 'function') await result;
-  }, { tabId });
-  await page.waitForFunction(({ tabId }) => (
-    String(window.Main?.session?.workspaceState?.activeTabId || '') === String(tabId)
-  ), { tabId }, { timeout: 30_000 });
-  await page.waitForSelector(`#${pageId}:not([hidden])`, { timeout: 30_000 });
-  await waitForAxes(page, pageId);
-  await page.evaluate(async ({ tabId }) => {
-    const tab = window.Main?.session?.workspaceState?.tabs?.find(item => String(item?.id || '') === String(tabId)) || null;
-    const ready = tab?.type ? window.Components?.[tab.type]?.awaitReadyForSnapshot?.({
-      tabId,
-      componentKey: tab.type,
-      reason: 'lock-ratio-geometry-restore-ready'
-    }) : null;
-    if(ready && typeof ready.then === 'function'){
-      await ready;
-    }
-  }, { tabId });
-  await page.waitForTimeout(500);
+async function activateTab(page, tabId, component) {
+  await activateTabUi(page, tabId, component, { timeout: 30_000 });
+  await waitForAxes(page, component.pageId);
 }
 
-async function captureArchiveBase64(page) {
-  return page.evaluate(async () => {
-    const context = window.Main?.tabs?.getSessionActionsContext?.();
-    const blob = await window.Main?.sessionActions?.buildWorkspaceArchiveBlob?.(context, {
-      scope: 'workspace',
-      snapshotKind: 'document-snapshot',
-      compression: 'STORE',
-      reason: 'lock-ratio-axis-geometry'
-    });
-    if(!blob) throw new Error('Workspace archive unavailable');
-    const bytes = new Uint8Array(await blob.arrayBuffer());
-    let binary = '';
-    for(let index = 0; index < bytes.length; index += 0x8000){
-      binary += String.fromCharCode.apply(null, bytes.subarray(index, index + 0x8000));
-    }
-    return btoa(binary);
+async function captureWorkspaceArchive(page) {
+  return buildWorkspaceArchive(page, {
+    scope: 'workspace',
+    snapshotKind: 'document-snapshot',
+    compression: 'STORE',
+    reason: 'lock-ratio-axis-geometry',
+    fileName: 'lock-ratio-axis-geometry.graph'
   });
 }
 
@@ -476,14 +448,11 @@ test('Lock ratio is toggle-neutral and preserves primary-axis proportions across
     });
   }
 
-  const archiveBase64 = await captureArchiveBase64(page);
+  const archive = await captureWorkspaceArchive(page);
   await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
   await expect(page.locator('#welcomeScreen')).toBeVisible({ timeout: 30_000 });
-  await page.locator('#workspaceSessionInput').setInputFiles({
-    name: 'lock-ratio-axis-geometry.graph',
-    mimeType: 'application/octet-stream',
-    buffer: Buffer.from(archiveBase64, 'base64')
-  });
+  await openWorkspaceArchive(page, archive, { reload: false, fileName: 'lock-ratio-axis-geometry.graph' });
+  await waitForDocumentOpenComplete(page, 60_000);
   await page.waitForFunction(expectedCount => {
     const tabs = window.Main?.session?.workspaceState?.tabs || [];
     return tabs.filter(tab => tab && !tab.isWelcome).length >= expectedCount;
@@ -495,7 +464,7 @@ test('Lock ratio is toggle-neutral and preserves primary-axis proportions across
       return String(tabs.find(tab => tab && !tab.isWelcome && tab.type === type)?.id || '');
     }, entry.component.type);
     expect(reopenedTabId, `${entry.component.type} reopened tab`).toBeTruthy();
-    await activateTab(page, reopenedTabId, entry.component.pageId);
+    await activateTab(page, reopenedTabId, entry.component);
     const reopened = await waitForStableGeometry(page, entry.component.pageId);
     expectGeometryEqual(reopened, entry.geometry, `${entry.component.type} reopen`, { frame: 1.1, axis: 2 });
     expect(reopened.locked).toBe('true');
@@ -522,7 +491,6 @@ test('forced Lock ratio preserves projected x/y axis proportions in every 3D com
       await clickExampleButtonIfPresent(page, component.exampleButtonId);
       if(component.prepare){
         await component.prepare(page);
-        await page.waitForTimeout(700);
       }
       await waitForAxes(page, component.pageId);
       const initial = await waitForStableGeometry(page, component.pageId);

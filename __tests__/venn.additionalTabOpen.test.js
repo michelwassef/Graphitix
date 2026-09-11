@@ -1,3 +1,5 @@
+const { loadProductionBootstrap } = require('../test-support/productionLoader');
+
 describe('Venn additional tab opening', () => {
   jest.setTimeout(240000);
 
@@ -30,18 +32,6 @@ describe('Venn additional tab opening', () => {
   }
 
   beforeEach(() => {
-    // This integration suite reloads the application modules for every test. Dispose
-    // any Venn owners from the previous application instance first so delayed species/
-    // analysis work cannot target the freshly mounted DOM in the next test.
-    const previousVenn = window.Components?.venn || null;
-    const previousTabs = window.Main?.session?.workspaceState?.tabs || [];
-    if(previousVenn?.disposeTab){
-      previousTabs.filter(tab => tab?.type === 'venn').forEach(tab => {
-        previousVenn.disposeTab(tab, { tabId: tab.id, reason: 'venn-test-reset' });
-      });
-    }
-    delete window.Main;
-    delete window.Components;
     jest.resetModules();
     if (typeof global.__restoreTestDebugLogs === 'function') {
       global.__restoreTestDebugLogs();
@@ -50,51 +40,10 @@ describe('Venn additional tab opening', () => {
       global.__resetGrid__();
     }
 
-    require('../js/vendor.js');
-    require('../js/shared/fileIO.js');
-    require('../js/shared/debounce.js');
-    require('../js/shared/dataTransforms.js');
-    require('../js/shared/dataViews.js');
-    require('../js/shared/workspaceTabs.js');
-    require('../js/shared/tabContext.js');
-    require('../js/shared/undo.js');
-    require('../js/shared/resizer.js');
-    require('../js/shared/dom.js');
-    require('../js/shared/exporter.js');
-    require('../js/shared/chartStyle.js');
-    require('../js/shared/graphSizing.js');
-    require('../js/shared/regression.js');
-    require('../js/shared/stats.js');
-    require('../js/shared/stats-table.js');
-    require('../js/shared/colorPicker.js');
-    require('../js/shared/editHighlight.js');
-    require('../js/shared/axisControls.js');
-    require('../js/shared/additionalLineControls.js');
-    require('../js/shared/significanceControls.js');
-    require('../js/shared/fontControls.js');
-    require('../js/shared/formControls.js');
-    require('../js/shared/hot.js');
-    require('../js/shared/componentLifecycle.js');
-    require('../js/shared/componentLayout.js');
-    require('../js/shared/tableImport.js');
-    require('../js/shared/uniprot.js');
-    require('../js/shared/goAnalysis.js');
-    require('../js/shared/stringAnalysis.js');
-    require('../js/main/components.js');
-    if (window.Main?.components?.preloadAllBundlesSync) {
-      window.Main.components.preloadAllBundlesSync();
-    }
-    require('../js/main/session.js');
-    require('../js/main/domControls.js');
-    require('../js/main/sessionActions.js');
-    require('../js/main/styleSync.js');
-    require('../js/main/tabDrag.js');
-    require('../js/main/previews.js');
-    require('../js/main/tabs/render.js');
-    require('../js/main/tabs/unsavedPrompt.js');
-    require('../js/main/tabs/duplicatePrompt.js');
-    require('../js/main/tabs.js');
-    require('../js/main.js');
+    loadProductionBootstrap({
+      vendorMode: 'fake',
+      preloadComponents: ['venn']
+    });
   });
 
   afterEach(() => {

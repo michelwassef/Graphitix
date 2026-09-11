@@ -1,13 +1,10 @@
+const { waitForComponentOwnerReady } = require('./helpers/contractWaits');
 const fs = require('fs');
 const path = require('path');
 const { test, expect } = require('@playwright/test');
-const {
-  installLocalCdnOverrides,
-  registerIssueCollectors,
-  openComponentFromWelcome,
-  clickExampleButtonIfPresent,
-  waitForDocumentOpenComplete
-} = require('./helpers/workspaceHarness');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
+const { openComponentFromWelcome, clickExampleButtonIfPresent, waitForDocumentOpenComplete } = require('./helpers/workspaceDriver');
+const { registerIssueCollectors } = require('./helpers/diagnostics');
 
 const TMP_DIR = path.resolve(__dirname, '.tmp');
 
@@ -101,7 +98,7 @@ async function setFastRocResamplingForContract(page) {
 async function configureRocComparison(page, variant) {
   await setFastRocResamplingForContract(page);
   await page.locator('#rocPage:not([hidden]) #rocGraphType').selectOption(variant.graphType);
-  await page.waitForTimeout(200);
+  await waitForComponentOwnerReady(page, 'roc', { requireMountedRoot: true, requireIdle: true, timeout: 30_000 });
   await page.locator('#rocPage:not([hidden]) #rocStatsAdvisor .stats-advisor__toggle').click();
   await page.locator(`#rocPage:not([hidden]) #rocStatsAdvisor input[name="roc-advisor-methodChoice"][value="${variant.diffMethod}"]`).check();
   await page.getByRole('button', { name: 'Apply recommendation' }).click();

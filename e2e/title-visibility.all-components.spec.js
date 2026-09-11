@@ -1,9 +1,9 @@
 const { test, expect } = require('@playwright/test');
 const {
   COMPONENT_MATRIX,
-  installLocalCdnOverrides,
   openComponentFromWelcome
-} = require('./helpers/workspaceHarness');
+} = require('./helpers/workspaceDriver');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
 
 const COMPONENTS_WITH_AXES = new Set([
   'box',

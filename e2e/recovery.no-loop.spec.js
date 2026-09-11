@@ -10,10 +10,11 @@
 
 const { test, expect } = require('@playwright/test');
 const {
-  installLocalCdnOverrides,
   openComponentFromWelcome,
   clickExampleButtonIfPresent
-} = require('./helpers/workspaceHarness');
+} = require('./helpers/workspaceDriver');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
+const { waitForComponentOwnerReady } = require('./helpers/contractWaits');
 
 const PAGE_IDS = { box: 'boxPage', scatter: 'scatterPage', hist: 'histPage' };
 const EXAMPLE_BUTTONS = { box: 'boxLoadExample', scatter: 'scatterLoadExample', hist: 'histLoadExample' };
@@ -28,13 +29,21 @@ for (const type of ['scatter', 'box', 'hist']) {
     await openComponentFromWelcome(page, { type, pageId: PAGE_IDS[type] }, { first: true });
     await page.waitForSelector(`#${PAGE_IDS[type]}:not([hidden])`, { timeout: 30_000 });
     await clickExampleButtonIfPresent(page, EXAMPLE_BUTTONS[type]);
+    await waitForComponentOwnerReady(page, type, {
+      requireMountedRoot: true,
+      requireIdle: true
+    });
 
     // Sample the session revision once per second; it must stop advancing once settled.
     const revs = [];
-    for (let i = 0; i < 6; i++) {
-      await page.waitForTimeout(1000);
+    await expect.poll(async () => {
       revs.push(await page.evaluate(() => window.Main.session.workspaceState.sessionRevision));
-    }
+      return revs.length;
+    }, {
+      intervals: [1000],
+      timeout: 6_500,
+      message: `${type}: revision samples should cover the full stability window`
+    }).toBe(6);
     const lastSecondDelta = revs[5] - revs[4];
     expect(lastSecondDelta, `${type}: session revision should stop advancing after settle (revs=${JSON.stringify(revs)})`).toBeLessThanOrEqual(1);
   });

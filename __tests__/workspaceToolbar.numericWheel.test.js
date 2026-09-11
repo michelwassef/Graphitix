@@ -1,3 +1,5 @@
+require('../js/shared/workspaceToolbar.js');
+
 describe('workspace toolbar numeric wheel editing', () => {
   function wheel(target, deltaY, init = {}) {
     target.dispatchEvent(new WheelEvent('wheel', {

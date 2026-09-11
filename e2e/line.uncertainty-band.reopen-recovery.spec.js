@@ -1,9 +1,7 @@
 const { test, expect } = require('@playwright/test');
-const {
-  installLocalCdnOverrides,
-  registerIssueCollectors,
-  openComponentFromWelcome
-} = require('./helpers/workspaceHarness');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
+const { openComponentFromWelcome } = require('./helpers/workspaceDriver');
+const { registerIssueCollectors } = require('./helpers/diagnostics');
 
 async function getActiveLineRootState(page) {
   return page.evaluate(() => {
@@ -41,20 +39,7 @@ async function prepareGroupedBand(page, { transparency = 65 } = {}) {
   });
   expect(grouped).toBe(true);
   await page.waitForFunction(() => window.Components?.line?.getPayload?.()?.config?.tableFormat === 'grouped', null, { timeout: 20_000 });
-  const loaded = await page.evaluate(() => {
-    const state = window.Main?.session?.workspaceState;
-    const active = state?.tabs?.find(tab => tab?.id === state.activeTabId) || null;
-    const root = active?.type === 'line'
-      ? window.Shared?.workspaceTabs?.getMountedRoot?.(active.id, 'line')
-      : null;
-    const button = root?.querySelector('#lineLoadExample') || null;
-    if (!button) {
-      return false;
-    }
-    button.click();
-    return true;
-  });
-  expect(loaded).toBe(true);
+  await page.locator('#linePage:not([hidden]) #lineLoadExample').click();
   await page.waitForFunction(() => {
     const state = window.Main?.session?.workspaceState;
     const active = state?.tabs?.find(tab => tab?.id === state.activeTabId) || null;

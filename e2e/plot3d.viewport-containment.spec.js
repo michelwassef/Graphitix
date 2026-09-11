@@ -1,10 +1,8 @@
 const { test, expect } = require('@playwright/test');
-const {
-  installLocalCdnOverrides,
-  registerIssueCollectors,
-  openComponentFromWelcome,
-  clickExampleButtonIfPresent
-} = require('./helpers/workspaceHarness');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
+const { openComponentFromWelcome, clickExampleButtonIfPresent } = require('./helpers/workspaceDriver');
+const { registerIssueCollectors } = require('./helpers/diagnostics');
+const { waitForComponentOwnerReady } = require('./helpers/contractWaits');
 
 const CASES = [
   { type: 'scatter', pageId: 'scatterPage', exampleButtonId: 'scatterLoadExample', viewModeId: 'scatterViewMode', tableFormatId: null, svg: '#scatterPage:not([hidden]) #scatterSvg' },
@@ -113,14 +111,14 @@ for (const component of CASES) {
     await openComponentFromWelcome(page, { type: component.type, pageId: component.pageId }, { first: true });
     await page.waitForFunction(type => !!window.Components?.[type]?.ready, component.type, { timeout: 30_000 });
     await select3d(page, component);
-    await page.waitForTimeout(300);
+    await waitForComponentOwnerReady(page, component.type, { requireMountedRoot: true, requireIdle: true, timeout: 30_000 });
     const emptyLayout = await readOuterLayout(page, component.svg, component.pageId);
     await clickExampleButtonIfPresent(page, component.exampleButtonId);
     await page.waitForFunction(({ selector, type }) => {
       const svg = document.querySelector(selector);
       return !!svg && (type === 'surface' || svg.dataset?.viewMode === '3d');
     }, { selector: component.svg, type: component.type }, { timeout: 45_000 });
-    await page.waitForTimeout(500);
+    await waitForComponentOwnerReady(page, component.type, { requireMountedRoot: true, requireIdle: true, timeout: 45_000 });
     const loadedLayout = await readOuterLayout(page, component.svg, component.pageId);
     expect(loadedLayout, `${component.type} loaded graph should have an outer layout`).not.toBeNull();
     expect(emptyLayout, `${component.type} empty graph should have an outer layout`).not.toBeNull();
@@ -139,13 +137,13 @@ for (const component of CASES) {
       });
       if (result && typeof result.then === 'function') await result;
     });
-    await page.waitForTimeout(500);
+    await waitForComponentOwnerReady(page, component.type, { requireMountedRoot: true, requireIdle: true, timeout: 45_000 });
     const cacheRestored = await readContainment(page, component.svg);
     expectContained(cacheRestored, `${component.type} cache-restored`);
     expect(JSON.stringify({ view: cacheRestored.view, envelope: cacheRestored.envelope, reserves: cacheRestored.reserves }), `${component.type} cache restore should preserve the authoritative viewport`).toBe(initialSignature);
 
     await clickExampleButtonIfPresent(page, component.exampleButtonId);
-    await page.waitForTimeout(700);
+    await waitForComponentOwnerReady(page, component.type, { requireMountedRoot: true, requireIdle: true, timeout: 45_000 });
     const redrawn = await readContainment(page, component.svg);
     expectContained(redrawn, `${component.type} redrawn`);
     expect(JSON.stringify({ view: redrawn.view, envelope: redrawn.envelope, reserves: redrawn.reserves }), `${component.type} redraw should preserve the authoritative viewport`).toBe(initialSignature);
@@ -163,7 +161,7 @@ for (const component of CASES) {
       await page.mouse.down();
       await page.mouse.move(box.x + box.width * target.x, box.y + box.height * target.y, { steps: 8 });
       await page.mouse.up();
-      await page.waitForTimeout(250);
+      await waitForComponentOwnerReady(page, component.type, { requireMountedRoot: true, requireIdle: true, timeout: 30_000 });
       const rotated = await readContainment(page, component.svg);
       expectContained(rotated, `${component.type} rotated at ${target.x},${target.y}`);
       expect(rotated.view, `${component.type} rotation should retain the authoritative viewport`).toEqual(redrawn.view);

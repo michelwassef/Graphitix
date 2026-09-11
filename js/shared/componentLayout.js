@@ -1,9 +1,10 @@
 // Shared helper for component panel layout, resizers, and wrapper styling
 // Exposes Shared.componentLayout.createStandardPanels(config)
 // Layout serialization policy:
-// layout.json is the authoritative graph/table sizing state. Component payloads
+// layout.json is the authoritative graph-frame sizing state. Component payloads
 // may carry graph sizing metadata for portable/archive restore, but renderer
-// internals must not become frame-size authorities.
+// internals must not become frame-size authorities. The surrounding panel split
+// is stored as a viewport-relative proportion so it can be recomputed on load.
 (function(global){
   'use strict';
 
@@ -14,6 +15,120 @@
 
   const layoutRegistry = componentLayout.__registry = componentLayout.__registry || {};
   const pendingScheduleSuppressions = componentLayout.__pendingScheduleSuppressions = componentLayout.__pendingScheduleSuppressions || {};
+
+  const PANEL_LAYOUT_STYLE_PROPS = [
+    'width', 'height', 'minWidth', 'minHeight', 'maxWidth', 'maxHeight',
+    'flex', 'flexBasis'
+  ];
+  const PANEL_LAYOUT_DATASET_KEYS = new Set([
+    'panelManualWidth', 'panelDefaultWidth', 'panelMinWidth', 'resizerTableWidth'
+  ]);
+
+  function normalizeWorkspaceTableFraction(value){
+    const numeric = Number(value);
+    return Number.isFinite(numeric) && numeric > 0 && numeric < 1
+      ? Math.min(0.95, Math.max(0.05, numeric))
+      : null;
+  }
+
+  function parsePanelPixelValue(value){
+    const text = String(value == null ? '' : value);
+    const pixelValues = text.match(/-?\d+(?:\.\d+)?px/g);
+    const numeric = pixelValues?.length
+      ? Number.parseFloat(pixelValues[pixelValues.length - 1])
+      : (/^\s*-?\d+(?:\.\d+)?\s*$/.test(text) ? Number.parseFloat(text) : NaN);
+    return Number.isFinite(numeric) && numeric > 0 ? numeric : NaN;
+  }
+
+  function resolveWorkspaceTableFraction(state){
+    const explicit = normalizeWorkspaceTableFraction(
+      state?.workspace?.tableFraction
+        ?? state?.workspace?.panelSplit?.tableFraction
+    );
+    if(explicit !== null){
+      return explicit;
+    }
+
+    // Legacy layout snapshots may contain two absolute panel widths. Convert
+    // only when both sides are available; otherwise use the current CSS split.
+    const tableStyle = state?.tablePanel?.style || {};
+    const graphStyle = state?.graphPanel?.style || {};
+    const tableWidth = parsePanelPixelValue(tableStyle.width)
+      || parsePanelPixelValue(tableStyle.flexBasis)
+      || parsePanelPixelValue(tableStyle.flex);
+    const graphWidth = parsePanelPixelValue(graphStyle.width)
+      || parsePanelPixelValue(graphStyle.flexBasis)
+      || parsePanelPixelValue(graphStyle.flex);
+    if(Number.isFinite(tableWidth) && Number.isFinite(graphWidth) && tableWidth + graphWidth > 0){
+      return normalizeWorkspaceTableFraction(tableWidth / (tableWidth + graphWidth));
+    }
+    return null;
+  }
+
+  function isVerticalPanelLayout(tablePanel, graphPanel){
+    const wrap = graphPanel?.parentElement || tablePanel?.parentElement || null;
+    if(!wrap || typeof global.getComputedStyle !== 'function'){
+      return false;
+    }
+    try{
+      return String(global.getComputedStyle(wrap)?.flexDirection || '').toLowerCase() === 'column';
+    }catch(_err){
+      return false;
+    }
+  }
+
+  function clearPanelLayoutProjection(tablePanel, graphPanel, svgBox){
+    [tablePanel, graphPanel].forEach(panel => {
+      if(panel?.style){
+        PANEL_LAYOUT_STYLE_PROPS.forEach(prop => {
+          panel.style[prop] = '';
+        });
+      }
+      if(panel?.dataset){
+        PANEL_LAYOUT_DATASET_KEYS.forEach(key => delete panel.dataset[key]);
+      }
+    });
+    if(svgBox?.dataset){
+      delete svgBox.dataset.resizerTableWidth;
+    }
+    const wrap = graphPanel?.parentElement || tablePanel?.parentElement || null;
+    if(wrap?.dataset?.panelMinWidthLocked === 'true'){
+      if(wrap.style){
+        wrap.style.minWidth = '';
+      }
+      delete wrap.dataset.panelMinWidthLocked;
+    }
+  }
+
+  function applyResponsivePanelSplit(tablePanel, graphPanel, tableFraction, svgBox){
+    clearPanelLayoutProjection(tablePanel, graphPanel, svgBox);
+    const fraction = normalizeWorkspaceTableFraction(tableFraction);
+    if(fraction === null || isVerticalPanelLayout(tablePanel, graphPanel)){
+      return false;
+    }
+    const graphFraction = 1 - fraction;
+    if(tablePanel?.style){
+      tablePanel.style.flex = `${fraction} 1 0px`;
+      tablePanel.style.flexBasis = '0px';
+    }
+    if(graphPanel?.style){
+      graphPanel.style.flex = `${graphFraction} 1 0px`;
+      graphPanel.style.flexBasis = '0px';
+    }
+    return true;
+  }
+
+  function captureWorkspaceTableFraction(tablePanel, graphPanel){
+    if(isVerticalPanelLayout(tablePanel, graphPanel)){
+      return null;
+    }
+    const tableWidth = Number(tablePanel?.getBoundingClientRect?.()?.width);
+    const graphWidth = Number(graphPanel?.getBoundingClientRect?.()?.width);
+    if(!Number.isFinite(tableWidth) || !Number.isFinite(graphWidth) || tableWidth <= 0 || graphWidth <= 0){
+      return null;
+    }
+    return normalizeWorkspaceTableFraction(tableWidth / (tableWidth + graphWidth));
+  }
 
   function normalizeTabId(value){
     const text = typeof value === 'string' ? value.trim() : String(value || '').trim();
@@ -312,6 +427,9 @@
     }
     const sourceMap = options.tabId ? rehomeDatasetForTab(map, options.componentName, options.tabId) : map;
     Object.entries(sourceMap).forEach(([key, value]) => {
+      if(PANEL_LAYOUT_DATASET_KEYS.has(key)){
+        return;
+      }
       try{
         if(value === undefined || value === null || value === ''){
           delete element.dataset[key];
@@ -915,10 +1033,19 @@
       graphPanel: getRootScopedElement(root, `${lower}GraphPanel`, '[id$="GraphPanel"], .panel:last-child'),
       configPanel: getRootScopedElement(root, `${lower}ConfigPanel`, '[id$="ConfigPanel"], .config-panel, .config-options')
     };
+    clearPanelLayoutProjection(nodes.tablePanel, nodes.graphPanel, nodes.svgBox);
     Object.entries(nodes).forEach(([key, node]) => {
-      applySnapshotStyle(node, state[key]?.style);
+      if(key !== 'tablePanel' && key !== 'graphPanel'){
+        applySnapshotStyle(node, state[key]?.style);
+      }
       applySnapshotDataset(node, state[key]?.dataset, { tabId: options.tabId || root?.dataset?.workspaceTabId || null, componentName: name });
     });
+    applyResponsivePanelSplit(
+      nodes.tablePanel,
+      nodes.graphPanel,
+      resolveWorkspaceTableFraction(state),
+      nodes.svgBox
+    );
     const hydratedAspect = nodes.svgBox?.dataset?.resizerAspectLocked;
     if((hydratedAspect === 'true' || hydratedAspect === 'false')
       && typeof nodes.svgBox?.__sharedResizableBoxApi?.setAspectLocked === 'function'){
@@ -1148,6 +1275,7 @@
     let scheduleDrawFn = typeof config?.scheduleDraw === 'function' ? config.scheduleDraw : null;
     const panelState = {
       minSvgWidth: Number.isFinite(config?.initialMinSvgWidth) ? Number(config.initialMinSvgWidth) : 0,
+      workspaceSplit: null,
       resizeObserver: null,
       wasHidden: false,
       deferScheduleUntil: 0,
@@ -1390,6 +1518,11 @@
     };
 
     const syncPanels = (options = {}) => {
+      if(options.source === 'panel-drag'){
+        // A divider drag creates a new split; do not reapply the previous
+        // responsive weights while the pointer is changing the panels.
+        panelState.workspaceSplit = null;
+      }
       const flags = evaluateScheduleFlags(options);
       const skipSchedule = flags.skipSchedule;
       if(typeof Shared.syncPanelWidths !== 'function'){
@@ -1434,6 +1567,9 @@
         forceSchedule: options.forceSchedule === true,
         preserveSvgBoxPresentation: options.preserveSvgBoxPresentation === true
       });
+      if(panelState.workspaceSplit){
+        syncOptions.workspaceSplit = { ...panelState.workspaceSplit };
+      }
       let syncResult = null;
       panelState.programmaticSyncDepth += 1;
       try{
@@ -1798,6 +1934,9 @@
         if(/^graphContent|^graphPresentation|^cartesianLayout/.test(key)){
           return;
         }
+        if(PANEL_LAYOUT_DATASET_KEYS.has(key)){
+          return;
+        }
         clone[key] = value;
       });
       return clone;
@@ -1903,6 +2042,10 @@
           tab.sharedState.layout.resizer.aspectLocked = !!aspectCheckbox.checked;
         }
       }
+      const currentTableFraction = captureWorkspaceTableFraction(elements.tablePanel, elements.graphPanel);
+      if(currentTableFraction !== null){
+        panelState.workspaceSplit = { version: 1, tableFraction: currentTableFraction };
+      }
       const normalizedSvgSnapshot = normalizeLiveResizableSnapshot(elements.svgBox, {
         style: cloneStyle(elements.svgBox),
         dataset: cloneDataset(elements.svgBox)
@@ -1911,13 +2054,14 @@
         version: 1,
         component: componentName,
         minSvgWidth: Number.isFinite(panelState.minSvgWidth) ? panelState.minSvgWidth : null,
+        workspace: panelState.workspaceSplit ? { ...panelState.workspaceSplit } : null,
         svgBox: normalizedSvgSnapshot,
         tablePanel: {
-          style: cloneStyle(elements.tablePanel),
+          style: null,
           dataset: cloneDataset(elements.tablePanel)
         },
         graphPanel: {
-          style: cloneStyle(elements.graphPanel),
+          style: null,
           dataset: cloneDataset(elements.graphPanel)
         },
         configPanel: {
@@ -1935,7 +2079,7 @@
         component: componentName,
         tabId: layoutTabId || null,
         hasSvg: !!state.svgBox?.style || !!state.svgBox?.dataset,
-        hasTable: !!state.tablePanel?.style || !!state.tablePanel?.dataset,
+        hasTable: !!state.tablePanel?.dataset || !!state.workspace,
         minSvgWidth: state.minSvgWidth
       });
       return state;
@@ -1981,6 +2125,9 @@
       }
       if(!sanitizedMap){ return; }
       Object.entries(sanitizedMap).forEach(([key, value]) => {
+        if(PANEL_LAYOUT_DATASET_KEYS.has(key)){
+          return;
+        }
         try{
           if(value === undefined || value === null || value === ''){
             delete element.dataset[key];
@@ -2039,6 +2186,21 @@
         return false;
       }
       const tabId = options.tabId || layoutTabId || null;
+      const hasExplicitWorkspaceSplit = normalizeWorkspaceTableFraction(
+        state?.workspace?.tableFraction
+          ?? state?.workspace?.panelSplit?.tableFraction
+      ) !== null;
+      if(hasExplicitWorkspaceSplit){
+        const currentTableFraction = captureWorkspaceTableFraction(elements.tablePanel, elements.graphPanel);
+        if(!isVerticalPanelLayout(elements.tablePanel, elements.graphPanel)
+          && (currentTableFraction === null || Math.abs(currentTableFraction - resolveWorkspaceTableFraction(state)) > 0.01)){
+          return false;
+        }
+        if(elements.tablePanel?.dataset?.panelManualWidth === 'true'
+          || elements.graphPanel?.dataset?.panelManualWidth === 'true'){
+          return false;
+        }
+      }
       return styleSnapshotMatches(elements.tablePanel, state.tablePanel?.style, { reset: options.resetStyles === true })
         && datasetSnapshotMatches(elements.tablePanel, state.tablePanel?.dataset, { reset: options.resetDataset === true, tabId })
         && styleSnapshotMatches(elements.graphPanel, state.graphPanel?.style, { reset: options.resetStyles === true })
@@ -2054,9 +2216,8 @@
       const resetDataset = options.resetDataset === true;
       if(!state || typeof state !== 'object'){
         if(resetStyles || resetDataset){
-          applyStyle(elements.tablePanel, null, 'table', { reset: resetStyles });
+          clearPanelLayoutProjection(elements.tablePanel, elements.graphPanel, elements.svgBox);
           applyDataset(elements.tablePanel, null, 'table', { reset: resetDataset });
-          applyStyle(elements.graphPanel, null, 'graph', { reset: resetStyles });
           applyDataset(elements.graphPanel, null, 'graph', { reset: resetDataset });
           applyStyle(elements.configPanel, null, 'config', { reset: resetStyles });
           applyStyle(elements.svgBox, null, 'svg', { reset: resetStyles });
@@ -2094,9 +2255,11 @@
       if(Number.isFinite(clonedState.minSvgWidth)){
         updateMinSvgWidth(clonedState.minSvgWidth);
       }
-      applyStyle(elements.tablePanel, clonedState.tablePanel?.style, 'table', { reset: resetStyles });
+      panelState.workspaceSplit = resolveWorkspaceTableFraction(clonedState) === null
+        ? null
+        : { version: 1, tableFraction: resolveWorkspaceTableFraction(clonedState) };
+      clearPanelLayoutProjection(elements.tablePanel, elements.graphPanel, elements.svgBox);
       applyDataset(elements.tablePanel, clonedState.tablePanel?.dataset, 'table', { reset: resetDataset });
-      applyStyle(elements.graphPanel, clonedState.graphPanel?.style, 'graph', { reset: resetStyles });
       applyDataset(elements.graphPanel, clonedState.graphPanel?.dataset, 'graph', { reset: resetDataset });
       applyStyle(elements.configPanel, clonedState.configPanel?.style, 'config', { reset: resetStyles });
       applyStyle(elements.svgBox, clonedState.svgBox?.style, 'svg', { reset: resetStyles });

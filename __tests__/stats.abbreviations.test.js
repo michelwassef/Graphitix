@@ -107,8 +107,8 @@ describe('Shared statistics abbreviations', () => {
     expect(glossary.textContent).not.toContain('CI, confidence interval');
     expect(glossary.textContent).not.toContain('AUC, area under the curve');
 
-    expect(rendered.table.querySelector('tbody td abbr[title="sum of squared errors"]')?.textContent).toBe('SSE');
-    expect(rendered.table.querySelector('tbody td abbr[title="Ramsey Regression Equation Specification Error Test"]')?.textContent).toBe('RESET');
+    expect(rendered.table.querySelector('tbody th abbr[title="sum of squared errors"]')?.textContent).toBe('SSE');
+    expect(rendered.table.querySelector('tbody th abbr[title="Ramsey Regression Equation Specification Error Test"]')?.textContent).toBe('RESET');
   });
 
   test('generated reporting prose exposes acronym expansions on hover without adding duplicate glossary blocks', () => {

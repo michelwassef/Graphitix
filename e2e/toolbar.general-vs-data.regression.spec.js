@@ -1,10 +1,9 @@
 const { test, expect } = require('@playwright/test');
-const {
-  installLocalCdnOverrides,
-  registerIssueCollectors,
-  openComponentFromWelcome,
-  clickExampleButtonIfPresent
-} = require('./helpers/workspaceHarness');
+const { openComponentFromWelcome } = require('./helpers/workspaceDriver');
+const { clickExampleButton } = require('./helpers/uiDriver');
+const { waitForComponentOwnerReady } = require('./helpers/contractWaits');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
+const { registerIssueCollectors } = require('./helpers/diagnostics');
 
 function snapshotToolbarState() {
   const toolbar = document.querySelector('#scatterPage:not([hidden]) .workspace-toolbar');
@@ -33,6 +32,14 @@ function snapshotToolbarState() {
   };
 }
 
+async function waitForToolbarSection(page, label) {
+  await page.waitForFunction(expectedLabel => {
+    const toolbar = document.querySelector('#scatterPage:not([hidden]) .workspace-toolbar');
+    const active = toolbar?.querySelector?.('.workspace-toolbar__tab[data-toolbar-section-target][aria-selected="true"]');
+    return String(active?.textContent || '').trim().toLowerCase() === String(expectedLabel || '').trim().toLowerCase();
+  }, label, { timeout: 20_000, polling: 'raf' });
+}
+
 test('scatter: Data -> Format -> General must stay on General', async ({ page }, testInfo) => {
   test.setTimeout(120_000);
   const issues = registerIssueCollectors(page);
@@ -49,33 +56,30 @@ test('scatter: Data -> Format -> General must stay on General', async ({ page },
   await expect(page.locator('#welcomeScreen')).toBeVisible();
 
   await openComponentFromWelcome(page, { type: 'scatter', pageId: 'scatterPage', exampleButtonId: 'scatterLoadExample' }, { first: true });
-  await clickExampleButtonIfPresent(page, 'scatterLoadExample');
+  await clickExampleButton(page, { type: 'scatter', pageId: 'scatterPage', exampleButtonId: 'scatterLoadExample' });
   await page.waitForFunction(() => !!document.querySelector('#scatterPlot svg text[data-font-editable="1"]'));
 
-  await page.evaluate(() => {
-    const cell = document.querySelector('#scatterPage:not([hidden]) .ag-center-cols-container .ag-cell');
-    if (!cell) {
-      return false;
-    }
-    cell.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
-    cell.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }));
-    cell.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-    return true;
-  });
-  await page.waitForTimeout(300);
+  const dataCell = page.locator('#scatterPage:not([hidden]) .ag-center-cols-container .ag-cell').first();
+  await expect(dataCell).toBeVisible({ timeout: 20_000 });
+  await dataCell.click();
+  await waitForToolbarSection(page, 'Data');
+  await waitForComponentOwnerReady(page, { type: 'scatter', pageId: 'scatterPage' }, { requireIdle: true });
 
   const afterData = await page.evaluate(snapshotToolbarState);
 
   const editableText = page.locator('#scatterPlot svg text[data-font-editable="1"]').first();
   await editableText.click({ force: true });
-  await page.waitForTimeout(350);
+  await page.waitForFunction(() => {
+    const toolbar = document.querySelector('#scatterPage:not([hidden]) .workspace-toolbar');
+    return !!toolbar?.dataset?.toolbarContextSection;
+  }, null, { timeout: 20_000, polling: 'raf' });
 
   const before = await page.evaluate(snapshotToolbarState);
 
   const generalTab = page.locator('#scatterPage:not([hidden]) .workspace-toolbar__tab', { hasText: 'General' }).first();
   await expect(generalTab).toBeVisible();
-  await generalTab.click({ force: true });
-  await page.waitForTimeout(500);
+  await generalTab.click();
+  await waitForToolbarSection(page, 'General');
 
   const after = await page.evaluate(snapshotToolbarState);
   await testInfo.attach('toolbar-general-vs-data.before.json', {
@@ -110,31 +114,20 @@ test('scatter: Data -> click empty page area must return to General', async ({ p
   await expect(page.locator('#welcomeScreen')).toBeVisible();
 
   await openComponentFromWelcome(page, { type: 'scatter', pageId: 'scatterPage', exampleButtonId: 'scatterLoadExample' }, { first: true });
-  await clickExampleButtonIfPresent(page, 'scatterLoadExample');
+  await clickExampleButton(page, { type: 'scatter', pageId: 'scatterPage', exampleButtonId: 'scatterLoadExample' });
 
-  await page.evaluate(() => {
-    const cell = document.querySelector('#scatterPage:not([hidden]) .ag-center-cols-container .ag-cell');
-    if (!cell) {
-      return false;
-    }
-    cell.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
-    cell.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }));
-    cell.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-    return true;
-  });
-  await page.waitForTimeout(250);
+  const dataCell = page.locator('#scatterPage:not([hidden]) .ag-center-cols-container .ag-cell').first();
+  await expect(dataCell).toBeVisible({ timeout: 20_000 });
+  await dataCell.click();
+  await waitForToolbarSection(page, 'Data');
+  await waitForComponentOwnerReady(page, { type: 'scatter', pageId: 'scatterPage' }, { requireIdle: true });
 
   const afterData = await page.evaluate(snapshotToolbarState);
 
-  await page.evaluate(() => {
-    const panel = document.querySelector('#scatterPage:not([hidden]) #scatterGraphPanel');
-    if (!panel) {
-      return false;
-    }
-    panel.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-    return true;
-  });
-  await page.waitForTimeout(300);
+  const graphPanel = page.locator('#scatterPage:not([hidden]) #scatterGraphPanel').first();
+  await expect(graphPanel).toBeVisible({ timeout: 20_000 });
+  await graphPanel.click();
+  await waitForToolbarSection(page, 'General');
 
   const afterBlankClick = await page.evaluate(snapshotToolbarState);
   await testInfo.attach('toolbar-general-fallback.after-data.json', {

@@ -1,10 +1,7 @@
 const { test, expect } = require('@playwright/test');
-const {
-  installLocalCdnOverrides,
-  registerIssueCollectors,
-  openComponentFromWelcome,
-  clickExampleButtonIfPresent
-} = require('./helpers/workspaceHarness');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
+const { openComponentFromWelcome } = require('./helpers/workspaceDriver');
+const { registerIssueCollectors } = require('./helpers/diagnostics');
 
 test('Data transformation uses the shared Format panel surface and title geometry', async ({ page }) => {
   test.setTimeout(60_000);
@@ -12,8 +9,11 @@ test('Data transformation uses the shared Format panel surface and title geometr
   const issues = registerIssueCollectors(page);
   await installLocalCdnOverrides(page);
   await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
-  await openComponentFromWelcome(page, { type: 'box', pageId: 'boxPage' }, { first: true });
-  await clickExampleButtonIfPresent(page, 'boxLoadExample');
+  await openComponentFromWelcome(
+    page,
+    { type: 'box', pageId: 'boxPage', exampleButtonId: 'boxLoadExample' },
+    { first: true, loadExample: true }
+  );
 
   const toolbar = page.locator('#boxPage:not([hidden]) .workspace-toolbar');
   await toolbar.locator('.workspace-toolbar__tab', { hasText: 'Data' }).click();

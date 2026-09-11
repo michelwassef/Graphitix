@@ -4919,11 +4919,12 @@
 
     const resolveVisualRowIndex = (params)=>{
       const direct = params?.node?.rowIndex ?? params?.rowIndex;
+      const rowPinned = params?.node?.rowPinned ?? params?.rowPinned;
       if(Number.isInteger(direct) && direct >= 0){
-        return usePinnedRows && !params?.node?.rowPinned ? direct + pinRowCount : direct;
+        return usePinnedRows && !rowPinned ? direct + pinRowCount : direct;
       }
       const physical = params?.data?.__rowIndex ?? params?.node?.data?.__rowIndex;
-      if(params?.node?.rowPinned && Number.isInteger(physical) && physical >= 0){
+      if(rowPinned && Number.isInteger(physical) && physical >= 0){
         return physical;
       }
       return null;

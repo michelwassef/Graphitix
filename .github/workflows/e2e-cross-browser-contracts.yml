@@ -1,4 +1,4 @@
-name: E2E Cross-browser Contracts
+name: E2E Chromium Contracts
 
 on:
   pull_request:
@@ -13,13 +13,9 @@ concurrency:
 
 jobs:
   contracts:
-    name: Contracts (${{ matrix.browser }})
+    name: Chromium contracts
     runs-on: ubuntu-latest
     timeout-minutes: 45
-    strategy:
-      fail-fast: false
-      matrix:
-        browser: [chromium, firefox]
 
     steps:
       - name: Checkout
@@ -35,18 +31,19 @@ jobs:
         run: npm ci
 
       - name: Install Playwright browser
-        run: npx playwright install --with-deps ${{ matrix.browser }}
+        run: npx playwright install --with-deps chromium
 
-      - name: Run cross-browser contracts
-        run: npm run test:e2e:contracts -- --project=${{ matrix.browser }}
+      - name: Run Chromium contracts
+        run: npm run test:lane -- --lane e2e-contracts --report-file artifacts/test-reports/e2e-contracts.json
 
       - name: Upload Playwright artifacts
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: playwright-contracts-${{ matrix.browser }}
+          name: playwright-contracts-chromium
           path: |
             playwright-report
             test-results
             artifacts/perf-summaries
+            artifacts/test-reports
           if-no-files-found: ignore

@@ -1,9 +1,8 @@
 const { test, expect } = require('@playwright/test');
-const {
-  installLocalCdnOverrides,
-  registerIssueCollectors,
-  openComponentFromWelcome
-} = require('./helpers/workspaceHarness');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
+const { registerIssueCollectors } = require('./helpers/diagnostics');
+const { openComponentFromWelcome } = require('./helpers/workspaceDriver');
+const { waitForComponentOwnerReady } = require('./helpers/contractWaits');
 
 async function getWorkspaceTabIds(page) {
   return page.evaluate(() =>
@@ -15,7 +14,12 @@ async function getWorkspaceTabIds(page) {
 
 async function activateTabById(page, tabId) {
   await page.locator(`#workspaceTabsList .workspace-tab[data-tab-id="${tabId}"]`).first().click({ force: true });
-  await page.waitForTimeout(300);
+  await page.waitForFunction(id => window.Main?.session?.workspaceState?.activeTabId === id, tabId, { timeout: 20_000 });
+  await waitForComponentOwnerReady(page, 'scatter', {
+    expectedTabId: tabId,
+    requireMountedRoot: true,
+    requireIdle: true
+  });
 }
 
 async function openScatterTab(page, { first = false } = {}) {
@@ -33,7 +37,6 @@ async function openScatterTab(page, { first = false } = {}) {
     const duplicateEmpty = document.querySelector('#duplicateEmpty');
     if (prompt && duplicateEmpty && !duplicateEmpty.disabled) {
       duplicateEmpty.click();
-      await new Promise(resolve => setTimeout(resolve, 200));
     }
   });
   await page.waitForSelector('#scatterPage:not([hidden])', { timeout: 20_000 });
@@ -50,7 +53,10 @@ async function dragScatterResize(page) {
   await page.mouse.down();
   await page.mouse.move(x, y + 90, { steps: 12 });
   await page.mouse.up();
-  await page.waitForTimeout(600);
+  await waitForComponentOwnerReady(page, 'scatter', {
+    requireMountedRoot: true,
+    requireIdle: true
+  });
 }
 
 test('scatter second-tab resize undo routes to active tab even with stale dataset tab markers', async ({ page }) => {
@@ -64,7 +70,10 @@ test('scatter second-tab resize undo routes to active tab even with stale datase
   const beforeFirst = new Set(await getWorkspaceTabIds(page));
   await openScatterTab(page, { first: true });
   await page.locator('#scatterLoadExample').click({ force: true });
-  await page.waitForTimeout(600);
+  await waitForComponentOwnerReady(page, 'scatter', {
+    requireMountedRoot: true,
+    requireIdle: true
+  });
   const afterFirst = await getWorkspaceTabIds(page);
   const firstId = afterFirst.find(id => !beforeFirst.has(id));
   expect(firstId).toBeTruthy();
@@ -72,7 +81,10 @@ test('scatter second-tab resize undo routes to active tab even with stale datase
   const beforeSecond = new Set(afterFirst);
   await openScatterTab(page, { first: false });
   await page.locator('#scatterLoadExample').click({ force: true });
-  await page.waitForTimeout(600);
+  await waitForComponentOwnerReady(page, 'scatter', {
+    requireMountedRoot: true,
+    requireIdle: true
+  });
   const afterSecond = await getWorkspaceTabIds(page);
   const secondId = afterSecond.find(id => !beforeSecond.has(id));
   expect(secondId).toBeTruthy();

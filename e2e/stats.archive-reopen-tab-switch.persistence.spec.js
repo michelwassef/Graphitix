@@ -1,12 +1,11 @@
-const fs = require('fs');
 const path = require('path');
 const { test, expect } = require('@playwright/test');
-const {
-  installLocalCdnOverrides,
-  registerIssueCollectors,
-  openComponentFromWelcome,
-  clickExampleButtonIfPresent
-} = require('./helpers/workspaceHarness');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
+const { openComponentFromWelcome, waitForDocumentOpenComplete } = require('./helpers/workspaceDriver');
+const { clickExampleButton } = require('./helpers/uiDriver');
+const { buildWorkspaceArchive, openWorkspaceArchive, saveWorkspaceArchive } = require('./helpers/archiveDriver');
+const { reloadAndAcceptRecovery, seedRecoveryArchive } = require('./helpers/recoveryDriver');
+const { registerIssueCollectors } = require('./helpers/diagnostics');
 
 const ARCHIVE_TMP_DIR = path.resolve(__dirname, '.tmp');
 
@@ -74,37 +73,10 @@ const STATS_COMPONENT_CASES = [
 ];
 
 async function ensureExampleLoaded(page, componentCase) {
-  const clickByIdInActiveWorkspace = async () => {
-    return page.evaluate((buttonId) => {
-      const state = window.Main?.session?.workspaceState;
-      const activeTab = state?.tabs?.find(tab => tab?.id === state?.activeTabId) || null;
-      const type = activeTab?.type || '';
-      const mountedRoot = window.Shared?.workspaceTabs?.getMountedRoot?.(activeTab?.id || null, type) || null;
-      const pageRoot = type ? document.getElementById(`${type}Page`) : null;
-      const searchRoot = mountedRoot || pageRoot || document;
-      const button = searchRoot?.querySelector?.(`#${buttonId}`) || null;
-      if (!button || button.disabled) {
-        return false;
-      }
-      button.click();
-      return true;
-    }, componentCase.exampleButtonId);
-  };
-
-  for (let attempt = 0; attempt < 24; attempt += 1) {
-    const usedComponentButton = await clickExampleButtonIfPresent(page, componentCase.exampleButtonId);
-    if (usedComponentButton) {
-      await page.waitForTimeout(900);
-      return;
-    }
-    const clickedById = await clickByIdInActiveWorkspace();
-    if (clickedById) {
-      await page.waitForTimeout(900);
-      return;
-    }
-    await page.waitForTimeout(220);
-  }
-  throw new Error(`Unable to trigger example load for component ${componentCase.key}`);
+  await clickExampleButton(page, {
+    ...componentCase.component,
+    exampleButtonId: componentCase.exampleButtonId
+  }, { timeout: 35_000, requireMountedRoot: false });
 }
 
 async function waitForStatsReady(page, componentCase) {
@@ -207,51 +179,22 @@ async function waitForRestoredStats(page, componentCase) {
 }
 
 async function captureWorkspaceArchive(page, componentKey) {
-  const archive = await page.evaluate(async () => {
-    const tabsApi = window.Main?.tabs;
-    const sessionActions = window.Main?.sessionActions;
-    if (!tabsApi || typeof tabsApi.getSessionActionsContext !== 'function') {
-      throw new Error('Main.tabs.getSessionActionsContext unavailable');
-    }
-    if (!sessionActions || typeof sessionActions.buildWorkspaceArchiveBlob !== 'function') {
-      throw new Error('Main.sessionActions.buildWorkspaceArchiveBlob unavailable');
-    }
-    const context = tabsApi.getSessionActionsContext();
-    const blob = await sessionActions.buildWorkspaceArchiveBlob(context, {
-      scope: 'workspace',
-      snapshotKind: 'document-snapshot',
-      compression: 'STORE',
-      reason: 'e2e-stats-archive-reopen'
-    });
-    if (!blob) {
-      throw new Error('buildWorkspaceArchiveBlob returned null');
-    }
-    const bytes = new Uint8Array(await blob.arrayBuffer());
-    const CHUNK = 0x8000;
-    let binary = '';
-    for (let i = 0; i < bytes.length; i += CHUNK) {
-      binary += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
-    }
-    return {
-      fileName: String(blob.name || 'workspace.graph').trim() || 'workspace.graph',
-      size: bytes.length,
-      base64: btoa(binary)
-    };
+  const archivePath = path.join(ARCHIVE_TMP_DIR, `${componentKey}-statistics.graph`);
+  const archive = await saveWorkspaceArchive(page, archivePath, {
+    scope: 'workspace',
+    snapshotKind: 'document-snapshot',
+    compression: 'STORE',
+    reason: 'e2e-stats-archive-reopen',
+    fileName: path.basename(archivePath)
   });
-  const safeName = archive.fileName.toLowerCase().endsWith('.graph')
-    ? archive.fileName
-    : `${archive.fileName}.graph`;
-  fs.mkdirSync(ARCHIVE_TMP_DIR, { recursive: true });
-  const archivePath = path.join(ARCHIVE_TMP_DIR, `${componentKey}-${safeName}`);
-  fs.writeFileSync(archivePath, Buffer.from(archive.base64, 'base64'));
   return { archivePath, size: archive.size };
 }
 
 async function loadWorkspaceArchive(page, archivePath) {
   const input = page.locator('#workspaceSessionInput');
   await expect(input).toHaveCount(1, { timeout: 20_000 });
-  await input.setInputFiles(archivePath);
-  await page.waitForTimeout(900);
+  await openWorkspaceArchive(page, archivePath, { reload: false, timeout: 120_000 });
+  await waitForDocumentOpenComplete(page, 120_000);
 }
 
 async function activateWorkspaceTabByExactTitle(page, titlePattern) {
@@ -261,16 +204,9 @@ async function activateWorkspaceTabByExactTitle(page, titlePattern) {
 }
 
 async function activateFirstGraphTab(page) {
-  const clicked = await page.evaluate(() => {
-    const tabs = Array.from(document.querySelectorAll('.workspace-tab'));
-    const target = tabs.find(node => !/^\s*Welcome\s*$/.test(String(node.textContent || '').trim()));
-    if (!target) {
-      return false;
-    }
-    target.click();
-    return true;
-  });
-  expect(clicked).toBe(true);
+  const target = page.locator('.workspace-tab').filter({ hasNotText: /^\s*Welcome\s*$/i }).first();
+  await expect(target).toBeVisible({ timeout: 20_000 });
+  await target.click();
 }
 
 async function openComponentAndPrepareStats(page, componentCase) {
@@ -287,89 +223,27 @@ async function openComponentAndPrepareStats(page, componentCase) {
 }
 
 async function seedRecoverySnapshotFromWorkspace(page) {
-  return page.evaluate(async () => {
-    const openWebDb = () => new Promise((resolve, reject) => {
-      if (!window.indexedDB) {
-        reject(new Error('IndexedDB unavailable.'));
-        return;
-      }
-      const request = window.indexedDB.open('graphitix-document-state', 2);
-      request.onupgradeneeded = () => {
-        const db = request.result;
-        if (!db.objectStoreNames.contains('snapshots')) {
-          db.createObjectStore('snapshots');
-        }
-      };
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error || new Error('IndexedDB open failed.'));
-    });
-    const putRecoverySnapshot = async record => {
-      const db = await openWebDb();
-      return new Promise((resolve, reject) => {
-        const tx = db.transaction('snapshots', 'readwrite');
-        tx.objectStore('snapshots').put(record, 'active-recovery');
-        tx.oncomplete = () => resolve(true);
-        tx.onerror = () => reject(tx.error || new Error('IndexedDB snapshot write failed.'));
-      });
-    };
-    const tabsApi = window.Main?.tabs;
-    const sessionActions = window.Main?.sessionActions;
-    const workspaceState = window.Main?.session?.workspaceState || {};
-    if (!tabsApi || typeof tabsApi.getSessionActionsContext !== 'function') {
-      throw new Error('Main.tabs.getSessionActionsContext unavailable');
-    }
-    if (!sessionActions || typeof sessionActions.buildWorkspaceArchiveBlob !== 'function') {
-      throw new Error('Main.sessionActions.buildWorkspaceArchiveBlob unavailable');
-    }
-    const graphTabs = Array.isArray(workspaceState.tabs)
-      ? workspaceState.tabs.filter(tab => tab && !tab.isWelcome && tab.type)
-      : [];
-    const context = tabsApi.getSessionActionsContext();
-    const blob = await sessionActions.buildWorkspaceArchiveBlob(context, {
-      scope: 'workspace',
-      snapshotKind: 'recovery',
-      policyMode: 'recovery',
-      reason: 'recovery-interval',
-      useWorker: true
-    });
-    if (!blob) {
-      return { status: 'skipped', reason: 'empty' };
-    }
-    await putRecoverySnapshot({
-      meta: {
-        app: 'Graphitix',
-        kind: 'recovery',
-        version: 1,
-        savedAt: new Date().toISOString(),
-        updatedAt: Date.now(),
-        reason: 'recovery-interval',
-        dirty: true,
-        hasData: true,
-        tabCount: graphTabs.length,
-        fileName: workspaceState.sessionFileName || 'workspace.graph',
-        filePath: workspaceState.sessionFilePath || '',
-        fileScope: workspaceState.sessionFileScope || 'workspace'
-      },
-      blob
-    });
-    return { status: 'saved', bytes: blob.size };
+  const tabCount = await page.evaluate(() => {
+    const tabs = window.Main?.session?.workspaceState?.tabs;
+    return Array.isArray(tabs) ? tabs.filter(tab => tab && !tab.isWelcome && tab.type).length : 0;
   });
+  const archive = await buildWorkspaceArchive(page, {
+    scope: 'workspace',
+    snapshotKind: 'recovery',
+    policyMode: 'recovery',
+    reason: 'recovery-interval',
+    useWorker: true
+  });
+  const meta = await seedRecoveryArchive(page, archive.base64, {
+    reason: 'recovery-interval',
+    tabCount,
+    fileName: 'workspace.graph'
+  });
+  return { status: 'saved', bytes: archive.size, meta };
 }
 
 async function reloadAndAcceptRecoveryIfPrompted(page) {
-  let acceptedDialog = false;
-  const dialogHandler = async dialog => {
-    acceptedDialog = true;
-    await dialog.accept();
-  };
-  page.on('dialog', dialogHandler);
-  try {
-    await page.reload({ waitUntil: 'domcontentloaded' });
-    await page.waitForTimeout(1100);
-  } finally {
-    page.off('dialog', dialogHandler);
-  }
-  return acceptedDialog;
+  return reloadAndAcceptRecovery(page, { timeout: 40_000 });
 }
 
 for (const componentCase of STATS_COMPONENT_CASES) {

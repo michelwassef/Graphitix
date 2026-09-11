@@ -1,10 +1,18 @@
 const { test, expect } = require('@playwright/test');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
 const {
-  installLocalCdnOverrides,
   openComponentFromWelcome,
-  clickExampleButtonIfPresent,
-  registerIssueCollectors
-} = require('./helpers/workspaceHarness');
+  clickExampleButtonIfPresent
+} = require('./helpers/workspaceDriver');
+const { registerIssueCollectors } = require('./helpers/diagnostics');
+const {
+  buildWorkspaceArchive
+} = require('./helpers/archiveDriver');
+const {
+  clearRecoverySnapshot,
+  reloadAndAcceptRecovery,
+  seedRecoveryArchive
+} = require('./helpers/recoveryDriver');
 
 async function waitForSurfaceDraw(page) {
   await page.waitForFunction(() => {
@@ -42,100 +50,25 @@ async function waitForSurfaceRenderCache(page) {
   }, null, { timeout: 30_000 });
 }
 
-async function clearRecoverySnapshot(page) {
-  await page.evaluate(async () => {
-    const request = window.indexedDB.open('graphitix-document-state', 2);
-    const db = await new Promise((resolve, reject) => {
-      request.onupgradeneeded = () => {
-        const opened = request.result;
-        if (!opened.objectStoreNames.contains('snapshots')) {
-          opened.createObjectStore('snapshots');
-        }
-      };
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error || new Error('IndexedDB open failed.'));
-    });
-    await new Promise(resolve => {
-      const tx = db.transaction('snapshots', 'readwrite');
-      tx.objectStore('snapshots').delete('active-recovery');
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => resolve();
-    });
-    db.close();
-  });
-}
-
 async function seedRecoverySnapshot(page) {
-  await page.evaluate(async () => {
-    const request = window.indexedDB.open('graphitix-document-state', 2);
-    const db = await new Promise((resolve, reject) => {
-      request.onupgradeneeded = () => {
-        const opened = request.result;
-        if (!opened.objectStoreNames.contains('snapshots')) {
-          opened.createObjectStore('snapshots');
-        }
-      };
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error || new Error('IndexedDB open failed.'));
-    });
-    const workspaceState = window.Main?.session?.workspaceState || {};
-    const graphTabs = Array.isArray(workspaceState.tabs)
-      ? workspaceState.tabs.filter(tab => tab && !tab.isWelcome && tab.type)
-      : [];
-    const context = window.Main.tabs.getSessionActionsContext();
-    const blob = await window.Main.sessionActions.buildWorkspaceArchiveBlob(context, {
-      scope: 'workspace',
-      snapshotKind: 'recovery',
-      policyMode: 'recovery',
-      reason: 'recovery-interval',
-      useWorker: true
-    });
-    await new Promise((resolve, reject) => {
-      const tx = db.transaction('snapshots', 'readwrite');
-      tx.objectStore('snapshots').put({
-        meta: {
-          app: 'Graphitix',
-          kind: 'recovery',
-          version: 1,
-          savedAt: new Date().toISOString(),
-          updatedAt: Date.now(),
-          reason: 'recovery-interval',
-          dirty: true,
-          hasData: true,
-          tabCount: graphTabs.length,
-          revision: Number(window.Main?.session?.workspaceState?.sessionRevision) || 0,
-          fileName: workspaceState.sessionFileName || 'workspace.graph',
-          fileScope: workspaceState.sessionFileScope || 'workspace'
-        },
-        blob
-      }, 'active-recovery');
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error || new Error('IndexedDB recovery write failed.'));
-    });
-    db.close();
+  const workspaceState = await page.evaluate(() => window.Main?.session?.workspaceState || {});
+  const graphTabs = Array.isArray(workspaceState.tabs)
+    ? workspaceState.tabs.filter(tab => tab && !tab.isWelcome && tab.type)
+    : [];
+  const archive = await buildWorkspaceArchive(page, {
+    scope: 'workspace',
+    snapshotKind: 'recovery',
+    policyMode: 'recovery',
+    reason: 'recovery-interval',
+    useWorker: true
   });
-}
-
-async function reloadAndAcceptRecovery(page) {
-  let recoveryAccepted = false;
-  const handler = async dialog => {
-    if (/recover|restore/i.test(dialog.message())) {
-      recoveryAccepted = true;
-    }
-    await dialog.accept();
-  };
-  page.on('dialog', handler);
-  try {
-    await page.reload({ waitUntil: 'domcontentloaded' });
-    await expect.poll(() => recoveryAccepted, {
-      timeout: 20_000,
-      message: 'Surface crash-recovery prompt should be accepted'
-    }).toBe(true);
-    await page.waitForSelector('#surfacePage:not([hidden])', { timeout: 30_000 });
-    await waitForSurfaceDraw(page);
-  } finally {
-    page.off('dialog', handler);
-  }
+  await seedRecoveryArchive(page, archive.base64, {
+    reason: 'recovery-interval',
+    tabCount: graphTabs.length,
+    revision: Number(workspaceState.sessionRevision) || 0,
+    fileName: workspaceState.sessionFileName || 'workspace.graph',
+    fileScope: workspaceState.sessionFileScope || 'workspace'
+  });
 }
 
 async function dragSurface(page) {
@@ -316,7 +249,10 @@ test('recovered surface scale drag and 3D rotation remain live and stable', asyn
   await waitForSurfaceDraw(page);
 
   await seedRecoverySnapshot(page);
-  await reloadAndAcceptRecovery(page);
+  const accepted = await reloadAndAcceptRecovery(page);
+  expect(accepted).toBe(true);
+  await page.waitForSelector('#surfacePage:not([hidden])', { timeout: 30_000 });
+  await waitForSurfaceDraw(page);
 
   const before = await surfaceGeometry(page);
   expect(before.hasAuthoritativeRenderRestoreProperty).toBe(false);
@@ -366,7 +302,8 @@ test('recovered Surface rotation remains owner-scoped with PCA and Scatter 3D si
   await waitForSurfaceDraw(page);
 
   await seedRecoverySnapshot(page);
-  await reloadAndAcceptRecovery(page);
+  const accepted = await reloadAndAcceptRecovery(page);
+  expect(accepted).toBe(true);
   await page.waitForFunction(() => {
     const workspace = window.Main?.session?.workspaceState || null;
     const active = workspace?.tabs?.find(tab => tab?.id === workspace.activeTabId) || null;

@@ -1,16 +1,14 @@
 const { test, expect } = require('@playwright/test');
-const {
-  installLocalCdnOverrides,
-  openComponentFromWelcome,
-  clickExampleButtonIfPresent
-} = require('./helpers/workspaceHarness');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
+const { openComponentFromWelcome } = require('./helpers/workspaceDriver');
+const { clickExampleButton } = require('./helpers/uiDriver');
 
 test('PCA legend remains inside the published SVG content envelope', async ({ page }) => {
   await page.setViewportSize({ width: 1920, height: 1080 });
   await installLocalCdnOverrides(page);
   await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
   await openComponentFromWelcome(page, { type: 'pca', pageId: 'pcaPage' }, { first: true });
-  await clickExampleButtonIfPresent(page, 'pcaLoadExample');
+  await clickExampleButton(page, { type: 'pca', pageId: 'pcaPage', exampleButtonId: 'pcaLoadExample' }, { requireMountedRoot: true });
   await page.waitForFunction(() => {
     const root = document.querySelector('#pcaPage:not([hidden])');
     return !!root?.querySelector('#pcaSvg [data-legend-viewport-content="true"]')

@@ -4,6 +4,8 @@ describe('dendrogramControls numeric wheel editing', () => {
     document.body.innerHTML = '';
     delete window.Shared.dendrogramControls;
     jest.resetModules();
+    require('../js/shared/workspaceToolbarAccess.js');
+    require('../js/shared/workspaceToolbar.js');
     require('../js/shared/dendrogramControls.js');
   });
 

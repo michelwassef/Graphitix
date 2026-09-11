@@ -11,11 +11,20 @@ module.exports = defineConfig({
   },
   fullyParallel: false,
   retries: 0,
-  reporter: [['list']],
+  globalSetup: require.resolve('./e2e/globalSetup.js'),
+  reporter: [
+    ['list'],
+    ['json', {
+      outputFile: process.env.PLAYWRIGHT_JSON_OUTPUT_NAME || 'test-results/playwright-report.json'
+    }]
+  ],
   use: {
     baseURL: BASE_URL,
     headless: true,
-    trace: 'on-first-retry',
+    // The local full runner performs a diagnostic rerun as a separate process,
+    // so Playwright's retry-only trace mode would not retain the original
+    // failure. Keep the first failed run's trace for reliable triage.
+    trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
     acceptDownloads: true
@@ -27,7 +36,9 @@ module.exports = defineConfig({
   webServer: {
     command: `node scripts/e2e-server.cjs --port ${PORT}`,
     url: `${BASE_URL}/index.html`,
-    reuseExistingServer: true,
+    // Reuse is opt-in; when enabled, globalSetup verifies the served entry
+    // point hash before any test starts.
+    reuseExistingServer: process.env.PLAYWRIGHT_REUSE_SERVER === '1',
     timeout: 120_000
   }
 });

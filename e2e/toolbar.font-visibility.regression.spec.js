@@ -1,10 +1,8 @@
 const { test, expect } = require('@playwright/test');
-const {
-  installLocalCdnOverrides,
-  registerIssueCollectors,
-  openComponentFromWelcome,
-  clickExampleButtonIfPresent
-} = require('./helpers/workspaceHarness');
+const { openComponentFromWelcome } = require('./helpers/workspaceDriver');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
+const { registerIssueCollectors } = require('./helpers/diagnostics');
+const { waitForOwnerProjection } = require('./helpers/contractWaits');
 
 function isFontControlDebug(msgText) {
   const text = String(msgText || '');
@@ -33,23 +31,18 @@ test('format toolbar stays visible when clicking graph text (line + scatter)', a
 
   for (let i = 0; i < cases.length; i += 1) {
     const c = cases[i];
-    await openComponentFromWelcome(page, c, { first: i === 0 });
-    let hasEditableText = false;
-    for (let attempt = 0; attempt < 8; attempt += 1) {
-      await clickExampleButtonIfPresent(page, c.exampleButtonId);
-      hasEditableText = await page.evaluate((selector) => {
-        return !!document.querySelector(`${selector} text[data-font-editable="1"]`);
-      }, c.graphSelector);
-      if (hasEditableText) {
-        break;
-      }
-      await page.waitForTimeout(300 + attempt * 120);
-    }
-    expect(hasEditableText, `${c.type} should expose an editable graph text node`).toBe(true);
+    await openComponentFromWelcome(page, c, { first: i === 0, loadExample: true });
+    await waitForOwnerProjection(page, c, c.graphSelector, {
+      requireMountedRoot: true,
+      requireIdle: true,
+      visible: true
+    });
+    await page.waitForFunction((selector) => {
+      return !!document.querySelector(`${selector} text[data-font-editable="1"]`);
+    }, c.graphSelector);
 
     const textTarget = page.locator(`${c.graphSelector} text[data-font-editable="1"]`).first();
     await textTarget.click({ force: true });
-    await page.waitForTimeout(350);
 
     const hostState = await page.evaluate((scopeId) => {
       const key = scopeId || '__global__';
@@ -86,4 +79,3 @@ test('format toolbar stays visible when clicking graph text (line + scatter)', a
 
   expect(issues.critical).toEqual([]);
 });
-

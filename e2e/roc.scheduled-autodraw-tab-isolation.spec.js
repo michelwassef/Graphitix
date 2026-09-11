@@ -1,12 +1,10 @@
 const fs = require('fs');
 const path = require('path');
 const { test, expect } = require('@playwright/test');
-const {
-  installLocalCdnOverrides,
-  registerIssueCollectors,
-  openComponentFromWelcome,
-  waitForDocumentOpenComplete
-} = require('./helpers/workspaceHarness');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
+const { openComponentFromWelcome, waitForDocumentOpenComplete } = require('./helpers/workspaceDriver');
+const { registerIssueCollectors } = require('./helpers/diagnostics');
+const { waitForComponentOwnerReady } = require('./helpers/contractWaits');
 
 const TMP_DIR = path.resolve(__dirname, '.tmp');
 
@@ -150,7 +148,7 @@ async function scheduleFirstTabThenSwitch(page, targetTabId) {
     }
   }, targetTabId);
   await page.waitForFunction(id => window.Main?.session?.workspaceState?.activeTabId === id, targetTabId, { timeout: 20_000 });
-  await page.waitForTimeout(220);
+  await waitForComponentOwnerReady(page, 'roc', { expectedTabId: targetTabId, requireIdle: true, timeout: 30_000 });
 }
 
 async function snapshotRoc(page) {

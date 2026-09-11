@@ -1,18 +1,16 @@
 const { test, expect } = require('@playwright/test');
 const {
-  installLocalCdnOverrides,
-  registerIssueCollectors,
-  openComponentFromWelcome,
-  clickExampleButtonIfPresent
-} = require('./helpers/workspaceHarness');
+  openComponentFromWelcome
+} = require('./helpers/workspaceDriver');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
+const { registerIssueCollectors } = require('./helpers/diagnostics');
+const { clickExampleButton } = require('./helpers/uiDriver');
 
 async function ensureScatterExampleLoaded(page) {
-  await clickExampleButtonIfPresent(page, 'scatterLoadExample');
-  await page.evaluate(() => {
-    const button = document.getElementById('scatterLoadExample');
-    if (button && typeof button.click === 'function') {
-      button.click();
-    }
+  await clickExampleButton(page, {
+    type: 'scatter',
+    pageId: 'scatterPage',
+    exampleButtonId: 'scatterLoadExample'
   });
   await page.waitForFunction(() => {
     const nodes = document.querySelectorAll('#scatterSvg text[data-font-key="graphTitle"]');

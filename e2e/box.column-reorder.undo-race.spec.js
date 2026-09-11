@@ -1,9 +1,8 @@
 const { test, expect } = require('@playwright/test');
-const {
-  installLocalCdnOverrides,
-  registerIssueCollectors,
-  openComponentFromWelcome
-} = require('./helpers/workspaceHarness');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
+const { openComponentFromWelcome } = require('./helpers/workspaceDriver');
+const { registerIssueCollectors } = require('./helpers/diagnostics');
+const { waitForComponentOwnerReady } = require('./helpers/contractWaits');
 
 test('box immediate undo after column drag restores the original header row', async ({ page }) => {
   test.setTimeout(120_000);
@@ -15,7 +14,11 @@ test('box immediate undo after column drag restores the original header row', as
   await openComponentFromWelcome(page, { type: 'box', pageId: 'boxPage' }, { first: true });
 
   await page.locator('#boxLoadExample').click();
-  await page.waitForTimeout(1200);
+  await waitForComponentOwnerReady(page, 'box', {
+    requireMountedRoot: true,
+    requireIdle: true,
+    timeout: 20_000
+  });
 
   const headerA = page.locator('#hot .ag-header-cell[col-id="c0"]').first();
   const headerB = page.locator('#hot .ag-header-cell[col-id="c1"]').first();

@@ -4,10 +4,22 @@
 const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
+const { buildFileManifest } = require('../test-support/testManifest.js');
+const { buildImpactPlan } = require('../test-support/impactMap.js');
 
 const ROOT = path.resolve(__dirname, '..');
 const UNIT_DIR = path.join(ROOT, '__tests__');
 const E2E_DIR = path.join(ROOT, 'e2e');
+
+const IMPACT_LANE_COMMANDS = Object.freeze({
+  static: 'npm run test:static',
+  unit: 'npm run test:unit -- --runInBand',
+  dom: 'npm run test:dom -- --runInBand',
+  integration: 'npm run test:integration -- --runInBand',
+  workers: 'npm run test:workers -- --runInBand',
+  vendor: 'npm run test:vendor',
+  'e2e-contracts:chromium': 'npm run test:e2e:contracts:chromium -- --workers=1'
+});
 
 const IGNORE_TOKEN_SET = new Set([
   'js', 'src', 'docs', 'scripts', 'shared', 'main', 'components', 'tests', 'test', 'e2e',
@@ -219,6 +231,28 @@ function suggestSuiteTests(changedFiles, suiteRoot, options) {
   return scored.slice(0, options.max);
 }
 
+function buildStaticManifest() {
+  const jestPaths = walkFiles(UNIT_DIR)
+    .filter(file => /\.test\.js$/i.test(file))
+    .map(toRel);
+  const e2ePaths = walkFiles(E2E_DIR)
+    .filter(file => /\.spec\.js$/i.test(file))
+    .map(toRel);
+  return buildFileManifest({ jestPaths, e2ePaths });
+}
+
+function buildMandatoryCommands(impactPlan) {
+  const commands = [];
+  for (const lane of impactPlan.mandatoryLanes) {
+    const command = IMPACT_LANE_COMMANDS[lane];
+    if (!command) {
+      throw new Error(`No command is registered for mandatory impact lane: ${lane}`);
+    }
+    commands.push({ lane, command });
+  }
+  return commands;
+}
+
 function maybeRunCommand(label, command) {
   console.log(`\n${label}: ${command}`);
   try {
@@ -239,6 +273,8 @@ function main() {
 
   const unitSuggestions = suggestSuiteTests(changedFiles, UNIT_DIR, options);
   const e2eSuggestions = suggestSuiteTests(changedFiles, E2E_DIR, options);
+  const impactPlan = buildImpactPlan(changedFiles, buildStaticManifest());
+  const mandatoryCommands = buildMandatoryCommands(impactPlan);
   const jestCommand = unitSuggestions.length
     ? `npx jest ${unitSuggestions.map(item => quoteForShell(item.file)).join(' ')}`
     : null;
@@ -254,8 +290,10 @@ function main() {
     },
     commands: {
       jest: jestCommand,
-      playwright: e2eCommand
-    }
+      playwright: e2eCommand,
+      mandatory: mandatoryCommands
+    },
+    impact: impactPlan
   };
 
   if (options.json) {
@@ -278,6 +316,18 @@ function main() {
       console.log(`- ${item.file} [score=${item.score}] (${item.reasons.join(', ')})`);
     }
     if (e2eCommand) console.log(`Command: ${e2eCommand}`);
+
+    console.log(`\nMandatory impact groups (${impactPlan.matchedRules.length}):`);
+    if (!impactPlan.matchedRules.length) {
+      console.log('- none; token suggestions are advisory only');
+    } else {
+      for (const group of impactPlan.matchedRules) {
+        console.log(`- ${group.id}: ${group.label} [contracts=${group.contracts.join(',')}]`);
+        console.log(`  components=${group.components.join(',')} manifestEntries=${group.manifestEntryIds.length}`);
+      }
+      console.log('Mandatory commands:');
+      for (const item of mandatoryCommands) console.log(`- ${item.lane}: ${item.command}`);
+    }
   }
 
   if (options.runJest && jestCommand) {
@@ -286,6 +336,25 @@ function main() {
   if (options.runE2E && e2eCommand) {
     maybeRunCommand('Running Playwright', e2eCommand);
   }
+  if (options.runJest) {
+    for (const item of mandatoryCommands.filter(entry => !entry.lane.startsWith('e2e-'))) {
+      maybeRunCommand(`Running mandatory ${item.lane}`, item.command);
+    }
+  }
+  if (options.runE2E) {
+    for (const item of mandatoryCommands.filter(entry => entry.lane.startsWith('e2e-'))) {
+      maybeRunCommand(`Running mandatory ${item.lane}`, item.command);
+    }
+  }
 }
 
-main();
+if (require.main === module) main();
+
+module.exports = {
+  IMPACT_LANE_COMMANDS,
+  deriveTokensFromPath,
+  suggestSuiteTests,
+  buildMandatoryCommands,
+  buildStaticManifest,
+  main
+};

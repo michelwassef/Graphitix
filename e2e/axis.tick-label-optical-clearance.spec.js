@@ -1,5 +1,5 @@
 const { test, expect } = require('@playwright/test');
-const { installLocalCdnOverrides } = require('./helpers/workspaceHarness');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
 
 for (const angle of [-45, -90, 45, 90]) {
   test(`rotating an X-axis tick label to ${angle} degrees adds the shared optical clearance`, async ({ page }) => {

@@ -1,9 +1,8 @@
 const { test, expect } = require('@playwright/test');
-const {
-  installLocalCdnOverrides,
-  registerIssueCollectors,
-  openComponentFromWelcome
-} = require('./helpers/workspaceHarness');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
+const { openComponentFromWelcome } = require('./helpers/workspaceDriver');
+const { registerIssueCollectors } = require('./helpers/diagnostics');
+const { waitForComponentOwnerReady } = require('./helpers/contractWaits');
 
 function readBoxAxisMetrics() {
   const root = document.querySelector('#boxPage:not([hidden])') || document;
@@ -106,7 +105,12 @@ async function prepareBox(page) {
     return !!document.querySelector('#boxPlot svg')
       && Number(state?.graphGeometry?.reserves?.xLabelPx || 0) > 0;
   }, null, { timeout: 20_000 });
-  await page.waitForTimeout(600);
+  await waitForComponentOwnerReady(page, 'box', {
+    requireMountedRoot: true,
+    requirePublished: true,
+    requireIdle: true,
+    timeout: 30_000
+  });
 }
 
 async function seedRichBoxRecoverySnapshot(page) {
@@ -292,7 +296,7 @@ async function dragBoxWidthDense(page, dx, options = {}) {
     samples.push({ phase: `move-${step}`, metrics: await page.evaluate(readBoxAxisMetrics) });
   }
   await page.mouse.up();
-  await page.waitForTimeout(options.endDelayMs || 500);
+  await waitForComponentOwnerReady(page, 'box', { requireIdle: true, timeout: 30_000 });
   samples.push({ phase: 'end', metrics: await page.evaluate(readBoxAxisMetrics) });
   return samples;
 }
@@ -317,7 +321,7 @@ async function dragBoxHeightDense(page, dy, options = {}) {
     samples.push({ phase: `move-${step}`, metrics: await page.evaluate(readBoxAxisMetrics) });
   }
   await page.mouse.up();
-  await page.waitForTimeout(options.endDelayMs || 500);
+  await waitForComponentOwnerReady(page, 'box', { requireIdle: true, timeout: 30_000 });
   samples.push({ phase: 'end', metrics: await page.evaluate(readBoxAxisMetrics) });
   return samples;
 }
@@ -354,7 +358,7 @@ test('box reset at default size preserves initial graph placement', async ({ pag
   };
   const before = await page.evaluate(read);
   await page.locator('#boxGraphPanel .resizer-vertical').first().dblclick();
-  await page.waitForTimeout(700);
+  await waitForComponentOwnerReady(page, 'box', { requireIdle: true, timeout: 30_000 });
   const after = await page.evaluate(read);
   expect(Math.abs(after.title.y - before.title.y)).toBeLessThanOrEqual(0.5);
 });
@@ -509,6 +513,13 @@ test('box manual reopen preserves the first horizontal-resize y-axis anchor', as
     const svg = document.querySelector('#boxPage:not([hidden]) #boxSvg');
     return !!svg && window.Components?.box?.isIdleForSnapshot?.() === true;
   }, null, { timeout: 20_000 });
+  await waitForComponentOwnerReady(page, 'box', {
+    expectedTabId: await page.evaluate(() => window.Main?.session?.workspaceState?.activeTabId || null),
+    requireMountedRoot: true,
+    requirePublished: true,
+    requireIdle: true,
+    timeout: 30_000
+  });
 
   const reopenedBeforeDrag = await page.evaluate(readBoxAxisMetrics);
   const samples = await dragBoxWidthDense(page, -130, { steps: 24 });

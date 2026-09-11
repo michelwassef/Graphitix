@@ -1,4 +1,4 @@
-name: Nightly Full Jest
+name: Nightly Full Jest and Coverage
 
 on:
   schedule:
@@ -26,5 +26,13 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Run full Jest suite
-        run: npm test -- --runInBand
+      - name: Run full Jest suite with coverage
+        run: npm run test:lane -- --lane coverage
+
+      - name: Upload Jest coverage
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: jest-coverage
+          path: coverage
+          if-no-files-found: ignore

@@ -1,9 +1,8 @@
 const { test, expect } = require('@playwright/test');
-const {
-  installLocalCdnOverrides,
-  registerIssueCollectors,
-  openComponentFromWelcome
-} = require('./helpers/workspaceHarness');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
+const { openComponentFromWelcome } = require('./helpers/workspaceDriver');
+const { registerIssueCollectors } = require('./helpers/diagnostics');
+const { waitForComponentOwnerReady } = require('./helpers/contractWaits');
 
 // Regression guard for 3D plot distortion.
 //
@@ -53,7 +52,7 @@ test('line 3D plot scales uniformly on initial load (no stretch/distortion)', as
     viewMode.value = '3d';
     viewMode.dispatchEvent(new Event('change', { bubbles: true }));
   });
-  await page.waitForTimeout(300);
+  await waitForComponentOwnerReady(page, 'line', { requireMountedRoot: true, requireIdle: true, timeout: 30_000 });
   await page.evaluate(() => {
     const state = window.Main?.session?.workspaceState;
     const active = state?.tabs?.find(tab => tab?.id === state.activeTabId) || null;
@@ -80,7 +79,7 @@ test('line 3D plot scales uniformly on initial load (no stretch/distortion)', as
     const mode = svg && (svg.dataset?.viewMode || svg.getAttribute('data-view-mode'));
     return !!(svg && mode === '3d' && svg.getAttribute('preserveAspectRatio'));
   }, null, { timeout: 40_000 });
-  await page.waitForTimeout(300);
+  await waitForComponentOwnerReady(page, 'line', { requireMountedRoot: true, requireIdle: true, timeout: 30_000 });
 
   const par = await page.evaluate(() => {
     const state = window.Main?.session?.workspaceState;

@@ -1,9 +1,8 @@
 const { test, expect } = require('@playwright/test');
-const {
-  installLocalCdnOverrides,
-  registerIssueCollectors,
-  openComponentFromWelcome
-} = require('./helpers/workspaceHarness');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
+const { openComponentFromWelcome } = require('./helpers/workspaceDriver');
+const { registerIssueCollectors } = require('./helpers/diagnostics');
+const { waitForComponentOwnerReady } = require('./helpers/contractWaits');
 
 async function getWorkspaceTabIds(page) {
   return page.evaluate(() =>
@@ -29,7 +28,7 @@ async function activateTabById(page, tabId) {
   await tab.click({ force: true });
   await page.waitForFunction(id => window.Main?.session?.workspaceState?.activeTabId === id, tabId, { timeout: 20_000 });
   await page.waitForSelector('#vennPage:not([hidden]) #stage', { timeout: 30_000 });
-  await page.waitForTimeout(250);
+  await waitForComponentOwnerReady(page, 'venn', { requireMountedRoot: true, timeout: 30_000 });
 }
 
 async function configureVennTab(page, config) {
@@ -465,10 +464,9 @@ async function runGoAndString(page, tabId, config) {
     config.label,
     { timeout: 10_000 }
   );
-  await page.waitForTimeout(250);
 }
 
-async function resolveMockResults(page, label) {
+async function resolveMockResults(page, tabId, label) {
   await page.evaluate(resultLabel => {
     const mocks = window.__vennAsyncMocks;
     const findByLabel = entries => entries.find(entry => (entry.request.genes || []).some(gene => String(gene).includes(resultLabel)));
@@ -506,7 +504,12 @@ async function resolveMockResults(page, label) {
       ]
     });
   }, label);
-  await page.waitForTimeout(900);
+  await page.waitForFunction(({ resultLabel, ownerTabId }) => {
+    const workspace = window.Main?.session?.workspaceState || {};
+    const tab = (workspace.tabs || []).find(item => item?.id === ownerTabId);
+    const enrichment = tab?.payload?.analysis?.stringEnrichment || [];
+    return enrichment.some(item => String(item?.termDescription || item?.description || '').includes(resultLabel));
+  }, { resultLabel: label, ownerTabId: tabId }, { timeout: 30_000 });
 }
 
 async function snapshotVennAnalysis(page) {
@@ -558,8 +561,8 @@ test('venn GO and STRING async results stay owned by their launching tab', async
   await runGoAndString(page, firstId, first);
   await runGoAndString(page, secondId, second);
 
-  await resolveMockResults(page, 'BETA');
-  await resolveMockResults(page, 'ALPHA');
+  await resolveMockResults(page, secondId, 'BETA');
+  await resolveMockResults(page, firstId, 'ALPHA');
 
   await activateTabById(page, firstId);
   const firstSnapshot = await snapshotVennAnalysis(page);

@@ -1,6 +1,6 @@
 const path = require('path');
 const { test, expect } = require('@playwright/test');
-const { installLocalCdnOverrides } = require('./helpers/workspaceHarness');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
 
 const expectedTabs = () => [
   { title: 'Grouped: Entering replicate data', type: 'box' },

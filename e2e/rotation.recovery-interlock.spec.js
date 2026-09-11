@@ -1,10 +1,12 @@
 const { test, expect } = require('@playwright/test');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
 const {
-  installLocalCdnOverrides,
   openComponentFromWelcome,
-  clickExampleButtonIfPresent,
-  registerIssueCollectors
-} = require('./helpers/workspaceHarness');
+  clickExampleButtonIfPresent
+} = require('./helpers/workspaceDriver');
+const { registerIssueCollectors } = require('./helpers/diagnostics');
+const { waitForComponentOwnerReady } = require('./helpers/contractWaits');
+const { requestRecoveryCheckpoint } = require('./helpers/recoveryDriver');
 
 const CASES = [
   {
@@ -39,7 +41,10 @@ const CASES = [
 
 async function open3dExample(page, component) {
   await openComponentFromWelcome(page, component, { first: true });
-  await page.waitForFunction(type => window.Components?.[type]?.ready === true, component.type, { timeout: 30_000 });
+  await waitForComponentOwnerReady(page, component.type, {
+    requireMountedRoot: true,
+    timeout: 30_000
+  });
   if (component.select3dBeforeExample && component.viewModeId) {
     await page.locator(`#${component.viewModeId}`).selectOption('3d');
   }
@@ -54,6 +59,8 @@ async function open3dExample(page, component) {
       && (svg.dataset?.viewMode === '3d' || svg.id === 'surfaceSvg');
   }, component.svgSelector, { timeout: 30_000 });
 }
+
+test.describe.configure({ mode: 'parallel' });
 
 async function readRotationControl(page, selector) {
   return page.evaluate(svgSelector => {
@@ -97,9 +104,9 @@ for (const component of CASES) {
       };
     });
 
-    // Drain any checkpoint scheduled by example loading, then seed a new revision
-    // whose recovery deadline will occur while the pointer remains captured.
-    await page.waitForTimeout(3000);
+    // Complete any checkpoint caused by example loading, then seed a new revision.
+    // The later direct request models the scheduled deadline without sleeping.
+    await requestRecoveryCheckpoint(page, 'e2e-rotation-recovery-example-drain');
     await page.evaluate(() => {
       window.__rotationRecoveryBuildCalls = 0;
       const session = window.Main?.session;
@@ -110,7 +117,10 @@ for (const component of CASES) {
         affectsPayload: false
       });
     });
-    await page.waitForTimeout(2000);
+    await page.waitForFunction(() => window.Main?.session?.workspaceState?.sessionUserDirty === true, null, {
+      timeout: 10_000,
+      polling: 'raf'
+    });
 
     const svg = page.locator(component.svgSelector).first();
     const box = await svg.boundingBox();
@@ -124,7 +134,12 @@ for (const component of CASES) {
     await page.mouse.down();
     await page.mouse.move(box.x + box.width + 30, startY + 20, { steps: 10 });
     const beforeDeadline = await readRotationControl(page, component.svgSelector);
-    await page.waitForTimeout(1200);
+    await page.waitForFunction(() => window.Shared?.plot3d?.getActiveRotationGestureCount?.() === 1, null, {
+      timeout: 5000,
+      polling: 'raf'
+    });
+    const deferred = await requestRecoveryCheckpoint(page, 'e2e-rotation-recovery-deadline');
+    expect(deferred).toMatchObject({ status: 'deferred', reason: 'active-rotation-gesture' });
 
     const duringDeadline = await page.evaluate(({ selector, token }) => {
       const activeSvg = document.querySelector(selector);
@@ -141,9 +156,10 @@ for (const component of CASES) {
     });
 
     await page.mouse.move(startX + 90, startY + 45, { steps: 10 });
-    await page.waitForTimeout(150);
-    const afterDeadline = await readRotationControl(page, component.svgSelector);
-    expect(maxRotationDelta(beforeDeadline, afterDeadline)).toBeGreaterThan(0.01);
+    await expect.poll(
+      () => readRotationControl(page, component.svgSelector).then(after => maxRotationDelta(beforeDeadline, after)),
+      { timeout: 5000, intervals: [50, 100, 250] }
+    ).toBeGreaterThan(0.01);
     await page.mouse.up();
 
     await expect.poll(() => page.evaluate(() => window.__rotationRecoveryBuildCalls || 0), {

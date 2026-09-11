@@ -7,8 +7,9 @@ This document summarizes the initialization sequence that the `Main` namespace e
 `js/main.js` executes immediately once the script tag is evaluated. At the top of the file it enforces a strict dependency order using hard `throw` guards:
 
 1. **`Main.session`** must exist first. [`js/main.js`](../../js/main.js) aborts with `main.js requires Main.session to be initialized before loading.` if the namespace is missing.
-2. **`Main.previews`** must be created before `js/main.js` runs, otherwise it throws `main.js requires Main.previews to be initialized before loading.`
-3. **`Main.domControls`**, **`Main.sessionActions`**, and **`Main.tabDrag`** must all be defined prior to executing any of the main bootstrap. A combined guard throws `main.js requires domControls, sessionActions, and tabDrag to be initialized before loading.` when one is absent.
+2. **`Main.snapshotPolicy`** is loaded next because session and action code consume its snapshot contract.
+3. **`Main.domControls`**, **`Main.sessionActions`**, and **`Main.tabDrag`** must be defined before the main bootstrap. A combined guard throws `main.js requires domControls, sessionActions, and tabDrag to be initialized before loading.` when one is absent.
+4. **`Main.previews`** must be created before `js/main.js` runs, otherwise it throws `main.js requires Main.previews to be initialized before loading.`
 
 Because the module throws immediately, these namespaces have to be loaded in the page **before** including `js/main.js`.
 
@@ -29,12 +30,12 @@ When the page loads, the scripts that define the namespaces above run in order b
 
 1. `Main.session` seeds `workspaceState` and exports helpers (`getActiveTab`, `createTab`, `persistActiveTabState`, etc.). These helpers satisfy the `requiredSessionHelpers` check inside `js/main.js`.
 2. `Main.snapshotPolicy` publishes snapshot intent and archive capture defaults consumed by `Main.sessionActions`/`Main.documentState`.
-3. `Main.previews` registers generators and `syncTabPreviewIndicator`, which `Main.session` uses while tabs change payloads and previews.
-4. `Main.domControls` exposes `createDomHandles()` plus workspace show/hide helpers. `js/main.js` immediately calls `createDomHandles()` once the dependency guard passes to capture DOM references for the rest of startup.
-5. `Main.sessionActions` listens to click/submit events and, during startup, installs handlers that call back into `Main.session` and `Main.previews`.
-6. `Main.tabDrag` wires pointer events to manage tab dragging, using `Main.session.workspaceState` and `Main.sessionActions` callbacks to finalize drops.
+3. `Main.domControls` exposes `createDomHandles()` plus workspace show/hide helpers. `js/main.js` immediately calls `createDomHandles()` once the dependency guard passes to capture DOM references for the rest of startup.
+4. `Main.sessionActions` listens to click/submit events and, during startup, installs handlers that call back into `Main.session` and `Main.previews`.
+5. `Main.tabDrag` wires pointer events to manage tab dragging, using `Main.session.workspaceState` and `Main.sessionActions` callbacks to finalize drops.
+6. `Main.previews` registers generators and `syncTabPreviewIndicator`, which `Main.session` uses while tabs change payloads and previews.
 
-Only after all five namespaces are registered does `js/main.js` continue bootstrapping the component registry (`Main.components`), color picker overlay, and chart redraw scheduling.
+Only after all six namespaces are registered does `js/main.js` continue bootstrapping the component registry (`Main.components`), color picker overlay, and chart redraw scheduling.
 
 ## Updating the Sequence
 

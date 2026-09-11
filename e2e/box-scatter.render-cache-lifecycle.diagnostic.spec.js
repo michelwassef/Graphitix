@@ -1,13 +1,9 @@
-	const fs = require('fs');
+const fs = require('fs');
 const path = require('path');
 const { test, expect } = require('@playwright/test');
-const {
-  installLocalCdnOverrides,
-  registerIssueCollectors,
-  openComponentFromWelcome,
-  clickExampleButtonIfPresent,
-  waitForDocumentOpenComplete
-} = require('./helpers/workspaceHarness');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
+const { registerIssueCollectors } = require('./helpers/diagnostics');
+const { openComponentFromWelcome, waitForDocumentOpenComplete } = require('./helpers/workspaceDriver');
 
 const TMP_DIR = path.resolve(__dirname, '.tmp-render-cache-lifecycle');
 const COMPONENTS = ['scatter', 'box', 'line'];

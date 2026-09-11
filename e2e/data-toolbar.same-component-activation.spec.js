@@ -1,11 +1,14 @@
 const { test, expect } = require('@playwright/test');
+const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
 const {
   COMPONENT_MATRIX,
-  installLocalCdnOverrides,
-  registerIssueCollectors,
-  openComponentFromWelcome,
-  clickExampleButtonIfPresent
-} = require('./helpers/workspaceHarness');
+  openComponentFromWelcome
+} = require('./helpers/workspaceDriver');
+const {
+  activateTab,
+  activateToolbarSection
+} = require('./helpers/uiDriver');
+const { registerIssueCollectors } = require('./helpers/diagnostics');
 
 const DATA_TOOLBAR_COMPONENTS = new Set(['box', 'heatmap', 'hist', 'line', 'pca', 'scatter', 'surface']);
 const COMPONENTS = COMPONENT_MATRIX.filter(component => DATA_TOOLBAR_COMPONENTS.has(component.type));
@@ -18,20 +21,8 @@ async function getWorkspaceTabIds(page) {
   );
 }
 
-async function activateTabById(page, tabId) {
-  const tab = page.locator(`#workspaceTabsList .workspace-tab[data-tab-id="${tabId}"]`).first();
-  await expect(tab).toBeVisible();
-  await tab.click({ force: true });
-  const clicked = await page.waitForFunction(
-    id => window.Main?.session?.workspaceState?.activeTabId === id,
-    tabId,
-    { timeout: 2_000 }
-  ).then(() => true).catch(() => false);
-  if (!clicked) {
-    await page.evaluate(id => window.Main?.tabs?.activateTab?.(id, { reason: 'e2e-data-toolbar-activate-tab' }), tabId);
-    await page.waitForFunction(id => window.Main?.session?.workspaceState?.activeTabId === id, tabId, { timeout: 20_000 });
-  }
-  await page.waitForTimeout(250);
+async function activateTabById(page, tabId, component) {
+  await activateTab(page, tabId, component, { timeout: 20_000 });
 }
 
 async function waitForActiveToolbar(page, component) {
@@ -50,8 +41,7 @@ async function waitForActiveToolbar(page, component) {
 
 async function openComponentTab(page, component, { first = false } = {}) {
   const before = new Set(await getWorkspaceTabIds(page));
-  await openComponentFromWelcome(page, component, { first });
-  await clickExampleButtonIfPresent(page, component.exampleButtonId);
+  await openComponentFromWelcome(page, component, { first, loadExample: true });
   await waitForActiveToolbar(page, component);
   const after = await getWorkspaceTabIds(page);
   const tabId = after.find(id => !before.has(id));
@@ -60,47 +50,28 @@ async function openComponentTab(page, component, { first = false } = {}) {
 }
 
 async function configureDataToolbar(page, component, options) {
-  await page.evaluate(({ type, expression, multiMode, selectedTransforms }) => {
-    const activated = window.Shared?.workspaceToolbar?.activateSection?.(type, 'Data');
-    if (!activated) {
-      throw new Error(`Data toolbar activation failed for ${type}`);
+  const toolbar = await activateToolbarSection(page, component, 'Data');
+  const mode = toolbar.locator('[data-transform-multi-toggle="1"]').first();
+  if (await mode.count() > 0 && (await mode.isChecked()) !== !!options.multiMode) {
+    await mode.click();
+  }
+  const selected = toolbar.locator('[data-transform-option][data-transform-selected="1"]');
+  const selectedButtons = await selected.all();
+  for (const button of selectedButtons) {
+    await button.click();
+  }
+  if (options.multiMode) {
+    for (const transform of options.selectedTransforms || []) {
+      const button = toolbar.locator(`[data-transform-option="${transform}"]`).first();
+      await button.waitFor({ state: 'visible' });
+      await button.click();
     }
-    const state = window.Main?.session?.workspaceState;
-    const active = state?.tabs?.find(tab => tab?.id === state.activeTabId) || null;
-    const root = window.Shared?.workspaceTabs?.getMountedRoot?.(active?.id, type)
-      || document.querySelector(`.workspace-page:not([hidden])`)
-      || null;
-    const toolbar = root?.querySelector?.(`.workspace-page__topbar[data-toolbar="${type}"] .workspace-toolbar`) || null;
-    if (!toolbar) {
-      throw new Error(`Active toolbar not found for ${type}`);
+  }
+  await page.evaluate(({ type, expression }) => {
+    if (!window.Shared?.workspaceToolbar?.setCustomTransformExpression?.(type, expression)) {
+      throw new Error(`Custom transform expression update failed for ${type}`);
     }
-    const mode = toolbar.querySelector('[data-transform-multi-toggle="1"]');
-    if (mode) {
-      mode.checked = !!multiMode;
-      mode.dispatchEvent(new Event('change', { bubbles: true }));
-    }
-    toolbar.querySelectorAll('[data-transform-option]').forEach(button => {
-      if (button.dataset.transformSelected === '1') {
-        button.click();
-      }
-    });
-    if (multiMode) {
-      selectedTransforms.forEach(transform => {
-        const button = toolbar.querySelector(`[data-transform-option="${transform}"]`);
-        if (!button) {
-          throw new Error(`Transform option ${transform} not found for ${type}`);
-        }
-        button.click();
-      });
-    }
-    window.Shared?.workspaceToolbar?.setCustomTransformExpression?.(type, expression);
-  }, {
-    type: component.type,
-    expression: options.expression,
-    multiMode: options.multiMode,
-    selectedTransforms: options.selectedTransforms || []
-  });
-  await page.waitForTimeout(150);
+  }, { type: component.type, expression: options.expression });
 }
 
 async function snapshotDataToolbar(page, component) {
@@ -148,14 +119,14 @@ for (const component of COMPONENTS) {
     const secondId = await openComponentTab(page, component, { first: false });
     expect(secondId).not.toBe(firstId);
 
-    await activateTabById(page, firstId);
+    await activateTabById(page, firstId, component);
     await configureDataToolbar(page, component, {
       expression: `x + ${component.type.length}`,
       multiMode: true,
       selectedTransforms: ['cpm']
     });
 
-    await activateTabById(page, secondId);
+    await activateTabById(page, secondId, component);
     await configureDataToolbar(page, component, {
       expression: `x * ${component.type.length + 2}`,
       multiMode: false,
@@ -164,11 +135,11 @@ for (const component of COMPONENTS) {
 
     const snapshots = [];
     for (let i = 0; i < 4; i += 1) {
-      await activateTabById(page, firstId);
-      await page.evaluate(type => window.Shared?.workspaceToolbar?.activateSection?.(type, 'Data'), component.type);
+      await activateTabById(page, firstId, component);
+      await activateToolbarSection(page, component, 'Data');
       snapshots.push({ step: `first-${i}`, ...(await snapshotDataToolbar(page, component)) });
-      await activateTabById(page, secondId);
-      await page.evaluate(type => window.Shared?.workspaceToolbar?.activateSection?.(type, 'Data'), component.type);
+      await activateTabById(page, secondId, component);
+      await activateToolbarSection(page, component, 'Data');
       snapshots.push({ step: `second-${i}`, ...(await snapshotDataToolbar(page, component)) });
     }
 
