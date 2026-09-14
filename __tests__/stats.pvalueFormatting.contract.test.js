@@ -1,9 +1,13 @@
+const fs = require('fs');
+const path = require('path');
+
 describe('Shared p-value formatting contract', () => {
   beforeEach(() => {
     jest.resetModules();
     document.body.innerHTML = '';
     window.Shared = {};
     global.Shared = window.Shared;
+    require('../js/shared/pValueFormatter.js');
     require('../js/shared/chartStyle.js');
     require('../js/shared/stats.js');
     require('../js/shared/stats-table.js');
@@ -117,13 +121,85 @@ describe('Shared p-value formatting contract', () => {
   test('explicit probability bounds remain bounds instead of becoming display thresholds', () => {
     const { target } = renderPValueTable([
       { term: 'Lower bound', value: { type: 'pValue', value: 1e-6, operator: '>' } },
-      { term: 'Upper bound', value: { type: 'pValue', value: 1.23e-6, operator: '≤' } }
+      { term: 'Upper bound', value: { type: 'pValue', value: 1.23e-6, operator: '≤' } },
+      { term: 'Underflow bound', value: { type: 'pValue', value: 0, operator: '<' } }
     ]);
 
-    expect(pCells(target).map(cell => cell.textContent)).toEqual(['> 0.000001', '≤ 0.00000123']);
+    expect(pCells(target).map(cell => cell.textContent)).toEqual(['> 0.000001', '≤ 0.00000123', '< 0.0001']);
 
     window.Shared.statsReporting.setPanelPValueFormatScientific(target, true);
     window.Shared.statsTable.refreshPValueFormatting(target);
-    expect(pCells(target).map(cell => cell.textContent)).toEqual(['> 1 × 10⁻⁶', '≤ 1.23 × 10⁻⁶']);
+    expect(pCells(target).map(cell => cell.textContent)).toEqual(['> 1 × 10⁻⁶', '≤ 1.23 × 10⁻⁶', '< 1 × 10⁻⁴']);
+  });
+
+  test('the table compatibility path preserves explicit bounds', () => {
+    delete window.Shared.statsReporting;
+    const { target } = renderPValueTable([
+      { term: 'Positive bound', value: { type: 'pValue', value: 0, operator: '>' } },
+      { term: 'Lower bound', value: { type: 'pValue', value: 1e-30, operator: '≥' } },
+      { term: 'Underflow bound', value: { type: 'pValue', value: 0, operator: '<' } },
+      { term: 'Invalid bound', value: { type: 'pValue', value: 1.4, operator: '<' } }
+    ]);
+
+    expect(pCells(target).map(cell => cell.textContent)).toEqual([
+      '> 0',
+      '≥ 1 × 10⁻³⁰',
+      '< 0.0001',
+      'unavailable (invalid probability)'
+    ]);
+  });
+
+  test('finite values outside the probability range are reported as invalid', () => {
+    const decimal = window.Shared.formatPValue(-0.01, { scientific: false });
+    const scientific = window.Shared.formatPValue(1.01, { scientific: true });
+
+    expect(String(decimal)).toBe('unavailable (invalid probability)');
+    expect(String(scientific)).toBe('unavailable (invalid probability)');
+    expect(window.Shared.statsReporting.formatPValueExpression(-0.01, { scientific: false }))
+      .toBe('p = unavailable (invalid probability)');
+    expect(window.Shared.statsReporting.renderTextParts([
+      'p = ', { type: 'pValue', value: 1.01 }
+    ], { scientific: false })).toBe('p = unavailable (invalid probability)');
+  });
+
+  test('non-numeric inputs are not coerced into probabilities', () => {
+    [null, undefined, '', ' ', true, false].forEach(value => {
+      const formatted = window.Shared.formatPValue(value, { scientific: false });
+      expect(String(formatted)).toBe('unavailable (not estimable)');
+      expect(Number.isNaN(formatted.__statsPValueRaw)).toBe(true);
+    });
+    expect(window.Shared.statsReporting.formatPValueExpression(null, { scientific: false }))
+      .toBe('p = n/a');
+  });
+
+  test('decimal output retains representable tiny probabilities', () => {
+    expect(String(window.Shared.formatPValue(0.0001, { scientific: false }))).toBe('0.0001');
+    const formatted = window.Shared.formatPValue(0.00009999, { scientific: false });
+    expect(String(formatted)).toBe('0.00009999');
+    expect(formatted.__statsPValueThresholded).toBe(false);
+  });
+
+  test('the dependency-free scientific fallback trims insignificant zeros', () => {
+    const chartStyle = window.Shared.chartStyle;
+    delete window.Shared.chartStyle;
+    expect(window.Shared.pValueFormatter.formatScientific(1e-8, { significantDigits: 6 }))
+      .toBe('1 × 10⁻⁸');
+    expect(window.Shared.pValueFormatter.formatScientific(1.2e-5, { significantDigits: 6 }))
+      .toBe('1.2 × 10⁻⁵');
+    window.Shared.chartStyle = chartStyle;
+  });
+
+  test('component p-value adapters delegate to the canonical formatter', () => {
+    [
+      'line', 'scatter', 'box', 'hist', 'pie', 'roc', 'survival', 'heatmap', 'venn'
+    ].forEach(component => {
+      const source = fs.readFileSync(path.resolve(__dirname, '..', 'js', 'components', `${component}.js`), 'utf8');
+      expect(source).toContain('Shared.pValueFormatter?.format');
+    });
+    expect(fs.readFileSync(path.resolve(__dirname, '..', 'js', 'shared', 'boxStatsModel.js'), 'utf8'))
+      .toContain('P_VALUE_FORMATTER_URL');
+    const scatter = fs.readFileSync(path.resolve(__dirname, '..', 'js', 'components', 'scatter.js'), 'utf8');
+    expect(scatter).toContain('formatScatterPExpressionText');
+    expect(scatter).not.toContain('Slopes differ (P = ${formatP(slopesP)}).');
   });
 });

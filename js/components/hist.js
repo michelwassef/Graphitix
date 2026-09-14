@@ -6099,21 +6099,32 @@
     return num.toFixed(places);
   }
 
-  function formatPValue(value){
-    const num = Number(value);
-    if(!Number.isFinite(num)){
-      return '\u2014';
+  function toNumericPValue(value){
+    if(typeof Shared.pValueFormatter?.toNumericValue === 'function'){
+      return Shared.pValueFormatter.toNumericValue(value);
     }
-    const formatter = Shared.formatters?.formatPValue || Shared.formatPValue;
+    if(value === null || value === undefined || typeof value === 'boolean' || typeof value === 'symbol') return NaN;
+    if(typeof value !== 'number' && typeof value !== 'string' && !(value instanceof Number)) return NaN;
+    if(typeof value === 'string' && value.trim() === '') return NaN;
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric : NaN;
+  }
+
+  function formatPValue(value){
+    const formatter = Shared.pValueFormatter?.format
+      || Shared.formatters?.formatPValue
+      || Shared.formatPValue;
     const scientific = Shared.statsReporting?.getPValueFormatScientific?.({
       target: getHistNodeById('histStatsResults'),
       tabId: getHistProjectionTabId() || null
     }) === true;
     if(typeof formatter === 'function'){
-      return formatter(num, { scientific, forceScientific: scientific });
+      return formatter(value, { scientific, forceScientific: scientific });
     }
-    if(scientific){ return Shared.formatters?.formatScientificNumber?.(num, { fractionalDigits: 5 }) || String(num); }
-    return num >= 0 && num <= 0.0001 ? '<0.0001' : num.toFixed(4).replace(/0+$/, '').replace(/\.$/, '');
+    const numeric = toNumericPValue(value);
+    return Number.isFinite(numeric) && numeric >= 0 && numeric <= 1
+      ? String(numeric)
+      : '\u2014';
   }
 
   function getHistStatsInferenceTabId(){
@@ -6130,7 +6141,7 @@
   }
 
   function histComparisonPValueToken(value){
-    const numeric = Number(value);
+    const numeric = toNumericPValue(value);
     if(!Number.isFinite(numeric)){
       return '\u2014';
     }
@@ -6285,11 +6296,12 @@
       cdf: fit.cdf,
       alpha
     });
+    const available = gof?.available === true;
     return {
-      available: !!gof,
+      available,
       fit,
       gof: gof || null,
-      message: gof ? null : `${distributionLabel} goodness-of-fit unavailable.`
+      message: available ? null : (gof?.message || `${distributionLabel} goodness-of-fit unavailable.`)
     };
   }
 
@@ -6382,15 +6394,19 @@
       }
     }
     const hasTies = new Set(arrA).size < na || new Set(arrB).size < nb;
+    const p = d === 0 ? 1 : Math.max(0, Math.min(1, 2 * sum));
     return {
-      available: true,
+      available: Number.isFinite(p) && p >= 0 && p <= 1,
       D: d,
-      p: Math.max(0, Math.min(1, 2 * sum)),
+      p,
       nA: na,
       nB: nb,
       method: 'asymptotic',
       alternative: 'two-sided',
       hasTies,
+      message: Number.isFinite(p) && p >= 0 && p <= 1
+        ? null
+        : 'Kolmogorov-Smirnov p-value could not be evaluated.',
       warning: hasTies ? 'The continuous two-sample KS asymptotic calibration is approximate because tied values are present.' : null
     };
   }

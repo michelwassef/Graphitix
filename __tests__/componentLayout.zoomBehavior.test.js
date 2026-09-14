@@ -440,6 +440,27 @@ describe('componentLayout zoom behavior contract', () => {
     expect(svgBox.querySelector('.resizer-aspect-checkbox').checked).toBe(true);
     expect(policy).toHaveBeenCalled();
   });
+
+  test('restored responsive split keeps its requested fraction across flex remeasurement', () => {
+    window.Shared.syncPanelWidths = jest.fn();
+    const layout = window.Shared.componentLayout.createStandardPanels({
+      componentName: 'line',
+      selectors: {
+        tablePanel: '#lineTablePanel',
+        graphPanel: '#lineGraphPanel',
+        configPanel: '#lineConfigPanel',
+        panelResizer: '#linePanelResizer',
+        svgBox: '#lineSvgBox',
+        resizeTarget: '#lineSvgBox'
+      }
+    });
+    const snapshot = layout.captureState();
+    snapshot.workspace = { version: 1, tableFraction: 0.3417167783911672 };
+
+    layout.applyState(snapshot, { reason: 'responsive-split-restore' });
+
+    expect(layout.captureState().workspace).toEqual(snapshot.workspace);
+  });
 });
 
 describe('componentLayout observer scheduling contract', () => {

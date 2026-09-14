@@ -966,3 +966,80 @@ test('box width resize keeps the graph clear of the bottom tray', async ({ page 
 
   expect(issues.critical).toEqual([]);
 });
+
+test('changing Y log scale after Box statistics reapplies significance geometry', async ({ page }) => {
+  test.setTimeout(120_000);
+  const issues = registerIssueCollectors(page);
+  await installLocalCdnOverrides(page);
+  await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
+  await expect(page.locator('#welcomeScreen')).toBeVisible();
+  await openComponentFromWelcome(page, { type: 'box', pageId: 'boxPage' }, { first: true });
+  await loadBoxExampleData(page);
+  await waitForBoxOwnerIdle(page);
+
+  const logScale = page.locator('#boxLogScale');
+  await logScale.check();
+  await waitForBoxOwnerIdle(page);
+
+  await ensureBoxStatsAndSignificanceReady(page);
+  await setBoxSignificanceToggle(page, true);
+  await page.waitForFunction(
+    () => document.querySelectorAll('#boxPlot path.box-significance-annotation[data-sig-orientation="vertical"]').length > 0,
+    null,
+    { timeout: 45_000 }
+  );
+  await waitForBoxOwnerIdle(page);
+
+  await logScale.uncheck();
+  await page.waitForFunction(
+    () => {
+      const state = window.Components?.box?.__getState?.() || null;
+      return document.querySelector('#boxLogScale')?.checked === false
+        && state?.showSignificanceBars === true
+        && Number(state?.statsLastRunVersion) > 0
+        && Number(state?.statsLastRunVersion) === Number(state?.statsContextVersion)
+        && document.querySelectorAll('#boxPlot path.box-significance-annotation[data-sig-orientation="vertical"]').length > 0;
+    },
+    null,
+    { timeout: 45_000 }
+  );
+  await waitForBoxOwnerIdle(page);
+
+  const metrics = await page.evaluate(() => {
+    const state = window.Components?.box?.__getState?.() || null;
+    const svg = document.querySelector('#boxPlot svg');
+    const traces = state?.statsContext?.traces || state?.cachedDrawInput?.traces || [];
+    const pairs = Array.isArray(state?.statsLastAnnotationModel?.pairs)
+      ? state.statsLastAnnotationModel.pairs
+      : [];
+    const rawRangeMax = (ai, bi) => {
+      let max = -Infinity;
+      for (let index = Math.min(ai, bi); index <= Math.max(ai, bi); index += 1) {
+        for (const value of (traces[index]?.rawY || [])) {
+          if (Number.isFinite(Number(value))) max = Math.max(max, Number(value));
+        }
+      }
+      return max;
+    };
+    return {
+      logScale: !!document.querySelector('#boxLogScale')?.checked,
+      pathCount: svg?.querySelectorAll('path.box-significance-annotation[data-sig-orientation="vertical"]').length || 0,
+      labelCount: svg?.querySelectorAll('text.box-significance-annotation').length || 0,
+      pairs: pairs.map(pair => ({
+        ai: Number(pair.ai),
+        bi: Number(pair.bi),
+        rangeMax: Number(pair.rangeMax),
+        rawRangeMax: rawRangeMax(Number(pair.ai), Number(pair.bi))
+      }))
+    };
+  });
+
+  expect(metrics.logScale).toBe(false);
+  expect(metrics.pathCount).toBeGreaterThan(0);
+  expect(metrics.labelCount).toBe(metrics.pathCount);
+  expect(metrics.pairs.length).toBe(metrics.pathCount);
+  metrics.pairs.forEach(pair => {
+    expect(pair.rangeMax).toBeCloseTo(pair.rawRangeMax, 8);
+  });
+  expect(issues.critical).toEqual([]);
+});

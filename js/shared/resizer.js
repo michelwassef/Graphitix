@@ -424,7 +424,7 @@
   const undoManager = Shared.undoManager;
   const resizerNamespace = Shared.resizer = Shared.resizer || {};
   const displayOnlyZoomResizeRegistry = new WeakMap();
-  resizerNamespace.consumeDisplayOnlyZoomResize = function consumeDisplayOnlyZoomResize(target, size = {}){
+  const matchesDisplayOnlyZoomResize = (target, size = {}) => {
     const expected = target ? displayOnlyZoomResizeRegistry.get(target) : null;
     if(!expected){
       return false;
@@ -440,6 +440,11 @@
       && Number.isFinite(height)
       && Math.abs(width - expectedWidth) <= 0.5
       && Math.abs(height - expectedHeight) <= 0.5;
+    return matches;
+  };
+  resizerNamespace.isDisplayOnlyZoomResize = matchesDisplayOnlyZoomResize;
+  resizerNamespace.consumeDisplayOnlyZoomResize = function consumeDisplayOnlyZoomResize(target, size = {}){
+    const matches = matchesDisplayOnlyZoomResize(target, size);
     if(matches){
       displayOnlyZoomResizeRegistry.delete(target);
     }
@@ -3935,6 +3940,9 @@
           return;
         }
         const rect = container.getBoundingClientRect?.();
+        if(resizerNamespace.isDisplayOnlyZoomResize?.(container, rect)){
+          return;
+        }
         if(
           lastResizeNotificationSize
           && Number.isFinite(rect?.width)

@@ -2042,9 +2042,17 @@
           tab.sharedState.layout.resizer.aspectLocked = !!aspectCheckbox.checked;
         }
       }
-      const currentTableFraction = captureWorkspaceTableFraction(elements.tablePanel, elements.graphPanel);
-      if(currentTableFraction !== null){
-        panelState.workspaceSplit = { version: 1, tableFraction: currentTableFraction };
+      const hasManualPanelSizing = elements.tablePanel?.dataset?.panelManualWidth === 'true'
+        || elements.graphPanel?.dataset?.panelManualWidth === 'true';
+      // Once a responsive split has been restored, its requested fraction is the
+      // durable value. The browser may report a slightly different ratio after
+      // flex sizing, min-content constraints, or a cache rebind. Only replace it
+      // with measured geometry after an explicit divider drag.
+      if(!panelState.workspaceSplit || hasManualPanelSizing){
+        const currentTableFraction = captureWorkspaceTableFraction(elements.tablePanel, elements.graphPanel);
+        if(currentTableFraction !== null){
+          panelState.workspaceSplit = { version: 1, tableFraction: currentTableFraction };
+        }
       }
       const normalizedSvgSnapshot = normalizeLiveResizableSnapshot(elements.svgBox, {
         style: cloneStyle(elements.svgBox),

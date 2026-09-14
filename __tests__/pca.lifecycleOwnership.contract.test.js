@@ -101,6 +101,13 @@ describe('PCA lifecycle ownership contract', () => {
     expect(source).toContain("markFontEditable(node, 'axis3d', labelText)");
   });
 
+  test('exposes the owner-scoped primary graph publication probe', () => {
+    const source = pcaSource();
+    expect(source).toContain('pca.hasRenderedGraph = function hasRenderedGraph');
+    expect(source).toContain("selectors: ['#pcaPlot']");
+    expect(source).toContain("contentSelectors: ['[data-plot-point=\"1\"]', 'canvas.pca-fast-points-layer']");
+  });
+
   test('superseded worker completions cannot replace the current owner worker record', () => {
     const source = pcaSource();
     expect(source).toContain('function isPcaWorkerInvocationCurrent(invocation)');

@@ -141,6 +141,12 @@ describe('Extended statistical coverage', () => {
     expect(`${pair.statName} = ${pair.stat.toFixed(4)}`).toMatch(/^D = \d/);
   });
 
+  test('box two-sample KS returns p = 1 for identical empirical samples', () => {
+    const result = boxHooks.kolmogorovSmirnovTwoSample([1, 2, 3, 4], [1, 2, 3, 4]);
+    expect(result.D).toBe(0);
+    expect(result.p).toBe(1);
+  });
+
   test('box grouped statistical engines cover row-wise and grouped-comparison scopes with multiplicity families', () => {
     const groupedData = {
       groupsCount: 3,

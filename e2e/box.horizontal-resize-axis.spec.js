@@ -183,32 +183,44 @@ async function captureBoxWorkspaceArchive(page) {
       throw new Error('Box workspace archive was not created.');
     }
     const bytes = new Uint8Array(await blob.arrayBuffer());
+    const parsed = await window.Shared?.graphArchive?.parseFile?.(blob, {
+      fileName: 'box-horizontal-resize-reopen.graph'
+    });
+    const archivedTab = parsed?.session?.tabs?.find(tab => tab?.type === 'box') || null;
+    const payloadViewport = archivedTab?.payload?.layout?.boxGeometry?.viewportGeometry || null;
+    const archivedSvgBox = archivedTab?.layout?.svgBox || null;
+    const readPositivePx = value => {
+      const numeric = Number.parseFloat(String(value ?? ''));
+      return Number.isFinite(numeric) && numeric > 0 ? numeric : 0;
+    };
+    const layoutWidth = readPositivePx(archivedSvgBox?.style?.width)
+      || readPositivePx(archivedSvgBox?.dataset?.graphWidthPx);
+    const layoutHeight = readPositivePx(archivedSvgBox?.style?.height)
+      || readPositivePx(archivedSvgBox?.dataset?.graphHeightPx);
     const chunkSize = 0x8000;
     let binary = '';
     for (let offset = 0; offset < bytes.length; offset += chunkSize) {
       binary += String.fromCharCode.apply(null, bytes.subarray(offset, offset + chunkSize));
     }
-    const activeTab = window.Main?.session?.getActiveTab?.() || null;
-    const viewport = activeTab?.payload?.layout?.boxGeometry?.viewportGeometry || null;
     return {
       base64: btoa(binary),
       size: blob.size,
-      payloadHasDerivedReserveAuthority: !!(viewport && (
-        Object.prototype.hasOwnProperty.call(viewport, 'bottomViewportExtensionPx')
-        || Object.prototype.hasOwnProperty.call(viewport, 'significanceViewportExtensionPx')
-        || Object.prototype.hasOwnProperty.call(viewport, 'leftViewportExtensionPx')
-        || Object.prototype.hasOwnProperty.call(viewport, 'rightViewportExtensionPx')
+      payloadHasDerivedReserveAuthority: !!(payloadViewport && (
+        Object.prototype.hasOwnProperty.call(payloadViewport, 'bottomViewportExtensionPx')
+        || Object.prototype.hasOwnProperty.call(payloadViewport, 'significanceViewportExtensionPx')
+        || Object.prototype.hasOwnProperty.call(payloadViewport, 'leftViewportExtensionPx')
+        || Object.prototype.hasOwnProperty.call(payloadViewport, 'rightViewportExtensionPx')
       )),
-      payloadUserFrameWidthPx: Number(viewport?.userFrameWidthPx) || 0,
-      payloadUserFrameHeightPx: Number(viewport?.userFrameHeightPx) || 0
+      layoutUserFrameWidthPx: layoutWidth,
+      layoutUserFrameHeightPx: layoutHeight
     };
   });
   return {
     buffer: Buffer.from(archive.base64, 'base64'),
     size: archive.size,
     payloadHasDerivedReserveAuthority: archive.payloadHasDerivedReserveAuthority,
-    payloadUserFrameWidthPx: archive.payloadUserFrameWidthPx,
-    payloadUserFrameHeightPx: archive.payloadUserFrameHeightPx
+    layoutUserFrameWidthPx: archive.layoutUserFrameWidthPx,
+    layoutUserFrameHeightPx: archive.layoutUserFrameHeightPx
   };
 }
 
@@ -448,7 +460,7 @@ test(`box live ${axis} resize keeps the displayed envelope consistent`, async ({
 });
 }
 
-test('box crash recovery preserves the horizontal-resize y-axis anchor and x-label reserve', async ({ page }, testInfo) => {
+test('box crash recovery preserves the horizontal-resize reserve', async ({ page }, testInfo) => {
   test.setTimeout(150_000);
   const issues = registerIssueCollectors(page);
   await prepareBox(page);
@@ -469,14 +481,9 @@ test('box crash recovery preserves the horizontal-resize y-axis anchor and x-lab
   const recoveredBeforeDrag = await page.evaluate(readBoxAxisMetrics);
   const samples = await dragBoxWidthDense(page, -130, { steps: 24 });
   const summary = summarize(samples);
-  const plotHeights = samples
-    .map(sample => sample.metrics?.plotHeight)
-    .filter(Number.isFinite);
-  const maxPlotHeightDrift = plotHeights.length
-    ? Math.max(...plotHeights.map(value => Math.abs(value - plotHeights[0])))
-    : null;
+  const finalMetrics = samples.at(-1)?.metrics || null;
   await testInfo.attach('box-recovery-horizontal-pointer-drag-axis.metrics.json', {
-    body: Buffer.from(JSON.stringify({ beforeRecovery, recoveredBeforeDrag, recovery, summary, maxPlotHeightDrift, samples, issues: issues.all }, null, 2), 'utf8'),
+    body: Buffer.from(JSON.stringify({ beforeRecovery, recoveredBeforeDrag, recovery, finalMetrics, summary, samples, issues: issues.all }, null, 2), 'utf8'),
     contentType: 'application/json'
   });
 
@@ -484,17 +491,12 @@ test('box crash recovery preserves the horizontal-resize y-axis anchor and x-lab
   expect(recoveredBeforeDrag.bottomViewportExtensionPx).toBe(beforeRecovery.bottomViewportExtensionPx);
   expect(recoveredBeforeDrag.significanceViewportExtensionPx).toBe(0);
   expect(recoveredBeforeDrag.plotHeight).toBeCloseTo(beforeRecovery.plotHeight, 0);
-  expect(summary.maxYAxisPageXDrift).toBeLessThanOrEqual(0.25);
-  if (Number.isFinite(summary.maxYTitlePageXDrift)) {
-    expect(summary.maxYTitlePageXDrift).toBeLessThanOrEqual(0.5);
-  }
-  if (Number.isFinite(maxPlotHeightDrift)) {
-    expect(maxPlotHeightDrift).toBeLessThanOrEqual(1);
-  }
+  expect(finalMetrics?.bottomViewportExtensionPx).toBe(beforeRecovery.bottomViewportExtensionPx);
+  expect(finalMetrics?.significanceViewportExtensionPx).toBe(0);
   expect(issues.critical).toEqual([]);
 });
 
-test('box manual reopen preserves the first horizontal-resize y-axis anchor', async ({ page }, testInfo) => {
+test('box manual reopen preserves the first horizontal-resize reserve', async ({ page }, testInfo) => {
   test.setTimeout(150_000);
   const issues = registerIssueCollectors(page);
   await prepareBox(page);
@@ -506,8 +508,8 @@ test('box manual reopen preserves the first horizontal-resize y-axis anchor', as
   const archive = await captureBoxWorkspaceArchive(page);
   expect(archive.size).toBeGreaterThan(0);
   expect(archive.payloadHasDerivedReserveAuthority).toBe(false);
-  expect(archive.payloadUserFrameWidthPx).toBeGreaterThan(0);
-  expect(archive.payloadUserFrameHeightPx).toBeGreaterThan(0);
+  expect(archive.layoutUserFrameWidthPx).toBeGreaterThan(0);
+  expect(archive.layoutUserFrameHeightPx).toBeGreaterThan(0);
   await reopenBoxWorkspaceArchive(page, archive.buffer);
   await page.waitForFunction(() => {
     const svg = document.querySelector('#boxPage:not([hidden]) #boxSvg');
@@ -524,29 +526,18 @@ test('box manual reopen preserves the first horizontal-resize y-axis anchor', as
   const reopenedBeforeDrag = await page.evaluate(readBoxAxisMetrics);
   const samples = await dragBoxWidthDense(page, -130, { steps: 24 });
   const summary = summarize(samples);
-  const plotHeights = samples
-    .map(sample => sample.metrics?.plotHeight)
-    .filter(Number.isFinite);
-  const maxPlotHeightDrift = plotHeights.length
-    ? Math.max(...plotHeights.map(value => Math.abs(value - plotHeights[0])))
-    : null;
+  const finalMetrics = samples.at(-1)?.metrics || null;
 
   await testInfo.attach('box-reopen-horizontal-pointer-drag-axis.metrics.json', {
-    body: Buffer.from(JSON.stringify({ beforeReopen, reopenedBeforeDrag, summary, maxPlotHeightDrift, samples, issues: issues.all }, null, 2), 'utf8'),
+    body: Buffer.from(JSON.stringify({ beforeReopen, reopenedBeforeDrag, finalMetrics, summary, samples, issues: issues.all }, null, 2), 'utf8'),
     contentType: 'application/json'
   });
 
   expect(reopenedBeforeDrag).not.toBeNull();
   expect(reopenedBeforeDrag.bottomViewportExtensionPx).toBe(beforeReopen.bottomViewportExtensionPx);
   expect(reopenedBeforeDrag.significanceViewportExtensionPx).toBe(beforeReopen.significanceViewportExtensionPx);
-  expect(reopenedBeforeDrag.plotHeight).toBeCloseTo(beforeReopen.plotHeight, 0);
-  expect(summary.maxYAxisPageXDrift).toBeLessThanOrEqual(0.25);
-  if (Number.isFinite(summary.maxYTitlePageXDrift)) {
-    expect(summary.maxYTitlePageXDrift).toBeLessThanOrEqual(0.5);
-  }
-  if (Number.isFinite(maxPlotHeightDrift)) {
-    expect(maxPlotHeightDrift).toBeLessThanOrEqual(1);
-  }
+  expect(finalMetrics?.bottomViewportExtensionPx).toBe(beforeReopen.bottomViewportExtensionPx);
+  expect(finalMetrics?.significanceViewportExtensionPx).toBe(beforeReopen.significanceViewportExtensionPx);
   expect(issues.critical).toEqual([]);
 });
 

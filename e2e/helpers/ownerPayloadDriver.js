@@ -1048,6 +1048,14 @@
     }catch(_error){
       activeState = null;
     }
+    const ownerProjection = type === 'heatmap' && componentSession?.state
+      ? {
+          config: {
+            view: componentSession.state.controls?.view ?? null,
+            colorScheme: componentSession.state.colorScheme ?? null
+          }
+        }
+      : null;
     const layoutState = tab?.layoutState || sessionRecord?.layout || null;
     const layoutSizingRecord = global.Shared?.graphSizing?.captureLayoutSizing?.(layoutState, {
       context: `parameter-isolation-${type}-owner-layout`
@@ -1059,6 +1067,7 @@
       proportionalFontResize: layoutSizingRecord.display.proportionalFontResize === true
     } : null;
     return flattenPrimitives({
+      ownerProjection,
       runtime,
       sessionRuntime: sessionRecord?.runtime || null,
       sharedState: tab?.sharedState || sessionRecord?.shared || null,

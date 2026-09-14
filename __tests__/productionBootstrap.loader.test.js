@@ -1,4 +1,7 @@
+const path = require('path');
 const { loadProductionBootstrap } = require('../test-support/productionLoader');
+const { readSharedProductionSources } = require('../test-support/componentTestBootstrap');
+const { readProductionScriptManifest } = require('../test-support/productionBootstrap');
 
 describe('production-derived Jest bootstrap', () => {
   test('loads the real ordered application prerequisites without a hand-written list', () => {
@@ -57,5 +60,14 @@ describe('production-derived Jest bootstrap', () => {
     expect(metadata.preloadedComponents).toEqual(['pca']);
     expect(window.Components?.pca).toBeTruthy();
     expect(window.Components?.venn).toBeUndefined();
+  });
+
+  test('isolated component bootstrap derives shared module order from production', () => {
+    const productionSources = readProductionScriptManifest(path.resolve(__dirname, '..'))
+      .filter(entry => entry.local)
+      .map(entry => entry.source);
+    expect(readSharedProductionSources(path.resolve(__dirname, '..'))).toEqual(
+      productionSources.filter(source => source === 'js/vendor.js' || source.startsWith('js/shared/'))
+    );
   });
 });

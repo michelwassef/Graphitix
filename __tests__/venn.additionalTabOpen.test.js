@@ -1082,6 +1082,7 @@ describe('Venn additional tab opening', () => {
       const driftCalls = debugSpy.mock.calls.filter(call => String(call[0] || '').includes('payload drift observed'));
       debugSpy.mockRestore();
       expect(driftCalls).toEqual([]);
+      expect(tab.payload?.meta?.graphSizing).toBeUndefined();
     }
   });
 });

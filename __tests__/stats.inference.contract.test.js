@@ -167,7 +167,7 @@ describe('Shared statistical inference contract', () => {
     const inference = window.Shared.statsInference;
     const alphaSpec = inference.createDecisionSpec({ method: 'holm', level: 0.05, valueKind: 'adjusted-p' });
     const fdrSpec = inference.createDecisionSpec({ method: 'bh', level: 0.05, valueKind: 'adjusted-p' });
-    [-0.001, 1.001, Number.NaN, Number.POSITIVE_INFINITY].forEach(value => {
+    [-0.001, 1.001, Number.NaN, Number.POSITIVE_INFINITY, null, '', false, true].forEach(value => {
       expect(inference.classifyPValue(value, alphaSpec)).toMatchObject({ valid: false, meetsCriterion: false, token: '', label: '' });
       expect(inference.classifyPValue(value, fdrSpec)).toMatchObject({ valid: false, meetsCriterion: false, token: '', label: '' });
     });

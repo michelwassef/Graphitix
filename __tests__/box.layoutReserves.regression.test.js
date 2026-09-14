@@ -673,7 +673,7 @@ describe('Box layout reserves under horizontal shrink', () => {
     expect(metrics.bottomViewportExtensionPx).toBeGreaterThan(0);
   });
 
-  test('deferred canonical capture keeps shared graph sizing metadata', async () => {
+  test('deferred canonical capture keeps derived graph sizing out of the payload', async () => {
     await activateWorkspace('box');
     await loadBoxExample();
 
@@ -697,7 +697,7 @@ describe('Box layout reserves under horizontal shrink', () => {
     });
 
     expect(changed).toBe(true);
-    expect(tab.payload?.meta?.graphSizing).toBeTruthy();
+    expect(tab.payload?.meta?.graphSizing).toBeUndefined();
   });
 
   test('x-label and significance reserves stay integrated under 50% width shrink', async () => {

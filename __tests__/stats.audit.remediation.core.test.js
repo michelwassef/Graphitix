@@ -124,6 +124,15 @@ describe('Statistical audit remediation — shared engines', () => {
   });
 
   test('hypergeometric inputs are validated and extreme tails retain log probability', () => {
+    const missingInput = stats.computeHypergeometricRightTailDetails({
+      populationSize: 10,
+      successPopulation: 3,
+      draws: 4,
+      observedSuccesses: null
+    });
+    expect(missingInput.valid).toBe(false);
+    expect(missingInput.pValue).toBeNaN();
+
     const invalid = stats.computeHypergeometricRightTailDetails({
       populationSize: 10,
       successPopulation: 3,

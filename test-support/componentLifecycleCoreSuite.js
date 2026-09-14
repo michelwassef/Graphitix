@@ -15,7 +15,7 @@ const LIFECYCLE_SHARD_RANGES = Object.freeze({
     lastDescribe: 'componentLifecycle — snapshot render-cache policy',
     first: 'layoutAuthority: true → true',
     last: 'captureRenderCache false is absolute for sync and async snapshots',
-    expected: 76
+    expected: 77
   }),
   'payload-and-async': Object.freeze({
     firstDescribe: 'componentLifecycle — diffPayload / validatePayload / normalizePayloadEnvelope',
@@ -1401,6 +1401,33 @@ describe('componentLifecycle — graph edit cache invalidation', () => {
 
     document.getElementById('resizeHandle').dispatchEvent(event);
 
+    expect(draw).not.toHaveBeenCalled();
+    expect(tab.renderCache).not.toBeNull();
+    expect(tab.archiveRenderCache).not.toBeNull();
+  });
+
+  test('trusted axis-control click stays outside the generic restored-graph edit path', () => {
+    document.body.innerHTML = `
+      <div data-workspace-component="box" data-workspace-tab-id="tab-a">
+        <div class="svgbox">
+          <svg id="pieSvg"><line id="axis" data-axis-control="1" x1="0" y1="10" x2="100" y2="10"></line></svg>
+        </div>
+      </div>
+    `;
+    const target = document.getElementById('axis');
+    const handler = jest.fn();
+    target.addEventListener('click', handler);
+    const event = new window.MouseEvent('click', {
+      bubbles: true,
+      cancelable: true,
+      clientX: 10,
+      clientY: 10
+    });
+    event.__graphitixUserTrusted = true;
+
+    target.dispatchEvent(event);
+
+    expect(handler).toHaveBeenCalledTimes(1);
     expect(draw).not.toHaveBeenCalled();
     expect(tab.renderCache).not.toBeNull();
     expect(tab.archiveRenderCache).not.toBeNull();

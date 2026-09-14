@@ -10,6 +10,7 @@
   const Shared = ctx.Shared = ctx.Shared || {};
   const JSTAT_URL = '../../libs/jstat.min.js';
   const STATS_URL = '../shared/stats.js';
+  const P_VALUE_FORMATTER_URL = '../shared/pValueFormatter.js';
 
   function logDebug(message, payload){
     if(typeof Shared.debug === 'function'){
@@ -28,6 +29,41 @@
       return Shared.stats;
     }
     throw new Error('Shared.stats unavailable for Box statistics');
+  }
+
+  function getPValueFormatter(){
+    if(Shared.pValueFormatter && typeof Shared.pValueFormatter.format === 'function'){
+      return Shared.pValueFormatter;
+    }
+    if(typeof ctx.importScripts === 'function'){
+      ctx.importScripts(P_VALUE_FORMATTER_URL);
+    }
+    return Shared.pValueFormatter && typeof Shared.pValueFormatter.format === 'function'
+      ? Shared.pValueFormatter
+      : null;
+  }
+
+  function toNumericPValue(value){
+    const formatter = getPValueFormatter();
+    if(typeof formatter?.toNumericValue === 'function'){
+      return formatter.toNumericValue(value);
+    }
+    if(value === null || value === undefined || typeof value === 'boolean' || typeof value === 'symbol'){
+      return NaN;
+    }
+    if(typeof value !== 'number' && typeof value !== 'string' && !(value instanceof Number)){
+      return NaN;
+    }
+    if(typeof value === 'string' && value.trim() === ''){
+      return NaN;
+    }
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric : NaN;
+  }
+
+  function isValidProbability(value){
+    const numeric = toNumericPValue(value);
+    return Number.isFinite(numeric) && numeric >= 0 && numeric <= 1;
   }
 
   function ensureJStat(){
@@ -70,7 +106,13 @@
       }
       return NaN;
     }
-    const upper=ensureStats()?.studentTUpperTail;
+    let stats=null;
+    try{
+      stats=ensureStats();
+    }catch(err){
+      logDebug('Debug: box stats Student t distribution unavailable',{ message:err?.message || String(err) });
+    }
+    const upper=stats?.studentTUpperTail;
     if(typeof upper==='function'){
       if(safeAlternative==='greater'){
         return resolvePValue(upper(t,df));
@@ -336,19 +378,13 @@
 
 
   function fallbackSanitizeP(value){
-    const num = Number(value);
-    if(!Number.isFinite(num) || num < 0){
-      return 0;
-    }
-    if(num > 1){
-      return 1;
-    }
-    return num;
+    const num = toNumericPValue(value);
+    return Number.isFinite(num) && num >= 0 && num <= 1 ? num : NaN;
   }
 
   function fallbackClampUnit(value){
     if(!Number.isFinite(value)){
-      return 1;
+      return NaN;
     }
     if(value < 0){
       return 0;
@@ -555,7 +591,15 @@
     }
     const fallbackKey = FALLBACK_CORRECTION_META[method] ? method : DEFAULT_CORRECTION;
     const adjustFn = FALLBACK_CORRECTION_META[fallbackKey].adjust;
-    return adjustFn(arr);
+    const valid = arr
+      .map((value, index) => ({ index, p: fallbackSanitizeP(value) }))
+      .filter(entry => Number.isFinite(entry.p));
+    const adjustedValid = adjustFn(valid.map(entry => entry.p));
+    const output = new Array(arr.length).fill(null);
+    valid.forEach((entry, index) => {
+      output[entry.index] = adjustedValid[index];
+    });
+    return output;
   }
 
   function resolveEffectiveComparisonCorrection(values, method){
@@ -642,13 +686,18 @@
   }
 
   function formatP(value, options){
-    const formatter = Shared.formatters?.formatPValue || Shared.formatPValue;
+    const formatter = getPValueFormatter()?.format
+      || Shared.formatters?.formatPValue
+      || Shared.formatPValue;
     if(typeof formatter === 'function'){
       return formatter(value, options);
     }
-    const numeric = Number(value);
+    const numeric = toNumericPValue(value);
     if(!Number.isFinite(numeric)){
-      return String(value);
+      return 'unavailable (not estimable)';
+    }
+    if(numeric < 0 || numeric > 1){
+      return 'unavailable (invalid probability)';
     }
     const scientific = options?.forceScientific === true || options?.scientific === true;
     if(scientific){
@@ -663,11 +712,19 @@
         ? scientificFormatter(numeric, { fractionalDigits: 5 })
         : formatFallbackScientificNumber(numeric, 5);
     }
-    return numeric >= 0 && numeric <= 0.0001 ? '<0.0001' : numeric.toFixed(4).replace(/0+$/, '').replace(/\.$/, '');
+    if(numeric === 0){
+      return '<0.0001';
+    }
+    const exponent = Math.floor(Math.log10(numeric));
+    const decimalPlaces = Math.max(4, exponent < 0 ? -exponent + 5 : 5 - exponent);
+    if(decimalPlaces > 20){
+      return '<0.0001';
+    }
+    return numeric.toFixed(decimalPlaces).replace(/0+$/, '').replace(/\.$/, '');
   }
 
   function createPValueCell(value, options = {}){
-    const numeric = Number(value);
+    const numeric = toNumericPValue(value);
     if(!Number.isFinite(numeric)){
       return options.fallback ?? formatP(value);
     }
@@ -701,8 +758,14 @@
     }catch(err){
       logDebug('Debug: box worker resolvePValue stats unavailable', { message: err?.message || String(err) });
     }
-    const num = Number(value);
-    return Number.isFinite(num) ? Math.max(0, Math.min(1, num)) : NaN;
+    const num = toNumericPValue(value);
+    return Number.isFinite(num) && num >= 0 && num <= 1 ? num : NaN;
+  }
+
+  function toTailNumber(value){
+    return value === Number.POSITIVE_INFINITY || value === Number.NEGATIVE_INFINITY
+      ? value
+      : toNumericPValue(value);
   }
 
   function normalTwoSidedPValue(z){
@@ -712,8 +775,14 @@
         return resolvePValue(helper(z));
       }
     }catch(err){}
+    const value = toTailNumber(z);
+    if(value === Number.POSITIVE_INFINITY || value === Number.NEGATIVE_INFINITY){
+      return 0;
+    }
     const cdf = ctx.jStat?.normal?.cdf;
-    return typeof cdf === 'function' ? resolvePValue(2 * (1 - cdf(Math.abs(z), 0, 1))) : NaN;
+    return typeof cdf === 'function' && Number.isFinite(value)
+      ? resolvePValue(2 * (1 - cdf(Math.abs(value), 0, 1)))
+      : NaN;
   }
 
 
@@ -725,8 +794,14 @@
         return resolvePValue(helper(t, df));
       }
     }catch(err){}
+    const value = toTailNumber(t);
+    if(value === Number.POSITIVE_INFINITY || value === Number.NEGATIVE_INFINITY){
+      return 0;
+    }
     const cdf = ctx.jStat?.studentt?.cdf;
-    return typeof cdf === 'function' ? resolvePValue(2 * (1 - cdf(Math.abs(t), df))) : NaN;
+    return typeof cdf === 'function' && Number.isFinite(value) && Number.isFinite(toTailNumber(df))
+      ? resolvePValue(2 * (1 - cdf(Math.abs(value), toTailNumber(df))))
+      : NaN;
   }
 
   function fUpperTailPValue(F, df1, df2){
@@ -736,8 +811,16 @@
         return resolvePValue(helper(F, df1, df2));
       }
     }catch(err){}
+    const value = toTailNumber(F);
+    const firstDf = toTailNumber(df1);
+    const secondDf = toTailNumber(df2);
+    if(value === Number.POSITIVE_INFINITY){
+      return 0;
+    }
     const cdf = ctx.jStat?.centralF?.cdf;
-    return typeof cdf === 'function' ? resolvePValue(1 - cdf(F, df1, df2)) : NaN;
+    return typeof cdf === 'function' && Number.isFinite(value) && Number.isFinite(firstDf) && Number.isFinite(secondDf)
+      ? resolvePValue(1 - cdf(value, firstDf, secondDf))
+      : NaN;
   }
 
   function chiSquareUpperTailPValue(statistic, df){
@@ -747,8 +830,15 @@
         return resolvePValue(helper(statistic, df));
       }
     }catch(err){}
+    const value = toTailNumber(statistic);
+    const degrees = toTailNumber(df);
+    if(value === Number.POSITIVE_INFINITY){
+      return 0;
+    }
     const cdf = ctx.jStat?.chisquare?.cdf;
-    return typeof cdf === 'function' ? resolvePValue(1 - cdf(statistic, df)) : NaN;
+    return typeof cdf === 'function' && Number.isFinite(value) && Number.isFinite(degrees)
+      ? resolvePValue(1 - cdf(value, degrees))
+      : NaN;
   }
 
   function formatStatNumber(value, digits){
@@ -1325,7 +1415,7 @@
     const z2 = Math.sqrt(9 * A / 2) * (1 - 2 / (9 * A) - base);
     const statistic = z1 * z1 + z2 * z2;
     const pValue = Math.exp(-statistic / 2);
-    const passed = Number.isFinite(pValue) ? pValue >= ASSUMPTION_ALPHA : null;
+    const passed = isValidProbability(pValue) ? pValue >= ASSUMPTION_ALPHA : null;
     return { method: 'dagostino', sampleSize: n, statistic, pValue, passed, z1, z2, g1, g2 };
   }
 
@@ -1403,7 +1493,7 @@
       F = NaN;
       pValue = NaN;
     }
-    const passed = Number.isFinite(pValue) ? pValue >= ASSUMPTION_ALPHA : null;
+    const passed = isValidProbability(pValue) ? pValue >= ASSUMPTION_ALPHA : null;
     return { method: 'brown-forsythe', statistic: F, pValue, passed, df1, df2, sparkline: sparklineValues };
   }
 
@@ -1740,7 +1830,7 @@
     const statistic=numerator/Math.max(correction,Number.EPSILON);
     const pValue=chiSquareUpperTailPValue(statistic,k-1);
     const alpha=sanitizeStatsAlpha(options.alpha,ASSUMPTION_ALPHA);
-    return {method:'bartlett',statistic,pValue,passed:Number.isFinite(pValue)?pValue>=alpha:null,df1:k-1,df2:df,sparkline:(labels||[]).map((label,index)=>({label,value:variances[index]}))};
+    return {method:'bartlett',statistic,pValue,passed:isValidProbability(pValue)?pValue>=alpha:null,df1:k-1,df2:df,sparkline:(labels||[]).map((label,index)=>({label,value:variances[index]}))};
   }
 
   function computeDistributionComparison(values){
@@ -1836,7 +1926,7 @@
       let method=requestedNormality==='auto'?(cleaned.length<=5000&&unique===cleaned.length?'shapiro-wilk':'dagostino'):requestedNormality;
       let normality=method==='shapiro-wilk'?computeShapiroWilk(cleaned):computeDagostino(cleaned,summaryList?.[index]);
       if(method==='dagostino'&&(!Number.isFinite(normality?.pValue)||cleaned.length<8)&&cleaned.length<=5000){method='shapiro-wilk';normality=computeShapiroWilk(cleaned);}
-      normality={...normality,method,alpha,passed:Number.isFinite(normality?.pValue)?normality.pValue>=alpha:normality?.passed??null};
+      normality={...normality,method,alpha,passed:isValidProbability(normality?.pValue)?normality.pValue>=alpha:normality?.passed??null};
       diagnostics.groups.push({label,size:cleaned.length,normality,qqPoints:cleaned.length?computeQQPoints(cleaned,{maxSampleSize:qqSampleLimit}):[]});
       if(normality.passed===false){
         normalityFailures+=1;
@@ -1884,10 +1974,6 @@
       logDebug('Debug: box worker resolveTCritical failed', { df, alpha: level, message: err?.message || String(err) });
       return NaN;
     }
-  }
-
-  function warnDistributionUnavailable(distribution, context){
-    logDebug('Debug: box worker distribution unavailable', { distribution, helper: context?.helper || null, hasJStat: !!global.jStat });
   }
 
   function normalizeFiniteSample(values){
@@ -2077,7 +2163,12 @@
     if(!Number.isFinite(z)){
       return NaN;
     }
-    const stats=ensureStats();
+    let stats=null;
+    try{
+      stats=ensureStats();
+    }catch(err){
+      logDebug('Debug: box stats normal distribution unavailable',{ message:err?.message || String(err) });
+    }
     if(safeAlternative==='greater' && typeof stats?.normalUpperTail==='function'){
       return resolvePValue(stats.normalUpperTail(z));
     }
@@ -2087,7 +2178,7 @@
     return normalTwoSidedPValue(z);
   }
 
-  function resolveRankResamplingMode(options, exactStateCount){
+  function resolveRankResamplingMode(options, exactStateCount, autoMonteCarloEligible = false){
     const requested=sanitizeResamplingMode(options?.resamplingMode);
     if(requested==='exact'){
       return Number.isFinite(exactStateCount) && exactStateCount<=200000 ? 'exact' : 'monte-carlo';
@@ -2095,7 +2186,10 @@
     if(requested==='monte-carlo' || requested==='asymptotic'){
       return requested;
     }
-    return Number.isFinite(exactStateCount) && exactStateCount<=200000 ? 'exact' : 'asymptotic';
+    if(Number.isFinite(exactStateCount) && exactStateCount<=200000){
+      return 'exact';
+    }
+    return autoMonteCarloEligible ? 'monte-carlo' : 'asymptotic';
   }
 
   function empiricalRankPValue(observed, sampled, alternative, center){
@@ -2181,7 +2275,7 @@
         series+=(k%2===1?1:-1)*term;
         if(term<1e-12) break;
       }
-      p=clamp(2*series,0,1);
+      p=D===0 ? 1 : clamp(2*series,0,1);
     }else{
       p=clamp(Math.exp(-2*effectiveN*D*D),0,1);
     }
@@ -2242,7 +2336,7 @@
     const center=na*nb/2;
     const totalN=na+nb;
     const exactStates=observed.tieCounts.length ? Infinity : binomialStateCount(totalN,na);
-    const resamplingMode=resolveRankResamplingMode(options,exactStates);
+    const resamplingMode=resolveRankResamplingMode(options,exactStates,(na+nb)<=40);
     let p=NaN;
     let method='asymptotic';
     if(resamplingMode==='exact'){
@@ -2309,8 +2403,8 @@
     const alternative=sanitizeStatsAlternative(options.alternative);
     const totalRank=wPositive+wNegative;
     const center=totalRank/2;
-    const exactStates=Math.pow(2,effectiveN);
-    const resamplingMode=resolveRankResamplingMode(options,exactStates);
+    const exactStates=rankInfo.tieCounts.length ? Infinity : Math.pow(2,effectiveN);
+    const resamplingMode=resolveRankResamplingMode(options,exactStates,effectiveN<=40);
     let p=NaN;
     let method='asymptotic';
     if(resamplingMode==='exact'){
@@ -2393,15 +2487,7 @@
   }
 
 
-    function anova(groups){
-    const jStatLib=global.jStat;
-    const cdf=jStatLib && jStatLib.centralF && typeof jStatLib.centralF.cdf==='function'
-      ? jStatLib.centralF.cdf
-      : null;
-    if(!cdf){
-      warnDistributionUnavailable('central-F',{ helper:'anova' });
-      return createUnavailableStatResult({ F:NaN, p:NaN, dfBetween:NaN, dfWithin:NaN },'F distribution unavailable.');
-    }
+  function anova(groups){
     const k=groups.length;
     const n=groups.reduce((s,g)=>s+g.length,0);
     const grand=groups.reduce((s,g)=>s+mean(g)*g.length,0)/n;
@@ -2421,15 +2507,7 @@
     return {F,p,dfBetween,dfWithin,ssBetween,ssWithin,ssTotal:ssBetween+ssWithin,msWithin};
   }
 
-    function kruskalWallis(groups){
-    const jStatLib=global.jStat;
-    const cdf=jStatLib && jStatLib.chisquare && typeof jStatLib.chisquare.cdf==='function'
-      ? jStatLib.chisquare.cdf
-      : null;
-    if(!cdf){
-      warnDistributionUnavailable('chi-square',{ helper:'kruskalWallis' });
-      return createUnavailableStatResult({ H:NaN, p:NaN },'Chi-square distribution unavailable.');
-    }
+  function kruskalWallis(groups){
     const n=groups.reduce((s,g)=>s+g.length,0);
     const all=groups.flat();
     const rankInfo=rankValuesWithTieInfo(all);
@@ -2477,7 +2555,7 @@
     return { ranks, tieTerm };
   }
 
-    function computeRepeatedMeasuresAnova(groups){
+  function computeRepeatedMeasuresAnova(groups){
     const cleaned=(Array.isArray(groups)?groups:[]).map(group=>(Array.isArray(group)?group:[]).filter(Number.isFinite));
     const k=cleaned.length;
     if(k<3){
@@ -2489,14 +2567,6 @@
     }
     if(cleaned.some(group=>group.length!==n)){
       return { ok:false, message:'Repeated-measures ANOVA requires equal group sizes.' };
-    }
-    const jStatLib=global.jStat;
-    const cdf=jStatLib && jStatLib.centralF && typeof jStatLib.centralF.cdf==='function'
-      ? jStatLib.centralF.cdf
-      : null;
-    if(!cdf){
-      warnDistributionUnavailable('central-F',{ helper:'computeRepeatedMeasuresAnova' });
-      return { ok:false, message:'F distribution unavailable.' };
     }
     const grandN=n*k;
     let totalSum=0;
@@ -2636,7 +2706,7 @@
     };
   }
 
-    function computeFriedmanTest(groups,options={}){
+  function computeFriedmanTest(groups,options={}){
     const cleaned=(Array.isArray(groups)?groups:[]).map(group=>(Array.isArray(group)?group:[]).filter(Number.isFinite));
     const k=cleaned.length;
     if(k<3){
@@ -2648,14 +2718,6 @@
     }
     if(cleaned.some(group=>group.length!==n)){
       return { ok:false, message:'Friedman test requires equal group sizes.' };
-    }
-    const jStatLib=global.jStat;
-    const cdf=jStatLib && jStatLib.chisquare && typeof jStatLib.chisquare.cdf==='function'
-      ? jStatLib.chisquare.cdf
-      : null;
-    if(!cdf){
-      warnDistributionUnavailable('chi-square',{ helper:'computeFriedmanTest' });
-      return { ok:false, message:'Chi-square distribution unavailable.' };
     }
     const rowRanks=[];
     const rankSums=new Array(k).fill(0);
@@ -2822,7 +2884,7 @@
     const ssTotal=ssBetween+ssWithin;
     const msWithin=(totalN-k)>0 ? ssWithin/(totalN-k) : NaN;
     return {
-      ok:Number.isFinite(F) && Number.isFinite(df2) && df2>0,
+      ok:Number.isFinite(F) && Number.isFinite(df2) && df2>0 && isValidProbability(p),
       F,
       p,
       df1,
@@ -3251,12 +3313,6 @@
       const variance=sumSq/denom;
       return variance>0?variance:Number.EPSILON;
     });
-    const cdf=global.jStat?.studentt && typeof global.jStat.studentt.cdf==='function'
-      ? global.jStat.studentt.cdf
-      : null;
-    if(!cdf){
-      return { ok:false, message:'Student t distribution unavailable for Welch + Sidak comparisons.' };
-    }
     const pairCount=Math.max(1,(k*(k-1))/2);
     const sidakAlpha=1-Math.pow(Math.max(1e-9,1-resolveStatsAlpha({ alpha:options?.alpha })),1/pairCount);
     const pairs=[];
@@ -3366,12 +3422,6 @@
       }
       const diff=means[i]-means[refIdx];
       const tVal=diff/se;
-      const cdf=global.jStat?.studentt && typeof global.jStat.studentt.cdf==='function'
-        ? global.jStat.studentt.cdf
-        : null;
-      if(!cdf){
-        return { ok:false, message:'Student t distribution unavailable for reference comparisons.' };
-      }
       const rawP=studentTTwoSidedPValue(tVal, df);
       const pAdj=1-Math.pow(Math.max(0,1-rawP),comparisonCount);
       const tCritical=resolveTCritical(df,sidakAlpha);
@@ -5345,7 +5395,7 @@
           p: result.p
         };
       });
-      const validTests = tests.filter(test => test.valid && Number.isFinite(test.p));
+      const validTests = tests.filter(test => test.valid && Number.isFinite(test.p) && test.p >= 0 && test.p <= 1);
       if(!validTests.length){
         model.ok = false;
         model.message = 'No one-sample tests could be computed. Check that each selected column has enough numeric values.';
@@ -6516,13 +6566,13 @@
     if(!inferenceSpec){
       return value;
     }
-    const numeric = Number(value?.value ?? value?.raw ?? value);
+    const numeric = toNumericPValue(value?.value ?? value?.raw ?? value);
     const fallback = value && typeof value === 'object'
       ? (value.fallback ?? value.text ?? String(value.value ?? ''))
       : String(value ?? '');
     return {
       type: 'pValue',
-      value: Number.isFinite(numeric) ? numeric : NaN,
+      value: Number.isFinite(numeric) && numeric >= 0 && numeric <= 1 ? numeric : NaN,
       fallback,
       __statsInference: inferenceSpec
     };
@@ -6555,8 +6605,8 @@
       if(!inferenceSpec){
         return;
       }
-      const raw = Number(row?.pValueRaw ?? row?.rawPValue ?? row?.valueRaw ?? row?.value?.value);
-      if(!Number.isFinite(raw)){
+      const raw = toNumericPValue(row?.pValueRaw ?? row?.rawPValue ?? row?.valueRaw ?? row?.value?.value);
+      if(!Number.isFinite(raw) || raw < 0 || raw > 1){
         return;
       }
       row.value = makeInferencePValueCell({ value: raw, fallback: row.value?.fallback ?? row.value }, inferenceSpec);
@@ -6599,6 +6649,18 @@
     return attachInferenceMetadataToTables(model,normalizedPayload);
   }
 
+  function finalizePValueResult(result, label){
+    const candidate=result?.p ?? result?.pValue;
+    if(isValidProbability(candidate)){
+      return result;
+    }
+    return {
+      ...(result && typeof result === 'object' ? result : {}),
+      available:false,
+      message:result?.message || `${label} p-value unavailable.`
+    };
+  }
+
 
 
   const api = {
@@ -6616,23 +6678,23 @@
     computeDistributionComparison,
     computeLinearTrendTest,
     preprocessStatsGroups,
-    tTest,
-    tTestEqualVariance,
-    tTestPaired,
-    tTestOneSample,
-    ratioTTest,
-    lognormalTTestEqualVariance,
-    lognormalWelchTTest,
-    kolmogorovSmirnovTwoSample,
+    tTest: (...args) => finalizePValueResult(tTest(...args), 'Welch t-test'),
+    tTestEqualVariance: (...args) => finalizePValueResult(tTestEqualVariance(...args), 'Student t-test'),
+    tTestPaired: (...args) => finalizePValueResult(tTestPaired(...args), 'Paired t-test'),
+    tTestOneSample: (...args) => finalizePValueResult(tTestOneSample(...args), 'One-sample t-test'),
+    ratioTTest: (...args) => finalizePValueResult(ratioTTest(...args), 'Ratio t-test'),
+    lognormalTTestEqualVariance: (...args) => finalizePValueResult(lognormalTTestEqualVariance(...args), 'Lognormal t-test'),
+    lognormalWelchTTest: (...args) => finalizePValueResult(lognormalWelchTTest(...args), 'Lognormal Welch t-test'),
+    kolmogorovSmirnovTwoSample: (...args) => finalizePValueResult(kolmogorovSmirnovTwoSample(...args), 'Kolmogorov-Smirnov test'),
     resolveSingleAnalysisPlan,
-    wilcoxonOneSample,
-    mannWhitney,
-    wilcoxonSignedRank,
-    anova,
-    kruskalWallis,
-    computeRepeatedMeasuresAnova,
-    computeFriedmanTest,
-    computeWelchAnova,
+    wilcoxonOneSample: (...args) => finalizePValueResult(wilcoxonOneSample(...args), 'Wilcoxon signed-rank test'),
+    mannWhitney: (...args) => finalizePValueResult(mannWhitney(...args), 'Mann-Whitney test'),
+    wilcoxonSignedRank: (...args) => finalizePValueResult(wilcoxonSignedRank(...args), 'Wilcoxon signed-rank test'),
+    anova: (...args) => finalizePValueResult(anova(...args), 'ANOVA'),
+    kruskalWallis: (...args) => finalizePValueResult(kruskalWallis(...args), 'Kruskal-Wallis test'),
+    computeRepeatedMeasuresAnova: (...args) => finalizePValueResult(computeRepeatedMeasuresAnova(...args), 'Repeated-measures ANOVA'),
+    computeFriedmanTest: (...args) => finalizePValueResult(computeFriedmanTest(...args), 'Friedman test'),
+    computeWelchAnova: (...args) => finalizePValueResult(computeWelchAnova(...args), 'Welch ANOVA'),
     computeTukeyComparisons,
     computeGamesHowellComparisons,
     computeTamhaneT2Comparisons,

@@ -126,6 +126,51 @@ describe('stats.adjustPValues — reference-value correctness', () => {
     expect(adj).toEqual([null, null, null, 0.05, null]);
   });
 
+  test('null, blank, and boolean inputs are not converted into p=0 or p=1', () => {
+    const adj = stats.adjustPValues([null, '', ' ', false, true, 0.05], { method: 'bonferroni' });
+    expect(adj).toEqual([null, null, null, null, null, 0.05]);
+    expect(Number.isNaN(stats.clampProbability(null))).toBe(true);
+    expect(Number.isNaN(stats.clampProbability(false))).toBe(true);
+    expect(Number.isNaN(stats.clampProbability(''))).toBe(true);
+  });
+
+  test('log-space Holm adjustment also ignores non-numeric inputs', () => {
+    const logP = Math.log(0.01);
+    const adjusted = stats.adjustHolmLogPValues([null, '', false, true, logP]);
+    expect(adjusted.slice(0, 4)).toEqual([null, null, null, null]);
+    expect(adjusted[4]).toBeCloseTo(logP, 14);
+  });
+
+  test('tail probability helpers reject missing or boolean statistics', () => {
+    [null, '', false, true].forEach(value => {
+      expect(Number.isNaN(stats.chiSquareUpperTail(value, 1))).toBe(true);
+      expect(Number.isNaN(stats.fUpperTail(value, 1, 1))).toBe(true);
+      expect(Number.isNaN(stats.studentTTwoSidedPValue(value, 1))).toBe(true);
+      expect(Number.isNaN(stats.normalTwoSidedPValue(value))).toBe(true);
+    });
+    expect(stats.normalTwoSidedPValue(0)).toBeCloseTo(1, 14);
+  });
+
+  test('tail helpers preserve mathematically valid infinite-statistic limits', () => {
+    expect(stats.chiSquareUpperTail(Infinity, 1)).toBe(0);
+    expect(stats.fUpperTail(Infinity, 1, 1)).toBe(0);
+    expect(stats.studentTTwoSidedPValue(Infinity, 1)).toBe(0);
+    expect(stats.studentTUpperTail(Infinity, 1)).toBe(0);
+    expect(stats.studentTUpperTail(-Infinity, 1)).toBe(1);
+    expect(stats.normalTwoSidedPValue(Infinity)).toBe(0);
+    expect(stats.normalUpperTail(Infinity)).toBe(0);
+    expect(stats.normalUpperTail(-Infinity)).toBe(1);
+    expect(Number.isNaN(stats.chiSquareUpperTail(-Infinity, 1))).toBe(true);
+    expect(Number.isNaN(stats.fUpperTail(-Infinity, 1, 1))).toBe(true);
+  });
+
+  test('probability fallback rejects finite values outside the probability range', () => {
+    expect(Number.isNaN(stats.finiteProbabilityOrFallback(1.01, NaN))).toBe(true);
+    expect(Number.isNaN(stats.finiteProbabilityOrFallback(-0.01, NaN))).toBe(true);
+    expect(stats.finiteProbabilityOrFallback(1.01, 0.25)).toBe(0.25);
+    expect(stats.finiteProbabilityOrFallback(-0.01, 0.25)).toBe(0.25);
+  });
+
   test('unknown method falls back to bonferroni', () => {
     const adj = stats.adjustPValues(P, { method: 'unknown-method' });
     const expected = stats.adjustPValues(P, { method: 'bonferroni' });

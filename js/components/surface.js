@@ -1473,14 +1473,35 @@
     return true;
   }
 
-  function normalizeSurfaceRotationModel(model){
-    if(!model || typeof model !== 'object' || Number(model.version) !== 1){
-      return null;
-    }
-    const isFinitePoint = point => !!point
+  function isFiniteSurfacePoint(point){
+    return !!point
       && Number.isFinite(Number(point.x))
       && Number.isFinite(Number(point.y))
       && Number.isFinite(Number(point.z));
+  }
+
+  function normalizeSurfaceFaceIndices(sourceIndices, pointCount){
+    if(!Array.isArray(sourceIndices) || sourceIndices.length < 3){
+      return null;
+    }
+    const indices = sourceIndices.map(value => {
+      if(typeof value === 'number' && Number.isInteger(value)){
+        return value;
+      }
+      if(typeof value === 'string' && /^\d+$/.test(value.trim())){
+        return Number(value);
+      }
+      return null;
+    });
+    return indices.every(index => (
+      Number.isInteger(index) && index >= 0 && index < pointCount
+    )) ? indices : null;
+  }
+
+  function normalizeSurfaceRotationModel(model){
+    if(!model || typeof model !== 'object' || ![1, 2].includes(Number(model.version))){
+      return null;
+    }
     const points = Array.isArray(model.points) ? model.points : [];
     const faces = Array.isArray(model.faces) ? model.faces : [];
     const corners = Array.isArray(model.corners) ? model.corners : [];
@@ -1499,16 +1520,42 @@
     const zMax = Number(model.zMax);
     const shouldRenderFaces = model.shouldRenderFaces === true;
     const shouldRenderPoints = model.shouldRenderPoints === true;
-    const facesValid = !shouldRenderFaces || (faces.length > 0 && faces.every(face => (
-      Array.isArray(face?.vertices)
-      && face.vertices.length >= 3
-      && face.vertices.every(isFinitePoint)
-      && Number.isFinite(Number(face.value))
-    )));
-    if(!points.length
-      || !points.every(isFinitePoint)
+    if(!points.length || !points.every(isFiniteSurfacePoint)){
+      return null;
+    }
+    const pointIndexByReference = new Map(points.map((point, index) => [point, index]));
+    const pointIndexByCoordinate = new Map(points.map((point, index) => [
+      `${Number(point.x)}\u0000${Number(point.y)}\u0000${Number(point.z)}`,
+      index
+    ]));
+    const resolveLegacyPointIndex = point => {
+      const referenceIndex = pointIndexByReference.get(point);
+      if(Number.isInteger(referenceIndex)){
+        return referenceIndex;
+      }
+      return pointIndexByCoordinate.get(`${Number(point?.x)}\u0000${Number(point?.y)}\u0000${Number(point?.z)}`);
+    };
+    const normalizedFaces = faces.map(face => {
+      const sourceIndices = Array.isArray(face?.indices)
+        ? face.indices
+        : (Array.isArray(face?.vertices) ? face.vertices.map(resolveLegacyPointIndex) : null);
+      const indices = normalizeSurfaceFaceIndices(sourceIndices, points.length);
+      if(!indices){
+        return null;
+      }
+      return {
+        indices,
+        value: Number(face.value)
+      };
+    });
+    const facesValid = normalizedFaces.length === faces.length && normalizedFaces.every(face => (
+      !!face
+      && face.indices.length >= 3
+      && Number.isFinite(face.value)
+    )) && (!shouldRenderFaces || faces.length > 0);
+    if(!corners.length
       || corners.length !== 8
-      || !corners.every(isFinitePoint)
+      || !corners.every(isFiniteSurfacePoint)
       || !Number.isFinite(width)
       || width <= 0
       || !Number.isFinite(height)
@@ -1524,7 +1571,11 @@
       || !facesValid){
       return null;
     }
-    const clone = cloneSimple(model);
+    const clone = cloneSimple({
+      ...model,
+      version: 2,
+      faces: normalizedFaces
+    });
     return clone && typeof clone === 'object' ? clone : null;
   }
 
@@ -1539,10 +1590,44 @@
   }
 
   function buildSurfaceRotationModel(options = {}){
+    const points = Array.isArray(options.points) ? options.points : [];
+    const validPoints = points.length > 0 && points.every(isFiniteSurfacePoint);
+    const pointIndexByReference = validPoints
+      ? new Map(points.map((point, index) => [point, index]))
+      : new Map();
+    const pointIndexByCoordinate = validPoints
+      ? new Map(points.map((point, index) => [
+        `${Number(point.x)}\u0000${Number(point.y)}\u0000${Number(point.z)}`,
+        index
+      ]))
+      : new Map();
+    const resolvePointIndex = point => {
+      const referenceIndex = pointIndexByReference.get(point);
+      if(Number.isInteger(referenceIndex)){
+        return referenceIndex;
+      }
+      return pointIndexByCoordinate.get(`${Number(point?.x)}\u0000${Number(point?.y)}\u0000${Number(point?.z)}`);
+    };
+    const faces = (Array.isArray(options.faces) ? options.faces : [])
+      .map(face => {
+        const sourceIndices = Array.isArray(face?.indices)
+          ? face.indices
+          : (Array.isArray(face?.vertices) ? face.vertices.map(resolvePointIndex) : null);
+        const indices = normalizeSurfaceFaceIndices(sourceIndices, points.length);
+        const value = Number(face.value);
+        if(!indices || !Number.isFinite(value)){
+          return null;
+        }
+        return {
+          indices,
+          value
+        };
+      })
+      .filter(Boolean);
     return {
-      version: 1,
-      points: options.points || [],
-      faces: options.faces || [],
+      version: 2,
+      points,
+      faces,
       corners: options.corners || [],
       ranges: options.ranges || null,
       width: Number(options.width) || 0,
@@ -1659,7 +1744,7 @@
       if(faceGroup && Array.isArray(facePool)){
         if(model.shouldRenderFaces){
           const orderedFaces = model.faces.map(face => {
-            const rotated = face.vertices.map(fastRotate);
+            const rotated = face.indices.map(index => fastRotatedPoints[index]);
             return {
               depth: rotated.reduce((sum, value) => sum + value.z, 0) / rotated.length,
               points: rotated.map(fastProject),
@@ -3253,6 +3338,8 @@
       : null;
     const container = state.statsEl;
     if(!container){ return; }
+    const previousPanelModel = captureSurfaceStatsPanelModel(null, getActiveSurfaceSessionForState());
+    const previousReportModel = previousPanelModel?.reportModel || null;
     while(container.firstChild){ container.removeChild(container.firstChild); }
     const entries = [];
     if(info && info.vertexCount){
@@ -3311,7 +3398,9 @@
           gridRows: info.gridRows || 0,
           gridComplete: !!info.gridComplete,
           skipped: info.skipped || 0
-        }
+        },
+        open: previousReportModel?.open === true,
+        advancedOpen: previousReportModel?.advancedOpen === true
       }, {
         title: 'Reporting and reproducibility',
         scheduleFigureSummary: options.scheduleFigureSummary !== false

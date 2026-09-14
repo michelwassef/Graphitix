@@ -14,7 +14,11 @@ const {
   STATISTICAL_ORACLE_TESTS,
   getExplicitLayer
 } = require('../../test-support/jestLayerManifest.js');
-const { getScenarioIdsForFile } = require('../../test-support/scenarioCatalog.js');
+const {
+  CRITICAL_SCENARIO_IDS,
+  getScenarioIdsForFile,
+  getScenariosForIds
+} = require('../../test-support/scenarioCatalog.js');
 
 describe('generated test manifest', () => {
   test('classifies each configured test layer with one default lane', () => {
@@ -32,6 +36,18 @@ describe('generated test manifest', () => {
       'dom-unit', 'app-integration', 'unit-node', 'worker', 'browser-e2e'
     ]);
     expect(entries.every(entry => entry.defaultLane && entry.requiredLanes.length > 0)).toBe(true);
+    expect(entries.every(entry => (
+      Array.isArray(entry.requirements)
+      && Array.isArray(entry.capabilityScope)
+      && Array.isArray(entry.browser)
+      && entry.expectedWorkerMode
+      && entry.fixtureProvenance
+      && entry.ownerExpectations
+      && entry.readiness
+      && entry.mutation
+      && Array.isArray(entry.requiredArtifacts)
+      && Array.isArray(entry.predecessorScenarioIds)
+    ))).toBe(true);
     expect(validateManifest(entries)).toEqual([]);
   });
 
@@ -43,6 +59,53 @@ describe('generated test manifest', () => {
     expect(entries[0].requiredLanes).toEqual(['full-chromium']);
     expect(entries[0].oracle).toBe('not-applicable');
     expect(summary.contracts).toEqual(CANONICAL_CONTRACTS);
+  });
+
+  test('reports direct component evidence separately from wildcard coverage', () => {
+    const summary = summarizeManifest([
+      classifyTestFile('__tests__/heatmap.tabContext.test.js'),
+      classifyTestFile('e2e/component.persistence-matrix.spec.js', 'playwright')
+    ]);
+
+    expect(Object.keys(summary.componentMatrix)).toHaveLength(11);
+    expect(summary.componentMatrix.heatmap.directScenarioIds).toEqual([
+      'CACHE.heatmap-render-cache-restore',
+      'OWN.heatmap-tab-context'
+    ]);
+    expect(summary.componentMatrix.heatmap.explicitRequirementIds).toEqual([
+      'CACHE.heatmap-render-cache-restore',
+      'OWN.heatmap-tab-context'
+    ]);
+    expect(summary.componentMatrix.box.directScenarioIds).toEqual([]);
+    expect(summary.componentMatrix.box.wildcardScenarioIds).toEqual([
+      'PERSIST.explicit-component-mutations'
+    ]);
+    expect(summary.componentMatrix.box.unexplainedFeatureGaps).toContain('graphModes');
+    expect(summary.componentMatrix.box.unexplainedFeatureGaps).toContain('statistics');
+    expect(summary.componentMatrix.box.unexplainedFeatureGaps).not.toContain('canvas');
+  });
+
+  test('critical control-plane scenarios declare explicit evidence categories', () => {
+    const scenarios = getScenariosForIds(CRITICAL_SCENARIO_IDS);
+    expect(scenarios).toHaveLength(CRITICAL_SCENARIO_IDS.length);
+    expect(scenarios.every(scenario => (
+      scenario.requirement
+      && scenario.capability
+      && scenario.evidence
+    ))).toBe(true);
+
+    const entry = classifyTestFile('e2e/workspace/style-sync.contract.spec.js', 'playwright');
+    expect(entry.requirements).toEqual([expect.objectContaining({
+      id: 'PERSIST.style-sync-across-tabs',
+      capability: 'persistence',
+      evidence: 'source-and-target-payload-contract',
+      metadataSource: 'explicit'
+    })]);
+    expect(entry.requirementEvidence).toEqual({
+      explicit: 1,
+      inferred: 0,
+      critical: ['PERSIST.style-sync-across-tabs']
+    });
   });
 
   test('marks Python differential suites as requiring the numerical oracle', () => {
@@ -61,6 +124,18 @@ describe('generated test manifest', () => {
     expect(migrated.scenarioIds).toEqual(['BOOTSTRAP.browser-smoke']);
     expect(legacy.status).toBe('legacy-unmapped');
     expect(legacy.scenarioIds).toEqual([]);
+    expect(legacy.skipPolicy).toEqual(expect.objectContaining({
+      issueRef: expect.any(String),
+      expiresOn: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/)
+    }));
+  });
+
+  test('rejects entries without readiness metadata', () => {
+    const entry = classifyTestFile('e2e/workspace.smoke.spec.js', 'playwright');
+    delete entry.readiness;
+    expect(validateManifest([entry])).toContain(
+      'manifest entry has incomplete readiness metadata: file:e2e/workspace.smoke.spec.js'
+    );
   });
 
   test('rejects invented scenario IDs', () => {

@@ -62,21 +62,6 @@ describe('Heatmap stats formatting', () => {
         measureText: text => ({ width: String(text || '').length * 8 })
       }));
     }
-    require('../js/vendor.js');
-    require('../js/shared/chartStyle.js');
-    require('../js/shared/stats.js');
-    require('../js/shared/statsInference.js');
-    require('../js/shared/debounce.js');
-    require('../js/shared/componentLifecycle.js');
-    require('../js/shared/resizer.js');
-    require('../js/shared/colorPicker.js');
-    require('../js/shared/hot.js');
-    require('../js/shared/componentLayout.js');
-    require('../js/shared/dataTransforms.js');
-    require('../js/shared/dataViews.js');
-    require('../js/shared/workspaceToolbar.js');
-    require('../js/shared/workspaceToolbarAccess.js');
-
     const Shared = window.Shared || {};
     originalCreateStandardTable = Shared.hot?.createStandardTable;
     if(originalCreateStandardTable){

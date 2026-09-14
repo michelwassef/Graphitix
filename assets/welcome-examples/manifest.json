@@ -5,10 +5,10 @@
   "previewSource": "Graphitix owner-scoped SVG projection",
   "width": 320,
   "height": 220,
-  "sourceFingerprint": "a55ae46b8b6ff47f1999294b1fc1efdbe202a803a143480d955c47448755db5b",
+  "sourceFingerprint": "e8de0ceb64d54a273b275819969d19e074bd8195e5bb75ce03ab8909f41e906b",
   "registry": {
     "file": "thumbnails.js",
-    "sha256": "e53214315a89cbd5970ce2211b3abc84743d58c02deac8f05badb2d3a8ec6c6e",
+    "sha256": "4a4b57fc0fceedf7da65ecf2f1e8b18bf7872aef6be00e1b02b5668aba8e710b",
     "inline": true
   },
   "examples": [
@@ -49,7 +49,7 @@
       "proportionalStrokeContract": "source-viewport-baked-strokes-v1",
       "visualScale": 0.524934383202,
       "nonScalingStrokeCount": 0,
-      "sourceFingerprint": "4480236be968e3c32190a2d74a613de8174e250aadb5cb1cc2f6fb3394069eed",
+      "sourceFingerprint": "ec4f4fb895be2c33e85a7edd8bc9ead006560b5d378ba75940892be08f6c1190",
       "sha256": "98ecd9c15a2787a7109380b93c9fbbf4e66ac5703e789ecd10c0a03ed59ce5bc"
     },
     {
@@ -89,8 +89,8 @@
       "proportionalStrokeContract": "source-viewport-baked-strokes-v1",
       "visualScale": 0.588631754917,
       "nonScalingStrokeCount": 0,
-      "sourceFingerprint": "28e184c5806bf5c628cbcf523edd22c08372189a869c67bacd809087de430287",
-      "sha256": "c9a69f3b22662aef46d64bd6c90831831c8393c6b1166f6ea3e1f704ee3a9c7f"
+      "sourceFingerprint": "715db42fc831eaceb78754e0eea4934e06cb56157df9c12b8354ccbf050a6d59",
+      "sha256": "430dd8ae534cc9594aa90f3675150dc97cbce036ae5900f247b9c5ef15ac672e"
     },
     {
       "type": "line",
@@ -129,8 +129,8 @@
       "proportionalStrokeContract": "source-viewport-baked-strokes-v1",
       "visualScale": 0.581784332548,
       "nonScalingStrokeCount": 0,
-      "sourceFingerprint": "34c8c7a854b16004a80d8b522a072d5a16574293b6971936f9ba94813cfc6e71",
-      "sha256": "3e2cfb00ccf1249517ee33de7b55347a22e639ba1dd2e3fc19568ac286c77c1f"
+      "sourceFingerprint": "82f764aec7b2244a75f2e3640bd08dacd7e0dcd3ac8f2aa09df76cb093ee8a9a",
+      "sha256": "a58732627f1ce37ea355f55035c8d7310aef371977d12e43626bb56416460059"
     },
     {
       "type": "hist",
@@ -169,8 +169,8 @@
       "proportionalStrokeContract": "source-viewport-baked-strokes-v1",
       "visualScale": 0.576749497507,
       "nonScalingStrokeCount": 0,
-      "sourceFingerprint": "23eba0bed4577a8ede56909540c21064a5161d9ac3f673f2dd895b8da1dfbc3f",
-      "sha256": "b4de824ff74ab9db49a47588b365d25cfe72a40dbf952b65bbef3fdfc3198176"
+      "sourceFingerprint": "90b6601ae7b26d4207b2d25fbfd3d0f7eacc4f8c583795d1c1155e0cd893a0a4",
+      "sha256": "7cc7ddb5d6373b38435e9993d38919596b76dfc0f91f3fff8761fedfc657ff17"
     },
     {
       "type": "heatmap",
@@ -180,8 +180,8 @@
       "source": "Graphitix owner-scoped SVG projection",
       "captureMode": "canonical-export",
       "sourceFormat": "svg",
-      "sourceWidth": 4146.631050255934,
-      "sourceHeight": 3418.8342126359544,
+      "sourceWidth": 354,
+      "sourceHeight": 328.341311,
       "sourceViewBox": {
         "x": 0,
         "y": 0,
@@ -205,10 +205,10 @@
         "verified": true
       },
       "proportionalStrokeContract": "source-viewport-baked-strokes-v1",
-      "visualScale": 0.058499473084,
+      "visualScale": 0.609122255713,
       "nonScalingStrokeCount": 10,
-      "sourceFingerprint": "089bd9c57771140b0e29a72b36491760b0867a827f3ec278773e202ac0ec2f45",
-      "sha256": "e24fcfa9482d74aedfd7df5022cba55de7f1e56e0a1003046c0c84104acdb779"
+      "sourceFingerprint": "5508d011968f0ed907575e679ae50f399bab1d955ee29e3cf0dd4e8c9629c6ad",
+      "sha256": "db01d3817e28f7b2e074671d16c9a2c08e92431efab44e892eefeac50d932bb3"
     },
     {
       "type": "pca",
@@ -247,8 +247,8 @@
       "proportionalStrokeContract": "source-viewport-baked-strokes-v1",
       "visualScale": 0.592117144456,
       "nonScalingStrokeCount": 0,
-      "sourceFingerprint": "3ad3ceffff2c579c2b8d86cc5afff47b1750911b5b1ec7aaac5f102a6c7757bd",
-      "sha256": "00422e2df38e05ba54188091d581a0d0fe0284ccf8e7a1f67eeac5b8f6dd9ea6"
+      "sourceFingerprint": "00c0f8fd4ae1f990001fa322d46d98907749379fc127456071b344433478f86c",
+      "sha256": "4e333fd2e40126badc214b36922f3b59738fdf19f05ed339c31e470dbe76100a"
     },
     {
       "type": "pie",
@@ -287,8 +287,8 @@
       "proportionalStrokeContract": "source-viewport-baked-strokes-v1",
       "visualScale": 0.609756097561,
       "nonScalingStrokeCount": 0,
-      "sourceFingerprint": "fbddef317793e0be3cb61901726573fa45c16a9b71379fb89cfaf8b434c9b3ed",
-      "sha256": "5c3a05287418981f8df5444cb117c43eb1d689ea2264ab832000df62cd5b77e5"
+      "sourceFingerprint": "689fdc4e5720bc18e36061bf8604ee32cad4c835170fe2bfe9ffe701f3dce91d",
+      "sha256": "2fb964af74d2d1be7d7a705f3b4ce5d4caecefec3abfc4199a35b1d6a18ebab7"
     },
     {
       "type": "roc",
@@ -327,8 +327,8 @@
       "proportionalStrokeContract": "source-viewport-baked-strokes-v1",
       "visualScale": 0.581782640188,
       "nonScalingStrokeCount": 0,
-      "sourceFingerprint": "60004bdc58981ae0205a2a8bcbb8905979de75f85d8b89a4539e1bcd7c953b4e",
-      "sha256": "65d573dad2f6f45b4e0da9e0d5efd0502e34ac92fd432034f72b762c9d8dfd74"
+      "sourceFingerprint": "b511407e3840367779b99629693433f6f21f57521422e2ace4ebd13318d362f0",
+      "sha256": "3adc33b4299d7acf64c8e274558821388c549be8ff3dea39b4308a05f5a9c64e"
     },
     {
       "type": "survival",
@@ -367,8 +367,8 @@
       "proportionalStrokeContract": "source-viewport-baked-strokes-v1",
       "visualScale": 0.576749497507,
       "nonScalingStrokeCount": 0,
-      "sourceFingerprint": "03b62118695d1daef3dfebe5b88378cc36eea650af90c0ecf30ee3e9d6a8e17f",
-      "sha256": "c46a06d3fd953ddc865a770156096f266a30643e06688156ac75ef7227953161"
+      "sourceFingerprint": "0360e84acf5c1737d4b61140b472a577eb313ee8e65ec88d9ca345e0499f2cb4",
+      "sha256": "2170cb92b4bd7d0fd7328660cdd2a58cb8f8719ec74a174f80ea05ced67b08f0"
     },
     {
       "type": "venn",
@@ -405,8 +405,8 @@
       "proportionalStrokeContract": "source-viewport-baked-strokes-v1",
       "visualScale": 0.609756097561,
       "nonScalingStrokeCount": 0,
-      "sourceFingerprint": "7096e5cbbba34829583fe9f5bb959e5f66e6277cd34b14a919e5e99d81448dcb",
-      "sha256": "0592513cbc0d49c4b6e2f1dfd3449f68cba1c7223c85fd57a85f012673ff7171"
+      "sourceFingerprint": "05d495715037129692bbbc96a536937c74a5c40a9da5ebf203b15d17d3e3251a",
+      "sha256": "1ee397575b43eb3554e9c44de9d4325c252ed109507b12a0eacdb1cb93a9b478"
     },
     {
       "type": "surface",
@@ -445,7 +445,7 @@
       "proportionalStrokeContract": "source-viewport-baked-strokes-v1",
       "visualScale": 0.595238095238,
       "nonScalingStrokeCount": 0,
-      "sourceFingerprint": "9626697a82f0c96d1f1bfdddebd45097a5c7126d84d6af9ba423b53297136ae6",
+      "sourceFingerprint": "35fc28ed27fa0abdffb3bb465759ab81451c3727c84edc6fae2222d4422c5748",
       "sha256": "ce1226c67dbdd497f1d618a0f92b050ccf27e14c27a5907e01f57e19f4cb3327"
     }
   ]

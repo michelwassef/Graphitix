@@ -12,6 +12,34 @@
     console.debug('Debug:', debugNs, ...args);
   };
 
+  const toNumericPValue = value => {
+    if(typeof Shared.pValueFormatter?.toNumericValue === 'function'){
+      return Shared.pValueFormatter.toNumericValue(value);
+    }
+    if(value === null || value === undefined || typeof value === 'boolean' || typeof value === 'symbol'){
+      return NaN;
+    }
+    if(typeof value !== 'number' && typeof value !== 'string' && !(value instanceof Number)){
+      return NaN;
+    }
+    if(typeof value === 'string' && value.trim() === ''){
+      return NaN;
+    }
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric : NaN;
+  };
+
+  const ensurePValue = value => {
+    const numeric = toNumericPValue(value);
+    return Number.isFinite(numeric) && numeric >= 0 && numeric <= 1 ? numeric : NaN;
+  };
+
+  const toTailNumber = value => (
+    value === Number.POSITIVE_INFINITY || value === Number.NEGATIVE_INFINITY
+      ? value
+      : toNumericPValue(value)
+  );
+
   const ensureFiniteNumber = (value) => (Number.isFinite(value) ? value : NaN);
   regressionTools.ensureFiniteNumber = ensureFiniteNumber;
   const POLYNOMIAL_POWER_LABELS = Object.freeze({ 1: 'x', 2: 'x²', 3: 'x³' });
@@ -59,8 +87,8 @@
     if(typeof resolver === 'function'){
       return resolver(value, NaN);
     }
-    const num = Number(value);
-    return Number.isFinite(num) ? Math.max(0, Math.min(1, num)) : NaN;
+    const num = toNumericPValue(value);
+    return Number.isFinite(num) && num >= 0 && num <= 1 ? num : NaN;
   };
 
   const chiSquareUpperTailPValue = (statistic, df) => {
@@ -68,8 +96,14 @@
     if(typeof helper === 'function'){
       return resolvePValue(helper(statistic, df));
     }
+    const value = toTailNumber(statistic);
+    const degrees = toTailNumber(df);
+    if(value === Number.POSITIVE_INFINITY){
+      return 0;
+    }
     return jStatLib?.chisquare && typeof jStatLib.chisquare.cdf === 'function'
-      ? resolvePValue(1 - jStatLib.chisquare.cdf(statistic, df))
+      && Number.isFinite(value) && Number.isFinite(degrees)
+      ? resolvePValue(1 - jStatLib.chisquare.cdf(value, degrees))
       : NaN;
   };
 
@@ -78,8 +112,13 @@
     if(typeof helper === 'function'){
       return resolvePValue(helper(z));
     }
+    const value = toTailNumber(z);
+    if(value === Number.POSITIVE_INFINITY || value === Number.NEGATIVE_INFINITY){
+      return 0;
+    }
     return jStatLib?.normal && typeof jStatLib.normal.cdf === 'function'
-      ? resolvePValue(2 * (1 - jStatLib.normal.cdf(Math.abs(z), 0, 1)))
+      && Number.isFinite(value)
+      ? resolvePValue(2 * (1 - jStatLib.normal.cdf(Math.abs(value), 0, 1)))
       : NaN;
   };
 
@@ -88,8 +127,15 @@
     if(typeof helper === 'function'){
       return resolvePValue(helper(statistic, df1, df2));
     }
+    const value = toTailNumber(statistic);
+    const firstDf = toTailNumber(df1);
+    const secondDf = toTailNumber(df2);
+    if(value === Number.POSITIVE_INFINITY){
+      return 0;
+    }
     return jStatLib?.centralF && typeof jStatLib.centralF.cdf === 'function'
-      ? resolvePValue(1 - jStatLib.centralF.cdf(statistic, df1, df2))
+      && Number.isFinite(value) && Number.isFinite(firstDf) && Number.isFinite(secondDf)
+      ? resolvePValue(1 - jStatLib.centralF.cdf(value, firstDf, secondDf))
       : NaN;
   };
 
@@ -99,8 +145,14 @@
     if(typeof helper === 'function'){
       return resolvePValue(helper(statistic, df));
     }
+    const value = toTailNumber(statistic);
+    const degrees = toTailNumber(df);
+    if(value === Number.POSITIVE_INFINITY || value === Number.NEGATIVE_INFINITY){
+      return 0;
+    }
     return jStatLib?.studentt && typeof jStatLib.studentt.cdf === 'function'
-      ? resolvePValue(2 * (1 - jStatLib.studentt.cdf(Math.abs(statistic), df)))
+      && Number.isFinite(value) && Number.isFinite(degrees)
+      ? resolvePValue(2 * (1 - jStatLib.studentt.cdf(Math.abs(value), degrees)))
       : NaN;
   };
 
@@ -547,7 +599,7 @@
       const tStatistic = Number.isFinite(standardError) && standardError !== 0
         ? estimate / standardError
         : NaN;
-      const pValue = (tDist && typeof tDist.cdf === 'function' && Number.isFinite(tStatistic) && degreesOfFreedom > 0)
+      const pValue = (Number.isFinite(tStatistic) && degreesOfFreedom > 0)
         ? studentTTwoSidedPValue(tStatistic, degreesOfFreedom)
         : NaN;
       const ciHalfWidth = Number.isFinite(tCritical) && Number.isFinite(standardError)
@@ -1581,7 +1633,6 @@
     const standardErrors = covarianceInfo.standardErrors || [NaN, NaN, NaN, NaN];
     const tCritical = covarianceInfo.tCritical;
     const degreesOfFreedom = covarianceInfo.degreesOfFreedom;
-    const tDist = jStatLib?.studentt;
     const terms = ['Bottom','Top','LogIC50','HillSlope'];
     const estimates = [params.bottom, params.top, params.logIC50, params.hillSlope];
     const coefficientStats = terms.map((term, idx) => {
@@ -1590,7 +1641,7 @@
       const tStatistic = Number.isFinite(standardError) && standardError !== 0
         ? estimate / standardError
         : NaN;
-      const pValue = (tDist && typeof tDist.cdf === 'function' && Number.isFinite(tStatistic) && degreesOfFreedom > 0)
+      const pValue = (Number.isFinite(tStatistic) && degreesOfFreedom > 0)
         ? studentTTwoSidedPValue(tStatistic, degreesOfFreedom)
         : NaN;
       const ciHalfWidth = Number.isFinite(tCritical) && Number.isFinite(standardError)
@@ -1791,14 +1842,7 @@
     }
     const normal=jStatLib?.normal;
     const zCritical=normal?.inv ? normal.inv(1-alpha/2,0,1) : 1.959963984540054;
-    const fallbackNormalCdf=value=>{
-      const x=Math.abs(value)/Math.SQRT2;
-      const t=1/(1+0.3275911*x);
-      const polynomial=(((((1.061405429*t-1.453152027)*t)+1.421413741)*t-0.284496736)*t+0.254829592)*t;
-      const erf=1-polynomial*Math.exp(-x*x);
-      return value>=0 ? 0.5*(1+erf) : 0.5*(1-erf);
-    };
-    const normalP=z=>Math.max(0,Math.min(1,2*(1-(normal?.cdf ? normal.cdf(Math.abs(z),0,1) : fallbackNormalCdf(Math.abs(z))))));
+    const normalP = z => normalTwoSidedPValue(z);
     const coefficients=[beta0,beta1];
     const inferenceAvailable=converged && covariance && coefficients.every(Number.isFinite);
     const coefficientStats=inferenceAvailable ? coefficients.map((estimate,index)=>{
@@ -4997,7 +5041,7 @@
           skewness: ensureFiniteNumber(model.diagnostics.skewness),
           kurtosis: ensureFiniteNumber(model.diagnostics.kurtosis),
           jarqueBera: ensureFiniteNumber(model.diagnostics.jarqueBera),
-          jarqueBeraP: ensureFiniteNumber(model.diagnostics.jarqueBeraP),
+          jarqueBeraP: ensurePValue(model.diagnostics.jarqueBeraP),
           inferenceAvailable: typeof model.diagnostics.inferenceAvailable === 'boolean' ? model.diagnostics.inferenceAvailable : null,
           inferenceReason: model.diagnostics.inferenceReason || null,
           jacobianRank: ensureFiniteNumber(model.diagnostics.jacobianRank),
@@ -5008,7 +5052,7 @@
             expectedRuns: ensureFiniteNumber(model.diagnostics.runsTest.expectedRuns),
             variance: ensureFiniteNumber(model.diagnostics.runsTest.variance),
             z: ensureFiniteNumber(model.diagnostics.runsTest.z),
-            pValue: ensureFiniteNumber(model.diagnostics.runsTest.pValue),
+            pValue: ensurePValue(model.diagnostics.runsTest.pValue),
             nPositive: ensureFiniteNumber(model.diagnostics.runsTest.nPositive),
             nNegative: ensureFiniteNumber(model.diagnostics.runsTest.nNegative),
             message: model.diagnostics.runsTest.message || null
@@ -5021,7 +5065,7 @@
             dfPureError: ensureFiniteNumber(model.diagnostics.lackOfFit.dfPureError),
             dfLackOfFit: ensureFiniteNumber(model.diagnostics.lackOfFit.dfLackOfFit),
             fStatistic: ensureFiniteNumber(model.diagnostics.lackOfFit.fStatistic),
-            pValue: ensureFiniteNumber(model.diagnostics.lackOfFit.pValue),
+            pValue: ensurePValue(model.diagnostics.lackOfFit.pValue),
             message: model.diagnostics.lackOfFit.message || null
           } : null
         } : null,
@@ -5035,7 +5079,7 @@
             zStatistic: ensureFiniteNumber(stat.zStatistic),
             statisticLabel: stat.statisticLabel || (stat.distribution === 'normal' ? 'z' : 't'),
             distribution: stat.distribution || null,
-            pValue: ensureFiniteNumber(stat.pValue),
+            pValue: ensurePValue(stat.pValue),
             ciLow: ensureFiniteNumber(stat.ciLow),
             ciHigh: ensureFiniteNumber(stat.ciHigh)
           }))

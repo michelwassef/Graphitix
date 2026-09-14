@@ -5,7 +5,7 @@
  * families, but it must never make the selected statistical story ambiguous.
  */
 
-const path = require('path');
+const { loadComponentTestBootstrap } = require('../test-support/componentTestBootstrap');
 
 function loadComponent(name) {
   jest.resetModules();
@@ -19,12 +19,7 @@ function loadComponent(name) {
   const jStat = jStatModule?.jStat || jStatModule;
   global.jStat = jStat;
   window.jStat = jStat;
-  require('../js/vendor.js');
-  require('../js/shared/stats.js');
-  require('../js/shared/statsInference.js');
-  require('../js/shared/regression.js');
-  require('../js/shared/chartStyle.js');
-  require(path.join('..', 'js', 'components', `${name}.js`));
+  loadComponentTestBootstrap(name);
   return window.Components[name]?.__testHooks || {};
 }
 

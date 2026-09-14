@@ -3294,6 +3294,28 @@
     return { width, height, inflate };
   }
 
+  function scheduleAxisOverlayFront(axisElement, overlayInfo){
+    if(!axisElement || !overlayInfo || overlayInfo.frontOrderScheduled){
+      return;
+    }
+    overlayInfo.frontOrderScheduled = true;
+    const moveToFront = () => {
+      overlayInfo.frontOrderScheduled = false;
+      const overlay = overlayInfo.element;
+      const parent = axisElement.parentNode;
+      if(parent && overlay?.parentNode === parent){
+        parent.appendChild(overlay);
+      }
+    };
+    if(typeof global.queueMicrotask === 'function'){
+      global.queueMicrotask(moveToFront);
+    }else if(typeof global.setTimeout === 'function'){
+      global.setTimeout(moveToFront, 0);
+    }else{
+      moveToFront();
+    }
+  }
+
   function ensureAxisOverlay(axisElement){
     if(!axisElement){
       return null;
@@ -3301,6 +3323,7 @@
     if(axisElement.__axisControlOverlay){
       const info = axisElement.__axisControlOverlay;
       updateOverlayBounds(axisElement, info.element, info.padding);
+      scheduleAxisOverlayFront(axisElement, info);
       return info;
     }
     const svg = axisElement.ownerSVGElement;
@@ -3314,7 +3337,19 @@
     // sibling instead of appending a duplicate transparent overlay on every restore.
     let overlay = axisElement.nextElementSibling;
     const reusedCachedOverlay = overlay?.dataset?.axisHitTarget === '1';
-    if(!reusedCachedOverlay){
+    if(!reusedCachedOverlay && parent.querySelectorAll){
+      const axisKey = axisElement.dataset?.axisKey || null;
+      const axisScope = axisElement.dataset?.axisScope || null;
+      const axisTabId = axisElement.dataset?.axisTabId || null;
+      overlay = Array.from(parent.querySelectorAll('[data-axis-hit-target="1"]'))
+        .find(candidate => (
+          (!axisKey || candidate.dataset?.axisKey === axisKey)
+          && (!axisScope || candidate.dataset?.axisScope === axisScope)
+          && (!axisTabId || candidate.dataset?.axisTabId === axisTabId)
+        )) || null;
+    }
+    const reusedMatchingCachedOverlay = overlay?.dataset?.axisHitTarget === '1';
+    if(!reusedCachedOverlay && !reusedMatchingCachedOverlay){
       overlay = svg.ownerDocument.createElementNS(SVG_NS, 'rect');
       parent.insertBefore(overlay, axisElement.nextSibling);
     }
@@ -3340,7 +3375,9 @@
           const record = records[i];
           if(record.type !== 'childList'){ continue; }
           const removed = Array.from(record.removedNodes || []);
-          if(removed.includes(axisElement) || removed.includes(overlay)){
+          const axisRemoved = removed.includes(axisElement) && axisElement.parentNode !== parent;
+          const overlayRemoved = removed.includes(overlay) && overlay.parentNode !== parent;
+          if(axisRemoved || overlayRemoved){
             observer?.disconnect?.();
             removalObserver?.disconnect?.();
             overlay.remove();
@@ -3359,6 +3396,7 @@
       meta: bounds
     };
     axisElement.__axisControlOverlay = overlayInfo;
+    scheduleAxisOverlayFront(axisElement, overlayInfo);
     logDebug('axis overlay ensured',{ inflate: bounds ? bounds.inflate : null, reused: reusedCachedOverlay });
     return overlayInfo;
   }
@@ -4121,16 +4159,24 @@
       });
       openPanel(openConfig);
     };
-    element.addEventListener('click', handler);
-    if(overlayInfo){
-      overlayInfo.element.addEventListener('click', handler);
-    }
-    element.__graphitixAxisControlBinding = {
-      handler,
-      overlay: overlayInfo?.element || null,
-      axis: axisKey,
-      scopeId: config.scopeId || null
+    const bindClickTarget = (target, isOverlay = false) => {
+      if(!target){ return; }
+      const previousTargetBinding = target.__graphitixAxisControlBinding || null;
+      if(previousTargetBinding?.handler){
+        target.removeEventListener('click', previousTargetBinding.handler);
+      }
+      target.addEventListener('click', handler);
+      target.__graphitixAxisControlBinding = {
+        handler,
+        overlay: isOverlay ? null : (overlayInfo?.element || null),
+        axis: axisKey,
+        scopeId: config.scopeId || null
+      };
     };
+    bindClickTarget(element);
+    if(overlayInfo){
+      bindClickTarget(overlayInfo.element, true);
+    }
     logDebug('axis element registered',{ axis: config.axis, scopeId: config.scopeId, overlay: overlayInfo ? overlayInfo.meta : null });
     return true;
   }

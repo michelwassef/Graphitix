@@ -2698,20 +2698,37 @@ let state = {
     return numeric.toFixed(Math.max(0, digits));
   }
 
-  function formatPiePValue(value){
-    const numeric = Number(value);
-    if(!Number.isFinite(numeric)){
-      return 'N/A';
+  function toNumericPValue(value){
+    if(typeof Shared.pValueFormatter?.toNumericValue === 'function'){
+      return Shared.pValueFormatter.toNumericValue(value);
     }
+    if(value === null || value === undefined || typeof value === 'boolean' || typeof value === 'symbol') return NaN;
+    if(typeof value !== 'number' && typeof value !== 'string' && !(value instanceof Number)) return NaN;
+    if(typeof value === 'string' && value.trim() === '') return NaN;
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric : NaN;
+  }
+
+  function isValidPValue(value){
+    const numeric = toNumericPValue(value);
+    return Number.isFinite(numeric) && numeric >= 0 && numeric <= 1;
+  }
+
+  function formatPiePValue(value){
     const scientific = Shared.statsReporting?.getPValueFormatScientific?.({
       target: getPieNodeById('pieStatsResults'),
       tabId: getPieProjectionTabId() || null
     }) === true;
-    if(typeof Shared.formatPValue === 'function'){
-      return Shared.formatPValue(numeric, { scientific, forceScientific: scientific });
+    const formatter = Shared.pValueFormatter?.format
+      || Shared.formatters?.formatPValue
+      || Shared.formatPValue;
+    if(typeof formatter === 'function'){
+      return formatter(value, { scientific, forceScientific: scientific });
     }
-    if(scientific){ return Shared.formatters?.formatScientificNumber?.(numeric, { fractionalDigits: 5 }) || String(numeric); }
-    return numeric >= 0 && numeric <= 0.0001 ? '<0.0001' : numeric.toFixed(4).replace(/0+$/, '').replace(/\.$/, '');
+    const numeric = toNumericPValue(value);
+    return Number.isFinite(numeric) && numeric >= 0 && numeric <= 1
+      ? String(numeric)
+      : 'N/A';
   }
 
   function formatPiePExpression(value){
@@ -2731,11 +2748,18 @@ let state = {
   function pieChiSquareUpperTailPValue(statistic, df){
     const helper = Shared.stats?.chiSquareUpperTail;
     if(typeof helper === 'function'){
-      const value = helper(statistic, df);
-      return Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : NaN;
+      const value = toNumericPValue(helper(statistic, df));
+      return isValidPValue(value) ? value : NaN;
     }
+    if(statistic === Number.POSITIVE_INFINITY){
+      return 0;
+    }
+    const valueStatistic = toNumericPValue(statistic);
+    const valueDf = toNumericPValue(df);
     const cdf = global.jStat?.chisquare?.cdf;
-    return typeof cdf === 'function' ? Math.max(0, Math.min(1, 1 - cdf(statistic, df))) : NaN;
+    if(typeof cdf !== 'function' || !Number.isFinite(valueStatistic) || !Number.isFinite(valueDf)) return NaN;
+    const value = toNumericPValue(1 - cdf(valueStatistic, valueDf));
+    return isValidPValue(value) ? value : NaN;
   }
 
   function setPieStatsStatus(message){
@@ -3683,8 +3707,8 @@ let state = {
     const columns = Array.isArray(dataModel?.columns) ? dataModel.columns : [];
     const equalProportions = columns.length === 1 && columns[0]?.index === observedIndex;
     (dataModel?.rows || []).forEach(row => {
-      const observedValue = Number(row.values?.[observedIndex]);
-      const expectedValue = equalProportions ? null : Number(row.values?.[expectedIndex]);
+      const observedValue = toNumericPValue(row.values?.[observedIndex]);
+      const expectedValue = equalProportions ? null : toNumericPValue(row.values?.[expectedIndex]);
       if(!Number.isFinite(observedValue) || observedValue < 0 || (!equalProportions && (!Number.isFinite(expectedValue) || expectedValue <= 0))){
         skipped += 1;
         return;
@@ -3720,7 +3744,7 @@ let state = {
     let total = 0;
     for(let rowIndex = 0; rowIndex < rowCount; rowIndex += 1){
       for(let colIndex = 0; colIndex < colCount; colIndex += 1){
-        const value = Number(rows[rowIndex][colIndex]);
+        const value = toNumericPValue(rows[rowIndex][colIndex]);
         if(!Number.isFinite(value) || value < 0){
           return { ok: false, message: 'Counts must be finite and non-negative.' };
         }
@@ -3819,8 +3843,8 @@ let state = {
   }
 
   function computePieGofStats(observed, expected, options = {}){
-    const obs = Array.isArray(observed) ? observed.map(Number) : [];
-    const exp = Array.isArray(expected) ? expected.map(Number) : [];
+    const obs = Array.isArray(observed) ? observed.map(toNumericPValue) : [];
+    const exp = Array.isArray(expected) ? expected.map(toNumericPValue) : [];
     if(!obs.length){
       return { ok: false, message: 'No observed values supplied.' };
     }
@@ -3948,7 +3972,7 @@ let state = {
     const scope = sanitizePieStatsScope(statsConfig?.scope);
     const isGTest = /g-test/i.test(String(summary.testLabel || ''));
     const statisticSymbol = isGTest ? 'G' : 'χ²';
-    const overallP = Number(summary.pValueRaw);
+    const overallP = toNumericPValue(summary.pValueRaw);
     const overallN = Number(summary.total);
     const alpha = Number(options.alpha);
     const targetFdr = Number(options.targetFdr);
@@ -3967,7 +3991,7 @@ let state = {
       valueParts: [
         `${statisticSymbol}(${summary.df}) = ${summary.statistic}`,
         ...(Number.isFinite(overallN) ? [`; N = ${summary.total}`] : []),
-        ...(Number.isFinite(overallP) ? ['; p = ', Shared.statsReporting?.pValue?.(overallP, {
+        ...(isValidPValue(overallP) ? ['; p = ', Shared.statsReporting?.pValue?.(overallP, {
           fallback:String(summary.pValue || formatPiePValue(overallP)),
           inference:summary.inferenceSpec || null
         }) || String(summary.pValue || formatPiePValue(overallP))] : []),
@@ -4001,7 +4025,7 @@ let state = {
 
       pairs.forEach((row, index) => {
         const label = `${row.left || `Condition ${index + 1}`} vs ${row.right || `Condition ${index + 2}`}`;
-        if(!Number.isFinite(Number(row.pValueRaw))){
+        if(!isValidPValue(row.pValueRaw)){
           resultRows.push({ label, value: row.note || 'Pairwise test unavailable.' });
           return;
         }
@@ -4010,13 +4034,15 @@ let state = {
           '; raw p = ',
           Shared.statsReporting?.pValue?.(row.pValueRaw, { fallback:String(row.pValue || formatPiePValue(row.pValueRaw)) }) || String(row.pValue || formatPiePValue(row.pValueRaw))
         ];
-        if(Number.isFinite(Number(row.pAdjustedRaw)) && (pairs.length > 1 || Number(row.pAdjustedRaw) !== Number(row.pValueRaw))){
+        const adjustedP = toNumericPValue(row.pAdjustedRaw);
+        const rawP = toNumericPValue(row.pValueRaw);
+        if(isValidPValue(adjustedP) && (pairs.length > 1 || adjustedP !== rawP)){
           parts.push(
             method === 'none' ? '; decision p = ' : `; ${correctionMeta?.shortLabel || correctionName || 'adjusted'} p = `,
-            Shared.statsReporting?.pValue?.(row.pAdjustedRaw, {
-              fallback:String(row.pAdjusted || formatPiePValue(row.pAdjustedRaw)),
+            Shared.statsReporting?.pValue?.(adjustedP, {
+              fallback:String(row.pAdjusted || formatPiePValue(adjustedP)),
               inference:model.pairInferenceSpec || null
-            }) || String(row.pAdjusted || formatPiePValue(row.pAdjustedRaw))
+            }) || String(row.pAdjusted || formatPiePValue(adjustedP))
           );
         }
         if(row.cramersV && row.cramersV !== 'N/A') parts.push(`; Cramér's V = ${row.cramersV}`);
@@ -4205,7 +4231,7 @@ let state = {
           updatePieStatsButtonState({ disabled: false, label: 'Calculate statistics' });
           return;
         }
-        primaryPValue = Number.isFinite(gof.pValue) ? gof.pValue : NaN;
+        primaryPValue = isValidPValue(gof.pValue) ? toNumericPValue(gof.pValue) : NaN;
         renderedModel = {
           summary: {
             caption: 'Goodness-of-fit test',
@@ -4250,7 +4276,7 @@ let state = {
           updatePieStatsButtonState({ disabled: false, label: 'Calculate statistics' });
           return;
         }
-        primaryPValue = Number.isFinite(overall.pValue) ? overall.pValue : NaN;
+        primaryPValue = isValidPValue(overall.pValue) ? toNumericPValue(overall.pValue) : NaN;
         const pairs = derivePieScopePairs(stats);
         if(!pairs.length){
           clearPieStatsOutputs('No pairwise comparisons are configured for the current scope.');
@@ -4291,14 +4317,14 @@ let state = {
             statistic: formatPieStatNumber(result.statistic, 4),
             df: String(result.df),
             pValue: formatPiePValue(result.pValue),
-            pRaw: Number.isFinite(result.pValue) ? result.pValue : NaN,
+            pRaw: isValidPValue(result.pValue) ? toNumericPValue(result.pValue) : NaN,
             cramersV: formatPieStatNumber(result.cramersV, 4),
             sparseCellCount: result.sparseCellCount,
             yatesApplied: result.yatesApplied
           });
         });
         const rawPValues = pairResults.map(row => row.pRaw);
-        const finitePValues = rawPValues.filter(Number.isFinite);
+        const finitePValues = rawPValues.filter(isValidPValue);
         const effectiveCorrection = finitePValues.length > 1 ? sanitizePieStatsCorrection(stats.correction) : 'none';
         let adjusted = [];
         if(finitePValues.length > 1 && Shared.stats && typeof Shared.stats.adjustPValues === 'function'){
@@ -4309,14 +4335,14 @@ let state = {
         let adjustedIndex = 0;
         pairResults.forEach(row => {
           row.pValueRaw = row.pRaw;
-          if(Number.isFinite(row.pRaw)){
+          if(isValidPValue(row.pRaw)){
             const adjustedValue = adjusted[adjustedIndex];
             adjustedIndex += 1;
-            row.pAdjustedRaw = Number.isFinite(adjustedValue) ? adjustedValue : row.pRaw;
+            row.pAdjustedRaw = isValidPValue(adjustedValue) ? toNumericPValue(adjustedValue) : row.pRaw;
           }else{
             row.pAdjustedRaw = NaN;
           }
-          row.pAdjusted = Number.isFinite(row.pAdjustedRaw) ? formatPiePValue(row.pAdjustedRaw) : 'N/A';
+          row.pAdjusted = isValidPValue(row.pAdjustedRaw) ? formatPiePValue(row.pAdjustedRaw) : 'N/A';
           delete row.pRaw;
         });
         const correctionMeta = Shared.stats && typeof Shared.stats.getCorrectionMeta === 'function'
@@ -6314,12 +6340,14 @@ let state = {
   }
 
   function computePieChiSquare(observed, expected){
-    const values = (Array.isArray(observed) ? observed : []).map(Number);
-    const expectedValues = (Array.isArray(expected) ? expected : []).map(Number);
+    const values = (Array.isArray(observed) ? observed : []).map(toNumericPValue);
+    const expectedValues = (Array.isArray(expected) ? expected : []).map(toNumericPValue);
     if(!values.length){
       return { available: false, message: 'No observed values supplied.' };
     }
-    if(expectedValues.length !== values.length || expectedValues.some(v => !Number.isFinite(v) || v <= 0)){
+    if(expectedValues.length !== values.length
+      || values.some(v => !Number.isFinite(v) || v < 0)
+      || expectedValues.some(v => !Number.isFinite(v) || v <= 0)){
       return { available: false, message: 'Expected values are required and must be positive.' };
     }
     const chi2 = values.reduce((sum, obs, idx) => sum + Math.pow(obs - expectedValues[idx], 2) / expectedValues[idx], 0);
@@ -6350,24 +6378,12 @@ let state = {
       const expectedCountDiagnostic = lowExpectedCount > 0
         ? `${lowExpectedCount} of ${finiteExpected.length} expected counts are < 5 (minimum ${Number.isFinite(minExpected) ? minExpected.toFixed(2) : 'n/a'}); the Pearson χ² asymptotic approximation may be unreliable.`
         : `All ${finiteExpected.length} expected counts are ≥ 5 (minimum ${Number.isFinite(minExpected) ? minExpected.toFixed(2) : 'n/a'}).`;
-      const formatP=(val)=>{
-        if(!isFinite(val)) return String(val);
-        const scientific = Shared.statsReporting?.getPValueFormatScientific?.({
-          target: out,
-          tabId: getPieProjectionTabId() || null
-        }) === true;
-        if(typeof Shared?.formatPValue === 'function'){
-          return Shared.formatPValue(val, { scientific, forceScientific: scientific });
-        }
-        const numeric = Number(val);
-        if(scientific){ return Shared.formatters?.formatScientificNumber?.(numeric, { fractionalDigits: 5 }) || String(numeric); }
-        return numeric >= 0 && numeric <= 0.0001 ? '<0.0001' : numeric.toFixed(4).replace(/0+$/, '').replace(/\.$/, '');
-      };
+      const formatP = formatPiePValue;
       const hasRenderer=Shared.statsTable && typeof Shared.statsTable.render==='function';
       const rows=[
         {metric:'Chi²',value:chi2.toFixed(4)},
         {metric:'df',value:String(df)},
-        {metric:'p-value',value:isFinite(p) ? (Shared.statsReporting?.pValue?.(p, { fallback:String(formatP(p)), inference:createPieOverallInferenceSpec() }) || formatP(p)) : 'N/A'}
+        {metric:'p-value',value:isValidPValue(p) ? (Shared.statsReporting?.pValue?.(p, { fallback:String(formatP(p)), inference:createPieOverallInferenceSpec() }) || formatP(p)) : 'N/A'}
       ];
       if(hasRenderer){
         Shared.statsTable.render({
@@ -6384,12 +6400,12 @@ let state = {
           }
         });
       }else{
-        out.innerHTML=`<table><tr><th>Chi²</th><td>${chi2.toFixed(4)}</td></tr><tr><th>df</th><td>${df}</td></tr><tr><th>p-value</th><td>${isFinite(p)?formatP(p):'N/A'}</td></tr></table>`;
+        out.innerHTML=`<table><tr><th>Chi²</th><td>${chi2.toFixed(4)}</td></tr><tr><th>df</th><td>${df}</td></tr><tr><th>p-value</th><td>${isValidPValue(p)?formatP(p):'N/A'}</td></tr></table>`;
       }
       if(Shared.statsReporting && typeof Shared.statsReporting.appendReportPanel === 'function'){
         Shared.statsReporting.appendReportPanel(out, {
           methodsText: `A chi-square goodness-of-fit test compared observed counts across ${observed.length} categories against the supplied expected counts. Observed counts were required to be non-negative and expected counts positive; categories with invalid values were not analyzed. The test used ${df} degrees of freedom and inferential decisions used α = ${Shared.statsInference?.formatLevel?.(getPieStatsAlpha()) || getPieStatsAlpha()}.`,
-          resultsText: `χ² = ${chi2.toFixed(4)}, df = ${df}, ${isFinite(p) ? formatPiePExpression(p) : 'p = N/A'}.`,
+          resultsText: `χ² = ${chi2.toFixed(4)}, df = ${df}, ${isValidPValue(p) ? formatPiePExpression(p) : 'p = N/A'}.`,
           figureSummary: {
             schemaVersion:1,
             kind:'inferential',
@@ -6401,19 +6417,19 @@ let state = {
               ] },
               { key:'results', label:'Results', rows:[{
                 label:'Overall fit',
-                valueParts:[`χ²(${df}) = ${chi2.toFixed(4)}`, ...(isFinite(p) ? ['; p = ', Shared.statsReporting?.pValue?.(p, { fallback:String(formatP(p)), inference:createPieOverallInferenceSpec() }) || String(formatP(p))] : [])]
+                valueParts:[`χ²(${df}) = ${chi2.toFixed(4)}`, ...(isValidPValue(p) ? ['; p = ', Shared.statsReporting?.pValue?.(p, { fallback:String(formatP(p)), inference:createPieOverallInferenceSpec() }) || String(formatP(p))] : [])]
               }] },
               { key:'diagnostics', label:'Diagnostics', rows:[{ label:'Expected-count check', value:expectedCountDiagnostic }] }
             ]
           },
-          resultsParts: [`χ² = ${chi2.toFixed(4)}, df = ${df}, p = `, { type:'pValue', value:p, fallback:isFinite(p)?String(formatP(p)):'N/A', __statsInference:createPieOverallInferenceSpec() }, '.'],
+          resultsParts: [`χ² = ${chi2.toFixed(4)}, df = ${df}, p = `, { type:'pValue', value:p, fallback:isValidPValue(p)?String(formatP(p)):'N/A', __statsInference:createPieOverallInferenceSpec() }, '.'],
           analysisSpec: {
             component: 'pie',
             categoryCount: observed.length,
             labels: Array.isArray(labels) ? labels.slice() : [],
             chiSquare: Number.isFinite(chi2) ? chi2 : null,
             df,
-            p: Number.isFinite(p) ? p : null,
+            p: isValidPValue(p) ? p : null,
             inference: buildPieStatsInferenceSnapshot()
           }
         }, { title: 'Reporting and reproducibility' });
@@ -8217,9 +8233,84 @@ let state = {
     return !(state.resizeState && state.resizeState.active);
   };
 
-  pie.awaitReadyForSnapshot = function awaitReadyForSnapshot(meta = {}){
-    return Shared.componentLifecycle?.awaitReadyForSnapshot?.(pie, { ...meta, componentKey: 'pie' })
-      || Promise.resolve({ ok: true, skipped: true, reason: 'missing-componentLifecycle' });
+  function inspectPieInteractionBindings(owner, root){
+    const svg = root?.querySelector?.('#pieSvg') || null;
+    if(!owner || !svg){
+      return {
+        ok: false,
+        reason: !owner ? 'missing-owner' : 'missing-svg',
+        axes: { total: 0, bound: 0 },
+        hitTargets: { total: 0, bound: 0 },
+        inline: { total: 0, bound: 0 },
+        traces: { total: 0, bound: 0 },
+        legends: { total: 0, bound: 0 }
+      };
+    }
+    const isBound = node => Shared.axisControls?.isAxisElementBound?.(node) === true
+      || !!node?.__graphitixAxisControlBinding?.handler;
+    const axes = Array.from(svg.querySelectorAll('[data-axis-control="1"]'));
+    const axisNodes = axes.filter(node => node?.dataset?.axisHitTarget !== '1');
+    const hitNodes = axes.filter(node => node?.dataset?.axisHitTarget === '1');
+    const inlineNodes = Array.from(svg.querySelectorAll('[data-inline-editable="1"]'));
+    const traceNodes = Array.from(svg.querySelectorAll('[data-pie-trace="1"]'));
+    const legendNodes = Array.from(svg.querySelectorAll('[data-legend-viewport-content="true"]'));
+    const boundCount = (nodes, predicate = isBound) => nodes.filter(predicate).length;
+    const result = {
+      axes: { total: axisNodes.length, bound: boundCount(axisNodes) },
+      hitTargets: { total: hitNodes.length, bound: boundCount(hitNodes) },
+      inline: { total: inlineNodes.length, bound: boundCount(inlineNodes, node => !!node?.__graphitixInlineEditBinding?.dblclick) },
+      traces: { total: traceNodes.length, bound: boundCount(traceNodes, node => node?.__graphitixPieTraceFormatBound === true) },
+      legends: { total: legendNodes.length, bound: boundCount(legendNodes, node => typeof node?.__graphitixLegendDragBinding?.onCommit === 'function') }
+    };
+    return {
+      ...result,
+      ok: result.axes.total === result.axes.bound
+        && result.hitTargets.total === result.hitTargets.bound
+        && result.inline.total === result.inline.bound
+        && result.traces.total === result.traces.bound
+        && result.legends.total === result.legends.bound
+    };
+  }
+
+  pie.awaitReadyForSnapshot = async function awaitReadyForSnapshot(meta = {}){
+    const baseReadiness = await (Shared.componentLifecycle?.awaitReadyForSnapshot?.(pie, {
+      ...meta,
+      componentKey: 'pie'
+    }) || { ok: true, skipped: true, reason: 'missing-componentLifecycle' });
+    if(!baseReadiness?.ok){
+      return baseReadiness;
+    }
+    const owner = getPieRenderCacheOwner(meta, 'pie-snapshot-interaction-readiness');
+    const root = meta.root || resolvePieRoot(owner?.tabId || meta.tab || meta.tabId || null);
+    const interactionTimeoutMs = Number.isFinite(Number(meta.interactionTimeoutMs))
+      ? Math.max(100, Number(meta.interactionTimeoutMs))
+      : 1000;
+    const deadline = Date.now() + interactionTimeoutMs;
+    let interaction = inspectPieInteractionBindings(owner, root);
+    while(!interaction.ok && Date.now() < deadline){
+      pie.rehydrateGraphInteractions({
+        ...meta,
+        componentKey: 'pie',
+        type: 'pie',
+        tabId: owner?.tabId || meta.tabId || meta.tab?.id || null,
+        root,
+        svgs: root?.querySelectorAll ? Array.from(root.querySelectorAll('#pieSvg')) : []
+      });
+      interaction = inspectPieInteractionBindings(owner, root);
+      if(interaction.ok){
+        break;
+      }
+      await Shared.componentLifecycle?.waitForAnimationFrames?.(1);
+    }
+    if(!interaction.ok){
+      return {
+        ...baseReadiness,
+        ok: false,
+        reason: 'interaction-rebind-pending',
+        interaction
+      };
+    }
+    return { ...baseReadiness, interactionReady: true, interaction };
   };
 
   function bindPieTraceFormatInteraction(node){

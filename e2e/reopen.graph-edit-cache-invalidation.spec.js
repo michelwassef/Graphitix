@@ -431,7 +431,12 @@ test.describe('Reopened graph edits invalidate restored render caches', () => {
         expect(await page.locator(targetSelector).first().getAttribute('data-pca-point-interaction')).toBeTruthy();
       }
 
-      await page.locator(targetSelector).first().click({ force: true });
+      const graphEditTarget = page.locator(targetSelector).first();
+      if(component.type === 'pca'){
+        await graphEditTarget.click();
+      }else{
+        await graphEditTarget.click({ force: true });
+      }
       const toolbarHost = page.locator('.font-toolbar-host--visible');
       await expect(toolbarHost).toBeVisible({ timeout: 12_000 });
       if(component.type === 'pca'){
@@ -482,7 +487,16 @@ test.describe('Reopened graph edits invalidate restored render caches', () => {
         requireMountedRoot: true
       });
       await awaitComponentIdle(page, component, tabId);
-
+      if(component.type === 'pie'){
+        const readiness = await page.evaluate(async ownerTabId => (
+          window.Components?.pie?.awaitReadyForSnapshot?.({
+            tabId: ownerTabId,
+            reason: 'e2e-pie-first-interaction-readiness'
+          })
+        ), tabId);
+        expect(readiness?.ok).toBe(true);
+        expect(readiness?.interactionReady).toBe(true);
+      }
       const restoredAxis = page.locator(axisSelector).first();
       await expect(restoredAxis).toHaveAttribute('data-axis-control', '1');
       await expect(restoredAxis).toHaveAttribute('data-axis-key', /^(x|y)$/);
@@ -492,6 +506,13 @@ test.describe('Reopened graph edits invalidate restored render caches', () => {
         // Histogram axis lines have zero CSS hit area; dispatch on the bound SVG
         // element to verify the restored owner interaction itself.
         await restoredAxis.dispatchEvent('click');
+      }else if(component.type === 'pie'){
+        const axisKey = await restoredAxis.getAttribute('data-axis-key');
+        const restoredAxisHitTarget = page.locator(
+          `#${component.pageId}:not([hidden]) svg [data-axis-hit-target="1"][data-axis-key="${axisKey}"]`
+        ).first();
+        await expect(restoredAxisHitTarget).toBeVisible();
+        await restoredAxisHitTarget.click();
       }else{
         await restoredAxis.click({ force: true });
       }

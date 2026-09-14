@@ -44,6 +44,23 @@
     }
   }
 
+  function toNumericPValue(value){
+    if(typeof Shared.pValueFormatter?.toNumericValue === 'function'){
+      return Shared.pValueFormatter.toNumericValue(value);
+    }
+    if(value === null || value === undefined || typeof value === 'boolean' || typeof value === 'symbol'){
+      return NaN;
+    }
+    if(typeof value !== 'number' && typeof value !== 'string' && !(value instanceof Number)){
+      return NaN;
+    }
+    if(typeof value === 'string' && value.trim() === ''){
+      return NaN;
+    }
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric : NaN;
+  }
+
   function normalizeTabId(value){
     if(value == null){
       return null;
@@ -315,7 +332,7 @@
   }
 
   function classifyPValue(pValue, spec){
-    const numeric = Number(pValue);
+    const numeric = toNumericPValue(pValue);
     const normalizedSpec = spec && typeof spec === 'object'
       ? makeDecisionSpec(spec)
       : makeDecisionSpec({});

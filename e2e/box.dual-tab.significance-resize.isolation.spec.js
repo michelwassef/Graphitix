@@ -441,6 +441,12 @@ test('box resize persists geometry without rebuilding statistics', async ({ page
   await openBoxTab(page, { first: true });
   await computeStatsWithPairwise(page);
   await setPairwiseComparisons(page, false);
+  await page.evaluate(async () => {
+    await window.Main?.session?.flushCanonicalUserMutationState?.();
+  });
+  await page.waitForFunction(() => {
+    return window.Main?.session?.getActiveTab?.()?.payloadDirty === false;
+  });
   resizeLogs.length = 0;
 
   const before = await readBoxMetrics(page);
@@ -470,7 +476,7 @@ test('box resize persists geometry without rebuilding statistics', async ({ page
   expect(afterPersistence.payloadSignature).toBe(beforePersistence.payloadSignature);
   expect(afterPersistence.layoutSignature).not.toBe(beforePersistence.layoutSignature);
   expect(afterPersistence.statsSignature).toBe(beforePersistence.statsSignature);
-  expect(afterPersistence.payloadDirty).toBe(beforePersistence.payloadDirty);
+  expect(afterPersistence.payloadDirty).toBe(false);
   expect(payloadGeometry.hasStatsViewportGeometry).toBe(false);
   expect(payloadGeometry.hasStatsGraphGeometry).toBe(false);
   expect(payloadGeometry.hasLayoutBoxGeometry).toBe(true);

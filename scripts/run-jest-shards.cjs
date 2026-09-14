@@ -73,11 +73,21 @@ function runGroup(project, files, index, total, onlyFailures = false) {
   return result.status == null ? 1 : result.status;
 }
 
-function run(options) {
+function runReport(options) {
   const files = discoverTests(options.project, options.onlyFailures);
   if (files.length === 0) {
     console.log(`No ${options.onlyFailures ? 'failed ' : ''}${options.project} tests discovered.`);
-    return 0;
+    return {
+      schemaVersion: 1,
+      runner: 'jest-shards',
+      project: options.project,
+      filesPerProcess: options.filesPerProcess,
+      onlyFailures: options.onlyFailures,
+      initialStatus: 0,
+      durationMs: 0,
+      groups: [],
+      failedGroups: []
+    };
   }
   const groups = partition(files, options.filesPerProcess);
   let status = 0;
@@ -101,23 +111,28 @@ function run(options) {
     ? `; failed groups: ${failedGroups.map(group => group.join(', ')).join(' | ')}`
     : '';
   console.log(`\nJest ${options.project}: ${groups.length} bounded process groups; status=${status}${failureSummary}`);
+  const report = {
+    schemaVersion: 1,
+    runner: 'jest-shards',
+    project: options.project,
+    filesPerProcess: options.filesPerProcess,
+    onlyFailures: options.onlyFailures,
+    initialStatus: status,
+    durationMs: Date.now() - startedAt,
+    groups: groupReports,
+    failedGroups
+  };
   if (options.reportFile) {
     const reportPath = path.resolve(ROOT_DIR, options.reportFile);
     fs.mkdirSync(path.dirname(reportPath), { recursive: true });
-    fs.writeFileSync(reportPath, JSON.stringify({
-      schemaVersion: 1,
-      runner: 'jest-shards',
-      project: options.project,
-      filesPerProcess: options.filesPerProcess,
-      onlyFailures: options.onlyFailures,
-      initialStatus: status,
-      durationMs: Date.now() - startedAt,
-      groups: groupReports,
-      failedGroups
-    }, null, 2));
+    fs.writeFileSync(reportPath, JSON.stringify(report, null, 2));
     console.log(`Jest ${options.project} report: ${reportPath}`);
   }
-  return status;
+  return report;
+}
+
+function run(options) {
+  return runReport(options).initialStatus;
 }
 
 if (require.main === module) {
@@ -135,4 +150,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { parseArgs, partition, discoverTests, runGroup, run };
+module.exports = { parseArgs, partition, discoverTests, runGroup, runReport, run };

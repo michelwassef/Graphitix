@@ -8323,10 +8323,26 @@
     }
   };
 
+  function toNumericPValue(value){
+    if(typeof Shared.pValueFormatter?.toNumericValue === 'function'){
+      return Shared.pValueFormatter.toNumericValue(value);
+    }
+    if(value === null || value === undefined || typeof value === 'boolean' || typeof value === 'symbol') return NaN;
+    if(typeof value !== 'number' && typeof value !== 'string' && !(value instanceof Number)) return NaN;
+    if(typeof value === 'string' && value.trim() === '') return NaN;
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric : NaN;
+  }
+
+  function isValidPValue(value){
+    const numeric = toNumericPValue(value);
+    return Number.isFinite(numeric) && numeric >= 0 && numeric <= 1;
+  }
+
   function formatP(p){
-    if(p === undefined || p === null || Number.isNaN(p)) return 'n/a';
-    if(!Number.isFinite(p)) return p>0?'Infinity':'-Infinity';
-    const formatter = Shared.formatters?.formatPValue || Shared.formatPValue;
+    const formatter = Shared.pValueFormatter?.format
+      || Shared.formatters?.formatPValue
+      || Shared.formatPValue;
     const scientific = Shared.statsReporting?.getPValueFormatScientific?.({
       target: getActiveLineRefs().statsResults || null,
       tabId: getLineProjectionTabId() || null
@@ -8334,9 +8350,10 @@
     if(typeof formatter === 'function'){
       return formatter(p, { scientific, forceScientific: scientific });
     }
-    if(scientific){ return Shared.formatters?.formatScientificNumber?.(Number(p), { fractionalDigits: 5 }) || String(Number(p)); }
-    if(p >= 0 && p <= 0.0001) return '<0.0001';
-    return Number(p).toFixed(4).replace(/0+$/, '').replace(/\.$/, '');
+    const numeric = toNumericPValue(p);
+    return Number.isFinite(numeric) && numeric >= 0 && numeric <= 1
+      ? String(numeric)
+      : 'n/a';
   }
 
   function getLineStatsInferenceTabId(){
@@ -8363,7 +8380,7 @@
   }
 
   function lineInferencePValue(value){
-    const numeric = Number(value);
+    const numeric = toNumericPValue(value);
     const fallback = Number.isFinite(numeric) ? String(formatP(numeric)) : '—';
     const inferenceSpec = createLineInferenceSpec();
     if(typeof Shared.statsReporting?.pValue === 'function'){
@@ -8411,21 +8428,32 @@
   function lineStudentTTwoSidedPValue(t, df){
     const helper = Shared.stats?.studentTTwoSidedPValue;
     if(typeof helper === 'function'){
-      const value = helper(t, df);
-      return Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : NaN;
+      const value = toNumericPValue(helper(t, df));
+      return isValidPValue(value) ? value : NaN;
     }
+    if(t === Number.POSITIVE_INFINITY || t === Number.NEGATIVE_INFINITY) return 0;
+    const valueT = toNumericPValue(t);
+    const valueDf = toNumericPValue(df);
     const cdf = global.jStat?.studentt?.cdf;
-    return typeof cdf === 'function' ? Math.max(0, Math.min(1, 2 * (1 - cdf(Math.abs(t), df)))) : NaN;
+    if(typeof cdf !== 'function' || !Number.isFinite(valueT) || !Number.isFinite(valueDf)) return NaN;
+    const value = toNumericPValue(2 * (1 - cdf(Math.abs(valueT), valueDf)));
+    return isValidPValue(value) ? value : NaN;
   }
 
   function lineFUpperTailPValue(f, df1, df2){
     const helper = Shared.stats?.fUpperTail;
     if(typeof helper === 'function'){
-      const value = helper(f, df1, df2);
-      return Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : NaN;
+      const value = toNumericPValue(helper(f, df1, df2));
+      return isValidPValue(value) ? value : NaN;
     }
+    if(f === Number.POSITIVE_INFINITY) return 0;
+    const valueF = toNumericPValue(f);
+    const valueDf1 = toNumericPValue(df1);
+    const valueDf2 = toNumericPValue(df2);
     const cdf = global.jStat?.centralF?.cdf;
-    return typeof cdf === 'function' ? Math.max(0, Math.min(1, 1 - cdf(f, df1, df2))) : NaN;
+    if(typeof cdf !== 'function' || !Number.isFinite(valueF) || !Number.isFinite(valueDf1) || !Number.isFinite(valueDf2)) return NaN;
+    const value = toNumericPValue(1 - cdf(valueF, valueDf1, valueDf2));
+    return isValidPValue(value) ? value : NaN;
   }
 
   const formatMetricValue = (value, digits = 4) => Number.isFinite(value) ? value.toFixed(digits) : 'n/a';
@@ -12503,8 +12531,9 @@
           slopeText += `; 95% CI [${formatValue(slope.ciLow)}, ${formatValue(slope.ciHigh)}]`;
         }
         bits.push(slopeText);
-        if(Number.isFinite(Number(slope?.p))){
-          bits.push(formatLinePExpression(Number(slope.p)));
+        const slopeP = toNumericPValue(slope?.p);
+        if(isValidPValue(slopeP)){
+          bits.push(formatLinePExpression(slopeP));
         }
       }
       if(Number.isFinite(r2)){ bits.push(`R² = ${formatValue(r2)}`); }
@@ -12646,9 +12675,13 @@
       ? `; association p-values use ${associationPMethods.join('; ')}`
       : '';
     const finite = value => Number.isFinite(Number(value));
+    const finiteP = value => {
+      const numeric = toNumericPValue(value);
+      return Number.isFinite(numeric) && numeric >= 0 && numeric <= 1;
+    };
     const fmt = (value, digits = 4) => formatMetricValue(Number(value), digits);
     const rawPToken = (value, inference = true) => {
-      const numeric = Number(value);
+      const numeric = toNumericPValue(value);
       const fallback = Number.isFinite(numeric) ? String(formatP(numeric)) : '—';
       if(typeof Shared.statsReporting?.pValue === 'function'){
         return Shared.statsReporting.pValue(numeric, {
@@ -12695,7 +12728,7 @@
         if(stats.correlationCI && finite(stats.correlationCI.low) && finite(stats.correlationCI.high)){
           parts.push(`; ${confidenceLevel.toFixed(confidenceLevel % 1 === 0 ? 0 : 1)}% CI [${fmt(stats.correlationCI.low, 4)}, ${fmt(stats.correlationCI.high, 4)}]${stats.correlationCiApproximate ? ' (approximate Fisher-z interval)' : ''}`);
         }
-        if(finite(stats.p)){ parts.push('; p = ', rawPToken(stats.p)); }
+        if(finiteP(stats.p)){ parts.push('; p = ', rawPToken(stats.p)); }
         resultRows.push({ label:`${name} · association`, valueParts:parts, figureRole:'association', figurePriority:80 });
       }
 
@@ -12725,7 +12758,7 @@
         if(finite(metrics.adjR2)){ modelParts.push(`${modelParts.length ? '; ' : ''}adjusted R² = ${fmt(metrics.adjR2, 4)}`); }
         if(finite(entry.modelF) && finite(entry.modelDf1) && finite(entry.modelDf2)){
           modelParts.push(`${modelParts.length ? '; ' : ''}F(${Math.round(Number(entry.modelDf1))}, ${Math.round(Number(entry.modelDf2))}) = ${fmt(entry.modelF, 3)}`);
-          if(finite(entry.modelFP)){ modelParts.push('; p = ', rawPToken(entry.modelFP)); }
+          if(finiteP(entry.modelFP)){ modelParts.push('; p = ', rawPToken(entry.modelFP)); }
         }
         if(finite(metrics.rmse)){ modelParts.push(`${modelParts.length ? '; ' : ''}RMSE = ${fmt(metrics.rmse, 4)}`); }
         if(modelParts.length){ resultRows.push({ label:`${name} · model`, valueParts:modelParts, figureRole:'model', figurePriority:70 }); }
@@ -12742,7 +12775,7 @@
         if(Number.isFinite(statistic)){
           parts.push(`; ${statisticLabel}${statisticLabel.toLowerCase() === 't' && Number.isFinite(df) ? `(${Math.round(df)})` : ''} = ${fmt(statistic, 3)}`);
         }
-        if(finite(stat.pValue)){ parts.push('; p = ', rawPToken(stat.pValue)); }
+        if(finiteP(stat.pValue)){ parts.push('; p = ', rawPToken(stat.pValue)); }
         if(finite(stat.ciLow) && finite(stat.ciHigh)){
           parts.push(`; ${confidenceLevel.toFixed(confidenceLevel % 1 === 0 ? 0 : 1)}% CI [${fmt(stat.ciLow, 4)}, ${fmt(stat.ciHigh, 4)}]`);
         }
@@ -12754,19 +12787,19 @@
         const parts = [];
         if(finite(d.jarqueBera)){
           parts.push(`Jarque–Bera = ${fmt(d.jarqueBera, 3)}`);
-          if(finite(d.jarqueBeraP)){ parts.push(', p = ', rawPToken(d.jarqueBeraP, false)); }
+          if(finiteP(d.jarqueBeraP)){ parts.push(', p = ', rawPToken(d.jarqueBeraP, false)); }
         }
         const runs = d.runsTest || null;
         if(runs?.available && finite(runs.z)){
           if(parts.length){ parts.push('; '); }
           parts.push(`runs z = ${fmt(runs.z, 3)}`);
-          if(finite(runs.pValue)){ parts.push(', p = ', rawPToken(runs.pValue, false)); }
+          if(finiteP(runs.pValue)){ parts.push(', p = ', rawPToken(runs.pValue, false)); }
         }
         const lof = d.lackOfFit || null;
         if(lof?.available && finite(lof.fStatistic)){
           if(parts.length){ parts.push('; '); }
           parts.push(`lack-of-fit F${finite(lof.dfLackOfFit) && finite(lof.dfPureError) ? `(${Math.round(Number(lof.dfLackOfFit))}, ${Math.round(Number(lof.dfPureError))})` : ''} = ${fmt(lof.fStatistic, 3)}`);
-          if(finite(lof.pValue)){ parts.push(', p = ', rawPToken(lof.pValue, false)); }
+          if(finiteP(lof.pValue)){ parts.push(', p = ', rawPToken(lof.pValue, false)); }
         }
         if(parts.length){ diagnosticRows.push({ label:name, valueParts:parts, figureRole:'diagnostic', figurePriority:45 }); }
       }
@@ -12862,7 +12895,6 @@
             ? (r2Value / predictorCount) / ((1 - r2Value) / (sampleSizeValue - predictorCount - 1))
             : NaN;
           const modelFP = Number.isFinite(modelF) && Number.isFinite(predictorCount) && Number.isFinite(sampleSizeValue)
-            && global.jStat?.centralF && typeof global.jStat.centralF.cdf === 'function'
             ? lineFUpperTailPValue(modelF, predictorCount, sampleSizeValue - predictorCount - 1)
             : NaN;
           const corrCi = stats.correlationCI && Number.isFinite(stats.correlationCI.low) && Number.isFinite(stats.correlationCI.high)
@@ -12879,7 +12911,7 @@
             rCi:corrCi,
             p:formatP(stats.p),
             pValueCell:lineInferencePValue(stats.p),
-            pRaw:Number.isFinite(stats.p) ? stats.p : null,
+            pRaw:isValidPValue(stats.p) ? toNumericPValue(stats.p) : null,
             pMethod:stats.pMethod || '—',
             slope:formatMetricValue(stats.slope),
             r2:formatMetricValue(r2Value),
@@ -14261,6 +14293,7 @@
   async function drawLine3d(sessionOrOptions = {}, maybeOptions = {}){
     const invocation = resolveLineInvocationSession(sessionOrOptions, maybeOptions);
     const drawOpts = invocation.options || {};
+    const drawOwnerSession = invocation.session || null;
     if(invocation.session && !isLineSessionActive(invocation.session)){
       markLineOwnerDrawPending(invocation.session, {
         ...(drawOpts || {}),
@@ -14279,17 +14312,17 @@
     const liveRotationDraw = drawOpts?.reason === 'rotation';
     const checkpoint = async () => {
       if(liveRotationDraw){
-        return execution?.isCurrent?.() !== false;
+        return execution?.isCurrent?.() !== false && (!drawOwnerSession || isLineSessionActive(drawOwnerSession));
       }
       try{
         await execution?.checkpoint?.();
       }catch(err){
-        if(execution?.signal?.aborted || execution?.isCurrent?.() === false){
+        if(execution?.signal?.aborted || execution?.isCurrent?.() === false || (drawOwnerSession && !isLineSessionActive(drawOwnerSession))){
           return false;
         }
         throw err;
       }
-      return execution?.isCurrent?.() !== false;
+      return execution?.isCurrent?.() !== false && (!drawOwnerSession || isLineSessionActive(drawOwnerSession));
     };
     let svgPublication = null;
     try{
@@ -15370,6 +15403,7 @@
   async function drawLine(sessionOrOptions = {}, maybeOptions = {}){
     const invocation = resolveLineInvocationSession(sessionOrOptions, maybeOptions);
     const drawOpts = invocation.options || {};
+    const drawOwnerSession = invocation.session || null;
     if(invocation.session && !isLineSessionActive(invocation.session)){
       markLineOwnerDrawPending(invocation.session, {
         ...(drawOpts || {}),
@@ -15389,12 +15423,12 @@
       try{
         await execution?.checkpoint?.();
       }catch(err){
-        if(execution?.signal?.aborted || execution?.isCurrent?.() === false){
+        if(execution?.signal?.aborted || execution?.isCurrent?.() === false || (drawOwnerSession && !isLineSessionActive(drawOwnerSession))){
           return false;
         }
         throw err;
       }
-      return execution?.isCurrent?.() !== false;
+      return execution?.isCurrent?.() !== false && (!drawOwnerSession || isLineSessionActive(drawOwnerSession));
     };
     let svgPublication = null;
     try{
@@ -16999,6 +17033,23 @@
         // cover an earlier series line, which is visually misleading.
         svg.appendChild(uncertaintyBandLayer);
       }
+      const areaLayer = isAreaMode && areaFillOpacity > 0
+        ? document.createElementNS(NS, 'g')
+        : null;
+      if(areaLayer){
+        areaLayer.setAttribute('data-layer', 'line-area-fills');
+        areaLayer.style.pointerEvents = 'none';
+        svg.appendChild(areaLayer);
+      }
+      const regressionIntervalLayer = (showConfidenceIntervals || showPredictionIntervals)
+        ? document.createElementNS(NS, 'g')
+        : null;
+      if(regressionIntervalLayer){
+        regressionIntervalLayer.setAttribute('data-layer', 'line-interval-bands');
+        regressionIntervalLayer.dataset.lineOverlayLayer = 'intervals';
+        regressionIntervalLayer.style.pointerEvents = 'none';
+        svg.appendChild(regressionIntervalLayer);
+      }
       const seriesElems=[];
       for(let i = 0; i < seriesWithData.length; i += 1){
         const s = seriesWithData[i];
@@ -17035,14 +17086,9 @@
           const intervalSamples = s.regression.intervals.samples;
           const confidencePath = showConfidenceIntervals ? buildLineIntervalBandPath(intervalSamples, 'ciLow', 'ciHigh') : null;
           const predictionPath = showPredictionIntervals ? buildLineIntervalBandPath(intervalSamples, 'piLow', 'piHigh') : null;
-          const intervalLayer = (confidencePath || predictionPath) ? document.createElementNS(NS, 'g') : null;
-          if(intervalLayer){
-            intervalLayer.setAttribute('data-layer', 'line-interval-bands');
-            intervalLayer.dataset.lineOverlayLayer = 'intervals';
-            intervalLayer.dataset.series = s.name || '';
-            svg.appendChild(intervalLayer);
+          if((confidencePath || predictionPath) && regressionIntervalLayer){
             appendLineIntervalOverlay({
-              layer: intervalLayer,
+              layer: regressionIntervalLayer,
               overlayKey: 'confidence',
               pathData: confidencePath,
               style: confidenceStyle,
@@ -17051,7 +17097,7 @@
               fallbackColor: color
             });
             appendLineIntervalOverlay({
-              layer: intervalLayer,
+              layer: regressionIntervalLayer,
               overlayKey: 'prediction',
               pathData: predictionPath,
               style: predictionStyle,
@@ -17255,7 +17301,7 @@
           areaPathEl.dataset.lineStyleRole='area';
           areaPathEl.dataset.renderMode='area-fill';
           areaPathEl.style.pointerEvents='none';
-          svg.appendChild(areaPathEl);
+          areaLayer?.appendChild(areaPathEl);
         }
         if(showUncertaintyBand && uncertaintyBandSegments.length){
           // Band transparency is an independent presentation control. It shares
@@ -17372,6 +17418,12 @@
       }
       if(uncertaintyBandLayer && !uncertaintyBandLayer.childNodes.length){
         uncertaintyBandLayer.remove();
+      }
+      if(areaLayer && !areaLayer.childNodes.length){
+        areaLayer.remove();
+      }
+      if(regressionIntervalLayer && !regressionIntervalLayer.childNodes.length){
+        regressionIntervalLayer.remove();
       }
       if(!(await checkpoint())){
         return false;
@@ -18168,6 +18220,7 @@
       },
         scheduleDraw: scheduleLineDraw,
         preserveGraphContent: false,
+        skipScheduleOnObserver: true,
         panelSyncOptions: {
           disableAutoWidthClamp: true,
           lockGraphPanelWidth: false

@@ -2,7 +2,7 @@ const { test, expect } = require('@playwright/test');
 const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
 const { openComponentFromWelcome } = require('./helpers/workspaceDriver');
 const { registerIssueCollectors } = require('./helpers/diagnostics');
-const { waitForComponentOwnerReady } = require('./helpers/contractWaits');
+const { waitForComponentOwnerReady, waitForComponentSnapshotReady } = require('./helpers/contractWaits');
 
 async function getWorkspaceTabIds(page) {
   return page.evaluate(() =>
@@ -367,6 +367,67 @@ async function resolveMockString(page, label) {
       (tab?.payload?.analysis?.stringEnrichment || []).some(item => String(item.termDescription || item.description || '').includes(resultLabel))
     );
   }, label, { timeout: 10_000 });
+}
+
+async function resolveMockGoVariant(page, label, source) {
+  await page.evaluate(({ resultLabel, expectedSource }) => {
+    const matches = (window.__vennAsyncMocks?.go || []).filter(entry =>
+      (entry.request.genes || []).some(gene => String(gene).includes(resultLabel))
+    );
+    const go = matches[matches.length - 1];
+    if (!go) throw new Error(`Missing mocked GO request for ${resultLabel}/${expectedSource}`);
+    go.resolve({
+      result: [{
+        term_name: `${resultLabel} ${expectedSource} GO term`,
+        name: `${resultLabel} ${expectedSource} GO term`,
+        p_value: 0.0001,
+        source: expectedSource
+      }]
+    });
+  }, { resultLabel: label, expectedSource: source });
+  await page.waitForFunction(({ resultLabel, expectedSource }) => {
+    const workspace = window.Main?.session?.workspaceState || {};
+    return (workspace.tabs || []).some(tab =>
+      (tab?.payload?.analysis?.goResult || []).some(item =>
+        String(item?.term_name || item?.name || '').includes(`${resultLabel} ${expectedSource}`)
+      )
+    );
+  }, { resultLabel: label, expectedSource: source }, { timeout: 30_000 });
+}
+
+async function resolveMockStringVariant(page, label, networkType) {
+  await page.evaluate(({ resultLabel, expectedNetworkType }) => {
+    const mocks = window.__vennAsyncMocks;
+    const network = mocks?.network?.find(entry =>
+      (entry.request.genes || []).some(gene => String(gene).includes(resultLabel))
+      && entry.request.networkType === expectedNetworkType
+    );
+    if (!network) throw new Error(`Missing mocked STRING request for ${resultLabel}/${expectedNetworkType}`);
+    network.resolve({
+      svg: `<svg xmlns="http://www.w3.org/2000/svg" width="120" height="80"><text x="8" y="24">${resultLabel} ${expectedNetworkType} STRING network</text></svg>`
+    });
+  }, { resultLabel: label, expectedNetworkType: networkType });
+  await page.waitForFunction(({ resultLabel, expectedNetworkType }) =>
+    (window.__vennAsyncMocks?.enrichment || []).some(entry =>
+      (entry.request.genes || []).some(gene => String(gene).includes(resultLabel))
+      && entry.request.networkType === expectedNetworkType
+    ), { resultLabel: label, expectedNetworkType: networkType }, { timeout: 10_000 });
+  await page.evaluate(({ resultLabel, expectedNetworkType }) => {
+    const enrichment = window.__vennAsyncMocks.enrichment.find(entry =>
+      (entry.request.genes || []).some(gene => String(gene).includes(resultLabel))
+      && entry.request.networkType === expectedNetworkType
+    );
+    if (!enrichment) throw new Error(`Missing mocked STRING enrichment for ${resultLabel}/${expectedNetworkType}`);
+    enrichment.resolve({ items: [{ termDescription: `${resultLabel} ${expectedNetworkType} STRING enrichment`, fdr: 0.001 }] });
+  }, { resultLabel: label, expectedNetworkType: networkType });
+  await page.waitForFunction(({ resultLabel, expectedNetworkType }) => {
+    const workspace = window.Main?.session?.workspaceState || {};
+    return (workspace.tabs || []).some(tab =>
+      (tab?.payload?.analysis?.stringEnrichment || []).some(item =>
+        String(item?.termDescription || '').includes(`${resultLabel} ${expectedNetworkType}`)
+      )
+    );
+  }, { resultLabel: label, expectedNetworkType: networkType }, { timeout: 30_000 });
 }
 
 async function readTabAnalysisPayload(page, tabId) {
@@ -753,6 +814,152 @@ for (const kind of ['go', 'string']) {
     }
   });
 }
+
+test('Venn STRING option changes rerun one owner request and one network render', async ({ page }) => {
+  test.setTimeout(120_000);
+  await installLocalCdnOverrides(page);
+  await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
+  await expect(page.locator('#welcomeScreen')).toBeVisible({ timeout: 20_000 });
+
+  const tabId = await openVennTab(page, { first: true });
+  await installMockAnalysisServices(page);
+  await activateTabById(page, tabId);
+  await configureVennTab(page, {
+    label: 'ALPHA',
+    genes: ['ALPHA_GENE_1', 'ALPHA_GENE_2'],
+    species: 'hsapiens'
+  });
+  await prepareVennAnalysisControls(page, { kind: 'string', region: 'A', species: 'hsapiens' });
+  await setVennAnalysisOptionProfile(page, { kind: 'string', profile: 'beta' });
+  await page.evaluate(() => {
+    const host = document.querySelector('#vennPage:not([hidden]) #stringNetwork');
+    window.__vennStringSvgAdds = 0;
+    window.__vennStringSvgObserver?.disconnect?.();
+    window.__vennStringSvgObserver = new MutationObserver(records => {
+      records.forEach(record => {
+        Array.from(record.addedNodes || []).forEach(node => {
+          if (node.nodeType === 1 && (node.matches?.('svg') || node.querySelector?.('svg'))) {
+            window.__vennStringSvgAdds += 1;
+          }
+        });
+      });
+    });
+    window.__vennStringSvgObserver.observe(host, { childList: true, subtree: true });
+  });
+
+  await page.locator('#vennPage:not([hidden]) #stringBtn').click({ force: true });
+  await page.waitForFunction(() => (window.__vennAsyncMocks?.network || []).length === 1, null, { timeout: 10_000 });
+  const firstRequest = await page.evaluate(() => window.__vennAsyncMocks.network[0].request);
+  expect(firstRequest.networkType).toBe('full');
+  await resolveMockStringVariant(page, 'ALPHA_GENE_2', 'full');
+  await waitForComponentSnapshotReady(page, 'venn');
+  await page.evaluate(tabId => {
+    const tab = window.Main?.session?.workspaceState?.tabs?.find(item => item?.id === tabId);
+    if (!tab) throw new Error(`Missing Venn tab ${tabId}`);
+    return window.Main.session.persistActiveTabState(tab, {
+      reason: 'e2e-string-analysis-render-cache-capture',
+      captureRenderCache: true,
+      forcePreviewCapture: false
+    });
+  }, tabId);
+  await waitForComponentSnapshotReady(page, 'venn');
+  expect(await page.evaluate(() => window.__vennStringSvgAdds)).toBe(1);
+
+  await setVennAnalysisOptionProfile(page, { kind: 'string', profile: 'alpha' });
+  await page.waitForFunction(() => (window.__vennAsyncMocks?.network || []).length === 2, null, { timeout: 10_000 });
+  const requests = await page.evaluate(() => window.__vennAsyncMocks.network.map(entry => entry.request));
+  expect(requests.map(request => request.networkType)).toEqual(['full', 'physical']);
+  expect(requests[1].edgeMeaning).toBe('confidence');
+  expect(requests[1].sources).toEqual(['experiments']);
+  await resolveMockStringVariant(page, 'ALPHA_GENE_2', 'physical');
+  await waitForComponentSnapshotReady(page, 'venn');
+
+  await page.waitForFunction(() => window.__vennStringSvgAdds === 2, null, { timeout: 10_000 });
+  const finalState = await page.evaluate(() => {
+    const tab = (window.Main?.session?.workspaceState?.tabs || [])
+      .find(item => item?.id === window.Main?.session?.workspaceState?.activeTabId);
+    return {
+      networkCalls: window.__vennAsyncMocks?.network?.length || 0,
+      enrichmentCalls: window.__vennAsyncMocks?.enrichment?.length || 0,
+      svgAdds: window.__vennStringSvgAdds || 0,
+      stringNetworkType: tab?.payload?.config?.stringNetworkType || '',
+      stringSources: tab?.payload?.config?.stringSources || {}
+    };
+  });
+  expect(finalState).toMatchObject({
+    networkCalls: 2,
+    enrichmentCalls: 2,
+    svgAdds: 2,
+    stringNetworkType: 'physical',
+    stringSources: { experiments: true, textmining: false, databases: false }
+  });
+  await page.evaluate(() => {
+    window.__vennStringSvgObserver?.disconnect?.();
+  });
+});
+
+test('Venn GO option changes rerun only GO for the active owner', async ({ page }) => {
+  test.setTimeout(120_000);
+  await installLocalCdnOverrides(page);
+  await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
+  await expect(page.locator('#welcomeScreen')).toBeVisible({ timeout: 20_000 });
+
+  const tabId = await openVennTab(page, { first: true });
+  await installMockAnalysisServices(page);
+  await activateTabById(page, tabId);
+  await configureVennTab(page, {
+    label: 'ALPHA',
+    genes: ['ALPHA_GENE_1', 'ALPHA_GENE_2'],
+    species: 'hsapiens'
+  });
+  await prepareVennAnalysisControls(page, { kind: 'go', region: 'A', species: 'hsapiens' });
+  await setVennAnalysisOptionProfile(page, { kind: 'go', profile: 'alpha' });
+  await page.evaluate(() => {
+    const host = document.querySelector('#vennPage:not([hidden]) #goResults');
+    window.__vennGoResultRenders = 0;
+    window.__vennGoResultObserver?.disconnect?.();
+    window.__vennGoResultObserver = new MutationObserver(records => {
+      records.forEach(record => {
+        Array.from(record.addedNodes || []).forEach(node => {
+          if (node.nodeType === 1 && node.matches?.('strong')) {
+            window.__vennGoResultRenders += 1;
+          }
+        });
+      });
+    });
+    window.__vennGoResultObserver.observe(host, { childList: true });
+  });
+
+  await page.locator('#vennPage:not([hidden]) #goBtn').click({ force: true });
+  await page.waitForFunction(() => (window.__vennAsyncMocks?.go || []).length === 1, null, { timeout: 10_000 });
+  await resolveMockGoVariant(page, 'ALPHA_GENE_2', 'GO:BP');
+  await waitForComponentSnapshotReady(page, 'venn');
+  await page.evaluate(tabId => {
+    const tab = window.Main?.session?.workspaceState?.tabs?.find(item => item?.id === tabId);
+    if (!tab) throw new Error(`Missing Venn tab ${tabId}`);
+    return window.Main.session.persistActiveTabState(tab, {
+      reason: 'e2e-go-analysis-render-cache-capture',
+      captureRenderCache: true,
+      forcePreviewCapture: false
+    });
+  }, tabId);
+  await waitForComponentSnapshotReady(page, 'venn');
+  expect(await page.evaluate(() => window.__vennGoResultRenders)).toBe(1);
+
+  await setVennAnalysisOptionProfile(page, { kind: 'go', profile: 'beta' });
+  await page.waitForFunction(() => (window.__vennAsyncMocks?.go || []).length === 2, null, { timeout: 10_000 });
+  const requests = await page.evaluate(() => window.__vennAsyncMocks.go.map(entry => entry.request));
+  expect(requests.map(request => request.sources)).toEqual([['GO:BP'], ['GO:CC']]);
+  await resolveMockGoVariant(page, 'ALPHA_GENE_2', 'GO:CC');
+
+  const finalState = await page.evaluate(() => ({
+    goCalls: window.__vennAsyncMocks?.go?.length || 0,
+    networkCalls: window.__vennAsyncMocks?.network?.length || 0,
+    goSources: Array.from(document.querySelectorAll('#vennPage:not([hidden]) .goCategory:checked')).map(input => input.value)
+  }));
+  expect(finalState).toEqual({ goCalls: 2, networkCalls: 0, goSources: ['GO:CC'] });
+  await page.evaluate(() => window.__vennGoResultObserver?.disconnect?.());
+});
 
 for (const kind of ['go', 'string']) {
   test(`Venn ${kind.toUpperCase()} button keeps pre-analysis species resolution owned across A→B`, async ({ page }) => {

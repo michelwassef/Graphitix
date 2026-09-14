@@ -1,12 +1,24 @@
 {
   "schemaVersion": 1,
-  "capturedOn": "2026-09-09",
+  "capturedOn": "2026-09-12",
   "source": "npm run test:coverage",
+  "coverageProvider": "v8",
+  "scope": {
+    "projects": [
+      "architecture",
+      "statistical-oracle",
+      "unit-node",
+      "dom-unit",
+      "workers"
+    ],
+    "excludedProjects": ["integration"],
+    "sourceDenominator": "js/**/*.js and src/**/*.js"
+  },
   "metrics": {
-    "statements": 65.67,
-    "branches": 51.25,
-    "functions": 68.64,
-    "lines": 66.6
+    "statements": 63.28,
+    "branches": 95.65,
+    "functions": 64.61,
+    "lines": 63.28
   },
   "critical": {
     "js/shared/componentLifecycle.js": {

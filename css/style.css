@@ -5852,7 +5852,7 @@ input[type=color]::-moz-color-swatch{border:none;border-radius:0}
 .config-panel{background:#fbfcff;border:var(--ui-panel-border-width) solid #dfe4ec;border-radius:var(--ui-rounded-radius);padding:12px 14px;display:flex;flex-direction:column;gap:10px;min-width:var(--config-panel-min-width,140px);font-family:var(--ui-font-family);color:#1d2532;box-shadow:none;--config-panel-number-width:48px;--config-panel-range-min-width:120px;--config-panel-select-icon:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='%23131c23' d='M0 0h10L5 6z'/%3E%3C/svg%3E")}
 .config-panel [hidden]{display:none !important}
 .config-panel__fieldset,
-.config-panel fieldset{border:1px solid #b9c2d0;background:#fffffff6;margin:0;padding:10px 12px 12px;border-radius:0;box-shadow:inset 0 1px 0 rgba(255,255,255,0.92)}
+.config-panel fieldset{border:1px solid #b9c2d0;background:#fffffff6;margin:0;padding:10px 12px 12px;border-radius:0;box-shadow:inset 0 1px 0 rgba(255,255,255,0.92);box-sizing:border-box;min-width:0;max-width:100%;width:100%}
 .config-panel__fieldset+.config-panel__fieldset,
 .config-panel fieldset+fieldset{margin-top:4px}
 .config-panel__fieldset legend,
@@ -5865,6 +5865,20 @@ input[type=color]::-moz-color-swatch{border:none;border-radius:0}
 .config-panel .control-row>.control{margin-top:0;flex:0 1 auto}
 .config-panel__line--split{column-gap:12px;row-gap:6px}
 .config-panel__line--checkboxes{gap:6px 10px}
+.config-panel .control,
+.config-panel .config-panel__line,
+.config-panel .control-row,
+.config-panel .stats-figure-controls,
+.config-panel .stats-figure-controls__result-row,
+.config-panel .stats-figure-controls__options{min-width:0;max-width:100%}
+.config-panel .control>label,
+.config-panel .config-panel__line>label,
+.config-panel .control-row>.control{min-width:0;max-width:100%}
+.config-panel .control>label:has(> select),
+.config-panel .config-panel__line>label:has(> select){flex-wrap:wrap}
+.config-panel select{min-width:0}
+.config-panel .stats-figure-controls__result-row{width:100%;flex-wrap:wrap}
+.config-panel .stats-figure-controls__options{flex-wrap:wrap}
 .config-panel,
 .workspace-toolbar,
 .axis-controls-panel,
@@ -6995,6 +7009,11 @@ details{background:#fff;border:1px solid #ddd;border-radius:var(--ui-rounded-rad
 #histPage .diagram-area .config-panel{flex:0 0 auto}
 #histPage .panel{display:flex;flex-direction:column;min-width:0}
 #histPage #histPlot{width:100%;height:auto;min-width:0;min-height:0;resize:none;overflow:hidden;flex:1 1 auto}
+@media (min-width:681px){
+  .workspace-page .diagram-area>.config-panel,
+  #pcaPage .diagram-area .config-panel,
+  #surfacePage .diagram-area .config-panel{flex-shrink:0}
+}
 @media (max-width:1000px){#histPage .wrap{grid-template-columns:1fr}}
 #piePage .wrap{display:flex;align-items:stretch;gap:0}
 #piePage #pieTablePanel{flex:1 1 33%;min-width:150px}

@@ -127,7 +127,9 @@ describe('Main.components.ensureComponent', () => {
 
   test('registry publication validators scope checks to the primary graph surface', () => {
     const hasRenderableGraphContent = jest.fn(() => false);
+    const pcaHasRenderedGraph = jest.fn(() => false);
     global.window.Components = {};
+    global.window.Components.pca = { hasRenderedGraph: pcaHasRenderedGraph };
     global.window.Shared = {
       debounceFrame: fn => fn,
       componentLifecycle: { hasRenderableGraphContent }
@@ -136,11 +138,7 @@ describe('Main.components.ensureComponent', () => {
     const root = document.createElement('div');
 
     expect(window.Main.components.registry.pca.hasRenderedGraph({ root })).toBe(false);
-    expect(hasRenderableGraphContent).toHaveBeenLastCalledWith(root, {
-      selectors: ['#pcaPlot'],
-      contentSelectors: ['[data-plot-point="1"]', 'canvas.pca-fast-points-layer'],
-      allowText: false
-    });
+    expect(pcaHasRenderedGraph).toHaveBeenCalledWith({ root });
 
     expect(window.Main.components.registry.heatmap.hasRenderedGraph({ root })).toBe(false);
     expect(hasRenderableGraphContent).toHaveBeenLastCalledWith(root, {

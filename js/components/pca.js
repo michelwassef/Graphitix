@@ -18838,6 +18838,24 @@
       && !rotationActive;
   };
 
+  pca.hasRenderedGraph = function hasRenderedGraph(meta = {}) {
+    const tabLike = meta?.tab || meta?.tabId || null;
+    const root = meta?.root || resolvePcaRoot(tabLike);
+    if (!root || typeof root.querySelector !== 'function') {
+      return false;
+    }
+    const validator = Shared.componentLifecycle?.hasRenderableGraphContent;
+    if (typeof validator === 'function') {
+      return validator(root, {
+        selectors: ['#pcaPlot'],
+        contentSelectors: ['[data-plot-point="1"]', 'canvas.pca-fast-points-layer'],
+        allowText: false
+      }) === true;
+    }
+    const plot = root.id === 'pcaPlot' ? root : root.querySelector('#pcaPlot');
+    return !!plot?.querySelector?.('[data-plot-point="1"], canvas.pca-fast-points-layer');
+  };
+
   pca.awaitReadyForSnapshot = function awaitReadyForSnapshot(meta = {}) {
     return Shared.componentLifecycle?.awaitReadyForSnapshot?.(pca, {
         ...meta,

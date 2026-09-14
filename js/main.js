@@ -1228,7 +1228,7 @@
         prismBatchRoot: true
       });
     }
-    if (['csv', 'tsv', 'xlsx', 'xls', 'ods'].includes(ext)) {
+    if (['csv', 'tsv', 'txt', 'xlsx', 'xls', 'ods'].includes(ext)) {
       const choice = await showWelcomeDataImportPrompt(file);
       if (!choice) {
         return false;

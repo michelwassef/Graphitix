@@ -67,6 +67,7 @@
   const DEFAULT_REPORT_PVALUE_DECIMALS = 4;
   const DEFAULT_REPORT_PVALUE_MIN = 0.0001;
   const DEFAULT_PVALUE_FORMAT_SCIENTIFIC = false;
+  const MAX_REPORT_PVALUE_DECIMAL_PLACES = 20;
 
   function statsDebugEnabled(){
     return typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled();
@@ -140,7 +141,7 @@
   ];
 
   function clampProbability(value){
-    const num = Number(value);
+    const num = toNumericPValue(value);
     if(!Number.isFinite(num)){
       return NaN;
     }
@@ -308,9 +309,15 @@
   }
 
   function chiSquareUpperTail(statistic, df){
-    const x = Number(statistic);
-    const degrees = Number(df);
-    if(!Number.isFinite(x) || !Number.isFinite(degrees) || degrees <= 0){
+    const x = statistic === Number.POSITIVE_INFINITY ? Number.POSITIVE_INFINITY : toNumericPValue(statistic);
+    const degrees = toNumericPValue(df);
+    if(!Number.isFinite(degrees) || degrees <= 0){
+      return NaN;
+    }
+    if(x === Number.POSITIVE_INFINITY){
+      return 0;
+    }
+    if(!Number.isFinite(x) || x < 0){
       return NaN;
     }
     if(x <= 0){
@@ -320,10 +327,16 @@
   }
 
   function fUpperTail(statistic, df1, df2){
-    const f = Number(statistic);
-    const d1 = Number(df1);
-    const d2 = Number(df2);
-    if(!Number.isFinite(f) || !Number.isFinite(d1) || !Number.isFinite(d2) || d1 <= 0 || d2 <= 0){
+    const f = statistic === Number.POSITIVE_INFINITY ? Number.POSITIVE_INFINITY : toNumericPValue(statistic);
+    const d1 = toNumericPValue(df1);
+    const d2 = toNumericPValue(df2);
+    if(!Number.isFinite(d1) || !Number.isFinite(d2) || d1 <= 0 || d2 <= 0){
+      return NaN;
+    }
+    if(f === Number.POSITIVE_INFINITY){
+      return 0;
+    }
+    if(!Number.isFinite(f) || f < 0){
       return NaN;
     }
     if(f <= 0){
@@ -334,9 +347,17 @@
   }
 
   function studentTTwoSidedPValue(statistic, df){
-    const t = Number(statistic);
-    const degrees = Number(df);
-    if(!Number.isFinite(t) || !Number.isFinite(degrees) || degrees <= 0){
+    const t = statistic === Number.POSITIVE_INFINITY || statistic === Number.NEGATIVE_INFINITY
+      ? statistic
+      : toNumericPValue(statistic);
+    const degrees = toNumericPValue(df);
+    if(!Number.isFinite(degrees) || degrees <= 0){
+      return NaN;
+    }
+    if(t === Number.POSITIVE_INFINITY || t === Number.NEGATIVE_INFINITY){
+      return 0;
+    }
+    if(!Number.isFinite(t)){
       return NaN;
     }
     const x = degrees / (degrees + t * t);
@@ -344,9 +365,20 @@
   }
 
   function studentTUpperTail(statistic, df){
-    const t = Number(statistic);
-    const degrees = Number(df);
-    if(!Number.isFinite(t) || !Number.isFinite(degrees) || degrees <= 0){
+    const t = statistic === Number.POSITIVE_INFINITY || statistic === Number.NEGATIVE_INFINITY
+      ? statistic
+      : toNumericPValue(statistic);
+    const degrees = toNumericPValue(df);
+    if(!Number.isFinite(degrees) || degrees <= 0){
+      return NaN;
+    }
+    if(t === Number.POSITIVE_INFINITY){
+      return 0;
+    }
+    if(t === Number.NEGATIVE_INFINITY){
+      return 1;
+    }
+    if(!Number.isFinite(t)){
       return NaN;
     }
     if(t === 0){
@@ -360,7 +392,12 @@
   }
 
   function normalTwoSidedPValue(z){
-    const value = Number(z);
+    const value = z === Number.POSITIVE_INFINITY || z === Number.NEGATIVE_INFINITY
+      ? z
+      : toNumericPValue(z);
+    if(value === Number.POSITIVE_INFINITY || value === Number.NEGATIVE_INFINITY){
+      return 0;
+    }
     if(!Number.isFinite(value)){
       return NaN;
     }
@@ -368,7 +405,15 @@
   }
 
   function normalUpperTail(z){
-    const value = Number(z);
+    const value = z === Number.POSITIVE_INFINITY || z === Number.NEGATIVE_INFINITY
+      ? z
+      : toNumericPValue(z);
+    if(value === Number.POSITIVE_INFINITY){
+      return 0;
+    }
+    if(value === Number.NEGATIVE_INFINITY){
+      return 1;
+    }
     if(!Number.isFinite(value)){
       return NaN;
     }
@@ -383,12 +428,12 @@
   }
 
   function finiteProbabilityOrFallback(value, fallback){
-    const p = clampProbability(value);
-    if(Number.isFinite(p)){
+    const p = toNumericPValue(value);
+    if(Number.isFinite(p) && p >= 0 && p <= 1){
       return p;
     }
-    const candidate = clampProbability(fallback);
-    return Number.isFinite(candidate) ? candidate : NaN;
+    const candidate = toNumericPValue(fallback);
+    return Number.isFinite(candidate) && candidate >= 0 && candidate <= 1 ? candidate : NaN;
   }
 
   function formatFixedTrimmed(value, decimals){
@@ -406,9 +451,68 @@
       .replace(/^-0$/, '0');
   }
 
+  function toNumericPValue(value){
+    if(typeof Shared.pValueFormatter?.toNumericValue === 'function'){
+      return Shared.pValueFormatter.toNumericValue(value);
+    }
+    if(value === null || value === undefined || typeof value === 'boolean' || typeof value === 'symbol'){
+      return NaN;
+    }
+    if(typeof value !== 'number' && typeof value !== 'string' && !(value instanceof Number)){
+      return NaN;
+    }
+    if(typeof value === 'string' && value.trim() === ''){
+      return NaN;
+    }
+    try{
+      const numeric = Number(value);
+      return Number.isFinite(numeric) ? numeric : NaN;
+    }catch(_err){
+      return NaN;
+    }
+  }
+
+  function toNumericLogPValue(value){
+    if(value === null || value === undefined || typeof value === 'boolean' || typeof value === 'symbol'){
+      return NaN;
+    }
+    if(typeof value !== 'number' && typeof value !== 'string' && !(value instanceof Number)){
+      return NaN;
+    }
+    if(typeof value === 'string' && value.trim() === ''){
+      return NaN;
+    }
+    try{
+      const numeric = Number(value);
+      return Number.isFinite(numeric) || numeric === -Infinity ? numeric : NaN;
+    }catch(_err){
+      return NaN;
+    }
+  }
+
+  function decimalPlacesForPValue(value, minimumDecimals, significantDigits){
+    const numeric = Math.abs(toNumericPValue(value));
+    if(!Number.isFinite(numeric) || numeric === 0){
+      return minimumDecimals;
+    }
+    const exponent = Math.floor(Math.log10(numeric));
+    const significantPlaces = exponent < 0
+      ? -exponent + significantDigits - 1
+      : significantDigits - 1 - exponent;
+    return Math.max(minimumDecimals, significantPlaces);
+  }
+
+  function formatDecimalPValueBoundary(value, minimumDecimals, significantDigits){
+    const decimalPlaces = decimalPlacesForPValue(value, minimumDecimals, significantDigits);
+    return formatFixedTrimmed(value, Math.min(MAX_REPORT_PVALUE_DECIMAL_PLACES, decimalPlaces));
+  }
+
   function createPValueDisplayString(text, rawValue, metadata = {}){
+    if(typeof Shared.pValueFormatter?.createDisplayString === 'function'){
+      return Shared.pValueFormatter.createDisplayString(text, rawValue, metadata);
+    }
     const label = new String(String(text == null ? '' : text));
-    const numeric = Number(rawValue);
+    const numeric = toNumericPValue(rawValue);
     const sourceOperator = typeof metadata.operator === 'string' && metadata.operator ? metadata.operator : '=';
     const displayOperator = typeof metadata.displayOperator === 'string' && metadata.displayOperator
       ? metadata.displayOperator
@@ -690,7 +794,10 @@
   }
 
   function formatScientificReportNumber(value, options = {}){
-    const numeric = Number(value);
+    if(typeof Shared.pValueFormatter?.formatScientific === 'function'){
+      return Shared.pValueFormatter.formatScientific(value, options);
+    }
+    const numeric = toNumericPValue(value);
     if(!Number.isFinite(numeric)){
       return String(value);
     }
@@ -715,15 +822,28 @@
     if(!match){
       return exponential;
     }
-    const mantissa = match[1].startsWith('-') ? `−${match[1].slice(1)}` : match[1].replace(/^\+/, '');
+    const rawMantissa = finalizeNumberString(match[1].replace(/^\+/, ''));
+    const mantissa = rawMantissa.startsWith('-') ? `−${rawMantissa.slice(1)}` : rawMantissa;
     const exponent = String(Number(match[2]));
     return `${mantissa} × 10${toReportSuperscript(exponent)}`;
   }
 
   function sharedFormatPValue(value, options){
-    const num = Number(value);
+    if(typeof Shared.pValueFormatter?.format === 'function'){
+      const result = Shared.pValueFormatter.format(value, options);
+      if(statsDebugEnabled()){
+        statsDebug('Debug: Shared.formatPValue',{ input: value, formatted: String(result), options });
+      }
+      return result;
+    }
+    const num = toNumericPValue(value);
     if(!Number.isFinite(num)){
-      return String(value);
+      return createPValueDisplayString('unavailable (not estimable)', NaN, {
+        scientific: options?.forceScientific === true || options?.scientific === true,
+        operator: '=',
+        displayOperator: '=',
+        thresholded: false
+      });
     }
     const digits = clampSignificantDigits(options?.significantDigits);
     const decimals = Number.isInteger(options?.decimals) && options.decimals >= 0
@@ -739,6 +859,14 @@
         : (options?.scientific === false
           ? false
           : DEFAULT_PVALUE_FORMAT_SCIENTIFIC));
+    if(num < 0 || num > 1){
+      return createPValueDisplayString('unavailable (invalid probability)', num, {
+        scientific,
+        operator: '=',
+        displayOperator: '=',
+        thresholded: false
+      });
+    }
     const bounded = Math.max(0, Math.min(1, num));
     let formatted;
     let thresholded = false;
@@ -752,12 +880,19 @@
         formatted = formatScientificReportNumber(bounded, { significantDigits: digits });
       }
     }else{
-      if(bounded >= 0 && bounded < decimalThreshold){
-        formatted = `<${formatFixedTrimmed(decimalThreshold, decimals)}`;
+      if(bounded === 0 || (options?.displayFloor === true && bounded < decimalThreshold)){
+        formatted = `<${formatDecimalPValueBoundary(decimalThreshold, decimals, digits)}`;
         thresholded = true;
         operator = '<';
       }else{
-        formatted = formatFixedTrimmed(bounded, decimals);
+        const decimalPlaces = decimalPlacesForPValue(bounded, decimals, digits);
+        if(decimalPlaces > MAX_REPORT_PVALUE_DECIMAL_PLACES){
+          formatted = `<${formatDecimalPValueBoundary(decimalThreshold, decimals, digits)}`;
+          thresholded = true;
+          operator = '<';
+        }else{
+          formatted = formatFixedTrimmed(bounded, decimalPlaces);
+        }
       }
     }
     const result = scientific ? String(formatted) : finalizeNumberString(formatted);
@@ -817,7 +952,7 @@
   formatters.formatPValue = sharedFormatPValue;
 
   function sanitizeP(value){
-    const num = Number(value);
+    const num = toNumericPValue(value);
     return Number.isFinite(num) && num >= 0 && num <= 1 ? num : null;
   }
 
@@ -963,7 +1098,7 @@
   stats.adjustHolmLogPValues = function(logPValues){
     const values = Array.isArray(logPValues) ? logPValues.slice() : [];
     const valid = values
-      .map((value, index) => ({ value: Number(value), index }))
+      .map((value, index) => ({ value: toNumericLogPValue(value), index }))
       .filter(entry => (Number.isFinite(entry.value) || entry.value === -Infinity) && entry.value <= 0)
       .sort((left, right) => left.value - right.value);
     const output = new Array(values.length).fill(null);
@@ -1002,8 +1137,13 @@
   }
 
   function normalCdf(z){
-    if(!Number.isFinite(z)){ return z < 0 ? 0 : 1; }
-    return 0.5 * (1 + erf(z / SQRT_TWO));
+    const value = toNumericPValue(z);
+    if(Number.isFinite(value)){
+      return 0.5 * (1 + erf(value / SQRT_TWO));
+    }
+    if(z === Number.NEGATIVE_INFINITY){ return 0; }
+    if(z === Number.POSITIVE_INFINITY){ return 1; }
+    return NaN;
   }
 
   function normalQuantile(probability){
@@ -1079,7 +1219,10 @@
   }
 
   function kolmogorovPValue(d, n){
-    if(!Number.isFinite(d) || d <= 0 || !Number.isFinite(n) || n <= 0){
+    if(!Number.isFinite(d) || d < 0 || !Number.isFinite(n) || n <= 0){
+      return NaN;
+    }
+    if(d === 0){
       return 1;
     }
     const sqrtN = Math.sqrt(n);
@@ -1100,7 +1243,7 @@
   function andersonDarlingStatistic(sortedValues, cdf){
     const n = Array.isArray(sortedValues) ? sortedValues.length : 0;
     if(!n || typeof cdf !== 'function'){
-      return 0;
+      return NaN;
     }
     const epsilon = 1e-12;
     let sum = 0;
@@ -1108,8 +1251,14 @@
       const xLower = sortedValues[i];
       const xUpper = sortedValues[n - 1 - i];
       const Fi = clampUnit(cdf(xLower));
+      if(!Number.isFinite(Fi)){
+        return NaN;
+      }
       const FiClamped = Math.min(Math.max(Fi, epsilon), 1 - epsilon);
       const FjRaw = clampUnit(cdf(xUpper));
+      if(!Number.isFinite(FjRaw)){
+        return NaN;
+      }
       const Fj = Math.min(Math.max(1 - FjRaw, epsilon), 1 - epsilon);
       sum += (2 * (i + 1) - 1) * (Math.log(FiClamped) + Math.log(Fj));
     }
@@ -1183,7 +1332,7 @@
 
   function andersonDarlingPValue(statistic, key, n){
     if(!Number.isFinite(statistic) || statistic < 0 || !Number.isFinite(n) || n <= 0){
-      return 1;
+      return NaN;
     }
     const id = typeof key === 'string' ? key.toLowerCase() : '';
     let adjusted = statistic;
@@ -1460,6 +1609,14 @@
         return {available:false,n:sorted.length,message:'Parametric-bootstrap goodness-of-fit calibration failed.'};
       }
     }
+    if(!Number.isFinite(ksStat) || !Number.isFinite(adStat) || !Number.isFinite(ksP) || !Number.isFinite(adP)
+      || ksP < 0 || ksP > 1 || adP < 0 || adP > 1){
+      return {
+        available:false,
+        n:sorted.length,
+        message:'Goodness-of-fit p-values could not be evaluated.'
+      };
+    }
     return {
       available:true,alpha,n:sorted.length,pdf:fit.pdf || null,cdf:fit.cdf,fit,
       calibration,parametersEstimated,iterations,seed,
@@ -1566,10 +1723,10 @@
   }
 
   function computeHypergeometricRightTailDetails(params){
-    const populationSize = Number(params?.populationSize);
-    const successPopulation = Number(params?.successPopulation);
-    const draws = Number(params?.draws);
-    const observedSuccesses = Number(params?.observedSuccesses);
+    const populationSize = toNumericPValue(params?.populationSize);
+    const successPopulation = toNumericPValue(params?.successPopulation);
+    const draws = toNumericPValue(params?.draws);
+    const observedSuccesses = toNumericPValue(params?.observedSuccesses);
     const inputs = [populationSize, successPopulation, draws, observedSuccesses];
     if(inputs.some(value => !Number.isFinite(value) || !Number.isInteger(value))){
       return { valid: false, pValue: NaN, logPValue: NaN, underflow: false, reason: 'Hypergeometric inputs must be finite integers.' };
@@ -1989,7 +2146,7 @@
     const rawSource = Object.prototype.hasOwnProperty.call(value, '__statsPValueRaw')
       ? value.__statsPValueRaw
       : value.value;
-    const raw = rawSource == null || rawSource === '' ? NaN : Number(rawSource);
+    const raw = rawSource == null || rawSource === '' ? NaN : toNumericPValue(rawSource);
     const operator = typeof value.operator === 'string' && value.operator.trim()
       ? value.operator.trim()
       : (typeof value.__statsPValueOperator === 'string' && value.__statsPValueOperator.trim() ? value.__statsPValueOperator.trim() : '=');
@@ -2422,7 +2579,7 @@
   }
 
   function formatPValueComparatorBoundary(value, options = {}){
-    const numeric = Number(value);
+    const numeric = toNumericPValue(value);
     if(!Number.isFinite(numeric)){
       return String(value);
     }
@@ -2432,24 +2589,39 @@
       return formatScientificReportNumber(bounded, { significantDigits: DEFAULT_PVALUE_SIG_DIGITS });
     }
     if(bounded === 0){
+      if(options.operator === '<'){
+        return scientific
+          ? formatScientificReportNumber(DEFAULT_REPORT_PVALUE_MIN, { significantDigits: DEFAULT_PVALUE_SIG_DIGITS })
+          : formatDecimalPValueBoundary(DEFAULT_REPORT_PVALUE_MIN, DEFAULT_REPORT_PVALUE_DECIMALS, DEFAULT_PVALUE_SIG_DIGITS);
+      }
       return '0';
     }
     const magnitudeDecimals = bounded < 1
       ? Math.max(0, -Math.floor(Math.log10(bounded)) + DEFAULT_PVALUE_SIG_DIGITS - 1)
       : 0;
-    const decimals = Math.min(15, Math.max(DEFAULT_REPORT_PVALUE_DECIMALS, magnitudeDecimals));
-    return formatFixedTrimmed(bounded, decimals);
+    const decimals = Math.max(DEFAULT_REPORT_PVALUE_DECIMALS, magnitudeDecimals);
+    return decimals <= MAX_REPORT_PVALUE_DECIMAL_PLACES
+      ? formatFixedTrimmed(bounded, decimals)
+      : formatScientificReportNumber(bounded, { significantDigits: DEFAULT_PVALUE_SIG_DIGITS });
   }
 
   function formatPValueFromParsedInfo(pInfo, options){
-    if(!pInfo || !Number.isFinite(Number(pInfo.value))){
+    if(!pInfo || !Number.isFinite(toNumericPValue(pInfo.value))){
       return null;
     }
-    const numeric = Number(pInfo.value);
+    const numeric = toNumericPValue(pInfo.value);
+    if(numeric < 0 || numeric > 1){
+      return createPValueDisplayString('unavailable (invalid probability)', numeric, {
+        scientific: options?.scientific === true,
+        operator: normalizePValueOperator(pInfo.operator),
+        displayOperator: '=',
+        thresholded: false
+      });
+    }
     const requestedOperator = normalizePValueOperator(pInfo.operator);
     const scientific = options?.scientific === true;
     if(requestedOperator !== '='){
-      const boundaryText = formatPValueComparatorBoundary(numeric, { scientific });
+      const boundaryText = formatPValueComparatorBoundary(numeric, { scientific, operator: requestedOperator });
       return createPValueDisplayString(`${requestedOperator}${boundaryText}`, numeric, {
         scientific,
         operator: requestedOperator,
@@ -2457,7 +2629,11 @@
         thresholded: false
       });
     }
-    const formatted = sharedFormatPValue(numeric, { scientific, forceScientific: scientific });
+    const formatted = sharedFormatPValue(numeric, {
+      scientific,
+      forceScientific: scientific,
+      displayFloor: options?.displayFloor === true
+    });
     const parsed = splitFormattedPValue(formatted);
     if(parsed.operator === '='){
       return createPValueDisplayString(parsed.valueText, numeric, { scientific, operator: '=', thresholded: false });
@@ -2471,7 +2647,7 @@
   }
 
   function formatPValueExpression(value, options = {}){
-    const numeric = Number(value);
+    const numeric = toNumericPValue(value);
     if(!Number.isFinite(numeric)){
       return typeof options.fallback === 'string' ? options.fallback : 'p = n/a';
     }
@@ -2479,20 +2655,24 @@
     const scientific = typeof options.scientific === 'boolean'
       ? options.scientific
       : getPanelPValueScientific(options.target || null, options);
-    const display = formatPValueFromParsedInfo({ value: numeric, operator: options.operator || '=' }, { scientific });
+    const display = formatPValueFromParsedInfo({ value: numeric, operator: options.operator || '=' }, {
+      scientific,
+      displayFloor: options.displayFloor === true
+    });
     const parsed = splitFormattedPValue(display);
     return `${label} ${parsed.operator} ${parsed.valueText}`;
   }
 
   function formatInlinePValueReplacement(label, operator, numericText, options){
-    const numeric = Number(numericText);
+    const numeric = toNumericPValue(numericText);
     if(!Number.isFinite(numeric)){
       return null;
     }
     return formatPValueExpression(numeric, {
       label: String(label || 'p').trim(),
       operator: operator || '=',
-      scientific: options?.scientific === true
+      scientific: options?.scientific === true,
+      displayFloor: options?.displayFloor === true
     });
   }
 
@@ -2794,7 +2974,7 @@
     if(rawValue == null || rawValue === ''){
       return null;
     }
-    const numeric = Number(rawValue);
+    const numeric = toNumericPValue(rawValue);
     if(!Number.isFinite(numeric)){
       return null;
     }
@@ -3996,7 +4176,7 @@
   }
 
   reporting.pValue = function createStatsReportPValue(value, options = {}){
-    const numeric = Number(value);
+    const numeric = toNumericPValue(value);
     const fallback = typeof options.fallback === 'string'
       ? options.fallback
       : (Number.isFinite(numeric) ? String(sharedFormatPValue(numeric, { scientific: DEFAULT_PVALUE_FORMAT_SCIENTIFIC })) : '—');

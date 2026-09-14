@@ -1,5 +1,7 @@
 'use strict';
 
+const { loadComponentTestBootstrap } = require('../../test-support/componentTestBootstrap');
+
 describe('Heatmap model and layout helpers', () => {
   let hooks;
 
@@ -8,18 +10,7 @@ describe('Heatmap model and layout helpers', () => {
     global.Shared = window.Shared = {};
     global.Components = window.Components = {};
     global.Main = window.Main = {};
-    require('../../js/shared/chartStyle.js');
-    require('../../js/shared/stats.js');
-    require('../../js/shared/statsInference.js');
-    require('../../js/shared/debounce.js');
-    require('../../js/shared/componentLifecycle.js');
-    require('../../js/shared/resizer.js');
-    require('../../js/shared/colorPicker.js');
-    require('../../js/shared/dataTransforms.js');
-    require('../../js/shared/dataViews.js');
-    require('../../js/shared/workspaceToolbar.js');
-    require('../../js/shared/workspaceToolbarAccess.js');
-    require('../../js/components/heatmap.js');
+    loadComponentTestBootstrap('heatmap');
     hooks = global.Components.heatmap.__testHooks;
   });
 

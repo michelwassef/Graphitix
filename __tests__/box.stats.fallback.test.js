@@ -42,29 +42,33 @@ describe('Components.box stats fallbacks', () => {
     }
   });
 
-  test('returns unavailable placeholders when jStat distributions are missing', () => {
+  test('keeps distribution-dependent tests unavailable while exact rank tests remain usable', () => {
     const hooks = loadBoxHooks();
     expect(hooks).toBeDefined();
 
     const sampleA = [1, 2, 3, 4];
     const sampleB = [2, 3, 4, 5];
-    const pairedB = [1, 2, 3, 4];
+    const pairedB = [1, 2, 4, 6];
     const groups = [[1, 2, 3], [2, 3, 4], [3, 4, 5]];
 
-    const results = [
+    const distributionDependentResults = [
       hooks.tTest(sampleA, sampleB),
       hooks.tTestPaired(sampleA, pairedB),
-      hooks.mannWhitney(sampleA, sampleB),
-      hooks.wilcoxonSignedRank(sampleA, sampleB),
       hooks.anova(groups),
       hooks.kruskalWallis(groups)
     ];
 
-    results.forEach(result => {
+    distributionDependentResults.forEach(result => {
       expect(result).toBeDefined();
       expect(result.available).toBe(false);
       expect(result.message).toMatch(/unavailable/i);
     });
+    const exactMannWhitney = hooks.mannWhitney(sampleA, sampleB, { resamplingMode: 'exact' });
+    const exactWilcoxon = hooks.wilcoxonSignedRank(sampleA, sampleB, { resamplingMode: 'exact' });
+    expect(exactMannWhitney.p).toBeGreaterThanOrEqual(0);
+    expect(exactMannWhitney.p).toBeLessThanOrEqual(1);
+    expect(exactWilcoxon.p).toBeGreaterThanOrEqual(0);
+    expect(exactWilcoxon.p).toBeLessThanOrEqual(1);
   });
 
   test('paired preprocessing excludes rows with non-numeric or missing matched values', () => {

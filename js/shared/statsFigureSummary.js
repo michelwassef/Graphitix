@@ -448,6 +448,27 @@
   // detailed report formatter has a separate, source-preserving contract.
   const COMPACT_P_VALUE_DISPLAY_FLOOR = 0.001;
 
+  function toNumericPValue(value){
+    if(typeof Shared.pValueFormatter?.toNumericValue === 'function'){
+      return Shared.pValueFormatter.toNumericValue(value);
+    }
+    if(value === null || value === undefined || typeof value === 'boolean' || typeof value === 'symbol'){
+      return NaN;
+    }
+    if(typeof value !== 'number' && typeof value !== 'string' && !(value instanceof Number)){
+      return NaN;
+    }
+    if(typeof value === 'string' && value.trim() === ''){
+      return NaN;
+    }
+    try{
+      const numeric = Number(value);
+      return Number.isFinite(numeric) ? numeric : NaN;
+    }catch(_err){
+      return NaN;
+    }
+  }
+
   function formatCompactNumber(value, decimals = 2){
     const numeric = Number(value);
     if(!Number.isFinite(numeric)) return String(value == null ? '' : value);
@@ -509,11 +530,14 @@
   }
 
   function formatCompactPValue(value, operator){
-    const numeric = Number(value);
+    const numeric = toNumericPValue(value);
     const normalizedOperator = ['<', '>', '<=', '>=', '≤', '≥', '='].includes(operator)
       ? operator
       : '=';
-    if(!Number.isFinite(numeric) || numeric < 0 || numeric > 1){
+    if(!Number.isFinite(numeric)){
+      return { operator:'=', value:'unavailable (not estimable)', invalid:true };
+    }
+    if(numeric < 0 || numeric > 1){
       return { operator:'=', value:'unavailable (invalid probability)', invalid:true };
     }
     const canUseLowerTailFloor = normalizedOperator === '='
@@ -668,7 +692,7 @@
   }
 
   function formatCompactSummaryValue(value, row = {}){
-    let result = compactPValueText(value);
+    let result = compactPValueText(Array.isArray(value) ? textFromParts(value) : value);
     result = formatCompactPercentages(result);
     result = formatCompactAlphaSettings(result);
     const role = String(row.figureRole || '').trim().toLowerCase();

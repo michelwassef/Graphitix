@@ -2043,6 +2043,9 @@
     if(!target || typeof target.closest !== 'function'){
       return false;
     }
+    if(target.closest('[data-axis-control="1"], [data-axis-hit-target="1"]')){
+      return true;
+    }
     if(Shared.isManagedLegendDragTarget?.(target) === true){
       return true;
     }
@@ -2052,6 +2055,9 @@
   }
 
   function consumeManagedGraphClick(target){
+    if(target?.closest?.('[data-axis-control="1"], [data-axis-hit-target="1"]')){
+      return true;
+    }
     if(Shared.isManagedLegendDragTarget?.(target) === true){
       return true;
     }

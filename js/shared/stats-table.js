@@ -520,8 +520,8 @@
       ?? value.pValueRaw
       ?? value.pValue
       ?? (isStructuredPValueObject(value) ? value.value : undefined);
-    const numeric = Number(raw);
-    if (!Number.isFinite(numeric)) {
+    const numeric = toNumericPValue(raw);
+    if (!isValidPValue(numeric)) {
       return null;
     }
     const operator = typeof value.__statsPValueOperator === 'string' && value.__statsPValueOperator
@@ -582,25 +582,68 @@
     return getPValueScientificForTarget(config?.target || null);
   };
 
+  const toNumericPValue = value => {
+    if(typeof Shared.pValueFormatter?.toNumericValue === 'function'){
+      return Shared.pValueFormatter.toNumericValue(value);
+    }
+    if(value === null || value === undefined || typeof value === 'boolean' || typeof value === 'symbol'){
+      return NaN;
+    }
+    if(typeof value !== 'number' && typeof value !== 'string' && !(value instanceof Number)){
+      return NaN;
+    }
+    if(typeof value === 'string' && value.trim() === ''){
+      return NaN;
+    }
+    try{
+      const numeric = Number(value);
+      return Number.isFinite(numeric) ? numeric : NaN;
+    }catch(_err){
+      return NaN;
+    }
+  };
+
+  const isValidPValue = value => {
+    const numeric = toNumericPValue(value);
+    return Number.isFinite(numeric) && numeric >= 0 && numeric <= 1;
+  };
+
   const formatPValueMetadata = (metadata, scientific) => {
-    if (!metadata || !Number.isFinite(Number(metadata.pValueRaw))) {
+    const numericRaw = toNumericPValue(metadata?.pValueRaw);
+    if (!metadata || !isValidPValue(numericRaw)) {
       return '';
     }
     const token = {
       type: 'pValue',
-      value: Number(metadata.pValueRaw),
+      value: numericRaw,
       operator: typeof metadata.pValueOperator === 'string' && metadata.pValueOperator ? metadata.pValueOperator : '='
     };
     if (Shared.statsReporting && typeof Shared.statsReporting.renderTextParts === 'function') {
       return Shared.statsReporting.renderTextParts([token], { scientific: scientific === true });
     }
-    const formatter = Shared.formatters?.formatPValue || Shared.formatPValue;
+    const formatter = Shared.pValueFormatter?.format
+      || Shared.formatters?.formatPValue
+      || Shared.formatPValue;
     if (typeof formatter === 'function') {
       const formatted = String(formatter(token.value, { scientific: scientific === true, forceScientific: scientific === true }));
-      if (scientific === true || token.operator === '=') {
+      const operator = token.operator === '<=' ? '≤' : token.operator === '>=' ? '≥' : token.operator;
+      if(/^(?:unavailable\b|n\/a$|—$)/i.test(formatted.trim())){
         return formatted;
       }
-      return `${token.operator}${formatted.replace(/^[<>=\s]+/, '')}`;
+      if (operator === '=') {
+        return formatted;
+      }
+      if(toNumericPValue(token.value) === 0 && operator !== '<'){
+        return `${operator} 0`;
+      }
+      const valueText = formatted.replace(/^(?:<=|>=|≤|≥|<|>)\s*/, '');
+      if(formatted.startsWith('<') && operator !== '<' && toNumericPValue(token.value) > 0){
+        const scientificText = typeof Shared.pValueFormatter?.formatScientific === 'function'
+          ? Shared.pValueFormatter.formatScientific(token.value, { significantDigits: 6 })
+          : valueText;
+        return `${operator} ${scientificText}`;
+      }
+      return `${operator} ${valueText}`;
     }
     return String(token.value);
   };
@@ -714,9 +757,19 @@
           || (colIndex > 0 && metricLikePRow);
         if(!pValueMetadata && pValueContext){
           const numeric = extractNumericValue(raw);
-          if(Number.isFinite(numeric)){
+          if(isValidPValue(numeric)){
             pValueMetadata = { pValueRaw: numeric, pValueOperator: '=' };
           }
+        }
+        if(!pValueMetadata && pValueContext && (isStructuredPValueObject(formatted) || isStructuredPValueObject(raw))){
+          const source = isStructuredPValueObject(formatted) ? formatted : raw;
+          const candidate = source?.__statsPValueRaw
+            ?? source?.pValueRaw
+            ?? source?.value;
+          const numeric = toNumericPValue(candidate);
+          return Number.isFinite(numeric)
+            ? 'unavailable (invalid probability)'
+            : 'unavailable (not estimable)';
         }
         if(pValueMetadata){
           const inferenceMetadata = extractInferenceMetadata(formatted)
@@ -1248,8 +1301,9 @@
         if(index === 0) cell.scope = 'row';
         cell.textContent = value;
         const metadata = model.cellMetaRows?.[rowIndex]?.[index];
-        if(metadata && Number.isFinite(Number(metadata.pValueRaw))){
-          cell.dataset.statsPvalueRaw = String(Number(metadata.pValueRaw));
+        const numericPValue = toNumericPValue(metadata?.pValueRaw);
+        if(metadata && isValidPValue(numericPValue)){
+          cell.dataset.statsPvalueRaw = String(numericPValue);
           cell.dataset.statsPvalueOperator = typeof metadata.pValueOperator === 'string' && metadata.pValueOperator
             ? metadata.pValueOperator
             : '=';
@@ -1342,7 +1396,7 @@
     const rawRows = Array.from(table.querySelectorAll('tbody tr')).map((tr, rowIndex) => {
       const metaRow = [];
       const values = Array.from(tr.querySelectorAll('th, td')).map((td, colIndex) => {
-        const raw = Number(td.dataset?.statsPvalueRaw);
+        const raw = toNumericPValue(td.dataset?.statsPvalueRaw);
         if(Number.isFinite(raw)){
           const inferenceMetadata = normalizeInferenceMetadata({
             criterion: td.dataset.statsInferenceCriterion,
@@ -1419,7 +1473,7 @@
         const metricLikePRow = isPValueLabel(row[0]);
         row.forEach((value, colIndex) => {
           const metadata = metaRow[colIndex];
-          if(!metadata || !Number.isFinite(Number(metadata.pValueRaw))){
+          if(!metadata || !isValidPValue(metadata.pValueRaw)){
             return;
           }
           const pValueContext = pColumnIndexes.includes(colIndex) || (colIndex > 0 && metricLikePRow);
@@ -1477,8 +1531,9 @@
         const cells = Array.from(tr.cells || []);
         cells.forEach((td, colIndex) => {
           const metadata = model.cellMetaRows?.[rowIndex]?.[colIndex];
-          if(metadata && Number.isFinite(Number(metadata.pValueRaw))){
-            td.dataset.statsPvalueRaw = String(Number(metadata.pValueRaw));
+          const numericPValue = toNumericPValue(metadata?.pValueRaw);
+          if(metadata && isValidPValue(numericPValue)){
+            td.dataset.statsPvalueRaw = String(numericPValue);
             td.dataset.statsPvalueOperator = typeof metadata.pValueOperator === 'string' && metadata.pValueOperator
               ? metadata.pValueOperator
               : '=';

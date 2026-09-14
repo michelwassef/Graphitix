@@ -49,6 +49,7 @@
       return Shared.boxStatsModel;
     }
     if(typeof ctx.importScripts === 'function'){
+      ctx.importScripts('../shared/pValueFormatter.js');
       ctx.importScripts('../shared/debug.js');
       ctx.importScripts('../shared/boxStatsModel.js');
     }

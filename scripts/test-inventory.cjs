@@ -13,6 +13,7 @@ const {
 } = require('../test-support/testManifest.js');
 
 const ROOT_DIR = path.resolve(__dirname, '..');
+const JEST_PROJECT_NAMES = Object.freeze(require('../jest.config.js').projects.map(project => project.displayName));
 const EXPECTED_COMPONENT_TYPES = [
   'venn', 'box', 'scatter', 'pca', 'line', 'heatmap',
   'surface', 'roc', 'survival', 'hist', 'pie'
@@ -208,6 +209,21 @@ function parsePlaywrightDiscovery(output) {
   return { tests: Number(match[1]), files: Number(match[2]) };
 }
 
+function findDuplicateJestProjectPaths(projectPaths = {}) {
+  const owners = new Map();
+  for (const [project, paths] of Object.entries(projectPaths || {})) {
+    for (const file of paths || []) {
+      const normalized = String(file);
+      const projects = owners.get(normalized) || [];
+      projects.push(project);
+      owners.set(normalized, projects);
+    }
+  }
+  return Array.from(owners.entries())
+    .filter(([, projects]) => projects.length > 1)
+    .map(([file, projects]) => ({ file, projects }));
+}
+
 function collectFrameworkDiscovery(rootDir = ROOT_DIR) {
   const jestCli = path.join(rootDir, 'node_modules', 'jest', 'bin', 'jest.js');
   const playwrightCli = path.join(rootDir, 'node_modules', '@playwright', 'test', 'cli.js');
@@ -215,11 +231,21 @@ function collectFrameworkDiscovery(rootDir = ROOT_DIR) {
     throw new Error('Dependencies are not installed; framework discovery cannot run.');
   }
   const jestPaths = parseJestDiscovery(runNodeCli(rootDir, [jestCli, '--listTests', '--json']));
+  const projectPaths = Object.fromEntries(JEST_PROJECT_NAMES.map(project => [
+    project,
+    parseJestDiscovery(runNodeCli(rootDir, [jestCli, '--selectProjects', project, '--listTests', '--json']))
+  ]));
+  const relativeProjectPaths = Object.fromEntries(Object.entries(projectPaths).map(([project, paths]) => [
+    project,
+    paths.map(file => toRelative(file, rootDir))
+  ]));
   const playwright = parsePlaywrightDiscovery(runNodeCli(rootDir, [playwrightCli, 'test', '--list', '--project=chromium']));
   return {
     jest: {
       files: jestPaths.length,
-      paths: jestPaths.map(file => toRelative(file, rootDir))
+      paths: jestPaths.map(file => toRelative(file, rootDir)),
+      projectPaths: relativeProjectPaths,
+      duplicateProjectPaths: findDuplicateJestProjectPaths(relativeProjectPaths)
     },
     playwright: {
       chromium: playwright,
@@ -242,6 +268,9 @@ function validateInventory(inventory) {
   }
   if (discovery.jest.files !== staticData.files.jestTestFiles) {
     failures.push(`Jest discovery count ${discovery.jest.files} differs from ${staticData.files.jestTestFiles} test files`);
+  }
+  for (const duplicate of discovery.jest.duplicateProjectPaths || []) {
+    failures.push(`Jest test belongs to multiple projects: ${duplicate.file} (${duplicate.projects.join(', ')})`);
   }
   if (discovery.playwright.chromium.files !== staticData.files.e2eSpecs) {
     failures.push(`Chromium discovery files ${discovery.playwright.chromium.files} differs from ${staticData.files.e2eSpecs} E2E specs`);
@@ -282,7 +311,15 @@ function validateInventory(inventory) {
     failures.push('test.fixme/describe.fixme declarations require explicit migration review');
   }
   if (inventory.manifest?.entries) {
-    failures.push(...validateManifest(inventory.manifest.entries));
+    failures.push(...validateManifest(inventory.manifest.entries, {
+      requireCriticalScenarioCoverage: true
+    }));
+    const componentMatrix = inventory.manifest.summary.componentMatrix || {};
+    for (const componentType of EXPECTED_COMPONENT_TYPES) {
+      if (!componentMatrix[componentType]) {
+        failures.push(`component matrix has no evidence row: ${componentType}`);
+      }
+    }
     if (inventory.manifest.entries.length !== discovery.jest.files + staticData.files.e2eSpecs) {
       failures.push('generated manifest does not cover every discovered test file');
     }
@@ -333,6 +370,12 @@ function printHuman(inventory, check) {
   console.log(`E2E shortcuts: direct DOM clicks=${staticData.patterns.e2eDirectDomClicks.count}, suppressed failures=${staticData.patterns.e2eSuppressedFailures.count}, contract waits=${staticData.patterns.e2eContractWaitForTimeout.count}, contract timers=${staticData.patterns.e2eContractSetTimeout.count}`);
   console.log(`Catalog: ${staticData.catalog.types.join(', ')}`);
   console.log(`Manifest: ${inventory.manifest.summary.total} files, ${inventory.manifest.summary.unmapped} legacy-unmapped`);
+  const requirementEvidence = inventory.manifest.summary.requirementEvidence;
+  console.log(`Requirement evidence: ${requirementEvidence.explicitMappings} explicit / ${requirementEvidence.inferredMappings} inferred; critical ${requirementEvidence.mappedCriticalScenarioIds.length}/${requirementEvidence.criticalScenarioIds.length}`);
+  for (const [componentType, row] of Object.entries(inventory.manifest.summary.componentMatrix || {})) {
+    const gaps = row.unexplainedFeatureGaps.length ? row.unexplainedFeatureGaps.join('|') : 'none';
+    console.log(`Component evidence ${componentType}: direct=${row.directScenarioIds.length}, wildcard=${row.wildcardScenarioIds.length}, unexplained=${gaps}`);
+  }
   if (check) {
     if (inventory.checks.length > 0) {
       for (const failure of inventory.checks) console.error(`FAIL ${failure}`);
@@ -350,6 +393,7 @@ if (require.main === module) {
     const output = { ...inventory };
     delete output.static._files;
     delete output.discovery.jest.paths;
+    delete output.discovery.jest.projectPaths;
     delete output.manifest.entries;
     console.log(JSON.stringify(output, null, 2));
   } else {
@@ -365,6 +409,7 @@ module.exports = {
   INTENTIONALLY_UNMAPPED_FILES,
   collectStaticInventory,
   collectFrameworkDiscovery,
+  findDuplicateJestProjectPaths,
   validateInventory,
   buildInventory
 };

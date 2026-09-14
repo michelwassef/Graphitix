@@ -4,7 +4,8 @@ const path = require('path');
 const {
   INTENTIONALLY_UNMAPPED_FILES,
   EXPECTED_COMPONENT_TYPES,
-  collectStaticInventory
+  collectStaticInventory,
+  findDuplicateJestProjectPaths
 } = require('../../scripts/test-inventory.cjs');
 const { getScenarioIdsForFile } = require('../../test-support/scenarioCatalog.js');
 
@@ -18,6 +19,16 @@ describe('test inventory static contract', () => {
     expect(inventory.patterns.componentMatrixArrays.count).toBe(0);
     expect(inventory.catalog.workerSourceTypes).toEqual(inventory.catalog.workerCatalogTypes);
     expect(inventory.catalog.impactMapComponentTypes).toEqual(EXPECTED_COMPONENT_TYPES);
+  });
+
+  test('rejects Jest files discovered in more than one project', () => {
+    expect(findDuplicateJestProjectPaths({
+      unit: ['shared.test.js', 'unit.test.js'],
+      architecture: ['shared.test.js'],
+      dom: ['dom.test.js']
+    })).toEqual([
+      { file: 'shared.test.js', projects: ['unit', 'architecture'] }
+    ]);
   });
 
   test('reports the high-risk test patterns needed for migration tracking', () => {

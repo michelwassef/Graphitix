@@ -381,7 +381,7 @@ describe('UI statistical presentation branches', () => {
 
     const hist = window.Components?.hist;
     const histStatsResults = document.getElementById('histStatsResults');
-    hist?.draw?.();
+    await hist?.draw?.();
     await waitFor(() => /Descriptive statistics/.test(histStatsResults?.textContent || ''));
 
     const text = histStatsResults?.textContent || '';
@@ -395,7 +395,7 @@ describe('UI statistical presentation branches', () => {
     comparisonMode.value = 'ks';
     comparisonMode.dispatchEvent(new Event('change', { bubbles: true }));
     await flushAsyncWork(20);
-    hist?.draw?.();
+    await hist?.draw?.();
     await waitFor(() => /Distribution comparison|Kolmogorov-Smirnov/i.test(document.getElementById('histStatsResults')?.textContent || ''));
 
     expect(document.getElementById('histStatsResults')?.textContent || '').toMatch(/Distribution comparison|Kolmogorov-Smirnov/i);

@@ -120,13 +120,32 @@ describe('Surface render cache redraw', () => {
     // Deliberately remove that cache section before restore.
     cache.stats = null;
     expect(cache.rotationModel).toEqual(expect.objectContaining({
-      version: 1,
+      version: 2,
       points: expect.any(Array),
       faces: expect.any(Array),
       corners: expect.any(Array)
     }));
     expect(cache.rotationModel.points.length).toBeGreaterThan(0);
     expect(cache.rotationModel.corners).toHaveLength(8);
+    expect(cache.rotationModel.faces[0]).toEqual(expect.objectContaining({
+      indices: expect.any(Array),
+      value: expect.any(Number)
+    }));
+    expect(cache.rotationModel.faces[0]).not.toHaveProperty('vertices');
+    const legacyRotationModel = {
+      ...cache.rotationModel,
+      version: 1,
+      faces: cache.rotationModel.faces.map(face => ({
+        vertices: face.indices.map(index => cache.rotationModel.points[index]),
+        value: face.value
+      }))
+    };
+    expect(JSON.stringify(cache.rotationModel).length)
+      .toBeLessThan(JSON.stringify(legacyRotationModel).length);
+    const normalizedLegacyModel = surface.__testHooks.normalizeRotationModel(
+      JSON.parse(JSON.stringify(legacyRotationModel))
+    );
+    expect(normalizedLegacyModel).toEqual(cache.rotationModel);
     expect(surface.__testHooks.normalizeRotationModel({
       ...cache.rotationModel,
       width: 0

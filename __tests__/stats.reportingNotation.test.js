@@ -26,7 +26,7 @@ describe('Shared statistical reporting notation', () => {
     expect(reporting.formatPValueExpression(0.4, { scientific: false }))
       .toBe('p = 0.4');
     expect(reporting.formatPValueExpression(1e-8, { scientific: false }))
-      .toBe('p < 0.0001');
+      .toBe('p = 0.00000001');
     expect(reporting.formatPValueExpression(0, { scientific: true }))
       .toBe('p < 1 × 10⁻⁴');
     expect(reporting.formatPValueExpression(1.234567e-5, { scientific: true }))
@@ -50,7 +50,7 @@ describe('Shared statistical reporting notation', () => {
       { type: 'pValue', value: 1e-8 },
       '; residual=1.23e-5.'
     ], { scientific: false })).toBe(
-      'r = 1.00; R² = 0.96; p < 0.0001; residual = 1.23 × 10⁻⁵.'
+      'r = 1.00; R² = 0.96; p = 0.00000001; residual = 1.23 × 10⁻⁵.'
     );
     expect(reporting.normalizeNotationText('p=<0.0001; q<=0.05; x=1.23e-5'))
       .toBe('p < 0.0001; q ≤ 0.05; x = 1.23 × 10⁻⁵');

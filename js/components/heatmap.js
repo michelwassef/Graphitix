@@ -405,7 +405,7 @@
         return;
       }
       heatmapTextResizeObserverSize = nextSize;
-      if(Shared.resizer?.consumeDisplayOnlyZoomResize?.(target, nextSize)){
+      if(Shared.resizer?.isDisplayOnlyZoomResize?.(target, nextSize)){
         return;
       }
       const observeMutedUntil = Number(target.dataset?.heatmapResizeObserveMutedUntil) || 0;
@@ -707,6 +707,7 @@
       color: DEFAULT_DENDROGRAM_COLOR
     },
     labelPositions: { title: null },
+    colorScheme: 'scientific',
     palette: { ...DEFAULT_HEATMAP_PALETTE },
     valueScale: { ...DEFAULT_HEATMAP_VALUE_SCALE },
     lastResolvedValueScale: null,
@@ -793,6 +794,7 @@
         color: DEFAULT_DENDROGRAM_COLOR
       },
       labelPositions: { title: null },
+      colorScheme: getDefaultHeatmapColorScheme(),
       palette: { ...DEFAULT_HEATMAP_PALETTE },
       valueScale: { ...DEFAULT_HEATMAP_VALUE_SCALE },
       legendHeightMode: DEFAULT_HEATMAP_LEGEND_HEIGHT_MODE,
@@ -832,6 +834,7 @@
       controls: syncHeatmapControlStateToSession(owner, captureHeatmapControlStateFromDom()),
       dendrogramSettings: getHeatmapDendrogramSettings(owner),
       labelPositions: cloneSimple(state.labelPositions || defaults.labelPositions) || { ...defaults.labelPositions },
+      colorScheme: getHeatmapColorScheme(owner),
       palette: normalizeHeatmapPalette(state.palette),
       valueScale: normalizeHeatmapValueScale(state.valueScale),
       legendHeightMode: normalizeHeatmapLegendHeightMode(state.legendHeightMode),
@@ -861,6 +864,7 @@
     });
     state.titleText = source.titleText != null ? String(source.titleText) : defaults.titleText;
     state.logPlusOne = !!source.logPlusOne;
+    setHeatmapColorScheme(source.colorScheme, ownerSession);
     setHeatmapActiveMaterializedViewId(
       source.activeMaterializedViewId == null ? null : String(source.activeMaterializedViewId),
       ownerSession
@@ -1724,13 +1728,32 @@
     if(!session){
       return null;
     }
+    const preservedPayloadState = meta?.preservePayloadState === true
+      ? cloneSimple(session.state)
+      : null;
+    const preservedPayloadResults = meta?.preservePayloadState === true
+      ? cloneSimple(session.results)
+      : null;
     const restoredRecord = cloneSimple(record) || record;
     session.state = { ...createDefaultHeatmapTabContext(), ...restoredRecord };
     session.state.controls = normalizeHeatmapControlState(restoredRecord.controls || restoredRecord.config || {});
+    if(preservedPayloadState && typeof preservedPayloadState === 'object'){
+      session.state = {
+        ...session.state,
+        ...preservedPayloadState,
+        controls: normalizeHeatmapControlState(preservedPayloadState.controls || preservedPayloadState.config || session.state.controls)
+      };
+    }
     session.results = createDefaultHeatmapResultsState({
       stats: session.state.lastStats,
       statsPanelModel: session.state.statsPanelModel
     });
+    if(preservedPayloadResults && typeof preservedPayloadResults === 'object'){
+      session.results = createDefaultHeatmapResultsState({
+        ...session.results,
+        ...preservedPayloadResults
+      });
+    }
     if(record.renderState && typeof record.renderState === 'object'){
       session.cache.renderRuntime = createDefaultHeatmapRenderRuntime(record.renderState);
     }
@@ -2156,6 +2179,11 @@
 
   function applyHeatmapControlStateToDom(controls, options = {}){
     const normalized = normalizeHeatmapControlState(controls);
+    const owner = ensureHeatmapSessionOwnershipShape(options.session || getActiveHeatmapSessionForState());
+    if(owner && !isHeatmapSessionActiveForModuleState(owner)){
+      syncHeatmapControlStateToSession(owner, normalized, { updateMirror: false });
+      return normalized;
+    }
     if(refs.view){ refs.view.value = normalized.view; }
     if(refs.method){ refs.method.value = normalized.method; }
     if(refs.absValues){ refs.absValues.checked = !!normalized.useAbsolute; }
@@ -2202,7 +2230,7 @@
     if(refs.arraysMetric){ refs.arraysMetric.value = normalized.clustering.columns.metric; }
     if(refs.showColumnDendrogram){ refs.showColumnDendrogram.checked = !!normalized.clustering.columns.showDendrogram; }
     if(refs.linkage){ refs.linkage.value = normalized.clustering.linkage; }
-    syncHeatmapControlStateToSession(getHeatmapProjectionSession({ reason: 'heatmap-projection-mutation' }), normalized);
+    syncHeatmapControlStateToSession(owner || getHeatmapProjectionSession({ reason: 'heatmap-projection-mutation' }), normalized);
     if(options.dispatch === true){
       [
         refs.view, refs.method, refs.significanceDisplay,
@@ -2292,12 +2320,6 @@
     return showValues;
   }
 
-  function getHeatmapCurrentView(){
-    return getHeatmapControlState(getActiveHeatmapSessionForState(), { syncFromDom: !!refs.view })?.view
-      || state.lastViewOptions?.view
-      || 'corr-columns';
-  }
-
   function formatHeatmapScaleInputValue(value){
     if(!Number.isFinite(value)){
       return '';
@@ -2350,17 +2372,22 @@
     return mode;
   }
 
-  function syncHeatmapPaletteInputs(doc){
-    const palette = getHeatmapPalette();
-    const valueScale = getHeatmapValueScale();
-    const legendHeightMode = getHeatmapLegendHeightMode();
-    const resolvedValueScale = state.lastResolvedValueScale && typeof state.lastResolvedValueScale === 'object'
-      ? state.lastResolvedValueScale
-      : null;
-    if(refs.colorNegative){ refs.colorNegative.value = palette.negative; }
-    if(refs.colorZero){ refs.colorZero.value = palette.zero; }
-    if(refs.colorPositive){ refs.colorPositive.value = palette.positive; }
-    const root = doc || global.document;
+  function syncHeatmapPaletteInputs(doc, session = null){
+    const owner = ensureHeatmapSessionOwnershipShape(session || getActiveHeatmapSessionForState());
+    const palette = getHeatmapPalette(owner);
+    const valueScale = getHeatmapValueScale(owner);
+    const legendHeightMode = getHeatmapLegendHeightMode(owner);
+    const resolvedValueScale = owner?.cache?.renderRuntime?.lastResolvedValueScale
+      || (state.lastResolvedValueScale && typeof state.lastResolvedValueScale === 'object'
+        ? state.lastResolvedValueScale
+        : null);
+    const canProject = !owner || isHeatmapSessionActiveForModuleState(owner);
+    if(canProject){
+      if(refs.colorNegative){ refs.colorNegative.value = palette.negative; }
+      if(refs.colorZero){ refs.colorZero.value = palette.zero; }
+      if(refs.colorPositive){ refs.colorPositive.value = palette.positive; }
+    }
+    const root = doc || owner?.root || global.document;
     if(!root || typeof root.querySelectorAll !== 'function'){
       return palette;
     }
@@ -2388,7 +2415,7 @@
     root.querySelectorAll('.heatmap-palette-controls-panel [data-heatmap-legend-height-mode]').forEach(select => {
       select.value = legendHeightMode;
     });
-    const valueView = isHeatmapValueView(getHeatmapCurrentView());
+    const valueView = isHeatmapValueView(getHeatmapControlState(owner).view);
     root.querySelectorAll('.heatmap-palette-controls-panel [data-heatmap-value-scale-field]').forEach(field => {
       field.hidden = !valueView;
       field.setAttribute('aria-disabled', valueView ? 'false' : 'true');
@@ -4577,8 +4604,22 @@
     return Math.min(6, Math.max(0, Math.round(num)));
   }
 
+  function toNumericPValue(value){
+    if(typeof Shared.pValueFormatter?.toNumericValue === 'function'){
+      return Shared.pValueFormatter.toNumericValue(value);
+    }
+    if(value === null || value === undefined || typeof value === 'boolean' || typeof value === 'symbol') return NaN;
+    if(typeof value !== 'number' && typeof value !== 'string' && !(value instanceof Number)) return NaN;
+    if(typeof value === 'string' && value.trim() === '') return NaN;
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric : NaN;
+  }
+
   function getHeatmapPValueFormatter(){
-    return Shared.formatters?.formatPValue || Shared.formatPValue || null;
+    return Shared.pValueFormatter?.format
+      || Shared.formatters?.formatPValue
+      || Shared.formatPValue
+      || null;
   }
 
   function formatHeatmapPValue(value){
@@ -4590,15 +4631,10 @@
     if(typeof formatter === 'function'){
       return formatter(value, { scientific, forceScientific: scientific });
     }
-    const num = Number(value);
-    if(!Number.isFinite(num)){
-      return 'n/a';
-    }
-    if(scientific){ return Shared.formatters?.formatScientificNumber?.(num, { fractionalDigits: 5 }) || String(num); }
-    if(num >= 0 && num <= 0.0001){
-      return '<0.0001';
-    }
-    return num.toFixed(4).replace(/0+$/, '').replace(/\.$/, '');
+    const numeric = toNumericPValue(value);
+    return Number.isFinite(numeric) && numeric >= 0 && numeric <= 1
+      ? String(numeric)
+      : 'n/a';
   }
 
   function formatHeatmapPExpression(value, options = {}){
@@ -6039,12 +6075,14 @@
     let pValue = NaN;
     if(typeof helper === 'function'){
       const value = helper(tStatistic, count - 2);
-      pValue = Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : NaN;
+      const numeric = toNumericPValue(value);
+      pValue = Number.isFinite(numeric) && numeric >= 0 && numeric <= 1 ? numeric : NaN;
     }else{
       const studentTCdf = (statsApi?.studentt && typeof statsApi.studentt.cdf === 'function')
         ? statsApi.studentt.cdf.bind(statsApi.studentt)
         : null;
-      pValue = studentTCdf ? Math.max(0, Math.min(1, 2 * (1 - studentTCdf(Math.abs(tStatistic), count - 2)))) : NaN;
+      const numeric = studentTCdf ? toNumericPValue(2 * (1 - studentTCdf(Math.abs(tStatistic), count - 2))) : NaN;
+      pValue = Number.isFinite(numeric) && numeric >= 0 && numeric <= 1 ? numeric : NaN;
     }
     return {
       pValue,
@@ -9596,7 +9634,10 @@
     const correction = String(stats.significanceCorrection || 'none').toLowerCase();
     const correctionLookup = { bh:'Benjamini–Hochberg', by:'Benjamini–Yekutieli', holm:'Holm', none:'None' };
     const pairResults = Array.isArray(stats.pairResults) ? stats.pairResults.filter(Boolean) : [];
-    const hasPairwiseInference = stats.showSignificance === true && pairResults.some(pair => Number.isFinite(Number(pair.rawPValue ?? pair.pValue)));
+    const hasPairwiseInference = stats.showSignificance === true && pairResults.some(pair => {
+      const value = toNumericPValue(pair.rawPValue ?? pair.pValue);
+      return Number.isFinite(value) && value >= 0 && value <= 1;
+    });
     const analysisRows = [{ label:'Analysis', value:`${methodLabel} · ${Number(stats.itemCount || 0)} items · ${Number(stats.pairCount || 0)} evaluable unique pairs` }];
     if(stats.method === 'pearson' && hasPairwiseInference){
       analysisRows.push({ label:'P-value method', value:'Two-sided Student t approximation for each Pearson correlation.' });
@@ -9624,11 +9665,11 @@
     const buildPairRow = pair => {
       const raw = Number(pair.raw);
       const n = Number(pair.n ?? pair.count);
-      const rawP = Number(pair.rawPValue ?? pair.pValue);
-      const adjusted = Number(pair.adjustedPValue);
+      const rawP = toNumericPValue(pair.rawPValue ?? pair.pValue);
+      const adjusted = toNumericPValue(pair.adjustedPValue);
       const parts = [`${symbol} = ${Number.isFinite(raw) ? raw.toFixed(stats.decimals ?? 3) : '—'}`];
       if(Number.isFinite(n)) parts.push(`; n = ${n}`);
-      if(stats.showSignificance && Number.isFinite(rawP)){
+      if(stats.showSignificance && Number.isFinite(rawP) && rawP >= 0 && rawP <= 1){
         parts.push('; raw p = ', Shared.statsReporting?.pValue?.(rawP, { fallback:formatHeatmapPValue(rawP) }) || formatHeatmapPValue(rawP));
         if(correction !== 'none' && Number.isFinite(adjusted)){
           parts.push('; adjusted p = ', Shared.statsReporting?.pValue?.(adjusted, { fallback:formatHeatmapPValue(adjusted) }) || formatHeatmapPValue(adjusted));
@@ -9641,7 +9682,7 @@
     };
     if(hasPairwiseInference && pairResults.length){
       const level = Number(stats.inferenceLevel);
-      const decisionP = pair => correction === 'none' ? Number(pair.rawPValue ?? pair.pValue) : Number(pair.adjustedPValue);
+      const decisionP = pair => correction === 'none' ? toNumericPValue(pair.rawPValue ?? pair.pValue) : toNumericPValue(pair.adjustedPValue);
       const significant = pairResults.filter(pair => Number.isFinite(decisionP(pair)) && Number.isFinite(level) && decisionP(pair) <= level);
       if(pairResults.length <= 6){
         pairResults.forEach(pair => resultRows.push(buildPairRow(pair)));
@@ -9905,6 +9946,41 @@
       results.stats = cloneSimple(state.lastStats) || null;
       results.statsPanelModel = normalizeHeatmapStatsPanelModel(state.statsPanelModel);
     });
+  }
+
+  function getDefaultHeatmapColorScheme(){
+    return String(Shared.colorSchemes?.getDefaultSchemeId?.('heatmap') || 'scientific').trim().toLowerCase() || 'scientific';
+  }
+
+  function normalizeHeatmapColorScheme(value){
+    const normalized = typeof value === 'string' ? value.trim().toLowerCase() : '';
+    return normalized || getDefaultHeatmapColorScheme();
+  }
+
+  function getHeatmapColorScheme(session = null){
+    const owner = ensureHeatmapSessionOwnershipShape(session || getActiveHeatmapSessionForState());
+    const value = normalizeHeatmapColorScheme(owner?.state?.colorScheme ?? state.colorScheme);
+    if(owner){
+      owner.state.colorScheme = value;
+      owner.updatedAt = Date.now();
+    }
+    if(!owner || isHeatmapSessionActiveForModuleState(owner)){
+      state.colorScheme = value;
+    }
+    return value;
+  }
+
+  function setHeatmapColorScheme(value, session = null){
+    const normalized = normalizeHeatmapColorScheme(value);
+    const owner = ensureHeatmapSessionOwnershipShape(session || getActiveHeatmapSessionForState());
+    if(owner){
+      owner.state.colorScheme = normalized;
+      owner.updatedAt = Date.now();
+    }
+    if(!owner || isHeatmapSessionActiveForModuleState(owner)){
+      state.colorScheme = normalized;
+    }
+    return normalized;
   }
 
   function renderHeatmapFigureSummary(tabId, reason = 'heatmap-stats-update'){
@@ -12095,8 +12171,8 @@
     const pairCells = [];
     for(let i = 0; i < items.length; i += 1){
       for(let j = i + 1; j < items.length; j += 1){
-        const pValue = Number(matrix[i]?.[j]?.pValue);
-        if(Number.isFinite(pValue)){
+        const pValue = toNumericPValue(matrix[i]?.[j]?.pValue);
+        if(Number.isFinite(pValue) && pValue >= 0 && pValue <= 1){
           pairCells.push({ i, j, pValue, left:items[i].label, right:items[j].label, raw:matrix[i][j].raw, n:matrix[i][j].count, pMethod:matrix[i][j].pMethod, exactPValue:matrix[i][j].exactPValue, hasTies:matrix[i][j].hasTies });
         }
       }
@@ -12112,9 +12188,9 @@
       ? pairCells.map(entry => entry.pValue)
       : adjustPValues(pairCells.map(entry => entry.pValue), { method: significanceCorrection });
     pairCells.forEach((entry, idx) => {
-      const adjustedPValue = Number(adjustedPairValues[idx]);
-      matrix[entry.i][entry.j].adjustedPValue = Number.isFinite(adjustedPValue) ? adjustedPValue : entry.pValue;
-      matrix[entry.j][entry.i].adjustedPValue = Number.isFinite(adjustedPValue) ? adjustedPValue : entry.pValue;
+      const adjustedPValue = toNumericPValue(adjustedPairValues[idx]);
+      matrix[entry.i][entry.j].adjustedPValue = Number.isFinite(adjustedPValue) && adjustedPValue >= 0 && adjustedPValue <= 1 ? adjustedPValue : entry.pValue;
+      matrix[entry.j][entry.i].adjustedPValue = Number.isFinite(adjustedPValue) && adjustedPValue >= 0 && adjustedPValue <= 1 ? adjustedPValue : entry.pValue;
     });
 
     const clusterConfig = axis === 'columns' ? settings.clustering.columns : settings.clustering.rows;
@@ -12173,17 +12249,23 @@
           significanceCorrection,
           inferenceLevel: settings.inferenceLevel,
           testedPairCount: pairCells.length,
-          pairResults: pairCells.map((entry, idx) => ({
-            left:entry.left,
-            right:entry.right,
-            raw:entry.raw,
-            n:entry.n,
-            rawPValue:entry.pValue,
-            adjustedPValue:Number.isFinite(Number(adjustedPairValues[idx])) ? Number(adjustedPairValues[idx]) : entry.pValue,
-            pMethod:entry.pMethod || null,
-            exactPValue:entry.exactPValue === true,
-            hasTies:entry.hasTies === true
-          })),
+          pairResults: pairCells.map((entry, idx) => {
+            const adjusted = toNumericPValue(adjustedPairValues[idx]);
+            const adjustedPValue = Number.isFinite(adjusted) && adjusted >= 0 && adjusted <= 1
+              ? adjusted
+              : entry.pValue;
+            return {
+              left:entry.left,
+              right:entry.right,
+              raw:entry.raw,
+              n:entry.n,
+              rawPValue:entry.pValue,
+              adjustedPValue,
+              pMethod:entry.pMethod || null,
+              exactPValue:entry.exactPValue === true,
+              hasTies:entry.hasTies === true
+            };
+          }),
           rowClusterLabel: resolvedCluster && clusterConfig.enabled
             ? `${clusterConfig.metric} (${settings.clustering.linkage})`
             : null,
@@ -12388,14 +12470,16 @@
       return '';
     }
     const value = Number(cell?.value);
-    const pValue = Number(cell?.pValue);
-    const adjustedPValue = Number(cell?.adjustedPValue);
+      const pValue = toNumericPValue(cell?.pValue);
+      const adjustedPValue = toNumericPValue(cell?.adjustedPValue);
     const effectivePValue = viewOptions.significanceCorrection === 'none' ? pValue : adjustedPValue;
     const showValues = !!viewOptions.showValues;
     const showSignificance = !!viewOptions.showSignificance;
     const inferenceLevel = Number(viewOptions.inferenceLevel);
     const significant = showSignificance
       && Number.isFinite(effectivePValue)
+      && effectivePValue >= 0
+      && effectivePValue <= 1
       && Number.isFinite(inferenceLevel)
       && effectivePValue <= inferenceLevel;
     if(showValues && Number.isFinite(value)){
@@ -12424,8 +12508,8 @@
       const orderedCells = model.cells.map((row, rowIndex) => row.map((cell, columnIndex) => {
         const raw = Number(cell?.raw);
         const count = Number(cell?.count);
-        const pValue = Number(cell?.pValue);
-        const adjustedPValue = Number(cell?.adjustedPValue);
+        const pValue = toNumericPValue(cell?.pValue);
+        const adjustedPValue = toNumericPValue(cell?.adjustedPValue);
         const effectivePValue = viewOptions.significanceCorrection === 'none' ? pValue : adjustedPValue;
         const isFdrCorrection = ['bh','by'].includes(viewOptions.significanceCorrection);
         const significanceLabel = viewOptions.significanceCorrection === 'none'
@@ -12442,16 +12526,19 @@
         if(Number.isFinite(count)){
           parts.push(`(n = ${count})`);
         }
-        if(Number.isFinite(pValue)){
+        if(Number.isFinite(pValue) && pValue >= 0 && pValue <= 1){
           const thresholdLabel = formatHeatmapInferenceLevelLabel(viewOptions.inferenceLevel);
-          const effectiveExpression = Number.isFinite(effectivePValue)
+          const hasEffectivePValue = Number.isFinite(effectivePValue) && effectivePValue >= 0 && effectivePValue <= 1;
+          const effectiveExpression = hasEffectivePValue
             ? formatHeatmapPExpression(effectivePValue, { label: significanceLabel })
             : `${significanceLabel} = n/a`;
-          const decisionText = isFdrCorrection
-            ? (effectivePValue <= viewOptions.inferenceLevel ? 'discovery' : 'no discovery')
-            : (effectivePValue <= viewOptions.inferenceLevel ? 'significant' : 'not significant');
           const criterionText = isFdrCorrection ? 'target FDR' : 'α';
-          parts.push(`(${formatHeatmapPExpression(pValue, { label: 'raw p' })}, ${effectiveExpression}${Number.isFinite(effectivePValue) ? `, ${decisionText} at ${criterionText} = ${thresholdLabel}` : ''})`);
+          const decisionText = hasEffectivePValue
+            ? (isFdrCorrection
+              ? (effectivePValue <= viewOptions.inferenceLevel ? 'discovery' : 'no discovery')
+              : (effectivePValue <= viewOptions.inferenceLevel ? 'significant' : 'not significant'))
+            : null;
+          parts.push(`(${formatHeatmapPExpression(pValue, { label: 'raw p' })}, ${effectiveExpression}${decisionText ? `, ${decisionText} at ${criterionText} = ${thresholdLabel}` : ''})`);
         }
         return {
           fill,
@@ -13005,6 +13092,7 @@
       significanceDisplay: controls.significanceDisplay,
       significanceCorrection: controls.significanceCorrection || 'bh',
       decimals: controls.decimals,
+      colorScheme: getHeatmapColorScheme(targetSession),
       colors: getHeatmapPalette(targetSession),
       valueScale: getHeatmapValueScale(targetSession),
       legendHeightMode: getHeatmapLegendHeightMode(targetSession),
@@ -13037,33 +13125,48 @@
     };
   }
 
-  function applyConfig(config){
+  function applyConfig(config, options = {}){
     if(!config) return;
+    const activeSessionForConfig = options.session || getActiveHeatmapSessionForState();
+    const requestedScheme = normalizeHeatmapColorScheme(
+      config.colorScheme ?? getHeatmapColorScheme(activeSessionForConfig)
+    );
+    const compiledPayload = Shared.colorSchemes?.applyToPayload?.(
+      'heatmap',
+      { type: 'heatmap', config: cloneSimple(config) || {} },
+      requestedScheme
+    );
+    const resolvedConfig = compiledPayload?.config && typeof compiledPayload.config === 'object'
+      ? compiledPayload.config
+      : (cloneSimple(config) || {});
+    resolvedConfig.colorScheme = requestedScheme;
     runWithHeatmapControlSuspension(() => {
-      const activeSessionForConfig = getActiveHeatmapSessionForState();
-      if(config.title !== undefined){
-        state.titleText = config.title != null ? String(config.title) : '';
-      }else if(state.titleText == null){
-        state.titleText = 'Heatmap';
-      }
+      const canUseLiveProjection = !activeSessionForConfig || isHeatmapSessionActiveForModuleState(activeSessionForConfig);
+      const nextTitle = resolvedConfig.title !== undefined
+        ? (resolvedConfig.title != null ? String(resolvedConfig.title) : '')
+        : (activeSessionForConfig?.state?.titleText ?? state.titleText ?? 'Heatmap');
       if(activeSessionForConfig){
-        activeSessionForConfig.state.titleText = state.titleText;
+        activeSessionForConfig.state.titleText = nextTitle;
         activeSessionForConfig.updatedAt = Date.now();
       }
-      if(config.labelPositions){
-        state.labelPositions = {
-          title: config.labelPositions.title || null
-        };
+      if(canUseLiveProjection){
+        state.titleText = nextTitle;
+      }
+      if(resolvedConfig.labelPositions){
+        const nextPositions = { title: resolvedConfig.labelPositions.title || null };
         if(activeSessionForConfig){
-          activeSessionForConfig.state.labelPositions = cloneSimple(state.labelPositions) || { title: null };
+          activeSessionForConfig.state.labelPositions = cloneSimple(nextPositions) || { title: null };
           activeSessionForConfig.updatedAt = Date.now();
         }
+        if(canUseLiveProjection){
+          state.labelPositions = nextPositions;
+        }
       }
-      if(config.dendrogram && typeof config.dendrogram === 'object'){
+      if(resolvedConfig.dendrogram && typeof resolvedConfig.dendrogram === 'object'){
         const settings = updateHeatmapDendrogramSettings({
-          mode: config.dendrogram.mode,
-          thicknessPt: config.dendrogram.thicknessPt,
-          color: config.dendrogram.color
+          mode: resolvedConfig.dendrogram.mode,
+          thicknessPt: resolvedConfig.dendrogram.thicknessPt,
+          color: resolvedConfig.dendrogram.color
         }, activeSessionForConfig);
         debugLog('Debug: heatmap dendrogram settings restored', {
           mode: settings.mode,
@@ -13072,24 +13175,24 @@
         });
       }
 
-      const sourceClustering = config.clustering && typeof config.clustering === 'object' ? config.clustering : {};
+      const sourceClustering = resolvedConfig.clustering && typeof resolvedConfig.clustering === 'object' ? resolvedConfig.clustering : {};
       const restoredControls = normalizeHeatmapControlState({
-        view: config.view || 'corr-columns',
-        method: config.method || 'pearson',
-        useAbsolute: config.useAbsolute,
-        maskLower: config.maskLower,
-        showValues: config.showValues,
-        showValuesUserOverride: Object.prototype.hasOwnProperty.call(config, 'showValuesUserOverride')
-          ? config.showValuesUserOverride === true
+        view: resolvedConfig.view || 'corr-columns',
+        method: resolvedConfig.method || 'pearson',
+        useAbsolute: resolvedConfig.useAbsolute,
+        maskLower: resolvedConfig.maskLower,
+        showValues: resolvedConfig.showValues,
+        showValuesUserOverride: Object.prototype.hasOwnProperty.call(resolvedConfig, 'showValuesUserOverride')
+          ? resolvedConfig.showValuesUserOverride === true
           : true,
-        showSignificance: config.showSignificance,
-        significanceDisplay: config.significanceDisplay,
-        significanceCorrection: config.significanceCorrection,
-        decimals: config.decimals,
-        cellSize: config.cellSize,
-        fontSize: config.fontSize,
-        filters: config.filters || {},
-        adjust: config.adjust || {},
+        showSignificance: resolvedConfig.showSignificance,
+        significanceDisplay: resolvedConfig.significanceDisplay,
+        significanceCorrection: resolvedConfig.significanceCorrection,
+        decimals: resolvedConfig.decimals,
+        cellSize: resolvedConfig.cellSize,
+        fontSize: resolvedConfig.fontSize,
+        filters: resolvedConfig.filters || {},
+        adjust: resolvedConfig.adjust || {},
         clustering: {
           rows: {
             enabled: !!sourceClustering.rows?.enabled,
@@ -13104,23 +13207,32 @@
           linkage: sourceClustering.linkage || 'average'
         }
       });
-      applyHeatmapControlStateToDom(restoredControls, { dispatch: true });
+      applyHeatmapControlStateToDom(restoredControls, {
+        dispatch: true,
+        session: activeSessionForConfig
+      });
 
-      state.palette = normalizeHeatmapPalette(config.colors);
-      state.valueScale = normalizeHeatmapValueScale(config.valueScale);
-      state.legendHeightMode = normalizeHeatmapLegendHeightMode(config.legendHeightMode);
+      const nextPalette = normalizeHeatmapPalette(resolvedConfig.colors);
+      const nextValueScale = normalizeHeatmapValueScale(resolvedConfig.valueScale);
+      const nextLegendHeightMode = normalizeHeatmapLegendHeightMode(resolvedConfig.legendHeightMode);
+      setHeatmapColorScheme(resolvedConfig.colorScheme, activeSessionForConfig);
       if(activeSessionForConfig){
-        activeSessionForConfig.state.palette = { ...state.palette };
-        activeSessionForConfig.state.valueScale = { ...state.valueScale };
-        activeSessionForConfig.state.legendHeightMode = state.legendHeightMode;
+        activeSessionForConfig.state.palette = { ...nextPalette };
+        activeSessionForConfig.state.valueScale = { ...nextValueScale };
+        activeSessionForConfig.state.legendHeightMode = nextLegendHeightMode;
         activeSessionForConfig.updatedAt = Date.now();
+      }
+      if(canUseLiveProjection){
+        state.palette = nextPalette;
+        state.valueScale = nextValueScale;
+        state.legendHeightMode = nextLegendHeightMode;
       }
       state.lastResolvedValueScale = null;
       updateHeatmapRenderRuntime(activeSessionForConfig, runtime => {
         runtime.lastResolvedValueScale = null;
       }, { seedFromActive: true });
-      syncHeatmapPaletteInputs(resolveHeatmapRoot(activeSessionForConfig?.tabId || null));
-      importFontStyles('heatmap', config.fontStyles || null, {
+      syncHeatmapPaletteInputs(resolveHeatmapRoot(activeSessionForConfig?.tabId || null), activeSessionForConfig);
+      importFontStyles('heatmap', resolvedConfig.fontStyles || null, {
         tabId: activeSessionForConfig?.tabId || null
       });
       syncHeatmapControlStateToSession(activeSessionForConfig, restoredControls);
@@ -13165,9 +13277,7 @@
       config: getConfig(payloadSession)
     };
     payload.config = payload.config || {};
-    payload.config.colorScheme = payload.config.colorScheme
-      || Shared.colorSchemes?.getSelectedSchemeId?.('heatmap')
-      || 'scientific';
+    payload.config.colorScheme = getHeatmapColorScheme(payloadSession);
     payload.config.notes = {
       text: notesText,
       open: notesOpen
@@ -13309,6 +13419,35 @@
       const overlayReason = meta?.overlayReason || (typeof meta?.source === 'string' ? `payload-${meta.source}` : 'payload');
       markHeatmapOverlayPending(overlayReason);
     }
+    const requestedTab = meta?.tab || meta?.tabId || null;
+    const targetTabId = normalizeHeatmapSessionTabId(requestedTab, meta) || null;
+    const payloadSession = getHeatmapSession(targetTabId, {
+      ...(meta || {}),
+      tabId: targetTabId,
+      reason: 'heatmap-payload-owner'
+    }, { create: true }) || getActiveHeatmapSessionForState();
+    const targetRoot = resolveHeatmapRoot(requestedTab || targetTabId || null) || payloadSession?.root || null;
+    if(payloadSession && targetRoot && (
+      projectedHeatmapSession !== payloadSession
+      || state.root !== targetRoot
+      || String(heatmap.__boundTabId || '') !== String(payloadSession.tabId || '')
+    )){
+      bindHeatmapSessionForTab(targetTabId || payloadSession.tabId || null, {
+        ...(meta || {}),
+        tabId: targetTabId || payloadSession.tabId || null,
+        reason: 'heatmap-payload-owner-bind'
+      });
+      heatmap.__boundTabId = payloadSession.tabId || null;
+      bindHeatmapDomProjectionForSession(payloadSession, targetRoot, { syncUi: false });
+    }
+    if(payloadSession && !isHeatmapSessionActiveForModuleState(payloadSession)){
+      debugLog('Debug: heatmap payload rejected for inactive owner', {
+        tabId: payloadSession.tabId || targetTabId || null,
+        activeTabId: getHeatmapActiveTabId() || null,
+        source: meta?.source || 'unknown'
+      });
+      return false;
+    }
     const skipDraw = meta?.skipDraw === true;
     const styleOnly = meta?.styleOnly === true || meta?.colorSchemeOnly === true;
     const skipDataLoad = meta?.skipDataLoad === true || styleOnly;
@@ -13318,7 +13457,6 @@
       state.scheduleDraw = () => {};
     }
     try{
-      const payloadSession = getActiveHeatmapSessionForState();
       invalidateHeatmapTransientRenderState(`payload:${meta?.source || 'unknown'}`);
       const hot = (typeof state.ensureHotForActiveTab === 'function' ? state.ensureHotForActiveTab() : null) || state.hot;
       if(hot){
@@ -13345,7 +13483,7 @@
           dataManager.initialize(rawMatrix, { rawTitle: 'Raw' });
         }
         const activeView = dataManager.getActiveView?.() || null;
-        setHeatmapActiveMaterializedViewId(isHeatmapMaterializedDataView(activeView) ? activeView.id : null);
+        setHeatmapActiveMaterializedViewId(isHeatmapMaterializedDataView(activeView) ? activeView.id : null, payloadSession);
       }
       const activeViewData = dataManager?.getActiveView?.()?.data;
       const matrix = cloneMatrix(Array.isArray(activeViewData) ? activeViewData : rawMatrix);
@@ -13360,11 +13498,11 @@
       syncHeatmapNotesStateToSession(payloadSession, restoredNotes);
       applyHeatmapNotesStateToControl(payloadSession);
       if(!skipDataLoad && state.hot){
-        updateHeatmapClusterState({ suspendAutoClusterDefaults: true });
+        updateHeatmapClusterState({ suspendAutoClusterDefaults: true }, payloadSession);
         try{
           state.hot.loadData(matrix);
         }finally{
-          updateHeatmapClusterState({ suspendAutoClusterDefaults: false });
+          updateHeatmapClusterState({ suspendAutoClusterDefaults: false }, payloadSession);
         }
         if(exclusionsToApply && state.hot.applyExclusions){
           state.hot.applyExclusions(exclusionsToApply);
@@ -13373,7 +13511,7 @@
           state.hot.applyFilters(filtersToApply, { schedule: false });
         }
       }
-      applyConfig(config);
+      applyConfig(config, { session: payloadSession });
       applyHeatmapDataTransformControlState(
         resolveHeatmapDataTransformControlStateForView(dataManager?.getActiveView?.() || null, dataManager)
       );
@@ -13455,9 +13593,18 @@
   };
 
   heatmap.loadFromPayload = function loadHeatmapFromPayload(payload, options = {}){
-    if(!applyHeatmapPayload(payload, { source: 'payload', ...options })){
+    const applied = applyHeatmapPayload(payload, { source: 'payload', ...options });
+    if(!applied){
       console.warn('heatmap payload application failed', { source: 'payload' });
     }
+    return applied;
+  };
+  heatmap.applyColorSchemePayload = function applyHeatmapColorSchemePayload(payload, options = {}){
+    return applyHeatmapPayload(payload, {
+      source: 'color-scheme',
+      colorSchemeOnly: true,
+      ...options
+    });
   };
 
   heatmap.__internals = Object.assign({}, heatmap.__internals, {
@@ -14044,7 +14191,8 @@
     }
     const session = setHeatmapSessionStateFromRuntimeRecord(resolvedSnapshot, {
       ...(meta || {}),
-      reason: meta.reason || 'heatmap-runtime-apply-session-state'
+      reason: meta.reason || 'heatmap-runtime-apply-session-state',
+      preservePayloadState: meta.preservePayloadState === true
     }) || bindHeatmapSessionForTab(meta?.tab || meta?.tabId || getHeatmapProjectionTabId() || null, meta);
     const isActiveOwner = !!session && isHeatmapSessionActiveForModuleState(session);
     if(isActiveOwner){
@@ -14799,9 +14947,13 @@
       return null;
     }
     captureHeatmapStatsPanelModel(requestedSession.results?.statsPanelModel || requestedSession.state?.statsPanelModel || {}, requestedSession);
+    const renderState = captureHeatmapRenderStateSnapshot(requestedSession);
+    // Capture the owner state while the live statistics projection is still
+    // attached. The render-state snapshot is durable session metadata; taking
+    // it after detaching the cacheable children makes the empty live host look
+    // authoritative and drops the primary statistics model on rollback.
     const svgCache = detachChildren(svg);
     const statsCache = detachChildren(stats);
-    const renderState = captureHeatmapRenderStateSnapshot(requestedSession);
     const svgRootState = Shared.graphViewport.captureSvgRootState(svg, {
       attributes: HEATMAP_SVG_ROOT_ATTRIBUTES,
       styles: HEATMAP_SVG_ROOT_STYLES

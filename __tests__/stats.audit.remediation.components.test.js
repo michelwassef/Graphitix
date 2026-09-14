@@ -68,6 +68,18 @@ describe('Statistical audit remediation — component contracts', () => {
     });
   });
 
+  test('Venn refuses invalid adjusted log p-values before classifying significance', () => {
+    const compute = window.Components.venn.__statsTestHooks.computeVennSignificanceResults;
+    const result = compute(
+      { nA: 8, nB: 7, nC: 0, Aonly: 5, Bonly: 4, Conly: 0, AB: 3, AC: 0, BC: 0, ABC: 0 },
+      12,
+      { A: 'A', B: 'B' },
+      { statsHelpers: { adjustHolmLogPValues: () => [1] } }
+    );
+    expect(result.valid).toBe(false);
+    expect(result.results).toEqual([]);
+  });
+
   test('Scatter labels separated logistic fits as diagnostic-only and suppresses ordinary fit summaries', () => {
     const hooks = window.Components.scatter.__testHooks;
     const points = [

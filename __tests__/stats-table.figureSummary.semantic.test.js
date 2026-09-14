@@ -35,4 +35,15 @@ describe('semantic figure-summary tables', () => {
     const dataActions = mountConfig.extraActions.find(action => action.key === 'download');
     expect(dataActions.formats.map(format => format.key)).toEqual(['csv', 'excel', 'json']);
   });
+
+  test('does not render invalid structured p-values as ordinary table text', () => {
+    const result = window.Shared.statsTable.render({
+      target: document.getElementById('target'),
+      columns: [{ key: 'metric', label: 'Metric' }, { key: 'value', label: 'Value' }],
+      rows: [['p-value', { type: 'pValue', value: 1.2, fallback: 'p = 1.2' }]],
+      footnotes: []
+    });
+
+    expect(result.table.querySelector('tbody td')?.textContent).toBe('unavailable (invalid probability)');
+  });
 });

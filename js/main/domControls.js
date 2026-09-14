@@ -1939,7 +1939,8 @@
             suppressDraw: deferInitialDraw,
             suppressAutoDraw: deferInitialDraw,
             suppressResizeDraw: deferInitialDraw,
-            suppressStatsRecompute: deferInitialDraw
+            suppressStatsRecompute: deferInitialDraw,
+            preservePayloadState: true
           });
         }
       }

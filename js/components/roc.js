@@ -948,7 +948,7 @@
     }
     const result = src.result && typeof src.result === 'object' ? src.result : src;
     const diff = Number(result.diff);
-    const p = Number(result.p);
+    const p = toNumericPValue(result.p);
     const ci = Array.isArray(result.ci)
       ? result.ci.map(value => Number(value)).filter(value => Number.isFinite(value))
       : null;
@@ -962,7 +962,7 @@
       displayText: src.displayText == null ? '' : String(src.displayText),
       result: {
         diff: Number.isFinite(diff) ? diff : null,
-        p: Number.isFinite(p) ? p : null,
+        p: isValidPValue(p) ? p : null,
         ci: ci && ci.length >= 2 ? [ci[0], ci[1]] : null
       }
     };
@@ -1032,9 +1032,9 @@
   function formatRocCompareResultText(graphType, diffMethod, diffResult){
     const result = diffResult && typeof diffResult === 'object' ? diffResult : {};
     const diff = Number(result.diff);
-    const p = Number(result.p);
+    const p = toNumericPValue(result.p);
     const ci = Array.isArray(result.ci) ? result.ci : null;
-    if(!Number.isFinite(diff) || !Number.isFinite(p)){
+    if(!Number.isFinite(diff) || !isValidPValue(p)){
       return '';
     }
     const metric = graphType === 'roc' ? 'ΔAUC' : 'ΔAP';
@@ -4908,8 +4908,26 @@
     return { p, diff, ci:[diff-critical*se,diff+critical*se], se, z, pairedCount:aligned.length, method:'DeLong' };
   }
 
+  function toNumericPValue(value){
+    if(typeof Shared.pValueFormatter?.toNumericValue === 'function'){
+      return Shared.pValueFormatter.toNumericValue(value);
+    }
+    if(value === null || value === undefined || typeof value === 'boolean' || typeof value === 'symbol') return NaN;
+    if(typeof value !== 'number' && typeof value !== 'string' && !(value instanceof Number)) return NaN;
+    if(typeof value === 'string' && value.trim() === '') return NaN;
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric : NaN;
+  }
+
+  function isValidPValue(value){
+    const numeric = toNumericPValue(value);
+    return Number.isFinite(numeric) && numeric >= 0 && numeric <= 1;
+  }
+
   function formatPValue(value, options = {}){
-    const formatter = Shared.formatters?.formatPValue || Shared.formatPValue;
+    const formatter = Shared.pValueFormatter?.format
+      || Shared.formatters?.formatPValue
+      || Shared.formatPValue;
     const session = ensureRocSessionOwnershipShape(options.session || getActiveRocSessionForState());
     const rocRefs = resolveRocStatsRefsForSession(session, options);
     const scientific = Shared.statsReporting?.getPValueFormatScientific?.({
@@ -4917,21 +4935,16 @@
       tabId: session?.tabId || normalizeRocSessionTabId(options.tabId || null, { tabId: options.tabId || null }) || null
     }) === true;
     if(typeof formatter === 'function'){
-      return formatter(value, { scientific, forceScientific: scientific });
+      return formatter(value, {
+        scientific,
+        forceScientific: scientific,
+        displayFloor: options.displayFloor === true
+      });
     }
-    if(typeof global.formatP === 'function'){
-      return global.formatP(value);
-    }
-    if(value === undefined || value === null || Number.isNaN(value)){
-      return 'n/a';
-    }
-    if(!Number.isFinite(value)){
-      return value > 0 ? 'Infinity' : '-Infinity';
-    }
-    const num = Number(value);
-    const formatted = scientific ? (Shared.formatters?.formatScientificNumber?.(num, { fractionalDigits: 5 }) || String(num)) : (num >= 0 && num <= 0.0001 ? '<0.0001' : num.toFixed(4).replace(/0+$/, '').replace(/\.$/, ''));
-    console.debug('Debug: ROC formatPValue fallback',{ input: value, formatted });
-    return formatted;
+    const numeric = toNumericPValue(value);
+    return Number.isFinite(numeric) && numeric >= 0 && numeric <= 1
+      ? String(numeric)
+      : 'n/a';
   }
 
   function getRocStatsInferenceTabId(options = {}){
@@ -4960,8 +4973,8 @@
   }
 
   function rocInferencePValue(value, options = {}){
-    const numeric = Number(value);
-    const fallback = Number.isFinite(numeric) ? String(formatPValue(numeric, options)) : '—';
+    const numeric = toNumericPValue(value);
+    const fallback = isValidPValue(numeric) ? String(formatPValue(numeric, options)) : '—';
     const spec = createRocInferenceSpec(options);
     if(typeof Shared.statsReporting?.pValue === 'function'){
       return Shared.statsReporting.pValue(numeric, { fallback, inference:spec });
@@ -4995,11 +5008,12 @@
     if(reporting && typeof reporting.formatPValueExpression === 'function'){
       return reporting.formatPValueExpression(value, {
         label: 'p',
+        displayFloor: options.displayFloor === true,
         target: rocRefs.statsResults || null,
         tabId: getRocStatsInferenceTabId({ ...options, session })
       });
     }
-    const display = String(formatPValue(value, { ...options, session }));
+    const display = String(formatPValue(value, { ...options, session, displayFloor: options.displayFloor === true }));
     const match = /^(<=|>=|≤|≥|<|>)\s*(.*)$/.exec(display);
     return match ? `p ${match[1]} ${match[2]}` : `p = ${display}`;
   }
@@ -5022,9 +5036,9 @@
         const auc = stat.auc;
         if(auc !== null && auc !== undefined && Number.isFinite(Number(auc))){
           const parts = [`AUC = ${formatRocDecimal(Number(auc), 3)}`];
-          const pValue = stat.pVal;
-          if(pValue !== null && pValue !== undefined && Number.isFinite(Number(pValue))){
-            parts.push(formatRocPExpression(Number(pValue), { session, refs: ownerRefs }));
+          const pValue = toNumericPValue(stat.pVal);
+          if(isValidPValue(pValue)){
+            parts.push(formatRocPExpression(pValue, { session, refs: ownerRefs, displayFloor: true }));
           }
           presentation.lines.push(parts.join('; '));
         }
@@ -5056,12 +5070,13 @@
     if(!Number.isFinite(numericZ)){ return 0; }
     const helper = Shared.stats?.normalTwoSidedPValue;
     if(typeof helper === 'function'){
-      const value = helper(numericZ);
-      if(Number.isFinite(value)){ return Math.max(0, Math.min(1, value)); }
+      const value = toNumericPValue(helper(numericZ));
+      if(isValidPValue(value)){ return value; }
     }
     const cdf = global.jStat?.normal?.cdf;
     if(typeof cdf === 'function'){
-      return Math.max(0, Math.min(1, 2 * (1 - cdf(Math.abs(numericZ), 0, 1))));
+      const value = toNumericPValue(2 * (1 - cdf(Math.abs(numericZ), 0, 1)));
+      return isValidPValue(value) ? value : NaN;
     }
     // Abramowitz-Stegun approximation of the standard-normal survival function.
     const x = Math.abs(numericZ);
@@ -5413,7 +5428,7 @@
       || secondIndex <= firstIndex
       || secondIndex >= stats.length
       || !Number.isFinite(Number(diffResult?.diff))
-      || !Number.isFinite(Number(diffResult?.p))){
+      || !isValidPValue(diffResult?.p)){
       return false;
     }
     const firstName = String(stats[firstIndex]?.name || `Curve ${firstIndex + 1}`);
@@ -5527,7 +5542,7 @@
     const alpha = getRocStatsAlpha(formatOptions);
     const setup = list[0] || {};
     const singleCurvePMethods = Array.from(new Set(list
-      .filter(stat => Number.isFinite(Number(stat?.pVal)) && stat?.pMethod)
+      .filter(stat => isValidPValue(stat?.pVal) && stat?.pMethod)
       .map(stat => String(stat.pMethod).startsWith('exact')
         ? 'exact Mann–Whitney'
         : 'asymptotic Mann–Whitney, tie/continuity corrected')));
@@ -5573,7 +5588,7 @@
         if(Number.isFinite(Number(stat?.mannWhitneyU))){
           parts.push(`; U = ${formatRocDecimal(stat.mannWhitneyU, 2)}`);
         }
-        if(Number.isFinite(Number(stat?.pVal))){
+        if(isValidPValue(stat?.pVal)){
           parts.push('; p = ', rocInferencePValue(stat.pVal, formatOptions));
         }
         resultRows.push({ label: curveName, valueParts: parts, figureRole:'effect', figurePriority:65 });
@@ -5617,7 +5632,7 @@
       const secondName = String(list[secondIndex]?.name || `Curve ${secondIndex + 1}`);
       const metric = normalizedGraphType === 'roc' ? 'ΔAUC' : 'ΔAP';
       const comparisonMethod = formatRocComparisonMethodLabel(diffResult, session?.results?.diffMethod || session?.state?.diffMethod || state.diffMethod);
-      if(Number.isFinite(Number(diffResult?.p))){
+      if(isValidPValue(diffResult?.p)){
         analysisRows.push({
           label:'Curve-comparison inference',
           value:`One prespecified paired comparison (${firstName} vs ${secondName}); ${comparisonMethod || 'configured paired method'}; two-sided p-value; 95% confidence interval; α = ${Shared.statsInference?.formatLevel?.(alpha) || alpha}; no multiplicity adjustment required.`
@@ -5630,7 +5645,7 @@
       if(Number.isFinite(Number(diffResult?.z))){
         parts.push(`; z = ${formatRocDecimal(diffResult.z, 3)}`);
       }
-      if(Number.isFinite(Number(diffResult?.p))){
+      if(isValidPValue(diffResult?.p)){
         parts.push('; p = ', rocInferencePValue(diffResult.p, formatOptions));
       }
       if(comparisonMethod){ parts.push(` (${comparisonMethod}`); }
@@ -5641,7 +5656,7 @@
 
     const warning = getRocAucDirectionWarning(list, normalizedGraphType);
     const diagnosticRows = warning ? [{ label:'Direction check', value:String(warning) }] : [];
-    const hasCurveComparisonInference = Number.isFinite(Number(diffResult?.p));
+    const hasCurveComparisonInference = isValidPValue(diffResult?.p);
     const hasInferentialTest = normalizedGraphType === 'roc' || hasCurveComparisonInference;
     return {
       schemaVersion: 1,
@@ -5682,7 +5697,7 @@
     const primaryTextPrefix = primary
       ? `${primary.name} yielded ${graphType === 'roc' ? 'AUC' : 'average precision'} = ${formatRocDecimal(primary.auc,3)}${primaryCiText}${graphType === 'roc' ? '; two-sided Mann–Whitney p = ' : '.'}`
       : '';
-    const compareParts = compareText && diffResult && Number.isFinite(diffResult.p)
+    const compareParts = compareText && diffResult && isValidPValue(diffResult.p)
       ? [
           `${graphType === 'roc' ? 'ΔAUC' : 'ΔAP'} = ${diffResult.diff.toFixed(3)} (${diffResult.method || diffMethod})`,
           Array.isArray(diffResult.ci) ? `; 95% CI [${diffResult.ci[0].toFixed(3)}, ${diffResult.ci[1].toFixed(3)}]` : '',
@@ -5726,7 +5741,7 @@
           : { alpha:getRocStatsAlpha(formatOptions) },
         differenceSummary: diffResult ? {
           diff: Number.isFinite(diffResult.diff) ? Number(diffResult.diff) : null,
-          p: Number.isFinite(diffResult.p) ? Number(diffResult.p) : null,
+          p: isValidPValue(diffResult.p) ? toNumericPValue(diffResult.p) : null,
           ci: Array.isArray(diffResult.ci) ? diffResult.ci : null
         } : null
       }
@@ -8027,6 +8042,7 @@
       },
         scheduleDraw: options => scheduleActiveRocDraw(options && typeof options === 'object' ? options : {}),
         preserveGraphContent: false,
+        skipScheduleOnObserver: true,
         panelSyncOptions: {
           disableAutoWidthClamp: true,
           lockGraphPanelWidth: false

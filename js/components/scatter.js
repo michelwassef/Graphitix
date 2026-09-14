@@ -2714,6 +2714,25 @@
     return shaped.state.styles;
   }
 
+  function persistScatterStyleMutation(owner = null, patch = {}, reason = 'scatter-style-change'){
+    const candidate = owner?.session || owner || getScatterProjectionSession({
+      reason: 'scatter-style-mutation-owner'
+    });
+    const ownerSession = ensureScatterSessionOwnershipShape(candidate);
+    if(!ownerSession || !isScatterSessionActiveForModuleState(ownerSession)){
+      scatterDebug('Debug: scatter style mutation ignored without exact live owner', {
+        tabId: ownerSession?.tabId || owner?.tabId || null,
+        reason
+      });
+      return false;
+    }
+    patchScatterSessionStyleState(ownerSession, patch, { reason });
+    return Shared.componentLifecycle?.persistOwnedUserState?.('scatter', ownerSession, {
+      tabId: ownerSession.tabId,
+      reason
+    }) !== false;
+  }
+
   function syncScatterSessionDurableStateFromModule(session = null, reason = 'scatter-sync-durable-from-module'){
     const shaped = ensureScatterSessionOwnershipShape(session || getActiveScatterSessionForState());
     if(!shaped){
@@ -4711,7 +4730,7 @@
     };
   }
 
-  function applyScatterGlobalShape(nextShape){
+  function applyScatterGlobalShape(nextShape, owner = null){
     const sanitized = sanitizeScatterLabelShape(nextShape, 0);
     scatterGlobalShape = sanitized;
     Object.keys(scatterLabelStyles).forEach(key => {
@@ -4719,11 +4738,10 @@
         delete scatterLabelStyles[key].shape;
       }
     });
-    patchScatterSessionStyleState(
-      getScatterProjectionSession({ reason: 'scatter-projection-mutation' }),
-      { globalShape: scatterGlobalShape, labelStyles: scatterLabelStyles },
-      { reason: 'scatter-global-shape-change' }
-    );
+    persistScatterStyleMutation(owner, {
+      globalShape: scatterGlobalShape,
+      labelStyles: scatterLabelStyles
+    }, 'scatter-global-shape-change');
     scheduleScatterViewRefresh('label-shape-global-change');
     return sanitized;
   }
@@ -8585,11 +8603,11 @@
         if(graphType === 'ma'){
           // For MA plots: Column 1 = Mean Expression, Column 2 = log2FC, Column 3 = p-value
           log2fc = parseFloat(hotInstance.getDataAtCell(visualRow, 2)); // log2FC is in column 2 for MA
-          pRaw = parseFloat(hotInstance.getDataAtCell(visualRow, 3)); // p-value is in column 3 for MA
+          pRaw = toNumericPValue(hotInstance.getDataAtCell(visualRow, 3));
         }else{
           // For Volcano plots: Column 1 = log2FC, Column 2 = p-value
           log2fc = parseFloat(hotInstance.getDataAtCell(visualRow, 1));
-          pRaw = parseFloat(hotInstance.getDataAtCell(visualRow, 2));
+          pRaw = toNumericPValue(hotInstance.getDataAtCell(visualRow, 2));
         }
         if(!Number.isFinite(log2fc) || !Number.isFinite(pRaw) || pRaw <= 0){
           return;
@@ -10539,6 +10557,11 @@
         Object.keys(scatterLabelStyles).forEach(k => {
           scatterLabelStyles[k] = Object.assign({}, scatterLabelStyles[k], { [key]: value });
         });
+        const patch = { labelStyles: scatterLabelStyles };
+        if(['fill', 'border', 'borderWidth', 'alpha'].includes(key)){
+          patch[key] = value;
+        }
+        persistScatterStyleMutation(null, patch, `scatter-global-${key}-change`);
         scheduleScatterViewRefresh('label-style-global-change');
       };
       const knownScatterLabelKeys = () => {
@@ -10660,6 +10683,10 @@
               applyAndDispatch(scatterFillInput, nextColor);
             }
             Object.keys(scatterLabelColors).forEach(k => { scatterLabelColors[k] = nextColor; });
+            persistScatterStyleMutation(null, {
+              fill: nextColor,
+              labelColors: scatterLabelColors
+            }, 'scatter-global-fill-change');
             scheduleScatterViewRefresh('fill-change');
           },
           onColorChange(nextColor, ctx){
@@ -10671,6 +10698,10 @@
               applyAndDispatch(scatterFillInput, nextColor);
             }
             Object.keys(scatterLabelColors).forEach(k => { scatterLabelColors[k] = nextColor; });
+            persistScatterStyleMutation(null, {
+              fill: nextColor,
+              labelColors: scatterLabelColors
+            }, 'scatter-global-fill-change');
             scheduleScatterViewRefresh('fill-change');
           },
           onShapeChange(nextShape, ctx){
@@ -10703,6 +10734,10 @@
               Object.keys(scatterLabelStyles).forEach(k => {
                 scatterLabelStyles[k] = Object.assign({}, scatterLabelStyles[k], { borderColor: nextColor });
               });
+              persistScatterStyleMutation(null, {
+                border: nextColor,
+                labelStyles: scatterLabelStyles
+              }, 'scatter-global-border-change');
               scheduleScatterViewRefresh('border-color-change');
             }
           },
@@ -10714,6 +10749,10 @@
               Object.keys(scatterLabelStyles).forEach(k => {
                 scatterLabelStyles[k] = Object.assign({}, scatterLabelStyles[k], { borderColor: nextColor });
               });
+              persistScatterStyleMutation(null, {
+                border: nextColor,
+                labelStyles: scatterLabelStyles
+              }, 'scatter-global-border-change');
               scheduleScatterViewRefresh('border-color-change');
             }
           },
@@ -11802,7 +11841,11 @@
     isHeavy: isScatterOverlayHeavy,
     getTabId: () => getScatterProjectionTabId() || null,
     getHost: () => (
-      getScatterNodeById('scatterGraphPanel')?.querySelector?.('.svgbox')
+      // The staged SVG temporarily changes the plot's intrinsic width. Keep
+      // the progress surface on the stable diagram-area frame so its action
+      // target cannot move underneath Playwright or a real pointer during the
+      // staged-to-committed swap.
+      getScatterNodeById('scatterGraphPanel')?.querySelector?.('.diagram-area')
       || getScatterNodeById('scatterGraphPanel')
     )
   });
@@ -11824,10 +11867,26 @@
     return scatterOverlayController?.force(reason, options) || false;
   }
 
+  function toNumericPValue(value){
+    if(typeof Shared.pValueFormatter?.toNumericValue === 'function'){
+      return Shared.pValueFormatter.toNumericValue(value);
+    }
+    if(value === null || value === undefined || typeof value === 'boolean' || typeof value === 'symbol') return NaN;
+    if(typeof value !== 'number' && typeof value !== 'string' && !(value instanceof Number)) return NaN;
+    if(typeof value === 'string' && value.trim() === '') return NaN;
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric : NaN;
+  }
+
+  function isValidPValue(value){
+    const numeric = toNumericPValue(value);
+    return Number.isFinite(numeric) && numeric >= 0 && numeric <= 1;
+  }
+
   function formatP(p){
-    if(p === undefined || p === null || Number.isNaN(p)) return 'n/a';
-    if(!Number.isFinite(p)) return p > 0 ? 'Infinity' : '-Infinity';
-    const formatter = Shared.formatters?.formatPValue || Shared.formatPValue;
+    const formatter = Shared.pValueFormatter?.format
+      || Shared.formatters?.formatPValue
+      || Shared.formatPValue;
     const scientific = Shared.statsReporting?.getPValueFormatScientific?.({
       target: getScatterNodeById('scatterStatsResults'),
       tabId: getScatterProjectionTabId() || null
@@ -11835,10 +11894,22 @@
     if(typeof formatter === 'function'){
       return formatter(p, { scientific, forceScientific: scientific });
     }
-    if(scientific){ return Shared.formatters?.formatScientificNumber?.(Number(p), { fractionalDigits: 5 }) || String(Number(p)); }
-    if(p >= 0 && p <= 0.0001) return '<0.0001';
-    return Number(p).toFixed(4).replace(/0+$/, '').replace(/\.$/, '');
+    const numeric = toNumericPValue(p);
+    return Number.isFinite(numeric) && numeric >= 0 && numeric <= 1
+      ? String(numeric)
+      : 'n/a';
   }
+
+  function formatScatterPExpressionText(value){
+    const display = String(formatP(value));
+    const match = /^(<=|>=|≤|≥|<|>)\s*(.*)$/.exec(display);
+    if(!match){
+      return `P = ${display}`;
+    }
+    const operator = match[1] === '<=' ? '≤' : (match[1] === '>=' ? '≥' : match[1]);
+    return `P ${operator} ${match[2]}`;
+  }
+
   function formatScatterPExpression(value, options = {}){
     const reporting = Shared.statsReporting;
     if(reporting && typeof reporting.formatPValueExpression === 'function'){
@@ -11867,11 +11938,14 @@
     if(typeof resolver === 'function'){
       return resolver(value, NaN);
     }
-    const num = Number(value);
-    if(!Number.isFinite(num)){
-      return NaN;
-    }
-    return Math.max(0, Math.min(1, num));
+    const num = toNumericPValue(value);
+    return Number.isFinite(num) && num >= 0 && num <= 1 ? num : NaN;
+  }
+
+  function scatterTailNumber(value){
+    return value === Number.POSITIVE_INFINITY || value === Number.NEGATIVE_INFINITY
+      ? value
+      : toNumericPValue(value);
   }
 
   function scatterStudentTTwoSidedPValue(t, df){
@@ -11879,24 +11953,46 @@
     if(typeof helper === 'function'){
       return resolveScatterPValue(helper(t, df));
     }
+    const value = scatterTailNumber(t);
+    const degrees = scatterTailNumber(df);
+    if(value === Number.POSITIVE_INFINITY || value === Number.NEGATIVE_INFINITY){
+      return 0;
+    }
     const cdf = getScatterJStat()?.studentt?.cdf;
-    return typeof cdf === 'function' ? resolveScatterPValue(2 * (1 - cdf(Math.abs(t), df))) : NaN;
+    return typeof cdf === 'function' && Number.isFinite(value) && Number.isFinite(degrees)
+      ? resolveScatterPValue(2 * (1 - cdf(Math.abs(value), degrees)))
+      : NaN;
   }
   function scatterChiSquareUpperTailPValue(statistic, df){
     const helper = Shared.stats?.chiSquareUpperTail;
     if(typeof helper === 'function'){
       return resolveScatterPValue(helper(statistic, df));
     }
+    const value = scatterTailNumber(statistic);
+    const degrees = scatterTailNumber(df);
+    if(value === Number.POSITIVE_INFINITY){
+      return 0;
+    }
     const cdf = getScatterJStat()?.chisquare?.cdf;
-    return typeof cdf === 'function' ? resolveScatterPValue(1 - cdf(statistic, df)) : NaN;
+    return typeof cdf === 'function' && Number.isFinite(value) && Number.isFinite(degrees)
+      ? resolveScatterPValue(1 - cdf(value, degrees))
+      : NaN;
   }
   function scatterFUpperTailPValue(statistic, df1, df2){
     const helper = Shared.stats?.fUpperTail;
     if(typeof helper === 'function'){
       return resolveScatterPValue(helper(statistic, df1, df2));
     }
+    const value = scatterTailNumber(statistic);
+    const firstDf = scatterTailNumber(df1);
+    const secondDf = scatterTailNumber(df2);
+    if(value === Number.POSITIVE_INFINITY){
+      return 0;
+    }
     const cdf = getScatterJStat()?.centralF?.cdf;
-    return typeof cdf === 'function' ? resolveScatterPValue(1 - cdf(statistic, df1, df2)) : NaN;
+    return typeof cdf === 'function' && Number.isFinite(value) && Number.isFinite(firstDf) && Number.isFinite(secondDf)
+      ? resolveScatterPValue(1 - cdf(value, firstDf, secondDf))
+      : NaN;
   }
   function getScatterStatsInferenceTabId(){
     return getScatterProjectionTabId() || getActiveScatterSessionForState()?.tabId || null;
@@ -11933,7 +12029,7 @@
     };
   }
   function scatterInferencePValue(value, options = {}){
-    const numeric = Number(value);
+    const numeric = toNumericPValue(value);
     const fallback = Number.isFinite(numeric) ? String(formatP(numeric)) : '—';
     const inferenceSpec = options.inference === false ? null : (options.inference || createScatterInferenceSpec(options));
     if(typeof Shared.statsReporting?.pValue === 'function'){
@@ -12055,9 +12151,9 @@
       addSummaryMetric('R²');
       addSummaryMetric('Sy.x');
 
-      const slopePValue = Number(regressionModel?.coefficientStats?.find?.(stat => String(stat?.term || '').toLowerCase() === 'slope')?.pValue);
-      const fallbackPValue = Number(detail?.stats?.p);
-      const reportedPValue = Number.isFinite(slopePValue) ? slopePValue : fallbackPValue;
+      const slopePValue = toNumericPValue(regressionModel?.coefficientStats?.find?.(stat => String(stat?.term || '').toLowerCase() === 'slope')?.pValue);
+      const fallbackPValue = toNumericPValue(detail?.stats?.p);
+      const reportedPValue = isValidPValue(slopePValue) ? slopePValue : fallbackPValue;
       const slopeTStatistic = Number(regressionModel?.coefficientStats?.find?.(stat => String(stat?.term || '').toLowerCase() === 'slope')?.tStatistic);
       const residualDf = Number(regressionModel?.metrics?.residualDf);
       if(Number.isFinite(slopeTStatistic)){
@@ -12066,7 +12162,7 @@
       if(Number.isFinite(residualDf)){
         pushScatterUniqueMetricRow(summaryRows, summarySeen, 'df', `1, ${Math.max(0, Math.round(residualDf))}`);
       }
-      if(Number.isFinite(reportedPValue)){
+      if(isValidPValue(reportedPValue)){
         pushScatterUniqueMetricRow(summaryRows, summarySeen, 'p-value', scatterInferencePValue(reportedPValue));
         pushScatterUniqueMetricRow(
           summaryRows,
@@ -12774,7 +12870,6 @@
 
 
   const computeScatterBreuschPagan = (fitted, residuals) => {
-    const jStatApi = getScatterJStat();
     const data = [];
     for(let i = 0; i < Math.min(fitted.length, residuals.length); i += 1){
       const fit = Number(fitted[i]);
@@ -12812,14 +12907,13 @@
     });
     const r2 = 1 - (sse / sst);
     const statistic = Math.max(0, n * Math.max(0, r2));
-    const pValue = (jStatApi?.chisquare && Number.isFinite(statistic))
+    const pValue = Number.isFinite(statistic)
       ? scatterChiSquareUpperTailPValue(statistic, 1)
       : NaN;
     return { statistic, pValue, df: 1 };
   };
 
   const computeScatterResetDiagnostic = (points, fitted, residuals) => {
-    const jStatApi = getScatterJStat();
     const data = [];
     for(let i = 0; i < points.length; i += 1){
       const x = Number(points[i]?.x);
@@ -12930,7 +13024,7 @@
       return null;
     }
     const fStatistic = ((base.sse - fullSse) / df1) / (fullSse / df2);
-    const pValue = (jStatApi?.centralF && Number.isFinite(fStatistic))
+    const pValue = Number.isFinite(fStatistic)
       ? scatterFUpperTailPValue(fStatistic, df1, df2)
       : NaN;
     return { fStatistic, pValue, df1, df2 };
@@ -13064,8 +13158,7 @@
     const jb = (Number.isFinite(skewness) && Number.isFinite(kurtosis))
       ? (n / 6) * (Math.pow(skewness, 2) + (Math.pow(kurtosis, 2) / 4))
       : NaN;
-    const jStatApi = getScatterJStat();
-    const jarqueBeraP = (jStatApi?.chisquare && Number.isFinite(jb))
+    const jarqueBeraP = Number.isFinite(jb)
       ? scatterChiSquareUpperTailPValue(jb, 2)
       : NaN;
     const runsResiduals = pointsSortedByX
@@ -13219,7 +13312,7 @@
       const tStatistic = (Number.isFinite(estimate) && Number.isFinite(standardError) && standardError > 0)
         ? (estimate / standardError)
         : NaN;
-      const pValue = (jStatApi?.studentt && Number.isFinite(tStatistic) && Number.isFinite(df) && df > 0)
+      const pValue = (Number.isFinite(tStatistic) && Number.isFinite(df) && df > 0)
         ? scatterStudentTTwoSidedPValue(tStatistic, df)
         : NaN;
       return {
@@ -13551,7 +13644,7 @@
         estimate: intercept,
         standardError: interceptSe,
         tStatistic: (Number.isFinite(interceptSe) && interceptSe > 0) ? (intercept / interceptSe) : NaN,
-        pValue: (jStatApi?.studentt && Number.isFinite(interceptSe) && interceptSe > 0)
+        pValue: (Number.isFinite(interceptSe) && interceptSe > 0)
           ? scatterStudentTTwoSidedPValue(intercept / interceptSe, Math.max(1, n - 2))
           : NaN,
         ciLow: bootIntercept.length ? quantile(bootIntercept, alpha / 2) : NaN,
@@ -13562,7 +13655,7 @@
         estimate: slope,
         standardError: slopeSe,
         tStatistic: (Number.isFinite(slopeSe) && slopeSe > 0) ? (slope / slopeSe) : NaN,
-        pValue: (jStatApi?.studentt && Number.isFinite(slopeSe) && slopeSe > 0)
+        pValue: (Number.isFinite(slopeSe) && slopeSe > 0)
           ? scatterStudentTTwoSidedPValue(slope / slopeSe, Math.max(1, n - 2))
           : NaN,
         ciLow: bootSlope.length ? quantile(bootSlope, alpha / 2) : NaN,
@@ -13749,7 +13842,6 @@
   };
 
   const computeScatterExtraSumSquaresF = (simplerSse, simplerDf, complexSse, complexDf) => {
-    const jStatApi = getScatterJStat();
     if(
       !Number.isFinite(simplerSse) || !Number.isFinite(simplerDf)
       || !Number.isFinite(complexSse) || !Number.isFinite(complexDf)
@@ -13765,7 +13857,7 @@
       return null;
     }
     const fStatistic = numerator / denominator;
-    const pValue = (jStatApi?.centralF && Number.isFinite(fStatistic))
+    const pValue = Number.isFinite(fStatistic)
       ? scatterFUpperTailPValue(fStatistic, df1, df2)
       : NaN;
     return { fStatistic, pValue, df1, df2 };
@@ -13860,7 +13952,7 @@
     const values = Array.isArray(pValues) ? pValues : [];
     const resolved = new Array(values.length).fill(NaN);
     const valid = values
-      .map((value, index) => ({ index, p: Number(value) }))
+      .map((value, index) => ({ index, p: toNumericPValue(value) }))
       .filter(entry => Number.isFinite(entry.p) && entry.p >= 0 && entry.p <= 1)
       .sort((a, b) => a.p - b.p);
     if(!valid.length){
@@ -13886,14 +13978,14 @@
     if(Number.isFinite(slopesP) && slopesP <= threshold){
       return {
         code: 'different-slopes',
-        text: `Slopes differ (P = ${formatP(slopesP)}).`,
+        text: `Slopes differ (${formatScatterPExpressionText(slopesP)}).`,
         textParts: ['Slopes differ (P = ', scatterInferencePValue(slopesP, { inference: inferenceSpec }), ').']
       };
     }
     if(Number.isFinite(interceptP) && interceptP <= threshold){
       return {
         code: 'different-intercepts',
-        text: `Slopes are not detectably different; intercepts differ (P = ${formatP(interceptP)}).`,
+        text: `Slopes are not detectably different; intercepts differ (${formatScatterPExpressionText(interceptP)}).`,
         textParts: ['Slopes are not detectably different; intercepts differ (P = ', scatterInferencePValue(interceptP, { inference: inferenceSpec }), ').']
       };
     }
@@ -13909,9 +14001,9 @@
     if(!overall){
       return null;
     }
-    const slopesDecisionP = Number(overall?.slopesTest?.pValue);
+    const slopesDecisionP = toNumericPValue(overall?.slopesTest?.pValue);
     const canEvaluateIntercepts = Number.isFinite(slopesDecisionP) ? !(slopesDecisionP <= alpha) : true;
-    const interceptDecisionP = canEvaluateIntercepts ? Number(overall?.interceptTest?.pValue) : NaN;
+    const interceptDecisionP = canEvaluateIntercepts ? toNumericPValue(overall?.interceptTest?.pValue) : NaN;
     const overallDecision = classifyScatterGroupedLineDifference(slopesDecisionP, interceptDecisionP, alpha);
     const rows = [];
     const addTestRows = (prefix, test) => {
@@ -13962,12 +14054,12 @@
     const interceptAdjusted = new Array(pairwise.length).fill(NaN);
     const interceptCandidates = [];
     pairwise.forEach((entry, index) => {
-      const slopeRaw = Number(entry?.slopesTest?.pValue);
+      const slopeRaw = toNumericPValue(entry?.slopesTest?.pValue);
       const slopeAdj = Number(slopeAdjusted[index]);
       const slopeDecisionP = Number.isFinite(slopeAdj) ? slopeAdj : slopeRaw;
-      const slopeDifferent = Number.isFinite(slopeDecisionP) && slopeDecisionP <= alpha;
+      const slopeDifferent = isValidPValue(slopeDecisionP) && slopeDecisionP <= alpha;
       if(!slopeDifferent){
-        interceptCandidates.push({ index, p: Number(entry?.interceptTest?.pValue) });
+        interceptCandidates.push({ index, p: toNumericPValue(entry?.interceptTest?.pValue) });
       }
     });
     const interceptSubsetAdjusted = computeScatterHolmAdjustedPValues(interceptCandidates.map(entry => entry.p));
@@ -13975,11 +14067,11 @@
       interceptAdjusted[entry.index] = interceptSubsetAdjusted[idx];
     });
     const pairwiseRows = pairwise.map((entry, index) => {
-      const slopeRaw = Number(entry?.slopesTest?.pValue);
+      const slopeRaw = toNumericPValue(entry?.slopesTest?.pValue);
       const slopeAdj = Number(slopeAdjusted[index]);
       const slopeDecisionP = Number.isFinite(slopeAdj) ? slopeAdj : slopeRaw;
-      const slopeDifferent = Number.isFinite(slopeDecisionP) && slopeDecisionP <= alpha;
-      const interceptRawP = Number(entry?.interceptTest?.pValue);
+      const slopeDifferent = isValidPValue(slopeDecisionP) && slopeDecisionP <= alpha;
+      const interceptRawP = toNumericPValue(entry?.interceptTest?.pValue);
       const interceptAdjP = Number(interceptAdjusted[index]);
       const interceptDecisionP = (!slopeDifferent && Number.isFinite(interceptAdjP)) ? interceptAdjP : (!slopeDifferent ? interceptRawP : NaN);
       const decision = classifyScatterGroupedLineDifference(
@@ -13995,7 +14087,7 @@
         slopesAdjP: Number.isFinite(slopeAdj) ? scatterInferencePValue(slopeAdj, { inference:holmSpec }) : '—',
         interceptsP: slopeDifferent ? 'Skipped (slopes differ)' : scatterInferencePValue(interceptRawP, { inference:false }),
         interceptsAdjP: slopeDifferent ? 'Skipped' : (Number.isFinite(interceptAdjP) ? scatterInferencePValue(interceptAdjP, { inference:holmSpec }) : '—'),
-        overallP: scatterInferencePValue(Number(entry?.commonLineTest?.pValue)),
+        overallP: scatterInferencePValue(toNumericPValue(entry?.commonLineTest?.pValue)),
         conclusion: decision.text,
         decisionCode: decision.code
       };
@@ -14589,9 +14681,6 @@
       const denom = Math.sqrt(Math.max(0, denX * denY));
       pearson = denom > 0 ? (num / denom) : NaN;
     }
-    const studentTCdf = (statsApi && statsApi.studentt && typeof statsApi.studentt.cdf === 'function')
-      ? statsApi.studentt.cdf.bind(statsApi.studentt)
-      : null;
     if(resolvedMethod === 'none'){
       return {
         methodCode: 'none',
@@ -14604,9 +14693,15 @@
       };
     }
     if(resolvedMethod === 'pearson'){
-      const bounded = Math.max(-0.999999999999, Math.min(0.999999999999, pearson));
-      const t = bounded * Math.sqrt((n - 2) / Math.max(1e-12, 1 - (bounded * bounded)));
-      const p = studentTCdf ? (2 * (1 - studentTCdf(Math.abs(t), n - 2))) : NaN;
+      const bounded = Number.isFinite(pearson)
+        ? Math.max(-0.999999999999, Math.min(0.999999999999, pearson))
+        : NaN;
+      const t = Number.isFinite(pearson) && n > 2
+        ? (Math.abs(pearson) >= 1 - 1e-12
+          ? (pearson < 0 ? Number.NEGATIVE_INFINITY : Number.POSITIVE_INFINITY)
+          : bounded * Math.sqrt((n - 2) / Math.max(1e-12, 1 - (bounded * bounded))))
+        : NaN;
+      const p = scatterStudentTTwoSidedPValue(t, n - 2);
       return {
         methodCode: 'pearson',
         methodLabel: 'Pearson',
@@ -14631,9 +14726,15 @@
       }
     }
     if(!Number.isFinite(p)){
-      const bounded = Math.max(-0.999999999999, Math.min(0.999999999999, spearman));
-      const t = bounded * Math.sqrt((n - 2) / Math.max(1e-12, 1 - (bounded * bounded)));
-      p = studentTCdf ? (2 * (1 - studentTCdf(Math.abs(t), n - 2))) : NaN;
+      const bounded = Number.isFinite(spearman)
+        ? Math.max(-0.999999999999, Math.min(0.999999999999, spearman))
+        : NaN;
+      const t = Number.isFinite(spearman) && n > 2
+        ? (Math.abs(spearman) >= 1 - 1e-12
+          ? (spearman < 0 ? Number.NEGATIVE_INFINITY : Number.POSITIVE_INFINITY)
+          : bounded * Math.sqrt((n - 2) / Math.max(1e-12, 1 - (bounded * bounded))))
+        : NaN;
+      p = scatterStudentTTwoSidedPValue(t, n - 2);
     }
     return {
       methodCode: 'spearman',
@@ -16385,11 +16486,11 @@
       });
     }
 
-    function scatterStatsPanelHasRenderedResults(){
-      if(!scatterStatsResults || typeof scatterStatsResults.querySelector !== 'function'){
+    function scatterStatsPanelHasRenderedResults(target = scatterStatsResults){
+      if(!target || typeof target.querySelector !== 'function'){
         return false;
       }
-      return !!scatterStatsResults.querySelector('.stats-table-card, .stats-report-panel, table');
+      return !!target.querySelector('.stats-table-card, .stats-report-panel, table');
     }
 
     function buildScatterStatsRenderSettings(){
@@ -16978,7 +17079,7 @@
       return `grouped:${parts.join('||')}`;
     }
 
-    function buildScatterStatsSignature(context){
+    function buildScatterStatsSignature(context, options = {}){
       if(!context){
         return 'empty';
       }
@@ -17017,7 +17118,7 @@
             formatScatterSignatureNumber(context.domain.maxX ?? NaN)
           ].join('|')
         : 'domain:none';
-      const controlKey=getScatterStatsControlSignature();
+      const controlKey = options.controlSignature || context.controlSignature || getScatterStatsControlSignature();
       const graphKey=context.graphType || 'scatter';
       const groupedKey=Array.isArray(context.groupedSeries) && context.groupedSeries.length
         ? buildScatterGroupedSignatureSeed(context.groupedSeries)
@@ -17589,7 +17690,12 @@
         return null;
       }
       const next = setScatterSessionStatsState(ownerSession, {
-        contextSignature: buildScatterStatsSignature(context),
+        // The worker result carries the controls that produced it. Use those
+        // controls when the owner is inactive; the visible controls may belong
+        // to another tab when this callback finishes.
+        contextSignature: buildScatterStatsSignature(context, {
+          controlSignature: context.precomputedSignature || null
+        }),
         contextVersion,
         lastRunVersion: contextVersion,
         restorePending: null,
@@ -18282,21 +18388,21 @@
         if(Number.isFinite(runs?.z)){
           rows.push({ metric:'[Diagnostics] Runs test z', value:formatMetricValue(runs.z,3) });
         }
-        if(Number.isFinite(runs?.pValue)){
+        if(isValidPValue(runs?.pValue)){
           rows.push({ metric:'[Diagnostics] Runs test p', value:formatP(runs.pValue) });
         }
         const bp = regressionModel.diagnostics.heteroscedasticity || null;
         if(Number.isFinite(bp?.statistic)){
           rows.push({ metric:'[Diagnostics] Breusch-Pagan', value:formatMetricValue(bp.statistic,3) });
         }
-        if(Number.isFinite(bp?.pValue)){
+        if(isValidPValue(bp?.pValue)){
           rows.push({ metric:'[Diagnostics] Breusch-Pagan p', value:formatP(bp.pValue) });
         }
         const reset = regressionModel.diagnostics.reset || null;
         if(Number.isFinite(reset?.fStatistic)){
           rows.push({ metric:'[Diagnostics] RESET F', value:formatMetricValue(reset.fStatistic,3) });
         }
-        if(Number.isFinite(reset?.pValue)){
+        if(isValidPValue(reset?.pValue)){
           rows.push({ metric:'[Diagnostics] RESET p', value:formatP(reset.pValue) });
         }
         const influence = regressionModel.diagnostics.influence || null;
@@ -18319,7 +18425,7 @@
         if(Number.isFinite(lackOfFit?.fStatistic)){
           rows.push({ metric:'[Diagnostics] Lack-of-fit F', value:formatMetricValue(lackOfFit.fStatistic,3) });
         }
-        if(Number.isFinite(lackOfFit?.pValue)){
+        if(isValidPValue(lackOfFit?.pValue)){
           rows.push({ metric:'[Diagnostics] Lack-of-fit p', value:formatP(lackOfFit.pValue) });
         }
         rows.push({ metric:'[Diagnostics] Residual views', value:'Residuals and Residual QQ derived views were generated for plot-based checking.' });
@@ -18450,7 +18556,8 @@
           ? createScatterInferenceSpec({ method:'none', valueKind:'raw-p', level:alpha })
           : inference
       });
-      const finite = value => Number.isFinite(Number(value));
+        const finite = value => Number.isFinite(Number(value));
+        const finiteP = value => isValidPValue(value);
       const fmt = (value, digits = 4) => formatScatterSummaryNumber(Number(value), digits);
       const associationPMethods = new Set();
       const rememberAssociationPMethod = method => {
@@ -18468,11 +18575,11 @@
           ? n - coefficientCount
           : NaN;
       };
-      const pValueFromCell = cell => {
+        const pValueFromCell = cell => {
         if(cell && typeof cell === 'object' && cell.type === 'pValue'){
-          return Number(cell.value);
+          return toNumericPValue(cell.value);
         }
-        return Number(cell);
+        return toNumericPValue(cell);
       };
       const appendAssociation = (label, detail) => {
         const detailStats = detail?.stats || {};
@@ -18485,7 +18592,7 @@
         if(ci && finite(ci.low) && finite(ci.high)){
           parts.push(`; 95% CI [${fmt(ci.low, 4)}, ${fmt(ci.high, 4)}]${detailStats.correlationCiApproximate ? ' (approximate Fisher-z interval)' : ''}`);
         }
-        if(finite(detailStats.p)){
+        if(finiteP(detailStats.p)){
           parts.push('; p = ', pToken(detailStats.p));
         }
         if(detailStats.pMethod){ rememberAssociationPMethod(detailStats.pMethod); }
@@ -18522,7 +18629,7 @@
           if(Number.isFinite(statistic)){
             parts.push(`; ${statisticLabel}${statisticLabel.toLowerCase() === 't' && Number.isFinite(df) ? `(${Math.round(df)})` : ''} = ${fmt(statistic, 3)}`);
           }
-          if(finite(primaryStat.pValue)){
+          if(finiteP(primaryStat.pValue)){
             parts.push('; p = ', pToken(primaryStat.pValue));
           }
           if(finite(primaryStat.ciLow) && finite(primaryStat.ciHigh)){
@@ -18550,7 +18657,7 @@
             if(Number.isFinite(statistic)){
               coefficientParts.push(`; ${statisticLabel}${statisticLabel.toLowerCase() === 't' && Number.isFinite(df) ? `(${Math.round(df)})` : ''} = ${fmt(statistic, 3)}`);
             }
-            if(finite(stat.pValue)){ coefficientParts.push('; p = ', pToken(stat.pValue)); }
+            if(finiteP(stat.pValue)){ coefficientParts.push('; p = ', pToken(stat.pValue)); }
             if(finite(stat.ciLow) && finite(stat.ciHigh)){
               coefficientParts.push(`; ${confidenceLevel}% CI [${fmt(stat.ciLow, 4)}, ${fmt(stat.ciHigh, 4)}]`);
             }
@@ -18565,19 +18672,19 @@
         const parts = [];
         if(finite(diagnostics.jarqueBera)){
           parts.push(`Jarque–Bera = ${fmt(diagnostics.jarqueBera, 3)}`);
-          if(finite(diagnostics.jarqueBeraP)){ parts.push(', p = ', pToken(diagnostics.jarqueBeraP, false)); }
+          if(finiteP(diagnostics.jarqueBeraP)){ parts.push(', p = ', pToken(diagnostics.jarqueBeraP, false)); }
         }
         const runs = diagnostics.runsTest || null;
         if(runs?.available && finite(runs.z)){
           if(parts.length){ parts.push('; '); }
           parts.push(`runs z = ${fmt(runs.z, 3)}`);
-          if(finite(runs.pValue)){ parts.push(', p = ', pToken(runs.pValue, false)); }
+          if(finiteP(runs.pValue)){ parts.push(', p = ', pToken(runs.pValue, false)); }
         }
         const lack = diagnostics.lackOfFit || null;
         if(lack?.available && finite(lack.fStatistic)){
           if(parts.length){ parts.push('; '); }
           parts.push(`lack-of-fit F${finite(lack.dfLackOfFit) && finite(lack.dfPureError) ? `(${Math.round(lack.dfLackOfFit)}, ${Math.round(lack.dfPureError)})` : ''} = ${fmt(lack.fStatistic, 3)}`);
-          if(finite(lack.pValue)){ parts.push(', p = ', pToken(lack.pValue, false)); }
+          if(finiteP(lack.pValue)){ parts.push(', p = ', pToken(lack.pValue, false)); }
         }
         if(parts.length){ diagnosticRows.push({ label, valueParts:parts, figureRole:'diagnostic', figurePriority:45 }); }
       };
@@ -18644,8 +18751,8 @@
           });
         };
         addOverallTest('Equal slopes across datasets', slopes);
-        const slopesDecision = Number(slopes?.pValue);
-        if(!(Number.isFinite(slopesDecision) && slopesDecision <= alpha)){
+        const slopesDecision = toNumericPValue(slopes?.pValue);
+        if(!(isValidPValue(slopesDecision) && slopesDecision <= alpha)){
           addOverallTest('Equal intercepts given equal slopes', intercepts);
         }else{
           comparisonRows.push({ label:'Intercept comparison', value:'Not performed because the overall slope test was significant.', figureRole:'explanatory' });
@@ -18926,11 +19033,11 @@
             resultsParts.push(`Preferred grouped model by AICc: ${candidates[0][0]}.`);
           }
           const sharedTest = gf.sharedFit?.versusSeparate;
-          if(sharedTest && Number.isFinite(sharedTest.pValue)){
+          if(sharedTest && isValidPValue(sharedTest.pValue)){
             resultsParts.push([`Shared-parameter versus separate curves: F = ${formatMetricValue(sharedTest.fStatistic, 4)}, P = `, reportPValue(sharedTest.pValue), '.']);
           }
           const commonTest = gf.commonCurve?.versusSeparate;
-          if(commonTest && Number.isFinite(commonTest.pValue)){
+          if(commonTest && isValidPValue(commonTest.pValue)){
             resultsParts.push([`Common versus separate curves: F = ${formatMetricValue(commonTest.fStatistic, 4)}, P = `, reportPValue(commonTest.pValue), '.']);
           }
         }
@@ -26040,7 +26147,7 @@ async function drawScatter(drawOptions = {}){
             continue;
           }
           const log2fc=parseFloat(rawX);
-          const pRaw=parseFloat(rawY);
+          const pRaw=toNumericPValue(rawY);
           if(Number.isFinite(log2fc) && Number.isFinite(pRaw) && pRaw>0){
             let negLogP=-Math.log10(pRaw);
             if(!Number.isFinite(negLogP)){
@@ -26070,7 +26177,7 @@ async function drawScatter(drawOptions = {}){
           const meanExpr=parseFloat(rawX);
           const log2fcVal=parseFloat(rawY);
           const rawExtra = extraCol[r];
-          const pRaw = rawExtra === null || typeof rawExtra === 'undefined' ? NaN : parseFloat(rawExtra);
+          const pRaw = rawExtra === null || typeof rawExtra === 'undefined' ? NaN : toNumericPValue(rawExtra);
           const hasPositiveP=Number.isFinite(pRaw) && pRaw>0;
           if(Number.isFinite(meanExpr) && Number.isFinite(log2fcVal)){
             let negLogP=hasPositiveP?-Math.log10(pRaw):NaN;
@@ -26343,8 +26450,9 @@ async function drawScatter(drawOptions = {}){
             }
             const rowIndex = Number.isInteger(point.rowIndex) ? point.rowIndex : null;
             point.isManualLabel = !!(selectedRows && rowIndex !== null && selectedRows.has(rowIndex));
-            const negLogPValue = Number.isFinite(Number(point.negLogP))
-              ? Number(point.negLogP)
+            const numericNegLogP = toNumericPValue(point.negLogP);
+            const negLogPValue = Number.isFinite(numericNegLogP)
+              ? numericNegLogP
               : (graphType === 'volcano' ? Number(point.y) : NaN);
             const foldChangeValue = graphType === 'volcano' ? Number(point.x) : Number(point.y);
             const isSignificant = Number.isFinite(negLogPValue)
@@ -28620,13 +28728,14 @@ async function drawScatter(drawOptions = {}){
           const savedPrecomputedSignature = typeof c.stats.precomputedSignature === 'string'
             ? c.stats.precomputedSignature
             : null;
-          if(scatterStatsResults && (c.stats.resultsModel || c.stats.reportModel)){
+          const targetStatsResults = targetRoot?.querySelector?.('#scatterStatsResults') || scatterStatsResults;
+          if(targetStatsResults && (c.stats.resultsModel || c.stats.reportModel)){
             if(Shared.statsReporting && typeof Shared.statsReporting.restorePanelModel === 'function'){
-              Shared.statsReporting.restorePanelModel(scatterStatsResults, c.stats, {
+              Shared.statsReporting.restorePanelModel(targetStatsResults, c.stats, {
                 ensureReportHost: () => ensureScatterStatsReportHost(targetSession)
               });
             }else{
-              scatterStatsResults.textContent = '';
+              targetStatsResults.textContent = '';
             }
           }
           // restore control values if present
@@ -28647,7 +28756,7 @@ async function drawScatter(drawOptions = {}){
             statsRuntime.computationStartedAt = 0;
             statsRuntime.contextBootstrapPending = false;
           });
-          const hasResults = !!savedPrecomputedStats || scatterStatsPanelHasRenderedResults();
+          const hasResults = !!savedPrecomputedStats || scatterStatsPanelHasRenderedResults(targetStatsResults);
           const restoredPanelModel = normalizeScatterStatsPanelModel(c.stats || null);
           const restorePending = hasResults && savedVersion > 0
             ? {
@@ -29007,6 +29116,7 @@ async function drawScatter(drawOptions = {}){
         },
         scheduleDraw: (...args) => scheduleActiveScatterDraw(...args),
         preserveGraphContent: false,
+        skipScheduleOnObserver: true,
         panelSyncOptions: {
           disableAutoWidthClamp: true,
           lockGraphPanelWidth: false
@@ -29674,13 +29784,28 @@ async function drawScatter(drawOptions = {}){
         });
       }
       if(scatterFill){
-        bindScatterControlListener(scatterFill, 'input', 'fill', ()=>{scatterLog('scatterFill changed', scatterFill.value); scheduleScatterViewRefresh('fill-change');});
+        bindScatterControlListener(scatterFill, 'input', 'fill', (_event, owner)=>{
+          const value = String(scatterFill.value || '');
+          persistScatterStyleMutation(owner, { fill: value }, 'scatter-fill-change');
+          scatterLog('scatterFill changed', value);
+          scheduleScatterViewRefresh('fill-change');
+        });
       }
       if(scatterBorder){
-        bindScatterControlListener(scatterBorder, 'input', 'border', ()=>{scatterLog('scatterBorder changed', scatterBorder.value); scheduleScatterViewRefresh('border-color-change');});
+        bindScatterControlListener(scatterBorder, 'input', 'border', (_event, owner)=>{
+          const value = String(scatterBorder.value || '');
+          persistScatterStyleMutation(owner, { border: value }, 'scatter-border-change');
+          scatterLog('scatterBorder changed', value);
+          scheduleScatterViewRefresh('border-color-change');
+        });
       }
       if(scatterBorderWidth){
-        bindScatterControlListener(scatterBorderWidth, 'input', 'border-width', ()=>{scatterLog('scatterBorderWidth changed', scatterBorderWidth.value); scheduleScatterViewRefresh('border-width-change');});
+        bindScatterControlListener(scatterBorderWidth, 'input', 'border-width', (_event, owner)=>{
+          const value = String(scatterBorderWidth.value || '');
+          persistScatterStyleMutation(owner, { borderWidth: value }, 'scatter-border-width-change');
+          scatterLog('scatterBorderWidth changed', value);
+          scheduleScatterViewRefresh('border-width-change');
+        });
       }
       if(scatterDotSize){
         bindScatterControlListener(scatterDotSize, 'input', 'dot-size', ()=>{
@@ -29720,11 +29845,13 @@ async function drawScatter(drawOptions = {}){
         });
       }
       if(scatterAlpha){
-        bindScatterControlListener(scatterAlpha, 'input', 'alpha', ()=>{
+        bindScatterControlListener(scatterAlpha, 'input', 'alpha', (_event, owner)=>{
+          const value = String(scatterAlpha.value || '');
+          persistScatterStyleMutation(owner, { alpha: value }, 'scatter-alpha-change');
           if(scatterAlphaVal){
-            scatterAlphaVal.textContent=scatterAlpha.value;
+            scatterAlphaVal.textContent=value;
           }
-          scatterLog('scatterAlpha changed',scatterAlpha.value);
+          scatterLog('scatterAlpha changed', value);
           scheduleScatterViewRefresh('alpha-change');
         });
       }
@@ -30491,11 +30618,22 @@ async function drawScatter(drawOptions = {}){
     }
     rehydrateActiveScatter3dInteraction(labelsSession, 'scatter-3d-activate');
     applyScatterOwnedLabelPositionsToLiveSvg(payloadLabelsState, activationTab || activationTabId || null);
-    if(hasPayloadLabelPositions){
+    const activatedStatsSession = activationTabId
+      ? getScatterSession(activationTabId, {
+          tabId: activationTabId,
+          reason: `${reason || 'activate-tab'}-stats-projection-session`
+        }, { create: false })
+      : labelsSession;
+    const activatedStatsState = normalizeScatterOwnedStatsState(activatedStatsSession?.state?.stats || null);
+    const shouldProjectRestoredStats = scatterOwnedStatsStateHasResults(activatedStatsState)
+      && !scatterStatsPanelHasRenderedResults();
+    if(hasPayloadLabelPositions || shouldProjectRestoredStats){
       const redrawOptions = {
         force: true,
         tabId: activationTabId || labelsSession?.tabId || undefined,
-        reason: `${reason || 'activate-tab'}-payload-labels-redraw`
+        reason: shouldProjectRestoredStats
+          ? `${reason || 'activate-tab'}-owned-stats-redraw`
+          : `${reason || 'activate-tab'}-payload-labels-redraw`
       };
       if(typeof scheduleDrawScatter === 'function'){
         scheduleDrawScatter(redrawOptions);
@@ -31387,14 +31525,10 @@ async function drawScatter(drawOptions = {}){
         if(!Number.isFinite(r)){
           return NaN;
         }
-        const cdf = jStatLib && jStatLib.studentt && typeof jStatLib.studentt.cdf === 'function'
-          ? jStatLib.studentt.cdf.bind(jStatLib.studentt)
-          : null;
-        if(!cdf){
-          return NaN;
-        }
         const bounded = Math.max(-0.999999999999, Math.min(0.999999999999, r));
-        const t = bounded * Math.sqrt((count - 2) / Math.max(1e-12, 1 - (bounded * bounded)));
+        const t = Math.abs(r) >= 1 - 1e-12
+          ? (r < 0 ? Number.NEGATIVE_INFINITY : Number.POSITIVE_INFINITY)
+          : bounded * Math.sqrt((count - 2) / Math.max(1e-12, 1 - (bounded * bounded)));
         return scatterStudentTTwoSidedPValue(t, count - 2);
       };
       const toRanks = values => {

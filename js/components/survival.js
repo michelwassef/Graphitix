@@ -3522,9 +3522,11 @@
       const invTimesDiff = multiplyMatrixVector(inverse, diffVec);
       chi2 = dotProduct(diffVec, invTimesDiff);
     }
-    const pValue = Number.isFinite(chi2) ? survivalChiSquareUpperTailPValue(chi2, df) : null;
+    const pValue = ((Number.isFinite(chi2) && chi2 >= 0) || chi2 === Number.POSITIVE_INFINITY)
+      ? survivalChiSquareUpperTailPValue(chi2, df)
+      : null;
     return {
-      available: Number.isFinite(chi2),
+      available: Number.isFinite(chi2) && chi2 >= 0 && isValidPValue(pValue),
       chi2,
       df,
       p: pValue
@@ -3816,19 +3818,20 @@
   }
 
   function pValueFromZ(z){
-    if(!Number.isFinite(z)){
+    if(!(Number.isFinite(z) || z === Number.POSITIVE_INFINITY || z === Number.NEGATIVE_INFINITY)){
       return null;
     }
     const pValue = survivalNormalTwoSidedPValue(z);
-    return Number.isFinite(pValue) ? pValue : null;
+    return isValidPValue(pValue) ? pValue : null;
   }
 
   function pValueFromChiSquare(statistic, df){
-    if(!Number.isFinite(statistic) || !Number.isFinite(df) || df <= 0){
+    if(!((Number.isFinite(statistic) && statistic >= 0) || statistic === Number.POSITIVE_INFINITY)
+      || !Number.isFinite(df) || df <= 0){
       return null;
     }
     const pValue = survivalChiSquareUpperTailPValue(statistic, df);
-    return Number.isFinite(pValue) ? pValue : null;
+    return isValidPValue(pValue) ? pValue : null;
   }
 
   function createZeroMatrix(size){
@@ -4506,7 +4509,9 @@
       const ciLow = Number.isFinite(se) && se > 0 ? Math.exp(coef - 1.96 * se) : NaN;
       const ciHigh = Number.isFinite(se) && se > 0 ? Math.exp(coef + 1.96 * se) : NaN;
       const z = Number.isFinite(se) && se > 0 ? coef / se : NaN;
-      const p = Number.isFinite(z) ? pValueFromZ(z) : NaN;
+      const p = (Number.isFinite(z) || z === Number.POSITIVE_INFINITY || z === Number.NEGATIVE_INFINITY)
+        ? pValueFromZ(z)
+        : NaN;
       const label = predictor.label || predictor.groupName || `Predictor ${idx + 1}`;
       const entry = {
         key: predictor.key || `predictor:${idx}`,
@@ -4892,21 +4897,34 @@
     }
   }
 
-  function formatP(value){
-    if(!Number.isFinite(value)){
-      return 'n/a';
+  function toNumericPValue(value){
+    if(typeof Shared.pValueFormatter?.toNumericValue === 'function'){
+      return Shared.pValueFormatter.toNumericValue(value);
     }
-    const formatter = Shared.formatters?.formatPValue || Shared.formatPValue;
+    if(value === null || value === undefined || typeof value === 'boolean' || typeof value === 'symbol') return NaN;
+    if(typeof value !== 'number' && typeof value !== 'string' && !(value instanceof Number)) return NaN;
+    if(typeof value === 'string' && value.trim() === '') return NaN;
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric : NaN;
+  }
+
+  function isValidPValue(value){
+    const numeric = toNumericPValue(value);
+    return Number.isFinite(numeric) && numeric >= 0 && numeric <= 1;
+  }
+
+  function formatP(value){
+    const formatter = Shared.pValueFormatter?.format
+      || Shared.formatters?.formatPValue
+      || Shared.formatPValue;
     const scientific = getSurvivalStatsPValueScientificPreference();
     if(typeof formatter === 'function'){
       return formatter(value, { scientific, forceScientific: scientific });
     }
-    if(scientific){
-      return Shared.formatters?.formatScientificNumber?.(Number(value), { fractionalDigits: 5 }) || String(Number(value));
-    }
-    return value >= 0 && value <= 0.0001
-      ? '<0.0001'
-      : Number(value).toFixed(4).replace(/0+$/, '').replace(/\.$/, '');
+    const numeric = toNumericPValue(value);
+    return Number.isFinite(numeric) && numeric >= 0 && numeric <= 1
+      ? String(numeric)
+      : 'n/a';
   }
 
   function formatSurvivalPExpression(value){
@@ -4965,7 +4983,7 @@
   }
 
   function pValueToken(value, inferenceSpec = null){
-    const numeric = Number(value);
+    const numeric = toNumericPValue(value);
     if(!Number.isFinite(numeric)){
       return 'n/a';
     }
@@ -5023,11 +5041,8 @@
     if(typeof resolver === 'function'){
       return resolver(value, NaN);
     }
-    const num = Number(value);
-    if(!Number.isFinite(num)){
-      return NaN;
-    }
-    return Math.max(0, Math.min(1, num));
+    const num = toNumericPValue(value);
+    return Number.isFinite(num) && num >= 0 && num <= 1 ? num : NaN;
   }
 
   function survivalNormalTwoSidedPValue(z){
@@ -5035,7 +5050,13 @@
     if(typeof helper === 'function'){
       return resolveSurvivalPValue(helper(z));
     }
-    const absZ = Math.abs(Number(z));
+    if(z === Number.POSITIVE_INFINITY || z === Number.NEGATIVE_INFINITY){
+      return 0;
+    }
+    const absZ = Math.abs(toNumericPValue(z));
+    if(!Number.isFinite(absZ)){
+      return NaN;
+    }
     const tail = 1 - normalCDF(absZ);
     return resolveSurvivalPValue(2 * tail);
   }
@@ -5045,8 +5066,13 @@
     if(typeof helper === 'function'){
       return resolveSurvivalPValue(helper(statistic, df));
     }
-    if(global.jStat?.chisquare?.cdf){
-      const cdf = global.jStat.chisquare.cdf(statistic, df);
+    if(statistic === Number.POSITIVE_INFINITY){
+      return 0;
+    }
+    const valueStatistic = toNumericPValue(statistic);
+    const valueDf = toNumericPValue(df);
+    if(global.jStat?.chisquare?.cdf && Number.isFinite(valueStatistic) && Number.isFinite(valueDf)){
+      const cdf = global.jStat.chisquare.cdf(valueStatistic, valueDf);
       return resolveSurvivalPValue(Number.isFinite(cdf) ? 1 - cdf : NaN);
     }
     return NaN;
@@ -5212,14 +5238,16 @@
         const ci = Number.isFinite(Number(row.ciLow)) && Number.isFinite(Number(row.ciHigh))
           ? `; 95% CI [${formatNumber(Number(row.ciLow), 2)}, ${formatNumber(Number(row.ciHigh), 2)}]`
           : '';
-        const pText = Number.isFinite(Number(row.p)) ? `; ${formatSurvivalPExpression(Number(row.p))}` : '';
+        const p = toNumericPValue(row.p);
+        const pText = Number.isFinite(p) && p >= 0 && p <= 1 ? `; ${formatSurvivalPExpression(p)}` : '';
         return [`${label} = ${formatNumber(Number(row.hazardRatio), 2)}${ci}${pText}`];
       }
     }
     const globalTest = summary.logRank;
-    if(globalTest?.available && Number.isFinite(Number(globalTest.p))){
+    const globalP = toNumericPValue(globalTest?.p);
+    if(globalTest?.available && Number.isFinite(globalP) && globalP >= 0 && globalP <= 1){
       const statistic = Number.isFinite(Number(globalTest.chi2)) ? `χ²(${Number(globalTest.df) || Math.max(1, summary.series.length - 1)}) = ${formatNumber(Number(globalTest.chi2), 2)}; ` : '';
-      return [`Overall log-rank: ${statistic}${formatSurvivalPExpression(Number(globalTest.p))}`];
+      return [`Overall log-rank: ${statistic}${formatSurvivalPExpression(globalP)}`];
     }
     return [];
   }
@@ -6333,7 +6361,7 @@
         label,
         valueParts:[
           `χ²(${df}) = ${formatNumber(result.chi2, 3)}`,
-          ...(Number.isFinite(Number(result.p)) ? ['; p = ', pValueToken(result.p, createSurvivalInferenceSpec({ method:'none', valueKind:'raw-p' }))] : [])
+          ...(isValidPValue(result.p) ? ['; p = ', pValueToken(result.p, createSurvivalInferenceSpec({ method:'none', valueKind:'raw-p' }))] : [])
         ]
       });
     };
@@ -6353,10 +6381,11 @@
       pairwise.rows.forEach(row => {
         const parts = [
           `χ²(1) = ${formatNumber(row.chi2, 3)}`,
-          ...(Number.isFinite(Number(row.p)) ? ['; raw p = ', pValueToken(row.p, createSurvivalInferenceSpec({ method:'none', valueKind:'raw-p' }))] : [])
+          ...(isValidPValue(row.p) ? ['; raw p = ', pValueToken(row.p, createSurvivalInferenceSpec({ method:'none', valueKind:'raw-p' }))] : [])
         ];
-        if(Number.isFinite(Number(row.adjustedP))){
-          parts.push('; adjusted p = ', pValueToken(row.adjustedP, getSurvivalPairwiseInferenceSpec()));
+        const adjustedP = toNumericPValue(row.adjustedP);
+        if(Number.isFinite(adjustedP) && adjustedP >= 0 && adjustedP <= 1){
+          parts.push('; adjusted p = ', pValueToken(adjustedP, getSurvivalPairwiseInferenceSpec()));
         }
         inferentialRows.push({ label:`${row.groupB} vs ${row.groupA}`, valueParts:parts });
       });
@@ -6371,7 +6400,8 @@
           parts.push(`; 95% CI [${formatNumber(row.ciLow, 3)}, ${formatNumber(row.ciHigh, 3)}]`);
         }
         if(Number.isFinite(Number(row.z))) parts.push(`; z = ${formatNumber(row.z, 3)}`);
-        if(Number.isFinite(Number(row.p))) parts.push('; p = ', pValueToken(row.p, createSurvivalInferenceSpec({ method:'none', valueKind:'raw-p' })));
+        const p = toNumericPValue(row.p);
+        if(Number.isFinite(p) && p >= 0 && p <= 1) parts.push('; p = ', pValueToken(p, createSurvivalInferenceSpec({ method:'none', valueKind:'raw-p' })));
         estimateRows.push({ label:`HR: ${row.groupB} vs ${row.groupA}`, valueParts:parts });
       });
       if(hazard.rows.length > 1 && hazard.inferenceAvailable){
@@ -6400,7 +6430,7 @@
           label:'Cox overall model',
           valueParts:[
             `likelihood-ratio χ²(${Number.isFinite(Number(lr.df)) ? Number(lr.df) : '—'}) = ${formatNumber(lr.statistic, 3)}`,
-            ...(Number.isFinite(Number(lr.p)) ? ['; p = ', pValueToken(lr.p, createSurvivalInferenceSpec({ method:'none', valueKind:'raw-p' }))] : [])
+            ...(isValidPValue(lr.p) ? ['; p = ', pValueToken(lr.p, createSurvivalInferenceSpec({ method:'none', valueKind:'raw-p' }))] : [])
           ]
         });
       }
@@ -6414,7 +6444,8 @@
             parts.push(`; 95% CI [${formatNumber(coef.ciLow, 3)}, ${formatNumber(coef.ciHigh, 3)}]`);
           }
           if(Number.isFinite(Number(coef.z))) parts.push(`; z = ${formatNumber(coef.z, 3)}`);
-          if(Number.isFinite(Number(coef.p))) parts.push('; p = ', pValueToken(coef.p, createSurvivalInferenceSpec({ method:'none', valueKind:'raw-p' })));
+          const p = toNumericPValue(coef.p);
+          if(Number.isFinite(p) && p >= 0 && p <= 1) parts.push('; p = ', pValueToken(p, createSurvivalInferenceSpec({ method:'none', valueKind:'raw-p' })));
           estimateRows.push({ label:String(coef.label || coef.group || 'Cox coefficient'), valueParts:parts });
         });
         if(cox.coefficients.length > 1){

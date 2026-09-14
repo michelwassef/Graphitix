@@ -37,4 +37,20 @@ describe('Shared.stats.goodnessOfFit', () => {
     expect(fit.valid).toBe(false);
     expect(fit.message).toMatch(/all observations to be positive/i);
   });
+
+  it('does not convert an invalid fitted CDF into a p-value of one', () => {
+    const sample = [-1, -0.2, 0.4, 1.1];
+    const gof = stats.goodnessOfFit(sample, {
+      distribution: 'normal',
+      parametersEstimated: false,
+      fit: { valid: true, cdf: () => NaN }
+    });
+
+    expect(gof).toMatchObject({
+      available: false,
+      message: 'Goodness-of-fit p-values could not be evaluated.'
+    });
+    expect(gof.ks).toBeUndefined();
+    expect(gof.ad).toBeUndefined();
+  });
 });

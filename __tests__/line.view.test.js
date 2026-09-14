@@ -609,6 +609,36 @@ describe('Line view labels', () => {
     expect(counts.prediction).toBeGreaterThan(0);
   });
 
+  test('multi-series area and regression fills stay behind every data series', async () => {
+    await loadLineExampleAndComputeStats();
+
+    const displayMode = document.getElementById('lineDisplayMode');
+    expect(displayMode).toBeTruthy();
+    let drawCursor = window.Shared.componentLifecycle.getLifecycleEventCursor();
+    displayMode.value = 'area';
+    displayMode.dispatchEvent(new window.Event('change', { bubbles: true }));
+    await waitForLineLifecycle(drawCursor, { reason: 'line-display-mode-change' });
+
+    await enableLineRegressionOverlays();
+    const svg = document.getElementById('lineSvg');
+    const dataSeriesNodes = Array.from(svg.querySelectorAll(
+      '[data-line-style-role="line"], [data-line-style-role="markers"]'
+    ));
+    const seriesNames = new Set(dataSeriesNodes
+      .map(node => node.getAttribute('data-series'))
+      .filter(Boolean));
+    expect(seriesNames.size).toBeGreaterThan(1);
+
+    const childIndex = node => Array.from(svg.children).indexOf(node.closest('[data-layer]') || node);
+    const firstDataSeriesIndex = Math.min(...dataSeriesNodes.map(childIndex));
+    const areaPaths = Array.from(svg.querySelectorAll('path[data-render-mode="area-fill"]'));
+    const intervalPaths = Array.from(svg.querySelectorAll('path[data-line-overlay-role="interval"]'));
+    expect(areaPaths.length).toBeGreaterThan(1);
+    expect(intervalPaths.length).toBeGreaterThan(1);
+    expect(areaPaths.every(path => childIndex(path) < firstDataSeriesIndex)).toBe(true);
+    expect(intervalPaths.every(path => childIndex(path) < firstDataSeriesIndex)).toBe(true);
+  });
+
   test('same-component line tabs isolate the stats-on-plot control and render owner-scoped annotations', async () => {
     const lineComponent = window.Components?.line;
     const main = window.Main;

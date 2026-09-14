@@ -431,6 +431,14 @@ describe('statsFigureSummary shared SVG renderer', () => {
       section:'results',
       figureRole:'test'
     })).toBe('p < 0.001');
+    expect(format(['p = ', { type:'pValue', value:null }], {
+      section:'results',
+      figureRole:'test'
+    })).toBe('p = unavailable (not estimable)');
+    expect(format(['p = ', { type:'pValue', value:true }], {
+      section:'results',
+      figureRole:'test'
+    })).toBe('p = unavailable (not estimable)');
     expect(format('Difference (A-B) = -8.7900; 95% CI -11.2643 to -6.3157', {
       section:'results',
       figureRole:'effect'

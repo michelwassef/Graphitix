@@ -261,7 +261,9 @@
   };
 
   const formatSharedPValue = value => {
-    const formatter = Shared.formatters?.formatPValue || Shared.formatPValue;
+    const formatter = Shared.pValueFormatter?.format
+      || Shared.formatters?.formatPValue
+      || Shared.formatPValue;
     const scientific = Shared.statsReporting?.getPValueFormatScientific?.({
       target: state.ui.significanceResults || global.document?.getElementById?.('significanceResults') || null,
       tabId: getVennProjectionTabId() || null
@@ -269,12 +271,34 @@
     if(typeof formatter === 'function'){
       return formatter(value, { scientific, forceScientific: scientific });
     }
-    if(!Number.isFinite(value)){
-      return 'n/a';
+    const numeric = toNumericPValue(value);
+    return Number.isFinite(numeric) && numeric >= 0 && numeric <= 1
+      ? String(numeric)
+      : 'n/a';
+  };
+
+  const toNumericPValue = value => {
+    if(typeof Shared.pValueFormatter?.toNumericValue === 'function'){
+      return Shared.pValueFormatter.toNumericValue(value);
     }
+    if(value === null || value === undefined || typeof value === 'boolean' || typeof value === 'symbol') return NaN;
+    if(typeof value !== 'number' && typeof value !== 'string' && !(value instanceof Number)) return NaN;
+    if(typeof value === 'string' && value.trim() === '') return NaN;
     const numeric = Number(value);
-    if(scientific){ return Shared.formatters?.formatScientificNumber?.(numeric, { fractionalDigits: 5 }) || String(numeric); }
-    return numeric >= 0 && numeric <= 0.0001 ? '<0.0001' : numeric.toFixed(4).replace(/0+$/, '').replace(/\.$/, '');
+    return Number.isFinite(numeric) ? numeric : NaN;
+  };
+
+  const toNumericLogPValue = value => {
+    if(value === null || value === undefined || typeof value === 'boolean' || typeof value === 'symbol') return NaN;
+    if(typeof value !== 'number' && typeof value !== 'string' && !(value instanceof Number)) return NaN;
+    if(typeof value === 'string' && value.trim() === '') return NaN;
+    const numeric = Number(value);
+    return Number.isFinite(numeric) || numeric === -Infinity ? numeric : NaN;
+  };
+
+  const isValidPValue = value => {
+    const numeric = toNumericPValue(value);
+    return Number.isFinite(numeric) && numeric >= 0 && numeric <= 1;
   };
 
   function formatVennBorderWidthDisplay(value){
@@ -323,7 +347,7 @@
   }
 
   function createVennPValueToken(value, inferenceSpec = null, fallback = null){
-    const numeric = Number(value);
+    const numeric = toNumericPValue(value);
     if(!Number.isFinite(numeric)){
       return fallback ?? 'n/a';
     }
@@ -2822,6 +2846,13 @@
         .filter(key => hasOwnVennDataField(data, key))
     );
     normalized.type = 'venn';
+    if(normalized.meta && typeof normalized.meta === 'object'
+      && Object.prototype.hasOwnProperty.call(normalized.meta, 'graphSizing')){
+      delete normalized.meta.graphSizing;
+      if(!Object.keys(normalized.meta).length){
+        delete normalized.meta;
+      }
+    }
     normalized.config = {
       ...createDefaultVennControlConfig(),
       ...(normalized.config && typeof normalized.config === 'object' ? cloneSimple(normalized.config) : {})
@@ -2900,7 +2931,7 @@
     if(!tab){
       return false;
     }
-    const ownerPayload = enrichVennPayloadForOwnerStorage(normalizedPayload, tabId, meta);
+    const ownerPayload = cloneVennPayload(normalizedPayload);
     const serialize = typeof session.serializePayloadSignature === 'function' ? session.serializePayloadSignature : null;
     if(serialize && serialize(tab.payload || null) === serialize(ownerPayload)){
       return false;
@@ -2927,7 +2958,7 @@
     if(!session){
       return null;
     }
-    const payload = enrichVennPayloadForOwnerStorage(normalizedPayload, tabId, meta);
+    const payload = cloneVennPayload(normalizedPayload);
     const analysis = payload?.analysis && typeof payload.analysis === 'object' ? payload.analysis : {};
     const previousSnapshot = session.state?.snapshot || {};
     const snapshot = cloneVennSessionSnapshot({
@@ -2985,26 +3016,6 @@
       : null;
   }
 
-  function enrichVennPayloadForOwnerStorage(payload, tabId = null, meta = {}){
-    let next = cloneVennPayload(payload);
-    if(!next || typeof next !== 'object'){
-      return next;
-    }
-    const ownerTabId = String(tabId || meta?.tabId || meta?.tab || getVennProjectionTabId() || resolveActiveVennTabId() || '').trim();
-    const ownerTab = ownerTabId ? getVennWorkspaceTab(ownerTabId) : null;
-    const ownerLayout = ownerTab?.layoutState || null;
-    if(ownerLayout && Shared.graphSizing?.enrichPayloadWithLayout){
-      try{
-        next = Shared.graphSizing.enrichPayloadWithLayout('venn', next, ownerLayout, {
-          context: meta?.reason ? `venn-owner-payload-${meta.reason}` : 'venn-owner-payload'
-        });
-      }catch(err){
-        console.error('venn owner payload graph sizing enrich error', { tabId: ownerTabId || null, err });
-      }
-    }
-    return next;
-  }
-
   function canCaptureLiveVennPayloadForTab(tabId = null){
     const requestedTabId = String(tabId || '').trim();
     if(!requestedTabId){ return true; }
@@ -3040,7 +3051,7 @@
       reason: options?.reason || 'venn-snapshot-capture'
     }, { create: false });
     const snapshot = {
-      payload: enrichVennPayloadForOwnerStorage(payload, tabId, options || {}),
+      payload: cloneVennPayload(payload),
       lastDrawMode: state.analysis.lastDrawMode || null,
       speciesValue: state.ui.speciesSelect ? state.ui.speciesSelect.value || '' : '',
       speciesIndicator: state.ui.speciesSelect ? state.ui.speciesSelect.style?.backgroundColor || '' : '',
@@ -6455,6 +6466,79 @@
     return hadPending;
   }
 
+  function invalidateVennAnalysisRequest(owner, kind, reason = 'venn-analysis-request-invalidated') {
+    if(!owner?.session?.cache?.asyncRequests || !kind){
+      return false;
+    }
+    if(!owner.session.cache.asyncRequests[kind]){
+      return false;
+    }
+    owner.session.cache.asyncRequests[kind] = null;
+    owner.session.updatedAt = Date.now();
+    debugLog('venn analysis request invalidated', {
+      tabId: owner.tabId || null,
+      kind,
+      reason
+    });
+    return true;
+  }
+
+  function scheduleVennAnalysisOptionRefresh(kind, owner, reason = 'venn-analysis-option-refresh') {
+    if(!owner?.session || !isVennCallbackOwnerActive(owner) || !['go', 'string'].includes(kind)){
+      return false;
+    }
+    const results = createDefaultVennResultsState(owner.session.results || {});
+    const performed = kind === 'go'
+      ? hasVennGoResultsState(results)
+      : hasVennStringResultsState(results);
+    if(!performed){
+      return false;
+    }
+    const cache = owner.session.cache || (owner.session.cache = {});
+    const timerKey = `${kind}AnalysisOptionRefreshTimer`;
+    const tokenKey = `${kind}AnalysisOptionRefreshToken`;
+    const pendingKey = `${kind}AnalysisOptionRefreshPending`;
+    if(cache[timerKey]){
+      Shared.componentLifecycle?.clearComponentTimeout?.(venn, cache[timerKey]);
+      cache[timerKey] = null;
+    }
+    const token = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+    cache[tokenKey] = token;
+    cache[pendingKey] = false;
+    invalidateVennAnalysisRequest(owner, kind, reason);
+    const run = () => {
+      if(cache[tokenKey] !== token){
+        return;
+      }
+      cache[timerKey] = null;
+      cache[tokenKey] = null;
+      if(!isVennCallbackOwnerActive(owner)){
+        cache[pendingKey] = true;
+        return;
+      }
+      refreshVennAnalysesForCurrentRegion({
+        go: kind === 'go',
+        string: kind === 'string',
+        activeResultsTab: state.analysis.activeResultsTab || kind
+      }, reason, owner).catch(err => {
+        console.error('venn analysis option refresh error', err);
+      });
+    };
+    cache[timerKey] = Shared.componentLifecycle?.scheduleComponentTimeout?.(venn, 'venn', {
+      tabId: owner.tabId,
+      reason
+    }, run, 80) || null;
+    if(!cache[timerKey]){
+      run();
+    }
+    debugLog('venn analysis option refresh scheduled', {
+      tabId: owner.tabId || null,
+      kind,
+      reason
+    });
+    return true;
+  }
+
   function primeVennAnalysisAutoRefreshBaseline(session = null, reason = 'venn-analysis-restore-baseline') {
     const owner = ensureVennSessionOwnershipShape(session || getActiveVennSessionForState());
     if (!owner) {
@@ -8215,8 +8299,8 @@
   function buildGoChartRows(limit = 5) {
     if (!hasGoChartData()) return [];
     const rows = state.analysis.lastGOResult.slice(0, normalizeGoChartLimit(limit)).map((entry, index) => {
-      const rawPValue = Number(entry?.p_value);
-      const finitePValue = Number.isFinite(rawPValue) && rawPValue > 0 ? rawPValue : null;
+      const rawPValue = toNumericPValue(entry?.p_value);
+      const finitePValue = Number.isFinite(rawPValue) && rawPValue >= 0 && rawPValue <= 1 ? rawPValue : null;
       return {
         index,
         label: String(entry?.term_name || entry?.name || 'Unknown term'),
@@ -8573,7 +8657,7 @@
   }
 
   function probabilityDisplayFromLog(logPValue) {
-    const numericLog = Number(logPValue);
+    const numericLog = toNumericLogPValue(logPValue);
     if (numericLog === -Infinity) return '< 5 × 10⁻³²⁴';
     if (!Number.isFinite(numericLog)) return 'n/a';
     if (numericLog < Math.log(Number.MIN_VALUE)) return '< 5 × 10⁻³²⁴';
@@ -8642,8 +8726,9 @@
             cache: significanceCache
           })
         : NaN;
-      return Number.isFinite(pValue) && pValue >= 0 && pValue <= 1
-        ? { valid: true, pValue, logPValue: pValue === 0 ? -Infinity : Math.log(pValue), underflow: pValue === 0, reason: null }
+      const numericPValue = toNumericPValue(pValue);
+      return Number.isFinite(numericPValue) && numericPValue >= 0 && numericPValue <= 1
+        ? { valid: true, pValue: numericPValue, logPValue: numericPValue === 0 ? -Infinity : Math.log(numericPValue), underflow: numericPValue === 0, reason: null }
         : { valid: false, pValue: NaN, logPValue: NaN, underflow: false, reason: 'Hypergeometric probability could not be evaluated.' };
     };
 
@@ -8679,17 +8764,35 @@
       ? statsHelpers.adjustHolmLogPValues(rawLogs)
       : (typeof statsHelpers.adjustPValues === 'function'
           ? statsHelpers.adjustPValues(results.map(entry => entry.detail.pValue), { method: 'holm' })
-              .map(value => Number.isFinite(value) && value > 0 ? Math.log(value) : (value === 0 ? -Infinity : null))
+              .map(value => {
+                const numeric = toNumericPValue(value);
+                return Number.isFinite(numeric) && numeric > 0 ? Math.log(numeric) : (numeric === 0 ? -Infinity : NaN);
+              })
           : rawLogs.slice());
     results.forEach((entry, index) => {
       entry.rawLogPValue = rawLogs[index];
-      entry.adjustedLogPValue = Number(adjustedLogs[index]);
+      entry.adjustedLogPValue = toNumericLogPValue(adjustedLogs[index]);
       entry.rawPValue = entry.detail.pValue;
-      entry.adjustedPValue = Number.isFinite(entry.adjustedLogPValue) && entry.adjustedLogPValue >= Math.log(Number.MIN_VALUE)
-        ? Math.exp(entry.adjustedLogPValue)
-        : 0;
+      entry.adjustedPValue = entry.adjustedLogPValue === -Infinity
+        || (Number.isFinite(entry.adjustedLogPValue) && entry.adjustedLogPValue < Math.log(Number.MIN_VALUE))
+        ? 0
+        : (Number.isFinite(entry.adjustedLogPValue) ? Math.exp(entry.adjustedLogPValue) : NaN);
       entry.significant = entry.adjustedLogPValue <= Math.log(alpha);
     });
+    const invalidAdjusted = results.find(entry => {
+      const logP = entry.adjustedLogPValue;
+      return !((Number.isFinite(logP) || logP === -Infinity) && logP <= 0)
+        || !isValidPValue(entry.adjustedPValue);
+    });
+    if (invalidAdjusted) {
+      return {
+        valid: false,
+        reason: `Could not evaluate the adjusted p-value for ${invalidAdjusted.name}.`,
+        validation,
+        results: [],
+        rows: []
+      };
+    }
     const rows = results.map(entry => ({
       overlap: entry.name,
       rawPValue: probabilityDisplayFromLog(entry.rawLogPValue),
@@ -10241,16 +10344,14 @@
     renderGroup.dataset.upsetStagedFrame = 'true';
     renderGroup.style.visibility = 'hidden';
     renderGroup.style.pointerEvents = 'none';
-    stage.appendChild(renderGroup);
+    // Build the resize frame off-DOM. Appending every SVG child to the live
+    // stage makes Chromium repeatedly invalidate style/layout during a drag.
+    // Commit the complete frame in one DOM replacement below.
     activeVennRenderParent = renderGroup;
     let frameCommitted = false;
     const commitUpSetFrame = () => {
       if (frameCommitted) return;
-      Array.from(stage.childNodes || []).forEach(node => {
-        if (node !== renderGroup && node.parentNode === stage) {
-          stage.removeChild(node);
-        }
-      });
+      stage.replaceChildren(renderGroup);
       delete renderGroup.dataset.upsetStagedFrame;
       renderGroup.style.removeProperty('visibility');
       renderGroup.style.removeProperty('pointer-events');
@@ -12280,9 +12381,27 @@
     commitVennUndo(event?.currentTarget || state.ui.inputs.caseSensitive, 'venn:case-sensitive');
   }
 
-  function handleAnalysisOptionChange(event) {
+  function handleAnalysisOptionChange(event, callbackOwner = null) {
+    const owner = callbackOwner?.session
+      ? callbackOwner
+      : getVennCallbackOwner({
+          event,
+          target: event?.currentTarget || event?.target || null,
+          reason: 'venn-analysis-option-change'
+        });
     persistActiveVennUserChange('venn-analysis-option-change');
     commitVennUndo(event?.currentTarget || null, 'venn:analysis-option');
+    const target = event?.currentTarget || event?.target || null;
+    const isGoOption = target === state.ui.goUseAllBackground
+      || !!target?.classList?.contains?.('goCategory');
+    const isStringOption = target?.name === 'stringNetworkType'
+      || target?.name === 'stringEdgeMeaning'
+      || !!target?.classList?.contains?.('stringSource');
+    if(isGoOption){
+      scheduleVennAnalysisOptionRefresh('go', owner, 'venn-go-analysis-option-change');
+    }else if(isStringOption){
+      scheduleVennAnalysisOptionRefresh('string', owner, 'venn-string-analysis-option-change');
+    }
   }
 
   function handlePlotTypeChange(event) {
@@ -13463,7 +13582,7 @@
   };
 
   function syncVennActivationState(meta = {}){
-    bindVennSessionForTab(meta?.tab || meta?.tabId || getVennProjectionTabId() || null, { ...(meta || {}), root: resolveVennRoot(meta?.tab || meta?.tabId || null) || state.ui.root || null, reason: meta.reason || 'venn-activate-session' }, { apply: true });
+    const activatedSession = bindVennSessionForTab(meta?.tab || meta?.tabId || getVennProjectionTabId() || null, { ...(meta || {}), root: resolveVennRoot(meta?.tab || meta?.tabId || null) || state.ui.root || null, reason: meta.reason || 'venn-activate-session' }, { apply: true });
     if(typeof state.ui.syncPanels === 'function'){
       state.ui.syncPanels({ skipSchedule: true });
       debugLog('tab activated panel sync', {
@@ -13477,6 +13596,19 @@
     scheduleActiveVennDraw({ reason: meta.reason || 'venn-activate-tab' });
     syncVennSessionRefsFromActive();
     syncVennSessionManagersFromActive();
+    const pendingKinds = ['go', 'string'].filter(kind => {
+      const cache = activatedSession?.cache;
+      return !!(cache?.[`${kind}AnalysisOptionRefreshPending`]
+        || cache?.[`${kind}AnalysisOptionRefreshToken`]);
+    });
+    pendingKinds.forEach(pendingKind => {
+      activatedSession.cache[`${pendingKind}AnalysisOptionRefreshPending`] = false;
+      const owner = getVennCallbackOwner({
+        tabId: activatedSession.tabId,
+        reason: 'venn-analysis-option-refresh-activation'
+      });
+      scheduleVennAnalysisOptionRefresh(pendingKind, owner, 'venn-analysis-option-refresh-activation');
+    });
   }
 
   venn.activateTab = Shared.componentLifecycle?.bindTabActivation?.({
@@ -13818,23 +13950,17 @@
     const owner = tabId
       ? getVennSession(tabId, { ...(meta || {}), tabId, reason: meta?.reason || 'venn-snapshot-idle' }, { create: false })
       : getActiveVennSessionForState();
-    const detection = state.analysis?.speciesDetection || null;
     const asyncRequests = owner?.cache?.asyncRequests || {};
-    const pendingSpeciesOwned = !!detection?.pendingTimeoutId
-      && (!tabId || !detection.pendingTabId || String(detection.pendingTabId) === String(tabId));
-    const activeSpeciesOwned = !!detection?.active
-      && (!tabId || !detection.active?.tabId || String(detection.active.tabId) === String(tabId));
+    // Species recognition is optional enrichment. It is owner-scoped and its
+    // completion writes through to the session, so it must not block a graph
+    // checkpoint that already has a settled plot.
     return !(
       owner?.state?.drawPending
       || owner?.timers?.pendingDrawOptions
-      || owner?.timers?.pendingSpeciesDetection
       || owner?.cache?.autoAnalysisRefreshTimer
       || owner?.cache?.autoAnalysisRefreshToken
       || asyncRequests.go
       || asyncRequests.string
-      || asyncRequests.species
-      || pendingSpeciesOwned
-      || activeSpeciesOwned
     );
   };
 
@@ -13937,12 +14063,14 @@
     const svgBoxControlsReady = ensureVennSvgBoxControls('render-cache-restore');
     const controlsMounted = mountVennExportControls();
     const ownerSession = getActiveVennSessionForState();
-    if(ownerSession?.results){
+    if(ownerSession?.results && meta?.restoreLiveAfterCapture !== true){
       applyVennResultsStateToActive(ownerSession.results);
     }
     const restored = restoredStage || restoredEmptyNotice;
     const visuallyReady = !!restoredStage && hasVennPublishedGraph(ownerRoot);
-    setActiveAnalysisResultsTab(state.analysis.activeResultsTab || 'go', { syncPayload: false });
+    if(meta?.restoreLiveAfterCapture !== true){
+      setActiveAnalysisResultsTab(state.analysis.activeResultsTab || 'go', { syncPayload: false });
+    }
     if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
       debugLog('Debug: venn render cache restored', {
         restored,

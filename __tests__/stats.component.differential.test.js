@@ -548,6 +548,18 @@ describe('Component statistical engines vs Python oracle', () => {
     }
   });
 
+  test('perfect Pearson correlation uses the zero-p limit', () => {
+    const result = scatterHooks.computeScatterCorrelationStats('pearson', [1, 2, 3, 4, 5], [2, 4, 6, 8, 10]);
+    expect(result.r).toBeCloseTo(1, 12);
+    expect(result.p).toBe(0);
+  });
+
+  test('invalid count inputs do not produce a p-value from implicit zeros', () => {
+    expect(pieHooks.computeChiSquare([null, 10], [5, 5]).available).toBe(false);
+    expect(pieHooks.computeGofStats(['', 10], [5, 5]).ok).toBe(false);
+    expect(pieHooks.computeContingencyTest([[1, false], [2, 3]]).ok).toBe(false);
+  });
+
   testWithOracle('hist descriptive and distribution-comparison hooks match oracle', () => {
     expect(histHooks).toBeTruthy();
 
@@ -568,6 +580,10 @@ describe('Component statistical engines vs Python oracle', () => {
     const comparison = histHooks.computeLognormalComparison(skewedValues);
     const normalFit = histHooks.computeNormalFitDiagnostic(summaryValues, { alpha: 0.05 });
     const ks = histHooks.kolmogorovSmirnovTwoSample(ksA, ksB);
+    const identicalKs = histHooks.kolmogorovSmirnovTwoSample(ksA, ksA);
+    expect(identicalKs.available).toBe(true);
+    expect(identicalKs.D).toBe(0);
+    expect(identicalKs.p).toBe(1);
 
     {
       const ref = oracle.get('hist-summary')?.result;

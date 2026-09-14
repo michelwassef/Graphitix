@@ -1,25 +1,12 @@
 const { initializeWorkspaceHarness } = require('./setup/workspaceHarness');
+const { loadComponentTestBootstrap } = require('../test-support/componentTestBootstrap');
 const fs = require('fs');
 const path = require('path');
 
 function loadHeatmapHarness() {
   jest.resetModules();
   initializeWorkspaceHarness();
-  require('../js/vendor.js');
-  require('../js/shared/chartStyle.js');
-  require('../js/shared/debounce.js');
-  require('../js/shared/componentLifecycle.js');
-  require('../js/shared/resizer.js');
-  require('../js/shared/colorPicker.js');
-  require('../js/shared/hot.js');
-  require('../js/shared/componentLayout.js');
-  require('../js/shared/dataTransforms.js');
-  require('../js/shared/dataViews.js');
-  require('../js/shared/exportProjection.js');
-  require('../js/shared/exporter.js');
-  require('../js/shared/workspaceToolbar.js');
-  require('../js/shared/workspaceToolbarAccess.js');
-  require('../js/components/heatmap.js');
+  loadComponentTestBootstrap('heatmap');
 }
 
 describe('Heatmap dendrogram and dense projection geometry', () => {

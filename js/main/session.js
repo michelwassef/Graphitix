@@ -614,6 +614,18 @@
     }
   }
 
+  function preserveCanonicalPayloadLayout(tab, payloadClone) {
+    if (!tab?.payload || !payloadClone || typeof payloadClone !== 'object') {
+      return payloadClone;
+    }
+    if (Object.prototype.hasOwnProperty.call(tab.payload, 'layout')) {
+      payloadClone.layout = clonePayload(tab.payload.layout);
+    } else if (Object.prototype.hasOwnProperty.call(payloadClone, 'layout')) {
+      delete payloadClone.layout;
+    }
+    return payloadClone;
+  }
+
   function mixHash(hash, value) {
     return Math.imul(hash ^ value, 16777619) >>> 0;
   }
@@ -2332,25 +2344,6 @@
     );
   }
 
-  function enrichPayloadWithCapturedLayout(tab, payloadClone, layoutClone, context) {
-    if (!Shared.graphSizing?.enrichPayloadWithLayout) {
-      return payloadClone;
-    }
-    try {
-      return Shared.graphSizing.enrichPayloadWithLayout(tab.type, payloadClone, layoutClone, {
-        context
-      });
-    } catch (err) {
-      console.error('session graph sizing enrich error', {
-        tabId: tab.id,
-        type: tab.type,
-        context,
-        err
-      });
-      return payloadClone;
-    }
-  }
-
   function captureCanonicalUserMutationState(tabLike, options = {}) {
     const tab = resolveTab(tabLike);
     if (!tab || tab.isWelcome || !tab.type || workspaceState.activeTabId !== tab.id) {
@@ -2389,13 +2382,8 @@
         reason
       });
     }
+    preserveCanonicalPayloadLayout(tab, payloadClone);
     const layoutSnapshot = captureTabLayoutSnapshot(tab, { reason });
-    payloadClone = enrichPayloadWithCapturedLayout(
-      tab,
-      payloadClone,
-      layoutSnapshot?.layoutClone || null,
-      `canonical-${tab.type}`
-    );
     const payloadChanged = assignTabPayload(tab, payloadClone, {
       reason,
       allowClear: false
@@ -3395,6 +3383,7 @@
           reason
         });
       }
+      preserveCanonicalPayloadLayout(tab, payloadClone);
       if (typeof config.roundTripPayload === 'function') {
         try {
           const roundTripResult = config.roundTripPayload(payloadClone, {
@@ -3430,12 +3419,6 @@
           previousLayoutSignature: tab.layoutSignature || null
         });
       }
-      payloadClone = enrichPayloadWithCapturedLayout(
-        tab,
-        payloadClone,
-        layoutClone,
-        `persist-${tab.type}`
-      );
       const previousLayoutSignature = tab.layoutSignature || null;
       // Drift detector: when the live read produces a different signature than the
       // clean cached payload, *something* in the component mutated state without

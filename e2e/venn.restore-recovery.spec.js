@@ -581,7 +581,7 @@ test('venn legacy restored payload is normalized before recovery persist', async
   });
 
   expect(result.driftCount).toBe(0);
-  expect(result.hasGraphSizing).toBe(true);
+  expect(result.hasGraphSizing).toBe(false);
   expect(result.hasCounts).toBe(true);
   expect(issues.critical.filter(e => e.kind !== 'requestfailed')).toEqual([]);
 });

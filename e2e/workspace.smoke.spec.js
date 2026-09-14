@@ -1,6 +1,6 @@
 const { test, expect } = require('@playwright/test');
 const { installLocalCdnOverrides } = require('./helpers/vendorOverrides');
-const { openComponentFromWelcome } = require('./helpers/workspaceDriver');
+const { confirmDataImportPrompt, openComponentFromWelcome } = require('./helpers/workspaceDriver');
 
 test('welcome primary actions and popular examples form one responsive entry row', async ({ page }) => {
   await installLocalCdnOverrides(page);
@@ -268,6 +268,26 @@ test('workspace loads and opens a graph tab from welcome screen', async ({ page 
     return active?.type === 'scatter';
   }, null, { timeout: 20_000 });
   await expect(page.locator('#saveScatter')).toBeVisible();
+});
+
+test('welcome imports delimited TXT files through the table importer', async ({ page }) => {
+  await installLocalCdnOverrides(page);
+  await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
+  await expect(page.locator('#welcomeScreen')).toBeVisible();
+
+  await page.locator('#welcomeGraphFileInput').setInputFiles({
+    name: 'welcome-data.txt',
+    mimeType: 'text/plain',
+    buffer: Buffer.from('Label,Value\nA,1\nB,2\n')
+  });
+  await confirmDataImportPrompt(page);
+
+  await page.waitForFunction(() => {
+    const state = window.Main?.session?.workspaceState;
+    const active = state?.tabs?.find(tab => tab?.id === state.activeTabId);
+    return active?.isWelcome === false && active?.type === 'box';
+  }, null, { timeout: 30_000 });
+  await expect(page.locator('#boxPage:not([hidden])')).toHaveCount(1);
 });
 
 test('PCA literature example honors its standard-table presentation contract', async ({ page }) => {

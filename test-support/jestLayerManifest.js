@@ -230,7 +230,6 @@ const ARCHITECTURE_TESTS = Object.freeze([
   '__tests__/architecture/hot.pasteScheduling.contract.test.js',
   '__tests__/hist.stats-font.contract.test.js',
   '__tests__/letterSpacing.contract.test.js',
-  '__tests__/unit/ownerPayloadDriver.contract.test.js',
   '__tests__/pca.lifecycleOwnership.contract.test.js',
   '__tests__/roc.statsPanelOwnership.contract.test.js',
   '__tests__/runtime.localDependencies.test.js',
