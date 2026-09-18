@@ -46,7 +46,7 @@ jobs:
       # PUBLICATION GATE: exercise every user-facing graph variant in a real browser.
       # The Pages artifact is not uploaded and the site is not published if this fails.
       - name: Run release rendering smoke tests
-        run: npx playwright test e2e/release-rendering-smoke.spec.js --project=chromium --workers=1
+        run: npx playwright test e2e/layout/release-rendering-smoke.spec.js --project=chromium --workers=1
 
       - name: Upload Playwright failure artifacts
         if: failure()
