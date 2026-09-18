@@ -203,7 +203,7 @@ Payloads must remain JSON-serializable. Do not store DOM nodes, functions, class
 - Use `npx jest --runInBand <tests>` for targeted Jest runs.
 - Use `npx playwright test <specs> --project=chromium` for targeted browser runs.
 - Run `npm test` or larger Playwright suites only when risk justifies the cost.
-- For tab isolation/reopen regressions, use the standard Chromium Playwright contracts: `npx playwright test e2e/component.same-type-tab-switching.isolation.spec.js e2e/component.persistence-matrix.spec.js --project=chromium --workers=1`; the former standalone tab-isolation runner was retired.
+- For tab isolation/reopen regressions, use the standard Chromium Playwright contracts: `npx playwright test e2e/ownership/component.same-type-tab-switching.isolation.spec.js e2e/ownership/component.persistence-matrix.spec.js --project=chromium --workers=1`; the former standalone tab-isolation runner was retired.
 - Tests must assert settled architectural invariants, not timing artifacts.
 - Before changing code for a failing test, confirm the test waits for a stable owner state and checks a valid final session/payload/DOM agreement.
 - If a test samples a documented intermediate draw, resize, hydration, or async loading state, repair the wait instead of weakening the expected final state.

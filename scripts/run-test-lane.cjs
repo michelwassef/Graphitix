@@ -3,6 +3,7 @@
 const path = require('path');
 const fs = require('fs');
 const { spawnSync } = require('child_process');
+const { assertReportSchema } = require('../test-support/testReportSchema.js');
 
 const ROOT_DIR = path.resolve(__dirname, '..');
 const JEST_CLI = path.join(ROOT_DIR, 'node_modules', 'jest', 'bin', 'jest.js');
@@ -10,13 +11,14 @@ const JEST_SHARD_RUNNER = path.join(ROOT_DIR, 'scripts', 'run-jest-shards.cjs');
 const FULL_JEST_RUNNER = path.join(ROOT_DIR, 'scripts', 'run-full-jest.cjs');
 const PLAYWRIGHT_CLI = path.join(ROOT_DIR, 'node_modules', '@playwright', 'test', 'cli.js');
 const STATISTICAL_TESTS = [
-  '__tests__/stats.differential.python.test.js',
-  '__tests__/stats.component.differential.test.js',
-  '__tests__/stats.matrix.components.test.js',
-  '__tests__/stats.extended.coverage.test.js',
-  '__tests__/stats.ui.presentation.branches.test.js',
-  '__tests__/stats.ui.persistence.restore.test.js'
+  '__tests__/statistical-oracle/stats.differential.python.test.js',
+  '__tests__/statistical-oracle/stats.component.differential.test.js',
+  '__tests__/statistical-oracle/stats.matrix.components.test.js',
+  '__tests__/statistical-oracle/stats.extended.coverage.test.js',
+  '__tests__/statistical-oracle/stats.ui.presentation.branches.test.js',
+  '__tests__/statistical-oracle/stats.ui.persistence.restore.test.js'
 ];
+const ARTIFACT_RETENTION_DAYS = 14;
 
 function nodeCommand(args, label) {
   return { label, executable: process.execPath, args };
@@ -61,23 +63,30 @@ const LANE_SPECS = Object.freeze({
     path.join(ROOT_DIR, '__tests__', 'unit', 'vendorRuntime.smoke.test.js')
   ], 'jest-real-vendor')]),
   'e2e-smoke': Object.freeze([nodeCommand([
-    PLAYWRIGHT_CLI, 'test', 'e2e/workspace.smoke.spec.js', '--project=chromium', '--workers=1'
+    PLAYWRIGHT_CLI, 'test', 'e2e/workspace/workspace.smoke.spec.js', '--project=chromium', '--workers=1'
   ], 'playwright-smoke')]),
   'e2e-contracts': Object.freeze([nodeCommand([
-    PLAYWRIGHT_CLI, 'test', 'e2e/workspace.smoke.spec.js', 'e2e/aggrid.firefox-paste.spec.js',
-    'e2e/config-panel.fieldset-containment.spec.js',
+    PLAYWRIGHT_CLI, 'test', 'e2e/workspace/workspace.smoke.spec.js', 'e2e/aggrid.firefox-paste.spec.js',
+    'e2e/workspace/config-panel.fieldset-containment.spec.js',
     'e2e/workspace/style-sync.contract.spec.js', 'e2e/workspace/unsaved-decisions.contract.spec.js',
     'e2e/workspace/tab-reorder.contract.spec.js',
-    'e2e/cross-browser.feature-matrix.spec.js', 'e2e/stats.same-component-isolation-restore.contract.spec.js',
-    'e2e/stats.reopen-presence.contract.spec.js', 'e2e/stats.async-owner-completion.contract.spec.js',
-    'e2e/vendor.runtime.smoke.spec.js', '--project=chromium'
+    'e2e/cross-component/cross-browser.feature-matrix.spec.js', 'e2e/stats/stats.same-component-isolation-restore.contract.spec.js',
+    'e2e/stats/stats.reopen-presence.contract.spec.js', 'e2e/stats/stats.async-owner-completion.contract.spec.js',
+    'e2e/diagnostics/vendor.runtime.smoke.spec.js', '--project=chromium'
   ], 'playwright-contracts-chromium')]),
   'e2e-contracts-firefox': Object.freeze([nodeCommand([
-    PLAYWRIGHT_CLI, 'test', 'e2e/workspace.smoke.spec.js', 'e2e/aggrid.firefox-paste.spec.js',
-    'e2e/cross-browser.feature-matrix.spec.js', 'e2e/stats.same-component-isolation-restore.contract.spec.js',
-    'e2e/stats.reopen-presence.contract.spec.js', 'e2e/stats.async-owner-completion.contract.spec.js',
-    'e2e/vendor.runtime.smoke.spec.js', '--project=firefox'
+    PLAYWRIGHT_CLI, 'test', 'e2e/workspace/workspace.smoke.spec.js', 'e2e/aggrid.firefox-paste.spec.js',
+    'e2e/cross-component/cross-browser.feature-matrix.spec.js', 'e2e/stats/stats.same-component-isolation-restore.contract.spec.js',
+    'e2e/stats/stats.reopen-presence.contract.spec.js', 'e2e/stats/stats.async-owner-completion.contract.spec.js',
+    'e2e/diagnostics/vendor.runtime.smoke.spec.js', '--project=firefox'
   ], 'playwright-contracts-firefox')]),
+  'e2e-matrix': Object.freeze([nodeCommand([
+    PLAYWRIGHT_CLI, 'test', 'e2e/workspace/workspace.exercise.spec.js', '--project=chromium'
+  ], 'playwright-feature-matrix')]),
+  'e2e-owner-order': Object.freeze([nodeCommand([
+    PLAYWRIGHT_CLI, 'test', 'e2e/ownership/component.owner-order.repeated.spec.js',
+    '--project=chromium', '--workers=1', '--repeat-each=2'
+  ], 'playwright-repeated-owner-order')]),
   'full-jest': Object.freeze([nodeCommand([
     FULL_JEST_RUNNER,
     '--report-file', path.join(ROOT_DIR, 'artifacts', 'test-reports', 'full-jest-bounded.json')
@@ -108,6 +117,8 @@ const RETRY_APPENDIX = Object.freeze({
   'e2e-smoke': ['--last-failed', '--workers=1'],
   'e2e-contracts': ['--last-failed', '--workers=1'],
   'e2e-contracts-firefox': ['--last-failed', '--workers=1'],
+  'e2e-matrix': ['--last-failed', '--workers=1'],
+  'e2e-owner-order': ['--last-failed', '--workers=1', '--repeat-each=2'],
   'full-jest': ['--onlyFailures', '--runInBand'],
   'full-chromium': ['--last-failed', '--workers=1'],
   'full-firefox': ['--last-failed', '--workers=1']
@@ -175,6 +186,62 @@ function execute(command, options = {}) {
   return { status: result.status == null ? 1 : result.status };
 }
 
+function buildManifestEvidence(inventory) {
+  const staticData = inventory.static || {};
+  const discovery = inventory.discovery || {};
+  const summary = inventory.manifest?.summary || {};
+  return {
+    status: inventory.checks?.length ? 'failed' : 'passed',
+    checks: inventory.checks || [],
+    schemaVersion: inventory.schemaVersion,
+    manifest: summary,
+    files: staticData.files || {},
+    patterns: {
+      fixedScratchPaths: staticData.patterns?.fixedScratchPaths?.count ?? null,
+      sourceReads: staticData.patterns?.jestSourceReads?.count ?? null,
+      fixtureReads: staticData.patterns?.jestFixtureReads?.count ?? null,
+      generatedArtifactReads: staticData.patterns?.jestGeneratedArtifactReads?.count ?? null,
+      oversizedSuites: staticData.organization?.oversized?.length ?? null
+    },
+    discovery: {
+      jestFiles: discovery.jest?.files ?? null,
+      playwrightChromium: discovery.playwright?.chromium || null,
+      firefox: discovery.playwright?.firefox || { status: 'deferred' }
+    }
+  };
+}
+
+function collectManifestEvidence() {
+  try {
+    const { buildInventory } = require('./test-inventory.cjs');
+    return buildManifestEvidence(buildInventory(ROOT_DIR));
+  } catch (error) {
+    return {
+      status: 'unavailable',
+      checks: [`inventory unavailable: ${error.message}`]
+    };
+  }
+}
+
+function buildArtifactPolicy(lane, reportRequested = false) {
+  const browserLane = lane.startsWith('e2e-') || lane.startsWith('full-') || lane === 'full';
+  return {
+    schemaVersion: 1,
+    retentionDays: ARTIFACT_RETENTION_DAYS,
+    required: reportRequested ? ['laneReport'] : [],
+    optional: [
+      ...(browserLane ? ['playwright-report', 'test-results'] : []),
+      ...(browserLane || lane === 'coverage' || lane === 'full-jest' || lane === 'full'
+        ? ['artifacts/perf-summaries'] : []),
+      ...(lane === 'coverage' ? ['coverage'] : [])
+    ],
+    missingArtifactPolicy: {
+      required: 'error',
+      optional: 'ignore'
+    }
+  };
+}
+
 function runLane(lane, options = {}) {
   const initial = [];
   const startedAt = Date.now();
@@ -220,13 +287,17 @@ function runLane(lane, options = {}) {
     oracle: lane === 'stats'
       ? { policy: 'required', enforcement: 'TEST_REQUIRE_PYTHON_ORACLE=1' }
       : { policy: 'not-applicable' },
+    manifestEvidence: collectManifestEvidence(),
+    artifactPolicy: buildArtifactPolicy(lane, Boolean(options.reportFile)),
     artifacts: {
       playwright: ['playwright-report', 'test-results'],
+      performance: ['artifacts/perf-summaries'],
       coverage: lane === 'coverage' ? ['coverage'] : []
     },
     initial,
     diagnostic
   };
+  assertReportSchema(report, `${lane} lane report`);
   if (options.reportFile) {
     const reportPath = path.resolve(ROOT_DIR, options.reportFile);
     fs.mkdirSync(path.dirname(reportPath), { recursive: true });
@@ -279,6 +350,9 @@ module.exports = {
   RETRY_APPENDIX,
   getLaneSpec,
   getDiagnosticSpec,
+  buildManifestEvidence,
+  buildArtifactPolicy,
+  collectManifestEvidence,
   parseArgs,
   runLane
 };

@@ -1,8 +1,50 @@
 (function(global){
   'use strict';
   const Shared = global.Shared = global.Shared || {};
+  if(typeof Shared.componentLifecycle?.bindOwnerControlHandler !== 'function' && typeof require === 'function'){
+    require('../shared/componentLifecycle.js');
+  }
   const Components = global.Components = global.Components || {};
   const surface = Components.surface = Components.surface || {};
+
+  function resolveSurfaceRenderImpact(options = {}, fallback = 'analysis'){
+    const source = options && typeof options === 'object' ? options : {};
+    const normalizedFallback = Shared.componentLifecycle?.normalizeRenderImpact?.(fallback, 'analysis') || 'analysis';
+    if(Object.prototype.hasOwnProperty.call(source, 'renderImpact')){
+      return Shared.componentLifecycle?.normalizeRenderImpact?.(source.renderImpact, normalizedFallback) || normalizedFallback;
+    }
+    if(source.structural === true){ return 'structural'; }
+    const invalidation = String(source.invalidate || '').trim().toLowerCase();
+    if(invalidation === 'data'){ return 'analysis'; }
+    if(invalidation === 'layout' || source.viewOnly === true){ return 'layout'; }
+    if(invalidation === 'style'){ return 'paint'; }
+    return normalizedFallback;
+  }
+
+  function isSurfacePresentationDraw(options = {}){
+    return Shared.componentLifecycle?.isPresentationOnlyDraw?.({
+      renderImpact: resolveSurfaceRenderImpact(options)
+    }) === true;
+  }
+
+  function sanitizeSurfaceDrawOptions(options = {}, owner = {}){
+    const source = options && typeof options === 'object' ? options : {};
+    const renderImpact = resolveSurfaceRenderImpact(source);
+    const sanitized = Shared.componentLifecycle?.sanitizeComponentDrawOptions?.('surface', {
+      ...source,
+      renderImpact
+    }, owner) || {
+      ...source,
+      renderImpact,
+      tabId: owner?.tabId || source.tabId || undefined,
+      reason: source.reason || owner?.reason || 'surface-draw'
+    };
+    sanitized.renderImpact = resolveSurfaceRenderImpact(sanitized, renderImpact);
+    if(Object.prototype.hasOwnProperty.call(source, 'viewOnly') || isSurfacePresentationDraw({ renderImpact })){
+      sanitized.viewOnly = isSurfacePresentationDraw(sanitized);
+    }
+    return sanitized;
+  }
 
   function getSurfaceRuntimeOwner(){
     return Shared.componentLifecycle?.createRuntimeOwner?.(surface, { componentKey: 'surface' }) || null;
@@ -543,11 +585,6 @@
     return callback(resolvedOwner);
   }
 
-  function runSurfaceEventOwnerCallback(event, reason, callback){
-    const owner = getSurfaceCallbackOwner({ event, target: event?.currentTarget || event?.target || null, reason });
-    return runSurfaceOwnedCallback(owner, callback, { event, reason });
-  }
-
   function getSurfaceSessionForHot(hotInstance = null, meta = {}, options = {}){
     const tabId = getSurfaceHotOwnerTabId(hotInstance);
     if(tabId){
@@ -587,9 +624,10 @@
       return false;
     }
     const sourceOptions = options && typeof options === 'object' ? options : {};
-    const scheduleOptions = Shared.componentLifecycle?.sanitizeDrawOptions
-      ? Shared.componentLifecycle.sanitizeDrawOptions(sourceOptions, { tabId: shaped.tabId || null, reason: 'surface-session-draw' })
-      : { ...sourceOptions, tabId: shaped.tabId || undefined, reason: sourceOptions.reason || 'surface-session-draw' };
+    const scheduleOptions = sanitizeSurfaceDrawOptions(sourceOptions, {
+      tabId: shaped.tabId || null,
+      reason: sourceOptions.reason || 'surface-session-draw'
+    });
     shaped.timers.pendingDrawOptions = scheduleOptions;
     shaped.updatedAt = Date.now();
     if(!isSurfaceSessionActive(shaped)){
@@ -1411,13 +1449,16 @@
       Shared.componentLifecycle?.emitLifecycleEvent?.({ componentKey: 'surface', tabId: lifecycleMeta.tabId || null, action: 'draw-suppressed', reason: nextReason, details: { source: 'surface-view-refresh' } });
       return;
     }
-    const scheduleOptions = Object.assign({}, options, {
+    const scheduleOptions = sanitizeSurfaceDrawOptions(Object.assign({}, options, {
       tabId: ownerTabId || options.tabId || undefined,
-      viewOnly: true,
+      renderImpact: options.renderImpact || 'layout',
       reason: nextReason,
       source: 'surface-view-refresh',
       forceDraw: lifecycleMeta.forceDraw === true,
       userInitiated: lifecycleMeta.userInitiated === true
+    }), {
+      tabId: ownerTabId || null,
+      reason: nextReason
     });
     scheduleSurfaceDrawForSession(ownerSession || getActiveSurfaceSessionForState(), scheduleOptions);
   }
@@ -1869,7 +1910,7 @@
         return;
       }
       const fallbackScheduled = scheduleSurfaceDrawForSession(session, {
-        viewOnly: true,
+        renderImpact: 'layout',
         silentOverlay: true,
         force: true,
         userInitiated: true,
@@ -2110,6 +2151,7 @@
           updateAxisOptions();
           markSurfaceOverlayPending('data-view-switch');
           scheduleSurfaceDrawForSession(session, {
+            renderImpact: 'structural',
             reason: 'data-view-switch',
             userInitiated: String(meta?.reason || '').trim().toLowerCase() === 'tab-click'
           });
@@ -2419,10 +2461,10 @@
     const opts = options && typeof options === 'object' ? options : {};
     const fallbackThickness = Number.isFinite(Number(opts.fallbackThickness)) ? Number(opts.fallbackThickness) : getAxisStrokeWidthBase();
     const owner = getSurfaceCallbackOwner({ target, reason: 'surface-grid-control-register' });
-    const runOwnerChange = (reason, callback) => runSurfaceOwnedCallback(owner, resolvedOwner => {
+    const runOwnerChange = (reason, callback, renderImpact = 'paint') => runSurfaceOwnedCallback(owner, resolvedOwner => {
       const result = callback(resolvedOwner);
       captureSurfaceSessionStateFromActive(resolvedOwner.session || getSurfaceProjectionSession({ reason: 'surface-projection-mutation' }), { reason });
-      scheduleSurfaceDrawForSession(resolvedOwner.session || getActiveSurfaceSessionForState(), { reason });
+      scheduleSurfaceDrawForSession(resolvedOwner.session || getActiveSurfaceSessionForState(), { renderImpact, reason });
       return result;
     }, { reason });
     gridControls.registerGraphElement(target, {
@@ -2434,13 +2476,13 @@
           if(state.controls.showGrid){
             state.controls.showGrid.checked = !!value;
           }
-        });
+        }, 'paint');
       },
       getStyle: () => getGridStyle(fallbackThickness),
       onStyleChange: style => {
         runOwnerChange('surface-grid-style-control', () => {
           setGridStyle(style, fallbackThickness);
-        });
+        }, 'paint');
       },
       defaults: createDefaultGridStyle(fallbackThickness)
     });
@@ -2452,28 +2494,25 @@
     try{ state._listeners.push({ node, type, handler, options }); }catch(e){ /* ignore */ }
   }
 
-  function bindSurfaceControlHandler(node, eventName, key, handler, options){
-    if(!node || typeof node.addEventListener !== 'function'){
-      return;
-    }
-    const registryKey = `${eventName}:${key || 'control'}`;
-    if(!node.__surfaceControlHandlers){
-      Object.defineProperty(node, '__surfaceControlHandlers', {
-        value: Object.create(null),
-        configurable: true
-      });
-    }
-    const previous = node.__surfaceControlHandlers[registryKey];
-    if(previous){
-      node.removeEventListener(eventName, previous, options);
+  const bindSurfaceControlHandler = Shared.componentLifecycle.createOwnerControlBinder({
+    componentKey: 'surface',
+    resolveOwner: (event, meta) => getSurfaceCallbackOwner({
+      event,
+      target: meta?.target,
+      reason: meta?.reason
+    }),
+    isOwnerActive: isSurfaceCallbackOwnerActive,
+    onUnbind: record => {
       if(Array.isArray(state._listeners)){
-        state._listeners = state._listeners.filter(rec => !(rec && rec.node === node && rec.type === eventName && rec.handler === previous));
+        state._listeners = state._listeners.filter(item => !(item && item.node === record.node && item.type === record.eventName && item.handler === record.handler));
+      }
+    },
+    onBind: record => {
+      if(Array.isArray(state._listeners)){
+        state._listeners.push({ node: record.node, type: record.eventName, handler: record.handler, options: record.options });
       }
     }
-    const wrapped = event => runSurfaceEventOwnerCallback(event, key || registryKey, owner => handler(event, owner));
-    node.__surfaceControlHandlers[registryKey] = wrapped;
-    attachListener(node, eventName, wrapped, options);
-  }
+  });
   const surfaceOverlayController = Shared.loadingOverlay?.createPendingController?.({
     component: 'surface',
     message: 'Rendering surface plot...',
@@ -2664,6 +2703,7 @@
       }
       scheduleSurfaceDrawForSession(session, {
         tabId: session.tabId,
+        renderImpact: 'layout',
         reason: `surface-${axisKey}-label-edit`
       });
       if(node.textContent !== resolved){
@@ -2697,7 +2737,11 @@
           labels: { ...(owner.state?.labels || {}), title: nextValue }
         }, { reason: 'surface-title-edit' });
         if(node.textContent !== nextValue){ node.textContent = nextValue; }
-        scheduleSurfaceDrawForSession(owner, { tabId: owner.tabId, reason: 'surface-title-edit' });
+        scheduleSurfaceDrawForSession(owner, {
+          tabId: owner.tabId,
+          renderImpact: 'layout',
+          reason: 'surface-title-edit'
+        });
         return nextValue;
       };
       apply(normalized);
@@ -3032,7 +3076,7 @@
         if(Array.isArray(changes) && changes.length){
           syncSurfaceActiveDataViewFromHot(state.hot, 'afterChange');
         }
-        scheduleSurfaceDrawForHot(state.hot, { reason: 'surface-table-change' });
+        scheduleSurfaceDrawForHot(state.hot, { renderImpact: 'analysis', reason: 'surface-table-change' });
       },
       afterLoadData: () => {
         const ownerSession = getSurfaceSessionForHot(state.hot, { reason: 'surface-table-load' }, { create: false });
@@ -3043,7 +3087,7 @@
         }
         updateAxisOptions();
         syncSurfaceActiveDataViewFromHot(state.hot, 'afterLoadData');
-        scheduleSurfaceDrawForHot(state.hot, { reason: 'surface-table-load' });
+        scheduleSurfaceDrawForHot(state.hot, { renderImpact: 'analysis', reason: 'surface-table-load' });
       },
       afterSelectionEnd: () => {
         activateSurfaceDataToolbar('table-selection');
@@ -3057,6 +3101,7 @@
       instance = hotNS.createStandardTable(container, { rows: DEFAULT_ROWS, cols: DEFAULT_COLS }, meta => {
         scheduleSurfaceDrawForHot(instance, {
           ...(meta && typeof meta === 'object' ? meta : {}),
+          renderImpact: meta?.renderImpact || 'analysis',
           reason: meta?.reason || meta?.source || 'surface-table-schedule'
         });
       }, overrides);
@@ -3913,14 +3958,14 @@
         if(chartStyle.renderFontSizeLabel){
           chartStyle.renderFontSizeLabel({ element: state.controls.fontSizeVal, pt: state.settings.fontSize, input: state.controls.fontSize, manual: true });
         }
-        scheduleActiveSurfaceDraw({ reason: 'surface-font-size-change' });
+        scheduleActiveSurfaceDraw({ renderImpact: 'layout', reason: 'surface-font-size-change' });
       });
     }
     if(state.controls.axisStroke){
       bindSurfaceControlHandler(state.controls.axisStroke, 'input', 'axis-stroke', () => {
         state.settings.axisStroke = Number(state.controls.axisStroke.value) || DEFAULT_SURFACE_SETTINGS.axisStroke;
         if(state.controls.axisStrokeVal){ state.controls.axisStrokeVal.textContent = Number(state.settings.axisStroke).toFixed(2); }
-        scheduleActiveSurfaceDraw({ reason: 'surface-axis-stroke-change' });
+        scheduleActiveSurfaceDraw({ renderImpact: 'layout', reason: 'surface-axis-stroke-change' });
       });
     }
     if(state.controls.axisColor){
@@ -3929,7 +3974,7 @@
       }
       bindSurfaceControlHandler(state.controls.axisColor, 'input', 'axis-color', () => {
         state.settings.axisColor = state.controls.axisColor.value || '#3b3b3b';
-        scheduleActiveSurfaceDraw({ reason: 'surface-axis-color-change' });
+        scheduleActiveSurfaceDraw({ renderImpact: 'paint', reason: 'surface-axis-color-change' });
       });
     }
     ['showGrid', 'showFrame', 'showPoints', 'showLegend'].forEach(key => {
@@ -3937,7 +3982,10 @@
       if(!control){ return; }
       bindSurfaceControlHandler(control, 'change', `setting-${key}`, () => {
         state.settings[key] = !!control.checked;
-        scheduleActiveSurfaceDraw({ reason: `surface-${key}-change` });
+        scheduleActiveSurfaceDraw({
+          renderImpact: key === 'showLegend' ? 'layout' : 'paint',
+          reason: `surface-${key}-change`
+        });
       });
     });
     ['x', 'y', 'z'].forEach(axis => {
@@ -3948,7 +3996,7 @@
         if(Number.isFinite(next)){
           state.axisMap[axis] = next;
         }
-        scheduleActiveSurfaceDraw({ reason: `surface-${axis}-axis-change` });
+        scheduleActiveSurfaceDraw({ renderImpact: 'analysis', reason: `surface-${axis}-axis-change` });
       });
     });
     let loadExampleData = null;
@@ -3987,6 +4035,7 @@
           updateAxisOptions();
           scheduleSurfaceDrawForHot(state.hot, {
             force: true,
+            renderImpact: 'structural',
             userInitiated: true,
             reason: 'surface-example-load'
           });
@@ -4021,7 +4070,12 @@
               return;
             }
             markSurfaceOverlayPending('file-import');
-            scheduleSurfaceDrawForSession(importSession || getActiveSurfaceSessionForState(), { force: true, reason: 'import-load', skipThresholdEvaluation: true });
+            scheduleSurfaceDrawForSession(importSession || getActiveSurfaceSessionForState(), {
+              force: true,
+              renderImpact: 'structural',
+              reason: 'import-load',
+              skipThresholdEvaluation: true
+            });
           },
           debugLabel: 'surface',
           onProcessed: info => {
@@ -4114,8 +4168,12 @@
   }
 
   async function runSurfaceDrawCycle(options = {}){
-    const drawSession = getSurfaceSessionForDrawOptions(options, { reason: options?.reason || 'surface-draw-cycle-session' });
-    const drawTabId = drawSession?.tabId || options?.tabId || getSurfaceProjectionTabId() || null;
+    const drawOptions = sanitizeSurfaceDrawOptions(options, {
+      tabId: options?.tabId || null,
+      reason: options?.reason || 'surface-draw-cycle-session'
+    });
+    const drawSession = getSurfaceSessionForDrawOptions(drawOptions, { reason: drawOptions?.reason || 'surface-draw-cycle-session' });
+    const drawTabId = drawSession?.tabId || drawOptions?.tabId || getSurfaceProjectionTabId() || null;
     if(drawSession?.timers){
       drawSession.timers.drawInFlight = Math.max(0, Number(drawSession.timers.drawInFlight) || 0) + 1;
       drawSession.updatedAt = Date.now();
@@ -4123,7 +4181,7 @@
     let status = 'complete';
     let summaryProjectionHandled = false;
     try{
-      const result = await draw(options, drawSession);
+      const result = await draw(drawOptions, drawSession);
       if(result === false){
         status = 'cancelled';
       }else{
@@ -4135,7 +4193,7 @@
     }finally{
       if(drawSession?.timers){
         drawSession.timers.drawInFlight = Math.max(0, (Number(drawSession.timers.drawInFlight) || 1) - 1);
-        if(options?.reason === 'rotation'){
+        if(drawOptions?.reason === 'rotation'){
           drawSession.timers.rotationPending = false;
           if(!drawSession.timers.rotationActive){
             drawSession.timers.rotationViewport = null;
@@ -4148,9 +4206,13 @@
         componentKey: 'surface',
         tabId: drawTabId,
         action: 'draw-settled',
-        reason: options?.reason || 'surface-draw',
+        reason: drawOptions?.reason || 'surface-draw',
         phase: status,
-        details: { summaryProjectionHandled }
+        details: {
+          summaryProjectionHandled,
+          renderImpact: resolveSurfaceRenderImpact(drawOptions),
+          viewOnly: isSurfacePresentationDraw(drawOptions)
+        }
       });
     }
   }
@@ -4873,20 +4935,38 @@
   }
 
   surface.draw = function drawSurfacePublic(options = {}){
-    const nextReason = options?.reason || 'surface-draw';
-    if(Shared.componentLifecycle?.shouldSuppressDraw?.('surface', { ...(options || {}), tabId: options?.tabId || getSurfaceProjectionTabId() || null, reason: nextReason })){
+    const normalizedOptions = sanitizeSurfaceDrawOptions(options, {
+      tabId: options?.tabId || getSurfaceProjectionTabId() || null,
+      reason: options?.reason || 'surface-draw'
+    });
+    const nextReason = normalizedOptions.reason || 'surface-draw';
+    if(Shared.componentLifecycle?.shouldSuppressDraw?.('surface', { ...(normalizedOptions || {}), tabId: normalizedOptions?.tabId || getSurfaceProjectionTabId() || null, reason: nextReason })){
       debugLog('Debug: surface draw suppressed by lifecycle', { reason: nextReason, tabId: options?.tabId || getSurfaceProjectionTabId() || null });
       Shared.componentLifecycle?.emitLifecycleEvent?.({ componentKey: 'surface', tabId: options?.tabId || getSurfaceProjectionTabId() || null, action: 'draw-suppressed', reason: nextReason, details: { source: 'surface.draw' } });
       return;
     }
-    Shared.componentLifecycle?.emitLifecycleEvent?.({ componentKey: 'surface', tabId: options?.tabId || getSurfaceProjectionTabId() || null, action: 'draw-executed', reason: nextReason, details: { source: 'surface.draw' } });
-    const drawSession = getSurfaceSessionForDrawOptions(options, { reason: nextReason });
+    Shared.componentLifecycle?.emitLifecycleEvent?.({
+      componentKey: 'surface',
+      tabId: normalizedOptions?.tabId || getSurfaceProjectionTabId() || null,
+      action: 'draw-executed',
+      reason: nextReason,
+      details: {
+        source: 'surface.draw',
+        renderImpact: resolveSurfaceRenderImpact(normalizedOptions),
+        viewOnly: isSurfacePresentationDraw(normalizedOptions)
+      }
+    });
+    const drawSession = getSurfaceSessionForDrawOptions(normalizedOptions, { reason: nextReason });
     if(drawSession && !isSurfaceSessionActive(drawSession)){
       drawSession.state.drawPending = true;
       drawSession.updatedAt = Date.now();
       return;
     }
-    void runSurfaceDrawCycle({ ...(options || {}), tabId: drawSession?.tabId || options?.tabId || undefined, reason: nextReason });
+    void runSurfaceDrawCycle({
+      ...normalizedOptions,
+      tabId: drawSession?.tabId || normalizedOptions?.tabId || undefined,
+      reason: nextReason
+    });
   };
   surface.cancelCurrentDraw = function cancelCurrentDraw(meta = {}){
     const tabId = meta?.tabId || getSurfaceProjectionTabId() || null;
@@ -4979,7 +5059,7 @@
         const overlayReason = 'manual-render';
         markSurfaceOverlayPending(overlayReason);
         forceSurfaceOverlay(overlayReason, { message: 'Rendering surface plot...' });
-        scheduleActiveSurfaceDraw({ force: true, reason: overlayReason });
+        scheduleActiveSurfaceDraw({ force: true, renderImpact: 'analysis', reason: overlayReason });
       });
     }
     state.layout = componentLayout && typeof componentLayout.createStandardPanels === 'function'
@@ -5063,14 +5143,16 @@
       const sourceOpts = opts && typeof opts === 'object' ? opts : {};
       const overlayReason = sourceOpts.reason || (sourceOpts.force ? 'manual-render' : 'schedule');
       const ownerSession = getSurfaceSessionForDrawOptions(sourceOpts, { reason: overlayReason, create: false });
-      const nextOpts = Shared.componentLifecycle?.sanitizeDrawOptions
-        ? Shared.componentLifecycle.sanitizeDrawOptions(sourceOpts, { tabId: ownerSession?.tabId || sourceOpts.tabId || getSurfaceProjectionTabId() || null, reason: overlayReason })
-        : { ...sourceOpts, tabId: ownerSession?.tabId || sourceOpts.tabId || undefined, reason: overlayReason };
+      const nextOpts = sanitizeSurfaceDrawOptions(sourceOpts, {
+        tabId: ownerSession?.tabId || sourceOpts.tabId || getSurfaceProjectionTabId() || null,
+        reason: overlayReason
+      });
       if(ownerSession?.timers){
         ownerSession.timers.pendingDrawOptions = nextOpts;
         ownerSession.updatedAt = Date.now();
       }
-      const suppressOverlay = nextOpts.silentOverlay === true || (nextOpts.viewOnly === true && nextOpts.forceOverlay !== true);
+      const suppressOverlay = nextOpts.silentOverlay === true
+        || (isSurfacePresentationDraw(nextOpts) && nextOpts.forceOverlay !== true);
       if((nextOpts.force || nextOpts.forceOverlay) && !suppressOverlay){
         markSurfaceOverlayPending(overlayReason, { tabId: ownerSession?.tabId || nextOpts.tabId || null });
         forceSurfaceOverlay(overlayReason, { tabId: ownerSession?.tabId || nextOpts.tabId || null, message: 'Rendering surface plot...' });
@@ -5135,7 +5217,10 @@
     surface.__domSentinel = getSurfaceNodeById('surfaceHot');
     surface.ready = true;
     if(!passiveInit){
-      scheduleActiveSurfaceDraw({ reason: options?.reason || 'surface-init-complete' });
+      scheduleActiveSurfaceDraw({
+        renderImpact: 'structural',
+        reason: options?.reason || 'surface-init-complete'
+      });
     }else{
       debugLog('Debug: surface init initial draw skipped', {
         reason: options?.reason || 'surface-init-complete',
@@ -5577,7 +5662,7 @@
       }else{
         restoreSurfaceStatsPanelModel(state.statsPanelModel, scheduleTargetSession || projectedSurfaceSession);
       }
-      scheduleActiveSurfaceDraw({ reason: 'surface-payload-applied' });
+      scheduleActiveSurfaceDraw({ renderImpact: 'structural', reason: 'surface-payload-applied' });
     }
     if(scheduleBackup && state.scheduleDraw === mutedScheduleDraw){
       state.scheduleDraw = scheduleBackup;
@@ -5838,10 +5923,6 @@
     }
   };
 
-  function detachChildren(node){
-    return Shared.componentLifecycle?.detachCacheableChildren?.(node) || null;
-  }
-
   function restoreChildren(node, payload){
     if(!node || !payload || !payload.fragment){ return false; }
     while(node.firstChild){
@@ -5979,9 +6060,9 @@
         console.warn('surface render cache capture draw failed', { reason: meta?.reason || 'capture-render-cache', message: err?.message || String(err) });
       }
     }
-    const svgCache = detachChildren(state.svg);
-    const statsCache = detachChildren(state.statsEl);
-    const messageCache = detachChildren(state.messageEl);
+    const svgCache = Shared.componentLifecycle?.snapshotCacheableChildren?.(state.svg) || null;
+    const statsCache = Shared.componentLifecycle?.snapshotCacheableChildren?.(state.statsEl) || null;
+    const messageCache = Shared.componentLifecycle?.snapshotCacheableChildren?.(state.messageEl) || null;
     const svgRootState = Shared.graphViewport.captureSvgRootState(state.svg, {
       attributes: SURFACE_SVG_ROOT_ATTRIBUTES,
       styles: ['display']
@@ -6000,7 +6081,7 @@
     }) ?? (Number(svgCache?.count || 0) > 0);
     const cacheMeta = Shared.renderCacheSchema?.createMetadata?.({ component: 'surface', tabId: cacheSession?.tabId, complete })
       || { version: 2, component: 'surface', type: 'surface', tabId: cacheSession?.tabId || null, complete };
-    return {
+    const cache = {
       plot: svgCache,
       stats: statsCache,
       message: messageCache,
@@ -6008,6 +6089,8 @@
       rotationModel: cloneSimple(cacheSession?.cache?.rotationModel) || null,
       __graphitixRenderCache: cacheMeta
     };
+    Object.defineProperty(cache, '__graphitixLiveDomPreserved', { value: true });
+    return cache;
   };
 
   surface.canRestoreRenderCache = function canRestoreRenderCache(cache, meta = {}){
@@ -6149,6 +6232,8 @@
   surface.__getState = () => state;
   surface.__testHooks = Object.assign({}, surface.__testHooks, {
     buildFigureSummary: info => buildSurfaceFigureSummary(info || {}),
+    resolveRenderImpact: (options, fallback) => resolveSurfaceRenderImpact(options, fallback),
+    sanitizeDrawOptions: (options, owner) => sanitizeSurfaceDrawOptions(options, owner),
     resolveDrawableFrame: targetEl => resolveSurfaceDrawableFrame(targetEl),
     resolve3dFrame: drawableFrame => resolveSurface3dFrame(drawableFrame),
     resolveLegendMetrics: options => resolveSurfaceLegendMetrics(options),

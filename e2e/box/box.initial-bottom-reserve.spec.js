@@ -1,0 +1,102 @@
+const { test, expect } = require('@playwright/test');
+const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
+const { openComponentFromWelcome } = require('../helpers/workspaceDriver');
+const { registerIssueCollectors } = require('../helpers/diagnostics');
+const { waitForComponentOwnerReady } = require('../helpers/contractWaits');
+
+function readInitialBottomReserveMetrics() {
+  const svg = document.querySelector('#boxPlot svg');
+  const state = window.Components?.box?.__getState?.() || null;
+  if (!svg || !state) {
+    return null;
+  }
+  const readEffectivePreserveAspectRatio = () => {
+    const explicit = svg.getAttribute('preserveAspectRatio');
+    if (explicit) {
+      return explicit;
+    }
+    const base = svg.preserveAspectRatio?.baseVal || null;
+    if (base?.align === SVGPreserveAspectRatio.SVG_PRESERVEASPECTRATIO_XMIDYMID
+      && base?.meetOrSlice === SVGPreserveAspectRatio.SVG_MEETORSLICE_MEET) {
+      return 'xMidYMid meet';
+    }
+    return null;
+  };
+  const axisLayer = svg.querySelector('g[data-layer="box-axis"]') || svg;
+  const lines = Array.from(axisLayer.querySelectorAll('line'))
+    .map(line => ({
+      x1: Number(line.getAttribute('x1')),
+      y1: Number(line.getAttribute('y1')),
+      x2: Number(line.getAttribute('x2')),
+      y2: Number(line.getAttribute('y2'))
+    }))
+    .filter(line => [line.x1, line.y1, line.x2, line.y2].every(Number.isFinite));
+  const horizontal = lines.filter(line => Math.abs(line.y1 - line.y2) <= 0.25 && Math.abs(line.x2 - line.x1) > 1);
+  const xAxis = horizontal
+    .slice()
+    .sort((a, b) => Math.abs(b.x2 - b.x1) - Math.abs(a.x2 - a.x1) || b.y1 - a.y1)[0] || null;
+  const viewBox = String(svg.getAttribute('viewBox') || '').trim().split(/[\s,]+/).map(Number);
+  const viewBoxHeight = viewBox.length === 4 ? viewBox[3] : NaN;
+  const baseHeight = Number(svg.getAttribute('data-box-base-height'));
+  const axisY = xAxis ? xAxis.y1 : NaN;
+  const frameRect = svg.closest('.svgbox')?.getBoundingClientRect?.() || null;
+  const rotatedTickRects = Array.from(svg.querySelectorAll('text'))
+    .filter(node => String(node.getAttribute('transform') || '').includes('rotate'))
+    .map(node => node.getBoundingClientRect());
+  const rotatedTickOverflowPx = frameRect && rotatedTickRects.length
+    ? Math.max(...rotatedTickRects.map(rect => rect.bottom)) - frameRect.bottom
+    : null;
+  return {
+    preserveAspectRatio: readEffectivePreserveAspectRatio(),
+    graphType: String(document.getElementById('boxGraphType')?.value || ''),
+    bottomExtensionPx: Number(state.graphGeometry?.reserves?.xLabelPx) || 0,
+    significanceExtensionPx: Number(state.graphGeometry?.reserves?.significancePx) || 0,
+    cartesianBottomExtensionPx: Number(svg.closest('.svgbox')?.__cartesianLayoutPlan?.contentEnvelope?.extensionBottom) || 0,
+    showSignificanceBars: !!state.showSignificanceBars,
+    axisToViewBottomPx: Number.isFinite(viewBoxHeight) && Number.isFinite(axisY) ? (viewBoxHeight - axisY) : NaN,
+    axisToBaseBottomPx: Number.isFinite(baseHeight) && Number.isFinite(axisY) ? (baseHeight - axisY) : NaN,
+    rotatedTickOverflowPx
+  };
+}
+
+for (const graphType of ['box', 'strip']) {
+test(`box initial ${graphType} draw preserves non-significance bottom reserve`, async ({ page }) => {
+  test.setTimeout(120_000);
+  const issues = registerIssueCollectors(page);
+  await installLocalCdnOverrides(page);
+
+  await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
+  await expect(page.locator('#welcomeScreen')).toBeVisible();
+  await openComponentFromWelcome(page, { type: 'box', pageId: 'boxPage' }, { first: true, loadExample: true });
+  await expect(page.locator('#boxLoadExample')).toBeVisible({ timeout: 20_000 });
+
+  await page.locator('#boxLoadExample').click();
+  await page.locator('#boxGraphType').selectOption(graphType);
+  await page.waitForFunction(
+    () => !!document.querySelector('#boxPlot svg')
+      && !!window.Components?.box?.__getState?.()
+      && Number(window.Components.box.__getState().graphGeometry?.reserves?.xLabelPx || 0) > 0,
+    null,
+    { timeout: 25_000 }
+  );
+  await waitForComponentOwnerReady(page, 'box', {
+    requireMountedRoot: true,
+    requirePublished: true,
+    requireIdle: true,
+    timeout: 25_000
+  });
+
+  const metrics = await page.evaluate(readInitialBottomReserveMetrics);
+  expect(metrics).not.toBeNull();
+  expect(metrics.graphType).toBe(graphType);
+  expect(metrics.showSignificanceBars).toBe(false);
+  expect(metrics.significanceExtensionPx).toBe(0);
+  expect(metrics.bottomExtensionPx).toBeGreaterThan(0);
+  expect(metrics.preserveAspectRatio).toBe('none');
+  expect(metrics.cartesianBottomExtensionPx).toBeGreaterThanOrEqual(metrics.bottomExtensionPx - 1);
+  expect(metrics.axisToViewBottomPx).toBeGreaterThanOrEqual(metrics.axisToBaseBottomPx);
+  expect(metrics.rotatedTickOverflowPx).not.toBeNull();
+
+  expect(issues.critical).toEqual([]);
+});
+}

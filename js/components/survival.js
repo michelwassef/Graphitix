@@ -3,6 +3,9 @@
 
   const NS = 'http://www.w3.org/2000/svg';
   const Shared = global.Shared = global.Shared || {};
+  if(typeof Shared.componentLifecycle?.bindOwnerControlHandler !== 'function' && typeof require === 'function'){
+    require('../shared/componentLifecycle.js');
+  }
   const Components = global.Components = global.Components || {};
 
   function survivalDebug(message, ...rest){
@@ -18,6 +21,53 @@
     }
   }
   const survival = Components.survival = Components.survival || {};
+
+  function resolveSurvivalRenderImpact(options = {}, fallback = 'analysis'){
+    const source = options && typeof options === 'object' ? options : {};
+    const normalizedFallback = Shared.componentLifecycle?.normalizeRenderImpact?.(fallback, 'analysis') || 'analysis';
+    if(Object.prototype.hasOwnProperty.call(source, 'renderImpact')){
+      return Shared.componentLifecycle?.normalizeRenderImpact?.(source.renderImpact, normalizedFallback) || normalizedFallback;
+    }
+    if(source.structural === true){
+      return 'structural';
+    }
+    const invalidation = String(source.invalidate || '').trim().toLowerCase();
+    if(invalidation === 'data'){
+      return 'analysis';
+    }
+    if(invalidation === 'layout' || source.viewOnly === true){
+      return 'layout';
+    }
+    if(invalidation === 'style'){
+      return 'paint';
+    }
+    return normalizedFallback;
+  }
+
+  function isSurvivalPresentationDraw(options = {}){
+    return Shared.componentLifecycle?.isPresentationOnlyDraw?.({
+      renderImpact: resolveSurvivalRenderImpact(options)
+    }) === true;
+  }
+
+  function sanitizeSurvivalDrawOptions(options = {}, owner = {}){
+    const source = options && typeof options === 'object' ? options : {};
+    const renderImpact = resolveSurvivalRenderImpact(source);
+    const sanitized = Shared.componentLifecycle?.sanitizeComponentDrawOptions?.('survival', {
+      ...source,
+      renderImpact
+    }, owner) || {
+      ...source,
+      renderImpact,
+      tabId: owner?.tabId || source.tabId || undefined,
+      reason: source.reason || owner?.reason || 'survival-draw'
+    };
+    sanitized.renderImpact = resolveSurvivalRenderImpact(sanitized, renderImpact);
+    if(Object.prototype.hasOwnProperty.call(source, 'viewOnly') || isSurvivalPresentationDraw({ renderImpact })){
+      sanitized.viewOnly = isSurvivalPresentationDraw(sanitized);
+    }
+    return sanitized;
+  }
 
   function getSurvivalRuntimeOwner(){
     return Shared.componentLifecycle?.createRuntimeOwner?.(survival, { componentKey: 'survival' }) || null;
@@ -324,7 +374,7 @@
           }
           syncSurvivalStateToSession(ownerSession, { labelStrokeWidth: state.labelStrokeWidth });
           if(!nodes.length){
-            scheduleSurvivalViewRefresh('survival-curve-thickness-change', { tabId: ownerTabId });
+            scheduleSurvivalViewRefresh('survival-curve-thickness-change', { renderImpact: 'paint', tabId: ownerTabId });
           }
         },
         onPatternChange: (value, ctx) => {
@@ -343,7 +393,7 @@
           }
           syncSurvivalStateToSession(ownerSession, { labelLinePattern: state.labelLinePattern });
           if(!nodes.length){
-            scheduleSurvivalViewRefresh('survival-curve-pattern-change', { tabId: ownerTabId });
+            scheduleSurvivalViewRefresh('survival-curve-pattern-change', { renderImpact: 'paint', tabId: ownerTabId });
           }
         },
         onTransparencyChange: (value, ctx) => {
@@ -364,7 +414,7 @@
           }
           syncSurvivalStateToSession(ownerSession, { labelOpacity: state.labelOpacity });
           if(!nodes.length){
-            scheduleSurvivalViewRefresh('survival-curve-opacity-change', { tabId: ownerTabId });
+            scheduleSurvivalViewRefresh('survival-curve-opacity-change', { renderImpact: 'paint', tabId: ownerTabId });
           }
         }
       });
@@ -473,8 +523,8 @@
       if(!Array.isArray(row)){
         continue;
       }
-      const entry = Number.parseFloat(row[3]);
-      const time = Number.parseFloat(row[1]);
+      const entry = Shared.dataTransforms.toFiniteNumber(row[3]);
+      const time = Shared.dataTransforms.toFiniteNumber(row[1]);
       if(Number.isFinite(entry) && Number.isFinite(time) && entry > 0 && entry < time){
         return true;
       }
@@ -967,9 +1017,10 @@
       return false;
     }
     const sourceOptions = options && typeof options === 'object' ? options : {};
-    const scheduleOptions = Shared.componentLifecycle?.sanitizeDrawOptions
-      ? Shared.componentLifecycle.sanitizeDrawOptions(sourceOptions, { tabId: shaped.tabId || null, reason: 'survival-session-draw' })
-      : { ...sourceOptions, tabId: shaped.tabId || sourceOptions.tabId || undefined, reason: sourceOptions.reason || 'survival-session-draw' };
+    const scheduleOptions = sanitizeSurvivalDrawOptions(sourceOptions, {
+      tabId: shaped.tabId || null,
+      reason: 'survival-session-draw'
+    });
     if(shaped.timers){
       shaped.timers.pendingDrawOptions = scheduleOptions;
     }
@@ -1125,7 +1176,7 @@
       }
       if(node.textContent !== nextValue){ node.textContent = nextValue; }
       scheduleSurvivalDrawForSession(owner, {
-        viewOnly: true,
+        renderImpact: 'layout',
         tabId: owner.tabId || null,
         reason: normalizedKind === 'title' ? 'survival-title-edit' : `survival-${normalizedKind === 'xLabel' ? 'x' : 'y'}-label-edit`
       });
@@ -1462,13 +1513,13 @@
       Shared.componentLifecycle?.emitLifecycleEvent?.({ componentKey: 'survival', tabId: getSurvivalProjectionTabId() || null, action: 'draw-suppressed', reason: nextReason, details: { source: 'survival-view-refresh' } });
       return;
     }
-    const scheduleOptions = Object.assign({}, options, {
-      viewOnly: true,
+    const scheduleOptions = sanitizeSurvivalDrawOptions(Object.assign({}, options, {
+      renderImpact: options.renderImpact || 'layout',
       reason: nextReason,
       source: 'survival-view-refresh',
       forceDraw: lifecycleMeta.forceDraw === true,
       userInitiated: lifecycleMeta.userInitiated === true
-    });
+    }), { tabId: ownerTabId || null, reason: nextReason });
     scheduleSurvivalDrawForSession(ownerSession || getActiveSurvivalSessionForState(), scheduleOptions);
   }
 
@@ -1607,7 +1658,7 @@
     }
     logDebug('axis tick interval updated',{ axis, tickInterval: settings[axis].tickInterval });
     syncSurvivalStateToSession(getSurvivalProjectionSession({ reason: 'survival-projection-mutation' }), { axisSettings: settings });
-    scheduleActiveSurvivalDraw({ reason: `axis-${axis}-tick-interval`, tabId: getSurvivalProjectionTabId() || null });
+    scheduleActiveSurvivalDraw({ renderImpact: 'layout', reason: `axis-${axis}-tick-interval`, tabId: getSurvivalProjectionTabId() || null });
   }
 
   function getAxisMajorTickLength(axis){
@@ -1630,7 +1681,7 @@
     settings[axis].majorTickLength = nextValue;
     logDebug('Debug: survival major tick length updated',{ axis, majorTickLength: nextValue });
     syncSurvivalStateToSession(getSurvivalProjectionSession({ reason: 'survival-projection-mutation' }), { axisSettings: settings });
-    scheduleActiveSurvivalDraw({ reason: `axis-${axis}-major-tick-length`, tabId: getSurvivalProjectionTabId() || null });
+    scheduleActiveSurvivalDraw({ renderImpact: 'layout', reason: `axis-${axis}-major-tick-length`, tabId: getSurvivalProjectionTabId() || null });
   }
 
   function getXAxisTickLabelAngle(ownerSession = null){
@@ -1653,7 +1704,7 @@
     settings.x.labelAngle = nextValue;
     syncSurvivalStateToSession(owner, { axisSettings: settings });
     survivalDebug('Debug: survival x tick label angle updated',{ angle: nextValue, tabId: owner?.tabId || null });
-    scheduleSurvivalViewRefresh('survival-axis-x-label-angle', { tabId: owner?.tabId || null, userInitiated: true });
+    scheduleSurvivalViewRefresh('survival-axis-x-label-angle', { renderImpact: 'layout', tabId: owner?.tabId || null, userInitiated: true });
   }
 
   function getAxisMinorTicksEnabled(axis){
@@ -1672,7 +1723,7 @@
     settings[axis].minorTicks = nextValue;
     logDebug('axis minor ticks updated',{ axis, enabled: nextValue });
     syncSurvivalStateToSession(getSurvivalProjectionSession({ reason: 'survival-projection-mutation' }), { axisSettings: settings });
-    scheduleActiveSurvivalDraw({ reason: `axis-${axis}-minor-ticks`, tabId: getSurvivalProjectionTabId() || null });
+    scheduleActiveSurvivalDraw({ renderImpact: 'layout', reason: `axis-${axis}-minor-ticks`, tabId: getSurvivalProjectionTabId() || null });
   }
 
   function getAxisMinorTickSubdivisions(axis){
@@ -1691,7 +1742,7 @@
     settings[axis].minorTickSubdivisions = nextValue;
     logDebug('axis minor tick subdivisions updated',{ axis, subdivisions: nextValue });
     syncSurvivalStateToSession(getSurvivalProjectionSession({ reason: 'survival-projection-mutation' }), { axisSettings: settings });
-    scheduleActiveSurvivalDraw({ reason: `axis-${axis}-minor-subdivisions`, tabId: getSurvivalProjectionTabId() || null });
+    scheduleActiveSurvivalDraw({ renderImpact: 'layout', reason: `axis-${axis}-minor-subdivisions`, tabId: getSurvivalProjectionTabId() || null });
   }
 
   function getAxisStrokeWidthBase(){
@@ -1718,7 +1769,7 @@
       attributes: { strokeWidth: settings.strokeWidth }
     });
     if(!projected){
-      scheduleSurvivalViewRefresh('axis-stroke-width', { tabId });
+      scheduleSurvivalViewRefresh('axis-stroke-width', { renderImpact: 'layout', tabId });
     }
   }
 
@@ -1741,7 +1792,7 @@
       attributes: { stroke: settings.color }
     });
     if(!projected){
-      scheduleSurvivalViewRefresh('axis-color', { tabId });
+      scheduleSurvivalViewRefresh('axis-color', { renderImpact: 'paint', tabId });
     }
   }
 
@@ -1760,7 +1811,7 @@
         }
         syncSurvivalRuntimeControlsFromDom();
         syncSurvivalStateToSession(getSurvivalProjectionSession({ reason: 'survival-projection-mutation' }), { controls: state.controls });
-        scheduleActiveSurvivalDraw({ reason: 'grid-visible-change', tabId: getSurvivalProjectionTabId() || null });
+        scheduleActiveSurvivalDraw({ renderImpact: 'paint', reason: 'grid-visible-change', tabId: getSurvivalProjectionTabId() || null });
       },
       getStyle: () => getGridStyle(fallbackThickness),
       onStyleChange: style => {
@@ -1768,7 +1819,7 @@
         if(!gridControls.applyStyleToTarget?.(target, getGridStyle(fallbackThickness), {
           defaults: createDefaultGridStyle(fallbackThickness)
         })){
-          scheduleSurvivalViewRefresh('grid-style-change', { tabId: getSurvivalProjectionTabId() || null });
+          scheduleSurvivalViewRefresh('grid-style-change', { renderImpact: 'paint', tabId: getSurvivalProjectionTabId() || null });
         }
       },
       defaults: createDefaultGridStyle(fallbackThickness)
@@ -2257,7 +2308,7 @@
       logDebug('initHot table schema', { firstRowIsHeader: false, columns: SURVIVAL_DEFAULT_COLS, headers: SURVIVAL_COL_HEADERS });
       return Shared.hot.createStandardTable(container, { rows: DEFAULT_ROWS, cols: SURVIVAL_DEFAULT_COLS }, () => {
         logDebug('table scheduled redraw');
-        scheduleActiveSurvivalDraw({ reason: 'survival-table-change', tabId: getSurvivalProjectionTabId() || null });
+        scheduleActiveSurvivalDraw({ renderImpact: 'analysis', reason: 'survival-table-change', tabId: getSurvivalProjectionTabId() || null });
       }, {
         debugLabel: 'survival',
         data: baseData,
@@ -2375,6 +2426,7 @@
           const scheduler = scheduledSession?.timers?.scheduleDraw
             || (!scheduledTabId || scheduledTabId === activeTabId ? state.scheduleDraw : null);
           scheduler?.({
+            renderImpact: 'structural',
             reason: 'data-view-switch',
             tabId: scheduledTabId || null,
             userInitiated: String(meta?.reason || '').trim().toLowerCase() === 'tab-click'
@@ -2716,7 +2768,7 @@
             fitCoxModel: recommendation.fitCoxModel,
             answers: { ...answers }
           });
-          scheduleActiveSurvivalDraw({ reason: 'survival-advisor-apply', tabId: getSurvivalProjectionTabId() || null });
+          scheduleActiveSurvivalDraw({ renderImpact: 'analysis', reason: 'survival-advisor-apply', tabId: getSurvivalProjectionTabId() || null });
           renderSurvivalStatsAdvisor(null, advisorState.context, advisorSession);
         },
         onReset: ()=>{
@@ -2869,7 +2921,7 @@
           fitCoxModel: recommendation.fitCoxModel,
           answers: { ...answers }
         });
-        scheduleActiveSurvivalDraw({ reason: 'survival-advisor-apply', tabId: getSurvivalProjectionTabId() || null });
+        scheduleActiveSurvivalDraw({ renderImpact: 'analysis', reason: 'survival-advisor-apply', tabId: getSurvivalProjectionTabId() || null });
         renderSurvivalStatsAdvisor(null, advisorState.context, advisorSession);
       });
       actions.appendChild(applyBtn);
@@ -3028,9 +3080,9 @@
     const projected = !!nextValue && names.every(groupName => projectSurvivalSeriesColor(groupName, nextValue, owner));
     if(!projected){
       scheduleSurvivalDrawForSession(owner, {
+        renderImpact: 'paint',
         reason: options.reason || 'survival-group-color',
         tabId: owner.tabId,
-        viewOnly: true,
         userInitiated: true
       });
     }
@@ -3239,6 +3291,7 @@
           logDebug('covariate toggle changed', { columnIndex: Number(idx), enabled: ev.target.checked });
           syncSurvivalStateToSession(session, { covariateSettings: state.covariateSettings });
           scheduleSurvivalDrawForSession(session, {
+            renderImpact: 'analysis',
             reason: 'survival-covariate-toggle',
             tabId: session?.tabId || undefined,
             userInitiated: true
@@ -3254,6 +3307,7 @@
           logDebug('covariate type changed', { columnIndex: Number(idx), type: state.covariateSettings[idx].type });
           syncSurvivalStateToSession(session, { covariateSettings: state.covariateSettings });
           scheduleSurvivalDrawForSession(session, {
+            renderImpact: 'analysis',
             reason: 'survival-covariate-type',
             tabId: session?.tabId || undefined,
             userInitiated: true
@@ -3688,9 +3742,9 @@
       const eventRaw = row[2];
       const entryRaw = row[3];
       const groupName = typeof groupRaw === 'string' ? groupRaw.trim() : (groupRaw != null ? String(groupRaw).trim() : '');
-      const time = Number.parseFloat(timeRaw);
+      const time = Shared.dataTransforms.toFiniteNumber(timeRaw);
       const eventFlag = Number(eventRaw);
-      const entry = Number.parseFloat(entryRaw);
+      const entry = Shared.dataTransforms.toFiniteNumber(entryRaw);
       if(!groupName || !Number.isFinite(time)){
         continue;
       }
@@ -4801,12 +4855,20 @@
     return parts.join(' ');
   }
 
-  function formatNumber(value, digits){
+  function formatReportNumber(value, digits){
     if(!Number.isFinite(value)){
       return 'n/a';
     }
     const precision = Number.isFinite(digits) ? digits : 2;
     return chartStyle.formatScientific(value, { maxDecimals: precision });
+  }
+
+  function formatAxisTick(value, digits){
+    if(!Number.isFinite(value)){
+      return 'n/a';
+    }
+    const precision = Number.isFinite(digits) ? digits : 2;
+    return chartStyle.formatAxisValue(value, { notation: 'auto', maxDecimals: precision });
   }
 
   function sanitizeSurvivalStatsReportPScientific(value){
@@ -5016,6 +5078,7 @@
         const session = getActiveSurvivalSessionForState();
         if(session){
           scheduleSurvivalDrawForSession(session, {
+            renderImpact: 'analysis',
             reason: 'survival-stats-inference-change',
             tabId: session.tabId || undefined,
             userInitiated: true
@@ -5080,7 +5143,7 @@
 
   function formatInterval(low, high){
     if(Number.isFinite(low) && Number.isFinite(high)){
-      return `${formatNumber(low, 3)} – ${formatNumber(high, 3)}`;
+      return `${formatReportNumber(low, 3)} – ${formatReportNumber(high, 3)}`;
     }
     return 'n/a';
   }
@@ -5236,17 +5299,17 @@
       if(row && Number.isFinite(Number(row.hazardRatio))){
         const label = `HR ${row.groupB} vs ${row.groupA}`;
         const ci = Number.isFinite(Number(row.ciLow)) && Number.isFinite(Number(row.ciHigh))
-          ? `; 95% CI [${formatNumber(Number(row.ciLow), 2)}, ${formatNumber(Number(row.ciHigh), 2)}]`
+          ? `; 95% CI [${formatReportNumber(Number(row.ciLow), 2)}, ${formatReportNumber(Number(row.ciHigh), 2)}]`
           : '';
         const p = toNumericPValue(row.p);
         const pText = Number.isFinite(p) && p >= 0 && p <= 1 ? `; ${formatSurvivalPExpression(p)}` : '';
-        return [`${label} = ${formatNumber(Number(row.hazardRatio), 2)}${ci}${pText}`];
+        return [`${label} = ${formatReportNumber(Number(row.hazardRatio), 2)}${ci}${pText}`];
       }
     }
     const globalTest = summary.logRank;
     const globalP = toNumericPValue(globalTest?.p);
     if(globalTest?.available && Number.isFinite(globalP) && globalP >= 0 && globalP <= 1){
-      const statistic = Number.isFinite(Number(globalTest.chi2)) ? `χ²(${Number(globalTest.df) || Math.max(1, summary.series.length - 1)}) = ${formatNumber(Number(globalTest.chi2), 2)}; ` : '';
+      const statistic = Number.isFinite(Number(globalTest.chi2)) ? `χ²(${Number(globalTest.df) || Math.max(1, summary.series.length - 1)}) = ${formatReportNumber(Number(globalTest.chi2), 2)}; ` : '';
       return [`Overall log-rank: ${statistic}${formatSurvivalPExpression(globalP)}`];
     }
     return [];
@@ -5390,6 +5453,10 @@
   }
 
   async function drawSurvival(options = {}, session = null){
+    options = sanitizeSurvivalDrawOptions(options, {
+      tabId: session?.tabId || options?.tabId || getSurvivalProjectionTabId() || null,
+      reason: options?.reason || 'survival-draw'
+    });
     const drawSession = ensureSurvivalSessionOwnershipShape(session || getSurvivalSessionForDrawOptions(options));
     if(drawSession && !isSurvivalSessionActive(drawSession)){
       drawSession.state.drawPending = true;
@@ -5738,8 +5805,8 @@
           yScale.step = manualIntervalY;
         }
       }
-      xTickLabels = xScale.ticks.map(value => formatNumber(value, 2));
-      yTickLabels = yScale.ticks.map(value => formatNumber(value, 2));
+      xTickLabels = xScale.ticks.map(value => formatAxisTick(value, 2));
+      yTickLabels = yScale.ticks.map(value => formatAxisTick(value, 2));
       const yLabelWidths = yTickLabels.map(label => chartStyle.measureText ? chartStyle.measureText(label, tickFont) : label.length * fs * 0.6);
       maxYLabelWidth = yLabelWidths.length ? Math.max(...yLabelWidths) : 0;
       cartesianMarginRequirements = resolveMarginRequirements(maxYLabelWidth, xTickLabels);
@@ -5940,7 +6007,7 @@
         fill: chartStyle.TEXT_COLOR || '#000'
       });
       Shared.applyTextBaseline && Shared.applyTextBaseline(text, 'hanging', fs);
-      text.textContent = formatNumber(value, 2);
+      text.textContent = formatAxisTick(value, 2);
       markFontEditable(text, 'xTick');
       xTickNodes.push(text);
     });
@@ -5973,7 +6040,7 @@
         'dominant-baseline': 'middle',
         fill: chartStyle.TEXT_COLOR || '#000'
       });
-      text.textContent = formatNumber(value, 2);
+      text.textContent = formatAxisTick(value, 2);
       markFontEditable(text, 'yTick');
     });
 
@@ -6343,9 +6410,9 @@
         `censored = ${Number.isFinite(Number(group.censored)) ? Number(group.censored) : '—'}`
       ];
       if(Number.isFinite(Number(group.km?.median))){
-        parts.push(`median survival = ${formatNumber(group.km.median, 3)}`);
+        parts.push(`median survival = ${formatReportNumber(group.km.median, 3)}`);
         if(Number.isFinite(Number(group.km?.medianCiLow)) && Number.isFinite(Number(group.km?.medianCiHigh))){
-          parts.push(`95% CI [${formatNumber(group.km.medianCiLow, 3)}, ${formatNumber(group.km.medianCiHigh, 3)}]`);
+          parts.push(`95% CI [${formatReportNumber(group.km.medianCiLow, 3)}, ${formatReportNumber(group.km.medianCiHigh, 3)}]`);
         }
       }else{
         parts.push('median survival not reached');
@@ -6360,7 +6427,7 @@
       inferentialRows.push({
         label,
         valueParts:[
-          `χ²(${df}) = ${formatNumber(result.chi2, 3)}`,
+          `χ²(${df}) = ${formatReportNumber(result.chi2, 3)}`,
           ...(isValidPValue(result.p) ? ['; p = ', pValueToken(result.p, createSurvivalInferenceSpec({ method:'none', valueKind:'raw-p' }))] : [])
         ]
       });
@@ -6380,7 +6447,7 @@
       });
       pairwise.rows.forEach(row => {
         const parts = [
-          `χ²(1) = ${formatNumber(row.chi2, 3)}`,
+          `χ²(1) = ${formatReportNumber(row.chi2, 3)}`,
           ...(isValidPValue(row.p) ? ['; raw p = ', pValueToken(row.p, createSurvivalInferenceSpec({ method:'none', valueKind:'raw-p' }))] : [])
         ];
         const adjustedP = toNumericPValue(row.adjustedP);
@@ -6395,11 +6462,11 @@
     const hazard = summary?.hazardRatios;
     if(hazard?.available && Array.isArray(hazard.rows)){
       hazard.rows.forEach(row => {
-        const parts = [`HR = ${formatNumber(row.hazardRatio, 3)}`];
+        const parts = [`HR = ${formatReportNumber(row.hazardRatio, 3)}`];
         if(Number.isFinite(Number(row.ciLow)) && Number.isFinite(Number(row.ciHigh))){
-          parts.push(`; 95% CI [${formatNumber(row.ciLow, 3)}, ${formatNumber(row.ciHigh, 3)}]`);
+          parts.push(`; 95% CI [${formatReportNumber(row.ciLow, 3)}, ${formatReportNumber(row.ciHigh, 3)}]`);
         }
-        if(Number.isFinite(Number(row.z))) parts.push(`; z = ${formatNumber(row.z, 3)}`);
+        if(Number.isFinite(Number(row.z))) parts.push(`; z = ${formatReportNumber(row.z, 3)}`);
         const p = toNumericPValue(row.p);
         if(Number.isFinite(p) && p >= 0 && p <= 1) parts.push('; p = ', pValueToken(p, createSurvivalInferenceSpec({ method:'none', valueKind:'raw-p' })));
         estimateRows.push({ label:`HR: ${row.groupB} vs ${row.groupA}`, valueParts:parts });
@@ -6429,7 +6496,7 @@
         estimateRows.push({
           label:'Cox overall model',
           valueParts:[
-            `likelihood-ratio χ²(${Number.isFinite(Number(lr.df)) ? Number(lr.df) : '—'}) = ${formatNumber(lr.statistic, 3)}`,
+            `likelihood-ratio χ²(${Number.isFinite(Number(lr.df)) ? Number(lr.df) : '—'}) = ${formatReportNumber(lr.statistic, 3)}`,
             ...(isValidPValue(lr.p) ? ['; p = ', pValueToken(lr.p, createSurvivalInferenceSpec({ method:'none', valueKind:'raw-p' }))] : [])
           ]
         });
@@ -6437,13 +6504,13 @@
       if(!shouldOmitDuplicateCoxCoefficientTable(summary)){
         cox.coefficients.forEach(coef => {
           const parts = [
-            `β = ${formatNumber(coef.beta, 3)}`,
-            `; HR = ${formatNumber(coef.hazardRatio, 3)}`
+            `β = ${formatReportNumber(coef.beta, 3)}`,
+            `; HR = ${formatReportNumber(coef.hazardRatio, 3)}`
           ];
           if(Number.isFinite(Number(coef.ciLow)) && Number.isFinite(Number(coef.ciHigh))){
-            parts.push(`; 95% CI [${formatNumber(coef.ciLow, 3)}, ${formatNumber(coef.ciHigh, 3)}]`);
+            parts.push(`; 95% CI [${formatReportNumber(coef.ciLow, 3)}, ${formatReportNumber(coef.ciHigh, 3)}]`);
           }
-          if(Number.isFinite(Number(coef.z))) parts.push(`; z = ${formatNumber(coef.z, 3)}`);
+          if(Number.isFinite(Number(coef.z))) parts.push(`; z = ${formatReportNumber(coef.z, 3)}`);
           const p = toNumericPValue(coef.p);
           if(Number.isFinite(p) && p >= 0 && p <= 1) parts.push('; p = ', pValueToken(p, createSurvivalInferenceSpec({ method:'none', valueKind:'raw-p' })));
           estimateRows.push({ label:String(coef.label || coef.group || 'Cox coefficient'), valueParts:parts });
@@ -6456,7 +6523,7 @@
       if(Number.isFinite(Number(concordance?.c))){
         diagnosticRows.push({
           label:"Harrell's C",
-          value:`${formatNumber(concordance.c, 3)}${Number.isFinite(Number(concordance.comparable)) ? ` · ${Number(concordance.comparable)} comparable pairs` : ''}; no confidence interval is reported by this implementation.`
+          value:`${formatReportNumber(concordance.c, 3)}${Number.isFinite(Number(concordance.comparable)) ? ` · ${Number(concordance.comparable)} comparable pairs` : ''}; no confidence interval is reported by this implementation.`
         });
       }
       if(diag.converged != null){
@@ -6467,7 +6534,7 @@
         schoenfeld.forEach(entry => {
           diagnosticRows.push({
             label:`Schoenfeld: ${entry.predictor || 'predictor'}`,
-            value:`exploratory corr(log time) = ${formatNumber(entry.correlation, 3)}${Number.isFinite(Number(entry.meanAbs)) ? `; mean |scaled residual| = ${formatNumber(entry.meanAbs, 3)}` : ''}`
+            value:`exploratory corr(log time) = ${formatReportNumber(entry.correlation, 3)}${Number.isFinite(Number(entry.meanAbs)) ? `; mean |scaled residual| = ${formatReportNumber(entry.meanAbs, 3)}` : ''}`
           });
         });
         diagnosticRows.push({ label:'PH diagnostic scope', value:'Schoenfeld residual–time correlations are exploratory only; they are not a formal Grambsch–Therneau proportional-hazards test.' });
@@ -6541,16 +6608,16 @@
     state.lastStats = statsPayload;
     if(refs.statsCox && Shared.statsReporting && typeof Shared.statsReporting.appendReportPanel === 'function'){
       const logRankText = summary.logRank?.available
-        ? `Log-rank χ²(${summary.logRank.df ?? 'n/a'}) = ${formatNumber(summary.logRank.chi2, 3)}; ${formatSurvivalPExpression(summary.logRank.p)}.`
+        ? `Log-rank χ²(${summary.logRank.df ?? 'n/a'}) = ${formatReportNumber(summary.logRank.chi2, 3)}; ${formatSurvivalPExpression(summary.logRank.p)}.`
         : (summary.logRank?.message || 'Log-rank test unavailable.');
       const logRankParts = summary.logRank?.available
-        ? [`Log-rank χ²(${summary.logRank.df ?? 'n/a'}) = ${formatNumber(summary.logRank.chi2, 3)}, p = `, pValueToken(summary.logRank.p, createSurvivalInferenceSpec({ method: 'none', valueKind: 'raw-p' })), '.']
+        ? [`Log-rank χ²(${summary.logRank.df ?? 'n/a'}) = ${formatReportNumber(summary.logRank.chi2, 3)}, p = `, pValueToken(summary.logRank.p, createSurvivalInferenceSpec({ method: 'none', valueKind: 'raw-p' })), '.']
         : [summary.logRank?.message || 'Log-rank test unavailable.'];
       const wilcoxonText = summary.logRankWilcoxon?.available
-        ? `Gehan-Breslow-Wilcoxon χ²(${summary.logRankWilcoxon.df ?? 'n/a'}) = ${formatNumber(summary.logRankWilcoxon.chi2, 3)}; ${formatSurvivalPExpression(summary.logRankWilcoxon.p)}.`
+        ? `Gehan-Breslow-Wilcoxon χ²(${summary.logRankWilcoxon.df ?? 'n/a'}) = ${formatReportNumber(summary.logRankWilcoxon.chi2, 3)}; ${formatSurvivalPExpression(summary.logRankWilcoxon.p)}.`
         : null;
       const wilcoxonParts = summary.logRankWilcoxon?.available
-        ? [`Gehan-Breslow-Wilcoxon χ²(${summary.logRankWilcoxon.df ?? 'n/a'}) = ${formatNumber(summary.logRankWilcoxon.chi2, 3)}, p = `, pValueToken(summary.logRankWilcoxon.p, createSurvivalInferenceSpec({ method: 'none', valueKind: 'raw-p' })), '.']
+        ? [`Gehan-Breslow-Wilcoxon χ²(${summary.logRankWilcoxon.df ?? 'n/a'}) = ${formatReportNumber(summary.logRankWilcoxon.chi2, 3)}, p = `, pValueToken(summary.logRankWilcoxon.p, createSurvivalInferenceSpec({ method: 'none', valueKind: 'raw-p' })), '.']
         : null;
       const hazardText = summary.hazardRatios?.available && Array.isArray(summary.hazardRatios.rows)
         ? (isTwoGroupUnadjustedCoxSummary(summary)
@@ -6633,7 +6700,7 @@
       total: Number.isFinite(group.total) ? String(group.total) : String(group.total ?? '0'),
       events: Number.isFinite(group.events) ? String(group.events) : String(group.events ?? '0'),
       censored: Number.isFinite(group.censored) ? String(group.censored) : String(group.censored ?? '0'),
-      median: Number.isFinite(group.km?.median) ? formatNumber(group.km.median, 2) : 'Not reached',
+      median: Number.isFinite(group.km?.median) ? formatReportNumber(group.km.median, 2) : 'Not reached',
       medianCi: Number.isFinite(group.km?.medianCiLow) && Number.isFinite(group.km?.medianCiHigh)
         ? formatInterval(group.km.medianCiLow, group.km.medianCiHigh)
         : 'n/a'
@@ -6671,7 +6738,7 @@
     if(summary.logRank?.available){
       rows.push({
         test: 'Log-rank',
-        statistic: formatNumber(summary.logRank.chi2, 3),
+        statistic: formatReportNumber(summary.logRank.chi2, 3),
         df: Number.isFinite(summary.logRank.df) ? String(summary.logRank.df) : 'n/a',
         p: pValueToken(summary.logRank.p, createSurvivalInferenceSpec({ method: 'none', valueKind: 'raw-p' }))
       });
@@ -6679,7 +6746,7 @@
     if(summary.logRankWilcoxon?.available){
       rows.push({
         test: 'Gehan-Breslow-Wilcoxon',
-        statistic: formatNumber(summary.logRankWilcoxon.chi2, 3),
+        statistic: formatReportNumber(summary.logRankWilcoxon.chi2, 3),
         df: Number.isFinite(summary.logRankWilcoxon.df) ? String(summary.logRankWilcoxon.df) : 'n/a',
         p: pValueToken(summary.logRankWilcoxon.p, createSurvivalInferenceSpec({ method: 'none', valueKind: 'raw-p' }))
       });
@@ -6687,7 +6754,7 @@
     if(summary.logRankTrend?.available){
       rows.push({
         test: 'Log-rank trend',
-        statistic: formatNumber(summary.logRankTrend.chi2, 3),
+        statistic: formatReportNumber(summary.logRankTrend.chi2, 3),
         df: Number.isFinite(summary.logRankTrend.df) ? String(summary.logRankTrend.df) : 'n/a',
         p: pValueToken(summary.logRankTrend.p, createSurvivalInferenceSpec({ method: 'none', valueKind: 'raw-p' }))
       });
@@ -6726,7 +6793,7 @@
           ],
           rows: summary.pairwiseComparisons.rows.map(row => ({
             comparison: `${row.groupB} vs ${row.groupA}`,
-            chi2: formatNumber(row.chi2, 3),
+            chi2: formatReportNumber(row.chi2, 3),
             p: pValueToken(row.p),
             adjustedP: pValueToken(row.adjustedP, getSurvivalPairwiseInferenceSpec())
           })),
@@ -6790,9 +6857,9 @@
     const hazardRows = Array.isArray(summary?.hazardRatios?.rows) ? summary.hazardRatios.rows : [];
     return hazardRows.map(row => ({
       comparison: `${row.groupB} vs ${row.groupA}`,
-      hazardRatio: formatNumber(row.hazardRatio, 3),
+      hazardRatio: formatReportNumber(row.hazardRatio, 3),
       ci: formatInterval(row.ciLow, row.ciHigh),
-      z: Number.isFinite(row.z) ? formatNumber(row.z, 3) : 'n/a',
+      z: Number.isFinite(row.z) ? formatReportNumber(row.z, 3) : 'n/a',
       p: pValueToken(row.p, createSurvivalInferenceSpec({ method: 'none', valueKind: 'raw-p' }))
     }));
   }
@@ -6850,7 +6917,7 @@
       ],
       rows: summary.medianRatios.rows.map(row => ({
         comparison: `${row.groupB} / ${row.groupA}`,
-        ratio: formatNumber(row.ratio, 3)
+        ratio: formatReportNumber(row.ratio, 3)
       })),
       footnotes: [
         'Ratios greater than 1 indicate longer median survival in the numerator group.',
@@ -6924,10 +6991,10 @@
     const rows = summary.coxModel.coefficients.map(coef => ({
       predictor: coef.label || coef.group || '',
       type: coef.type === 'group' ? 'Group' : (coef.type === 'time' ? 'Time-dependent' : 'Baseline'),
-      beta: formatNumber(coef.beta, 3),
-      hazardRatio: formatNumber(coef.hazardRatio, 3),
+      beta: formatReportNumber(coef.beta, 3),
+      hazardRatio: formatReportNumber(coef.hazardRatio, 3),
       ci: formatInterval(coef.ciLow, coef.ciHigh),
-      z: Number.isFinite(coef.z) ? formatNumber(coef.z, 3) : 'n/a',
+      z: Number.isFinite(coef.z) ? formatReportNumber(coef.z, 3) : 'n/a',
       p: pValueToken(coef.p, createSurvivalInferenceSpec({ method: 'none', valueKind: 'raw-p' }))
     }));
     const diag = summary.coxModel.diagnostics || {};
@@ -6941,9 +7008,9 @@
       `Baseline group: ${summary.coxModel.baselineGroup || 'Reference'}`,
       adjustedModel && groupCoefficientCount > 0 ? 'Group hazard ratios are adjusted for the selected Cox covariates.' : null,
       !adjustedModel && groupCoefficientCount > 0 ? 'Group effects are baseline-referenced Cox coefficients; hazard ratio = exp(β).' : null,
-      `Log-likelihood = ${formatNumber(diag.logLikelihood, 3)} | Null = ${formatNumber(diag.logLikelihoodNull, 3)}`,
-      [`Likelihood ratio χ²(${lr.df ?? 'n/a'}) = ${formatNumber(lr.statistic, 3)}, p = `, pValueToken(lr.p, createSurvivalInferenceSpec({ method: 'none', valueKind: 'raw-p' }))],
-      `AIC = ${formatNumber(diag.aic, 3)} | BIC = ${formatNumber(diag.bic, 3)}`,
+      `Log-likelihood = ${formatReportNumber(diag.logLikelihood, 3)} | Null = ${formatReportNumber(diag.logLikelihoodNull, 3)}`,
+      [`Likelihood ratio χ²(${lr.df ?? 'n/a'}) = ${formatReportNumber(lr.statistic, 3)}, p = `, pValueToken(lr.p, createSurvivalInferenceSpec({ method: 'none', valueKind: 'raw-p' }))],
+      `AIC = ${formatReportNumber(diag.aic, 3)} | BIC = ${formatReportNumber(diag.bic, 3)}`,
       `Iterations = ${diag.iterations ?? 'n/a'} | Converged: ${diag.converged ? 'Yes' : 'No'}`
     ].filter(Boolean);
     renderStatsTableCard(refs.statsCox, {
@@ -6975,7 +7042,7 @@
           { key: 'value', label: 'Value', align: 'right' }
         ],
         rows: [
-          { metric: "Harrell's C", value: formatNumber(concordance.c, 3) },
+          { metric: "Harrell's C", value: formatReportNumber(concordance.c, 3) },
           { metric: "Harrell's C uncertainty", value: 'Not reported (subject-level influence/bootstrap variance required)' },
           { metric: 'Comparable pairs', value: Number.isFinite(concordance.comparable) ? String(concordance.comparable) : 'n/a' },
           { metric: 'Concordant pairs', value: Number.isFinite(concordance.concordant) ? String(concordance.concordant) : 'n/a' }
@@ -7006,9 +7073,9 @@
         ],
         rows: residualRows.map(entry => ({
           residual: entry.label,
-          mean: formatNumber(entry.summary.mean, 3),
-          sd: formatNumber(entry.summary.sd, 3),
-          range: `${formatNumber(entry.summary.min, 3)} to ${formatNumber(entry.summary.max, 3)}`
+          mean: formatReportNumber(entry.summary.mean, 3),
+          sd: formatReportNumber(entry.summary.sd, 3),
+          range: `${formatReportNumber(entry.summary.min, 3)} to ${formatReportNumber(entry.summary.max, 3)}`
         })),
         footnotes: ['Residual summaries help flag lack of fit and influential observations.'],
         options: {
@@ -7029,8 +7096,8 @@
         ],
         rows: residuals.schoenfeld.map(entry => ({
           predictor: entry.predictor,
-          correlation: formatNumber(entry.correlation, 3),
-          meanAbs: formatNumber(entry.meanAbs, 3)
+          correlation: formatReportNumber(entry.correlation, 3),
+          meanAbs: formatReportNumber(entry.meanAbs, 3)
         })),
         footnotes: ['Exploratory only: these are simple residual–log(time) correlations, not the formal Grambsch–Therneau proportional-hazards test implemented by cox.zph.'],
         options: {
@@ -7564,7 +7631,7 @@
       restoreSurvivalStatsPanelModels(state.statsPanelModels, scheduleTargetSession || getActiveSurvivalSessionForState());
     }
     if(!skipDraw){
-      scheduleActiveSurvivalDraw({ reason: 'survival-payload-applied', tabId: getSurvivalProjectionTabId() || null });
+      scheduleActiveSurvivalDraw({ renderImpact: 'structural', reason: 'survival-payload-applied', tabId: getSurvivalProjectionTabId() || null });
     }
     if(scheduleBackup && state.scheduleDraw === mutedScheduleDraw){
       state.scheduleDraw = scheduleBackup;
@@ -7838,7 +7905,13 @@
       if(options.persistOwnerState === true){
         Shared.componentLifecycle?.persistOwnedUserState?.('survival', session, { reason });
       }
-      scheduleSurvivalDrawForSession(session, { reason, tabId: session?.tabId || undefined, userInitiated: true });
+      scheduleSurvivalDrawForSession(session, {
+        ...options,
+        renderImpact: options.renderImpact || 'analysis',
+        reason,
+        tabId: session?.tabId || undefined,
+        userInitiated: true
+      });
     };
     [refs.showCI, refs.showCensor, refs.showRiskTable, refs.showPlotStats, refs.showGrid, refs.showHazardRatios, refs.fitCoxModel].forEach(control => {
       control?.addEventListener('change', event => {
@@ -7857,7 +7930,10 @@
               || (Shared.hot?.getIncludedDataMatrix ? Shared.hot.getIncludedDataMatrix(state.hot) : [])
           )
         }, null, advisorSession);
-        schedule(event, 'survival-control-change');
+        const renderImpact = control === refs.showHazardRatios || control === refs.fitCoxModel
+          ? 'analysis'
+          : (control === refs.showRiskTable || control === refs.showPlotStats ? 'layout' : 'paint');
+        schedule(event, 'survival-control-change', { renderImpact });
       });
     });
     refs.showFrame?.addEventListener('change', event => {
@@ -7873,18 +7949,18 @@
             || (Shared.hot?.getIncludedDataMatrix ? Shared.hot.getIncludedDataMatrix(state.hot) : [])
         )
       }, null, advisorSession);
-      schedule(event, 'survival-frame-toggle');
+      schedule(event, 'survival-frame-toggle', { renderImpact: 'paint' });
     });
     refs.showLegend?.addEventListener('change', event => {
       survivalDebug('Debug: survival control toggle', { id: refs.showLegend.id, checked: refs.showLegend.checked });
       logDebug('control toggled', { id: refs.showLegend.id, checked: refs.showLegend.checked });
       ensureSurvivalLegendControlPlacement();
-      schedule(event, 'survival-legend-toggle', { persistOwnerState: true });
+      schedule(event, 'survival-legend-toggle', { persistOwnerState: true, renderImpact: 'layout' });
     });
     [refs.timeMax].forEach(input => {
       input?.addEventListener('input', event => {
         logDebug('control input', { id: input.id, value: input.value });
-        schedule(event, 'survival-time-max-change');
+      schedule(event, 'survival-time-max-change', { renderImpact: 'layout' });
       });
     });
     refs.fontSize?.addEventListener('input', event => {
@@ -7894,7 +7970,7 @@
       }
       chartStyle.renderFontSizeLabel?.({ element: refs.fontSizeVal, pt: Number(refs.fontSize.value), input: refs.fontSize, manual: true });
       logDebug('font size input', { value: refs.fontSize.value });
-      schedule(event, 'survival-font-size-change');
+      schedule(event, 'survival-font-size-change', { renderImpact: 'layout' });
     });
     if(refs.fontSize?.dataset){
       refs.fontSize.dataset.fontBasePt = String(refs.fontSize.value);
@@ -7933,8 +8009,9 @@
         syncSurvivalStateToSession(session, { pairwiseCorrection: state.pairwiseCorrection });
         ensureSurvivalStatsInferenceControls()?.refresh?.();
         logDebug('pairwise correction changed', { value: state.pairwiseCorrection });
-        scheduleSurvivalDrawForSession(session, {
-          reason: 'survival-pairwise-correction',
+          scheduleSurvivalDrawForSession(session, {
+            renderImpact: 'analysis',
+            reason: 'survival-pairwise-correction',
           tabId: session?.tabId || undefined,
           userInitiated: true
         });
@@ -7987,25 +8064,11 @@
     }) || notesState.control || null;
   }
 
-  function bindSurvivalControlHandler(node, eventName, key, handler){
-    if(!node || typeof node.addEventListener !== 'function'){
-      return;
-    }
-    const registryKey = `${eventName}:${key}`;
-    if(!node.__survivalControlHandlers){
-      Object.defineProperty(node, '__survivalControlHandlers', {
-        value: Object.create(null),
-        configurable: true
-      });
-    }
-    const previous = node.__survivalControlHandlers[registryKey];
-    if(previous){
-      node.removeEventListener(eventName, previous);
-    }
-    const wrapped = event => runSurvivalControlOwner(event, key || registryKey, session => handler(event, session));
-    node.__survivalControlHandlers[registryKey] = wrapped;
-    node.addEventListener(eventName, wrapped);
-  }
+  const bindSurvivalControlHandler = Shared.componentLifecycle.createOwnerControlBinder({
+    componentKey: 'survival',
+    resolveOwner: (event, meta) => getSurvivalSessionForEvent(event, { reason: meta?.reason }, { create: true }),
+    isOwnerActive: session => !session?.tabId || isSurvivalSessionActive(session)
+  });
 
   function initExampleAndImport(){
     const loadExampleData = event => {
@@ -8026,7 +8089,7 @@
       logDebug('biomedical example loaded', { rows: example?.length || 0, firstRow: example?.[0] || null });
       syncSurvivalStateToSession(session, { controls: state.controls, notes: notesState });
       captureSurvivalSessionStateFromActive(session, { reason: 'survival-example-load', captureStatsPanel: false });
-      scheduleSurvivalDrawForSession(session, { reason: 'survival-example-load', tabId: session?.tabId || undefined });
+      scheduleSurvivalDrawForSession(session, { renderImpact: 'structural', reason: 'survival-example-load', tabId: session?.tabId || undefined });
       });
     };
     refs.loadExampleBtn?.addEventListener('click', loadExampleData);
@@ -8101,7 +8164,7 @@
           controls: state.controls,
           axisSettings: state.axisSettings
         });
-        scheduleSurvivalDrawForSession(ownerSession || getActiveSurvivalSessionForState(), { force: true, reason: 'import-prism-style', tabId: ownerSession?.tabId || undefined });
+        scheduleSurvivalDrawForSession(ownerSession || getActiveSurvivalSessionForState(), { force: true, renderImpact: 'structural', reason: 'import-prism-style', tabId: ownerSession?.tabId || undefined });
       };
       Shared.tableImport.openFile(refs.fileInput, {
         hot: ownerSession?.managers?.hot || state.hot,
@@ -8110,6 +8173,7 @@
         minRows: DEFAULT_ROWS,
         scheduleDraw: options => scheduleSurvivalDrawForSession(ownerSession || getActiveSurvivalSessionForState(), {
           ...(options || {}),
+          renderImpact: 'structural',
           reason: options?.reason || options?.source || 'survival-import-load',
           tabId: ownerSession?.tabId || undefined
         }),
@@ -8173,14 +8237,18 @@
       return;
     }
     const runSurvivalScheduledDraw = async (drawOptions = {}) => {
+      const normalizedOptions = sanitizeSurvivalDrawOptions(drawOptions, {
+        tabId: drawOptions?.tabId || getSurvivalProjectionTabId() || null,
+        reason: drawOptions?.reason || 'survival-scheduled-draw'
+      });
       const drawSession = ensureSurvivalSessionOwnershipShape(
-        getSurvivalSessionForDrawOptions(drawOptions, { reason: drawOptions?.reason || 'survival-scheduled-draw' })
+        getSurvivalSessionForDrawOptions(normalizedOptions, { reason: normalizedOptions?.reason || 'survival-scheduled-draw' })
       );
       let result;
       try{
-        result = await drawSurvival(drawOptions || {}, drawSession);
+        result = await drawSurvival(normalizedOptions, drawSession);
       }finally{
-        survivalOverlayController?.resolve({ reason: 'complete', tabId: drawSession?.tabId || drawOptions?.tabId || null });
+        survivalOverlayController?.resolve({ reason: 'complete', tabId: drawSession?.tabId || normalizedOptions?.tabId || null });
       }
       captureSurvivalSessionStateFromActive(drawSession, {
         reason: 'survival-scheduled-draw-capture',
@@ -8192,7 +8260,10 @@
       ? Shared.componentLifecycle.createTabScopedFrameDebouncer(survival, 'survival', runSurvivalScheduledDraw, { reason: 'survival-draw-frame' })
       : runSurvivalScheduledDraw;
     const scheduleSurvivalInstrumented = drawOptions => {
-      const nextOptions = drawOptions || {};
+      const nextOptions = sanitizeSurvivalDrawOptions(drawOptions || {}, {
+        tabId: drawOptions?.tabId || getSurvivalProjectionTabId() || null,
+        reason: drawOptions?.reason || 'survival-scheduled-draw'
+      });
       if(nextOptions.force === true || nextOptions.importTransactionFinal === true){
         survivalOverlayController?.force(nextOptions.reason || 'render', {
           tabId: nextOptions.tabId || getSurvivalProjectionTabId() || null,
@@ -8224,7 +8295,10 @@
           svgBox: () => refs.graphPanel?.querySelector('.svgbox'),
           resizeTarget: () => refs.graphPanel?.querySelector('.svgbox')
         },
-        scheduleDraw: options => scheduleActiveSurvivalDraw(options && typeof options === 'object' ? options : {}),
+        scheduleDraw: options => scheduleActiveSurvivalDraw({
+          ...(options && typeof options === 'object' ? options : {}),
+          renderImpact: options?.renderImpact || 'layout'
+        }),
         preserveGraphContent: false,
         panelSyncOptions: {
           disableAutoWidthClamp: true,
@@ -8243,6 +8317,7 @@
           const resizePhase = typeof phase === 'string' ? phase : '';
           ensureSurvivalLegendControlPlacement();
           scheduleSurvivalViewRefresh('resize', {
+            renderImpact: 'layout',
             force: true,
             silentOverlay: true,
             resizePhase: resizePhase || null
@@ -8264,7 +8339,10 @@
     initControls();
     initNotes();
     initExampleAndImport();
-    state.layout?.setScheduleDraw?.(options => scheduleActiveSurvivalDraw(options && typeof options === 'object' ? options : {}));
+    state.layout?.setScheduleDraw?.(options => scheduleActiveSurvivalDraw({
+      ...(options && typeof options === 'object' ? options : {}),
+      renderImpact: options?.renderImpact || 'layout'
+    }));
     ensureSurvivalFontEventListener();
     state.layout?.syncPanels?.();
     initExportsAndFiles();
@@ -8280,7 +8358,7 @@
       reason: options?.reason || 'survival-init-complete',
       captureStatsPanels: false
     });
-    scheduleActiveSurvivalDraw({ reason: options?.reason || 'survival-init-complete', tabId: getSurvivalProjectionTabId() || null });
+    scheduleActiveSurvivalDraw({ renderImpact: 'structural', reason: options?.reason || 'survival-init-complete', tabId: getSurvivalProjectionTabId() || null });
     logDebug('component initialized', { ready: survival.ready });
     global.scheduleDrawSurvival = options => scheduleActiveSurvivalDraw(options && typeof options === 'object' ? options : {});
   }
@@ -8398,10 +8476,6 @@
     survival.__domSentinel = getSurvivalNodeById('survivalHot');
   };
 
-  function detachChildren(node){
-    return Shared.componentLifecycle?.detachCacheableChildren?.(node) || null;
-  }
-
   function restoreChildren(node, payload){
     if(!node || !payload || !payload.fragment){ return false; }
     while(node.firstChild){
@@ -8437,9 +8511,8 @@
     if(!owner){ return null; }
     const ownerRoot = resolveSurvivalRoot(owner.tabId || meta?.tab || meta?.tabId || null);
     const plot = ownerRoot?.querySelector?.('#survivalPlot') || null;
-    const plotCache = detachChildren(plot);
+    const plotCache = Shared.componentLifecycle?.snapshotCacheableChildren?.(plot) || null;
     if((plotCache?.count || 0) <= 0){
-      restoreChildren(plot, plotCache);
       survivalDebug('Debug: survival render cache capture skipped', {
         reason: 'empty-runtime',
         tabId: owner.tabId || null
@@ -8451,7 +8524,6 @@
       markupPattern: /(<svg\b|id=["']survivalSvg["']|<canvas\b)/i
     }) ?? true;
     if(!complete){
-      restoreChildren(plot, plotCache);
       survivalDebug('Debug: survival render cache capture skipped', {
         reason: 'graph-not-renderable',
         tabId: owner.tabId || null
@@ -8468,10 +8540,12 @@
       || { version: 2, component: 'survival', type: 'survival', tabId: owner.tabId || null, complete: true };
     // Statistics are canonical payload state. Caching their DOM duplicates that
     // authority and loses structured table metadata during archive serialization.
-    return {
+    const cache = {
       plot: plotCache,
       __graphitixRenderCache: cacheMeta
     };
+    Object.defineProperty(cache, '__graphitixLiveDomPreserved', { value: true });
+    return cache;
   };
 
   survival.canRestoreRenderCache = function canRestoreRenderCache(cache, meta = {}){
@@ -8554,21 +8628,26 @@
     return restoredPlot;
   };
   survival.draw = async function drawSurvivalPublic(options = {}){
-    const nextReason = options?.reason || 'survival-draw';
-    if(Shared.componentLifecycle?.shouldSuppressDraw?.('survival', { ...(options || {}), tabId: options?.tabId || getSurvivalProjectionTabId() || null, reason: nextReason })){
-      survivalDebug('Debug: survival draw suppressed by lifecycle', { reason: nextReason, tabId: options?.tabId || getSurvivalProjectionTabId() || null });
-      Shared.componentLifecycle?.emitLifecycleEvent?.({ componentKey: 'survival', tabId: options?.tabId || getSurvivalProjectionTabId() || null, action: 'draw-suppressed', reason: nextReason, details: { source: 'survival.draw' } });
+    const normalizedOptions = sanitizeSurvivalDrawOptions(options, {
+      tabId: options?.tabId || getSurvivalProjectionTabId() || null,
+      reason: options?.reason || 'survival-draw'
+    });
+    const nextReason = normalizedOptions?.reason || 'survival-draw';
+    const drawTabId = normalizedOptions?.tabId || getSurvivalProjectionTabId() || null;
+    if(Shared.componentLifecycle?.shouldSuppressDraw?.('survival', { ...normalizedOptions, tabId: drawTabId, reason: nextReason })){
+      survivalDebug('Debug: survival draw suppressed by lifecycle', { reason: nextReason, tabId: drawTabId });
+      Shared.componentLifecycle?.emitLifecycleEvent?.({ componentKey: 'survival', tabId: drawTabId, action: 'draw-suppressed', reason: nextReason, details: { source: 'survival.draw', renderImpact: resolveSurvivalRenderImpact(normalizedOptions), viewOnly: isSurvivalPresentationDraw(normalizedOptions) } });
       return;
     }
-    Shared.componentLifecycle?.emitLifecycleEvent?.({ componentKey: 'survival', tabId: options?.tabId || getSurvivalProjectionTabId() || null, action: 'draw-executed', reason: nextReason, details: { source: 'survival.draw' } });
-    const drawSession = ensureSurvivalSessionOwnershipShape(getSurvivalSessionForDrawOptions(options, { reason: nextReason }));
+    Shared.componentLifecycle?.emitLifecycleEvent?.({ componentKey: 'survival', tabId: drawTabId, action: 'draw-executed', reason: nextReason, details: { source: 'survival.draw', renderImpact: resolveSurvivalRenderImpact(normalizedOptions), viewOnly: isSurvivalPresentationDraw(normalizedOptions) } });
+    const drawSession = ensureSurvivalSessionOwnershipShape(getSurvivalSessionForDrawOptions(normalizedOptions, { reason: nextReason }));
     if(drawSession && !isSurvivalSessionActive(drawSession)){
       drawSession.state.drawPending = true;
       drawSession.updatedAt = Date.now();
       return;
     }
-    const overlayForced = options?.force === true
-      ? survivalOverlayController?.force(nextReason, { tabId: drawSession?.tabId || options?.tabId || null })
+    const overlayForced = normalizedOptions?.force === true
+      ? survivalOverlayController?.force(nextReason, { tabId: drawSession?.tabId || normalizedOptions?.tabId || null })
       : false;
     if(overlayForced){
       await Shared.jobs?.nextFrame?.();
@@ -8577,7 +8656,7 @@
     let result;
     let status = 'complete';
     try{
-      result = await drawSurvival({ ...(options || {}), tabId: drawSession?.tabId || options?.tabId || undefined, reason: nextReason }, drawSession);
+      result = await drawSurvival({ ...(normalizedOptions || {}), tabId: drawSession?.tabId || normalizedOptions?.tabId || undefined, reason: nextReason }, drawSession);
       if(result === false){
         status = 'cancelled';
       }
@@ -8585,14 +8664,15 @@
       status = 'error';
       throw err;
     }finally{
-      const drawTabId = drawSession?.tabId || options?.tabId || null;
-      survivalOverlayController?.resolve({ reason: status, status, tabId: drawTabId });
+      const settledTabId = drawSession?.tabId || normalizedOptions?.tabId || null;
+      survivalOverlayController?.resolve({ reason: status, status, tabId: settledTabId });
       Shared.componentLifecycle?.emitLifecycleEvent?.({
         componentKey: 'survival',
-        tabId: drawTabId,
+        tabId: settledTabId,
         action: 'draw-settled',
         reason: nextReason,
-        phase: status
+        phase: status,
+        details: { source: 'survival.draw', renderImpact: resolveSurvivalRenderImpact(normalizedOptions), viewOnly: isSurvivalPresentationDraw(normalizedOptions) }
       });
     }
     captureSurvivalSessionStateFromActive(drawSession, {
@@ -8612,6 +8692,8 @@
     return state;
   };
   survival.__testHooks = Object.assign({}, survival.__testHooks, {
+    resolveRenderImpact: (options, fallback) => resolveSurvivalRenderImpact(options, fallback),
+    sanitizeDrawOptions: (options, owner) => sanitizeSurvivalDrawOptions(options, owner),
     buildFigureSummary: summary => buildSurvivalFigureSummary(summary || {}),
     getSession: tabLike => getSurvivalSession(tabLike || getSurvivalProjectionTabId() || null, { reason: 'survival-test-session' }, { create: false }),
     captureStatsPanelForOwner: tabLike => {

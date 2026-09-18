@@ -2,7 +2,6 @@
 
 const path = require('path');
 const {
-  INTENTIONALLY_UNMAPPED_FILES,
   EXPECTED_COMPONENT_TYPES,
   collectStaticInventory,
   findDuplicateJestProjectPaths
@@ -19,6 +18,9 @@ describe('test inventory static contract', () => {
     expect(inventory.patterns.componentMatrixArrays.count).toBe(0);
     expect(inventory.catalog.workerSourceTypes).toEqual(inventory.catalog.workerCatalogTypes);
     expect(inventory.catalog.impactMapComponentTypes).toEqual(EXPECTED_COMPONENT_TYPES);
+    expect(inventory.organization.oversizedLegacyRoot).toEqual([]);
+    expect(inventory.organization.oversized.length).toBeGreaterThan(0);
+    expect(inventory.patterns.directComponentBootstraps.every(record => record.review)).toBe(true);
   });
 
   test('rejects Jest files discovered in more than one project', () => {
@@ -34,10 +36,19 @@ describe('test inventory static contract', () => {
   test('reports the high-risk test patterns needed for migration tracking', () => {
     const inventory = collectStaticInventory(path.resolve(__dirname, '../..'));
 
-    expect(inventory.patterns.e2eWaitForTimeout.count).toBeGreaterThan(0);
+    expect(inventory.patterns.e2eWaitForTimeout.count).toBe(0);
+    expect(inventory.patterns.e2eSetTimeout.count).toBeGreaterThan(0);
     expect(inventory.patterns.e2ePageEvaluate.count).toBeGreaterThan(0);
+    expect(inventory.patterns.e2eArtifactWrites.count).toBeGreaterThan(0);
     expect(inventory.patterns.jestProductionRequires.count).toBeGreaterThan(0);
     expect(inventory.patterns.jestSourceReads.count).toBeGreaterThan(0);
+    expect(inventory.patterns.jestFileReads.count).toBe(
+      inventory.patterns.jestSourceReads.count
+      + inventory.patterns.jestFixtureReads.count
+      + inventory.patterns.jestGeneratedArtifactReads.count
+    );
+    expect(inventory.patterns.jestFixtureReads.count).toBeGreaterThan(0);
+    expect(inventory.patterns.jestGeneratedArtifactReads.count).toBeGreaterThan(0);
     expect(inventory.patterns.e2eContractWaitForTimeout.count).toBe(0);
     expect(inventory.patterns.e2eContractSetTimeout.count).toBe(0);
     expect(inventory.patterns.e2eContractSuppressedFailures.count).toBe(0);
@@ -57,10 +68,10 @@ describe('test inventory static contract', () => {
     }
   });
 
-  test('requires explicit scenario ownership for every discovered file except the Firefox defer list', () => {
+  test('requires explicit scenario ownership for every discovered file', () => {
     const inventory = collectStaticInventory(path.resolve(__dirname, '../..'));
     const discovered = [...inventory._files.jestTests, ...inventory._files.e2eSpecs].sort();
     const unmapped = discovered.filter(file => getScenarioIdsForFile(file).length === 0);
-    expect(unmapped).toEqual([...INTENTIONALLY_UNMAPPED_FILES].sort());
+    expect(unmapped).toEqual([]);
   });
 });

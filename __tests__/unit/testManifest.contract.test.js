@@ -16,6 +16,7 @@ const {
 } = require('../../test-support/jestLayerManifest.js');
 const {
   CRITICAL_SCENARIO_IDS,
+  SCENARIO_CATALOG,
   getScenarioIdsForFile,
   getScenariosForIds
 } = require('../../test-support/scenarioCatalog.js');
@@ -29,7 +30,7 @@ describe('generated test manifest', () => {
         '__tests__/workers/example.test.js',
         '__tests__/session.example.test.js'
       ],
-      e2ePaths: ['e2e/workspace.smoke.spec.js']
+      e2ePaths: ['e2e/workspace/workspace.smoke.spec.js']
     });
 
     expect(entries.map(entry => entry.layer)).toEqual([
@@ -39,12 +40,15 @@ describe('generated test manifest', () => {
     expect(entries.every(entry => (
       Array.isArray(entry.requirements)
       && Array.isArray(entry.capabilityScope)
+      && Array.isArray(entry.transitionScope)
       && Array.isArray(entry.browser)
       && entry.expectedWorkerMode
       && entry.fixtureProvenance
+      && Object.prototype.hasOwnProperty.call(entry, 'bootstrapReview')
       && entry.ownerExpectations
       && entry.readiness
       && entry.mutation
+      && entry.suiteGroup
       && Array.isArray(entry.requiredArtifacts)
       && Array.isArray(entry.predecessorScenarioIds)
     ))).toBe(true);
@@ -52,7 +56,7 @@ describe('generated test manifest', () => {
   });
 
   test('keeps browser parity and contract inventory visible', () => {
-    const entries = [classifyTestFile('e2e/workspace.smoke.spec.js', 'playwright')];
+    const entries = [classifyTestFile('e2e/workspace/workspace.smoke.spec.js', 'playwright')];
     const summary = summarizeManifest(entries);
 
     expect(summary.byLayer['browser-e2e']).toBe(1);
@@ -63,24 +67,30 @@ describe('generated test manifest', () => {
 
   test('reports direct component evidence separately from wildcard coverage', () => {
     const summary = summarizeManifest([
-      classifyTestFile('__tests__/heatmap.tabContext.test.js'),
-      classifyTestFile('e2e/component.persistence-matrix.spec.js', 'playwright')
+      classifyTestFile('__tests__/integration/heatmap.tabContext.test.js'),
+      classifyTestFile('e2e/ownership/component.persistence-matrix.spec.js', 'playwright')
     ]);
 
     expect(Object.keys(summary.componentMatrix)).toHaveLength(11);
     expect(summary.componentMatrix.heatmap.directScenarioIds).toEqual([
       'CACHE.heatmap-render-cache-restore',
-      'OWN.heatmap-tab-context'
+      'MODE.component-persistence-matrix-direct',
+      'OWN.heatmap-tab-context',
+      'PERSIST.heatmap-notes-direct'
     ]);
     expect(summary.componentMatrix.heatmap.explicitRequirementIds).toEqual([
       'CACHE.heatmap-render-cache-restore',
-      'OWN.heatmap-tab-context'
+      'MODE.component-persistence-matrix-direct',
+      'OWN.heatmap-tab-context',
+      'PERSIST.heatmap-notes-direct'
     ]);
-    expect(summary.componentMatrix.box.directScenarioIds).toEqual([]);
+    expect(summary.componentMatrix.box.directScenarioIds).toEqual([
+      'MODE.component-persistence-matrix-direct'
+    ]);
     expect(summary.componentMatrix.box.wildcardScenarioIds).toEqual([
       'PERSIST.explicit-component-mutations'
     ]);
-    expect(summary.componentMatrix.box.unexplainedFeatureGaps).toContain('graphModes');
+    expect(summary.componentMatrix.box.unexplainedFeatureGaps).not.toContain('graphModes');
     expect(summary.componentMatrix.box.unexplainedFeatureGaps).toContain('statistics');
     expect(summary.componentMatrix.box.unexplainedFeatureGaps).not.toContain('canvas');
   });
@@ -99,6 +109,7 @@ describe('generated test manifest', () => {
       id: 'PERSIST.style-sync-across-tabs',
       capability: 'persistence',
       evidence: 'source-and-target-payload-contract',
+      transition: 'persist-transition',
       metadataSource: 'explicit'
     })]);
     expect(entry.requirementEvidence).toEqual({
@@ -108,8 +119,51 @@ describe('generated test manifest', () => {
     });
   });
 
+  test('reviewed governance and lifecycle batches carry explicit evidence metadata', () => {
+    const reviewedIds = [
+      'GOVERNANCE.component-catalog',
+      'GOVERNANCE.discovery-inventory',
+      'GOVERNANCE.layer-manifest',
+      'GOVERNANCE.integration-teardown',
+      'OWN.readiness-observability',
+      'OWN.component-dom-binding',
+      'REC.archive-restore-transaction',
+      'PERSIST.grid-clipboard',
+      'PERSIST.dataview-lite-archive',
+      'STATS.figure-summary-layout',
+      'LAYOUT.legend-viewport-invariant',
+      'CACHE.tab-switch-reuse',
+      'OWN.ag-grid-edit-overflow',
+      'LAYOUT.ag-grid-selection-scrollbar',
+      'PERSIST.ag-grid-column-reorder-undo',
+      'IMPORT.prism-multi-dataset',
+      'OWN.box-formula-fill',
+      'LAYOUT.box-horizontal-shrink',
+      'BOOTSTRAP.production-derived-loader',
+      'VENDOR.browser-runtime',
+      'CACHE.surface-render-cache'
+    ];
+    const scenarios = getScenariosForIds(reviewedIds);
+
+    expect(scenarios).toHaveLength(reviewedIds.length);
+    expect(scenarios.every(scenario => (
+      scenario.requirement
+      && scenario.capability
+      && scenario.evidence
+    ))).toBe(true);
+  });
+
+  test('every catalog scenario declares explicit requirement evidence', () => {
+    expect(SCENARIO_CATALOG.length).toBeGreaterThan(0);
+    expect(SCENARIO_CATALOG.every(scenario => (
+      scenario.requirement
+      && scenario.capability
+      && scenario.evidence
+    ))).toBe(true);
+  });
+
   test('marks Python differential suites as requiring the numerical oracle', () => {
-    const entry = classifyTestFile('__tests__/stats.component.differential.test.js');
+    const entry = classifyTestFile('__tests__/statistical-oracle/stats.component.differential.test.js');
     expect(entry.layer).toBe('statistical-oracle');
     expect(entry.defaultLane).toBe('stats');
     expect(entry.oracle).toBe('required');
@@ -117,7 +171,7 @@ describe('generated test manifest', () => {
   });
 
   test('only explicit migrated files receive scenario IDs', () => {
-    const migrated = classifyTestFile('e2e/workspace.smoke.spec.js', 'playwright');
+    const migrated = classifyTestFile('e2e/workspace/workspace.smoke.spec.js', 'playwright');
     const legacy = classifyTestFile('e2e/unknown-legacy.spec.js', 'playwright');
 
     expect(migrated.status).toBe('migrated');
@@ -131,10 +185,10 @@ describe('generated test manifest', () => {
   });
 
   test('rejects entries without readiness metadata', () => {
-    const entry = classifyTestFile('e2e/workspace.smoke.spec.js', 'playwright');
+    const entry = classifyTestFile('e2e/workspace/workspace.smoke.spec.js', 'playwright');
     delete entry.readiness;
     expect(validateManifest([entry])).toContain(
-      'manifest entry has incomplete readiness metadata: file:e2e/workspace.smoke.spec.js'
+      'manifest entry has incomplete readiness metadata: file:e2e/workspace/workspace.smoke.spec.js'
     );
   });
 
@@ -173,5 +227,14 @@ describe('generated test manifest', () => {
         expect(getScenarioIdsForFile(file).length).toBeGreaterThan(0);
       }
     }
+  });
+
+  test('publishes reviewed specialized bootstrap reasons in the manifest', () => {
+    const entry = classifyTestFile('__tests__/integration/regression.persistence.test.js');
+    expect(entry.bootstrapReview).toEqual({
+      status: 'reviewed-specialized-bootstrap',
+      reason: expect.stringContaining('production bootstrap')
+    });
+    expect(validateManifest([entry])).toEqual([]);
   });
 });

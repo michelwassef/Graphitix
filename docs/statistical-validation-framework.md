@@ -21,9 +21,9 @@ Catch statistical implementation regressions by validating that:
   - Curated baseline cases.
 - `__tests__/stats.differential.python.test.js`
   - Core oracle differential suite (curated + randomized + metamorphic checks).
-- `__tests__/stats.component.differential.test.js`
+- `__tests__/statistical-oracle/stats.component.differential.test.js`
   - Component-engine differential suite validating component statistical hooks against the Python oracle.
-- `__tests__/stats.matrix.components.test.js`
+- `__tests__/statistical-oracle/stats.matrix.components.test.js`
   - Generated coverage-matrix suite for `box.js`, `line.js`, and `scatter.js`.
   - Exhaustively exercises exposed analysis branches and parameter combinations where practical.
 - `__tests__/stats.extended.coverage.test.js`
@@ -119,7 +119,7 @@ Current differential coverage includes:
 
 ## Component Matrix Coverage
 
-`__tests__/stats.matrix.components.test.js` adds systematic branch coverage on top of the curated/randomized differential suites:
+`__tests__/statistical-oracle/stats.matrix.components.test.js` adds systematic branch coverage on top of the curated/randomized differential suites:
 
 - `box.js`
   - parametric vs non-parametric

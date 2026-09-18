@@ -45,6 +45,38 @@ async function parseWorkspaceArchive(page, base64, fileName = 'workspace.graph')
   }, { encoded: base64, name: fileName });
 }
 
+function summarizeArchiveMetadata(parsed) {
+  const manifest = parsed?.manifest || null;
+  const session = parsed?.session || null;
+  const manifestTabs = Array.isArray(manifest?.tabs) ? manifest.tabs : [];
+  const sessionTabs = Array.isArray(session?.tabs) ? session.tabs : [];
+  const tabs = sessionTabs.map((tab, index) => {
+    const entry = manifestTabs[index] || {};
+    return {
+      index,
+      title: tab?.title || entry.title || null,
+      type: tab?.type || entry.type || null,
+      payloadMode: entry.payloadMode || null,
+      runtimeTabIdPresent: Boolean(tab?.archiveRuntimeTabId || entry.runtimeTabId),
+      hasLayout: !!tab?.layout,
+      hasPreview: !!tab?.previewMarkup,
+      hasRenderCache: !!tab?.archiveRenderCache,
+      hasUiState: !!tab?.uiState
+    };
+  });
+  return {
+    schemaVersion: 1,
+    source: parsed?.source || null,
+    format: manifest?.format || null,
+    archiveVersion: manifest?.version || null,
+    scope: manifest?.scope || session?.scope || null,
+    createdAt: manifest?.createdAt || session?.savedAt || null,
+    activeIndex: Number.isInteger(session?.activeIndex) ? session.activeIndex : null,
+    tabCount: tabs.length,
+    tabs
+  };
+}
+
 async function saveWorkspaceArchive(page, filePath, options = {}) {
   const archive = await buildWorkspaceArchive(page, options);
   writeBase64File(archive.base64, filePath);
@@ -52,9 +84,12 @@ async function saveWorkspaceArchive(page, filePath, options = {}) {
 }
 
 async function openWorkspaceArchive(page, archive, options = {}) {
+  if (typeof archive !== 'string' && !options.filePath) {
+    throw new Error('openWorkspaceArchive requires options.filePath for an encoded archive.');
+  }
   const filePath = typeof archive === 'string'
     ? archive
-    : writeBase64File(archive.base64, options.filePath || path.resolve(process.cwd(), '.tmp', options.fileName || 'workspace.graph'));
+    : writeBase64File(archive.base64, options.filePath);
   if (options.reload !== false) {
     await page.reload({ waitUntil: 'domcontentloaded' });
   }
@@ -77,6 +112,7 @@ module.exports = {
   buildWorkspaceArchive,
   openWorkspaceArchive,
   parseWorkspaceArchive,
+  summarizeArchiveMetadata,
   saveWorkspaceArchive,
   waitForWorkspaceTab,
   writeBase64File

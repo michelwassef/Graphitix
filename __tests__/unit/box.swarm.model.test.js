@@ -1,11 +1,13 @@
 'use strict';
 
+const { loadComponentTestBootstrap } = require('../../test-support/componentTestBootstrap');
+
 describe('Box swarm and radius model', () => {
   let hooks;
 
   beforeAll(() => {
     jest.resetModules();
-    require('../../js/components/box.js');
+    loadComponentTestBootstrap('box');
     hooks = global.Components?.box?.__testHooks;
   });
 

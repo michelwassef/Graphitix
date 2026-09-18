@@ -6,11 +6,19 @@ const { spawnSync } = require('child_process');
 const { COMPONENT_CATALOG } = require('../test-support/componentCatalog.js');
 const { COMPONENT_RULES } = require('../test-support/impactMap.js');
 const {
-  LEGACY_UNMAPPED_BASELINE,
   buildFileManifest,
   summarizeManifest,
   validateManifest
 } = require('../test-support/testManifest.js');
+const {
+  summarizeTestOrganization,
+  validateTestOrganization
+} = require('../test-support/testOrganization.js');
+const {
+  collectDirectComponentBootstraps,
+  validatePartialBootstrapReview
+} = require('../test-support/partialBootstrapReview.js');
+const { SCENARIO_CATALOG } = require('../test-support/scenarioCatalog.js');
 
 const ROOT_DIR = path.resolve(__dirname, '..');
 const JEST_PROJECT_NAMES = Object.freeze(require('../jest.config.js').projects.map(project => project.displayName));
@@ -18,9 +26,21 @@ const EXPECTED_COMPONENT_TYPES = [
   'venn', 'box', 'scatter', 'pca', 'line', 'heatmap',
   'surface', 'roc', 'survival', 'hist', 'pie'
 ];
-const INTENTIONALLY_UNMAPPED_FILES = Object.freeze([
-  '__tests__/exporter.firefoxSvgCopy.test.js',
-  '__tests__/tableImport.firefoxExcelPaste.test.js'
+const JEST_FIXTURE_READ_FILES = new Set([
+  '__tests__/architecture/box.stripDatasetGap.regression.test.js',
+  '__tests__/architecture/box.stripRadius.regression.test.js',
+  '__tests__/dom/colorSchemes.customChoice.test.js',
+  '__tests__/unit/forecast.regression.test.js',
+  '__tests__/integration/pca.view.test.js',
+  '__tests__/unit/regression.catalog.test.js',
+  '__tests__/dom/tableImport.prism.test.js'
+]);
+const JEST_GENERATED_ARTIFACT_READ_FILES = new Set([
+  '__tests__/architecture/generateComponentContracts.check.test.js',
+  '__tests__/unit/jestShardRunner.contract.test.js',
+  '__tests__/unit/testLaneRunner.contract.test.js',
+  '__tests__/unit/vendorProvenance.contract.test.js',
+  '__tests__/unit/welcome.example-assets.test.js'
 ]);
 
 function toRelative(filePath, rootDir = ROOT_DIR) {
@@ -64,6 +84,48 @@ function countMatches(filePaths, pattern, rootDir = ROOT_DIR) {
   return { count, files };
 }
 
+function collectJestFileReads(filePaths, rootDir = ROOT_DIR) {
+  const buckets = {
+    sourceContracts: [],
+    fixtures: [],
+    generatedArtifacts: []
+  };
+  let totalCount = 0;
+
+  for (const relative of filePaths) {
+    const absolute = path.resolve(rootDir, relative);
+    const text = fs.readFileSync(absolute, 'utf8');
+    const matches = Array.from(text.matchAll(/\breadFileSync\s*\(/g)).map(match => ({
+      file: relative,
+      line: text.slice(0, match.index).split(/\r?\n/).length,
+      text: text.split(/\r?\n/)[text.slice(0, match.index).split(/\r?\n/).length - 1].trim()
+    }));
+    if (matches.length === 0) continue;
+
+    let bucket = 'sourceContracts';
+    if (JEST_FIXTURE_READ_FILES.has(relative)) bucket = 'fixtures';
+    if (JEST_GENERATED_ARTIFACT_READ_FILES.has(relative)) bucket = 'generatedArtifacts';
+    buckets[bucket].push(...matches);
+    totalCount += matches.length;
+  }
+
+  const toSummary = records => ({
+    count: records.length,
+    files: Array.from(new Set(records.map(record => record.file))).map(file => ({
+      file,
+      count: records.filter(record => record.file === file).length,
+      lines: records.filter(record => record.file === file).map(record => record.line)
+    }))
+  });
+
+  return {
+    count: totalCount,
+    sourceContracts: toSummary(buckets.sourceContracts),
+    fixtures: toSummary(buckets.fixtures),
+    generatedArtifacts: toSummary(buckets.generatedArtifacts)
+  };
+}
+
 function collectLineMatches(filePaths, pattern, rootDir = ROOT_DIR) {
   const files = [];
   let count = 0;
@@ -82,6 +144,40 @@ function collectLineMatches(filePaths, pattern, rootDir = ROOT_DIR) {
     }
   }
   return { count, files };
+}
+
+function collectArtifactWrites(filePaths, rootDir = ROOT_DIR) {
+  const records = [];
+  const patterns = [
+    /\btestInfo\.(?:attach|outputPath|outputDir)\s*\(/,
+    /\b(?:writeFileSync|writeFile|copyFileSync|createWriteStream)\s*\(/,
+    /\b(?:artifacts|test-results|playwright-report)\b/
+  ];
+  for (const relative of filePaths) {
+    const text = fs.readFileSync(path.resolve(rootDir, relative), 'utf8');
+    const lines = text.split(/\r?\n/);
+    const matches = [];
+    lines.forEach((line, index) => {
+      if (!patterns.some(pattern => pattern.test(line))) return;
+      matches.push({ line: index + 1, text: line.trim() });
+    });
+    if (matches.length > 0) records.push({ file: relative, matches });
+  }
+  return {
+    count: records.reduce((total, record) => total + record.matches.length, 0),
+    files: records
+  };
+}
+
+function collectComponentBootstrapRecords(filePaths, rootDir = ROOT_DIR) {
+  const records = [];
+  for (const relative of filePaths) {
+    const text = fs.readFileSync(path.resolve(rootDir, relative), 'utf8');
+    const requires = Array.from(text.matchAll(/require\s*\(\s*['"]([^'"]*js\/components\/[^'"]+)['"]\s*\)/g))
+      .map(match => match[1]);
+    if (requires.length > 0) records.push({ file: relative, requires });
+  }
+  return collectDirectComponentBootstraps(records);
 }
 
 function collectWorkerComponentTypes(rootDir = ROOT_DIR) {
@@ -118,6 +214,11 @@ function collectStaticInventory(rootDir = ROOT_DIR) {
     testTree,
     e2eTree
   };
+  const organization = summarizeTestOrganization([
+    ...jestFiles.map(file => ({ file, lines: readSourceLines(path.resolve(rootDir, file)) })),
+    ...e2eSpecs.map(file => ({ file, lines: readSourceLines(path.resolve(rootDir, file)) }))
+  ]);
+  const jestFileReads = collectJestFileReads(jestFiles, rootDir);
 
   return {
     files: {
@@ -134,6 +235,7 @@ function collectStaticInventory(rootDir = ROOT_DIR) {
       e2eSpecs: e2eSpecs.reduce((sum, file) => sum + readSourceLines(path.resolve(rootDir, file)), 0),
       e2eTree: e2eTree.reduce((sum, file) => sum + readSourceLines(path.resolve(rootDir, file)), 0)
     },
+    organization,
     patterns: {
       e2eWaitForTimeout: countMatches(e2eSpecs, /\bwaitForTimeout\s*\(/g, rootDir),
       e2eSetTimeout: countMatches(e2eSpecs, /\bsetTimeout\s*\(/g, rootDir),
@@ -142,18 +244,23 @@ function collectStaticInventory(rootDir = ROOT_DIR) {
       // synchronous element.click() calls used inside page.evaluate setup.
       e2eDirectDomClicks: countMatches(e2eSpecs, /(?<!await )\b(?:button|element|node)\.click\s*\(/g, rootDir),
       e2eSuppressedFailures: countMatches(e2eSpecs, /\.catch\(\s*\(\)\s*=>\s*\{\s*\}\s*\)/g, rootDir),
+      e2eArtifactWrites: collectArtifactWrites(e2eSpecs, rootDir),
       e2eContractWaitForTimeout: countMatches(contractSpecs, /\bwaitForTimeout\s*\(/g, rootDir),
       e2eContractSetTimeout: countMatches(contractSpecs, /(?<![\w.])setTimeout\s*\(/g, rootDir),
       e2eContractSuppressedFailures: countMatches(contractSpecs, /\.catch\(\s*\(\)\s*=>\s*\{\s*\}\s*\)/g, rootDir),
-      jestProductionRequires: countMatches(jestFiles, /require\(\s*['"]\.\.\/js\//g, rootDir),
+      jestProductionRequires: countMatches(jestFiles, /require\(\s*['"](?:\.\.\/)+js\//g, rootDir),
       jestBeforeEach: countMatches(jestFiles, /\bbeforeEach\s*\(/g, rootDir),
       jestAfterEach: countMatches(jestFiles, /\bafterEach\s*\(/g, rootDir),
-      jestSourceReads: countMatches(jestFiles, /\breadFileSync\s*\(/g, rootDir),
+      jestFileReads,
+      jestSourceReads: jestFileReads.sourceContracts,
+      jestFixtureReads: jestFileReads.fixtures,
+      jestGeneratedArtifactReads: jestFileReads.generatedArtifacts,
       conditionalSkips: countMatches([...jestFiles, ...e2eSpecs], /\btest\.skip\s*\(/g, rootDir),
       skipDeclarations: collectLineMatches([...jestFiles, ...e2eSpecs], /\btest\.skip\s*\(/g, rootDir),
       fixmes: countMatches([...jestFiles, ...e2eSpecs], /\b(?:test|describe)\.fixme\s*\(/g, rootDir),
-      fixedScratchPaths: countMatches(e2eSpecs, /path\.resolve\(__dirname,\s*['"]\.tmp/g, rootDir),
-      componentMatrixArrays: countMatches([...testTree, ...e2eTree], /COMPONENT_MATRIX\s*=\s*\[/g, rootDir)
+      fixedScratchPaths: countMatches(e2eSpecs, /path\.resolve\(__dirname,\s*(?:['"]\.\.['"],\s*)?['"]\.tmp[^'"]*['"]\s*\)/g, rootDir),
+      componentMatrixArrays: countMatches([...testTree, ...e2eTree], /COMPONENT_MATRIX\s*=\s*\[/g, rootDir),
+      directComponentBootstraps: collectComponentBootstrapRecords(jestFiles, rootDir)
     },
     catalog: {
       count: COMPONENT_CATALOG.length,
@@ -258,6 +365,14 @@ function validateInventory(inventory) {
   const failures = [];
   const staticData = inventory.static;
   const discovery = inventory.discovery;
+  const incompleteScenarioMetadata = SCENARIO_CATALOG
+    .filter(scenario => !(scenario.requirement && scenario.capability && scenario.evidence))
+    .map(scenario => scenario.id);
+  if (incompleteScenarioMetadata.length > 0) {
+    failures.push(`scenario catalog entries lack explicit requirement metadata: ${incompleteScenarioMetadata.join(', ')}`);
+  }
+  failures.push(...validateTestOrganization(staticData.organization));
+  failures.push(...validatePartialBootstrapReview(staticData.patterns.directComponentBootstraps));
   const discoveredJest = new Set(discovery.jest.paths);
   const missingJest = staticData._files.jestTests.filter(file => !discoveredJest.has(file));
   if (staticData.files.orphanJestSpecs > 0) {
@@ -323,20 +438,11 @@ function validateInventory(inventory) {
     if (inventory.manifest.entries.length !== discovery.jest.files + staticData.files.e2eSpecs) {
       failures.push('generated manifest does not cover every discovered test file');
     }
-    if (inventory.manifest.summary.unmapped > LEGACY_UNMAPPED_BASELINE) {
-      failures.push(`legacy-unmapped test count increased from ${LEGACY_UNMAPPED_BASELINE} to ${inventory.manifest.summary.unmapped}`);
-    }
-    const allowedUnmapped = new Set(INTENTIONALLY_UNMAPPED_FILES);
     const unmapped = inventory.manifest.entries
       .filter(entry => entry.status === 'legacy-unmapped')
       .map(entry => entry.file);
-    const unexpected = unmapped.filter(file => !allowedUnmapped.has(file));
-    const missingAllowed = INTENTIONALLY_UNMAPPED_FILES.filter(file => !unmapped.includes(file));
-    if (unexpected.length > 0) {
-      failures.push(`unmapped discovered tests require reviewed scenario IDs: ${unexpected.join(', ')}`);
-    }
-    if (missingAllowed.length > 0) {
-      failures.push(`intentional unmapped allowlist no longer matches discovery: ${missingAllowed.join(', ')}`);
+    if (unmapped.length > 0) {
+      failures.push(`unmapped discovered tests require reviewed scenario IDs: ${unmapped.join(', ')}`);
     }
   }
   return failures;
@@ -368,6 +474,7 @@ function printHuman(inventory, check) {
   console.log(`Playwright: Chromium ${discovery.playwright.chromium.tests} tests / ${discovery.playwright.chromium.files} files; Firefox discovery deferred`);
   console.log(`E2E waits: waitForTimeout=${staticData.patterns.e2eWaitForTimeout.count}, setTimeout=${staticData.patterns.e2eSetTimeout.count}`);
   console.log(`E2E shortcuts: direct DOM clicks=${staticData.patterns.e2eDirectDomClicks.count}, suppressed failures=${staticData.patterns.e2eSuppressedFailures.count}, contract waits=${staticData.patterns.e2eContractWaitForTimeout.count}, contract timers=${staticData.patterns.e2eContractSetTimeout.count}`);
+  console.log(`Jest file reads: source contracts=${staticData.patterns.jestSourceReads.count}, fixtures=${staticData.patterns.jestFixtureReads.count}, generated artifacts=${staticData.patterns.jestGeneratedArtifactReads.count}`);
   console.log(`Catalog: ${staticData.catalog.types.join(', ')}`);
   console.log(`Manifest: ${inventory.manifest.summary.total} files, ${inventory.manifest.summary.unmapped} legacy-unmapped`);
   const requirementEvidence = inventory.manifest.summary.requirementEvidence;
@@ -406,7 +513,6 @@ if (require.main === module) {
 
 module.exports = {
   EXPECTED_COMPONENT_TYPES,
-  INTENTIONALLY_UNMAPPED_FILES,
   collectStaticInventory,
   collectFrameworkDiscovery,
   findDuplicateJestProjectPaths,

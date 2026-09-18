@@ -372,73 +372,6 @@
     styleChipValueEl.textContent = formatThicknessChipValue(thicknessValue == null ? 0 : thicknessValue);
   }
 
-  function clearStylePickerSection(overlayEl){
-    if(!overlayEl || !overlayEl.querySelectorAll){
-      return;
-    }
-    overlayEl.querySelectorAll('.shared-color-picker__section--additional-line-style').forEach(node => node.remove());
-  }
-
-  function attachStylePickerThicknessSection(overlayEl){
-    if(!overlayEl){
-      return () => {};
-    }
-    clearStylePickerSection(overlayEl);
-    const controls = resolveControls(activeConfig || {});
-    const section = overlayEl.ownerDocument.createElement('section');
-    section.className = 'shared-color-picker__section shared-color-picker__section--scatter-style shared-color-picker__section--additional-line-style';
-    const title = overlayEl.ownerDocument.createElement('div');
-    title.className = 'shared-color-picker__section-title';
-    title.textContent = controls.thicknessLabel || 'Line width';
-    section.appendChild(title);
-    const row = overlayEl.ownerDocument.createElement('div');
-    row.className = 'shared-color-picker__scatter-style-row shared-color-picker__scatter-style-row--single';
-    const field = overlayEl.ownerDocument.createElement('label');
-    field.className = 'shared-color-picker__scatter-style-field';
-    const input = overlayEl.ownerDocument.createElement('input');
-    input.className = 'shared-color-picker__scatter-style-input';
-    input.type = 'number';
-    input.min = thicknessInput?.min || '0';
-    input.max = thicknessInput?.max || '10';
-    input.step = thicknessInput?.step || '0.25';
-    const toolbarApi = Shared.getWorkspaceToolbarApi?.() || Shared.workspaceToolbar || null;
-    const rawValue = thicknessInput?.value || '0';
-    input.value = toolbarApi?.formatPxDisplayValue?.(rawValue, input.step)
-      || toolbarApi?.formatNumericValue?.(rawValue, input.step, { maxPrecision: 2 })
-      || rawValue;
-    input.setAttribute('aria-label', controls.thicknessLabel || 'Line width');
-    const mirrorCleanup = typeof toolbarApi?.bindNumericInputMirror === 'function'
-      ? toolbarApi.bindNumericInputMirror(input, thicknessInput)
-      : (() => {
-          const onInput = () => {
-            if(!thicknessInput){ return; }
-            thicknessInput.value = input.value;
-            thicknessInput.dispatchEvent(new Event('input', { bubbles: true }));
-          };
-          const onChange = () => {
-            if(!thicknessInput){ return; }
-            thicknessInput.value = input.value;
-            thicknessInput.dispatchEvent(new Event('change', { bubbles: true }));
-          };
-          input.addEventListener('input', onInput);
-          input.addEventListener('change', onChange);
-          return () => {
-            input.removeEventListener('input', onInput);
-            input.removeEventListener('change', onChange);
-          };
-        })();
-    field.appendChild(input);
-    row.appendChild(field);
-    section.appendChild(row);
-    overlayEl.insertBefore(section, overlayEl.firstChild || null);
-    return () => {
-      mirrorCleanup();
-      if(section.parentNode){
-        section.parentNode.removeChild(section);
-      }
-    };
-  }
-
   function updatePanelInputs(config){
     if(!panelEl || !config || !thicknessInput || !colorInput || !patternSelect || !transparencyInput){
       return;
@@ -922,7 +855,19 @@
               }
             }
           });
-          stylePickerCleanup = attachStylePickerThicknessSection(overlayEl);
+          const toolbarApi = Shared.getWorkspaceToolbarApi();
+          const controls = resolveControls(activeConfig || {});
+          stylePickerCleanup = toolbarApi.attachColorPickerNumericSection(overlayEl, {
+            canonicalInput: thicknessInput,
+            title: controls.thicknessLabel || 'Line width',
+            ariaLabel: controls.thicknessLabel || 'Line width',
+            sectionClass: 'shared-color-picker__section--additional-line-style',
+            clearSelector: '.shared-color-picker__section--additional-line-style',
+            min: '0',
+            max: '10',
+            step: thicknessInput?.step || controls.thicknessStep || '0.25',
+            value: '0'
+          });
         });
       }else if(typeof Shared.attachColorPickerNear === 'function'){
         Shared.attachColorPickerNear(colorInput);

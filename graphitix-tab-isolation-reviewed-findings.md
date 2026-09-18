@@ -92,7 +92,7 @@ The previous audit correctly identified a durable A→B contamination path befor
 
 **Regression coverage added/extended**
 
-`e2e/venn.go-string.async-tab-isolation.spec.js` now covers owner retention for GO and STRING through deferred species resolution, deliberately different A/B analysis options, A→B→A stale-generation rejection, automatic analysis refresh across species await, automatic species cancellation on deactivation, STRING-overlay A→B ownership, overlay A→B→A stale rejection, and owner-safe overlay failure handling. `__tests__/venn.additionalTabOpen.test.js` was updated for the owner-scoped STRING-overlay request token.
+`e2e/venn/venn.go-string.async-tab-isolation.spec.js` now covers owner retention for GO and STRING through deferred species resolution, deliberately different A/B analysis options, A→B→A stale-generation rejection, automatic analysis refresh across species await, automatic species cancellation on deactivation, STRING-overlay A→B ownership, overlay A→B→A stale rejection, and owner-safe overlay failure handling. `__tests__/integration/venn.additionalTabOpen.test.js` was updated for the owner-scoped STRING-overlay request token.
 
 These runtime tests were **not executed during this repair**; they are supplied for local certification. Static JavaScript syntax validation was performed on the modified source/spec.
 
@@ -205,7 +205,7 @@ The appropriate architecture is a lightweight owner-scoped revision journal/incr
 
 ### B. P2 — heavy mixed archive/recovery coverage remains parked
 
-Exactly two current `test.fixme` tests remain, both in `e2e/heavy.mixed-tabs.reopen-recovery.canvas.spec.js`:
+Exactly two current `test.fixme` tests remain, both in `e2e/recovery/heavy.mixed-tabs.reopen-recovery.canvas.spec.js`:
 
 - mixed heavy Scatter tabs + heavy Box archive reopen (`:1012`)
 - mixed heavy Scatter tabs + heavy Box crash recovery (`:1033`)

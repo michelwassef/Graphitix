@@ -32,9 +32,28 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       - name: Run full workspace matrix
-        run: npm run test:e2e:matrix -- --project=chromium
+        run: npm run test:lane -- --lane e2e-matrix --report-file artifacts/test-reports/e2e-matrix.json
 
-      - name: Upload Playwright artifacts
+      - name: Run repeated randomized owner-order contracts
+        run: npm run test:lane -- --lane e2e-owner-order --report-file artifacts/test-reports/e2e-owner-order.json
+
+      - name: Aggregate nightly test trend report
+        if: always()
+        run: node scripts/aggregate-test-trends.cjs --report artifacts/test-reports/e2e-matrix.json --report artifacts/test-reports/e2e-owner-order.json --artifact-root test-results --artifact-root playwright-report --output artifacts/test-reports/e2e-trend.json
+
+      - name: Upload required lane report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-report-e2e-matrix
+          path: |
+            artifacts/test-reports/e2e-matrix.json
+            artifacts/test-reports/e2e-owner-order.json
+            artifacts/test-reports/e2e-trend.json
+          retention-days: 14
+          if-no-files-found: error
+
+      - name: Upload optional Playwright diagnostics
         if: always()
         uses: actions/upload-artifact@v7
         with:
@@ -44,3 +63,4 @@ jobs:
             test-results
             artifacts/perf-summaries
           if-no-files-found: ignore
+          retention-days: 14

@@ -60,40 +60,42 @@ describe('owner-payload driver persistence contract', () => {
     expect(body).toContain('Require a semantic association');
   });
 
-  test('primitive types and explicit enums win before generic select fallback', () => {
-    const body = functionBody('function buildAlternative(', 'function isPersistentParameterControl(');
-    const selectIndex = body.indexOf('if(el instanceof global.HTMLSelectElement)');
-    const numericIndex = body.indexOf("if(typeof current === 'number' && Number.isFinite(current))");
-    const booleanIndex = body.indexOf("if(typeof current === 'boolean')");
-
-    expect(selectIndex).toBeGreaterThan(-1);
-    expect(numericIndex).toBeGreaterThan(-1);
-    expect(booleanIndex).toBeGreaterThan(-1);
-    expect(numericIndex).toBeLessThan(selectIndex);
-    expect(booleanIndex).toBeLessThan(selectIndex);
-    expect(body).toContain("key === 'config.stats.posthoc'");
-    expect(body).toContain("source: 'select'");
-  });
-
-  test('component-specific applicability excludes structural and forced state without dropping active controls', () => {
+  test('parameter discovery requires an explicit component mutation plan', () => {
     const body = functionBody('async function discover(', 'function describeError(');
 
-    expect(body).toContain("if(type === 'hist')");
-    expect(body).toContain('inactive-or-structural-hist-state');
-    expect(body).toContain("if(type === 'pie')");
-    expect(body).toContain('derived-pie-stats-compatibility-projection');
-    expect(body).toContain('forced-pie-aspect-state');
-    expect(body).toContain('inactive-survival-advisor-answer');
+    expect(body).toContain('explicit mutation plan is required');
+    expect(body).toContain('discoverExplicitParameters(type, baseline, options.mutationPlan)');
+    expect(body).not.toContain('collectLeaves');
+    expect(body).not.toContain('buildAlternative');
+  });
+
+  test('matrix entry points reject missing mutation plans instead of using a legacy path', () => {
+    const persistence = functionBody('api.runPersistenceMatrix = async function runPersistenceMatrix(', 'api.runSameTypeIsolation = async function runSameTypeIsolation(');
+    const sameType = functionBody('api.runSameTypeIsolation = async function runSameTypeIsolation(', 'api.USER_ROOTS = USER_ROOTS;');
+
+    expect(persistence).toContain('explicit mutation plan is required for persistence matrix');
+    expect(sameType).toContain('explicit mutation plan is required for same-type isolation');
+    expect(sameType).not.toContain('legacy discovery path');
+    expect(sameType).not.toContain('mutationPlan ? clone');
+  });
+
+  test('component-specific applicability is declared by the mutation catalog', () => {
+    const body = functionBody('async function discover(', 'function describeError(');
+
+    expect(body).toContain('options.mutationPlan');
+    expect(body).toContain('mutationPlanId');
+    expect(body).not.toContain('inactive-or-structural');
+    expect(body).not.toContain('inactive-survival-advisor-answer');
   });
 
   test('active shared-toolbar controls participate in exact DOM witness mapping', () => {
-    const controlBody = functionBody('function domObservableControlEntries(', 'function readControlPrimitive(');
-    const domBody = functionBody('function controlObservableKey(', 'function flattenPrimitives(');
+    const controlBody = functionBody('function domObservableControlEntries(', 'function flattenPrimitives(');
+    const domBody = functionBody('function captureDomObservables(', 'function flattenPrimitives(');
 
     expect(controlBody).toContain('parameterControlCandidates(root)');
     expect(controlBody).toContain('getClientRects?.().length > 0');
     expect(domBody).toContain('domObservableControlEntries(root)');
-    expect(domBody).toContain("entry.external ? 'active-ui:' : ''");
+    expect(domBody).toContain("external ? 'active-ui:' : ''");
     expect(domBody).toContain('data-parameter-p-value-scientific');
   });
 
@@ -104,16 +106,12 @@ describe('owner-payload driver persistence contract', () => {
     expect(body).toContain('__testHooks?.getSessionForTab?.(tabId)');
   });
 
-  test('conditional component state is excluded until its controlling mode is active', () => {
+  test('component discovery does not reconstruct conditional state from payload leaves', () => {
     const body = functionBody('async function discover(', 'function describeError(');
 
-    expect(body).toContain("/^style\\.upset(?:\\.|$)/i");
-    expect(body).toContain('inactive-scatter-stats-overlay-state');
-    expect(body).toContain("if(pcaMethod !== 'tsne')");
-    expect(body).toContain("if(pcaMethod !== 'umap')");
-    expect(body).toContain("seriesLayout?.display || 'overlay'");
-    expect(body).toContain('inactive-shared-stats-reporting-control');
-    expect(body).toContain("baseline?.config?.logScale !== true");
+    expect(body).toContain('discoverExplicitParameters(type, baseline, options.mutationPlan)');
+    expect(body).not.toContain('collectLeaves');
+    expect(body).not.toContain('parameters.forEach(parameter => {');
   });
 
   test('normalizing and mutually dependent settings are isolated into deterministic batches', () => {

@@ -952,7 +952,7 @@
       for(let rowIndex = 1; rowIndex < rows.length; rowIndex += 1){
         const row = rows[rowIndex];
         if(!Array.isArray(row)) continue;
-        const numeric = Number.parseFloat(row[colIndex]);
+        const numeric = Shared.dataTransforms?.toFiniteNumber?.(row[colIndex]);
         if(Number.isFinite(numeric)){
           hasNumeric = true;
           break;

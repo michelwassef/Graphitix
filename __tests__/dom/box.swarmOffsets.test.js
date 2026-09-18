@@ -1,0 +1,1227 @@
+const { ensureMainSession, ensureWorkspaceTabs, initializeWorkspaceHarness } = require('../setup/workspaceHarness');
+const { loadComponentTestBootstrap } = require('../../test-support/componentTestBootstrap');
+
+describe('Box swarm offset constraints', () => {
+  let hooks;
+
+  function bindBoxWorkspaceRoot(root, tabId = 'workspace-test'){
+    ensureWorkspaceTabs({
+      getMountedRoot: () => root
+    });
+    const { session } = ensureMainSession({
+      workspaceState: { tabs: [], activeTabId: tabId },
+      activeTab: { id: tabId, type: 'box' }
+    });
+    session.getActiveTab.mockReturnValue({ id: tabId, type: 'box' });
+    if(window.Components?.box){
+      window.Components.box.__boundTabId = tabId;
+    }
+  }
+
+  function hasOverlap(result, coordsInput, minDistanceFactor = 2){
+    const offsets = Array.isArray(result?.offsets) ? result.offsets : [];
+    const coords = (Array.isArray(coordsInput) || ArrayBuffer.isView(coordsInput)) ? coordsInput : [];
+    const radius = Number(result?.adjustedRadius);
+    if(!offsets.length || !Number.isFinite(radius) || radius <= 0){
+      return false;
+    }
+    const spacingFactor = Number.isFinite(Number(minDistanceFactor)) && Number(minDistanceFactor) > 0
+      ? Number(minDistanceFactor)
+      : 2;
+    const minDistance = radius * spacingFactor - 1e-6;
+    const minDistanceSq = minDistance * minDistance;
+    for(let i = 0; i < offsets.length; i += 1){
+      const ax = Number(offsets[i]) || 0;
+      const ay = Number(coords[i]) || 0;
+      for(let j = i + 1; j < offsets.length; j += 1){
+        const bx = Number(offsets[j]) || 0;
+        const by = Number(coords[j]) || 0;
+        const dx = bx - ax;
+        const dy = by - ay;
+        if(dx * dx + dy * dy < minDistanceSq){
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  beforeAll(() => {
+    jest.resetModules();
+    initializeWorkspaceHarness();
+    loadComponentTestBootstrap('box');
+    hooks = window.Components?.box?.__testHooks;
+  });
+
+  test('dense point canvas preview is restricted to large traces or explicit renderer requests', () => {
+    expect(hooks).toBeDefined();
+    expect(typeof hooks.shouldUseBoxPointCanvasPreview).toBe('function');
+    expect(hooks.shouldUseBoxPointCanvasPreview({ viewOnly: true, reason: 'resize' }, { pointCount: 100 })).toBe(false);
+    expect(hooks.shouldUseBoxPointCanvasPreview({ viewOnly: true, reason: 'resize-live' }, { pointCount: 100 })).toBe(false);
+    expect(hooks.shouldUseBoxPointCanvasPreview({ viewOnly: true, reason: 'resize-observe' }, { pointCount: 100 })).toBe(false);
+    expect(hooks.shouldUseBoxPointCanvasPreview({ viewOnly: false, reason: 'resize' }, { pointCount: 1800, threshold: 1200 })).toBe(true);
+    expect(hooks.shouldUseBoxPointCanvasPreview({ viewOnly: true, reason: 'significance-viewport-extension' }, { pointCount: 1800, threshold: 1200 })).toBe(true);
+    expect(hooks.shouldUseBoxPointCanvasPreview({ viewOnly: true, reason: 'font-style-change' }, { pointCount: 100, threshold: 1200 })).toBe(false);
+    expect(hooks.shouldUseBoxPointCanvasPreview({ viewOnly: false, reason: 'resize-live' }, { pointCount: 100, threshold: 1200 })).toBe(false);
+    expect(hooks.shouldUseBoxPointCanvasPreview({ pointRenderer: 'canvas' })).toBe(true);
+    expect(hooks.shouldUseBoxPointCanvasPreview({ pointRenderer: 'svg', viewOnly: false, reason: 'resize' }, { pointCount: 1800, threshold: 1200 })).toBe(false);
+  });
+
+  test('swarm worker gate only enables for large traces when workers are supported', () => {
+    expect(hooks).toBeDefined();
+    expect(typeof hooks.shouldUseBoxSwarmWorker).toBe('function');
+    const shared = window.Shared = window.Shared || {};
+    const originalWorkers = shared.Workers;
+    try{
+      shared.Workers = {
+        runTask: jest.fn(),
+        isSupported: () => true
+      };
+      expect(hooks.shouldUseBoxSwarmWorker(999)).toBe(false);
+      expect(hooks.shouldUseBoxSwarmWorker(1000)).toBe(true);
+      shared.Workers = {
+        runTask: jest.fn(),
+        isSupported: () => false
+      };
+      expect(hooks.shouldUseBoxSwarmWorker(5000)).toBe(false);
+      shared.Workers = {
+        isSupported: () => true
+      };
+      expect(hooks.shouldUseBoxSwarmWorker(5000)).toBe(false);
+    }finally{
+      shared.Workers = originalWorkers;
+    }
+  });
+
+  test('huge-trace density canvas gate only enables for very large non-indexed traces', () => {
+    expect(hooks).toBeDefined();
+    expect(typeof hooks.shouldUseBoxDensityPointCanvas).toBe('function');
+    expect(hooks.shouldUseBoxDensityPointCanvas({ pointCount: 8000, threshold: 8000 })).toBe(false);
+    expect(hooks.shouldUseBoxDensityPointCanvas({ pointCount: 9001, threshold: 8000 })).toBe(true);
+    expect(hooks.shouldUseBoxDensityPointCanvas({
+      pointCount: 12000,
+      threshold: 8000,
+      collectsPointByRow: true
+    })).toBe(false);
+  });
+
+  test('huge-trace density bins compress dense point clouds deterministically', () => {
+    expect(hooks).toBeDefined();
+    expect(typeof hooks.buildBoxDensityPointLayout).toBe('function');
+    const pointCount = 12000;
+    const coords = new Float64Array(pointCount);
+    const raws = new Float64Array(pointCount);
+    for(let idx = 0; idx < pointCount; idx += 1){
+      const band = idx % 240;
+      coords[idx] = 100 + band * 0.28;
+      raws[idx] = 50 + band * 0.5;
+    }
+    const layout = hooks.buildBoxDensityPointLayout({
+      coords,
+      raws,
+      orientation: 'vertical',
+      radius: 3,
+      maxHalfWidth: 48,
+      widthScaleMode: 'density'
+    });
+    expect(layout).toBeTruthy();
+    expect(layout.orientation).toBe('vertical');
+    expect(Array.isArray(layout.bins)).toBe(true);
+    expect(layout.bins.length).toBeGreaterThan(0);
+    expect(layout.bins.length).toBeLessThan(pointCount / 10);
+    expect(Number.isFinite(Number(layout.thickness))).toBe(true);
+    expect(Number(layout.thickness)).toBeGreaterThan(0);
+    expect(Number.isFinite(Number(layout.maxOffsetUsed))).toBe(true);
+    expect(Number(layout.maxOffsetUsed)).toBeGreaterThan(0);
+    expect(layout.bins[0].coord).toBeLessThanOrEqual(layout.bins[layout.bins.length - 1].coord);
+  });
+
+  test('huge-trace density layout stores one offset per source point', () => {
+    expect(hooks).toBeDefined();
+    expect(typeof hooks.buildBoxDensityPointLayout).toBe('function');
+    const coords = new Float64Array(9000);
+    for(let idx = 0; idx < coords.length; idx += 1){
+      coords[idx] = 160 + Math.sin(idx / 90) * 18 + ((idx % 300) - 150) * 0.035;
+    }
+    const layout = hooks.buildBoxDensityPointLayout({
+      coords,
+      raws: coords,
+      orientation: 'vertical',
+      radius: 1,
+      maxHalfWidth: 32,
+      widthScaleMode: 'density'
+    });
+    expect(layout).toBeTruthy();
+    expect(ArrayBuffer.isView(layout.offsets)).toBe(true);
+    expect(layout.offsets.length).toBe(coords.length);
+    expect(layout.bins.length).toBeLessThan(coords.length / 10);
+    expect(Number(layout.bandwidth)).toBeGreaterThan(Number(layout.binSize));
+    expect(Number(layout.maxOffsetUsed)).toBeGreaterThan(1);
+  });
+
+  test('huge-trace density layout tapers sparse tails instead of enforcing a chimney floor', () => {
+    expect(hooks).toBeDefined();
+    expect(typeof hooks.buildBoxDensityPointLayout).toBe('function');
+    const coords = new Float64Array(9001);
+    for(let idx = 0; idx < 9000; idx += 1){
+      coords[idx] = 220 + Math.sin(idx / 50) * 28 + ((idx % 240) - 120) * 0.04;
+    }
+    coords[9000] = 1050;
+    const layout = hooks.buildBoxDensityPointLayout({
+      coords,
+      raws: coords,
+      orientation: 'vertical',
+      radius: 1,
+      maxHalfWidth: 36,
+      widthScaleMode: 'density'
+    });
+    expect(layout).toBeTruthy();
+    const coreMax = layout.bins.reduce((max, bin) => Math.max(max, Number(bin.halfWidth) || 0), 0);
+    const outlierBin = layout.bins.reduce((closest, bin) => {
+      if(!closest){ return bin; }
+      return Math.abs(Number(bin.coord) - 1050) < Math.abs(Number(closest.coord) - 1050) ? bin : closest;
+    }, null);
+    expect(coreMax).toBeGreaterThan(20);
+    expect(Number(outlierBin?.halfWidth) || 0).toBeLessThan(0.5);
+    expect(Math.abs(Number(layout.offsets[9000]) || 0)).toBeLessThan(0.01);
+  });
+
+  test('huge-trace density layout tapers at observed data boundaries', () => {
+    expect(hooks).toBeDefined();
+    expect(typeof hooks.buildBoxDensityPointLayout).toBe('function');
+    const coords = new Float64Array(10000);
+    for(let idx = 0; idx < coords.length; idx += 1){
+      coords[idx] = 100 + Math.pow(idx / (coords.length - 1), 1.6) * 420;
+    }
+    const layout = hooks.buildBoxDensityPointLayout({
+      coords,
+      raws: coords,
+      orientation: 'vertical',
+      radius: 1,
+      maxHalfWidth: 40,
+      widthScaleMode: 'density'
+    });
+    expect(layout).toBeTruthy();
+    const minCoord = 100;
+    const edgeBin = layout.bins.reduce((closest, bin) => {
+      if(!closest){ return bin; }
+      return Math.abs(Number(bin.coord) - minCoord) < Math.abs(Number(closest.coord) - minCoord) ? bin : closest;
+    }, null);
+    const interiorCoord = minCoord + Number(layout.bandwidth);
+    const interiorBin = layout.bins.reduce((closest, bin) => {
+      if(!closest){ return bin; }
+      return Math.abs(Number(bin.coord) - interiorCoord) < Math.abs(Number(closest.coord) - interiorCoord) ? bin : closest;
+    }, null);
+    expect(Number(edgeBin?.halfWidth) || 0).toBeLessThan(0.5);
+    expect(Number(interiorBin?.halfWidth) || 0).toBeGreaterThan(Number(edgeBin?.halfWidth) || 0);
+    expect(Math.abs(Number(layout.offsets[0]) || 0)).toBeLessThan(0.01);
+    expect(Math.abs(Number(layout.offsets[layout.offsets.length - 1]) || 0)).toBeLessThan(0.01);
+  });
+
+  test('huge-trace density centers preserve selected symbol geometry', () => {
+    expect(hooks).toBeDefined();
+    expect(typeof hooks.buildBoxDensityPointCenters).toBe('function');
+    const centers = hooks.buildBoxDensityPointCenters({
+      bins: [
+        { coord: 100, halfWidth: 12, count: 20 },
+        { coord: 116, halfWidth: 6, count: 4 }
+      ],
+      orientation: 'vertical',
+      center: 240,
+      radius: 3
+    });
+    expect(Array.isArray(centers)).toBe(true);
+    expect(centers.length).toBeGreaterThan(2);
+    expect(centers.some(point => point.x < 240)).toBe(true);
+    expect(centers.some(point => point.x > 240)).toBe(true);
+    expect(centers.every(point => Number.isFinite(point.x) && Number.isFinite(point.y))).toBe(true);
+  });
+
+  test('huge-trace density center count is independent from visual point size', () => {
+    expect(hooks).toBeDefined();
+    expect(typeof hooks.buildBoxDensityPointCenters).toBe('function');
+    const bins = [{ coord: 100, halfWidth: 24, count: 100 }];
+    const small = hooks.buildBoxDensityPointCenters({
+      bins,
+      orientation: 'vertical',
+      center: 200,
+      radius: 1,
+      spacingRadius: 1
+    });
+    const large = hooks.buildBoxDensityPointCenters({
+      bins,
+      orientation: 'vertical',
+      center: 200,
+      radius: 6,
+      spacingRadius: 1
+    });
+    expect(small.length).toBeGreaterThan(1);
+    expect(large.length).toBe(small.length);
+  });
+
+  test('canvas-density renderer draws every source datum', () => {
+    expect(hooks).toBeDefined();
+    expect(typeof hooks.renderStoredBoxCanvasPointGroup).toBe('function');
+    const originalGetContext = window.HTMLCanvasElement.prototype.getContext;
+    let arcCount = 0;
+    window.HTMLCanvasElement.prototype.getContext = jest.fn(() => ({
+      setTransform: jest.fn(),
+      beginPath: jest.fn(),
+      moveTo: jest.fn(),
+      arc: jest.fn(() => { arcCount += 1; }),
+      fill: jest.fn(),
+      stroke: jest.fn(),
+      set fillStyle(_value) {},
+      set strokeStyle(_value) {},
+      set lineWidth(_value) {},
+      set globalAlpha(_value) {},
+      set lineCap(_value) {},
+      set lineJoin(_value) {}
+    }));
+    try{
+      const coords = new Float64Array([100, 100, 100, 100, 100, 100, 100]);
+      const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+      group.setAttribute('data-export-layer', 'box-points');
+      group.__boxCanvasRenderState = {
+        renderer: 'canvas-density',
+        bins: [{ coord: 100, halfWidth: 12, count: coords.length, binIndex: 100 }],
+        hitBins: [{ coord: 100, halfWidth: 12, count: coords.length, binIndex: 100 }],
+        orientation: 'vertical',
+        center: 200,
+        thickness: 2,
+        traceIndex: 0,
+        pointRadius: 2,
+        shape: 'circle',
+        hitCenter: 200,
+        hitOrientation: 'vertical',
+        hitStrokeWidth: 20,
+        approximation: {
+          coords,
+          raws: coords,
+          maxHalfWidth: 12,
+          layoutRadius: 1,
+          binSize: 1,
+          widthScaleMode: 'density'
+        },
+        style: {
+          fill: '#111111',
+          fillOpacity: 1,
+          stroke: '#222222',
+          strokeWidth: 0,
+          strokeOpacity: 1
+        }
+      };
+      expect(hooks.renderStoredBoxCanvasPointGroup(group)).toBe(true);
+      expect(arcCount).toBe(coords.length);
+      expect(group.querySelector('foreignObject[data-point-renderer="canvas-density"]')).toBeTruthy();
+    }finally{
+      window.HTMLCanvasElement.prototype.getContext = originalGetContext;
+    }
+  });
+
+  test('canvas-density source layout interpolates density width between bins', () => {
+    expect(hooks).toBeDefined();
+    expect(typeof hooks.resolveBoxDensityHalfWidthForCoord).toBe('function');
+    const config = {
+      bins: [
+        { coord: 0, halfWidth: 10 },
+        { coord: 10, halfWidth: 30 }
+      ],
+      binSize: 10
+    };
+    expect(hooks.resolveBoxDensityHalfWidthForCoord(config, 0)).toBeCloseTo(10, 5);
+    expect(hooks.resolveBoxDensityHalfWidthForCoord(config, 5)).toBeCloseTo(20, 5);
+    expect(hooks.resolveBoxDensityHalfWidthForCoord(config, 10)).toBeCloseTo(30, 5);
+  });
+
+  test('canvas-density live shape and size changes update render state without rebuilding density layout', () => {
+    expect(hooks).toBeDefined();
+    expect(typeof hooks.applyBoxCanvasPointGroupStyleLive).toBe('function');
+    const originalGetContext = window.HTMLCanvasElement.prototype.getContext;
+    const ops = [];
+    window.HTMLCanvasElement.prototype.getContext = jest.fn(() => ({
+      setTransform: jest.fn(),
+      beginPath: jest.fn(() => ops.push('begin')),
+      moveTo: jest.fn((x, y) => ops.push(['moveTo', x, y])),
+      lineTo: jest.fn((x, y) => ops.push(['lineTo', x, y])),
+      closePath: jest.fn(() => ops.push('close')),
+      arc: jest.fn((x, y, radius) => ops.push(['arc', x, y, radius])),
+      rect: jest.fn((x, y, width, height) => ops.push(['rect', x, y, width, height])),
+      fill: jest.fn(() => ops.push('fill')),
+      stroke: jest.fn(() => ops.push('stroke')),
+      set fillStyle(value){ ops.push(['fillStyle', value]); },
+      set strokeStyle(value){ ops.push(['strokeStyle', value]); },
+      set lineWidth(value){ ops.push(['lineWidth', value]); },
+      set globalAlpha(value){ ops.push(['globalAlpha', value]); },
+      set lineCap(value){ ops.push(['lineCap', value]); },
+      set lineJoin(value){ ops.push(['lineJoin', value]); }
+    }));
+    try{
+      const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+      group.setAttribute('data-export-layer', 'box-points');
+      group.setAttribute('data-trace', '0');
+      const coords = new Float64Array(120);
+      for(let idx = 0; idx < coords.length; idx += 1){
+        coords[idx] = 100 + idx * 0.25;
+      }
+      const initial = hooks.buildBoxDensityPointLayout({
+        coords,
+        raws: coords,
+        orientation: 'vertical',
+        radius: 3,
+        maxHalfWidth: 20,
+        widthScaleMode: 'density'
+      });
+      const initialCenterCount = hooks.buildBoxDensityPointCenters({
+        bins: initial.bins,
+        orientation: 'vertical',
+        center: 200,
+        radius: 3,
+        spacingRadius: 3
+      }).length;
+      group.__boxCanvasRenderState = {
+        renderer: 'canvas-density',
+        bins: initial.bins,
+        hitBins: initial.bins,
+        orientation: 'vertical',
+        center: 200,
+        thickness: initial.thickness,
+        traceIndex: 0,
+        pointRadius: 3,
+        shape: 'circle',
+        hitCenter: 200,
+        hitOrientation: 'vertical',
+        hitStrokeWidth: 20,
+        approximation: {
+          coords,
+          raws: coords,
+          maxHalfWidth: 20,
+          layoutRadius: 3,
+          widthScaleMode: 'density'
+        },
+        style: {
+          fill: '#111111',
+          fillOpacity: 1,
+          stroke: '#222222',
+          strokeWidth: 1,
+          strokeOpacity: 1
+        }
+      };
+      const applied = hooks.applyBoxCanvasPointGroupStyleLive(group, { shape: 'diamond', size: 6 });
+      expect(applied).toBe(true);
+      expect(group.__boxCanvasRenderState.shape).toBe('diamond');
+      expect(group.__boxCanvasRenderState.pointRadius).toBe(6);
+      expect(group.__boxCanvasRenderState.thickness).toBeCloseTo(initial.thickness, 5);
+      expect(group.__boxCanvasRenderState.bins).toBe(initial.bins);
+      expect(hooks.buildBoxDensityPointCenters({
+        bins: group.__boxCanvasRenderState.bins,
+        orientation: 'vertical',
+        center: 200,
+        radius: 6,
+        spacingRadius: group.__boxCanvasRenderState.approximation.layoutRadius
+      }).length).toBe(initialCenterCount);
+      expect(group.getAttribute('data-shape')).toBe('diamond');
+      expect(group.getAttribute('data-point-size')).toBe('12');
+      expect(ops.some(entry => Array.isArray(entry) && entry[0] === 'lineTo')).toBe(true);
+      expect(ops.some(entry => Array.isArray(entry) && entry[0] === 'arc')).toBe(false);
+    }finally{
+      window.HTMLCanvasElement.prototype.getContext = originalGetContext;
+    }
+  });
+
+  test('box point toolbar size reports rendered auto radius and exact manual radius', () => {
+    expect(hooks).toBeDefined();
+    expect(typeof hooks.resolveBoxToolbarPointSizeValue).toBe('function');
+    const proxy = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    proxy.setAttribute('data-point-size', '5.8');
+    expect(hooks.resolveBoxToolbarPointSizeValue({ size: 5, sizeMode: 'auto' }, proxy)).toBeCloseTo(2.9, 5);
+    expect(hooks.resolveBoxToolbarPointSizeValue({ size: 2.9, sizeMode: 'manual' }, proxy)).toBeCloseTo(2.9, 5);
+  });
+
+  test('box point size mode separates auto sizing from manual values, including legacy state', () => {
+    expect(typeof hooks.resolveBoxPointSizeSpec).toBe('function');
+    expect(hooks.resolveBoxPointSizeSpec({ size: 5 }, null)).toMatchObject({ mode: 'auto', size: null });
+    expect(hooks.resolveBoxPointSizeSpec({ size: 5, sizeMode: 'manual' }, null)).toMatchObject({ mode: 'manual', size: 5 });
+    expect(hooks.resolveBoxPointSizeSpec({ size: 5, sizeMode: 'auto' }, { size: 5 })).toMatchObject({ mode: 'manual', size: 5 });
+  });
+
+  test('manual box point radius is not rescaled after the toolbar value is committed', () => {
+    expect(typeof hooks.prepareSwarmPointLayoutConfig).toBe('function');
+    const layout = hooks.prepareSwarmPointLayoutConfig({
+      valueList: [1, 2, 3],
+      traceIndex: 0,
+      getPointStyle: () => ({ size: 2.9, sizeMode: 'manual' }),
+      hasExplicitPointSize: () => true,
+      pointRadius: 1.45,
+      scaleInfo: { scaleW: 0.5, scaleH: 0.5 },
+      autoSize: true,
+      allowRadiusAdjustment: false,
+      localBand: 30,
+      sampleCount: 3,
+      widthScaleMode: 'none',
+      debugLabel: 'individual',
+      canvasThreshold: Number.MAX_SAFE_INTEGER,
+      approximateThreshold: Number.MAX_SAFE_INTEGER,
+      coordProjector: value => value
+    });
+    expect(layout.resolvedRadius).toBeCloseTo(2.9, 5);
+    expect(layout.swarmPointRadius).toBeCloseTo(2.9, 5);
+  });
+
+  test('semantic point resize scale is invariant to axis flipping but reacts to real resize', () => {
+    expect(typeof hooks.resolveBoxSemanticPointResizeProfile).toBe('function');
+    const baseline = { baseCategorySpanPx: 220, baseValueSpanPx: 280 };
+    const vertical = hooks.resolveBoxSemanticPointResizeProfile({ categorySpanPx: 220, valueSpanPx: 280, orientation: 'vertical' }, baseline, null);
+    const horizontal = hooks.resolveBoxSemanticPointResizeProfile({ categorySpanPx: 220, valueSpanPx: 280, orientation: 'horizontal' }, baseline, null);
+    const shrunk = hooks.resolveBoxSemanticPointResizeProfile({ categorySpanPx: 132, valueSpanPx: 168 }, baseline, null);
+    expect(vertical.scale).toBeCloseTo(1, 5);
+    expect(horizontal.scale).toBeCloseTo(vertical.scale, 5);
+    expect(shrunk.scale).toBeCloseTo(0.6, 5);
+
+    const migratedWidthOnly = hooks.resolveBoxSemanticPointResizeProfile({
+      categorySpanPx: 110,
+      valueSpanPx: 280,
+      orientation: 'vertical'
+    }, null, { scaleW: 0.5, scaleH: 1 });
+    expect(migratedWidthOnly.scale).toBeCloseTo(0.5, 5);
+    expect(migratedWidthOnly.baseline).toEqual({
+      baseCategorySpanPx: 220,
+      baseValueSpanPx: 280
+    });
+    const migratedBackToDefault = hooks.resolveBoxSemanticPointResizeProfile({
+      categorySpanPx: 220,
+      valueSpanPx: 280,
+      orientation: 'vertical'
+    }, migratedWidthOnly.baseline, null);
+    expect(migratedBackToDefault.scale).toBeCloseTo(1, 5);
+
+    const migratedHorizontalWidthOnly = hooks.resolveBoxSemanticPointResizeProfile({
+      categorySpanPx: 280,
+      valueSpanPx: 110,
+      orientation: 'horizontal'
+    }, null, { scaleW: 0.5, scaleH: 1 });
+    expect(migratedHorizontalWidthOnly.scale).toBeCloseTo(0.5, 5);
+    expect(migratedHorizontalWidthOnly.baseline).toEqual({
+      baseCategorySpanPx: 280,
+      baseValueSpanPx: 220
+    });
+  });
+
+  test('point-sizing baseline survives payload layout normalization for reopen parity', () => {
+    expect(typeof hooks.normalizeBoxPayloadLayoutGeometry).toBe('function');
+    const normalized = hooks.normalizeBoxPayloadLayoutGeometry({
+      userFrameWidthPx: 420,
+      userFrameHeightPx: 380
+    }, {
+      frame: { widthPx: 420, heightPx: 380 },
+      pointSizing: { baseCategorySpanPx: 220, baseValueSpanPx: 280 }
+    });
+    expect(normalized.graphGeometry.pointSizing).toEqual({
+      baseCategorySpanPx: 220,
+      baseValueSpanPx: 280
+    });
+  });
+
+  test('payload layout normalization never persists derived Box reserve authority', () => {
+    expect(typeof hooks.normalizeBoxPayloadLayoutGeometry).toBe('function');
+    const normalized = hooks.normalizeBoxPayloadLayoutGeometry({
+      userFrameWidthPx: 420,
+      userFrameHeightPx: 380,
+      bottomViewportExtensionPx: 49,
+      significanceViewportExtensionPx: 7,
+      leftViewportExtensionPx: 3,
+      rightViewportExtensionPx: 5
+    }, {
+      frame: { widthPx: 420, heightPx: 380 },
+      reserves: { xLabelPx: 49, significancePx: 7, leftPx: 3, rightPx: 5 }
+    });
+
+    expect(normalized.viewportGeometry).toEqual(expect.objectContaining({
+      authorityVersion: 2,
+      userFrameWidthPx: 420,
+      userFrameHeightPx: 380
+    }));
+    expect(normalized.viewportGeometry).not.toHaveProperty('bottomViewportExtensionPx');
+    expect(normalized.viewportGeometry).not.toHaveProperty('significanceViewportExtensionPx');
+    expect(normalized.viewportGeometry).not.toHaveProperty('leftViewportExtensionPx');
+    expect(normalized.viewportGeometry).not.toHaveProperty('rightViewportExtensionPx');
+    expect(normalized.graphGeometry).not.toHaveProperty('reserves');
+  });
+
+  test('box point toolbar border width enables the selected default stroke color', () => {
+    expect(hooks).toBeDefined();
+    expect(typeof hooks.resolveBoxToolbarPointBorderWidthPatch).toBe('function');
+    expect(typeof hooks.resolveBoxToolbarPointBorderColorValue).toBe('function');
+    expect(typeof hooks.normalizeBoxPointStylePatch).toBe('function');
+    const proxy = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    proxy.setAttribute('data-point-stroke', '#ffffff');
+    proxy.setAttribute('data-point-stroke-width', '0');
+    expect(hooks.resolveBoxToolbarPointBorderColorValue({}, proxy)).toBe('#000000');
+    const patch = hooks.resolveBoxToolbarPointBorderWidthPatch({ stroke: 'none' }, proxy, 1.5);
+    expect(patch).toEqual({
+      borderWidth: 1.5,
+      strokeWidth: 1.5,
+      stroke: '#000000',
+      borderColor: '#000000'
+    });
+    proxy.setAttribute('data-point-stroke-width', '2');
+    expect(hooks.resolveBoxToolbarPointBorderColorValue({}, proxy)).toBe('#ffffff');
+    expect(hooks.resolveBoxToolbarPointBorderWidthPatch({ stroke: '#123456' }, proxy, 0)).toEqual({
+      borderWidth: 0,
+      strokeWidth: 0
+    });
+    expect(hooks.normalizeBoxPointStylePatch({ stroke: '#000000', borderWidth: 1.5 })).toEqual({
+      stroke: '#000000',
+      borderWidth: 1.5,
+      borderColor: '#000000',
+      strokeWidth: 1.5
+    });
+  });
+
+  test('explicit point border width survives redraw stroke cap for tiny dense points', () => {
+    expect(hooks).toBeDefined();
+    expect(typeof hooks.resolveBoxPointStrokeWidthForRender).toBe('function');
+    expect(typeof hooks.hasExplicitBoxPointBorderWidth).toBe('function');
+    expect(hooks.resolveBoxPointStrokeWidthForRender(1.5, 0.4, { explicit: false })).toBe(0);
+    expect(hooks.resolveBoxPointStrokeWidthForRender(1.5, 0.4, { explicit: true })).toBe(1.5);
+    expect(hooks.hasExplicitBoxPointBorderWidth({ borderWidth: 1.5 })).toBe(true);
+    expect(hooks.hasExplicitBoxPointBorderWidth({ strokeWidth: 1.5 })).toBe(true);
+    expect(hooks.hasExplicitBoxPointBorderWidth({})).toBe(false);
+  });
+
+  test('point style identity remains bound to the source column after exclusions', () => {
+    expect(typeof hooks.resolveBoxTraceStyleIndex).toBe('function');
+    const visibleTraces = [
+      { name: 'Control', columnIndex: 0 },
+      { name: 'Treatment B', columnIndex: 2 }
+    ];
+    expect(hooks.resolveBoxTraceStyleIndex(visibleTraces[0], 0)).toBe(0);
+    expect(hooks.resolveBoxTraceStyleIndex(visibleTraces[1], 1)).toBe(2);
+    expect(hooks.resolveBoxTraceStyleIndex({ groupName: 'A', columnIndex: 2 }, 1)).toBe(1);
+    expect(hooks.resolveBoxTraceStyleIndex({ name: 'Legacy trace' }, 1)).toBe(1);
+  });
+
+  test('dataset drag builds a physical column order and carries indexed styles', () => {
+    expect(hooks.buildBoxDatasetColumnOrder(
+      [0, 1, 2, 3],
+      [{ columnIndex: 0 }, { columnIndex: 2 }],
+      0,
+      1
+    )).toEqual([1, 2, 0, 3]);
+    expect(hooks.reorderBoxIndexedValues(
+      { 0: { fill: 'red' }, 2: { fill: 'blue' } },
+      [1, 2, 0, 3]
+    )).toEqual({
+      1: { fill: 'blue' },
+      2: { fill: 'red' }
+    });
+  });
+
+  test('single-dataset indexed styles shift with physical column insertion and removal', () => {
+    expect(typeof hooks.spliceBoxIndexedValues).toBe('function');
+    const colors = ['gray-0', 'gray-1', 'gray-2', 'green', 'red'];
+    const insertedColors = hooks.spliceBoxIndexedValues(colors, 2, 0, 1);
+    expect(insertedColors).toEqual(['gray-0', 'gray-1', '', 'gray-2', 'green', 'red']);
+    expect(hooks.spliceBoxIndexedValues(insertedColors, 2, 1, 0)).toEqual(colors);
+
+    const pointStyles = {
+      2: { fill: '#777777' },
+      3: { fill: '#00aa55' },
+      4: { fill: '#ff0000' }
+    };
+    const insertedStyles = hooks.spliceBoxIndexedValues(pointStyles, 2, 0, 1);
+    expect(insertedStyles).toEqual({
+      3: { fill: '#777777' },
+      4: { fill: '#00aa55' },
+      5: { fill: '#ff0000' }
+    });
+    expect(hooks.spliceBoxIndexedValues(insertedStyles, 2, 1, 0)).toEqual(pointStyles);
+  });
+
+  test('deleted single-dataset indexed styles can be restored exactly for undo', () => {
+    expect(typeof hooks.captureBoxIndexedValuesSlice).toBe('function');
+    expect(typeof hooks.restoreBoxIndexedValuesSlice).toBe('function');
+    const styles = {
+      0: { shape: 'circle' },
+      1: { shape: 'square', fill: '#00aa55' },
+      2: { shape: 'diamond', fill: '#ff0000' }
+    };
+    const removedSlice = hooks.captureBoxIndexedValuesSlice(styles, 1, 1);
+    const removed = hooks.spliceBoxIndexedValues(styles, 1, 1, 0);
+    const reinserted = hooks.spliceBoxIndexedValues(removed, 1, 0, 1);
+    expect(hooks.restoreBoxIndexedValuesSlice(reinserted, 1, removedSlice)).toEqual(styles);
+  });
+
+  test('dataset drag delegates the physical reorder to the active tab-owned table manager', () => {
+    const state = window.Components.box.__getState();
+    const applyColumnOrder = jest.fn(() => true);
+    state.hot = { applyColumnOrder };
+    expect(hooks.applyBoxDatasetColumnOrder([1, 2, 0])).toBe(true);
+    expect(applyColumnOrder).toHaveBeenCalledTimes(1);
+    expect(applyColumnOrder).toHaveBeenCalledWith(
+      [1, 2, 0],
+      expect.objectContaining({
+        reason: 'box-graph-dataset-reorder',
+        updatePayload: expect.any(Function)
+      })
+    );
+    const options = applyColumnOrder.mock.calls[0][1];
+    expect(options.onApplied).toBeUndefined();
+    expect(options.onUndo).toBeUndefined();
+    expect(options.onRedo).toBeUndefined();
+    state.hot = null;
+  });
+
+  test('canvas-backed point groups expose an interaction proxy for toolbar selection', () => {
+    expect(hooks).toBeDefined();
+    expect(typeof hooks.findBoxPointNodeForTrace).toBe('function');
+    document.body.innerHTML = '<div id="boxPlot"><svg><g data-export-layer="box-points" data-trace="7"><path data-point-proxy="1" data-trace="7"></path></g></svg></div>';
+    bindBoxWorkspaceRoot(document.body);
+    const node = hooks.findBoxPointNodeForTrace('7', null);
+    expect(node).toBeTruthy();
+    expect(node.getAttribute('data-point-proxy')).toBe('1');
+    document.body.innerHTML = '';
+  });
+
+  test('canvas-backed point lookup ignores hidden export geometry and keeps proxy size metadata', () => {
+    expect(hooks).toBeDefined();
+    expect(typeof hooks.findBoxPointNodeForTrace).toBe('function');
+    document.body.innerHTML = '<div id="boxPlot"></div>';
+    const plot = document.getElementById('boxPlot');
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    group.setAttribute('data-export-layer', 'box-points');
+    group.setAttribute('data-trace', '3');
+    group.__boxCanvasRenderState = { renderer: 'canvas-density' };
+    const foreignObject = document.createElementNS('http://www.w3.org/2000/svg', 'foreignObject');
+    foreignObject.setAttribute('data-point-renderer', 'canvas-density');
+    const exportPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    exportPath.setAttribute('data-box-export-geometry', '1');
+    exportPath.style.display = 'none';
+    const proxy = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    proxy.setAttribute('data-point-proxy', '1');
+    proxy.setAttribute('data-point-size', '1.4');
+    group.appendChild(foreignObject);
+    group.appendChild(exportPath);
+    group.appendChild(proxy);
+    svg.appendChild(group);
+    plot.appendChild(svg);
+    bindBoxWorkspaceRoot(document.body);
+    const node = hooks.findBoxPointNodeForTrace('3', exportPath);
+    expect(node).toBe(proxy);
+    expect(hooks.resolveBoxToolbarPointSizeValue({ size: 5, sizeMode: 'auto' }, node)).toBeCloseTo(0.7, 5);
+    document.body.innerHTML = '';
+  });
+
+  test('interaction mask path is generated from binned density geometry', () => {
+    expect(hooks).toBeDefined();
+    expect(typeof hooks.buildBoxPointInteractionMaskPath).toBe('function');
+    const d = hooks.buildBoxPointInteractionMaskPath({
+      bins: [
+        { coord: 100, halfWidth: 12 },
+        { coord: 116, halfWidth: 18 }
+      ],
+      orientation: 'vertical',
+      center: 240
+    });
+    expect(typeof d).toBe('string');
+    expect(d).toContain('M 228 100 L 252 100');
+    expect(d).toContain('M 222 116 L 258 116');
+  });
+
+  test('box preview svg returns the inactive owner cache source', () => {
+    expect(window.Components?.box?.getPreviewSvg).toBeDefined();
+    const frag = document.createDocumentFragment();
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    group.setAttribute('data-export-layer', 'box-points');
+    group.setAttribute('data-trace', '0');
+    const foreignObject = document.createElementNS('http://www.w3.org/2000/svg', 'foreignObject');
+    foreignObject.setAttribute('data-point-renderer', 'canvas-preview');
+    group.appendChild(foreignObject);
+    group.__boxCanvasRenderState = {
+      renderer: 'canvas-preview',
+      points: [{ x: 10, y: 20 }, { x: 18, y: 24 }],
+      pointRadius: 3,
+      shape: 'circle',
+      traceIndex: 0,
+      style: {
+        fill: '#111111',
+        fillOpacity: 0.8,
+        stroke: '#222222',
+        strokeWidth: 1,
+        strokeOpacity: 0.8
+      }
+    };
+    svg.appendChild(group);
+    frag.appendChild(svg);
+    const previewSvg = window.Components.box.getPreviewSvg({
+      id: 'workspace-preview-test',
+      renderCache: {
+        cache: {
+          plot: { fragment: frag }
+        }
+      }
+    });
+    expect(previewSvg).toBe(svg);
+    expect(previewSvg.querySelector('foreignObject')).toBe(foreignObject);
+  });
+
+  test('box preview svg returns the active owner plot source', () => {
+    expect(window.Components?.box?.getPreviewSvg).toBeDefined();
+    document.body.innerHTML = '<div id="boxPlot"></div>';
+    const plot = document.getElementById('boxPlot');
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('width', '100%');
+    svg.setAttribute('height', '100%');
+    svg.setAttribute('data-box-base-width', '480');
+    svg.setAttribute('data-box-base-height', '360');
+    const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    group.setAttribute('data-export-layer', 'box-points');
+    group.setAttribute('data-trace', '1');
+    const foreignObject = document.createElementNS('http://www.w3.org/2000/svg', 'foreignObject');
+    foreignObject.setAttribute('data-point-renderer', 'canvas-density');
+    group.appendChild(foreignObject);
+    group.__boxCanvasRenderState = {
+      renderer: 'canvas-density',
+      orientation: 'vertical',
+      center: 140,
+      bins: [
+        { coord: 100, halfWidth: 14 },
+        { coord: 120, halfWidth: 10 }
+      ],
+      thickness: 5,
+      traceIndex: 1,
+      style: {
+        fill: '#555555',
+        fillOpacity: 0.7,
+        stroke: '#222222',
+        strokeWidth: 1,
+        strokeOpacity: 0.8
+      }
+    };
+    svg.appendChild(group);
+    plot.appendChild(svg);
+    bindBoxWorkspaceRoot(document.body);
+    const previewSvg = window.Components.box.getPreviewSvg();
+    expect(previewSvg).toBe(svg);
+    expect(previewSvg.querySelector('foreignObject')).toBe(foreignObject);
+    expect(previewSvg.getAttribute('width')).toBe('100%');
+    expect(previewSvg.getAttribute('height')).toBe('100%');
+    document.body.innerHTML = '';
+  });
+
+  test('unlocked box resize uses the resizer viewport instead of inflated plot height', () => {
+    expect(hooks).toBeDefined();
+    expect(typeof hooks.syncBoxPlotResizeZone).toBe('function');
+    document.body.innerHTML = [
+      '<div id="boxPage">',
+      '<div id="boxGraphPanel">',
+      '<div class="svgbox" data-resizer-aspect-locked="false" data-resizer-zoom-level="1">',
+      '<div class="resizer-zoom-viewport"><div class="resizer-zoom-content"><div id="boxPlot"></div></div></div>',
+      '</div>',
+      '</div>',
+      '</div>'
+    ].join('');
+    const svgBox = document.querySelector('.svgbox');
+    const viewport = document.querySelector('.resizer-zoom-viewport');
+    const plot = document.getElementById('boxPlot');
+    bindBoxWorkspaceRoot(document.getElementById('boxPage'));
+    svgBox.getBoundingClientRect = () => ({ width: 303, height: 428, top: 0, left: 0, right: 303, bottom: 428 });
+    viewport.getBoundingClientRect = () => ({ width: 303, height: 428, top: 0, left: 0, right: 303, bottom: 428 });
+    Object.defineProperty(plot, 'clientWidth', { configurable: true, get: () => 303 });
+    Object.defineProperty(plot, 'clientHeight', { configurable: true, get: () => 558 });
+
+    const zone = hooks.syncBoxPlotResizeZone({ reason: 'resize', resizePhase: 'move' });
+
+    expect(zone.height).toBe(428);
+    expect(zone.rawHeight).toBe(558);
+    expect(zone.constrained).toBe(true);
+    expect(plot.style.height).toBe('428px');
+    expect(plot.style.maxHeight).toBe('428px');
+    expect(plot.style.overflow).toBe('hidden');
+    document.body.innerHTML = '';
+  });
+
+  test('unlocked vertical box resize can grow after a previous shrink', () => {
+    expect(hooks).toBeDefined();
+    expect(typeof hooks.syncBoxPlotResizeZone).toBe('function');
+    document.body.innerHTML = [
+      '<div id="boxPage">',
+      '<div id="boxGraphPanel">',
+      '<div class="svgbox" data-resizer-aspect-locked="false" data-resizer-zoom-level="1">',
+      '<div class="resizer-zoom-viewport"><div class="resizer-zoom-content"><div id="boxPlot"></div></div></div>',
+      '</div>',
+      '</div>',
+      '</div>'
+    ].join('');
+    const viewport = document.querySelector('.resizer-zoom-viewport');
+    const plot = document.getElementById('boxPlot');
+    bindBoxWorkspaceRoot(document.getElementById('boxPage'));
+    plot.style.height = '263px';
+    plot.style.maxHeight = '263px';
+    Object.defineProperty(plot, 'clientWidth', { configurable: true, get: () => 472 });
+    Object.defineProperty(plot, 'clientHeight', { configurable: true, get: () => 263 });
+    viewport.getBoundingClientRect = () => ({ width: 472, height: 383, top: 0, left: 0, right: 472, bottom: 383 });
+
+    const zone = hooks.syncBoxPlotResizeZone({ reason: 'resize', resizePhase: 'move' });
+
+    expect(zone.height).toBe(383);
+    expect(zone.rawHeight).toBe(263);
+    expect(zone.constrained).toBe(true);
+    expect(plot.style.height).toBe('383px');
+    expect(plot.style.maxHeight).toBe('383px');
+    document.body.innerHTML = '';
+  });
+
+  test('box preview svg prefers the committed visible plot frame over hidden pending frames', () => {
+    expect(window.Components?.box?.getPreviewSvg).toBeDefined();
+    document.body.innerHTML = '<div id="boxPlot"></div>';
+    const plot = document.getElementById('boxPlot');
+    const staleSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    staleSvg.setAttribute('aria-hidden', 'true');
+    staleSvg.setAttribute('data-box-pending-render', '1');
+    staleSvg.style.opacity = '0';
+    const staleGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    staleGroup.setAttribute('data-export-layer', 'box-points');
+    staleGroup.setAttribute('data-trace', '0');
+    const staleForeignObject = document.createElementNS('http://www.w3.org/2000/svg', 'foreignObject');
+    staleForeignObject.setAttribute('data-point-renderer', 'canvas-preview');
+    staleGroup.appendChild(staleForeignObject);
+    staleGroup.__boxCanvasRenderState = {
+      renderer: 'canvas-preview',
+      points: [{ x: 10, y: 20 }],
+      pointRadius: 3,
+      shape: 'circle',
+      traceIndex: 0,
+      style: { fill: '#111111', fillOpacity: 1, stroke: '#111111', strokeWidth: 1, strokeOpacity: 1 }
+    };
+    staleSvg.appendChild(staleGroup);
+    plot.appendChild(staleSvg);
+
+    const liveSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    const liveGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    liveGroup.setAttribute('data-export-layer', 'box-points');
+    liveGroup.setAttribute('data-trace', '0');
+    const liveForeignObject = document.createElementNS('http://www.w3.org/2000/svg', 'foreignObject');
+    liveForeignObject.setAttribute('data-point-renderer', 'canvas-preview');
+    const liveProxy = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    liveProxy.setAttribute('data-point-proxy', '1');
+    liveProxy.setAttribute('data-point-fill', '#ff0000');
+    liveGroup.appendChild(liveForeignObject);
+    liveGroup.appendChild(liveProxy);
+    liveGroup.__boxCanvasRenderState = {
+      renderer: 'canvas-preview',
+      points: [{ x: 10, y: 20 }],
+      pointRadius: 3,
+      shape: 'circle',
+      traceIndex: 0,
+      style: { fill: '#ff0000', fillOpacity: 1, stroke: '#ff0000', strokeWidth: 1, strokeOpacity: 1 }
+    };
+    liveSvg.appendChild(liveGroup);
+    plot.appendChild(liveSvg);
+    bindBoxWorkspaceRoot(document.body);
+
+    const previewSvg = window.Components.box.getPreviewSvg();
+    expect(previewSvg).toBe(liveSvg);
+    expect(previewSvg.querySelector('[data-point-proxy="1"]')?.getAttribute('data-point-fill')).toBe('#ff0000');
+    document.body.innerHTML = '';
+  });
+
+  test('box preview svg prefers current proxy style over stale canvas render state', () => {
+    expect(window.Components?.box?.getPreviewSvg).toBeDefined();
+    const frag = document.createDocumentFragment();
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    group.setAttribute('data-export-layer', 'box-points');
+    group.setAttribute('data-trace', '0');
+    const foreignObject = document.createElementNS('http://www.w3.org/2000/svg', 'foreignObject');
+    foreignObject.setAttribute('data-point-renderer', 'canvas-preview');
+    const proxy = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    proxy.setAttribute('data-point-proxy', '1');
+    proxy.setAttribute('data-point-fill', '#ff0000');
+    proxy.setAttribute('data-point-stroke', '#00ff00');
+    proxy.setAttribute('data-point-fill-opacity', '0.9');
+    proxy.setAttribute('data-point-stroke-opacity', '0.8');
+    proxy.setAttribute('data-point-stroke-width', '3');
+    proxy.setAttribute('data-point-size', '12');
+    proxy.setAttribute('data-shape', 'square');
+    group.appendChild(foreignObject);
+    group.appendChild(proxy);
+    group.__boxCanvasRenderState = {
+      renderer: 'canvas-preview',
+      points: [{ x: 10, y: 20 }, { x: 18, y: 24 }],
+      pointRadius: 3,
+      shape: 'circle',
+      traceIndex: 0,
+      style: {
+        fill: '#111111',
+        fillOpacity: 0.3,
+        stroke: '#222222',
+        strokeWidth: 1,
+        strokeOpacity: 0.4
+      }
+    };
+    svg.appendChild(group);
+    frag.appendChild(svg);
+    const previewSvg = window.Components.box.getPreviewSvg({
+      id: 'workspace-preview-style-test',
+      renderCache: {
+        cache: {
+          plot: { fragment: frag }
+        }
+      }
+    });
+    expect(previewSvg).toBe(svg);
+    expect(previewSvg.querySelector('[data-point-proxy="1"]')).toBe(proxy);
+  });
+
+  test('box preview source preserves large canvas-density group metadata for shared rasterization', () => {
+    expect(window.Components?.box?.getPreviewSvg).toBeDefined();
+    const frag = document.createDocumentFragment();
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    group.setAttribute('data-export-layer', 'box-points');
+    group.setAttribute('data-trace', '0');
+    group.setAttribute('data-point-fill', '#ff0000');
+    group.setAttribute('data-point-stroke', '#ff0000');
+    group.setAttribute('data-point-fill-opacity', '1');
+    group.setAttribute('data-point-stroke-opacity', '1');
+    group.setAttribute('data-point-stroke-width', '0');
+    group.setAttribute('data-point-size', '8');
+    group.setAttribute('data-shape', 'circle');
+    const foreignObject = document.createElementNS('http://www.w3.org/2000/svg', 'foreignObject');
+    foreignObject.setAttribute('data-point-renderer', 'canvas-density');
+    group.appendChild(foreignObject);
+    const coords = new Float64Array([100, 100, 100, 100, 100, 100, 100]);
+    group.__boxCanvasRenderState = {
+      renderer: 'canvas-density',
+      orientation: 'vertical',
+      center: 140,
+      bins: [
+        { coord: 100, halfWidth: 14, count: coords.length, binIndex: 100 }
+      ],
+      thickness: 5,
+      pointRadius: 4,
+      traceIndex: 0,
+      approximation: {
+        coords,
+        raws: coords,
+        binSize: 1,
+        layoutRadius: 1,
+        maxHalfWidth: 14,
+        widthScaleMode: 'density'
+      },
+      style: {
+        fill: '#111111',
+        fillOpacity: 1,
+        stroke: '#111111',
+        strokeWidth: 2,
+        strokeOpacity: 1
+      }
+    };
+    svg.appendChild(group);
+    frag.appendChild(svg);
+    const previewSvg = window.Components.box.getPreviewSvg({
+      id: 'workspace-preview-canvas-density-style-test',
+      renderCache: {
+        cache: {
+          plot: { fragment: frag }
+        }
+      }
+    });
+    expect(previewSvg).toBe(svg);
+    expect(previewSvg.querySelector('foreignObject')).toBe(foreignObject);
+    expect(group.getAttribute('data-point-fill')).toBe('#ff0000');
+  });
+
+  test('box preview source leaves hidden export geometry cleanup to the shared preview pipeline', () => {
+    expect(window.Components?.box?.getPreviewSvg).toBeDefined();
+    const frag = document.createDocumentFragment();
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    group.setAttribute('data-export-layer', 'box-points');
+    group.setAttribute('data-trace', '0');
+    group.setAttribute('data-point-fill', '#ff0000');
+    group.setAttribute('data-point-stroke', '#ff0000');
+    group.setAttribute('data-point-fill-opacity', '1');
+    group.setAttribute('data-point-stroke-opacity', '1');
+    group.setAttribute('data-point-stroke-width', '0');
+    const foreignObject = document.createElementNS('http://www.w3.org/2000/svg', 'foreignObject');
+    foreignObject.setAttribute('data-point-renderer', 'canvas-density');
+    const staleExportPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    staleExportPath.setAttribute('data-box-export-geometry', '1');
+    staleExportPath.setAttribute('d', 'M 10 10 L 20 20');
+    staleExportPath.setAttribute('stroke', '#111111');
+    staleExportPath.style.display = 'none';
+    group.appendChild(foreignObject);
+    group.appendChild(staleExportPath);
+    group.__boxCanvasRenderState = {
+      renderer: 'canvas-density',
+      orientation: 'vertical',
+      center: 140,
+      bins: [
+        { coord: 100, halfWidth: 14 },
+        { coord: 120, halfWidth: 10 }
+      ],
+      thickness: 5,
+      traceIndex: 0,
+      style: {
+        fill: '#111111',
+        fillOpacity: 1,
+        stroke: '#111111',
+        strokeWidth: 2,
+        strokeOpacity: 1
+      }
+    };
+    svg.appendChild(group);
+    frag.appendChild(svg);
+    const previewSvg = window.Components.box.getPreviewSvg({
+      id: 'workspace-preview-canvas-density-stale-export-style-test',
+      renderCache: {
+        cache: {
+          plot: { fragment: frag }
+        }
+      }
+    });
+    expect(previewSvg).toBe(svg);
+    expect(staleExportPath.style.display).toBe('none');
+    expect(group.getAttribute('data-point-fill')).toBe('#ff0000');
+  });
+
+  test('box preview source preserves zero-border group metadata for shared rasterization', () => {
+    expect(window.Components?.box?.getPreviewSvg).toBeDefined();
+    const frag = document.createDocumentFragment();
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    group.setAttribute('data-export-layer', 'box-points');
+    group.setAttribute('data-trace', '0');
+    group.setAttribute('data-point-fill', '#ff0000');
+    group.setAttribute('data-point-stroke', '#000000');
+    group.setAttribute('data-point-fill-opacity', '1');
+    group.setAttribute('data-point-stroke-opacity', '1');
+    group.setAttribute('data-point-stroke-width', '0');
+    const foreignObject = document.createElementNS('http://www.w3.org/2000/svg', 'foreignObject');
+    foreignObject.setAttribute('data-point-renderer', 'canvas-density');
+    group.appendChild(foreignObject);
+    group.__boxCanvasRenderState = {
+      renderer: 'canvas-density',
+      orientation: 'vertical',
+      center: 140,
+      bins: [
+        { coord: 100, halfWidth: 14 },
+        { coord: 120, halfWidth: 10 }
+      ],
+      thickness: 5,
+      traceIndex: 0,
+      style: {
+        fill: '#111111',
+        fillOpacity: 1,
+        stroke: '#000000',
+        strokeWidth: 0,
+        strokeOpacity: 1
+      }
+    };
+    svg.appendChild(group);
+    frag.appendChild(svg);
+    const previewSvg = window.Components.box.getPreviewSvg({
+      id: 'workspace-preview-canvas-density-zero-border-test',
+      renderCache: {
+        cache: {
+          plot: { fragment: frag }
+        }
+      }
+    });
+    expect(previewSvg).toBe(svg);
+    expect(group.getAttribute('data-point-fill')).toBe('#ff0000');
+    expect(group.getAttribute('data-point-stroke-width')).toBe('0');
+  });
+
+  test('box preview source keeps canonical zero-border group attributes', () => {
+    expect(window.Components?.box?.getPreviewSvg).toBeDefined();
+    const frag = document.createDocumentFragment();
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    group.setAttribute('data-export-layer', 'box-points');
+    group.setAttribute('data-trace', '0');
+    group.setAttribute('data-point-fill', '#ff0000');
+    group.setAttribute('data-point-stroke', '#000000');
+    group.setAttribute('data-point-fill-opacity', '1');
+    group.setAttribute('data-point-stroke-opacity', '1');
+    group.setAttribute('data-point-stroke-width', '0');
+    const foreignObject = document.createElementNS('http://www.w3.org/2000/svg', 'foreignObject');
+    foreignObject.setAttribute('data-point-renderer', 'canvas-density');
+    const staleChild = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    staleChild.setAttribute('stroke', '#111111');
+    staleChild.setAttribute('stroke-width', '9');
+    staleChild.setAttribute('fill', 'none');
+    group.appendChild(foreignObject);
+    group.appendChild(staleChild);
+    group.__boxCanvasRenderState = {
+      renderer: 'canvas-density',
+      orientation: 'vertical',
+      center: 140,
+      bins: [
+        { coord: 100, halfWidth: 14 },
+        { coord: 120, halfWidth: 10 }
+      ],
+      thickness: 5,
+      traceIndex: 0,
+      style: {
+        fill: '#111111',
+        fillOpacity: 1,
+        stroke: '#000000',
+        strokeWidth: 4,
+        strokeOpacity: 1
+      }
+    };
+    svg.appendChild(group);
+    frag.appendChild(svg);
+    const previewSvg = window.Components.box.getPreviewSvg({
+      id: 'workspace-preview-canvas-density-group-attrs-priority-test',
+      renderCache: {
+        cache: {
+          plot: { fragment: frag }
+        }
+      }
+    });
+    expect(previewSvg).toBe(svg);
+    expect(group.getAttribute('data-point-fill')).toBe('#ff0000');
+    expect(group.getAttribute('data-point-stroke-width')).toBe('0');
+  });
+
+  test('fast strip auto-size estimator activates for dense datasets', () => {
+    expect(hooks).toBeDefined();
+    expect(typeof hooks.resolveFastStripAutoSizeProfile).toBe('function');
+    const light = hooks.resolveFastStripAutoSizeProfile({
+      pointCounts: [200, 300],
+      baseRadius: 5,
+      radiusStep: 0.1,
+      threshold: 1200
+    });
+    expect(light).toBe(null);
+    const dense = hooks.resolveFastStripAutoSizeProfile({
+      pointCounts: [1400, 900],
+      baseRadius: 5,
+      radiusStep: 0.1,
+      threshold: 1200
+    });
+    expect(dense).toBeTruthy();
+    expect(dense.strategy).toBe('density-floor-fast');
+    expect(Number.isFinite(Number(dense.radius))).toBe(true);
+    expect(Number(dense.radius)).toBeGreaterThan(0);
+    expect(Number(dense.radius)).toBeLessThanOrEqual(5);
+  });
+
+  test('live resize phases are identified consistently', () => {
+    expect(hooks).toBeDefined();
+    expect(typeof hooks.isBoxLiveResize).toBe('function');
+    expect(hooks.isBoxLiveResize({ reason: 'resize', resizePhase: 'start' })).toBe(true);
+    expect(hooks.isBoxLiveResize({ reason: 'resize', resizePhase: 'move' })).toBe(true);
+    expect(hooks.isBoxLiveResize({ reason: 'resize', resizePhase: 'end' })).toBe(true);
+    expect(hooks.isBoxLiveResize({ reason: 'resize', resizePhase: 'end' }, { includeEnd: false })).toBe(false);
+    expect(hooks.isBoxLiveResize({ reason: 'resize', resizePhase: 'observe' })).toBe(false);
+    expect(hooks.isBoxLiveResize({ reason: 'point-mode-change', resizePhase: 'move' })).toBe(false);
+  });
+
+});

@@ -13,6 +13,52 @@ async function getActiveTabId(page) {
   return page.evaluate(() => String(window.Main?.session?.workspaceState?.activeTabId || '').trim() || null);
 }
 
+async function waitForAnimationFrame(page, frames = 1) {
+  const count = Math.max(1, Math.ceil(Number(frames) || 1));
+  await page.evaluate(frameCount => new Promise(resolve => {
+    let remaining = frameCount;
+    const tick = () => {
+      remaining -= 1;
+      if (remaining <= 0) {
+        resolve();
+        return;
+      }
+      window.requestAnimationFrame(tick);
+    };
+    window.requestAnimationFrame(tick);
+  }), count);
+}
+
+async function observeStableValue(page, readValue, options = {}) {
+  if(typeof readValue !== 'function'){
+    throw new TypeError('Stable observation requires a value reader');
+  }
+  const durationMs = Math.max(0, Number(options.durationMs) || 0);
+  const frames = Math.max(1, Math.ceil(Number(options.frames) || 6));
+  const label = String(options.label || 'observed value');
+  const isStable = typeof options.isStable === 'function'
+    ? options.isStable
+    : (initial, current) => JSON.stringify(initial) === JSON.stringify(current);
+  const initial = await readValue();
+  let latest = initial;
+  const deadline = Date.now() + durationMs;
+  while(Date.now() < deadline){
+    await waitForAnimationFrame(page, frames);
+    latest = await readValue();
+    if(!isStable(initial, latest)){
+      throw new Error(`${label} changed during the observation window`);
+    }
+  }
+  return { initial, latest };
+}
+
+async function waitForObservationWindow(page, durationMs, options = {}) {
+  return observeStableValue(page, async () => null, {
+    ...options,
+    durationMs
+  });
+}
+
 function selectRenderCacheEvent(events, options = {}) {
   const expectedTabId = options.expectedTabId == null ? '' : String(options.expectedTabId);
   const expectedComponent = options.component == null ? '' : String(options.component);
@@ -194,6 +240,9 @@ async function waitForComponentSnapshotReady(page, componentOrType, options = {}
 
 module.exports = {
   getActiveTabId,
+  waitForAnimationFrame,
+  observeStableValue,
+  waitForObservationWindow,
   getRenderCacheCursor,
   selectRenderCacheEvent,
   waitForComponentOwnerReady,

@@ -3,6 +3,7 @@
 const path = require('path');
 const fs = require('fs');
 const { spawnSync } = require('child_process');
+const { assertReportSchema } = require('../test-support/testReportSchema.js');
 
 const ROOT_DIR = path.resolve(__dirname, '..');
 const JEST_CLI = path.join(ROOT_DIR, 'node_modules', 'jest', 'bin', 'jest.js');
@@ -37,6 +38,13 @@ function partition(files, size) {
   return groups;
 }
 
+function childEnvironment(project, baseEnvironment = process.env) {
+  return {
+    ...baseEnvironment,
+    ...(project === 'integration' ? { TEST_ENFORCE_INTEGRATION_LEAKS: '1' } : {})
+  };
+}
+
 function discoverTests(project, onlyFailures = false) {
   const args = [JEST_CLI, '--selectProjects', project, '--listTests'];
   if (onlyFailures) args.push('--onlyFailures');
@@ -44,7 +52,7 @@ function discoverTests(project, onlyFailures = false) {
     cwd: ROOT_DIR,
     encoding: 'utf8',
     windowsHide: true,
-    env: process.env
+    env: childEnvironment(project)
   });
   if (result.error) throw result.error;
   if (result.status !== 0) {
@@ -64,13 +72,25 @@ function runGroup(project, files, index, total, onlyFailures = false) {
     cwd: ROOT_DIR,
     stdio: 'inherit',
     windowsHide: true,
-    env: process.env
+    env: {
+      ...process.env,
+      ...(project === 'integration' ? { TEST_ENFORCE_INTEGRATION_LEAKS: '1' } : {})
+    }
   });
   if (result.error) {
     console.error(`[jest ${project} group ${index}/${total}] ${result.error.message}`);
     return 1;
   }
   return result.status == null ? 1 : result.status;
+}
+
+function writeReport(reportFile, report) {
+  if (!reportFile) {
+    return;
+  }
+  const reportPath = path.resolve(ROOT_DIR, reportFile);
+  fs.mkdirSync(path.dirname(reportPath), { recursive: true });
+  fs.writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
 }
 
 function runReport(options) {
@@ -94,6 +114,21 @@ function runReport(options) {
   const failedGroups = [];
   const groupReports = [];
   const startedAt = Date.now();
+  const writeProgress = state => writeReport(options.reportFile, {
+    schemaVersion: 1,
+    runner: 'jest-shards',
+    project: options.project,
+    filesPerProcess: options.filesPerProcess,
+    onlyFailures: options.onlyFailures,
+    state,
+    totalGroups: groups.length,
+    completedGroups: groupReports.length,
+    initialStatus: status,
+    durationMs: Date.now() - startedAt,
+    groups: groupReports,
+    failedGroups
+  });
+  writeProgress('running');
   groups.forEach((group, index) => {
     const groupStartedAt = Date.now();
     const groupStatus = runGroup(options.project, group, index + 1, groups.length, options.onlyFailures);
@@ -106,6 +141,7 @@ function runReport(options) {
       status = groupStatus;
       failedGroups.push(group.map(file => path.relative(ROOT_DIR, file)));
     }
+    writeProgress('running');
   });
   const failureSummary = failedGroups.length > 0
     ? `; failed groups: ${failedGroups.map(group => group.join(', ')).join(' | ')}`
@@ -117,16 +153,18 @@ function runReport(options) {
     project: options.project,
     filesPerProcess: options.filesPerProcess,
     onlyFailures: options.onlyFailures,
+    state: 'complete',
+    totalGroups: groups.length,
+    completedGroups: groupReports.length,
     initialStatus: status,
     durationMs: Date.now() - startedAt,
     groups: groupReports,
     failedGroups
   };
+  assertReportSchema(report, `Jest ${options.project} shard report`);
   if (options.reportFile) {
-    const reportPath = path.resolve(ROOT_DIR, options.reportFile);
-    fs.mkdirSync(path.dirname(reportPath), { recursive: true });
-    fs.writeFileSync(reportPath, JSON.stringify(report, null, 2));
-    console.log(`Jest ${options.project} report: ${reportPath}`);
+    writeReport(options.reportFile, report);
+    console.log(`Jest ${options.project} report: ${path.resolve(ROOT_DIR, options.reportFile)}`);
   }
   return report;
 }
@@ -150,4 +188,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { parseArgs, partition, discoverTests, runGroup, runReport, run };
+module.exports = { parseArgs, partition, childEnvironment, discoverTests, runGroup, runReport, run, writeReport };

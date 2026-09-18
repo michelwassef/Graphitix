@@ -5877,8 +5877,8 @@ input[type=color]::-moz-color-swatch{border:none;border-radius:0}
 .config-panel .control>label:has(> select),
 .config-panel .config-panel__line>label:has(> select){flex-wrap:wrap}
 .config-panel select{min-width:0}
-.config-panel .stats-figure-controls__result-row{width:100%;flex-wrap:wrap}
-.config-panel .stats-figure-controls__options{flex-wrap:wrap}
+.config-panel .stats-figure-controls__result-row{width:100%;flex-wrap:nowrap}
+.config-panel .stats-figure-controls__options{flex-wrap:nowrap}
 .config-panel,
 .workspace-toolbar,
 .axis-controls-panel,
@@ -8025,7 +8025,7 @@ input[type="number"],
 .idx-inline-002 { margin-top: 6px; }
 .idx-inline-003 { margin-top: 8px; }
 .graph-plot-stack { gap: 0; }
-#boxPage .box-plot-stack:not(:has(.svgbox[data-graph-content-envelope="true"])) { width: var(--graph-default-width, max-content); }
+#boxPage .box-plot-stack:not(:has(.svgbox[data-graph-content-envelope="true"])) { width: max-content; }
 .graph-plot-stack > .graph-export-controls + * { margin-top: 4px; }
 .graph-plot-stack > .svgbox { border-bottom-left-radius: 0; }
 .graph-plot-stack > .svgbox[data-graph-content-envelope="true"]::before,

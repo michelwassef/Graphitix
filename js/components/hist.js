@@ -78,6 +78,10 @@
     }
   }
   const Shared = global.Shared = global.Shared || {};
+  if((typeof Shared.componentLifecycle?.createSessionShapeGuard !== 'function'
+    || typeof Shared.componentLifecycle?.bindOwnerControlHandler !== 'function') && typeof require === 'function'){
+    require('../shared/componentLifecycle.js');
+  }
   const Components = global.Components = global.Components || {};
   const svgGeometry = Shared.svgGeometry = Shared.svgGeometry || {};
 
@@ -279,14 +283,17 @@
     return {
       strokeWidth: 1,
       color: DEFAULT_AXIS_COLOR,
-      x: { tickInterval: null, majorTickLength: null, labelAngle: null, minorTicks: false, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'decimal' },
-      y: { tickInterval: null, majorTickLength: null, minorTicks: false, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'decimal' }
+      x: { tickInterval: null, majorTickLength: null, labelAngle: null, minorTicks: false, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'auto' },
+      y: { tickInterval: null, majorTickLength: null, minorTicks: false, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'auto' }
     };
   }
 
   function sanitizeHistAxisNotation(value){
+    if(typeof chartStyle.normalizeAxisNotation === 'function'){
+      return chartStyle.normalizeAxisNotation(value);
+    }
     if(value === 'auto' || value === 'decimal' || value === 'scientific'){ return value; }
-    return 'decimal';
+    return 'auto';
   }
 
   function writeNumericInputValue(input, value){
@@ -707,6 +714,7 @@
     }, {});
   }
 
+
   let state = {
     hot: null,
     scheduleDraw: null,
@@ -990,7 +998,7 @@
             catch(err){ console.error('hist x label header sync failed', err); }
           }
         }
-        scheduleHistOwnerDraw(owner, { reason: `hist-${normalizedKind}-label-edit` });
+        scheduleHistOwnerDraw(owner, { reason: `hist-${normalizedKind}-label-edit`, renderImpact: 'layout' });
       };
       apply(nextValue);
       const undoKey = normalizedKind === 'title' ? 'title' : `${normalizedKind}-label`;
@@ -1096,6 +1104,26 @@
     };
   }
 
+  const histSessionShapeGuard = Shared.componentLifecycle.createSessionShapeGuard({
+    getOwnerKey: session => session.tabId,
+    fields: [
+      {
+        key: 'state',
+        normalize: value => createDefaultHistDurableState(value || {})
+      },
+      {
+        key: 'results',
+        normalize: (value, session) => createDefaultHistResultsState(value || {
+          statsPanelModel: session.state?.statsPanelModel
+        })
+      },
+      {
+        key: 'notes',
+        normalize: value => createDefaultHistNotesState(value || {})
+      }
+    ]
+  });
+
   function ensureHistSessionOwnershipShape(session){
     if(!session || typeof session !== 'object'){
       return null;
@@ -1103,8 +1131,6 @@
     session.componentKey = 'hist';
     session.tabId = String(session.tabId || '').trim();
     session.root = session.root || null;
-    session.state = createDefaultHistDurableState(session.state || {});
-    session.results = createDefaultHistResultsState(session.results || { statsPanelModel: session.state.statsPanelModel });
     session.refs = session.refs && typeof session.refs === 'object' ? session.refs : createDefaultHistRefs(session.root || null);
     session.refs.root = session.refs.root || session.root || null;
     session.cache = session.cache && typeof session.cache === 'object' ? session.cache : {};
@@ -1120,7 +1146,7 @@
     if(!Object.prototype.hasOwnProperty.call(session.managers, 'dataViews')){ session.managers.dataViews = null; }
     if(!Object.prototype.hasOwnProperty.call(session.managers, 'layout')){ session.managers.layout = null; }
     if(!Object.prototype.hasOwnProperty.call(session.managers, 'fileHandle')){ session.managers.fileHandle = null; }
-    session.notes = createDefaultHistNotesState(session.notes || {});
+    histSessionShapeGuard(session);
     session.updatedAt = Number.isFinite(Number(session.updatedAt)) ? Number(session.updatedAt) : Date.now();
     return session;
   }
@@ -2077,6 +2103,7 @@
     }
     const scheduleOptions = Object.assign({}, options, {
       viewOnly: true,
+      renderImpact: options.renderImpact || 'layout',
       reason: nextReason,
       source: 'hist-view-refresh',
       tabId: ownerTabId || options.tabId || undefined,
@@ -2237,7 +2264,7 @@
             }
             projectHistDistributionControlsFromState({ rebuild: false });
             commitHistActiveStateToOwner(owner, { reason: 'distribution-selection-change' });
-            scheduleHistOwnerDraw(owner, { reason: 'distribution-selection-change', tabId: owner.tabId || undefined });
+            scheduleHistOwnerDraw(owner, { reason: 'distribution-selection-change', tabId: owner.tabId || undefined, renderImpact: 'analysis' });
           });
         });
         const swatch = document.createElement('span');
@@ -2506,7 +2533,7 @@
     }
     syncHistFrequencyControls();
     if(options.schedule !== false){
-      scheduleActiveHistDraw({ reason: 'hist-frequency-settings-change' });
+      scheduleActiveHistDraw({ reason: 'hist-frequency-settings-change', renderImpact: 'analysis' });
     }
   }
 
@@ -2777,6 +2804,7 @@
             markHistOverlayPending('data-view-switch');
             scheduleHistOwnerDraw(viewOwner, {
               reason: 'data-view-switch',
+              renderImpact: 'structural',
               userInitiated: String(meta?.reason || '').trim().toLowerCase() === 'tab-click'
             });
           }
@@ -3398,10 +3426,10 @@
       state.axisSettings = createDefaultAxisSettings();
     }
     if(!state.axisSettings.x || typeof state.axisSettings.x !== 'object'){
-      state.axisSettings.x = { tickInterval: null, majorTickLength: null, labelAngle: null, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'decimal' };
+      state.axisSettings.x = { tickInterval: null, majorTickLength: null, labelAngle: null, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'auto' };
     }
     if(!state.axisSettings.y || typeof state.axisSettings.y !== 'object'){
-      state.axisSettings.y = { tickInterval: null, majorTickLength: null, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'decimal' };
+      state.axisSettings.y = { tickInterval: null, majorTickLength: null, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'auto' };
     }
     if(typeof state.axisSettings.x.minorTicks !== 'boolean'){
       state.axisSettings.x.minorTicks = false;
@@ -3476,7 +3504,7 @@
     if(settings[axis].notation === nextValue){ return; }
     settings[axis].notation = nextValue;
     histDebug('Debug: hist axis notation updated',{ axis, notation: nextValue });
-    scheduleActiveHistDraw({ reason: `hist-${axis}-axis-notation-change` });
+    scheduleActiveHistDraw({ reason: `hist-${axis}-axis-notation-change`, renderImpact: 'layout' });
   }
 
   function getAxisTickInterval(axis){
@@ -3500,7 +3528,7 @@
       settings[axis].tickInterval = Number.isFinite(numeric) && numeric > 0 ? numeric : null;
     }
     histDebug('Debug: hist axis tick interval updated',{ axis, tickInterval: settings[axis].tickInterval });
-    scheduleActiveHistDraw({ reason: `hist-${axis}-tick-interval-change` });
+    scheduleActiveHistDraw({ reason: `hist-${axis}-tick-interval-change`, renderImpact: 'layout' });
   }
 
   function getAxisMajorTickLength(axis){
@@ -3522,7 +3550,7 @@
     if(settings[axis].majorTickLength === nextValue){ return; }
     settings[axis].majorTickLength = nextValue;
     histDebug('Debug: hist major tick length updated',{ axis, majorTickLength: nextValue });
-    scheduleActiveHistDraw({ reason: `hist-${axis}-major-tick-length-change` });
+    scheduleActiveHistDraw({ reason: `hist-${axis}-major-tick-length-change`, renderImpact: 'layout' });
   }
 
   function getXAxisTickLabelAngle(ownerSession = null){
@@ -3566,7 +3594,7 @@
     }
     settings[axis].minorTicks = nextValue;
     histDebug('Debug: hist minor ticks updated',{ axis, enabled: nextValue });
-    scheduleActiveHistDraw({ reason: `hist-${axis}-minor-ticks-change` });
+    scheduleActiveHistDraw({ reason: `hist-${axis}-minor-ticks-change`, renderImpact: 'layout' });
   }
 
   function getAxisMinorTickSubdivisions(axis){
@@ -3584,7 +3612,7 @@
     }
     settings[axis].minorTickSubdivisions = nextValue;
     histDebug('Debug: hist minor tick subdivisions updated',{ axis, subdivisions: nextValue });
-    scheduleActiveHistDraw({ reason: `hist-${axis}-minor-subdivisions-change` });
+    scheduleActiveHistDraw({ reason: `hist-${axis}-minor-subdivisions-change`, renderImpact: 'layout' });
   }
 
   function getAxisStrokeWidthBase(){
@@ -3634,7 +3662,7 @@
     histDebug('Debug: hist axis color updated',{ color: settings.color });
     syncHistAxisSettingsToOwner('hist-axis-color-change');
     if(!projectHistAxisStyle({ stroke: settings.color })){
-      scheduleHistViewRefresh('hist-axis-color-change');
+      scheduleHistViewRefresh('hist-axis-color-change', { renderImpact: 'paint' });
     }
   }
 
@@ -3694,7 +3722,7 @@
           getHistProjectionSession({ reason: 'hist-grid-visibility-change' }),
           { reason: 'hist-grid-visibility-change', captureStatsPanel: false }
         );
-        scheduleActiveHistDraw({ reason: 'hist-grid-visibility-change' });
+        scheduleActiveHistDraw({ reason: 'hist-grid-visibility-change', renderImpact: 'paint' });
       },
       getStyle: () => getGridStyle(fallbackThickness),
       onStyleChange: style => {
@@ -3706,7 +3734,7 @@
         if(!gridControls.applyStyleToTarget?.(target, getGridStyle(fallbackThickness), {
           defaults: createDefaultGridStyle(fallbackThickness)
         })){
-          scheduleHistViewRefresh('hist-grid-style-change');
+          scheduleHistViewRefresh('hist-grid-style-change', { renderImpact: 'paint' });
         }
       },
       defaults: createDefaultGridStyle(fallbackThickness)
@@ -3738,8 +3766,8 @@
       const yMinorSubdiv = settings.minorTickSubdivisionsY ?? settings.minorSubdivisionsY ?? settings.y?.minorTickSubdivisions ?? settings.y?.minorSubdivisions ?? null;
       base.x.minorTickSubdivisions = clampMinorTickSubdivisions(xMinorSubdiv);
       base.y.minorTickSubdivisions = clampMinorTickSubdivisions(yMinorSubdiv);
-      const xNotation = settings.axisNotationX ?? settings.notationX ?? settings?.x?.notation ?? 'decimal';
-      const yNotation = settings.axisNotationY ?? settings.notationY ?? settings?.y?.notation ?? 'decimal';
+      const xNotation = settings.axisNotationX ?? settings.notationX ?? settings?.x?.notation ?? 'auto';
+      const yNotation = settings.axisNotationY ?? settings.notationY ?? settings?.y?.notation ?? 'auto';
       base.x.notation = sanitizeHistAxisNotation(xNotation);
       base.y.notation = sanitizeHistAxisNotation(yNotation);
     }
@@ -3937,7 +3965,7 @@
       const values = [];
       for(let rowIndex = 1; rowIndex < matrix.length; rowIndex += 1){
         const row = Array.isArray(matrix[rowIndex]) ? matrix[rowIndex] : [];
-        const numeric = parseFloat(row[colIndex]);
+        const numeric = Shared.dataTransforms.toFiniteNumber(row[colIndex]);
         if(Number.isFinite(numeric)){
           values.push(numeric);
         }
@@ -3984,7 +4012,7 @@
       const values = [];
       for(let rowIndex = 1; rowIndex < matrix.length; rowIndex += 1){
         const row = Array.isArray(matrix[rowIndex]) ? matrix[rowIndex] : [];
-        const numeric = parseFloat(row[colIndex]);
+        const numeric = Shared.dataTransforms.toFiniteNumber(row[colIndex]);
         if(Number.isFinite(numeric)){ values.push(numeric); }
         if(checkpoint && rowIndex % 1024 === 0 && !(await checkpoint())){ return null; }
       }
@@ -4146,7 +4174,7 @@
             projectedNodes.forEach(node => node.setAttribute('fill', nextValue));
             commitHistActiveStateToOwner(owner, { reason: 'hist-bar-fill-change' });
             if(!projectedNodes.length){
-              scheduleHistOwnerDraw(owner, { viewOnly: true, reason: 'hist-bar-fill-change' });
+              scheduleHistOwnerDraw(owner, { viewOnly: true, reason: 'hist-bar-fill-change', renderImpact: 'paint' });
             }
           }
         },
@@ -4197,7 +4225,7 @@
             );
             commitHistActiveStateToOwner(owner, { reason: 'hist-bar-border-change' });
             if(!projected || !projectedNodes.length){
-              scheduleHistOwnerDraw(owner, { viewOnly: true, reason: 'hist-bar-border-change' });
+              scheduleHistOwnerDraw(owner, { viewOnly: true, reason: 'hist-bar-border-change', renderImpact: 'paint' });
             }
           },
           getWidth(){
@@ -4219,7 +4247,7 @@
             });
             commitHistActiveStateToOwner(owner, { reason: 'hist-bar-border-width-change' });
             if(!projected || !borderNodes.length){
-              scheduleHistOwnerDraw(owner, { viewOnly: true, reason: 'hist-bar-border-width-change' });
+              scheduleHistOwnerDraw(owner, { viewOnly: true, reason: 'hist-bar-border-width-change', renderImpact: 'paint' });
             }
           }
         },
@@ -4278,6 +4306,7 @@
               scheduleHistOwnerDraw(owner, {
                 viewOnly: true,
                 reason: 'hist-trace-transparency-change',
+                renderImpact: 'paint',
                 tabId: owner.tabId || undefined
               });
             }
@@ -4440,7 +4469,7 @@
           }else{
             state.distributionOptions.forEach(o => { o.color = value; });
           }
-          scheduleHistOwnerDraw(owner, { reason: 'hist-overlay-color-input' });
+          scheduleHistOwnerDraw(owner, { reason: 'hist-overlay-color-input', renderImpact: 'paint' });
         },
         onColorChange: (value, ctx) => {
           if(!isHistCallbackOwnerActive(owner)){ return; }
@@ -4453,7 +4482,7 @@
           }else{
             state.distributionOptions.forEach(o => { o.color = value; });
           }
-          scheduleHistOwnerDraw(owner, { reason: 'hist-overlay-color-change' });
+          scheduleHistOwnerDraw(owner, { reason: 'hist-overlay-color-change', renderImpact: 'paint' });
         },
         onThicknessChange: (value, ctx) => {
           if(!isHistCallbackOwnerActive(owner)){ return; }
@@ -4468,7 +4497,7 @@
           }else{
             state.distributionOptions.forEach(o => { o.strokeWidth = next; });
           }
-          scheduleHistOwnerDraw(owner, { reason: 'hist-overlay-thickness-change' });
+          scheduleHistOwnerDraw(owner, { reason: 'hist-overlay-thickness-change', renderImpact: 'paint' });
         },
         onPatternChange: (value, ctx) => {
           if(!isHistCallbackOwnerActive(owner)){ return; }
@@ -4482,7 +4511,7 @@
           }else{
             state.distributionOptions.forEach(o => { o.pattern = pattern; });
           }
-          scheduleHistOwnerDraw(owner, { reason: 'hist-overlay-pattern-change' });
+          scheduleHistOwnerDraw(owner, { reason: 'hist-overlay-pattern-change', renderImpact: 'paint' });
         },
         onTransparencyChange: (value, ctx) => {
           if(!isHistCallbackOwnerActive(owner)){ return; }
@@ -4498,7 +4527,7 @@
           }else{
             state.distributionOptions.forEach(o => { o.alpha = opacity; });
           }
-          scheduleHistOwnerDraw(owner, { reason: 'hist-overlay-transparency-change' });
+          scheduleHistOwnerDraw(owner, { reason: 'hist-overlay-transparency-change', renderImpact: 'paint' });
         }
       });
       return;
@@ -4857,7 +4886,7 @@
         syncControls: true,
         captureStatsPanel: false
       });
-      scheduleActiveHistDraw({ reason: scheduleMeta?.source || 'hist-table-change' });
+      scheduleActiveHistDraw({ reason: scheduleMeta?.source || 'hist-table-change', renderImpact: 'analysis' });
     };
 
     const createHistTable = (container) => {
@@ -4951,25 +4980,15 @@
     bindHistDataToolbar();
   }
 
-  function bindHistControlHandler(node, eventName, key, handler){
-    if(!node || typeof node.addEventListener !== 'function'){
-      return;
-    }
-    const registryKey = `${eventName}:${key}`;
-    if(!node.__histControlHandlers){
-      Object.defineProperty(node, '__histControlHandlers', {
-        value: Object.create(null),
-        configurable: true
-      });
-    }
-    const previous = node.__histControlHandlers[registryKey];
-    if(previous){
-      node.removeEventListener(eventName, previous);
-    }
-    const wrapped = event => runHistEventOwnerCallback(event, key || registryKey, owner => handler(event, owner));
-    node.__histControlHandlers[registryKey] = wrapped;
-    node.addEventListener(eventName, wrapped);
-  }
+  const bindHistControlHandler = Shared.componentLifecycle.createOwnerControlBinder({
+    componentKey: 'hist',
+    resolveOwner: (event, meta) => getHistCallbackOwner({
+      event,
+      target: meta?.target,
+      reason: meta?.reason
+    }),
+    isOwnerActive: isHistCallbackOwnerActive
+  });
 
   function initControls(){
     const histPlotMode=getHistNodeById('histPlotMode'), histSeriesDisplay=getHistNodeById('histSeriesDisplay'), histPanelArrangement=getHistNodeById('histPanelArrangement'), histSharedYScale=getHistNodeById('histSharedYScale'), histShowLegend=getHistNodeById('histShowLegend'), histShowStatsSummary=getHistNodeById('histShowStatsSummary'), histBins=getHistNodeById('histBins'), histShowGrid=getHistNodeById('histShowGrid'), histShowFrame=getHistNodeById('histShowFrame'), histLogY=getHistNodeById('histLogY'), histXMin=getHistNodeById('histXMin'), histXMax=getHistNodeById('histXMax'), histYMax=getHistNodeById('histYMax'), histFontSize=getHistNodeById('histFontSize'), histFontSizeVal=getHistNodeById('histFontSizeVal');
@@ -5074,7 +5093,7 @@
           state.showLegend = !!histShowLegend.checked;
           const ownerSession = commitHistActiveStateToOwner(owner, { reason: 'hist-legend-toggle' });
           persistHistOwnerState(owner, ownerSession, 'hist-legend-toggle');
-          scheduleHistOwnerDraw(owner, { reason: 'hist-legend-toggle', tabId: owner.tabId || undefined });
+          scheduleHistOwnerDraw(owner, { reason: 'hist-legend-toggle', tabId: owner.tabId || undefined, renderImpact: 'layout' });
         });
       });
     }
@@ -5086,7 +5105,7 @@
           syncHistStatsControls();
           const ownerSession = commitHistActiveStateToOwner(owner, { reason: 'hist-stats-diagnostics-change' });
           persistHistOwnerState(owner, ownerSession, 'hist-stats-diagnostics-change');
-          scheduleHistOwnerDraw(owner, { reason: 'hist-stats-diagnostics-change', tabId: owner.tabId || undefined });
+          scheduleHistOwnerDraw(owner, { reason: 'hist-stats-diagnostics-change', tabId: owner.tabId || undefined, renderImpact: 'analysis' });
         });
       });
     }
@@ -5098,7 +5117,7 @@
           syncHistStatsControls();
           const ownerSession = commitHistActiveStateToOwner(owner, { reason: 'hist-stats-comparison-change' });
           persistHistOwnerState(owner, ownerSession, 'hist-stats-comparison-change');
-          scheduleHistOwnerDraw(owner, { reason: 'hist-stats-comparison-change', tabId: owner.tabId || undefined });
+          scheduleHistOwnerDraw(owner, { reason: 'hist-stats-comparison-change', tabId: owner.tabId || undefined, renderImpact: 'analysis' });
         });
       });
     }
@@ -5117,7 +5136,7 @@
             histDebug('Debug: hist showPdf toggle',{ checked: state.distributionSettings.showPdf });
           }
           commitHistActiveStateToOwner(owner, { reason: 'distribution-pdf-toggle' });
-          scheduleHistOwnerDraw(owner, { reason: 'distribution-pdf-toggle', tabId: owner.tabId || undefined });
+          scheduleHistOwnerDraw(owner, { reason: 'distribution-pdf-toggle', tabId: owner.tabId || undefined, renderImpact: 'paint' });
         });
       });
     }
@@ -5134,7 +5153,7 @@
             histDebug('Debug: hist showCdf toggle',{ checked: state.distributionSettings.showCdf });
           }
           commitHistActiveStateToOwner(owner, { reason: 'distribution-cdf-toggle' });
-          scheduleHistOwnerDraw(owner, { reason: 'distribution-cdf-toggle', tabId: owner.tabId || undefined });
+          scheduleHistOwnerDraw(owner, { reason: 'distribution-cdf-toggle', tabId: owner.tabId || undefined, renderImpact: 'paint' });
         });
       });
     }
@@ -5146,59 +5165,59 @@
       runHistEventOwnerCallback(event, 'hist-frequency-create-mode-change', owner => {
         applyHistFrequencySettings({ createMode: sanitizeHistFrequencyCreateMode(histFrequencyCreateMode.value) }, { schedule: false });
         commitHistActiveStateToOwner(owner, { reason: 'hist-frequency-create-mode-change' });
-        scheduleHistOwnerDraw(owner, { reason: 'hist-frequency-settings-change', tabId: owner.tabId || undefined });
+        scheduleHistOwnerDraw(owner, { reason: 'hist-frequency-settings-change', tabId: owner.tabId || undefined, renderImpact: 'analysis' });
       });
     });
     histFrequencyTabulateMode?.addEventListener('change', event => {
       runHistEventOwnerCallback(event, 'hist-frequency-tabulate-mode-change', owner => {
         applyHistFrequencySettings({ tabulateMode: sanitizeHistFrequencyTabulateMode(histFrequencyTabulateMode.value) }, { schedule: false });
         commitHistActiveStateToOwner(owner, { reason: 'hist-frequency-tabulate-mode-change' });
-        scheduleHistOwnerDraw(owner, { reason: 'hist-frequency-settings-change', tabId: owner.tabId || undefined });
+        scheduleHistOwnerDraw(owner, { reason: 'hist-frequency-settings-change', tabId: owner.tabId || undefined, renderImpact: 'analysis' });
       });
     });
     histBinningMode?.addEventListener('change', event => {
       runHistEventOwnerCallback(event, 'hist-binning-mode-change', owner => {
         applyHistFrequencySettings({ binningMode: sanitizeHistBinningMode(histBinningMode.value) }, { schedule: false });
         commitHistActiveStateToOwner(owner, { reason: 'hist-binning-mode-change' });
-        scheduleHistOwnerDraw(owner, { reason: 'hist-frequency-settings-change', tabId: owner.tabId || undefined });
+        scheduleHistOwnerDraw(owner, { reason: 'hist-frequency-settings-change', tabId: owner.tabId || undefined, renderImpact: 'analysis' });
       });
     });
     histBinWidth?.addEventListener('input', event => {
       runHistEventOwnerCallback(event, 'hist-bin-width-change', owner => {
         applyHistFrequencySettings({ manualBinWidth: sanitizePositiveFinite(histBinWidth.value) }, { schedule: false });
         commitHistActiveStateToOwner(owner, { reason: 'hist-bin-width-change' });
-        scheduleHistOwnerDraw(owner, { reason: 'hist-frequency-settings-change', tabId: owner.tabId || undefined });
+        scheduleHistOwnerDraw(owner, { reason: 'hist-frequency-settings-change', tabId: owner.tabId || undefined, renderImpact: 'analysis' });
       });
     });
     histFirstBinCenterAuto?.addEventListener('change', event => {
       runHistEventOwnerCallback(event, 'hist-first-center-auto-change', owner => {
         applyHistFrequencySettings({ firstCenterAuto: !!histFirstBinCenterAuto.checked }, { schedule: false });
         commitHistActiveStateToOwner(owner, { reason: 'hist-first-center-auto-change' });
-        scheduleHistOwnerDraw(owner, { reason: 'hist-frequency-settings-change', tabId: owner.tabId || undefined });
+        scheduleHistOwnerDraw(owner, { reason: 'hist-frequency-settings-change', tabId: owner.tabId || undefined, renderImpact: 'analysis' });
       });
     });
     histFirstBinCenter?.addEventListener('input', event => {
       runHistEventOwnerCallback(event, 'hist-first-center-change', owner => {
         applyHistFrequencySettings({ firstCenter: sanitizeOptionalFinite(histFirstBinCenter.value) }, { schedule: false });
         commitHistActiveStateToOwner(owner, { reason: 'hist-first-center-change' });
-        scheduleHistOwnerDraw(owner, { reason: 'hist-frequency-settings-change', tabId: owner.tabId || undefined });
+        scheduleHistOwnerDraw(owner, { reason: 'hist-frequency-settings-change', tabId: owner.tabId || undefined, renderImpact: 'analysis' });
       });
     });
     histLastBinCenterAuto?.addEventListener('change', event => {
       runHistEventOwnerCallback(event, 'hist-last-center-auto-change', owner => {
         applyHistFrequencySettings({ lastCenterAuto: !!histLastBinCenterAuto.checked }, { schedule: false });
         commitHistActiveStateToOwner(owner, { reason: 'hist-last-center-auto-change' });
-        scheduleHistOwnerDraw(owner, { reason: 'hist-frequency-settings-change', tabId: owner.tabId || undefined });
+        scheduleHistOwnerDraw(owner, { reason: 'hist-frequency-settings-change', tabId: owner.tabId || undefined, renderImpact: 'analysis' });
       });
     });
     histLastBinCenter?.addEventListener('input', event => {
       runHistEventOwnerCallback(event, 'hist-last-center-change', owner => {
         applyHistFrequencySettings({ lastCenter: sanitizeOptionalFinite(histLastBinCenter.value) }, { schedule: false });
         commitHistActiveStateToOwner(owner, { reason: 'hist-last-center-change' });
-        scheduleHistOwnerDraw(owner, { reason: 'hist-frequency-settings-change', tabId: owner.tabId || undefined });
+        scheduleHistOwnerDraw(owner, { reason: 'hist-frequency-settings-change', tabId: owner.tabId || undefined, renderImpact: 'analysis' });
       });
     });
-    const bindRuntimeControl = (node, eventName, key, valueFactory, reason, afterUpdate) => {
+    const bindRuntimeControl = (node, eventName, key, valueFactory, reason, renderImpact, afterUpdate) => {
       node?.addEventListener(eventName, event => {
         runHistEventOwnerCallback(event, reason, owner => {
           setHistRuntimeControl(key, valueFactory());
@@ -5206,18 +5225,18 @@
             afterUpdate();
           }
           commitHistActiveStateToOwner(owner, { reason });
-          scheduleHistOwnerDraw(owner, { reason, tabId: owner.tabId || undefined });
+          scheduleHistOwnerDraw(owner, { reason, tabId: owner.tabId || undefined, renderImpact });
         });
       });
     };
-    bindRuntimeControl(histBins, 'input', 'bins', () => histBins.value, 'hist-bins-change');
-    bindRuntimeControl(histShowGrid, 'input', 'showGrid', () => !!histShowGrid.checked, 'hist-grid-toggle');
-    bindRuntimeControl(histShowStatsSummary, 'change', 'showStatsSummary', () => !!histShowStatsSummary.checked, 'hist-stats-summary-toggle');
-    bindRuntimeControl(histLogY, 'input', 'logY', () => !!histLogY.checked, 'hist-log-y-toggle');
-    bindRuntimeControl(histXMin, 'input', 'xMin', () => histXMin.value, 'hist-x-min-change');
-    bindRuntimeControl(histXMax, 'input', 'xMax', () => histXMax.value, 'hist-x-max-change');
-    bindRuntimeControl(histYMax, 'input', 'yMax', () => histYMax.value, 'hist-y-max-change');
-    bindRuntimeControl(histShowFrame, 'change', 'showFrame', () => !!histShowFrame.checked, 'hist-frame-toggle', () => {
+    bindRuntimeControl(histBins, 'input', 'bins', () => histBins.value, 'hist-bins-change', 'analysis');
+    bindRuntimeControl(histShowGrid, 'input', 'showGrid', () => !!histShowGrid.checked, 'hist-grid-toggle', 'paint');
+    bindRuntimeControl(histShowStatsSummary, 'change', 'showStatsSummary', () => !!histShowStatsSummary.checked, 'hist-stats-summary-toggle', 'layout');
+    bindRuntimeControl(histLogY, 'input', 'logY', () => !!histLogY.checked, 'hist-log-y-toggle', 'analysis');
+    bindRuntimeControl(histXMin, 'input', 'xMin', () => histXMin.value, 'hist-x-min-change', 'analysis');
+    bindRuntimeControl(histXMax, 'input', 'xMax', () => histXMax.value, 'hist-x-max-change', 'analysis');
+    bindRuntimeControl(histYMax, 'input', 'yMax', () => histYMax.value, 'hist-y-max-change', 'analysis');
+    bindRuntimeControl(histShowFrame, 'change', 'showFrame', () => !!histShowFrame.checked, 'hist-frame-toggle', 'paint', () => {
       histDebug('Debug: hist showFrame change',{checked:histShowFrame.checked});
     });
     histFontSize.addEventListener('input', event => {
@@ -5229,7 +5248,7 @@
       }
       chartStyle.renderFontSizeLabel({ element: histFontSizeVal, pt: Number(histFontSize.value), input: histFontSize, manual: true });
       commitHistActiveStateToOwner(owner, { reason: 'hist-font-size-change' });
-      scheduleHistOwnerDraw(owner, { reason: 'hist-font-size-change', tabId: owner.tabId || undefined });
+      scheduleHistOwnerDraw(owner, { reason: 'hist-font-size-change', tabId: owner.tabId || undefined, renderImpact: 'layout' });
       });
     });
 
@@ -5251,7 +5270,7 @@
       Shared.exampleDatasets?.applyNotesState?.(state.notes, exampleRecord);
       histDebug('biomedical histogram example loaded', { rows: example.length - 1, series: example[0].length });
       commitHistActiveStateToOwner(owner, { reason: 'hist-example-load' });
-      scheduleHistOwnerDraw(owner, { reason: 'hist-example-load', tabId: owner.tabId || undefined });
+      scheduleHistOwnerDraw(owner, { reason: 'hist-example-load', tabId: owner.tabId || undefined, renderImpact: 'analysis' });
     });
     if(exampleBtn){
       exampleBtn.addEventListener('click', loadExampleData);
@@ -5321,6 +5340,7 @@
             scheduleHistOwnerDraw(importOwner, {
               force: true,
               reason: 'import-load',
+              renderImpact: 'structural',
               skipThresholdEvaluation: true,
               refreshDataViews: true
             });
@@ -5454,8 +5474,8 @@
           minorTicksY: axisSettings.y?.minorTicks ?? false,
           minorTickSubdivisionsX: clampMinorTickSubdivisions(axisSettings.x?.minorTickSubdivisions),
           minorTickSubdivisionsY: clampMinorTickSubdivisions(axisSettings.y?.minorTickSubdivisions),
-          notationX: axisSettings.x?.notation ?? 'decimal',
-          notationY: axisSettings.y?.notation ?? 'decimal'
+          notationX: axisSettings.x?.notation ?? 'auto',
+          notationY: axisSettings.y?.notation ?? 'auto'
         },
         axisLimits,
         distributions:{
@@ -5684,7 +5704,7 @@
       state.labelPositions = normalizeHistLabelPositions(config.labelPositions);
       syncHistRuntimeControlsFromDom();
       if(!skipDraw){
-        scheduleActiveHistDraw({ reason: `hist-payload-${source}` });
+        scheduleActiveHistDraw({ reason: `hist-payload-${source}`, renderImpact: 'analysis' });
       }
       // Restore the live scheduler before capturing the owner session. During
       // skipDraw restores, captureHistSessionStateFromActive() mirrors
@@ -6173,6 +6193,7 @@
       onChange(){
         scheduleHistOwnerDraw(getActiveHistSessionForState(), {
           reason: 'hist-stats-inference-change',
+          renderImpact: 'analysis',
           tabId: getHistStatsInferenceTabId() || undefined,
           userInitiated: true
         });
@@ -6271,6 +6292,93 @@
     return distribution === 'lognormal' ? 'Log-normal' : 'Normal';
   }
 
+  function getHistDiagnosticCache(session){
+    if(!session?.cache || typeof session.cache !== 'object'){
+      return null;
+    }
+    const current = session.cache.statsDiagnostics;
+    if(!current || typeof current !== 'object' || Array.isArray(current)){
+      session.cache.statsDiagnostics = { version: 1, entries: {} };
+    }else if(!current.entries || typeof current.entries !== 'object' || Array.isArray(current.entries)){
+      current.entries = {};
+    }
+    return session.cache.statsDiagnostics;
+  }
+
+  function createHistDiagnosticCacheKey(values, distribution, options = {}){
+    if(!Array.isArray(values)){
+      return null;
+    }
+    const alpha = Number.isFinite(Number(options.alpha)) && Number(options.alpha) > 0
+      ? Number(options.alpha)
+      : 0.05;
+    const parametersEstimated = options.parametersEstimated !== false;
+    const requestedIterations = Number(options.iterations);
+    const iterations = parametersEstimated
+      ? Math.max(200, Math.min(5000, Math.round(Number.isFinite(requestedIterations) && requestedIterations > 0 ? requestedIterations : 500)))
+      : 0;
+    const seed = (Number(options.seed) || 1337) >>> 0;
+    try{
+      return JSON.stringify({
+        version: 1,
+        distribution,
+        alpha,
+        parametersEstimated,
+        iterations,
+        seed,
+        values
+      });
+    }catch(_err){
+      return null;
+    }
+  }
+
+  function cloneHistCachedGoodnessOfFit(gof){
+    const cloned = cloneSimple(gof);
+    if(!cloned || typeof cloned !== 'object'){
+      return null;
+    }
+    delete cloned.fit;
+    delete cloned.pdf;
+    delete cloned.cdf;
+    return cloned;
+  }
+
+  function readHistDiagnosticCache(session, key){
+    if(!key){
+      return null;
+    }
+    const cache = getHistDiagnosticCache(session);
+    const record = cache?.entries?.[key];
+    if(!record || typeof record !== 'object'){
+      return null;
+    }
+    return {
+      available: record.available === true,
+      gof: cloneHistCachedGoodnessOfFit(record.gof),
+      message: record.message || null
+    };
+  }
+
+  function writeHistDiagnosticCache(session, key, diagnostic){
+    if(!key || !diagnostic){
+      return;
+    }
+    const cache = getHistDiagnosticCache(session);
+    if(!cache){
+      return;
+    }
+    cache.entries[key] = {
+      available: diagnostic.available === true,
+      gof: cloneHistCachedGoodnessOfFit(diagnostic.gof),
+      message: diagnostic.message || null
+    };
+    const keys = Object.keys(cache.entries);
+    while(keys.length > 16){
+      delete cache.entries[keys.shift()];
+    }
+  }
+
   function computeHistFitDiagnostic(values, distribution = 'normal', options = {}){
     const statsHelpers = Shared.stats || {};
     if(typeof statsHelpers.fitDistribution !== 'function' || typeof statsHelpers.goodnessOfFit !== 'function'){
@@ -6278,13 +6386,26 @@
     }
     const distributionKey = distribution === 'lognormal' ? 'lognormal' : 'normal';
     const distributionLabel = getHistDiagnosticDistributionLabel(distributionKey);
-    const fit = statsHelpers.fitDistribution(values, { distribution: distributionKey });
+    const fit = options?.fit && typeof options.fit === 'object'
+      ? options.fit
+      : statsHelpers.fitDistribution(values, { distribution: distributionKey });
     if(!fit || fit.valid === false){
       return {
         available: false,
         fit,
         gof: null,
         message: fit?.message || `${distributionLabel} fit unavailable.`
+      };
+    }
+    const cacheSession = options?.cacheSession || null;
+    const cacheKey = createHistDiagnosticCacheKey(values, distributionKey, options);
+    const cached = readHistDiagnosticCache(cacheSession, cacheKey);
+    if(cached){
+      return {
+        available: cached.available,
+        fit,
+        gof: cached.gof,
+        message: cached.message || (cached.gof?.message || (cached.available ? null : `${distributionLabel} goodness-of-fit unavailable.`))
       };
     }
     const alpha = Number.isFinite(options.alpha) && options.alpha > 0 ? Number(options.alpha) : 0.05;
@@ -6297,12 +6418,14 @@
       alpha
     });
     const available = gof?.available === true;
-    return {
+    const diagnostic = {
       available,
       fit,
       gof: gof || null,
       message: available ? null : (gof?.message || `${distributionLabel} goodness-of-fit unavailable.`)
     };
+    writeHistDiagnosticCache(cacheSession, cacheKey, diagnostic);
+    return diagnostic;
   }
 
   function computeHistNormalFitDiagnostic(values, options = {}){
@@ -6620,8 +6743,9 @@
     };
   }
 
-  function updateHistStats(seriesEntries){
+  function updateHistStats(seriesEntries, ownerSession = null){
     const target = getHistNodeById('histStatsResults');
+    const statsSession = ownerSession || getActiveHistSessionForState();
     const debugEnabled = typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled();
     const graphLabel = getHistGraphLabel(state.plotMode);
     if(!target){
@@ -6666,7 +6790,25 @@
         summary,
         bestFit: bestFit?.fit?.label || null,
         diagnostics: diagnosticsMode !== 'off'
-          ? computeHistFitDiagnostic(entry.values, diagnosticDistribution, { alpha: Number.isFinite(alpha) && alpha > 0 ? alpha : 0.05 })
+          ? (() => {
+              const cachedSummary = Array.isArray(entry.distributionSummaries)
+                ? entry.distributionSummaries.find(candidate => candidate?.fit?.key === diagnosticDistribution && candidate?.gof)
+                : null;
+              if(cachedSummary){
+                return {
+                  available: cachedSummary.gof?.available === true,
+                  fit: cachedSummary.fit || null,
+                  gof: cachedSummary.gof,
+                  message: cachedSummary.gof?.available === true
+                    ? null
+                    : (cachedSummary.gof?.message || `${getHistDiagnosticDistributionLabel(diagnosticDistribution)} goodness-of-fit unavailable.`)
+                };
+              }
+              return computeHistFitDiagnostic(entry.values, diagnosticDistribution, {
+                alpha: Number.isFinite(alpha) && alpha > 0 ? alpha : 0.05,
+                cacheSession: statsSession
+              });
+            })()
           : null,
         modelComparison: diagnosticsMode === 'normal-vs-lognormal'
           ? computeHistLognormalComparison(entry.values)
@@ -6876,7 +7018,6 @@
         }
       }, { title: 'Reporting and reproducibility' });
     }
-    const statsSession = getActiveHistSessionForState();
     captureHistStatsPanelModel(null, statsSession);
     if(statsSession){
       statsSession.results = createDefaultHistResultsState({ statsPanelModel: state.lastStatsPanelModel });
@@ -7743,7 +7884,7 @@
       ? gridControls.getStrokeAttributes(gridStrokeStyle, { fallbackColor: DEFAULT_GRID_COLOR, fallbackThickness: axisStrokeWidth })
       : { stroke: DEFAULT_GRID_COLOR, 'stroke-width': axisStrokeWidth };
     const formatTickX = value => chartStyle.formatAxisValue(value, { notation: getAxisNotation('x'), maxDecimals: 2 });
-    const formatTickY = value => chartStyle.formatAxisValue(value, { notation: getAxisNotation('y'), maxDecimals: 2 });
+    const formatTickY = value => chartStyle.formatAxisValue(value, { notation: getAxisNotation('y'), maxDecimals: 2, logScale: logY });
     const horizontalEdgePadding = chartStyle.resolveGraphHorizontalEdgePadding();
     const outer = {
       top: Math.max(34, fs * 2.8),
@@ -8274,8 +8415,8 @@
       if(densityMode){
         const positions = Array.isArray(model.densitySeries?.positions) ? model.densitySeries.positions : [];
         const densities = Array.isArray(model.densitySeries?.densities) ? model.densitySeries.densities : [];
-        const baselineValue = logY ? Math.max(model.extent.yMin, 1e-9) : 0;
-        const baselineDomain = logY ? Math.log10(baselineValue) : baselineValue;
+        const baselineDomain = logY ? model.yScale.min : 0;
+        const baselineValue = logY ? Math.pow(10, baselineDomain) : baselineDomain;
         const points = [];
         for(let pointIndex = 0; pointIndex < positions.length; pointIndex += 1){
           const x = Number(positions[pointIndex]);
@@ -8676,7 +8817,7 @@
     }
   }
 
-  function publishHistAnalysisResults(fitSets, frequencyModel, frequencySettings, alpha, viewContext, densityMode){
+  function publishHistAnalysisResults(fitSets, frequencyModel, frequencySettings, alpha, viewContext, densityMode, ownerSession = null){
     updateHistStats(fitSets.map((entry, seriesIndex) => ({
       key: entry.key,
       colIndex: entry.colIndex,
@@ -8686,21 +8827,19 @@
         let gof = null;
         if(fit && fit.valid !== false && typeof Shared.stats?.goodnessOfFit === 'function'){
           try{
-            gof = Shared.stats.goodnessOfFit(entry.values, {
-              distribution: fit.key,
+            gof = computeHistFitDiagnostic(entry.values, fit.key, {
+              alpha,
               fit,
-              params: fit.params,
-              pdf: fit.pdf,
-              cdf: fit.cdf,
-              alpha
+              cacheSession: ownerSession
             });
+            gof = gof?.gof || null;
           }catch(err){
             console.error('hist goodnessOfFit error', { key: fit?.key, message: err?.message, series: entry.label });
           }
         }
         return { fit, gof, color: fitSets.length > 1 ? getHistSeriesColor(entry.key, seriesIndex) : fit?.color };
       })
-    })));
+    })), ownerSession);
     if(!densityMode){
       const synced = syncHistFrequencyTableDataView(frequencyModel, frequencySettings, {
         context: viewContext,
@@ -8949,11 +9088,11 @@
                 if(!nextValue || nextValue === previousColor) return;
                 recordHistChange(`hist:series-color:${seriesKey}`, previousColor, nextValue, committed => {
                   setHistSeriesColor(seriesKey, committed);
-                  scheduleActiveHistDraw({ reason: `hist-series-color-undo:${seriesKey}` });
+                  scheduleActiveHistDraw({ reason: `hist-series-color-undo:${seriesKey}`, renderImpact: 'paint' });
                 });
                 setHistSeriesColor(seriesKey, nextValue);
                 previousColor = nextValue;
-                scheduleActiveHistDraw({ reason: `hist-series-color-change:${seriesKey}` });
+                scheduleActiveHistDraw({ reason: `hist-series-color-change:${seriesKey}`, renderImpact: 'paint' });
               }
             });
           }
@@ -9009,7 +9148,7 @@
       if(!panelResult?.ok){
         return false;
       }
-      publishHistAnalysisResults(fitSets, panelResult.frequencyModel, frequencySettings, alpha, viewContext, densityMode);
+      publishHistAnalysisResults(fitSets, panelResult.frequencyModel, frequencySettings, alpha, viewContext, densityMode, drawSession);
       state.layout?.syncPanels?.({ skipSchedule: true });
       syncHistAutoDrawNoticeWidth('draw');
       histDebug('Debug: drawHistogram complete', {
@@ -9067,7 +9206,7 @@
     const histNotationX = getAxisNotation('x');
     const histNotationY = getAxisNotation('y');
     const formatTickX = v => chartStyle.formatAxisValue(v,{ notation: histNotationX, maxDecimals: 2 });
-    const formatTickY = v => chartStyle.formatAxisValue(v,{ notation: histNotationY, maxDecimals: 2 });
+    const formatTickY = v => chartStyle.formatAxisValue(v,{ notation: histNotationY, maxDecimals: 2, logScale: logY });
     const axisStrokeWidthBase = getAxisStrokeWidthBase();
     const axisStrokeWidth=chartStyle.scaleStrokeWidth(axisStrokeWidthBase, styleScaleInfo, { context: 'hist-axis', min: 0, exact: true });
     const axisStroke = getAxisColor();
@@ -9544,8 +9683,8 @@
     histDebug('Debug: hist ticks stroke scaled',{xTickCount:xScale.ticks.length,yTickCount:yScale.ticks.length,axisStrokeWidth});
     const borderColor=state.barBorder || HIST_DEFAULT_BORDER;
     if(densityMode){
-      const baselineValue = logY ? Math.max(yMin, 1e-9) : 0;
-      const baselineDomain = logY ? Math.log10(baselineValue) : baselineValue;
+      const baselineDomain = logY ? yScale.min : 0;
+      const baselineValue = logY ? Math.pow(10, baselineDomain) : baselineDomain;
       fitSets.forEach((entry, seriesIndex) => {
         const densityInfo = densitySeriesByKey.get(entry.key);
         const positions = Array.isArray(densityInfo?.positions) ? densityInfo.positions : [];
@@ -10024,7 +10163,7 @@
     }
     state.layout?.syncPanels?.({ skipSchedule: true });
     syncHistAutoDrawNoticeWidth('draw');
-    publishHistAnalysisResults(fitSets, frequencyModel, frequencySettings, alpha, viewContext, densityMode);
+    publishHistAnalysisResults(fitSets, frequencyModel, frequencySettings, alpha, viewContext, densityMode, drawSession);
     histDebug('Debug: drawHistogram complete', { mode: plotMode, seriesCount: seriesEntries.length });
     return true;
     }finally{
@@ -10180,7 +10319,7 @@
         const overlayReason = 'manual-render';
         markHistOverlayPending(overlayReason);
         forceHistOverlay(overlayReason, { message: 'Rendering histogram...' });
-        scheduleHistOwnerDraw(renderOwner, { force: true, reason: 'manual-render', tabId: renderOwner.tabId || undefined });
+        scheduleHistOwnerDraw(renderOwner, { force: true, reason: 'manual-render', tabId: renderOwner.tabId || undefined, renderImpact: 'analysis' });
       });
     }
     scheduleHistNoticeWidth('init');
@@ -10370,10 +10509,6 @@
     hist.__domSentinel = getHistNodeById('histHot');
   };
 
-  function detachChildren(node){
-    return Shared.componentLifecycle?.detachCacheableChildren?.(node) || null;
-  }
-
   function restoreChildren(node, payload){
     if(!node || !payload || !payload.fragment){ return false; }
     while(node.firstChild){
@@ -10410,8 +10545,8 @@
     const plot = getHistNodeById('histPlot', owner.tabId);
     const stats = getHistNodeById('histStatsResults', owner.tabId);
     captureHistStatsPanelModel(owner.results?.statsPanelModel || owner.state?.statsPanelModel || {}, owner);
-    const plotCache = detachChildren(plot);
-    const statsCache = detachChildren(stats);
+    const plotCache = Shared.componentLifecycle?.snapshotCacheableChildren?.(plot) || null;
+    const statsCache = Shared.componentLifecycle?.snapshotCacheableChildren?.(stats) || null;
     if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
       histDebug('Debug: hist render cache captured', {
         plotNodes: plotCache?.count || 0,
@@ -10424,7 +10559,9 @@
     }) ?? (Number(plotCache?.count || 0) > 0);
     const cacheMeta = Shared.renderCacheSchema?.createMetadata?.({ component: 'hist', tabId: owner.tabId, complete })
       || { version: 2, component: 'hist', type: 'hist', tabId: owner.tabId || null, complete };
-    return { plot: plotCache, stats: statsCache, __graphitixRenderCache: cacheMeta };
+    const cache = { plot: plotCache, stats: statsCache, __graphitixRenderCache: cacheMeta };
+    Object.defineProperty(cache, '__graphitixLiveDomPreserved', { value: true });
+    return cache;
   };
 
   hist.canRestoreRenderCache = function canRestoreRenderCache(cache, meta = {}){

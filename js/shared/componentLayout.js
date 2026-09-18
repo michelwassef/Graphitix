@@ -966,6 +966,13 @@
       resizerApi.restoreSizingState(resizableState, {
         reason: options.reason || `${componentName}-layout-restore-sizing-state`
       });
+      if(typeof resizerApi.setAspectLocked === 'function'
+        && typeof resizableState.aspectLocked === 'boolean'){
+        resizerApi.setAspectLocked(resizableState.aspectLocked, {
+          reason: options.reason || `${componentName}-layout-restore-aspect-lock`,
+          preserveGeometry: true
+        });
+      }
     }
     let result = null;
     try{

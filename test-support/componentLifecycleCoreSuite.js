@@ -122,7 +122,8 @@ describe('componentLifecycle — draw option sanitization', () => {
       mode: 'lists',
       nested: { ok: true },
       tabId: 'tab-a',
-      reason: 'unit-cross-realm'
+      reason: 'unit-cross-realm',
+      renderImpact: 'analysis'
     });
 
     iframe.remove();
@@ -3204,7 +3205,8 @@ describe('componentLifecycle — draw option sanitation', () => {
       force: true,
       nested: { value: 3 },
       tabId: 'tab-a',
-      sessionGeneration: 7
+      sessionGeneration: 7,
+      renderImpact: 'analysis'
     });
   });
 
@@ -3222,7 +3224,8 @@ describe('componentLifecycle — draw option sanitation', () => {
       reason: 'style-change',
       viewOnly: true,
       circular: { keep: true },
-      tabId: 'tab-b'
+      tabId: 'tab-b',
+      renderImpact: 'layout'
     });
   });
 
@@ -3232,7 +3235,8 @@ describe('componentLifecycle — draw option sanitation', () => {
     expect(lc.sanitizeOptionalComponentDrawOptions('heatmap', { viewOnly: true }, { tabId: 'tab-a' })).toEqual({
       viewOnly: true,
       tabId: 'tab-a',
-      reason: 'heatmap-draw'
+      reason: 'heatmap-draw',
+      renderImpact: 'layout'
     });
   });
 });

@@ -457,7 +457,9 @@
     if(typeof value === 'number') return Number.isFinite(value);
     if(typeof value !== 'string') return false;
     const trimmed = value.trim();
-    return trimmed !== '' && Number.isFinite(Number(trimmed));
+    const parser = Shared.dataTransforms?.toFiniteNumber;
+    const numeric = typeof parser === 'function' ? parser(trimmed) : Number(trimmed);
+    return trimmed !== '' && Number.isFinite(numeric);
   }
 
   function columnValues(rows, columnIndex, startRow = 1){

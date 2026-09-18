@@ -1,6 +1,18 @@
 (function(global){
   'use strict';
   const Shared = global.Shared = global.Shared || {};
+  const scatterLabelModel = Shared.scatterLabelModel = Shared.scatterLabelModel || {};
+  if(typeof scatterLabelModel.summarizeScatterLabelDistribution !== 'function' && typeof require === 'function'){
+    try{
+      require('../shared/scatterLabelModel.js');
+    }catch(_err){
+      // Browser builds load scatterLabelModel.js before the component.
+    }
+  }
+  const summarizeScatterLabelDistribution = (...args) => scatterLabelModel.summarizeScatterLabelDistribution(...args);
+  if(typeof Shared.componentLifecycle?.bindOwnerControlHandler !== 'function' && typeof require === 'function'){
+    require('../shared/componentLifecycle.js');
+  }
   const Components = global.Components = global.Components || {};
   const scatter = Components.scatter = Components.scatter || {};
   const chartStyle = Shared.chartStyle = Shared.chartStyle || {};
@@ -845,45 +857,6 @@
     };
   }
 
-  function summarizeScatterLabelDistribution(labels){
-    const source = Array.isArray(labels) ? labels : [];
-    const summary = {
-      totalPoints: source.length,
-      labeledPointCount: 0,
-      labelCount: 0,
-      pureUnique: false,
-      averageFrequency: 0,
-      rareLabels: false,
-      pointFormatCount: 0,
-      singlePointFormat: false,
-      shouldUseUniform: false
-    };
-    if(!source.length){
-      return summary;
-    }
-    const counts = new Map();
-    source.forEach(rawLabel => {
-      const label = rawLabel == null ? '' : String(rawLabel).trim();
-      if(!label){ return; }
-      summary.labeledPointCount += 1;
-      counts.set(label, (counts.get(label) || 0) + 1);
-    });
-    summary.labelCount = counts.size;
-    if(!summary.labelCount || !summary.labeledPointCount){
-      return summary;
-    }
-    summary.pureUnique = summary.labeledPointCount === summary.totalPoints
-      && summary.labelCount === summary.totalPoints
-      && Array.from(counts.values()).every(count => count === 1);
-    summary.averageFrequency = (summary.labeledPointCount / summary.labelCount) / summary.totalPoints;
-    const hasUnlabeledPoints = summary.labeledPointCount < summary.totalPoints;
-    summary.pointFormatCount = summary.labelCount + (hasUnlabeledPoints ? 1 : 0);
-    summary.rareLabels = summary.averageFrequency < 0.05;
-    summary.singlePointFormat = summary.pureUnique || summary.pointFormatCount <= 1 || summary.rareLabels;
-    summary.shouldUseUniform = summary.singlePointFormat;
-    return summary;
-  }
-
   function resolveScatterDataAwareDefaultPolicy(matrix, options = {}){
     const rows = Array.isArray(matrix) ? matrix : [];
     const graphType = normalizeScatterGraphType(options.graphType || 'scatter');
@@ -902,7 +875,7 @@
         const hasValues = rows.slice(1).some(row => {
           if(!Array.isArray(row)){ return false; }
           for(let offset = 0; offset < replicates; offset += 1){
-            if(Number.isFinite(Number.parseFloat(row[startCol + offset]))){ return true; }
+            if(Number.isFinite(Shared.dataTransforms.toFiniteNumber(row[startCol + offset]))){ return true; }
           }
           return false;
         });
@@ -922,7 +895,7 @@
     const labels = [];
     rows.slice(1).forEach(row => {
       if(!Array.isArray(row)){ return; }
-      if(Number.isFinite(Number.parseFloat(row[1])) && Number.isFinite(Number.parseFloat(row[2]))){
+      if(Number.isFinite(Shared.dataTransforms.toFiniteNumber(row[1])) && Number.isFinite(Shared.dataTransforms.toFiniteNumber(row[2]))){
         labels.push(row[0]);
       }
     });
@@ -1888,6 +1861,7 @@
         scheduleScatterDrawForSession(owner, {
           tabId: owner.tabId || undefined,
           viewOnly: true,
+          renderImpact: 'layout',
           reason: stateKey === 'title' ? 'title-change' : `${stateKey}-label-change`
         });
         return true;
@@ -2748,12 +2722,42 @@
     return shaped;
   }
 
-  const sanitizeScatterDrawOptions = (options = null, session = null, reason = 'scatter-session-draw') => (
-    Shared.componentLifecycle?.sanitizeComponentDrawOptions?.('scatter', options || {}, {
-      tabId: session?.tabId || options?.tabId || null,
+  function resolveScatterRenderImpact(options = {}, fallback = 'analysis'){
+    const source = options && typeof options === 'object' ? options : {};
+    if(Object.prototype.hasOwnProperty.call(source, 'renderImpact')){
+      return Shared.componentLifecycle?.normalizeRenderImpact?.(source.renderImpact, fallback) || fallback;
+    }
+    if(source.structural === true){ return 'structural'; }
+    if(source.invalidate === 'data'){ return 'analysis'; }
+    if(source.invalidate === 'layout' || source.viewOnly === true){ return 'layout'; }
+    if(source.invalidate === 'style'){ return 'paint'; }
+    return Shared.componentLifecycle?.normalizeRenderImpact?.(fallback, 'analysis') || fallback;
+  }
+
+  function isScatterPresentationDraw(options = {}){
+    const renderImpact = resolveScatterRenderImpact(options, 'analysis');
+    return Shared.componentLifecycle?.isPresentationOnlyDraw?.({ renderImpact }) === true;
+  }
+
+  const sanitizeScatterDrawOptions = (options = null, session = null, reason = 'scatter-session-draw') => {
+    const source = options && typeof options === 'object' ? options : {};
+    const renderImpact = resolveScatterRenderImpact(source, 'analysis');
+    const sanitized = Shared.componentLifecycle?.sanitizeComponentDrawOptions?.('scatter', {
+      ...source,
+      renderImpact
+    }, {
+      tabId: session?.tabId || source.tabId || null,
       reason
-    }) || { ...(options && typeof options === 'object' ? options : {}), tabId: session?.tabId || options?.tabId || undefined, reason }
-  );
+    }) || {
+      ...source,
+      tabId: session?.tabId || source.tabId || undefined,
+      reason,
+      renderImpact
+    };
+    sanitized.renderImpact = resolveScatterRenderImpact(sanitized, renderImpact);
+    sanitized.viewOnly = isScatterPresentationDraw(sanitized);
+    return sanitized;
+  };
 
   function cloneScatterDrawOptions(options = null){
     return sanitizeScatterDrawOptions(options, null, 'scatter-runtime-draw');
@@ -2953,7 +2957,9 @@
   }
 
   function createDefaultScatterRenderRuntime(source = {}){
+    const rawDataRevision = Number(source.dataRevision);
     return {
+      dataRevision: Number.isFinite(rawDataRevision) && rawDataRevision >= 0 ? rawDataRevision : 0,
       dataDirty: source.dataDirty !== false,
       cachedCollect: source.cachedCollect || null,
       cachedGeometry: source.cachedGeometry || null,
@@ -3018,6 +3024,7 @@
 
   function markScatterRenderRuntimeDirty(session = null, reason = null){
     return updateScatterRenderRuntime(session, renderRuntime => {
+      renderRuntime.dataRevision = (Number(renderRuntime.dataRevision) || 0) + 1;
       renderRuntime.dataDirty = true;
       renderRuntime.cachedCollect = null;
       renderRuntime.cachedGeometry = null;
@@ -3876,6 +3883,7 @@
   function scheduleScatterViewRefresh(reason, extraOptions){
     const options = (extraOptions && typeof extraOptions === 'object') ? extraOptions : {};
     const nextReason = reason || options.reason || 'scatter-view-refresh';
+    const renderImpact = resolveScatterRenderImpact(options, 'layout');
     const ownerTabId = resolveScatterSessionTabId(options.tabId || options.workspaceTabId || options.tab?.id || scatterControlOwnerContext?.tabId || scatterControlOwnerContext?.session?.tabId || getScatterProjectionTabId() || null, {});
     const ownerSession = ownerTabId
       ? getScatterSession(ownerTabId, { tabId: ownerTabId, reason: nextReason }, { create: false })
@@ -3917,7 +3925,8 @@
     }
     const scheduleOptions = Object.assign({}, options, {
       tabId: ownerTabId || options.tabId || undefined,
-      viewOnly: true,
+      renderImpact,
+      viewOnly: Shared.componentLifecycle?.isPresentationOnlyDraw?.({ renderImpact }) === true,
       silentOverlay: true,
       reason: nextReason,
       source: 'scatter-view-refresh',
@@ -3968,7 +3977,8 @@
     const tabId = getScatterProjectionTabId() || null;
     const queueSecondPass = () => {
       scheduleScatterViewRefresh(reason || 'publication-style-stabilize', {
-        force: true
+        force: true,
+        renderImpact: 'layout'
       });
     };
     Shared.componentLifecycle?.scheduleComponentFrame?.(scatter, 'scatter', {
@@ -4014,7 +4024,7 @@
         }, { create: false });
         preserveRenderedScatterPointLabelPositions(owner, 'scatter-point-label-font-position');
       }
-      scheduleScatterViewRefresh('font-style-change', { tabId: detail.tabId || null });
+      scheduleScatterViewRefresh('font-style-change', { tabId: detail.tabId || null, renderImpact: 'layout' });
     });
     scatterFontEventBound = true;
     console.debug('Debug: scatter font style listener attached');
@@ -4025,28 +4035,6 @@
       return false;
     }
     return source.startsWith('scatter-x-axis-') || source.startsWith('scatter-y-axis-');
-  }
-
-  function isScatterLayoutScheduleMeta(meta){
-    if(!meta || typeof meta !== 'object'){
-      return false;
-    }
-    if(meta.viewOnly === true){
-      return true;
-    }
-    const candidates = [meta.source, meta.reason]
-      .filter(value => typeof value === 'string')
-      .map(value => value.toLowerCase());
-    return candidates.some(value => (
-      value === 'observer'
-      || value === 'sync'
-      || value === 'layout'
-      || value === 'resize'
-      || value.includes('observer')
-      || value.includes('layout')
-      || value.includes('resize')
-      || value.includes('sync')
-    ));
   }
 
   function appendScatter3dBackground(svg, width, height, themeSnapshot){
@@ -4742,7 +4730,7 @@
       globalShape: scatterGlobalShape,
       labelStyles: scatterLabelStyles
     }, 'scatter-global-shape-change');
-    scheduleScatterViewRefresh('label-shape-global-change');
+    scheduleScatterViewRefresh('label-shape-global-change', { renderImpact: 'paint' });
     return sanitized;
   }
 
@@ -4804,7 +4792,7 @@
     scatterLabelCache.shapesSet = null;
     scatterLabelCache.colorsValid = false;
     scatterLabelCache.shapesValid = false;
-    scheduleScatterViewRefresh(`symbol-style-${phase || 'apply'}`);
+    scheduleScatterViewRefresh(`symbol-style-${phase || 'apply'}`, { renderImpact: 'paint' });
     return true;
   }
 
@@ -4876,6 +4864,17 @@
       return `0:${rowSet.size}:0:0`;
     }
     return `${hash}:${rowSet.size}:${min}:${max}`;
+  }
+
+  function buildScatterCollectCacheSignature(options = {}){
+    return JSON.stringify({
+      version: 1,
+      dataRevision: Math.max(0, Number(options.dataRevision) || 0),
+      graphType: String(options.graphType || 'scatter'),
+      tableFormat: normalizeScatterTableFormat(options.tableFormat),
+      logPlusOneX: !!options.logPlusOneX,
+      logPlusOneY: !!options.logPlusOneY
+    });
   }
 
   function ensureEmptyPayloadTemplate(){
@@ -5228,6 +5227,7 @@
     const colorModeControl = getScatterNodeById('scatterColorMode') || null;
     const densityPaletteControl = getScatterNodeById('scatterDensityPalette') || null;
     const snapshot = {
+      dataRevision: Number(getScatterRenderRuntime(snapshotSession, { syncFallbackFromState: !snapshotSession })?.dataRevision) || 0,
       dataDirty: getScatterRenderRuntime(snapshotSession, { syncFallbackFromState: !snapshotSession })?.dataDirty !== false,
       view: {
         ...(cloneSimple(snapshotState?.view) || createScatterOwnedViewStateFromMirrors()),
@@ -5379,6 +5379,9 @@
       reason: reason || 'scatter-runtime-apply-draw-session'
     }, { create: true });
     updateScatterRenderRuntime(applyDrawSession, renderRuntime => {
+      renderRuntime.dataRevision = Number.isFinite(Number(runtime?.dataRevision))
+        ? Math.max(0, Number(runtime.dataRevision))
+        : renderRuntime.dataRevision;
       renderRuntime.dataDirty = runtime ? runtime.dataDirty !== false : true;
       renderRuntime.cachedCollect = null;
       renderRuntime.cachedGeometry = null;
@@ -5741,7 +5744,13 @@
             }
             syncScatterAxisHeader(axisKey, resolved, { source: 'scatter-axis-inline' });
             if(node.textContent !== resolved){ node.textContent = resolved; }
-            scheduleScatterDrawForSession(target, { tabId: target.tabId || null, viewOnly: true, force: true, reason: `axis-label-${axisKey}-change` });
+            scheduleScatterDrawForSession(target, {
+              tabId: target.tabId || null,
+              viewOnly: true,
+              renderImpact: 'layout',
+              force: true,
+              reason: `axis-label-${axisKey}-change`
+            });
             return resolved;
           };
           markFontEditable(node, role, role);
@@ -5908,6 +5917,18 @@
       return false;
     }
     const nextRotation = commitScatterRotationState(rotation, 'scatter-rotation-change', target);
+    const rotationDrawOptions = {
+      tabId: target.tabId || null,
+      viewOnly: true,
+      renderImpact: 'layout',
+      silentOverlay: true,
+      force: true,
+      userInitiated: true,
+      reason: 'rotation-renderer-fallback'
+    };
+    if(Shared.hot?.shouldDeferOwnerProjectionDraw?.(target, rotationDrawOptions)){
+      return true;
+    }
     const drawRuntime = getScatterDrawRuntime(target, { syncFallbackFromState: !target });
     if(drawRuntime.rotationPending){
       if(!drawRuntime.rotationPendingLogged && typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
@@ -5933,14 +5954,7 @@
       if(typeof renderer === 'function' && renderer(ownerRotation) === true){
         return;
       }
-      scheduleScatterDrawForSession(target, {
-        tabId: target.tabId || null,
-        viewOnly: true,
-        silentOverlay: true,
-        force: true,
-        userInitiated: true,
-        reason: 'rotation-renderer-fallback'
-      });
+      scheduleScatterDrawForSession(target, rotationDrawOptions);
     };
     const scheduled = Shared.componentLifecycle?.scheduleComponentFrame?.(scatter, 'scatter', {
       tabId: target.tabId || null,
@@ -6809,7 +6823,7 @@
           scatterDebug('Debug: scatter equal scale toggled', { enabled, previous });
           syncScatterAspectControls('equal-scale-toggle');
           if(typeof scheduleDrawScatter === 'function'){
-            scheduleScatterViewRefresh('equal-scale-toggle');
+            scheduleScatterViewRefresh('equal-scale-toggle', { renderImpact: 'layout' });
           }
         };
         equalScaleCheckbox.addEventListener('change', onChange);
@@ -6840,7 +6854,7 @@
           scatterDebug('Debug: scatter equal length toggled', { enabled, previous });
           syncScatterAspectControls('equal-length-toggle');
           if(typeof scheduleDrawScatter === 'function'){
-            scheduleScatterViewRefresh('equal-length-toggle');
+            scheduleScatterViewRefresh('equal-length-toggle', { renderImpact: 'layout' });
           }
         };
         equalLengthCheckbox.addEventListener('change', onChange);
@@ -6896,7 +6910,7 @@
           scatterDebug('Debug: scatter variance axis scaling toggled', { enabled, previous });
           syncScatterAspectControls('variance-axis-scale');
           if(typeof scheduleDrawScatter === 'function'){
-            scheduleScatterViewRefresh('variance-axis-scale');
+            scheduleScatterViewRefresh('variance-axis-scale', { renderImpact: 'layout' });
           }
         };
         varianceCheckbox.addEventListener('change', onChange);
@@ -7905,7 +7919,7 @@
         sourceXValues.push(srcRow[1]);
       }
       const sourceNumericX = sourceXValues
-        .map(value => parseFloat(value))
+        .map(value => Shared.dataTransforms.toFiniteNumber(value))
         .filter(Number.isFinite);
       for(let rep = 0; rep < targetXReplicateCount; rep += 1){
         const newXCol = 1 + rep;
@@ -7993,7 +8007,7 @@
           continue;
         }
         xRawValues.push(rawX);
-        const numericX = parseFloat(rawX);
+        const numericX = Shared.dataTransforms.toFiniteNumber(rawX);
         if(Number.isFinite(numericX)){
           xReplicateValues.push(numericX);
         }
@@ -8007,7 +8021,7 @@
           if(colIndex >= row.length){
             continue;
           }
-          const numeric = parseFloat(row[colIndex]);
+          const numeric = Shared.dataTransforms.toFiniteNumber(row[colIndex]);
           if(Number.isFinite(numeric)){
             repValues.push(numeric);
           }
@@ -8468,7 +8482,7 @@
       selectedRows.forEach(rowIndex => {
         setScatterRowSelected(hotInstance, rowIndex, true, { preserveExisting: true });
       });
-      scheduleScatterViewRefresh('row-selection-restore');
+      scheduleScatterViewRefresh('row-selection-restore', { renderImpact: 'layout' });
       if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
         console.debug('Debug: scatter payload selection restored', {
           tabId: resolvedTabId || null,
@@ -8602,11 +8616,11 @@
         let log2fc, pRaw;
         if(graphType === 'ma'){
           // For MA plots: Column 1 = Mean Expression, Column 2 = log2FC, Column 3 = p-value
-          log2fc = parseFloat(hotInstance.getDataAtCell(visualRow, 2)); // log2FC is in column 2 for MA
+          log2fc = Shared.dataTransforms.toFiniteNumber(hotInstance.getDataAtCell(visualRow, 2)); // log2FC is in column 2 for MA
           pRaw = toNumericPValue(hotInstance.getDataAtCell(visualRow, 3));
         }else{
           // For Volcano plots: Column 1 = log2FC, Column 2 = p-value
-          log2fc = parseFloat(hotInstance.getDataAtCell(visualRow, 1));
+          log2fc = Shared.dataTransforms.toFiniteNumber(hotInstance.getDataAtCell(visualRow, 1));
           pRaw = toNumericPValue(hotInstance.getDataAtCell(visualRow, 2));
         }
         if(!Number.isFinite(log2fc) || !Number.isFinite(pRaw) || pRaw <= 0){
@@ -10019,7 +10033,7 @@
       if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
         console.debug('Debug: scatter context menu label toggle', { rowIndex, toggled });
       }
-      scheduleScatterViewRefresh('point-context-menu');
+      scheduleScatterViewRefresh('point-context-menu', { renderImpact: 'paint' });
       hide('action-complete');
     });
 
@@ -10221,25 +10235,10 @@
     }, true);
   }
 
-  function bindScatterControlHandler(node, eventName, key, handler){
-    if(!node || typeof node.addEventListener !== 'function' || typeof handler !== 'function'){
-      return false;
-    }
-    const eventKey = String(eventName || '').trim();
-    if(!eventKey){
-      return false;
-    }
-    const storeKey = `${eventKey}:${String(key || 'handler')}`;
-    const store = node.__scatterControlHandlers || (node.__scatterControlHandlers = {});
-    const previous = store[storeKey];
-    if(previous && typeof node.removeEventListener === 'function'){
-      node.removeEventListener(eventKey, previous);
-    }
-    const wrapped = event => runScatterEventOwnerCallback(event, `scatter-control-${String(key || 'handler')}`, owner => handler.call(node, event, owner));
-    node.addEventListener(eventKey, wrapped);
-    store[storeKey] = wrapped;
-    return true;
-  }
+  const bindScatterControlHandler = Shared.componentLifecycle.createOwnerControlBinder({
+    componentKey: 'scatter',
+    runOwnerCallback: runScatterEventOwnerCallback
+  });
 
   function attachScatterPointTooltip(el, data){
     if(!el || !data){ return; }
@@ -10472,26 +10471,26 @@
       getTransparency: ctx => getScatterOverlayPreviewStyle(resolveScope(ctx))?.transparency,
       onColorInput: (value, ctx) => {
         applyOverlayPatch(resolveScope(ctx), { color: value });
-        scheduleScatterViewRefresh('overlay-color-input');
+        scheduleScatterViewRefresh('overlay-color-input', { renderImpact: 'paint' });
       },
       onColorChange: (value, ctx) => {
         applyOverlayPatch(resolveScope(ctx), { color: value });
-        scheduleScatterViewRefresh('overlay-color-change');
+        scheduleScatterViewRefresh('overlay-color-change', { renderImpact: 'paint' });
       },
       onThicknessChange: (value, ctx) => {
         const numeric = Number(value);
         applyOverlayPatch(resolveScope(ctx), { thickness: Number.isFinite(numeric) ? Math.max(0, numeric) : 0 });
-        scheduleScatterViewRefresh('overlay-thickness-change');
+        scheduleScatterViewRefresh('overlay-thickness-change', { renderImpact: 'paint' });
       },
       onPatternChange: (value, ctx) => {
         applyOverlayPatch(resolveScope(ctx), { pattern: value });
-        scheduleScatterViewRefresh('overlay-pattern-change');
+        scheduleScatterViewRefresh('overlay-pattern-change', { renderImpact: 'paint' });
       },
       onTransparencyChange: (value, ctx) => {
         const numeric = Number(value);
         const bounded = Number.isFinite(numeric) ? Math.min(100, Math.max(0, numeric)) : 0;
         applyOverlayPatch(resolveScope(ctx), { transparency: bounded });
-        scheduleScatterViewRefresh('overlay-transparency-change');
+        scheduleScatterViewRefresh('overlay-transparency-change', { renderImpact: 'paint' });
       }
     };
     applyOverlayControlLabels(overlayConfig);
@@ -10551,7 +10550,7 @@
           { labelStyles: scatterLabelStyles },
           { reason: 'scatter-label-style-change' }
         );
-        scheduleScatterViewRefresh('label-style-change');
+        scheduleScatterViewRefresh('label-style-change', { renderImpact: 'paint' });
       };
       const applyGlobalStylePatch = (key, value) => {
         Object.keys(scatterLabelStyles).forEach(k => {
@@ -10562,7 +10561,7 @@
           patch[key] = value;
         }
         persistScatterStyleMutation(null, patch, `scatter-global-${key}-change`);
-        scheduleScatterViewRefresh('label-style-global-change');
+        scheduleScatterViewRefresh('label-style-global-change', { renderImpact: 'paint' });
       };
       const knownScatterLabelKeys = () => {
         const keys = new Set();
@@ -10901,14 +10900,17 @@
     return {
       strokeWidth: 1,
       color: DEFAULT_AXIS_COLOR,
-      x: { tickInterval: null, majorTickLength: null, labelAngle: null, minorTicks: false, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'decimal', additionalTicks: [], brokenAxis: { enabled: false, segments: [] } },
-      y: { tickInterval: null, majorTickLength: null, minorTicks: false, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'decimal', additionalTicks: [], brokenAxis: { enabled: false, segments: [] } }
+      x: { tickInterval: null, majorTickLength: null, labelAngle: null, minorTicks: false, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'auto', additionalTicks: [], brokenAxis: { enabled: false, segments: [] } },
+      y: { tickInterval: null, majorTickLength: null, minorTicks: false, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'auto', additionalTicks: [], brokenAxis: { enabled: false, segments: [] } }
     };
   }
 
   function sanitizeScatterAxisNotation(value){
+    if(typeof chartStyle.normalizeAxisNotation === 'function'){
+      return chartStyle.normalizeAxisNotation(value);
+    }
     if(value === 'auto' || value === 'decimal' || value === 'scientific'){ return value; }
-    return 'decimal';
+    return 'auto';
   }
 
   let scatterAxisSettings = createScatterAxisSettings();
@@ -10970,10 +10972,10 @@
       scatterAxisSettings = createScatterAxisSettings();
     }
     if(!scatterAxisSettings.x || typeof scatterAxisSettings.x !== 'object'){
-      scatterAxisSettings.x = { tickInterval: null, majorTickLength: null, labelAngle: null, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'decimal', additionalTicks: [], brokenAxis: { enabled: false, segments: [] } };
+      scatterAxisSettings.x = { tickInterval: null, majorTickLength: null, labelAngle: null, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'auto', additionalTicks: [], brokenAxis: { enabled: false, segments: [] } };
     }
     if(!scatterAxisSettings.y || typeof scatterAxisSettings.y !== 'object'){
-      scatterAxisSettings.y = { tickInterval: null, majorTickLength: null, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'decimal', additionalTicks: [], brokenAxis: { enabled: false, segments: [] } };
+      scatterAxisSettings.y = { tickInterval: null, majorTickLength: null, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'auto', additionalTicks: [], brokenAxis: { enabled: false, segments: [] } };
     }
     if(typeof scatterAxisSettings.x.minorTicks !== 'boolean'){
       scatterAxisSettings.x.minorTicks = false;
@@ -11032,7 +11034,7 @@
     if(settings[axis].notation === nextValue){ return; }
     settings[axis].notation = nextValue;
     console.debug('Debug: scatter axis notation updated',{ axis, notation: nextValue });
-    scheduleScatterViewRefresh(`axis-notation-${axis}`);
+    scheduleScatterViewRefresh(`axis-notation-${axis}`, { renderImpact: 'layout' });
   }
 
   function getScatterAxisTickInterval(axis){
@@ -11056,7 +11058,7 @@
       settings[axis].tickInterval = Number.isFinite(numeric) && numeric > 0 ? numeric : null;
     }
     console.debug('Debug: scatter axis tick interval updated',{ axis, tickInterval: settings[axis].tickInterval });
-    scheduleScatterViewRefresh(`axis-ticks-${axis}`);
+    scheduleScatterViewRefresh(`axis-ticks-${axis}`, { renderImpact: 'layout' });
   }
 
   function getScatterAxisMajorTickLength(axis){
@@ -11078,7 +11080,7 @@
     if(settings[axis].majorTickLength === nextValue){ return; }
     settings[axis].majorTickLength = nextValue;
     console.debug('Debug: scatter major tick length updated',{ axis, majorTickLength: nextValue });
-    scheduleScatterViewRefresh(`axis-major-tick-length-${axis}`);
+    scheduleScatterViewRefresh(`axis-major-tick-length-${axis}`, { renderImpact: 'layout' });
   }
 
   function getScatterXAxisTickLabelAngle(ownerSession = null){
@@ -11104,7 +11106,7 @@
       owner.updatedAt = Date.now();
     }
     console.debug('Debug: scatter x tick label angle updated',{ angle: nextValue, tabId: owner?.tabId || null });
-    scheduleScatterViewRefresh('axis-x-label-angle', { tabId: owner?.tabId || null, userInitiated: true });
+    scheduleScatterViewRefresh('axis-x-label-angle', { tabId: owner?.tabId || null, userInitiated: true, renderImpact: 'layout' });
   }
 
   function getScatterAxisMinorTicksEnabled(axis){
@@ -11122,7 +11124,7 @@
     }
     settings[axis].minorTicks = nextValue;
     console.debug('Debug: scatter minor ticks updated',{ axis, enabled: nextValue });
-    scheduleScatterViewRefresh(`axis-minor-ticks-${axis}`);
+    scheduleScatterViewRefresh(`axis-minor-ticks-${axis}`, { renderImpact: 'layout' });
   }
 
   function getScatterAxisMinorTickSubdivisions(axis){
@@ -11140,7 +11142,7 @@
     }
     settings[axis].minorTickSubdivisions = nextValue;
     console.debug('Debug: scatter minor tick subdivisions updated',{ axis, subdivisions: nextValue });
-    scheduleScatterViewRefresh(`axis-minor-subdivisions-${axis}`);
+    scheduleScatterViewRefresh(`axis-minor-subdivisions-${axis}`, { renderImpact: 'layout' });
   }
 
   function getScatterAxisAdditionalTicks(axis){
@@ -11168,7 +11170,7 @@
       axis,
       count: settings[axis].additionalTicks.length
     });
-    scheduleScatterViewRefresh(`axis-additional-ticks-${axis}`);
+    scheduleScatterViewRefresh(`axis-additional-ticks-${axis}`, { renderImpact: 'layout' });
   }
 
   function updateScatterAxisAdditionalTick(axis, index, entry){
@@ -11266,7 +11268,7 @@
       settings.strokeWidth = Number.isFinite(numeric) && numeric > 0 ? numeric : 1;
     }
     console.debug('Debug: scatter axis stroke width updated',{ strokeWidth: settings.strokeWidth });
-    scheduleScatterViewRefresh('axis-stroke-width');
+    scheduleScatterViewRefresh('axis-stroke-width', { renderImpact: 'paint' });
   }
 
   function getScatterAxisColor(){
@@ -11278,7 +11280,7 @@
     const settings = ensureScatterAxisSettings();
     settings.color = typeof value === 'string' && value.trim() ? value : DEFAULT_AXIS_COLOR;
     console.debug('Debug: scatter axis color updated',{ color: settings.color });
-    scheduleScatterViewRefresh('axis-color');
+    scheduleScatterViewRefresh('axis-color', { renderImpact: 'paint' });
   }
 
   function buildScatterAxisControlConfig(axis, ownerSession = null, axisMeta = {}){
@@ -11363,12 +11365,12 @@
         if(scatterShowGrid){
           scatterShowGrid.checked = !!value;
         }
-        scheduleScatterViewRefresh('grid-visible');
+        scheduleScatterViewRefresh('grid-visible', { renderImpact: 'paint' });
       },
       getStyle: () => getScatterGridStyle(fallbackThickness),
       onStyleChange: style => {
         setScatterGridStyle(style, fallbackThickness);
-        scheduleScatterViewRefresh('grid-style');
+        scheduleScatterViewRefresh('grid-style', { renderImpact: 'paint' });
       },
       defaults: createDefaultScatterGridStyle(fallbackThickness)
     });
@@ -11386,7 +11388,7 @@
     const previousValue = !!settings[axis].brokenAxis.enabled;
     settings[axis].brokenAxis.enabled = !!enabled;
     console.debug('Debug: scatter broken axis enabled updated',{ axis, enabled: settings[axis].brokenAxis.enabled });
-    scheduleScatterViewRefresh(`axis-broken-${axis}`);
+    scheduleScatterViewRefresh(`axis-broken-${axis}`, { renderImpact: 'layout' });
     return previousValue;
   }
 
@@ -11411,7 +11413,7 @@
              seg.start < seg.end;
     }).map(seg => ({ start: Number(seg.start), end: Number(seg.end) }));
     console.debug('Debug: scatter broken axis segments updated',{ axis, segments: settings[axis].brokenAxis.segments });
-    scheduleScatterViewRefresh(`axis-broken-segments-${axis}`);
+    scheduleScatterViewRefresh(`axis-broken-segments-${axis}`, { renderImpact: 'layout' });
   }
 
   function applyScatterAxisSettings(settings){
@@ -11439,8 +11441,8 @@
       const yMinorSubdiv = settings.minorTickSubdivisionsY ?? settings.minorSubdivisionsY ?? settings.y?.minorTickSubdivisions ?? settings.y?.minorSubdivisions ?? null;
       base.x.minorTickSubdivisions = clampMinorTickSubdivisions(xMinorSubdiv);
       base.y.minorTickSubdivisions = clampMinorTickSubdivisions(yMinorSubdiv);
-      const xNotation = settings.axisNotationX ?? settings.notationX ?? settings?.x?.notation ?? 'decimal';
-      const yNotation = settings.axisNotationY ?? settings.notationY ?? settings?.y?.notation ?? 'decimal';
+      const xNotation = settings.axisNotationX ?? settings.notationX ?? settings?.x?.notation ?? 'auto';
+      const yNotation = settings.axisNotationY ?? settings.notationY ?? settings?.y?.notation ?? 'auto';
       base.x.notation = sanitizeScatterAxisNotation(xNotation);
       base.y.notation = sanitizeScatterAxisNotation(yNotation);
       if(settings.additionalTicks !== undefined){
@@ -15148,6 +15150,7 @@
             }, { create: false }) || getActiveScatterSessionForState();
             scheduleScatterDrawForSession(viewSession, {
               reason: 'data-view-switch',
+              renderImpact: 'structural',
               userInitiated: String(meta?.reason || '').trim().toLowerCase() === 'tab-click'
             });
           },
@@ -15508,20 +15511,17 @@
         ? payload
         : (typeof payload === 'string' ? { reason: payload } : {});
       const headerOnlyChange = isScatterHeaderScheduleSource(meta.source);
-      const layoutOnlyChange = headerOnlyChange || isScatterLayoutScheduleMeta(meta);
+      const renderImpact = resolveScatterRenderImpact(meta, headerOnlyChange ? 'layout' : 'analysis');
+      const presentationOnly = Shared.componentLifecycle?.isPresentationOnlyDraw?.({ renderImpact }) === true;
       const invalidate = typeof meta.invalidate === 'string'
         ? meta.invalidate
-        : (layoutOnlyChange ? 'layout' : 'data');
-      if(invalidate === 'data'){
-        markScatterRenderRuntimeDirty(null, 'scatter-schedule-data-invalidated');
-      }
-      const scheduleMeta = layoutOnlyChange
-        ? Object.assign({}, meta, {
-            invalidate,
-            viewOnly: true,
-            reason: meta.reason || (headerOnlyChange ? 'axis-header-sync' : 'layout-sync')
-          })
-        : (meta.invalidate === invalidate ? meta : Object.assign({}, meta, { invalidate }));
+        : (presentationOnly ? 'layout' : 'data');
+      const scheduleMeta = Object.assign({}, meta, {
+        invalidate,
+        renderImpact,
+        viewOnly: presentationOnly,
+        reason: meta.reason || (headerOnlyChange ? 'axis-header-sync' : (presentationOnly ? 'layout-sync' : 'data-sync'))
+      });
       const ownerHot = meta.hot || meta.hotInstance || scatterHot || scatterRefs.hot || null;
       const ownerSession = getScatterSessionForHot(ownerHot, scheduleMeta, { create: false }) || getActiveScatterSessionForState();
       scheduleScatterDrawForSession(ownerSession, scheduleMeta);
@@ -16237,7 +16237,7 @@
       }
       updateScatterReplicateModeControls(SCATTER_TABLE_FORMAT_GROUPED);
       if(!options.skipDraw){
-        scheduleActiveScatterDraw({ reason: 'scatter-replicate-change', invalidate: 'data' });
+        scheduleActiveScatterDraw({ reason: 'scatter-replicate-change', invalidate: 'data', renderImpact: 'analysis' });
       }
       scatterDebug('Debug: scatter replicate change applied', {
         sourceReplicates,
@@ -16312,7 +16312,7 @@
       syncScatterColorModeUI(scatterColorModeApplied);
       setScatterSessionGroupedState(getScatterProjectionSession({ reason: 'scatter-projection-mutation' }), createScatterOwnedGroupedStateFromMirrors(), { reason: 'scatter-table-format-applied' });
       if(!options.skipDraw){
-        scheduleActiveScatterDraw({ reason: 'scatter-table-format-applied', invalidate: 'data' });
+        scheduleActiveScatterDraw({ reason: 'scatter-table-format-applied', invalidate: 'data', renderImpact: 'analysis' });
       }
       scatterDebug('Debug: scatter table format applied', {
         previousMode,
@@ -17532,7 +17532,7 @@
       if(autoComputeRestoredStats && !refreshedStatsRuntime?.computationPending){
         handleScatterStatsComputeClick();
       }else if(redrawRestoredStats){
-        scheduleScatterViewRefresh('scatter-stats-restore');
+        scheduleScatterViewRefresh('scatter-stats-restore', { renderImpact: 'analysis' });
       }
     }
 
@@ -17613,6 +17613,7 @@
       scheduleScatterViewRefresh('scatter-stats-compute-context-bootstrap', {
         force: true,
         userInitiated: true,
+        renderImpact: 'analysis',
         tabId: sessionMeta?.tabId || getScatterProjectionTabId() || null,
         sessionGeneration: sessionMeta?.sessionGeneration || 0,
         __workspaceSessionMeta: sessionMeta || null
@@ -17874,7 +17875,7 @@
             setScatterStatsStatus('Statistics up to date.');
             updateScatterStatsButtonState({ disabled:false, label:'Recalculate statistics' });
             if(typeof scheduleDrawScatter === 'function' && statsRequiresGraphRedraw){
-              scheduleScatterViewRefresh('scatter-stats-updated', { userInitiated: true, tabId: statsSession?.tabId || null });
+              scheduleScatterViewRefresh('scatter-stats-updated', { userInitiated: true, tabId: statsSession?.tabId || null, renderImpact: 'analysis' });
             }else{
               clearScatterScheduledDraw('scatter-stats-computed-no-redraw');
             }
@@ -19843,6 +19844,7 @@
         invalidateScatterRenderCacheForTab(getScatterProjectionTabId() || null, 'scatter-view-mode-change');
         scheduleScatterViewRefresh('view-mode-change', {
           force: true,
+          renderImpact: 'structural',
           skipThresholdEvaluation: true
         });
       }
@@ -20060,7 +20062,7 @@
           if(raw===null||typeof raw==='undefined'||raw===''){
             continue;
           }
-          const value=parseFloat(raw);
+          const value=Shared.dataTransforms.toFiniteNumber(raw);
           if(Number.isFinite(value)){
             if(value<0){
               hasNegatives=true;
@@ -20864,7 +20866,7 @@
             });
             setScatterAdvisorState(advisorState, advisorSession);
             persistTabState('stats-advisor-apply', advisorSession);
-            scheduleScatterViewRefresh('stats-advisor-apply', { tabId: advisorSession?.tabId || null });
+            scheduleScatterViewRefresh('stats-advisor-apply', { tabId: advisorSession?.tabId || null, renderImpact: 'analysis' });
             renderScatterStatsAdvisor(null, advisorState.context, advisorSession);
             requestScatterStatsContextRefresh('stats-advisor-apply', advisorSession);
           });
@@ -20915,7 +20917,7 @@
                 clearScatterLogWarning();
                 setScatterSessionViewState(getScatterProjectionSession({ reason: 'scatter-projection-mutation' }), createScatterOwnedViewStateFromMirrors(), { reason: `scatter-log-toggle-${axis}-plus-one` });
                 console.debug('Debug: scatter log+1 enabled by user confirmation',{ axis });
-                scheduleScatterViewRefresh(`log-toggle-${axis}-plus-one`);
+                scheduleScatterViewRefresh(`log-toggle-${axis}-plus-one`, { invalidate: 'data', renderImpact: 'analysis' });
                 return;
               }else{
                 checkbox.checked = false;
@@ -20951,7 +20953,7 @@
         }
         setScatterSessionViewState(getScatterProjectionSession({ reason: 'scatter-projection-mutation' }), createScatterOwnedViewStateFromMirrors(), { reason: `scatter-log-toggle-${axis}` });
         console.debug('Debug: scatter log toggle change',{ id: checkbox.id, checked: checkbox.checked });
-        scheduleScatterViewRefresh(`log-toggle-${axis}`);
+        scheduleScatterViewRefresh(`log-toggle-${axis}`, { invalidate: 'data', renderImpact: 'analysis' });
       });
     };
 
@@ -22900,7 +22902,10 @@
         const formatTick = (axisKey, scaledValue) => {
           const originalValue = unscaleValue(axisKey, scaledValue);
           if(typeof chartStyle.formatAxisValue === 'function'){
-            return chartStyle.formatAxisValue(originalValue, { maxDecimals: 2 });
+            return chartStyle.formatAxisValue(originalValue, {
+              maxDecimals: 2,
+              logScale: false
+            });
           }
           if(typeof chartStyle.formatScientific === 'function'){
             return chartStyle.formatScientific(originalValue, { maxDecimals: 2 });
@@ -24400,6 +24405,7 @@ time(`scatterSvgDraw_${token}`);
       const canReuseGeometryCache = !!(viewOnly
         && !renderRuntime.dataDirty
         && geometryCache
+        && geometryCache.dataRevision === renderRuntime.dataRevision
         && geometryCache.points === points
         && geometryCache.logX === !!logX
         && geometryCache.logY === !!logY
@@ -24537,6 +24543,7 @@ time(`scatterSvgDraw_${token}`);
         debug('Debug: scatter density computed',{ max: densityInfo.max, count: geometryCount });
       }
       const nextScatterGeometryCache = {
+        dataRevision: renderRuntime.dataRevision,
         points,
         logX: !!logX,
         logY: !!logY,
@@ -25291,7 +25298,8 @@ async function drawScatter(drawOptions = {}){
       let nextCollectProgressRow = debugEnabled ? collectProgressInterval : Number.POSITIVE_INFINITY;
       const pointProgressInterval = 5000;
       let nextPointProgress = debugEnabled ? pointProgressInterval : Number.POSITIVE_INFINITY;
-      const viewOnly = !!drawOptions?.viewOnly;
+      const renderImpact = resolveScatterRenderImpact(drawOptions || {}, drawOptions?.viewOnly === true ? 'layout' : 'analysis');
+      const viewOnly = Shared.componentLifecycle?.isPresentationOnlyDraw?.({ renderImpact }) === true;
       const drawSession = resolveScatterInvocationSession(drawOptions || {}, { reason: drawOptions?.reason || 'scatter-draw-session' });
       const token = bumpScatterDrawToken(drawSession);
       const drawTabId = drawOptions?.tabId || drawSession?.tabId || getScatterProjectionTabId() || null;
@@ -25384,7 +25392,7 @@ async function drawScatter(drawOptions = {}){
         runtime.activeReasons = null;
       });
       const drawPerf = perfApi && typeof perfApi.start === 'function'
-        ? perfApi.start('scatter.draw', { component: 'scatter', reasons: drawReasons })
+        ? perfApi.start('scatter.draw', { component: 'scatter', reasons: drawReasons, renderImpact, viewOnly })
         : null;
       const endDrawPerf = meta => {
         if(perfApi && drawPerf){
@@ -25598,7 +25606,15 @@ async function drawScatter(drawOptions = {}){
       }
       const selectedRowSet = getScatterSelectedRowSet(scatterHot);
       const tableFormatMode = getScatterReplicateMode();
+      const collectCacheSignature = buildScatterCollectCacheSignature({
+        dataRevision: renderRuntime.dataRevision,
+        graphType,
+        tableFormat: tableFormatMode,
+        logPlusOneX: scatterState.logPlusOneX,
+        logPlusOneY: scatterState.logPlusOneY
+      });
       const cachedCollect = renderRuntime.cachedCollect;
+      const canReuseScatterCollect = renderImpact !== 'structural' && !renderRuntime.dataDirty;
       let analysis = null;
       let rowCount = 0;
       let colCount = 0;
@@ -25636,9 +25652,9 @@ async function drawScatter(drawOptions = {}){
       let layout = null;
       const groupedReplicatePointsRequested = graphType === 'scatter'
         && !!scatterShowGroupedReplicates?.checked;
-      if(viewOnly
-        && !renderRuntime.dataDirty
+      if(canReuseScatterCollect
         && cachedCollect
+        && cachedCollect.signature === collectCacheSignature
         && cachedCollect.graphType === graphType
         && cachedCollect.tableFormat === tableFormatMode
         && (
@@ -25731,9 +25747,9 @@ async function drawScatter(drawOptions = {}){
           && !scatterGroupedXReplicates
           && !!scatterShowGroupedReplicates?.checked;
         hasZColumn = !groupedScatterActive && Number.isInteger(layout.extraCol) && layout.extraCol >= 0 && colCount > layout.extraCol;
-        canReuseCollectCache = viewOnly
-          && !renderRuntime.dataDirty
+        canReuseCollectCache = canReuseScatterCollect
           && !!cachedCollect
+          && cachedCollect.signature === collectCacheSignature
           && cachedCollect.graphType === graphType
           && cachedCollect.tableFormat === tableFormatMode
           && cachedCollect.groupedScatterActive === groupedScatterActive
@@ -25965,7 +25981,7 @@ async function drawScatter(drawOptions = {}){
               if(rawXValue === null || typeof rawXValue === 'undefined' || rawXValue === ''){
                 continue;
               }
-              const numericX = parseFloat(rawXValue);
+              const numericX = Shared.dataTransforms.toFiniteNumber(rawXValue);
               if(Number.isFinite(numericX)){
                 xRepValues.push(numericX);
               }
@@ -26000,7 +26016,7 @@ async function drawScatter(drawOptions = {}){
                 if(rawRep === null || typeof rawRep === 'undefined' || rawRep === ''){
                   continue;
                 }
-                const numeric = parseFloat(rawRep);
+                const numeric = Shared.dataTransforms.toFiniteNumber(rawRep);
                 if(Number.isFinite(numeric)){
                   repValues.push(numeric);
                 }
@@ -26086,7 +26102,7 @@ async function drawScatter(drawOptions = {}){
               recordRowSkip('scatter:missingX');
               continue;
             }
-            const xv=parseFloat(rawX);
+          const xv=Shared.dataTransforms.toFiniteNumber(rawX);
             if(Number.isNaN(xv) || !Number.isFinite(xv)){
               skippedRows++;
               recordRowSkip('scatter:nonNumericX');
@@ -26097,10 +26113,10 @@ async function drawScatter(drawOptions = {}){
               recordRowSkip('scatter:missingY');
               continue;
             }
-            const yv=parseFloat(rawY);
+            const yv=Shared.dataTransforms.toFiniteNumber(rawY);
             const rawZ = hasZColumn ? extraCol[r] : undefined;
             const hasZValue = hasZColumn && rawZ !== null && typeof rawZ !== 'undefined' && rawZ !== '';
-            const zv = hasZValue ? Number(rawZ) : NaN;
+            const zv = hasZValue ? Shared.dataTransforms.toFiniteNumber(rawZ) : NaN;
             if(!Number.isNaN(yv) && Number.isFinite(yv)){
               const pointRecord = {x:xv,y:yv,label:lab,pointName:lab,rowIndex:physicalRow,isManualLabel};
               if(hasZValue && Number.isFinite(zv)){
@@ -26146,7 +26162,7 @@ async function drawScatter(drawOptions = {}){
             recordRowSkip('volcano:missingValue');
             continue;
           }
-          const log2fc=parseFloat(rawX);
+          const log2fc=Shared.dataTransforms.toFiniteNumber(rawX);
           const pRaw=toNumericPValue(rawY);
           if(Number.isFinite(log2fc) && Number.isFinite(pRaw) && pRaw>0){
             let negLogP=-Math.log10(pRaw);
@@ -26174,8 +26190,8 @@ async function drawScatter(drawOptions = {}){
             recordRowSkip('ma:missingValue');
             continue;
           }
-          const meanExpr=parseFloat(rawX);
-          const log2fcVal=parseFloat(rawY);
+          const meanExpr=Shared.dataTransforms.toFiniteNumber(rawX);
+          const log2fcVal=Shared.dataTransforms.toFiniteNumber(rawY);
           const rawExtra = extraCol[r];
           const pRaw = rawExtra === null || typeof rawExtra === 'undefined' ? NaN : toNumericPValue(rawExtra);
           const hasPositiveP=Number.isFinite(pRaw) && pRaw>0;
@@ -26246,6 +26262,8 @@ async function drawScatter(drawOptions = {}){
       if(!canReuseCollectCache){
         labelsUsed = labelSet ? Array.from(labelSet) : [];
         const nextScatterCollectCache = {
+          signature: collectCacheSignature,
+          dataRevision: renderRuntime.dataRevision,
           graphType,
           tableFormat: tableFormatMode,
           groupedScatterActive,
@@ -27237,8 +27255,8 @@ async function drawScatter(drawOptions = {}){
       debug('Debug: scatter initial tick targets',{xTickTarget,yTickTarget,width:W,height:H});
       const scatterNotationX = getScatterAxisNotation('x');
       const scatterNotationY = getScatterAxisNotation('y');
-      const formatTickX = v => chartStyle.formatAxisValue(v,{ notation: scatterNotationX, maxDecimals: 2 });
-      const formatTickY = v => chartStyle.formatAxisValue(v,{ notation: scatterNotationY, maxDecimals: 2 });
+      const formatTickX = v => chartStyle.formatAxisValue(v,{ notation: scatterNotationX, maxDecimals: 2, logScale: logX });
+      const formatTickY = v => chartStyle.formatAxisValue(v,{ notation: scatterNotationY, maxDecimals: 2, logScale: logY });
       const scatterFontStyles = exportFontStyles('scatter', { tabId: drawTabId });
       const xTickMeasureProfile = (chartStyle && typeof chartStyle.resolveScopedLabelMeasureFont === 'function')
         ? chartStyle.resolveScopedLabelMeasureFont({ styles: scatterFontStyles, role: 'xTick', fallbackPx: fs })
@@ -27803,7 +27821,7 @@ async function drawScatter(drawOptions = {}){
             zLabelText: ownedLabels.z
           };
         });
-        endDrawPerf({ component: 'scatter', token });
+        endDrawPerf({ component: 'scatter', token, renderImpact, viewOnly });
       }
     }
 
@@ -27969,7 +27987,7 @@ async function drawScatter(drawOptions = {}){
           return;
         }
       }
-      const suppressOverlay = nextOpts.silentOverlay === true || (nextOpts.viewOnly === true && nextOpts.forceOverlay !== true);
+      const suppressOverlay = nextOpts.silentOverlay === true || (isScatterPresentationDraw(nextOpts) && nextOpts.forceOverlay !== true);
       updateScatterDrawRuntime(scheduleSession, runtime => {
         runtime.scheduled = true;
       });
@@ -28272,8 +28290,8 @@ async function drawScatter(drawOptions = {}){
           minorTicksY: axisSettings.y?.minorTicks ?? false,
           minorTickSubdivisionsX: clampMinorTickSubdivisions(axisSettings.x?.minorTickSubdivisions),
           minorTickSubdivisionsY: clampMinorTickSubdivisions(axisSettings.y?.minorTickSubdivisions),
-          notationX: axisSettings.x?.notation ?? 'decimal',
-          notationY: axisSettings.y?.notation ?? 'decimal',
+          notationX: axisSettings.x?.notation ?? 'auto',
+          notationY: axisSettings.y?.notation ?? 'auto',
           additionalTicks: {
             x: sanitizeScatterAxisAdditionalTicks(axisSettings.x?.additionalTicks),
             y: sanitizeScatterAxisAdditionalTicks(axisSettings.y?.additionalTicks)
@@ -29305,7 +29323,7 @@ async function drawScatter(drawOptions = {}){
           scatterLog('scatter example loaded',{type,viewMode,rows:dataset.length});
           syncScatterGraphTypeUI();
           syncScatterAspectControls('payload');
-          scheduleScatterDrawForSession(ownerSession, { force: true, reason: 'example-load', invalidate: 'data' });
+          scheduleScatterDrawForSession(ownerSession, { force: true, reason: 'example-load', invalidate: 'data', renderImpact: 'structural' });
         }finally{
           scatterSuppressResizeObserveUntil = Date.now() + 50;
         }
@@ -29411,7 +29429,7 @@ async function drawScatter(drawOptions = {}){
           });
           updateScatterReplicateModeControls(SCATTER_TABLE_FORMAT_GROUPED);
           syncScatterGraphTypeUI();
-          scheduleActiveScatterDraw({ force: true, reason: 'import-prism-grouped', invalidate: 'data' });
+          scheduleActiveScatterDraw({ force: true, reason: 'import-prism-grouped', invalidate: 'data', renderImpact: 'structural' });
           console.debug('Debug: scatter prism grouped import applied', {
             replicateCount,
             groupCount: groupLabels.length || Math.max(
@@ -29433,7 +29451,8 @@ async function drawScatter(drawOptions = {}){
               tabId,
               force: true,
               reason: 'import-load',
-              invalidate: 'data'
+              invalidate: 'data',
+              renderImpact: 'structural'
             });
           },
           debugLabel: 'scatter',
@@ -29489,7 +29508,7 @@ async function drawScatter(drawOptions = {}){
             if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
               console.debug('Debug: scatter prism style applied', { title, xLabel, yLabel, fontFamily, fontSize: fontSizeValue, fontColor, axisColor });
             }
-            scheduleActiveScatterDraw({ force: true, reason: 'import-prism-style' });
+            scheduleActiveScatterDraw({ force: true, reason: 'import-prism-style', renderImpact: 'layout' });
           },
           onProcessed: info => scatterLog('scatter data imported',{rows: info?.rows, cols: info?.cols}),
           onBeforeCompleted: applyScatterImportResult,
@@ -29743,7 +29762,7 @@ async function drawScatter(drawOptions = {}){
           console.debug('Debug: scatter log2FC threshold input',{value:scatterLog2FCThreshold.value});
           setScatterThresholdSelectionPending(false, 'scatter-log2fc-input');
           syncScatterThresholdSelection();
-          scheduleScatterViewRefresh('scatter-log2fc-input');
+          scheduleScatterViewRefresh('scatter-log2fc-input', { renderImpact: 'layout' });
           persistTabState('scatter-log2fc-input');
         });
       }
@@ -29752,7 +29771,7 @@ async function drawScatter(drawOptions = {}){
           console.debug('Debug: scatter negLogP threshold input',{value:scatterNegLogPThreshold.value});
           setScatterThresholdSelectionPending(false, 'scatter-neglogp-input');
           syncScatterThresholdSelection();
-          scheduleScatterViewRefresh('scatter-neglogp-input');
+          scheduleScatterViewRefresh('scatter-neglogp-input', { renderImpact: 'layout' });
           persistTabState('scatter-neglogp-input');
         });
       }
@@ -29762,7 +29781,7 @@ async function drawScatter(drawOptions = {}){
           console.debug('Debug: scatter significant label toggle',{checked:scatterShowSignificantLabels.checked});
           setScatterThresholdSelectionPending(false, 'scatter-significant-labels-change');
           syncScatterThresholdSelection();
-          scheduleScatterViewRefresh('scatter-significant-labels-change');
+          scheduleScatterViewRefresh('scatter-significant-labels-change', { renderImpact: 'layout' });
           persistTabState('scatter-significant-labels-change');
         });
       }
@@ -29773,14 +29792,14 @@ async function drawScatter(drawOptions = {}){
           syncScatterColorModeUI(scatterColorModeApplied);
           console.debug('Debug: scatter color mode changed',{ value: scatterColorModeDesired });
           persistTabState('scatter-color-mode-change');
-          scheduleScatterViewRefresh('color-mode-change');
+          scheduleScatterViewRefresh('color-mode-change', { renderImpact: 'paint' });
         });
       }
       if(scatterDensityPalette){
         scatterDensityPalette.addEventListener('change',()=>{
           scatterDensityPalette.value = normalizeScatterDensityPalette(scatterDensityPalette.value);
           console.debug('Debug: scatter density palette changed',{ value: scatterDensityPalette.value });
-          scheduleScatterViewRefresh('density-palette-change');
+          scheduleScatterViewRefresh('density-palette-change', { renderImpact: 'paint' });
         });
       }
       if(scatterFill){
@@ -29788,7 +29807,7 @@ async function drawScatter(drawOptions = {}){
           const value = String(scatterFill.value || '');
           persistScatterStyleMutation(owner, { fill: value }, 'scatter-fill-change');
           scatterLog('scatterFill changed', value);
-          scheduleScatterViewRefresh('fill-change');
+          scheduleScatterViewRefresh('fill-change', { renderImpact: 'paint' });
         });
       }
       if(scatterBorder){
@@ -29796,7 +29815,7 @@ async function drawScatter(drawOptions = {}){
           const value = String(scatterBorder.value || '');
           persistScatterStyleMutation(owner, { border: value }, 'scatter-border-change');
           scatterLog('scatterBorder changed', value);
-          scheduleScatterViewRefresh('border-color-change');
+          scheduleScatterViewRefresh('border-color-change', { renderImpact: 'paint' });
         });
       }
       if(scatterBorderWidth){
@@ -29804,7 +29823,7 @@ async function drawScatter(drawOptions = {}){
           const value = String(scatterBorderWidth.value || '');
           persistScatterStyleMutation(owner, { borderWidth: value }, 'scatter-border-width-change');
           scatterLog('scatterBorderWidth changed', value);
-          scheduleScatterViewRefresh('border-width-change');
+          scheduleScatterViewRefresh('border-width-change', { renderImpact: 'paint' });
         });
       }
       if(scatterDotSize){
@@ -29821,27 +29840,31 @@ async function drawScatter(drawOptions = {}){
           }
           setScatterSessionViewState(getScatterProjectionSession({ reason: 'scatter-projection-mutation' }), createScatterOwnedViewStateFromMirrors(), { reason: 'scatter-dot-size-change' });
           scatterLog('scatterDotSize changed', scatterState.dotSizeOverrideEnabled ? scatterState.dotSizeOverrideRaw : '(auto)');
-          scheduleScatterViewRefresh('dot-size-change');
+          scheduleScatterViewRefresh('dot-size-change', { renderImpact: 'paint' });
         });
       }
       if(scatterShowErrorBars){
         bindScatterControlListener(scatterShowErrorBars, 'change', 'show-error-bars', () => {
           syncScatterErrorBarControls();
           persistTabState('scatter-error-bars-toggle');
-          scheduleScatterViewRefresh('error-bars-toggle');
+          scheduleScatterViewRefresh('error-bars-toggle', { renderImpact: 'paint' });
         });
       }
       if(scatterShowGroupedReplicates){
         bindScatterControlListener(scatterShowGroupedReplicates, 'change', 'show-grouped-replicates', () => {
           syncScatterGroupedReplicatePointControls();
           persistTabState('scatter-grouped-replicates-toggle');
-          scheduleActiveScatterDraw({ reason: 'scatter-grouped-replicates-toggle' });
+          scheduleActiveScatterDraw({
+            reason: 'scatter-grouped-replicates-toggle',
+            invalidate: 'data',
+            renderImpact: 'analysis'
+          });
         });
       }
       if(scatterErrorBarWidth){
         scatterErrorBarWidth.addEventListener('input', () => {
           syncScatterErrorBarControls();
-          scheduleScatterViewRefresh('error-bar-width-change');
+          scheduleScatterViewRefresh('error-bar-width-change', { renderImpact: 'paint' });
         });
       }
       if(scatterAlpha){
@@ -29852,7 +29875,7 @@ async function drawScatter(drawOptions = {}){
             scatterAlphaVal.textContent=value;
           }
           scatterLog('scatterAlpha changed', value);
-          scheduleScatterViewRefresh('alpha-change');
+          scheduleScatterViewRefresh('alpha-change', { renderImpact: 'paint' });
         });
       }
       if(scatterFontSize){
@@ -29864,7 +29887,7 @@ async function drawScatter(drawOptions = {}){
           if(typeof chartStyle.renderFontSizeLabel === 'function'){
             chartStyle.renderFontSizeLabel({ element: scatterFontSizeVal, pt: Number(scatterFontSize.value), input: scatterFontSize, manual: true });
           }
-          scheduleScatterViewRefresh('font-size-change');
+          scheduleScatterViewRefresh('font-size-change', { renderImpact: 'layout' });
         });
       }
       [scatterShowGrid,scatterStatType,scatterFitMethod,scatterOriginMode,scatterShowPlotStats]
@@ -29882,9 +29905,14 @@ async function drawScatter(drawOptions = {}){
             persistTabState(el===scatterFitMethod ? 'scatter-fit-method-change' : 'scatter-stat-type-change');
           }
           if(el === scatterShowGrid){
-            scheduleScatterViewRefresh('grid-toggle');
+            scheduleScatterViewRefresh('grid-toggle', { renderImpact: 'paint' });
+          }else if(el === scatterStatType || el === scatterFitMethod){
+            scheduleActiveScatterDraw({
+              reason: `${el.id || 'control'}-change`,
+              renderImpact: 'analysis'
+            });
           }else{
-            scheduleScatterViewRefresh(`${el.id || 'control'}-change`);
+            scheduleScatterViewRefresh(`${el.id || 'control'}-change`, { renderImpact: 'layout' });
           }
         }));
       [scatterFitRangeMinX, scatterFitRangeMaxX, scatterConfidenceLevel, scatterInitialValuesJson, scatterParameterConstraintsJson, scatterGlobalFitJson]
@@ -29892,7 +29920,10 @@ async function drawScatter(drawOptions = {}){
           validateScatterFitSpecControls();
           requestScatterStatsContextRefresh(`${el.id || 'scatter-fit-spec'}-change`);
           persistTabState('scatter-fit-spec-change');
-          scheduleScatterViewRefresh(`${el.id || 'scatter-fit-spec'}-change`);
+          scheduleActiveScatterDraw({
+            reason: `${el.id || 'scatter-fit-spec'}-change`,
+            renderImpact: 'analysis'
+          });
         }));
       [scatterInitialValuesJson, scatterParameterConstraintsJson, scatterGlobalFitJson]
         .forEach(el => el && bindScatterControlListener(el, 'input', `fit-spec-input-${el.id || 'control'}`, () => {
@@ -29920,7 +29951,12 @@ async function drawScatter(drawOptions = {}){
               resetScatterDualHostLayout(host);
             }catch(e){}
           }
-          scheduleScatterViewRefresh('trendline-toggle', { force: true, userInitiated: true });
+          scheduleActiveScatterDraw({
+            force: true,
+            userInitiated: true,
+            reason: 'trendline-toggle',
+            renderImpact: 'analysis'
+          });
         });
       }
       if(scatterShowCI){
@@ -29932,7 +29968,12 @@ async function drawScatter(drawOptions = {}){
             console.debug('Debug: scatter CI blocked', { showLine: !!scatterShowLine?.checked });
             return;
           }
-          scheduleScatterViewRefresh('interval-ci-toggle', { force: true, userInitiated: true });
+          scheduleActiveScatterDraw({
+            force: true,
+            userInitiated: true,
+            reason: 'interval-ci-toggle',
+            renderImpact: 'analysis'
+          });
         });
       }
       if(scatterShowPI){
@@ -29943,7 +29984,12 @@ async function drawScatter(drawOptions = {}){
             console.debug('Debug: scatter PI blocked', { showLine: !!scatterShowLine?.checked });
             return;
           }
-          scheduleScatterViewRefresh('interval-pi-toggle', { force: true, userInitiated: true });
+          scheduleActiveScatterDraw({
+            force: true,
+            userInitiated: true,
+            reason: 'interval-pi-toggle',
+            renderImpact: 'analysis'
+          });
         });
       }
 
@@ -29960,11 +30006,14 @@ async function drawScatter(drawOptions = {}){
           }
           requestScatterStatsContextRefresh('regression-mode-change');
           persistTabState('scatter-regression-mode-change');
-          scheduleScatterViewRefresh('regression-mode-change');
+          scheduleActiveScatterDraw({
+            reason: 'regression-mode-change',
+            renderImpact: 'analysis'
+          });
         });
       }
       if(scatterShowFrame){
-        bindScatterControlListener(scatterShowFrame, 'change', 'showFrame', ()=>{console.debug('Debug: scatter showFrame change',{checked:scatterShowFrame.checked}); scheduleScatterViewRefresh('frame-toggle');});
+        bindScatterControlListener(scatterShowFrame, 'change', 'showFrame', ()=>{console.debug('Debug: scatter showFrame change',{checked:scatterShowFrame.checked}); scheduleScatterViewRefresh('frame-toggle', { renderImpact: 'paint' });});
       }
       if(scatterShowLegend){
         bindScatterControlListener(scatterShowLegend, 'change', 'showLegend', ()=>{
@@ -29977,7 +30026,7 @@ async function drawScatter(drawOptions = {}){
           }, { reason: 'scatter-legend-user-toggle' });
           persistTabState('scatter-legend-toggle');
           console.debug('Debug: scatter showLegend change',{checked:scatterShowLegend.checked});
-          scheduleScatterViewRefresh('legend-toggle');
+          scheduleScatterViewRefresh('legend-toggle', { renderImpact: 'layout' });
         });
       }
       scatterAxisInputs.forEach(({el,axis,context,logLabel})=>{
@@ -30691,10 +30740,6 @@ async function drawScatter(drawOptions = {}){
     }
   };
 
-  function detachChildren(node){
-    return Shared.componentLifecycle?.detachCacheableChildren?.(node) || null;
-  }
-
   function restoreChildren(node, payload){
     if(!node || !payload || !payload.fragment){ return false; }
     while(node.firstChild){
@@ -30991,6 +31036,11 @@ async function drawScatter(drawOptions = {}){
     return pointsLayer.childElementCount > 0;
   }
 
+  function isScatterRenderCacheCaptureReady(root){
+    return !!root?.querySelector?.('[data-plot-notice="1"]')
+      || isScatterRestoredRenderCacheVisuallyReady(root);
+  }
+
   function resolveScatterPreviewSourceSvg(tab){
     // Read-only preview source: this may reuse an inactive tab's cache DOM,
     // but restore policy and cache invalidation remain owned by domControls/session.
@@ -31178,9 +31228,24 @@ async function drawScatter(drawOptions = {}){
       });
       return null;
     }
-    const plotCache = detachChildren(plot);
+    if(!isScatterRenderCacheCaptureReady(plot)){
+      scatterDebug('Debug: scatter render cache capture skipped', {
+        reason: 'graph-not-visually-ready',
+        tabId: cacheSession?.tabId || meta?.tabId || null
+      });
+      return null;
+    }
+    const plotCache = Shared.componentLifecycle?.snapshotCacheableChildren?.(plot, {
+      copyCanvasBitmaps: true
+    }) || null;
+    if(!plotCache){
+      scatterDebug('Debug: scatter render cache capture skipped', {
+        reason: 'cache-snapshot-failed',
+        tabId: cacheSession?.tabId || meta?.tabId || null
+      });
+      return null;
+    }
     if((plotCache?.count || 0) <= 0){
-      restoreChildren(plot, plotCache);
       scatterDebug('Debug: scatter render cache capture skipped', {
         reason: 'empty-runtime',
         tabId: meta?.tabId || null
@@ -31197,11 +31262,13 @@ async function drawScatter(drawOptions = {}){
     // Render cache carries the graph only; the stats panel is rebuilt from state on
     // restore (loadFromPayload), so it is not snapshotted as DOM.
     const rotationModel = normalizeScatter3dRotationModel(cacheSession?.cache?.scatter3dRotationModel || null);
-    return {
+    const cache = {
       plot: plotCache,
       rotationModel: rotationModel ? (cloneSimple(rotationModel) || rotationModel) : null,
       __graphitixRenderCache: cacheMeta
     };
+    Object.defineProperty(cache, '__graphitixLiveDomPreserved', { value: true });
+    return cache;
   };
 
   scatter.canRestoreRenderCache = function canRestoreRenderCache(cache, meta = {}){

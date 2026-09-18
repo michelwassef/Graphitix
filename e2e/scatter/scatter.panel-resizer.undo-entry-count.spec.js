@@ -1,0 +1,51 @@
+const { test, expect } = require('@playwright/test');
+const { openComponentFromWelcome, clickExampleButtonIfPresent } = require('../helpers/workspaceDriver');
+const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
+const { registerIssueCollectors } = require('../helpers/diagnostics');
+const { waitForComponentOwnerReady } = require('../helpers/contractWaits');
+
+async function dragPanelResizerOnce(page) {
+  const handle = page.locator('#scatterPage:not([hidden]) .panel-resizer').first();
+  await expect(handle).toHaveCount(1);
+  const box = await handle.boundingBox();
+  if (!box) throw new Error('Missing scatter panel resizer');
+  const x = box.x + box.width / 2;
+  const y = box.y + box.height / 2;
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  await page.mouse.move(x - 90, y, { steps: 10 });
+  await page.mouse.up();
+  await waitForComponentOwnerReady(page, 'scatter', {
+    requireMountedRoot: true,
+    requireIdle: true
+  });
+}
+
+test('scatter panel drag records exactly one undo entry per drag', async ({ page }) => {
+  test.setTimeout(120_000);
+  const issues = registerIssueCollectors(page);
+  await installLocalCdnOverrides(page);
+
+  await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
+  await expect(page.locator('#welcomeScreen')).toBeVisible();
+  await openComponentFromWelcome(page, { type: 'scatter', pageId: 'scatterPage' }, { first: true });
+  await clickExampleButtonIfPresent(page, 'scatterLoadExample');
+  await waitForComponentOwnerReady(page, 'scatter', {
+    requireMountedRoot: true,
+    requireIdle: true
+  });
+
+  const activeTabId = await page.evaluate(() => window.Main?.session?.workspaceState?.activeTabId || null);
+  expect(activeTabId).toBeTruthy();
+  await page.evaluate((tabId) => {
+    window.Shared?.undoManager?.clearTab?.(tabId, { reason: 'e2e-scatter-panel-drag-clear' });
+  }, activeTabId);
+
+  await dragPanelResizerOnce(page);
+
+  const history = await page.evaluate((tabId) => window.Shared?.undoManager?.getTabHistoryInfo?.(tabId) || null, activeTabId);
+  expect(history?.stackLength).toBe(1);
+  expect(Array.isArray(history?.labels) ? history.labels[0] : '').toBe('panel-layout:scatter');
+
+  expect(issues.critical).toEqual([]);
+});

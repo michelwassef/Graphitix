@@ -828,64 +828,38 @@
       applyValue: (value, context) => applyBorderWidth(value, { record: false, context })
     });
 
-    const clearStyleSection = overlayEl => {
-      if(!overlayEl){ return; }
-      overlayEl.querySelectorAll('.shared-color-picker__section--scatter-style').forEach(node => node.remove());
-    };
-
-    const createStyleSection = (titleText, value, interaction, stepValue) => {
-      const section = doc.createElement('section');
-      section.className = 'shared-color-picker__section shared-color-picker__section--scatter-style';
-      const title = doc.createElement('div');
-      title.className = 'shared-color-picker__section-title';
-      title.textContent = titleText;
-      section.appendChild(title);
-      const row = doc.createElement('div');
-      row.className = 'shared-color-picker__scatter-style-row shared-color-picker__scatter-style-row--single';
-      const field = doc.createElement('label');
-      field.className = 'shared-color-picker__scatter-style-field';
-      const input = doc.createElement('input');
-      input.className = 'shared-color-picker__scatter-style-input';
-      input.type = 'number';
-      input.min = '0';
-      input.step = String(stepValue || '0.5');
-      input.value = formatStyleNumericDisplay(value, input.step);
-      input.setAttribute('aria-label', titleText);
-      input.addEventListener('input', () => interaction.input(input.value));
-      input.addEventListener('change', () => interaction.change(input.value));
-      toolbarApi?.bindNumericWheelEnd?.(input, detail => {
-        if(detail.committed !== true){
-          interaction.cancel();
-        }
-      });
-      field.appendChild(input);
-      row.appendChild(field);
-      section.appendChild(row);
-      return section;
-    };
-
     const attachSizeSection = overlayEl => {
       if(!sizeEnabled){
         return () => {};
       }
       if(!overlayEl){ return () => {}; }
-      clearStyleSection(overlayEl);
-      const section = createStyleSection('Size', currentSize, sizeNumericInteraction, sizeWheelInput?.step || '0.5');
-      const shapeSection = overlayEl.querySelector('.shared-color-picker__section--shapes');
-      if(shapeSection && shapeSection.parentNode){
-        shapeSection.insertAdjacentElement('afterend', section);
-      }else{
-        overlayEl.appendChild(section);
-      }
-      return () => section.parentNode && section.parentNode.removeChild(section);
+      return toolbarApi.attachColorPickerNumericSection(overlayEl, {
+        canonicalInput: sizeWheelInput,
+        title: 'Size',
+        ariaLabel: 'Size',
+        sectionClass: 'shared-color-picker__section--symbol-size',
+        clearSelector: '.shared-color-picker__section--scatter-style',
+        insertAfterSelector: '.shared-color-picker__section--shapes',
+        min: '0',
+        max: null,
+        step: sizeWheelInput?.step || '0.5',
+        value: currentSize
+      });
     };
 
     const attachBorderSection = overlayEl => {
       if(!overlayEl){ return () => {}; }
-      clearStyleSection(overlayEl);
-      const section = createStyleSection('Border thickness', currentBorderWidth, borderWidthNumericInteraction, borderWheelInput?.step || '0.5');
-      overlayEl.insertBefore(section, overlayEl.firstChild || null);
-      return () => section.parentNode && section.parentNode.removeChild(section);
+      return toolbarApi.attachColorPickerNumericSection(overlayEl, {
+        canonicalInput: borderWheelInput,
+        title: 'Border thickness',
+        ariaLabel: 'Border thickness',
+        sectionClass: 'shared-color-picker__section--symbol-border',
+        clearSelector: '.shared-color-picker__section--scatter-style',
+        min: '0',
+        max: null,
+        step: borderWheelInput?.step || '0.5',
+        value: currentBorderWidth
+      });
     };
 
     let syncFillChipUi = () => {};

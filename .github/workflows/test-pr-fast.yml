@@ -41,7 +41,8 @@ jobs:
         with:
           name: test-report-static
           path: artifacts/test-reports/static.json
-          if-no-files-found: ignore
+          retention-days: 14
+          if-no-files-found: error
 
   jest:
     name: Jest ${{ matrix.lane }} lane
@@ -73,4 +74,5 @@ jobs:
         with:
           name: test-report-jest-${{ matrix.lane }}
           path: artifacts/test-reports/${{ matrix.lane }}.json
-          if-no-files-found: ignore
+          retention-days: 14
+          if-no-files-found: error

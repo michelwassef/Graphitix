@@ -129,7 +129,7 @@ The defect is resolved in the working tree at the owner-binding boundary:
 - Venn passive root rebinding now refreshes the tab-owned table panel, graph panel, panel resizer, and SVG frame together: [venn.js:12997](/C:/Users/Michel/Graphitix/js/components/venn.js:12997). This prevents a returned tab from drawing with the other same-component tab's frame.
 - Venn draw completion now emits an owner-scoped `draw-settled` event: [venn.js:13267](/C:/Users/Michel/Graphitix/js/components/venn.js:13267). The shared summary projection can therefore rerender after the graph has replaced its SVG content.
 - The summary renderer now reprojects after an observer-driven layout change: [statsFigureSummary.js:1642](/C:/Users/Michel/Graphitix/js/shared/statsFigureSummary.js:1642).
-- Regression coverage now exercises two Venn tabs, summary enabled on one, resize on the other, and return to the first while asserting screen-space separation between circles and summary: [stats.figure-summary.tab-isolation.spec.js:110](/C:/Users/Michel/Graphitix/e2e/stats.figure-summary.tab-isolation.spec.js:110).
+- Regression coverage now exercises two Venn tabs, summary enabled on one, resize on the other, and return to the first while asserting screen-space separation between circles and summary: [stats.figure-summary.tab-isolation.spec.js:110](/C:/Users/Michel/Graphitix/e2e/stats/stats.figure-summary.tab-isolation.spec.js:110).
 
 Focused validation after the repair:
 
@@ -155,7 +155,7 @@ Evidence:
 
 The screenshots already show this inconsistency: the XY summary displays more than five result rows, while Survival displays no group-level rows.
 
-The Survival renderer selects the analysis, log-rank, one hazard-ratio result, and model fit, but can omit every group’s `n`, events, censoring count, and median survival. The test suite explicitly encodes that omission: [renderer contract test:529](/C:/Users/Michel/Graphitix/__tests__/stats.figureSummary.renderer.contract.test.js:529).
+The Survival renderer selects the analysis, log-rank, one hazard-ratio result, and model fit, but can omit every group’s `n`, events, censoring count, and median survival. The test suite explicitly encodes that omission: [renderer contract test:529](/C:/Users/Michel/Graphitix/__tests__/dom/stats.figureSummary.renderer.contract.test.js:529).
 
 This is unsafe because a reader may interpret the visible summary as complete. Scientific reporting guidance expects group sizes, estimates, uncertainty, test statistics, degrees of freedom, P values, and multiplicity information, subject to the analysis type. See the [Nature reporting summary](https://www.nature.com/documents/nr-reporting-summary-flat.pdf) and [SAMPL guidelines](https://www.equator-network.org/wp-content/uploads/2013/03/SAMPL-Guidelines-3-13-13.pdf).
 
@@ -258,7 +258,7 @@ The supplied recovery log shows the relevant sequence: the archive render cache 
 
 This was a persistence-boundary defect, not a layout timing problem. The root fix is now in Venn cache serialization: SVG root `data-*` publication metadata is captured with the root state, stale root data attributes are cleared on restore, and the serialized metadata is reapplied before the cached graph children are projected: [venn.js:13680](/C:/Users/Michel/Graphitix/js/components/venn.js:13680) and [venn.js:13721](/C:/Users/Michel/Graphitix/js/components/venn.js:13721). This preserves the distinction between the graph base viewport and the outward summary extension through crash recovery and same-component remounts.
 
-Regression coverage now creates two Venn tabs, enables the summary on the first, creates a recovery archive, reloads it, returns to the summary owner, and asserts that the recovered graph-to-table gap remains bounded and non-overlapping: [stats.figure-summary.reopen-recovery.spec.js:118](/C:/Users/Michel/Graphitix/e2e/stats.figure-summary.reopen-recovery.spec.js:118).
+Regression coverage now creates two Venn tabs, enables the summary on the first, creates a recovery archive, reloads it, returns to the summary owner, and asserts that the recovered graph-to-table gap remains bounded and non-overlapping: [stats.figure-summary.reopen-recovery.spec.js:118](/C:/Users/Michel/Graphitix/e2e/stats/stats.figure-summary.reopen-recovery.spec.js:118).
 
 Focused validation after this repair:
 
@@ -296,8 +296,8 @@ New regression coverage asserts:
 - all currently covered summary components keep the summary and reserve stable during repeated live resizes;
 - Surface’s existing live-resize frame-publication contract remains intact;
 - shared root-state capture/restore removes stale SVG metadata before applying a snapshot ([unit contract](/C:/Users/Michel/Graphitix/__tests__/dom.framePublication.test.js:156));
-- recovery assertions cover Venn, Heatmap, and Surface ([browser coverage](/C:/Users/Michel/Graphitix/e2e/stats.figure-summary.reopen-recovery.spec.js:249));
-- live-resize assertions cover Heatmap and Surface alongside the existing summary-enabled resize cases ([browser coverage](/C:/Users/Michel/Graphitix/e2e/stats.figure-summary.live-resize.spec.js:135)).
+- recovery assertions cover Venn, Heatmap, and Surface ([browser coverage](/C:/Users/Michel/Graphitix/e2e/stats/stats.figure-summary.reopen-recovery.spec.js:249));
+- live-resize assertions cover Heatmap and Surface alongside the existing summary-enabled resize cases ([browser coverage](/C:/Users/Michel/Graphitix/e2e/stats/stats.figure-summary.live-resize.spec.js:135)).
 
 Focused validation after this repair:
 
@@ -317,7 +317,7 @@ This is a shared summary-projection lifecycle contract, exposed by Heatmap’s r
 
 The table remains mounted throughout the synchronous redraw, while the outer SVG viewport grows only after the new matrix frame is established. This restores the intended invariant: resizing with a table produces the same matrix, title, and colour-scale geometry as resizing without it and then enabling the table.
 
-Regression coverage compares both user paths in Chromium: [heatmap.summary-resize-frame.spec.js](/C:/Users/Michel/Graphitix/e2e/heatmap.summary-resize-frame.spec.js). It also has a shared renderer contract for a reused SVG root: [stats.figureSummary.renderer.contract.test.js](/C:/Users/Michel/Graphitix/__tests__/stats.figureSummary.renderer.contract.test.js). The earlier precision assertion is now covered by the explicit compact `p < 0.001` display-floor contract; it is independent of this geometry path.
+Regression coverage compares both user paths in Chromium: [heatmap.summary-resize-frame.spec.js](/C:/Users/Michel/Graphitix/e2e/heatmap/heatmap.summary-resize-frame.spec.js). It also has a shared renderer contract for a reused SVG root: [stats.figureSummary.renderer.contract.test.js](/C:/Users/Michel/Graphitix/__tests__/dom/stats.figureSummary.renderer.contract.test.js). The earlier precision assertion is now covered by the explicit compact `p < 0.001` display-floor contract; it is independent of this geometry path.
 
 ## Surface delayed disappearance and shared 3D recovery follow-up — 2026-09-09
 

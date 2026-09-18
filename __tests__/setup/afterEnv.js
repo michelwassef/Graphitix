@@ -2,8 +2,25 @@
 
 const fs = require('fs');
 const path = require('path');
+const {
+  collectIntegrationLeaks,
+  disposeIntegrationTabs,
+  formatIntegrationLeakReport
+} = require('../../test-support/integrationTeardown');
+const { resetProductionNamespaces } = require('../../test-support/productionLoader');
+const { installProductionTestEventTracker } = require('../../test-support/productionTestLifecycle');
+
+let integrationEventTracker = null;
 
 beforeEach(() => {
+  if (process.env.TEST_ENFORCE_INTEGRATION_LEAKS === '1') {
+    if (!integrationEventTracker) {
+      integrationEventTracker = installProductionTestEventTracker({ window, document });
+    } else {
+      integrationEventTracker.reset();
+    }
+    resetProductionNamespaces();
+  }
   if (typeof global.__clearUnexpectedConsoleErrors === 'function') {
     global.__clearUnexpectedConsoleErrors();
   }
@@ -26,7 +43,15 @@ beforeEach(() => {
 
 afterEach(() => {
   let consoleFailure = null;
+  let leakFailure = null;
   try {
+    if (process.env.TEST_ENFORCE_INTEGRATION_LEAKS === '1') {
+      disposeIntegrationTabs(window);
+      const leaks = collectIntegrationLeaks(window);
+      if (leaks.pendingScopes.length > 0) {
+        leakFailure = new Error(`Integration async work leaked across test boundary: ${formatIntegrationLeakReport(leaks)}`);
+      }
+    }
     if (typeof global.__isStrictConsoleErrorsEnabled === 'function'
       && global.__isStrictConsoleErrorsEnabled()
       && typeof global.__consumeUnexpectedConsoleErrors === 'function') {
@@ -40,6 +65,9 @@ afterEach(() => {
       }
     }
   } finally {
+    if (process.env.TEST_ENFORCE_INTEGRATION_LEAKS === '1') {
+      integrationEventTracker?.reset();
+    }
     // A failed assertion must not leave spies or fake timers active for the
     // next test in the same integration worker.
     jest.restoreAllMocks();
@@ -47,5 +75,8 @@ afterEach(() => {
   }
   if (consoleFailure) {
     throw consoleFailure;
+  }
+  if (leakFailure) {
+    throw leakFailure;
   }
 });

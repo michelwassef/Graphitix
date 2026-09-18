@@ -36,7 +36,16 @@ jobs:
       - name: Run Chromium contracts
         run: npm run test:lane -- --lane e2e-contracts --report-file artifacts/test-reports/e2e-contracts.json
 
-      - name: Upload Playwright artifacts
+      - name: Upload required lane report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-report-e2e-contracts-chromium
+          path: artifacts/test-reports/e2e-contracts.json
+          retention-days: 14
+          if-no-files-found: error
+
+      - name: Upload optional Playwright diagnostics
         if: always()
         uses: actions/upload-artifact@v7
         with:
@@ -45,5 +54,5 @@ jobs:
             playwright-report
             test-results
             artifacts/perf-summaries
-            artifacts/test-reports
           if-no-files-found: ignore
+          retention-days: 14

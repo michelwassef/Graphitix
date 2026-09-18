@@ -155,6 +155,10 @@
     if(!trimmed){
       return null;
     }
+    const parser = Shared.dataTransforms?.toFiniteNumber;
+    if(typeof parser === 'function'){
+      return parser(trimmed);
+    }
     const num = Number(trimmed);
     return Number.isFinite(num) ? num : null;
   }

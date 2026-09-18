@@ -29,6 +29,15 @@ function resetProductionNamespaces() {
   }
 }
 
+function hasPreseededWorkspaceSession() {
+  const session = globalThis.window?.Main?.session;
+  const workspace = session?.workspaceState;
+  return !!workspace && (
+    (Array.isArray(workspace.tabs) && workspace.tabs.length > 0)
+    || !!workspace.activeTabId
+  );
+}
+
 function loadProductionBootstrap(options = {}) {
   const rootDir = path.resolve(options.rootDir || DEFAULT_ROOT_DIR);
   const vendorMode = options.vendorMode || 'fake';
@@ -36,6 +45,9 @@ function loadProductionBootstrap(options = {}) {
   const stopBefore = options.stopBefore ? String(options.stopBefore) : null;
   if (!VENDOR_MODES.includes(vendorMode)) {
     throw new Error(`Unsupported production test vendor mode: ${String(vendorMode)}`);
+  }
+  if (includeMain && options.rejectPreseededSession === true && hasPreseededWorkspaceSession()) {
+    throw new Error('Production full-app bootstrap rejects a preseeded workspace session; reset the test owner first.');
   }
 
   const manifest = rootDir === DEFAULT_ROOT_DIR
@@ -104,6 +116,7 @@ function loadProductionBootstrap(options = {}) {
 
 module.exports = {
   VENDOR_MODES,
+  hasPreseededWorkspaceSession,
   isVendorScript,
   loadProductionBootstrap,
   resetProductionNamespaces

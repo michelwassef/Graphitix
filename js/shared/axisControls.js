@@ -40,7 +40,7 @@
   let notationMenuToggle = null;
   let notationMenuPopup = null;
   let notationMenuVisible = false;
-  let notationActiveValue = 'decimal';
+  let notationActiveValue = 'auto';
   let brokenAxisFieldEl = null;
   let brokenAxisCheckbox = null;
   let brokenAxisSegmentsContainer = null;
@@ -1140,7 +1140,7 @@
     return true;
   }
 
-  const AXIS_NOTATION_DEFAULT = 'decimal';
+  const AXIS_NOTATION_DEFAULT = Shared.chartStyle?.AXIS_NOTATION_DEFAULT || 'auto';
   const AXIS_NOTATION_VALUES = new Set(['auto','decimal','scientific']);
   const AXIS_NOTATION_OPTIONS = [
     { value: 'auto', label: 'Automatic' },
@@ -1153,6 +1153,9 @@
   }, {});
 
   function sanitizeNotationValue(value){
+    if(typeof Shared.chartStyle?.normalizeAxisNotation === 'function'){
+      return Shared.chartStyle.normalizeAxisNotation(value);
+    }
     if(typeof value !== 'string'){ return AXIS_NOTATION_DEFAULT; }
     const normalized = value.trim().toLowerCase();
     return AXIS_NOTATION_VALUES.has(normalized) ? normalized : AXIS_NOTATION_DEFAULT;
@@ -1312,76 +1315,6 @@
     const thicknessValue = sanitizeThicknessValue(thicknessInput.value);
     styleChipPreviewEl.style.background = toColorInputValue(colorInput.value);
     styleChipValueEl.textContent = formatThicknessChipValue(thicknessValue == null ? 0 : thicknessValue);
-  }
-
-  function clearAxisStylePickerSection(overlayEl){
-    if(!overlayEl || !overlayEl.querySelectorAll){
-      return;
-    }
-    overlayEl.querySelectorAll('.shared-color-picker__section--axis-style').forEach(node => node.remove());
-  }
-
-  function attachAxisStylePickerThicknessSection(overlayEl){
-    if(!overlayEl){
-      return () => {};
-    }
-    clearAxisStylePickerSection(overlayEl);
-    const doc = overlayEl.ownerDocument || global.document;
-    if(!doc){
-      return () => {};
-    }
-    const section = doc.createElement('section');
-    section.className = 'shared-color-picker__section shared-color-picker__section--scatter-style shared-color-picker__section--axis-style';
-    const title = doc.createElement('div');
-    title.className = 'shared-color-picker__section-title';
-    title.textContent = 'Line width';
-    section.appendChild(title);
-    const row = doc.createElement('div');
-    row.className = 'shared-color-picker__scatter-style-row shared-color-picker__scatter-style-row--single';
-    const field = doc.createElement('label');
-    field.className = 'shared-color-picker__scatter-style-field';
-    const input = doc.createElement('input');
-    input.className = 'shared-color-picker__scatter-style-input';
-    input.type = 'number';
-    input.min = thicknessInput?.min || '0.25';
-    input.max = thicknessInput?.max || '10';
-    input.step = thicknessInput?.step || '0.25';
-    const toolbarApi = Shared.getWorkspaceToolbarApi?.() || Shared.workspaceToolbar || null;
-    const rawValue = thicknessInput?.value || '1';
-    input.value = toolbarApi?.formatPxDisplayValue?.(rawValue, input.step)
-      || toolbarApi?.formatNumericValue?.(rawValue, input.step, { maxPrecision: 2 })
-      || rawValue;
-    input.setAttribute('aria-label', 'Line width');
-    const mirrorCleanup = typeof toolbarApi?.bindNumericInputMirror === 'function'
-      ? toolbarApi.bindNumericInputMirror(input, thicknessInput)
-      : (() => {
-          const onInput = () => {
-            if(!thicknessInput){ return; }
-            thicknessInput.value = input.value;
-            thicknessInput.dispatchEvent(new Event('input', { bubbles: true }));
-          };
-          const onChange = () => {
-            if(!thicknessInput){ return; }
-            thicknessInput.value = input.value;
-            thicknessInput.dispatchEvent(new Event('change', { bubbles: true }));
-          };
-          input.addEventListener('input', onInput);
-          input.addEventListener('change', onChange);
-          return () => {
-            input.removeEventListener('input', onInput);
-            input.removeEventListener('change', onChange);
-          };
-        })();
-    field.appendChild(input);
-    row.appendChild(field);
-    section.appendChild(row);
-    overlayEl.insertBefore(section, overlayEl.firstChild || null);
-    return () => {
-      mirrorCleanup();
-      if(section.parentNode){
-        section.parentNode.removeChild(section);
-      }
-    };
   }
 
   function getUndoScope(config){
@@ -3147,7 +3080,18 @@
               }
             }
           });
-          stylePickerCleanup = attachAxisStylePickerThicknessSection(overlayEl);
+          const toolbarApi = Shared.getWorkspaceToolbarApi();
+          stylePickerCleanup = toolbarApi.attachColorPickerNumericSection(overlayEl, {
+            canonicalInput: thicknessInput,
+            title: 'Line width',
+            ariaLabel: 'Line width',
+            sectionClass: 'shared-color-picker__section--axis-style',
+            clearSelector: '.shared-color-picker__section--axis-style',
+            min: '0.25',
+            max: '10',
+            step: thicknessInput?.step || '0.25',
+            value: '1'
+          });
         });
       }else if(typeof Shared.attachColorPickerNear === 'function'){
         Shared.attachColorPickerNear(colorInput);
@@ -3339,11 +3283,13 @@
     const reusedCachedOverlay = overlay?.dataset?.axisHitTarget === '1';
     if(!reusedCachedOverlay && parent.querySelectorAll){
       const axisKey = axisElement.dataset?.axisKey || null;
+      const axisSegment = axisElement.dataset?.axisSegment || null;
       const axisScope = axisElement.dataset?.axisScope || null;
       const axisTabId = axisElement.dataset?.axisTabId || null;
       overlay = Array.from(parent.querySelectorAll('[data-axis-hit-target="1"]'))
         .find(candidate => (
           (!axisKey || candidate.dataset?.axisKey === axisKey)
+          && (!axisSegment || candidate.dataset?.axisSegment === axisSegment)
           && (!axisScope || candidate.dataset?.axisScope === axisScope)
           && (!axisTabId || candidate.dataset?.axisTabId === axisTabId)
         )) || null;
@@ -3575,7 +3521,10 @@
     const axisKey = axis === 'y' ? 'y' : 'x';
     const explicitAxisLine = axisElement.getAttribute?.('data-axis-line') === '1'
       && axisElement.getAttribute?.('data-axis-key') === axisKey;
-    if(!explicitAxisLine){
+    const elementName = String(axisElement.localName || axisElement.tagName || '').toLowerCase();
+    const hasLineCoordinates = elementName === 'line'
+      && ['x1', 'y1', 'x2', 'y2'].every(name => Number.isFinite(Number(axisElement.getAttribute?.(name))));
+    if(!explicitAxisLine || !hasLineCoordinates){
       try{
         const rect = typeof axisElement.getBoundingClientRect === 'function'
           ? axisElement.getBoundingClientRect()
@@ -3586,6 +3535,18 @@
         }
       }catch(err){
         logDebug('axis display length from rect failed', {
+          axis: axisKey,
+          error: err && err.message
+        });
+      }
+      try{
+        const bbox = typeof axisElement.getBBox === 'function' ? axisElement.getBBox() : null;
+        const bboxLength = sanitizeAxisLengthValue(axisKey === 'y' ? bbox && bbox.height : bbox && bbox.width);
+        if(bboxLength != null && bboxLength > 0){
+          return bboxLength;
+        }
+      }catch(err){
+        logDebug('axis display length from bbox failed', {
           axis: axisKey,
           error: err && err.message
         });
@@ -3642,9 +3603,23 @@
       return null;
     }
     const axisKey = axis === 'y' ? 'y' : 'x';
-    const explicit = target.querySelector(`line[data-axis-line="1"][data-axis-key="${axisKey}"]`);
+    const explicit = target.querySelector(`*[data-axis-line="1"][data-axis-key="${axisKey}"]`);
     if(explicit){
       return explicit;
+    }
+    const semanticElements = Array.from(target.querySelectorAll(
+      `*[data-axis-control="1"][data-axis-key="${axisKey}"]`
+    )).filter(element => element?.dataset?.axisHitTarget !== '1');
+    if(semanticElements.length){
+      const measured = semanticElements.map(element => ({
+        element,
+        length: resolveAxisDisplayLength(element, axisKey)
+      })).filter(entry => Number.isFinite(entry.length) && entry.length > 0);
+      if(measured.length){
+        measured.sort((a, b) => b.length - a.length);
+        return measured[0].element;
+      }
+      return semanticElements[0];
     }
     const selector = options.includeUnregistered === true
       ? 'svg:not(.resizer-options-icon) line'
@@ -3777,8 +3752,14 @@
   function registerAxisElement(element, config){
     if(!element || !config){ return false; }
     const axisKey = config.axis === 'y' ? 'y' : 'x';
+    const axisSegment = config.axisSegment ?? config.segmentId ?? config.segment ?? element.dataset?.axisSegment ?? null;
     element.dataset.axisControl = '1';
     element.dataset.axisKey = axisKey;
+    if(axisSegment != null && String(axisSegment).trim()){
+      element.dataset.axisSegment = String(axisSegment);
+    }else{
+      delete element.dataset.axisSegment;
+    }
     if(config.scopeId){ element.dataset.axisScope = String(config.scopeId); }
     else{ delete element.dataset.axisScope; }
     if(config.tabId){ element.dataset.axisTabId = String(config.tabId); }
@@ -3816,6 +3797,11 @@
     const overlayInfo = ensureAxisOverlay(element);
     if(overlayInfo?.element?.dataset){
       overlayInfo.element.dataset.axisKey = axisKey;
+      if(axisSegment != null && String(axisSegment).trim()){
+        overlayInfo.element.dataset.axisSegment = String(axisSegment);
+      }else{
+        delete overlayInfo.element.dataset.axisSegment;
+      }
       if(config.scopeId){ overlayInfo.element.dataset.axisScope = String(config.scopeId); }
       else{ delete overlayInfo.element.dataset.axisScope; }
       if(config.tabId){ overlayInfo.element.dataset.axisTabId = String(config.tabId); }
@@ -4205,6 +4191,7 @@
     const effectiveTickInterval = Number(element?.dataset?.axisEffectiveTickInterval);
     return {
       axis: inferAxisKeyFromElement(element),
+      axisSegment: element?.dataset?.axisSegment || null,
       scopeId: element?.dataset?.axisScope || null,
       tabId: element?.dataset?.axisTabId || null,
       bounds: Number.isFinite(min) && Number.isFinite(max) && max > min ? { min, max } : null,

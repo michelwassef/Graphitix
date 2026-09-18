@@ -1758,14 +1758,36 @@
     if(n<3 || eventCount===0 || eventCount===n){
       return {coefficients:[NaN,NaN],metrics:{sampleSize:n},residuals:{mean:NaN,sd:NaN,min:NaN,max:NaN},warnings:['Logistic regression requires at least one event and one non-event.'],available:false};
     }
-    const meanX=logisticPoints.reduce((sum,pt)=>sum+pt.x,0)/n;
-    const scaleX=Math.sqrt(logisticPoints.reduce((sum,pt)=>sum+Math.pow(pt.x-meanX,2),0)/Math.max(n-1,1));
+    let meanX=logisticPoints[0].x;
+    for(let i=1;i<n;i++){
+      meanX += (logisticPoints[i].x-meanX)/(i+1);
+    }
+    const centeredX=logisticPoints.map(pt=>pt.x-meanX);
+    const scaleX=stableHypot(centeredX)/Math.sqrt(Math.max(n-1,1));
     if(!(scaleX>0)){
       return {coefficients:[NaN,NaN],metrics:{sampleSize:n},residuals:{mean:NaN,sd:NaN,min:NaN,max:NaN},warnings:['Logistic regression requires variation in X.'],available:false};
     }
     const xs=logisticPoints.map(pt=>(pt.x-meanX)/scaleX);
     const ys=logisticPoints.map(pt=>pt.y);
     const sigmoid=z=>z>=0 ? 1/(1+Math.exp(-Math.min(z,40))) : Math.exp(Math.max(z,-40))/(1+Math.exp(Math.max(z,-40)));
+    // Reuse the shared QR factorization for the Fisher system; logistic inference
+    // remains model-specific because its Bernoulli likelihood is not least squares.
+    const solveFisherSystem = (weights, targetResiduals = null) => {
+      const weightedDesign = [];
+      const weightedTarget = [];
+      for(let i=0;i<n;i++){
+        const weight = Math.max(Number(weights?.[i]) || 0, 0);
+        const rootWeight = Math.sqrt(weight);
+        weightedDesign.push([rootWeight, rootWeight * xs[i]]);
+        if(targetResiduals){
+          weightedTarget.push([rootWeight > 0 ? targetResiduals[i] / rootWeight : 0]);
+        }
+      }
+      return solveLeastSquares(
+        weightedDesign,
+        targetResiduals ? weightedTarget : weightedDesign.map(() => [0])
+      );
+    };
     const logLikelihood=(b0,b1)=>ys.reduce((sum,y,i)=>{
       const p=Math.max(1e-15,Math.min(1-1e-15,sigmoid(b0+b1*xs[i])));
       return sum+y*Math.log(p)+(1-y)*Math.log(1-p);
@@ -1776,18 +1798,20 @@
     let iteration=0;
     let currentLl=logLikelihood(b0,b1);
     for(;iteration<100;iteration++){
-      let score0=0,score1=0,i00=0,i01=0,i11=0;
+      const weights = [];
+      const scoreResiduals = [];
       for(let i=0;i<n;i++){
         const p=sigmoid(b0+b1*xs[i]);
         const w=Math.max(p*(1-p),1e-12);
-        const residual=ys[i]-p;
-        score0+=residual; score1+=residual*xs[i];
-        i00+=w; i01+=w*xs[i]; i11+=w*xs[i]*xs[i];
+        weights.push(w);
+        scoreResiduals.push(ys[i]-p);
       }
-      const det=i00*i11-i01*i01;
-      if(!(det>1e-14)){ warnings.push('The Fisher information matrix is singular; complete or quasi-complete separation is likely.'); break; }
-      const step0=(i11*score0-i01*score1)/det;
-      const step1=(-i01*score0+i00*score1)/det;
+      const fisher = solveFisherSystem(weights, scoreResiduals);
+      if(!fisher?.coefficients || !fisher.xtxInv || fisher.rank < 2){
+        warnings.push('The Fisher information matrix is singular; complete or quasi-complete separation is likely.');
+        break;
+      }
+      const [step0,step1] = fisher.coefficients;
       let factor=1;
       let accepted=false;
       while(factor>=1/1024){
@@ -1806,7 +1830,7 @@
     if(!converged) warnings.push('Logistic maximum-likelihood fit did not fully converge.');
     const beta1=b1/scaleX;
     const beta0=b0-beta1*meanX;
-    const predict=x=>sigmoid(beta0+beta1*x);
+    const predict=x=>sigmoid(b0+b1*((Number(x)-meanX)/scaleX));
     const predictions=logisticPoints.map(pt=>predict(pt.x));
     const residuals=predictions.map((p,i)=>ys[i]-p);
     const sse=residuals.reduce((sum,value)=>sum+(value*value),0);
@@ -1818,26 +1842,17 @@
     const nullLl=ys.reduce((sum,y)=>sum+y*Math.log(meanY)+(1-y)*Math.log(1-meanY),0);
     const pseudoR2=1-(ll/nullLl);
     let covariance=null;
+    let covarianceStandardized=null;
     {
-      let i00=0,i01=0,i11=0;
-      for(let i=0;i<n;i++){
+      const finalWeights = logisticPoints.map((_,i)=>{
         const p=sigmoid(b0+b1*xs[i]);
-        const w=p*(1-p);
-        i00+=w;
-        i01+=w*xs[i];
-        i11+=w*xs[i]*xs[i];
-      }
-      const det=i00*i11-i01*i01;
-      if(det>1e-14){
-        const covStd=[[i11/det,-i01/det],[-i01/det,i00/det]];
+        return p*(1-p);
+      });
+      const fisher = solveFisherSystem(finalWeights);
+      if(fisher?.xtxInv && fisher.rank >= 2){
+        covarianceStandardized=fisher.xtxInv;
         const transform=[[1,-meanX/scaleX],[0,1/scaleX]];
-        covariance=transform.map((row,rowIndex)=>transform.map((_,columnIndex)=>{
-          let value=0;
-          for(let k=0;k<2;k++){
-            for(let l=0;l<2;l++) value+=row[k]*covStd[k][l]*transform[columnIndex][l];
-          }
-          return value;
-        }));
+        covariance=transformCovariance(covarianceStandardized, transform);
       }
     }
     const normal=jStatLib?.normal;
@@ -1868,11 +1883,16 @@
     const minX=Number.isFinite(domain?.minX)?domain.minX:Math.min(...logisticPoints.map(pt=>pt.x));
     const maxX=Number.isFinite(domain?.maxX)?domain.maxX:Math.max(...logisticPoints.map(pt=>pt.x));
     const intervalSamples=[];
-    if(inferenceAvailable && covariance && maxX>minX){
+    if(inferenceAvailable && covariance && covarianceStandardized && maxX>minX){
       for(let i=0;i<160;i++){
         const x=i===159?maxX:minX+(maxX-minX)*i/159;
-        const eta=beta0+beta1*x;
-        const variance=Math.max(0,covariance[0][0]+2*x*covariance[0][1]+x*x*covariance[1][1]);
+        const standardizedX=(x-meanX)/scaleX;
+        const eta=b0+b1*standardizedX;
+        const variance=Math.max(0,
+          covarianceStandardized[0][0]
+          +2*standardizedX*covarianceStandardized[0][1]
+          +standardizedX*standardizedX*covarianceStandardized[1][1]
+        );
         const half=zCritical*Math.sqrt(variance);
         intervalSamples.push({x,y:predict(x),ciLow:sigmoid(eta-half),ciHigh:sigmoid(eta+half),piLow:NaN,piHigh:NaN});
       }

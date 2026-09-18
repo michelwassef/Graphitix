@@ -6,10 +6,10 @@ const { buildInventory } = require('./test-inventory.cjs');
 
 const ROOT_DIR = path.resolve(__dirname, '..');
 const HEADER = [
-  'id', 'path', 'framework', 'layer', 'default_lane', 'required_lanes',
+  'id', 'path', 'framework', 'layer', 'suite_group', 'default_lane', 'required_lanes',
   'status', 'scenario_ids', 'requirements', 'requirement_evidence', 'component_scope', 'capability_scope',
-  'contracts', 'browser', 'expected_worker_mode', 'fixture_provenance',
-  'owner_expectations', 'readiness', 'mutation', 'required_artifacts',
+  'contracts', 'transition_scope', 'browser', 'expected_worker_mode', 'fixture_provenance',
+  'bootstrap_review', 'owner_expectations', 'readiness', 'mutation', 'required_artifacts',
   'skip_policy', 'predecessor_scenario_ids', 'oracle', 'setup', 'provenance'
 ];
 
@@ -28,6 +28,7 @@ function renderInventoryCsv(inventory) {
       entry.file,
       entry.framework,
       entry.layer,
+      entry.suiteGroup,
       entry.defaultLane,
       entry.requiredLanes,
       entry.status,
@@ -37,9 +38,11 @@ function renderInventoryCsv(inventory) {
       entry.componentScope,
       entry.capabilityScope,
       entry.contracts,
+      entry.transitionScope,
       entry.browser,
       entry.expectedWorkerMode,
       entry.fixtureProvenance,
+      entry.bootstrapReview,
       entry.ownerExpectations,
       entry.readiness,
       entry.mutation,

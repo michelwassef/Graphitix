@@ -1,0 +1,54 @@
+name: Nightly bounded Jest certification
+
+on:
+  schedule:
+    - cron: '45 1 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: jest-nightly-full-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  jest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run bounded full Jest certification
+        run: npm run test:lane -- --lane full-jest --report-file artifacts/test-reports/full-jest-nightly.json
+
+      - name: Aggregate nightly test trend report
+        if: always()
+        run: node scripts/aggregate-test-trends.cjs --report artifacts/test-reports/full-jest-nightly.json --artifact-root artifacts/perf-summaries --output artifacts/test-reports/full-jest-nightly-trend.json
+
+      - name: Upload required Jest certification report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: jest-nightly-full-report
+          path: |
+            artifacts/test-reports/full-jest-nightly.json
+            artifacts/test-reports/full-jest-nightly-trend.json
+          retention-days: 14
+          if-no-files-found: error
+
+      - name: Upload optional Jest diagnostics
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: jest-nightly-full-diagnostics
+          path: artifacts/perf-summaries
+          retention-days: 14
+          if-no-files-found: ignore

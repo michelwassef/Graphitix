@@ -1,5 +1,7 @@
 'use strict';
 
+const { waitForAnimationFrame, waitForObservationWindow } = require('./contractWaits');
+
 const KNOWN_NON_FATAL_LOG_PATTERNS = [
   /AG Grid: invalid gridOptions property 'columnBuffer'/i,
   /AG Grid: to see all the valid gridOptions properties/i,
@@ -101,6 +103,61 @@ function normalizePerfEntry(entry) {
     label: typeof entry.label === 'string' ? entry.label : 'unknown',
     duration: Number.isFinite(duration) ? toMs(duration) : 0,
     meta: entry.meta && typeof entry.meta === 'object' ? entry.meta : null
+  };
+}
+
+function normalizeLifecycleEvent(event) {
+  if (!event || typeof event !== 'object') {
+    return null;
+  }
+  return {
+    componentKey: event.componentKey || event.type || event.component || null,
+    tabId: event.tabId || event.workspaceTabId || null,
+    action: event.action || event.kind || 'event',
+    reason: event.reason || null,
+    phase: event.phase || null
+  };
+}
+
+function summarizeLifecycleEvents(events, options = {}) {
+  const componentType = options.componentType == null ? '' : String(options.componentType);
+  const tabId = options.tabId == null ? '' : String(options.tabId);
+  const limit = Math.max(1, Math.min(100, Number(options.limit) || 40));
+  const matching = (Array.isArray(events) ? events : [])
+    .filter(event => (
+      (!componentType || String(event?.componentKey || event?.type || event?.component || '') === componentType)
+      && (!tabId || String(event?.tabId || event?.workspaceTabId || '') === tabId)
+    ))
+    .map(normalizeLifecycleEvent)
+    .filter(Boolean);
+  const bounded = matching.slice(-limit);
+  return {
+    schemaVersion: 1,
+    componentType: componentType || null,
+    tabId: tabId || null,
+    eventCount: matching.length,
+    events: bounded,
+    lastEvent: bounded[bounded.length - 1] || null
+  };
+}
+
+async function collectLifecycleEvidence(page, options = {}) {
+  const componentType = options.componentType == null ? '' : String(options.componentType);
+  const tabId = options.tabId == null ? '' : String(options.tabId);
+  const afterCursor = Math.max(0, Number(options.afterCursor) || 0);
+  const result = await page.evaluate(({ cursor }) => {
+    const lifecycle = window.Shared?.componentLifecycle;
+    return {
+      cursor: Number(lifecycle?.getLifecycleEventCursor?.() || 0),
+      events: typeof lifecycle?.getLifecycleEvents === 'function'
+        ? lifecycle.getLifecycleEvents(cursor)
+        : []
+    };
+  }, { componentType, tabId, cursor: afterCursor });
+  return {
+    afterCursor,
+    cursor: Number(result?.cursor) || 0,
+    ...summarizeLifecycleEvents(result?.events, { componentType, tabId, limit: options.limit })
   };
 }
 
@@ -273,10 +330,10 @@ async function cycleVisibleSelects(pageRoot, maxCount = 4) {
       continue;
     }
     await select.selectOption(nextOptions[0], { timeout: 1_500 }).catch(() => {});
-    await pageRoot.page().waitForTimeout(60);
+    await waitForAnimationFrame(pageRoot.page(), 2);
     if (current != null) {
       await select.selectOption(String(current), { timeout: 1_500 }).catch(() => {});
-      await pageRoot.page().waitForTimeout(60);
+      await waitForAnimationFrame(pageRoot.page(), 2);
     }
     changed += 1;
   }
@@ -300,9 +357,9 @@ async function toggleVisibleCheckboxes(pageRoot, maxCount = 5) {
       continue;
     }
     await checkbox.click({ timeout: 1_500 }).catch(() => {});
-    await pageRoot.page().waitForTimeout(50);
+    await waitForAnimationFrame(pageRoot.page(), 2);
     await checkbox.click({ timeout: 1_500 }).catch(() => {});
-    await pageRoot.page().waitForTimeout(50);
+    await waitForAnimationFrame(pageRoot.page(), 2);
     toggled += 1;
   }
   return {
@@ -332,7 +389,7 @@ async function clickAnalysisButtons(pageRoot, maxCount = 6) {
     await button.click({ timeout: 1_500 }).catch(() => {});
     clicks += 1;
     clickedLabels.push(String(text || '').trim());
-    await pageRoot.page().waitForTimeout(90);
+    await waitForAnimationFrame(pageRoot.page(), 2);
   }
   return {
     visible: count,
@@ -351,15 +408,15 @@ async function adjustVisibleZoomControls(pageRoot) {
   if (await zoomIn.count()) {
     await zoomIn.click().catch(() => {});
     zoomInClicks += 1;
-    await pageRoot.page().waitForTimeout(80);
+    await waitForAnimationFrame(pageRoot.page(), 2);
     await zoomIn.click().catch(() => {});
     zoomInClicks += 1;
-    await pageRoot.page().waitForTimeout(80);
+    await waitForAnimationFrame(pageRoot.page(), 2);
   }
   if (await zoomOut.count()) {
     await zoomOut.click().catch(() => {});
     zoomOutClicks += 1;
-    await pageRoot.page().waitForTimeout(80);
+    await waitForAnimationFrame(pageRoot.page(), 2);
   }
   return { zoomInClicks, zoomOutClicks, durationMs: toMs(Date.now() - start) };
 }
@@ -380,12 +437,12 @@ async function dragPanelResizer(page, pageRoot) {
   await page.mouse.down();
   await page.mouse.move(cx + 100, cy, { steps: 8 });
   await page.mouse.up();
-  await page.waitForTimeout(90);
+  await waitForAnimationFrame(page, 2);
   await page.mouse.move(cx + 100, cy);
   await page.mouse.down();
   await page.mouse.move(cx - 60, cy, { steps: 8 });
   await page.mouse.up();
-  await page.waitForTimeout(90);
+  await waitForAnimationFrame(page, 2);
   return { present: true, moved: true, durationMs: toMs(Date.now() - start) };
 }
 
@@ -401,7 +458,9 @@ async function runDiagnosticComponentExercise(page, component) {
   steps.push(await runTimedStep(page, component, 'click-analysis-buttons', () => clickAnalysisButtons(pageRoot, isHeavy ? 3 : 6)));
   steps.push(await runTimedStep(page, component, 'drag-panel-resizer', () => dragPanelResizer(page, pageRoot)));
   steps.push(await runTimedStep(page, component, 'adjust-zoom', () => adjustVisibleZoomControls(pageRoot)));
-  await page.waitForTimeout(250);
+  await waitForObservationWindow(page, 250, {
+    label: 'diagnostic component exercise settle window'
+  });
   const after = await collectComponentPerformanceSnapshot(page, component.type);
   return { steps, before, after };
 }
@@ -410,15 +469,18 @@ module.exports = {
   adjustVisibleZoomControls,
   clickAnalysisButtons,
   collectComponentPerformanceSnapshot,
+  collectLifecycleEvidence,
   cycleVisibleSelects,
   dragPanelResizer,
   normalizePerfEntry,
+  normalizeLifecycleEvent,
   registerIssueCollectors,
   runDiagnosticComponentExercise,
   runTimedStep,
   shouldIgnoreConsoleEntry,
   shouldIgnoreRequestFailure,
   summarizeHookDelta,
+  summarizeLifecycleEvents,
   summarizeReportDelta,
   summarizeSharedEntryDelta,
   toggleVisibleCheckboxes,

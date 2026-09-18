@@ -45,14 +45,10 @@ const CANONICAL_CONTRACTS = Object.freeze([
 const ORACLE_POLICIES = Object.freeze(['required', 'optional', 'not-applicable']);
 const ARCHIVE_CONTRACTS = new Set(['ARCHIVE', 'REC']);
 const MUTATION_CONTRACTS = new Set(['PERSIST', 'CACHE', 'REC', 'DIRTY', 'STATS', 'LAYOUT', 'ARCHIVE']);
-// Current non-regression floor after the explicit layer/scenario migration
-// slice. Lowering this number requires regenerating the inventory and review.
-const LEGACY_UNMAPPED_BASELINE = 274;
-
 const REQUIRED_PYTHON_ORACLE_FILES = new Set([
-  '__tests__/stats.differential.python.test.js',
-  '__tests__/stats.component.differential.test.js',
-  '__tests__/stats.matrix.components.test.js'
+  '__tests__/statistical-oracle/stats.differential.python.test.js',
+  '__tests__/statistical-oracle/stats.component.differential.test.js',
+  '__tests__/statistical-oracle/stats.matrix.components.test.js'
 ]);
 
 const {
@@ -63,6 +59,8 @@ const {
 } = require('./scenarioCatalog.js');
 const { COMPONENT_CATALOG } = require('./componentCatalog.js');
 const { getExplicitLayer } = require('./jestLayerManifest.js');
+const { classifyTestOrganization } = require('./testOrganization.js');
+const { REVIEWED_PARTIAL_BOOTSTRAPS } = require('./partialBootstrapReview.js');
 const KNOWN_SCENARIO_IDS = new Set(SCENARIO_CATALOG.map(scenario => scenario.id));
 const CRITICAL_SCENARIO_ID_SET = new Set(CRITICAL_SCENARIO_IDS);
 
@@ -79,7 +77,14 @@ function humanizeScenarioId(id) {
     .replace(/\b\w/g, letter => letter.toUpperCase());
 }
 
-function buildManifestMetadata({ layer, framework, status, scenarioIds, scenarios, componentScope, contracts, setup }) {
+function getScenarioTransition(scenario = {}) {
+  if (scenario.transition) return String(scenario.transition);
+  if (scenario.contract) return `${String(scenario.contract).toLowerCase()}-transition`;
+  if (scenario.kind) return `${String(scenario.kind).toLowerCase()}-execution`;
+  return 'unclassified-transition';
+}
+
+function buildManifestMetadata({ file, layer, framework, status, scenarioIds, scenarios, componentScope, contracts, setup }) {
   const isBrowser = framework === 'playwright';
   const isAppOwned = layer === 'app-integration' || isBrowser;
   const hasAsyncContract = contracts.includes('ASYNC');
@@ -92,6 +97,7 @@ function buildManifestMetadata({ layer, framework, status, scenarioIds, scenario
       label: scenario.requirement || humanizeScenarioId(id),
       capability: scenario.capability || scenario.contract || scenario.kind || 'unclassified',
       evidence: scenario.evidence || 'scenario-id-mapping',
+      transition: getScenarioTransition(scenario),
       metadataSource: isExplicit ? 'explicit' : 'inferred'
     };
   });
@@ -99,6 +105,7 @@ function buildManifestMetadata({ layer, framework, status, scenarioIds, scenario
   return {
     requirements,
     capabilityScope: Array.from(new Set(requirements.map(requirement => requirement.capability))),
+    transitionScope: Array.from(new Set(requirements.map(requirement => requirement.transition))),
     requirementEvidence: {
       explicit: explicitRequirements.length,
       inferred: requirements.length - explicitRequirements.length,
@@ -115,6 +122,12 @@ function buildManifestMetadata({ layer, framework, status, scenarioIds, scenario
       mode: isBrowser ? 'e2e-driver-or-suite-fixture' : (layer === 'app-integration' ? 'production-bootstrap-or-suite-fixture' : 'layer-owned-fixture'),
       archiveSchemaVersion: contracts.some(contract => ARCHIVE_CONTRACTS.has(contract)) ? 1 : null
     },
+    bootstrapReview: REVIEWED_PARTIAL_BOOTSTRAPS[normalizePath(file)]
+      ? {
+          status: 'reviewed-specialized-bootstrap',
+          reason: REVIEWED_PARTIAL_BOOTSTRAPS[normalizePath(file)]
+        }
+      : null,
     ownerExpectations: {
       authority: componentScope.length ? 'component-owner' : 'shared-or-governance',
       session: isAppOwned ? 'tab-scoped-session' : 'not-applicable',
@@ -172,6 +185,7 @@ function classifyTestFile(file, framework = null) {
   const setup = normalized.startsWith('e2e/')
     ? 'ui-or-api-declared-in-suite'
     : (layer === 'app-integration' ? 'production-derived-or-declared-in-suite' : 'layer-owned');
+  const organization = classifyTestOrganization(normalized);
   return {
     id: `file:${normalized}`,
     file: normalized,
@@ -185,8 +199,10 @@ function classifyTestFile(file, framework = null) {
     contracts,
     oracle: REQUIRED_PYTHON_ORACLE_FILES.has(normalized) ? 'required' : 'not-applicable',
     setup,
+    suiteGroup: organization.group,
     provenance: 'framework-discovery',
     ...buildManifestMetadata({
+      file: normalized,
       layer,
       framework: resolvedFramework,
       status: scenarioIds.length ? 'migrated' : 'legacy-unmapped',
@@ -338,6 +354,9 @@ function validateManifest(entries, options = {}) {
     if (!Array.isArray(entry.componentScope) || !Array.isArray(entry.contracts) || !entry.setup) {
       failures.push(`manifest entry has incomplete ownership metadata: ${entry.id || '(missing)'}`);
     }
+    if (!entry.suiteGroup) {
+      failures.push(`manifest entry has no suite organization: ${entry.id || '(missing)'}`);
+    }
     if (!ORACLE_POLICIES.includes(entry.oracle)) {
       failures.push(`manifest entry has invalid oracle policy: ${entry.id || '(missing)'}`);
     }
@@ -347,6 +366,7 @@ function validateManifest(entries, options = {}) {
       || !requirement.label
       || !requirement.capability
       || !requirement.evidence
+      || !requirement.transition
       || !['explicit', 'inferred'].includes(requirement.metadataSource)
     ))) {
       failures.push(`manifest entry has incomplete requirement metadata: ${entry.id || '(missing)'}`);
@@ -356,7 +376,10 @@ function validateManifest(entries, options = {}) {
         failures.push(`critical scenario has inferred requirement metadata: ${requirement.id}`);
       }
     }
-    if (!Array.isArray(entry.capabilityScope) || !Array.isArray(entry.browser) || !entry.expectedWorkerMode) {
+    if (!Array.isArray(entry.capabilityScope)
+      || !Array.isArray(entry.transitionScope)
+      || !Array.isArray(entry.browser)
+      || !entry.expectedWorkerMode) {
       failures.push(`manifest entry has incomplete environment metadata: ${entry.id || '(missing)'}`);
     }
     if (!entry.fixtureProvenance
@@ -364,6 +387,11 @@ function validateManifest(entries, options = {}) {
       || !entry.fixtureProvenance.mode
       || !Object.prototype.hasOwnProperty.call(entry.fixtureProvenance, 'archiveSchemaVersion')) {
       failures.push(`manifest entry has incomplete fixture provenance: ${entry.id || '(missing)'}`);
+    }
+    if (entry.bootstrapReview !== null && (!entry.bootstrapReview
+      || entry.bootstrapReview.status !== 'reviewed-specialized-bootstrap'
+      || !entry.bootstrapReview.reason)) {
+      failures.push(`manifest entry has invalid bootstrap review metadata: ${entry.id || '(missing)'}`);
     }
     if (!entry.ownerExpectations
       || !entry.ownerExpectations.authority
@@ -424,9 +452,9 @@ module.exports = {
   CANONICAL_CONTRACTS,
   CRITICAL_SCENARIO_IDS,
   ORACLE_POLICIES,
-  LEGACY_UNMAPPED_BASELINE,
   classifyTestFile,
   buildFileManifest,
+  getScenarioTransition,
   summarizeManifest,
   validateManifest
 };

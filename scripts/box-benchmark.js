@@ -13,7 +13,7 @@ const PORT = Number(process.env.PLAYWRIGHT_WEB_PORT || 4173);
 const BASE_URL = process.env.PLAYWRIGHT_BASE_URL || `http://127.0.0.1:${PORT}`;
 const CSV_PATH = process.env.BOX_BENCH_CSV
   ? path.resolve(process.cwd(), process.env.BOX_BENCH_CSV)
-  : path.resolve(__dirname, '../__tests__/test-box-large.csv');
+  : path.resolve(__dirname, '../__tests__/fixtures/box/test-box-large.csv');
 const ITERATIONS = Math.max(1, Number(process.env.BOX_BENCH_ITERATIONS) || 6);
 const FORCE_VIEW_DRAW = process.env.BOX_BENCH_FORCE_VIEW_DRAW === '1';
 const DISABLE_LIVE_STYLE = process.env.BOX_BENCH_DISABLE_LIVE_STYLE === '1';

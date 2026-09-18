@@ -129,13 +129,27 @@
     const raw = options?.snapshotIntent;
     if (!raw || typeof raw !== 'object') {
       const snapshotKind = String(options?.snapshotKind || '').trim();
+      const directIntent = {};
+      [
+        'captureLivePayload',
+        'allowSkipLivePayloadCapture',
+        'skipLivePayloadCapture',
+        'lifecycleSnapshot',
+        'reasonSkippable',
+        'saveLike',
+        'snapshotCapture'
+      ].forEach(key => {
+        if (Object.prototype.hasOwnProperty.call(options, key)) {
+          directIntent[key] = options[key];
+        }
+      });
       if (snapshotKind) {
         const resolver = Main?.sessionActions?.resolvePersistSnapshotIntent;
         if (typeof resolver === 'function') {
           try {
             const resolved = resolver({ snapshotKind });
             if (resolved && typeof resolved === 'object') {
-              return resolved;
+              return { ...resolved, ...directIntent };
             }
           } catch (err) {
             console.debug('Debug: session snapshot intent resolver failed', {
@@ -145,7 +159,7 @@
           }
         }
       }
-      return {};
+      return directIntent;
     }
     return raw;
   }
@@ -1472,7 +1486,12 @@
       return { captured, cacheForStorage, archiveCache };
     } finally {
       const liveCapture = captured || rawCaptured;
-      if (liveCapture) {
+      // A component may explicitly snapshot its graph without moving live DOM.
+      // Replaying such a snapshot would needlessly replace the mounted frame
+      // after every ordinary control change.
+      const liveDomPreserved = rawCaptured?.__graphitixLiveDomPreserved === true
+        || captured?.__graphitixLiveDomPreserved === true;
+      if (liveCapture && !liveDomPreserved) {
         restoreLiveDomAfterRenderCacheCapture(config, liveCapture, tab, reason, {
           rollbackOnly: !!rawCaptured && rawValidation?.ok !== true
         });

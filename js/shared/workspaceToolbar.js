@@ -1118,6 +1118,21 @@
     const ownerDoc = overlayEl.ownerDocument || doc;
     if(!ownerDoc || !canonicalInput){ return () => {}; }
 
+    const clearSelector = String(config.clearSelector || '').trim();
+    if(clearSelector && typeof overlayEl.querySelectorAll === 'function'){
+      overlayEl.querySelectorAll(clearSelector).forEach(node => node.remove());
+    }
+
+    const resolveInputAttribute = (name, fallback) => {
+      if(typeof canonicalInput.hasAttribute === 'function' && canonicalInput.hasAttribute(name)){
+        return canonicalInput.getAttribute(name) || '';
+      }
+      if(Object.prototype.hasOwnProperty.call(config, name)){
+        return config[name] == null ? '' : String(config[name]);
+      }
+      return fallback;
+    };
+
     const section = ownerDoc.createElement('section');
     const extraSectionClass = String(config.sectionClass || '').trim();
     section.className = `shared-color-picker__section shared-color-picker__section--scatter-style${extraSectionClass ? ` ${extraSectionClass}` : ''}`;
@@ -1134,11 +1149,14 @@
     const input = ownerDoc.createElement('input');
     input.className = 'shared-color-picker__scatter-style-input';
     input.type = 'number';
-    input.min = canonicalInput.min || String(config.min ?? '0');
-    input.max = canonicalInput.max || String(config.max ?? '10');
-    input.step = canonicalInput.step || String(config.step ?? '0.25');
+    const min = resolveInputAttribute('min', '0');
+    const max = resolveInputAttribute('max', '10');
+    const step = resolveInputAttribute('step', '0.25');
+    if(min){ input.setAttribute('min', min); }
+    if(max){ input.setAttribute('max', max); }
+    if(step){ input.setAttribute('step', step); }
     const rawValue = canonicalInput.value || String(config.value ?? '0');
-    const formattedValue = formatPxDisplayValue(rawValue, input.step);
+    const formattedValue = formatPxDisplayValue(rawValue, step);
     input.value = formattedValue || String(rawValue);
     input.setAttribute('aria-label', String(config.ariaLabel || config.title || 'Line width'));
 
@@ -1146,7 +1164,15 @@
     field.appendChild(input);
     row.appendChild(field);
     section.appendChild(row);
-    overlayEl.insertBefore(section, overlayEl.firstChild || null);
+    const insertAfterSelector = String(config.insertAfterSelector || '').trim();
+    const insertAfter = insertAfterSelector && typeof overlayEl.querySelector === 'function'
+      ? overlayEl.querySelector(insertAfterSelector)
+      : null;
+    if(insertAfter && insertAfter.parentNode === overlayEl){
+      insertAfter.insertAdjacentElement('afterend', section);
+    }else{
+      overlayEl.insertBefore(section, overlayEl.firstChild || null);
+    }
 
     return () => {
       mirrorCleanup();

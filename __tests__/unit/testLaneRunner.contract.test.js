@@ -7,6 +7,8 @@ const { createCoverageMap } = require('istanbul-lib-coverage');
 const {
   getLaneSpec,
   getDiagnosticSpec,
+  buildArtifactPolicy,
+  buildManifestEvidence,
   parseArgs
 } = require('../../scripts/run-test-lane.cjs');
 const {
@@ -30,9 +32,12 @@ describe('test lane runner', () => {
       'lint', 'component-contracts', 'testing-inventory-doc', 'production-bootstrap', 'vendor-provenance', 'test-runtime', 'welcome-assets', 'test-inventory'
     ]);
     expect(getLaneSpec('e2e-contracts-firefox')[0].args).toContain('--project=firefox');
+    expect(getLaneSpec('e2e-matrix')[0].args).toEqual(expect.arrayContaining([
+      'e2e/workspace/workspace.exercise.spec.js', '--project=chromium'
+    ]));
     expect(getLaneSpec('stats')[0].args).toEqual(expect.arrayContaining([
-      '__tests__/stats.differential.python.test.js',
-      '__tests__/stats.ui.persistence.restore.test.js'
+      '__tests__/statistical-oracle/stats.differential.python.test.js',
+      '__tests__/statistical-oracle/stats.ui.persistence.restore.test.js'
     ]));
     expect(getLaneSpec('workers')[0].args).toContain('workers');
   });
@@ -103,6 +108,15 @@ describe('test lane runner', () => {
       expect(report.schemaVersion).toBe(1);
       expect(report.metadata).toEqual(metadata);
       expect(fs.existsSync(path.join(directory, 'coverage-final.json'))).toBe(true);
+      const projectDirectory = path.join(directory, 'projects', 'unit-node');
+      writeAggregateReports(coverageMap, projectDirectory, {
+        provider: 'v8',
+        project: 'unit-node',
+        sourceDenominator: 'files observed by this Jest project'
+      });
+      const projectReport = JSON.parse(fs.readFileSync(path.join(projectDirectory, 'coverage-summary.json'), 'utf8'));
+      expect(projectReport.metadata.project).toBe('unit-node');
+      expect(fs.existsSync(path.join(projectDirectory, 'coverage-final.json'))).toBe(true);
     } finally {
       fs.rmSync(directory, { recursive: true, force: true });
     }
@@ -122,6 +136,66 @@ describe('test lane runner', () => {
       '--project', 'integration', '--files-per-process', '1', '--onlyFailures', '--runInBand'
     ]));
     expect(getDiagnosticSpec('static')).toBeNull();
+  });
+
+  test('lane reports carry compact manifest and discovery evidence', () => {
+    const evidence = buildManifestEvidence({
+      schemaVersion: 1,
+      checks: [],
+      static: {
+        files: { jestTestFiles: 2 },
+        patterns: {
+          fixedScratchPaths: { count: 0 },
+          jestSourceReads: { count: 4 }
+        },
+        organization: { oversized: [{ file: 'e2e/example.spec.js' }] }
+      },
+      discovery: {
+        jest: { files: 2 },
+        playwright: { chromium: { tests: 3, files: 1 }, firefox: { status: 'deferred' } }
+      },
+      manifest: { summary: { total: 3, requirementEvidence: { explicitMappings: 1 } } }
+    });
+
+    expect(evidence).toMatchObject({
+      status: 'passed',
+      schemaVersion: 1,
+      manifest: { total: 3 },
+      patterns: { fixedScratchPaths: 0, sourceReads: 4, oversizedSuites: 1 },
+      discovery: { jestFiles: 2, playwrightChromium: { tests: 3, files: 1 } }
+    });
+  });
+
+  test('lane artifact policy requires the machine report and tolerates optional diagnostics', () => {
+    expect(buildArtifactPolicy('unit', true)).toEqual(expect.objectContaining({
+      schemaVersion: 1,
+      retentionDays: 14,
+      required: ['laneReport'],
+      optional: [],
+      missingArtifactPolicy: { required: 'error', optional: 'ignore' }
+    }));
+    expect(buildArtifactPolicy('e2e-contracts', true).optional).toEqual(expect.arrayContaining([
+      'playwright-report', 'test-results', 'artifacts/perf-summaries'
+    ]));
+    expect(buildArtifactPolicy('coverage', true).optional).toEqual(expect.arrayContaining([
+      'artifacts/perf-summaries', 'coverage'
+    ]));
+    expect(buildArtifactPolicy('unit')).toMatchObject({ required: [] });
+  });
+
+  test('nightly workflows publish trend reports beside their lane reports', () => {
+    const workflows = [
+      ['.github/workflows/e2e-nightly-feature-matrix.yml', 'e2e-trend.json'],
+      ['.github/workflows/e2e-nightly-full.yml', 'full-chromium-trend.json'],
+      ['.github/workflows/jest-nightly-full.yml', 'full-jest-nightly-trend.json'],
+      ['.github/workflows/unit-jest.yml', 'coverage-trend.json']
+    ];
+    for (const [file, trendFile] of workflows) {
+      const source = fs.readFileSync(path.resolve(__dirname, '../../', file), 'utf8');
+      expect(source).toContain('aggregate-test-trends.cjs');
+      expect(source).toContain(trendFile);
+      expect(source).toContain('retention-days: 14');
+    }
   });
 
   test('parses only explicit lane options', () => {

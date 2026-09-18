@@ -5,8 +5,8 @@ const { buildImpactPlan } = require('../../test-support/impactMap.js');
 describe('changed-path impact map', () => {
   const manifest = [
     { id: 'file:__tests__/componentLifecycle.core.test.js', file: '__tests__/componentLifecycle.core.test.js', layer: 'app-integration' },
-    { id: 'file:__tests__/box.layoutReserves.regression.test.js', file: '__tests__/box.layoutReserves.regression.test.js', layer: 'app-integration' },
-    { id: 'file:e2e/component.same-type-tab-switching.isolation.spec.js', file: 'e2e/component.same-type-tab-switching.isolation.spec.js', layer: 'browser-e2e' }
+    { id: 'file:__tests__/integration/box.layoutReserves.regression.test.js', file: '__tests__/integration/box.layoutReserves.regression.test.js', layer: 'app-integration' },
+    { id: 'file:e2e/ownership/component.same-type-tab-switching.isolation.spec.js', file: 'e2e/ownership/component.same-type-tab-switching.isolation.spec.js', layer: 'browser-e2e' }
   ];
 
   test('expands shared lifecycle changes to all component contract groups', () => {
@@ -28,7 +28,7 @@ describe('changed-path impact map', () => {
     expect(plan.matchedRules.map(rule => rule.id)).toEqual(['component:box:shared-contracts', 'component:box']);
     expect(plan.mandatoryLanes).toEqual(expect.arrayContaining(['unit', 'dom', 'integration', 'workers']));
     expect(plan.matchedRules.find(rule => rule.id === 'component:box').manifestEntryIds)
-      .toContain('file:__tests__/box.layoutReserves.regression.test.js');
+      .toContain('file:__tests__/integration/box.layoutReserves.regression.test.js');
   });
 
   test('does not invent mandatory coverage for unrelated documentation', () => {

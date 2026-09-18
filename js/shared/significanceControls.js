@@ -239,76 +239,6 @@
     styleChipValueEl.textContent = formatThicknessChipValue(thicknessValue == null ? 0 : thicknessValue);
   }
 
-  function clearSignificanceStylePickerSection(overlayEl){
-    if(!overlayEl || !overlayEl.querySelectorAll){
-      return;
-    }
-    overlayEl.querySelectorAll('.shared-color-picker__section--significance-style').forEach(node => node.remove());
-  }
-
-  function attachSignificanceStylePickerThicknessSection(overlayEl){
-    if(!overlayEl){
-      return () => {};
-    }
-    clearSignificanceStylePickerSection(overlayEl);
-    const doc = overlayEl.ownerDocument || global.document;
-    if(!doc){
-      return () => {};
-    }
-    const section = doc.createElement('section');
-    section.className = 'shared-color-picker__section shared-color-picker__section--scatter-style shared-color-picker__section--significance-style';
-    const title = doc.createElement('div');
-    title.className = 'shared-color-picker__section-title';
-    title.textContent = 'Line thickness';
-    section.appendChild(title);
-    const row = doc.createElement('div');
-    row.className = 'shared-color-picker__scatter-style-row shared-color-picker__scatter-style-row--single';
-    const field = doc.createElement('label');
-    field.className = 'shared-color-picker__scatter-style-field';
-    const input = doc.createElement('input');
-    input.className = 'shared-color-picker__scatter-style-input';
-    input.type = 'number';
-    input.min = thicknessInput?.min || '0.25';
-    input.max = thicknessInput?.max || '10';
-    input.step = thicknessInput?.step || '0.25';
-    const toolbarApi = Shared.getWorkspaceToolbarApi?.() || Shared.workspaceToolbar || null;
-    const rawValue = thicknessInput?.value || '1';
-    input.value = toolbarApi?.formatPxDisplayValue?.(rawValue, input.step)
-      || toolbarApi?.formatNumericValue?.(rawValue, input.step, { maxPrecision: 2 })
-      || rawValue;
-    input.setAttribute('aria-label', 'Line thickness');
-    const mirrorCleanup = typeof toolbarApi?.bindNumericInputMirror === 'function'
-      ? toolbarApi.bindNumericInputMirror(input, thicknessInput)
-      : (() => {
-          const onInput = () => {
-            if(!thicknessInput){ return; }
-            thicknessInput.value = input.value;
-            thicknessInput.dispatchEvent(new Event('input', { bubbles: true }));
-          };
-          const onChange = () => {
-            if(!thicknessInput){ return; }
-            thicknessInput.value = input.value;
-            thicknessInput.dispatchEvent(new Event('change', { bubbles: true }));
-          };
-          input.addEventListener('input', onInput);
-          input.addEventListener('change', onChange);
-          return () => {
-            input.removeEventListener('input', onInput);
-            input.removeEventListener('change', onChange);
-          };
-        })();
-    field.appendChild(input);
-    row.appendChild(field);
-    section.appendChild(row);
-    overlayEl.insertBefore(section, overlayEl.firstChild || null);
-    return () => {
-      mirrorCleanup();
-      if(section.parentNode){
-        section.parentNode.removeChild(section);
-      }
-    };
-  }
-
   function syncPanelInputsFromConfig(config){
     if(!panelEl || panelEl.dataset.open !== '1'){ return; }
     if(!configsMatch(activeConfig, config)){ return; }
@@ -577,7 +507,18 @@
             }
           }
         });
-        stylePickerCleanup = attachSignificanceStylePickerThicknessSection(overlayEl);
+        const toolbarApi = Shared.getWorkspaceToolbarApi();
+        stylePickerCleanup = toolbarApi.attachColorPickerNumericSection(overlayEl, {
+          canonicalInput: thicknessInput,
+          title: 'Line thickness',
+          ariaLabel: 'Line thickness',
+          sectionClass: 'shared-color-picker__section--significance-style',
+          clearSelector: '.shared-color-picker__section--significance-style',
+          min: '0.25',
+          max: '10',
+          step: thicknessInput?.step || '0.25',
+          value: '1'
+        });
       });
     }else if(typeof Shared.attachColorPickerNear === 'function'){
       Shared.attachColorPickerNear(colorInput);

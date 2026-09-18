@@ -16,23 +16,11 @@
     pie: ['config', 'style', 'notes', 'meta']
   });
 
-  const DERIVED_PATH = /(?:^|\.)(?:results?|resultsModel|resultModel|reportModel|precomputed|summary|lastSummary|lastStats|statsPanelModel|annotationModel|assumptions|cache|signature|schemaVersion|payloadVersion|contextVersion|lastRunVersion|computedAt|updatedAt|savedAt|capturedAt|runtimeGeneration|fileHandle)(?:\.|$)/i;
-  const DOCUMENT_METADATA_PATH = /(?:^|\.)(?:fileName|fileDisplayName|filePath|documentId)(?:\.|$)/i;
-  const NON_PARAMETER_SELECTION_PATH = /(?:^|\.)(?:selectedRows|regionSelectValue)(?:\.|$)/i;
-  const DERIVED_PROJECTION_PATH = /(?:^|\.)(?:colorSchemeUserOverride|legendAutoHidden)(?:\.|$)|(?:^|\.)(?:stats|analysis)\.version(?:\.|$)|(?:^|\.)rotation\.quaternion(?:\.|$)|(?:^|\.)labelPositions?\.[^.]+\.(?:relX|relY|originX|originY)(?:\.|$)/i;
-  const LEGACY_DERIVED_ALIAS_PATH = /^config\.showIntervals$/i;
-  const META_TECHNICAL_PATH = /^meta\.graphSizing\.(?:version|export(?:\..+)?|display\.(?:defaultWidthPx|defaultHeightPx|minWidthPx|minHeightPx|maxWidthPx|maxHeightPx|aspectRatio|allowUnlimitedWidth|allowUnlimitedHeight))$/i;
-  const VENN_DERIVED_ANALYSIS_PATH = /^analysis\.(?:goResult|goFormatted|goOrganism|goPerformed|stringSvg|stringEnrichment|stringPerformed|speciesIndicator|lastSignificance|significancePanelModel)(?:\.|$)/i;
-  const RESULT_PAGINATION_PATH = /(?:^|\.)(?:goLimit|stringLimit)(?:\.|$)/i;
-  const OPTIONAL_INACTIVE_OVERRIDE_PATH = /(?:^|\.)(?:globalShape|shapeGlobalStyle|connectionLineStyle)(?:\.|$)/i;
-  const STATS_DERIVED_PATH = /(?:^|\.)stats\.(?:contextSignature|report|resultsModel|summaryModel|tableModel|deferredModel|deferredContextSignature|deferredContextVersion|deferredAutoShowSignificance)(?:\.|$)/i;
-  const STATS_ADVISOR_DERIVED_PATH = /(?:^|\.)stats\.advisor\.(?:activated|context|lastApplied|pendingPoints)(?:\.|$)/i;
   const MAX_DOM_TEXT = 120;
 
   const clone = value => value == null ? value : JSON.parse(JSON.stringify(value));
   const same = (left, right) => JSON.stringify(left) === JSON.stringify(right);
   const pathKey = path => path.map(part => typeof part === 'number' ? `[${part}]` : part).join('.');
-  const lowerPath = path => path.map(part => String(part).toLowerCase()).join('.');
   const leafName = path => String(path[path.length - 1] ?? '');
   const getAtPath = (object, path) => path.reduce((value, part) => value == null ? undefined : value[part], object);
   const setAtPath = (object, path, value) => {
@@ -68,56 +56,6 @@
 
   function equivalent(actual, expected){
     return same(normalizeComparable(actual), normalizeComparable(expected));
-  }
-
-  function explicitClassification(path, value){
-    const key = pathKey(path);
-    if(VENN_DERIVED_ANALYSIS_PATH.test(key)) return 'derived-analysis';
-    if(RESULT_PAGINATION_PATH.test(key)) return 'result-pagination-state';
-    if((value === null || value === undefined) && OPTIONAL_INACTIVE_OVERRIDE_PATH.test(key)) return 'inactive-optional-override';
-    if((value === null || value === undefined) && /(?:MajorTickLength|TickInterval)[XYZ]?$/i.test(key)) return 'inactive-optional-override';
-    if((value === null || value === undefined) && /(?:^|\.)labelPositions?\.(?:title|xLabel|yLabel|zLabel|legend|stats)$/i.test(key)) return 'inactive-optional-label-position';
-    if((value === null || value === undefined) && /(?:^|\.)dotSizeOverrideRaw$/i.test(key)) return 'inactive-optional-size-override';
-    if(STATS_DERIVED_PATH.test(key)) return 'derived-statistics-projection';
-    if(STATS_ADVISOR_DERIVED_PATH.test(key)) return 'derived-statistics-advisor-state';
-    if(LEGACY_DERIVED_ALIAS_PATH.test(key)) return 'derived-compatibility-alias';
-    if(/Signature(?:\.|$)/i.test(key)) return 'derived-signature';
-    if(DERIVED_PATH.test(key)) return 'derived';
-    if(DOCUMENT_METADATA_PATH.test(key)) return 'document-metadata';
-    if(NON_PARAMETER_SELECTION_PATH.test(key)) return 'selection-state-not-parameter';
-    if(DERIVED_PROJECTION_PATH.test(key)) return 'derived-projection';
-    if(META_TECHNICAL_PATH.test(key)) return 'technical-meta';
-    return null;
-  }
-
-  function collectLeaves(value, path, output, classified){
-    const reason = explicitClassification(path, value);
-    if(reason){
-      classified.push({ path: pathKey(path), reason });
-      return;
-    }
-    if(Array.isArray(value)){
-      if(/(?:^|\.)(?:selectedColumns|distributions\.selected)$/i.test(pathKey(path))){
-        output.push({ path, key: pathKey(path), before: clone(value) });
-        return;
-      }
-      if(!value.length){
-        classified.push({ path: pathKey(path), reason: 'empty-user-collection' });
-        return;
-      }
-      value.forEach((entry, index) => collectLeaves(entry, path.concat(index), output, classified));
-      return;
-    }
-    if(value && typeof value === 'object'){
-      const keys = Object.keys(value).sort();
-      if(!keys.length){
-        classified.push({ path: pathKey(path), reason: 'empty-user-object' });
-        return;
-      }
-      keys.forEach(key => collectLeaves(value[key], path.concat(key), output, classified));
-      return;
-    }
-    output.push({ path, key: pathKey(path), before: clone(value) });
   }
 
   function getWorkspace(){
@@ -331,320 +269,6 @@
     return score;
   }
 
-  function elementDescriptor(element, index){
-    const attrs = ['id', 'name', 'class', 'data-setting', 'data-control', 'data-field', 'aria-label', 'title'];
-    const label = element.closest?.('label');
-    const labelText = label ? String(label.textContent || '').trim().slice(0, 160) : '';
-    const group = element.closest?.('.form-row, .control-row, .box-stats-options__row, .box-stats-advanced__body, .box-stats-advanced, .stats-control-row, [data-setting-group]');
-    const groupText = group ? String(group.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 160) : '';
-    const fieldsetLegend = element.closest?.('fieldset')?.querySelector?.(':scope > legend');
-    const fieldsetText = fieldsetLegend ? String(fieldsetLegend.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 80) : '';
-    const identity = attrs.map(name => String(element.getAttribute?.(name) || '')).filter(Boolean).concat(labelText, groupText, fieldsetText).join(' ');
-    return { index, identity: identity.toLowerCase(), element };
-  }
-
-  function scoreControl(descriptor, path, current){
-    const terms = semanticTerms(path);
-    let semanticScore = 0;
-    terms.forEach(token => {
-      if(token && descriptor.identity.includes(token)) semanticScore += 5;
-    });
-    const el = descriptor.element;
-    const pathText = lowerPath(path);
-    if(el instanceof global.HTMLInputElement && el.type === 'color' && /color/.test(pathText)){
-      semanticScore += 5;
-    }
-    let valueScore = 0;
-    if(el instanceof global.HTMLInputElement){
-      if(el.type === 'checkbox' && typeof current === 'boolean' && el.checked === current) valueScore += 4;
-      else if(el.type !== 'checkbox' && equivalent(el.value, current)) valueScore += 4;
-    }else if(el instanceof global.HTMLSelectElement || el instanceof global.HTMLTextAreaElement){
-      if(equivalent(el.value, current)) valueScore += 4;
-    }
-    return { semanticScore, score: semanticScore + valueScore };
-  }
-
-  function findControl(root, path, current){
-    if(!root?.querySelectorAll) return null;
-    const controls = parameterControlCandidates(root)
-      .map(({ element, index }) => elementDescriptor(element, index));
-    const ranked = controls.map(item => ({ ...item, ...scoreControl(item, path, current) }))
-      // A coincidentally equal primitive value is never enough to identify a control.
-      .filter(item => item.semanticScore > 0 && (item.valueScore > 0 || item.semanticScore >= 10))
-      .sort((a, b) => b.valueScore - a.valueScore || b.semanticScore - a.semanticScore || a.index - b.index);
-    if(ranked[0]) return ranked[0];
-    const exact = controls.map(item => ({ ...item, ...scoreControl(item, path, current) }))
-      .filter(item => item.valueScore > 0);
-    return exact.length === 1 ? exact[0] : null;
-  }
-
-  function numericConstraint(element, attribute){
-    if(!element) return NaN;
-    const raw = String(element.getAttribute?.(attribute) ?? '').trim();
-    if(!raw || raw.toLowerCase() === 'any') return NaN;
-    const value = Number(raw);
-    return Number.isFinite(value) ? value : NaN;
-  }
-
-  function numericAlternative(value, element, key){
-    const numeric = Number(value);
-    if(!Number.isFinite(numeric)) return undefined;
-    const min = numericConstraint(element, 'min');
-    const max = numericConstraint(element, 'max');
-    const step = numericConstraint(element, 'step');
-    const boundedUnitValue = /(?:opacity|alpha|ratio|fraction|threshold|level|spacing|transparency|(?:^|\.)q$)/i.test(key)
-      && numeric >= 0 && numeric <= 1;
-    const delta = Number.isFinite(step) && step > 0
-      ? step
-      : (boundedUnitValue ? 0.1 : (Number.isInteger(numeric) ? 1 : 1));
-    let next;
-    if(boundedUnitValue){
-      next = numeric < 0.5 ? Math.min(1, numeric + Math.max(delta, 0.1)) : Math.max(0, numeric - Math.max(delta, 0.1));
-    }else if(/(?:^|\.)(?:min|minimum|lower)$/i.test(key)){
-      next = numeric - delta;
-    }else if(/(?:^|\.)(?:max|maximum|upper)$/i.test(key)){
-      next = numeric + delta;
-    }else{
-      next = numeric + delta;
-      if(Number.isFinite(max) && next > max) next = numeric - delta;
-      if(Number.isFinite(min) && next < min) next = numeric + delta;
-    }
-    if(Number.isFinite(min)) next = Math.max(min, next);
-    if(Number.isFinite(max)) next = Math.min(max, next);
-    if(next === numeric){
-      next = Number.isFinite(min) && numeric !== min ? min : (Number.isFinite(max) && numeric !== max ? max : numeric + (delta || 1));
-    }
-    return next;
-  }
-
-  function enumAlternative(path, current){
-    const key = leafName(path).toLowerCase();
-    const value = String(current || '').toLowerCase();
-    const maps = {
-      notation: { auto: 'scientific', decimal: 'scientific', scientific: 'decimal' },
-      notationx: { auto: 'scientific', decimal: 'scientific', scientific: 'decimal' },
-      notationy: { auto: 'scientific', decimal: 'scientific', scientific: 'decimal' },
-      pattern: { solid: 'dashed', dashed: 'dotted', dotted: 'solid', none: 'solid' },
-      linepattern: { solid: 'dashed', dashed: 'dotted', dotted: 'solid', none: 'solid' },
-      axisorigin: { zero: 'lower', lower: 'zero', custom: 'zero', auto: 'zero' },
-      originmode: { zero: 'lower', lower: 'zero', custom: 'zero', auto: 'zero' },
-      correction: { none: 'holm', holm: 'bonferroni', bonferroni: 'none', 'holm-sidak': 'bonferroni' },
-      multiplecomparisons: { none: 'holm', holm: 'bonferroni', bonferroni: 'none' },
-      criterion: { bic: 'aic', aic: 'bic' },
-      fitmethod: { ols: 'theil-sen', 'theil-sen': 'ols' },
-      regressionmode: { linear: 'quadratic', quadratic: 'linear' },
-      mode: { auto: 'manual', manual: 'auto', linear: 'quadratic', quadratic: 'linear', all: 'custom', custom: 'all' },
-      colors: { unified: 'individual', individual: 'unified' },
-      colormode: { auto: 'solid', solid: 'density', density: 'auto', individual: 'auto', unified: 'individual' },
-      graphType: { strip: 'box', box: 'violin', violin: 'strip' },
-      graphtype: { strip: 'box', box: 'violin', violin: 'strip' },
-      tableformat: { single: 'grouped', grouped: 'single' },
-      pointmode: { none: 'overlay', overlay: 'side', side: 'outliers', outliers: 'none' },
-      errormode: { both: 'upper', upper: 'both' },
-      individualsummary: { 'median-point': 'mean-sem', 'mean-sem': 'median-point' },
-      posthoc: { standard: 'tukey', gameshowell: 'standard', tukey: 'standard' },
-      rule: { iqr15: 'iqr3', iqr3: 'sd', sd: 'custom', custom: 'iqr15' },
-      colorscheme: { scientific: 'soft', soft: 'normal', normal: 'grayscale', grayscale: 'colorblind', colorblind: 'scientific', dark: 'scientific' },
-      densitypalette: { viridis: 'plasma', plasma: 'viridis' },
-      stattype: { auto: 'pearson', pearson: 'spearman', spearman: 'pearson' },
-      method: { ols: 'huber', huber: 'ols', pearson: 'spearman', spearman: 'pearson', pca: 'mds', mds: 'pca' },
-      diffmethod: { delong: 'bootstrap', bootstrap: 'delong', permutation: 'bootstrap' },
-      singlerocpmethod: { auto: 'exact', exact: 'asymptotic', asymptotic: 'auto' },
-      methodchoice: { delong: 'bootstrap', bootstrap: 'delong', permutation: 'bootstrap' },
-      preprocessing: { none: 'rna-seq-normalized-log', 'rna-seq-normalized-log': 'none' },
-      colorramp: { viridis: 'plasma', plasma: 'viridis' },
-      interpolation: { grid: 'scatter', scatter: 'grid' },
-      shape: { circle: 'diamond', diamond: 'square', square: 'circle', triangle: 'diamond' },
-      display: { panels: 'overlay', overlay: 'panels' },
-      arrangement: { vertical: 'grid', grid: 'vertical' },
-      sort: { 'size-desc': 'degree-desc', 'degree-desc': 'size-desc', 'size-asc': 'degree-asc', 'degree-asc': 'size-asc' },
-      activeresultstab: { go: 'string', string: 'go' },
-      grouplayout: { interleaved: 'clustered', clustered: 'interleaved' },
-      whiskermode: { adaptive: 'fixed', fixed: 'adaptive' },
-      significancelabelmode: { decision: 'p', p: 'decision' },
-      significancedisplay: { star: 'pvalue', pvalue: 'star' },
-      legendheightmode: { 'match-heatmap': 'fixed', fixed: 'match-heatmap' },
-      view: { 'corr-columns': 'values', 'corr-rows': 'values', values: 'corr-columns' },
-      alternative: { 'two-sided': 'greater', greater: 'less', less: 'two-sided' },
-      distributiondiagnostic: { 'normality-only': 'normal-vs-lognormal', 'normal-vs-lognormal': 'normality-only' },
-      groupedanalysis: { twowayanova: 'rowRandomMixed', rowrandommixed: 'twoWayAnova' },
-      groupedcomparisonscope: { groupswithincondition: 'conditionsWithinGroup', conditionswithingroup: 'groupsWithinCondition' },
-      groupedmultiplicityfamily: { 'within-scope': 'global', global: 'within-scope' },
-      effectparametric: { cohend: 'hedgesG', hedgesg: 'cohenD' },
-      effectnonparametric: { rankbiserial: 'commonLanguage', commonlanguage: 'rankBiserial' },
-      parametricvariant: { classic: 'welch', welch: 'classic' },
-      omnibusparametricvariant: { classic: 'welch', welch: 'classic' },
-      pairwiseparametricvariant: { classic: 'welch', welch: 'classic' },
-      nonparametricvariant: { mannwhitney: 'kolmogorovSmirnov', kolmogorovsmirnov: 'mannWhitney' },
-      normalitymethod: { 'shapiro-wilk': 'dagostino', dagostino: 'shapiro-wilk' },
-      resamplingmode: { auto: 'monte-carlo', 'monte-carlo': 'auto' },
-      resultstab: { overall: 'comparisons', comparisons: 'overall' },
-      variancemethod: { 'brown-forsythe': 'bartlett', bartlett: 'brown-forsythe' },
-      outliermode: { none: 'grubbs', grubbs: 'none' },
-      speciesvalue: { '': 'hsapiens', hsapiens: 'mmusculus', mmusculus: 'hsapiens' },
-      test: { parametric: 'nonparametric', nonparametric: 'parametric' }
-    };
-    const parent = path.length > 1 ? String(path[path.length - 2] || '').toLowerCase() : '';
-    if(parent === 'dendrogram' && key === 'mode') return value === 'auto' ? 'fixed' : 'auto';
-    if(parent === 'axislabelmodes' && value === 'auto') return 'manual';
-    return maps[key]?.[value] ?? maps[`${parent}${key}`]?.[value];
-  }
-
-  function colorAlternative(path, current){
-    let hash = 0x2468ac;
-    pathKey(path).split('').forEach(char => {
-      hash = (Math.imul(hash, 33) ^ char.charCodeAt(0)) >>> 0;
-    });
-    let value = `#${(hash & 0xffffff).toString(16).padStart(6, '0')}`;
-    if(value.toLowerCase() === String(current || '').trim().toLowerCase()){
-      value = `#${((hash ^ 0x5a5a5a) & 0xffffff).toString(16).padStart(6, '0')}`;
-    }
-    return value;
-  }
-
-  function buildAlternative(path, current, root){
-    const key = lowerPath(path);
-    if(key === 'config.loadingslimit' && Number.isFinite(Number(current))){
-      const numeric = Math.max(1, Math.floor(Number(current)));
-      return {
-        covered: numeric > 1,
-        value: numeric > 1 ? numeric - 1 : numeric,
-        source: 'bounded-loadings-limit',
-        controlIndex: null,
-        controlDomKey: null,
-        reason: numeric > 1 ? null : 'no-valid-alternative'
-      };
-    }
-    if(/^config\.axismap\.[xyz]$/i.test(key) && Number.isInteger(current)){
-      return { covered: true, value: (current + 1) % 3, source: 'surface-axis-permutation', controlIndex: null, controlDomKey: null };
-    }
-    if(typeof current === 'string' && ['circle','diamond','square','triangle','cross','plus'].includes(current.toLowerCase())){
-      const shapes = ['circle','diamond','square','triangle','cross','plus'];
-      return { covered: true, value: shapes[(shapes.indexOf(current.toLowerCase()) + 1) % shapes.length], source: 'shape-enum', controlIndex: null, controlDomKey: null };
-    }
-    if(typeof current === 'string' && String(path[path.length - 2] || '').toLowerCase() === 'labels'){
-      return { covered: true, value: `${current}__tabB`, source: 'label-text', controlIndex: null, controlDomKey: null };
-    }
-    if(key === 'config.filters.sdthreshold'){
-      return { covered: true, value: 0.5, source: 'heatmap-valid-sd-threshold', controlIndex: null, controlDomKey: null };
-    }
-    if(key === 'config.filters.absvalue'){
-      return { covered: true, value: 0.5, source: 'heatmap-valid-absolute-threshold', controlIndex: null, controlDomKey: null };
-    }
-    if(key === 'config.positiveclass' && current === 1){
-      return { covered: true, value: 0, source: 'binary-class-swap', controlIndex: null, controlDomKey: null };
-    }
-    if((key === 'config.adjust.centerrows' || key === 'config.adjust.centercolumns') && current == null){
-      return { covered: true, value: 'mean', source: 'nullable-centering-mode', controlIndex: null, controlDomKey: null };
-    }
-    if((current === null || current === undefined) && /(?:^|\.)(?:tickinterval|majorticklength)\.[xy]$/i.test(key)){
-      return { covered: true, value: 1, source: 'nullable-axis-number', controlIndex: null, controlDomKey: null };
-    }
-    if((current === null || current === undefined)
-      && /^(?:config\.axis|style\.upset)\.xlabelangle$/i.test(key)){
-      return { covered: true, value: -35, source: 'nullable-x-axis-label-angle', controlIndex: null, controlDomKey: null };
-    }
-    if(key === 'config.traceopacity' && (current === null || current === undefined)){
-      return { covered: true, value: 0.65, source: 'hist-valid-trace-opacity', controlIndex: null, controlDomKey: null };
-    }
-    let control = /^meta\.graphSizing\./i.test(pathKey(path)) ? null : findControl(root, path, current);
-    if((current === null || current === undefined || (typeof current === 'number' && Number.isFinite(current)))
-      && /(?:width|size|length|interval|spacing|thickness|alpha|level|count|iterations|multiplier)$/i.test(key)
-      && !(control?.element instanceof global.HTMLInputElement && ['number', 'range'].includes(control.element.type))){
-      control = parameterControlCandidates(root)
-        .map(({ element, index }) => ({ ...elementDescriptor(element, index), ...scoreControl(elementDescriptor(element, index), path, current) }))
-        .filter(item => item.element instanceof global.HTMLInputElement && ['number', 'range'].includes(item.element.type) && item.semanticScore > 0)
-        .sort((left, right) => right.semanticScore - left.semanticScore || left.index - right.index)[0] || control;
-    }
-    const el = control?.element || null;
-    const controlDomKey = el ? controlObservableKey(root, el) : null;
-    if(Array.isArray(current) && /(?:^|\.)selectedColumns$/i.test(pathKey(path))){
-      const next = current.length > 1 ? [current[0]] : (current.length === 1 ? [current[0] + 1] : [0]);
-      return { covered: true, value: next, source: 'column-selection', controlIndex: control?.index ?? null, controlDomKey };
-    }
-    if(Array.isArray(current) && key === 'config.distributions.selected'){
-      const next = current.includes('normal') ? current.filter(value => value !== 'normal') : current.concat('normal');
-      return { covered: true, value: next, source: 'distribution-selection', controlIndex: null, controlDomKey: null };
-    }
-    if(typeof current === 'boolean') return { covered: true, value: !current, source: el?.type === 'checkbox' ? 'checkbox' : 'boolean', controlIndex: control?.index ?? null, controlDomKey };
-    if(typeof current === 'number' && Number.isFinite(current)){
-      const numericElement = el instanceof global.HTMLInputElement && ['number', 'range'].includes(el.type) ? el : null;
-      const next = /(?:^|\.)labelpositions?\.[^.]+\.(?:x|y)$/i.test(key)
-        ? current + 12
-        : numericAlternative(current, numericElement, key);
-      if(next !== undefined && !equivalent(next, current)) return { covered: true, value: next, source: numericElement ? 'numeric-control' : 'numeric', controlIndex: control?.index ?? null, controlDomKey: numericElement ? controlDomKey : null };
-    }
-    const explicitEnumCycles = {
-      'config.stats.scope': { gof: 'all', all: 'reference', reference: 'custom', custom: 'gof' },
-      'config.stats.test': { 'chi-square': 'g-test', 'g-test': 'auto', auto: 'chi-square' },
-      'config.stats.advisor.answers.objective': { gof: 'compare', compare: 'gof' },
-      'config.stats.advisor.answers.scope': { all: 'reference', reference: 'custom', custom: 'all' },
-      'config.stats.advisor.answers.sparse': { no: 'yes', yes: 'unsure', unsure: 'no' },
-      'config.advisor.answers.analysisfocus': { describe: 'compare', compare: 'adjust', adjust: 'describe' }
-    };
-    const explicitEnumValue = typeof current === 'string' ? explicitEnumCycles[key]?.[current.toLowerCase()] : undefined;
-    if(explicitEnumValue !== undefined){
-      return { covered: true, value: explicitEnumValue, source: 'component-enum-map', controlIndex: control?.index ?? null, controlDomKey };
-    }
-    if(key === 'config.stats.posthoc' && typeof current === 'string' && el instanceof global.HTMLSelectElement && /^boxStatsPostHoc$/i.test(String(el.id || ''))){
-      const option = Array.from(el.options).find(candidate => !candidate.disabled && String(candidate.value) !== String(el.value));
-      if(option) return { covered: true, value: String(option.value), source: 'context-valid-select', controlIndex: control.index, controlDomKey };
-    }
-    const mappedEnumValue = typeof current === 'string' ? enumAlternative(path, current) : undefined;
-    if(mappedEnumValue !== undefined) return { covered: true, value: mappedEnumValue, source: 'enum-map', controlIndex: control?.index ?? null, controlDomKey };
-    if(el instanceof global.HTMLSelectElement){
-      const options = Array.from(el.options).filter(option => !option.disabled && String(option.value) !== String(el.value));
-      if(options.length){
-        const raw = options[0].value;
-        return { covered: true, value: raw, source: 'select', controlIndex: control.index, controlDomKey };
-      }
-    }
-    if(typeof current === 'string' && el instanceof global.HTMLInputElement && el.type === 'radio'){
-      const name = String(el.name || '').trim();
-      const radios = name
-        ? Array.from(root.querySelectorAll('input[type="radio"]')).filter(candidate => String(candidate.name || '') === name && !candidate.disabled)
-        : [el];
-      const alternative = radios.find(candidate => String(candidate.value) !== String(current));
-      if(alternative){
-        return { covered: true, value: String(alternative.value), source: 'radio', controlIndex: control.index, controlDomKey };
-      }
-    }
-    if(typeof current === 'string' && /^#[0-9a-f]{3,8}$/i.test(current.trim())){
-      return { covered: true, value: colorAlternative(path, current), source: el instanceof global.HTMLInputElement && el.type === 'color' ? 'color-control' : 'color', controlIndex: control?.index ?? null, controlDomKey };
-    }
-    if(typeof current === 'string'){
-      const trimmed = current.trim();
-      if(trimmed === '' && el instanceof global.HTMLInputElement && ['number', 'range'].includes(el.type)){
-        const next = numericAlternative(Number(el.value || el.min || 0), el, key);
-        return { covered: true, value: String(next), source: 'empty-numeric-control', controlIndex: control.index, controlDomKey };
-      }
-      if(el instanceof global.HTMLInputElement && el.type === 'color'){
-        return { covered: true, value: colorAlternative(path, current), source: 'color-control', controlIndex: control.index, controlDomKey };
-      }
-      if(/^-?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?$/i.test(trimmed)){
-        const next = numericAlternative(Number(trimmed), el, key);
-        if(next !== undefined && !equivalent(next, current)) return { covered: true, value: String(next), source: el ? 'numeric-control-string' : 'numeric-string', controlIndex: control?.index ?? null, controlDomKey };
-      }
-      if(/^#[0-9a-f]{3,8}$/i.test(trimmed) || /color$/i.test(leafName(path))){
-        return { covered: true, value: colorAlternative(path, current), source: 'color', controlIndex: control?.index ?? null, controlDomKey };
-      }
-      if(el && !(el instanceof global.HTMLSelectElement)){
-        return { covered: true, value: `${current || leafName(path)}__tabB`, source: 'text-control', controlIndex: control.index, controlDomKey };
-      }
-      if(/(?:title|subtitle|label|text|note|caption|prefix|suffix)$/i.test(leafName(path))){
-        return { covered: true, value: `${current || leafName(path)}__tabB`, source: 'text', controlIndex: control?.index ?? null, controlDomKey };
-      }
-    }
-    if(current === null || current === undefined){
-      if(el instanceof global.HTMLInputElement && ['number', 'range'].includes(el.type)){
-        const next = numericAlternative(Number(el.value || 0), el, key);
-        return { covered: true, value: next, source: 'nullable-numeric-control', controlIndex: control.index, controlDomKey };
-      }
-      if(el instanceof global.HTMLInputElement && el.type === 'checkbox') return { covered: true, value: true, source: 'nullable-checkbox', controlIndex: control.index, controlDomKey };
-    }
-    return { covered: false, reason: 'no-valid-alternative' };
-  }
-
   function isPersistentParameterControl(element){
     if(!element || element.disabled) return false;
     const type = String(element.type || '').toLowerCase();
@@ -653,37 +277,6 @@
     if(element.hidden || String(element.style?.display || '').toLowerCase() === 'none') return false;
     if(element.closest?.('.ag-root, .ag-popup, [role="grid"], [data-parameter-isolation-ignore="true"]')) return false;
     return true;
-  }
-
-  function nonParameterControlReason(element){
-    const id = String(element?.id || '').trim();
-    const identity = [id, element?.name, element?.className, element?.getAttribute?.('aria-label')]
-      .map(value => String(value || ''))
-      .join(' ');
-    const labelText = String(element?.closest?.('label')?.textContent || '');
-    const semanticIdentity = `${identity} ${labelText}`;
-    if(/\bautosave\b/i.test(semanticIdentity)) return 'workspace-action-control';
-    if(/workspace-toolbar__transform/i.test(identity)) return 'data-transform-action';
-    if(/transform.*(?:multimode|customexpr)/i.test(semanticIdentity)
-      || (/publication/i.test(semanticIdentity) && /preset/i.test(semanticIdentity))) return 'action-control';
-    if(element?.matches?.('.export-select, .resizer-zoom-input, [data-publication-preset], [data-publication-style-select]')
-      || element?.closest?.('[data-publication-preset], [data-publication-style-fieldset]')) return 'action-control';
-    if(/^(?:label[ABC]|list[ABC]|n(?:A|B|C|AB|AC|BC|ABC))$/i.test(id)) return 'data-entry-control';
-    if(/^regionSelect$/i.test(id)) return 'analysis-result-selection';
-    if(/^pcaPreprocessing$/i.test(id)) return 'derived-active-data-view-control';
-    if(/^(?:box|pca)GroupedReplicates$/i.test(id)) return 'inactive-table-format-control';
-    if(/^upset/i.test(id)) return 'inactive-plot-toolbar-control';
-    if(/^boxViolin/i.test(id)) return 'inactive-plot-toolbar-control';
-    if(/^scatter(?:InitialValues|ParameterConstraints|GlobalFit)Json$/i.test(id) && String(element?.value || '').trim() === '') return 'inactive-optional-fit-override';
-    if(/^rocnegativeclass$/i.test(id)) return 'derived-complement-class-control';
-    if(/^(?:histDist_|pieStatCol|statcol)/i.test(id)) return 'collection-projection-control';
-    if(/stats-pvalue-format-select/i.test(semanticIdentity)) return 'default-presentation-only-pvalue-control';
-    return null;
-  }
-
-  function persistentParameterControls(root){
-    if(!root?.querySelectorAll) return [];
-    return Array.from(root.querySelectorAll('input, select, textarea')).filter(isPersistentParameterControl);
   }
 
   function domObservableControlEntries(root){
@@ -707,43 +300,6 @@
         || entry.element instanceof global.HTMLSelectElement
         || entry.element instanceof global.HTMLTextAreaElement)
         && isPersistentParameterControl(entry.element));
-  }
-
-  function readControlPrimitive(element){
-    if(element instanceof global.HTMLInputElement && element.type === 'checkbox'){
-      return !!element.checked;
-    }
-    if(element instanceof global.HTMLInputElement && element.type === 'radio'){
-      return element.checked ? String(element.value ?? '') : null;
-    }
-    return 'value' in element ? String(element.value ?? '') : undefined;
-  }
-
-  function auditPersistentControlCoverage(root, parameters){
-    const seenRadioNames = new Set();
-    return persistentParameterControls(root).map((element, index) => elementDescriptor(element, index)).flatMap(descriptor => {
-      const classifiedReason = nonParameterControlReason(descriptor.element);
-      if(classifiedReason) return [];
-      if(descriptor.element instanceof global.HTMLInputElement && descriptor.element.type === 'radio'){
-        const name = String(descriptor.element.name || '').trim();
-        if(name && seenRadioNames.has(name)) return [];
-        if(name) seenRadioNames.add(name);
-      }
-      const current = readControlPrimitive(descriptor.element);
-      const mapped = parameters.some(parameter => {
-        const scored = scoreControl(descriptor, parameter.path, parameter.before);
-        return scored.semanticScore > 0 && (equivalent(current, parameter.before) || scored.semanticScore >= 10);
-      });
-      if(mapped){
-        return [];
-      }
-      const identity = String(descriptor.identity || '').trim();
-      return [{
-        path: `control:${identity || `${descriptor.element.tagName.toLowerCase()}@${descriptor.index}`}`,
-        reason: 'persistent-control-not-mapped-to-canonical-parameter',
-        value: clone(current)
-      }];
-    });
   }
 
   function applyLogicalParameterMutation(payload, parameter, value){
@@ -1340,6 +896,9 @@
   }
 
   async function discover(type, tabId, options = {}){
+    if(!options.mutationPlan || !Array.isArray(options.mutationPlan.mutations)){
+      throw new Error(`${type}: explicit mutation plan is required; generic payload-leaf discovery has been retired`);
+    }
     await activateTab(tabId, `parameter-discovery-${type}`);
     // Parameter discovery must observe the settled owner, not activation defaults that
     // a component is still normalizing to the current data (for example PCA's
@@ -1369,456 +928,21 @@
         synthetic.push({ path: 'config.stats.selectedColumns', source: 'normalized-visible-column-selection' });
       }
     }
-    const roots = USER_ROOTS[type] || ['config', 'style', 'notes', 'meta'];
-    if(options.mutationPlan){
-      const explicit = discoverExplicitParameters(type, baseline, options.mutationPlan);
-      const explicitMissing = explicit.classified.filter(item => item.reason === 'explicit-baseline-path-missing');
-      if(explicitMissing.length){
-        throw new Error(`${type}: explicit mutation baseline is incomplete (${explicitMissing.map(item => item.path).join(', ')})`);
-      }
-      return {
-        baseline,
-        storedBaseline,
-        roots,
-        parameters: explicit.parameters,
-        classified: explicit.classified,
-        synthetic,
-        controlGaps: [],
-        mutationPlanId: `${type}:explicit-v1`
-      };
+    const explicit = discoverExplicitParameters(type, baseline, options.mutationPlan);
+    const explicitMissing = explicit.classified.filter(item => item.reason === 'explicit-baseline-path-missing');
+    if(explicitMissing.length){
+      throw new Error(`${type}: explicit mutation baseline is incomplete (${explicitMissing.map(item => item.path).join(', ')})`);
     }
-    const parameters = [];
-    const classified = [];
-    roots.forEach(rootKey => {
-      if(!Object.prototype.hasOwnProperty.call(baseline, rootKey)){
-        classified.push({ path: rootKey, reason: 'missing-root' });
-        return;
-      }
-      collectLeaves(baseline[rootKey], [rootKey], parameters, classified);
-    });
-    parameters.forEach(parameter => {
-      if(/^(?:config\.axis|style\.upset)\.xlabelangle$/i.test(parameter.key)){
-        // The angle editor lives in the shared contextual X-axis toolbar, not in
-        // a permanently mounted component form control. The generic matrix must
-        // therefore use canonical payload/session state as its witness; the
-        // dedicated axis-control tests cover the contextual DOM projection.
-        parameter.requiresDomWitness = false;
-      }
-    });
-    if(type === 'venn' && baseline?.analysis?.goPerformed !== true && baseline?.analysis?.stringPerformed !== true){
-      for(let index = parameters.length - 1; index >= 0; index -= 1){
-        if(parameters[index].key === 'analysis.activeResultsTab'){
-          classified.push({ path: parameters[index].key, reason: 'inactive-results-panel-state' });
-          parameters.splice(index, 1);
-        }
-      }
-    }
-    if(type === 'venn' && String(baseline?.style?.plotType || 'venn').toLowerCase() !== 'upset'){
-      for(let index = parameters.length - 1; index >= 0; index -= 1){
-        if(/^style\.upset(?:\.|$)/i.test(parameters[index].key)){
-          classified.push({ path: parameters[index].key, reason: 'inactive-plot-toolbar-state' });
-          parameters.splice(index, 1);
-        }
-      }
-      for(let index = parameters.length - 1; index >= 0; index -= 1){
-        if(parameters[index].key === 'meta.graphSizing.display.aspectLocked'){
-          classified.push({ path: parameters[index].key, reason: 'forced-plot-mode-state' });
-          parameters.splice(index, 1);
-        }
-      }
-    }
-    if(type === 'scatter'){
-      const scatterProjectionPaths = /^(?:config\.(?:backgroundColor|textColor|showDiagnostics)$|config\.stats\.(?:regressionMode|fitMethod|showCI|showPI|showDiagnostics|precomputedStats)$|config\.stats\.fitSpec(?:\.|$)|config\.axisLabelModes(?:\.|$))/i;
-      for(let index = parameters.length - 1; index >= 0; index -= 1){
-        if(scatterProjectionPaths.test(parameters[index].key)){
-          classified.push({ path: parameters[index].key, reason: 'derived-scatter-compatibility-projection' });
-          parameters.splice(index, 1);
-        }
-      }
-      if(baseline?.config?.dotSizeOverrideEnabled !== true){
-        for(let index = parameters.length - 1; index >= 0; index -= 1){
-          if(parameters[index].key === 'config.dotSize'){
-            classified.push({ path: parameters[index].key, reason: 'derived-adaptive-point-size' });
-            parameters.splice(index, 1);
-          }
-        }
-      }
-      for(let index = parameters.length - 1; index >= 0; index -= 1){
-        if(/^config\.overlayStyles\.trend\.linkColorToTrend$/i.test(parameters[index].key)){
-          classified.push({ path: parameters[index].key, reason: 'derived-self-linked-overlay-state' });
-          parameters.splice(index, 1);
-        }
-      }
-      const scatterStatsReady = !!baseline?.config?.stats?.precomputedStats
-        || Number(baseline?.config?.stats?.lastRunVersion || 0) > 0;
-      if(!scatterStatsReady){
-        for(let index = parameters.length - 1; index >= 0; index -= 1){
-          if(/^config\.(?:showLine|showPlotStats|showCI|showPI)$/i.test(parameters[index].key)
-            || /^config\.overlayStyles\.(?:confidence|prediction)(?:\.|$)/i.test(parameters[index].key)){
-            classified.push({ path: parameters[index].key, reason: 'inactive-scatter-stats-overlay-state' });
-            parameters.splice(index, 1);
-          }
-        }
-      }
-      const requestedView = String(baseline?.config?.viewMode || '2d').toLowerCase();
-      if(requestedView !== '3d'){
-        for(let index = parameters.length - 1; index >= 0; index -= 1){
-          if(/^config\.rotation(?:\.|$)/i.test(parameters[index].key)){
-            classified.push({ path: parameters[index].key, reason: 'inactive-scatter-3d-state' });
-            parameters.splice(index, 1);
-          }
-        }
-      }
-      if(baseline?.config?.stats?.advisor?.open !== true){
-        for(let index = parameters.length - 1; index >= 0; index -= 1){
-          if(/^config\.stats\.advisor\.answers(?:\.|$)/i.test(parameters[index].key)){
-            classified.push({ path: parameters[index].key, reason: 'inactive-scatter-advisor-answer' });
-            parameters.splice(index, 1);
-          }
-        }
-      }
-      parameters.forEach(parameter => {
-        if(/^config\.stats\.advisor\.open$/i.test(parameter.key)){
-          // The advisor exposes its state through a generated button/panel,
-          // not a stable form control. Payload and owner-session checks remain
-          // the valid persistence witnesses.
-          parameter.requiresDomWitness = false;
-        }
-      });
-    }
-    if(type === 'roc'){
-      parameters.forEach(parameter => {
-        if(parameter.key === 'config.colorScheme'){
-          // ROC keeps its palette identity in config.colorScheme, while the
-          // shared picker may correctly display Custom when generated series
-          // colors do not exactly match the preset after synthetic hydration.
-          parameter.requiresDomWitness = false;
-        }
-      });
-      const derivedRocStats = /^stats\.(?:compareResult(?:\.|$)|advisor\.(?:context(?:\.|$)|lastApplied(?:\.|$)))/i;
-      const inactiveRocResampling = String(baseline?.stats?.diffMethod || 'delong').toLowerCase() === 'delong'
-        ? /^stats\.resampling(?:Seed|Iterations)$/i
-        : null;
-      for(let index = parameters.length - 1; index >= 0; index -= 1){
-        const path = parameters[index].key;
-        const inactiveCompareSelection = path === 'stats.compareSelection'
-          && (baseline?.stats?.compareSelection == null
-            || (Array.isArray(baseline.stats.compareSelection) && baseline.stats.compareSelection.length < 2));
-        if(derivedRocStats.test(path) || inactiveRocResampling?.test(path) || inactiveCompareSelection){
-          classified.push({
-            path,
-            reason: derivedRocStats.test(path)
-              ? 'derived-statistics-projection'
-              : (inactiveCompareSelection ? 'inactive-roc-comparison-selection' : 'inactive-statistics-control')
-          });
-          parameters.splice(index, 1);
-        }
-      }
-    }
-    if(type === 'line'){
-      const inactivePatterns = [
-        /^config\.(?:alpha|dotSize)$/i,
-        /^config\.showDiagnostics$/i,
-        /^config\.(?:groupLabels|groupShapes)(?:\.|$)/i,
-        /^config\.stats\.(?:hasResults|panelModel|statsOptions)(?:\.|$)/i,
-        /^config\.stats\.controls\.regressionMode$/i
-      ];
-      if(String(baseline?.config?.viewMode || '2d').toLowerCase() !== '3d'){
-        inactivePatterns.push(/^config\.rotation(?:\.|$)/i);
-        inactivePatterns.push(/^config\.zLabel$/i);
-      }
-      if(String(baseline?.config?.tableFormat || 'single').toLowerCase() !== 'grouped'){
-        inactivePatterns.push(/^config\.replicates$/i);
-      }
-      if(baseline?.config?.stats?.hasResults !== true){
-        inactivePatterns.push(/^config\.(?:showTrendLine|showConfidenceIntervals|showPredictionIntervals)$/i);
-        inactivePatterns.push(/^config\.overlayStyles\.(?:trend|confidence|prediction)(?:\.|$)/i);
-      }
-      if(baseline?.config?.showGrid !== true) inactivePatterns.push(/^config\.gridStyle(?:\.|$)/i);
-      if(baseline?.config?.logX !== true) inactivePatterns.push(/^config\.logPlusOneX$/i);
-      if(baseline?.config?.logY !== true) inactivePatterns.push(/^config\.logPlusOneY$/i);
-      if(baseline?.config?.showConfidenceIntervals !== true) inactivePatterns.push(/^config\.overlayStyles\.confidence(?:\.|$)/i);
-      if(baseline?.config?.showPredictionIntervals !== true) inactivePatterns.push(/^config\.overlayStyles\.prediction(?:\.|$)/i);
-      if(baseline?.config?.showTrendLine !== true) inactivePatterns.push(/^config\.overlayStyles\.trend(?:\.|$)/i);
-      if(String(baseline?.config?.originMode || 'zero').toLowerCase() !== 'custom'){
-        inactivePatterns.push(/^config\.origin[XY]$/i);
-      }
-      for(let index = parameters.length - 1; index >= 0; index -= 1){
-        if(inactivePatterns.some(pattern => pattern.test(parameters[index].key))){
-          classified.push({ path: parameters[index].key, reason: 'inactive-or-derived-line-state' });
-          parameters.splice(index, 1);
-        }
-      }
-    }
-    if(type === 'heatmap'){
-      const inactivePatterns = [
-        /^config\.showValuesUserOverride$/i,
-        /^config\.adjust\.logPlusOne$/i
-      ];
-      if(String(baseline?.config?.view || 'corr-columns').toLowerCase() !== 'values'){
-        inactivePatterns.push(/^config\.valueScale(?:\.|$)/i);
-        inactivePatterns.push(/^config\.legendHeightMode$/i);
-        inactivePatterns.push(/^meta\.graphSizing\.display\.aspectLocked$/i);
-      }
-      for(let index = parameters.length - 1; index >= 0; index -= 1){
-        if(inactivePatterns.some(pattern => pattern.test(parameters[index].key))){
-          classified.push({ path: parameters[index].key, reason: 'inactive-or-derived-heatmap-state' });
-          parameters.splice(index, 1);
-        }
-      }
-    }
-    if(type === 'surface'){
-      const compatibilityAliases = /^config\.(?:backgroundColor|colorScheme|textColor)$/i;
-      for(let index = parameters.length - 1; index >= 0; index -= 1){
-        if(parameters[index].key === 'meta.graphSizing.display.aspectLocked'){
-          classified.push({ path: parameters[index].key, reason: 'forced-surface-aspect-state' });
-          parameters.splice(index, 1);
-        }else if(compatibilityAliases.test(parameters[index].key)){
-          classified.push({ path: parameters[index].key, reason: 'derived-surface-settings-projection' });
-          parameters.splice(index, 1);
-        }
-      }
-      parameters.forEach(parameter => {
-        if(/^config\.labelPositions\.legend\.[xy]$/i.test(parameter.key)){
-          // Legend dragging is persisted as owner state, but the rendered SVG
-          // position is intentionally not a stable control-level witness.
-          parameter.requiresDomWitness = false;
-        }
-      });
-    }
-    if(type === 'pca'){
-      const inactiveOrDerived = [
-        // The selector projects the active DataView. The persisted operation is the
-        // DataView transform/activeDataViewId pair, covered by PCA DataView tests.
-        /^config\.preprocessing$/i,
-        /^config\.grouped\.(?:colors|shapes)(?:\.|$)/i,
-        /^config\.label(?:Colors|Shapes|PointStyles)(?:\.|$)/i,
-        /^config\.pointStyleScopes\.(?:global|version)(?:\.|$)/i
-      ];
-      const pcaMethod = String(baseline?.config?.method || 'pca').toLowerCase();
-      const componentRule = String(baseline?.config?.componentSelection?.rule || 'all').toLowerCase();
-      if(componentRule !== 'threshold') inactiveOrDerived.push(/^config\.componentSelection\.eigenThreshold$/i);
-      if(componentRule !== 'parallel') inactiveOrDerived.push(/^config\.componentSelection\.parallelIterations$/i);
-      // PCA coordinates must retain a metric frame, so this layout choice is forced.
-      inactiveOrDerived.push(/^meta\.graphSizing\.display\.aspectLocked$/i);
-      if(String(baseline?.config?.tableFormat || 'standard').toLowerCase() !== 'grouped'){
-        inactiveOrDerived.push(/^config\.grouped\.replicatesPerGroup$/i);
-      }
-      if(pcaMethod !== 'tsne') inactiveOrDerived.push(/^config\.tsne(?:\.|$)/i);
-      if(pcaMethod !== 'umap') inactiveOrDerived.push(/^config\.umap(?:\.|$)/i);
-      if(String(baseline?.config?.viewMode || '2d').toLowerCase() !== '3d'){
-        inactiveOrDerived.push(/^config\.rotation(?:\.|$)/i);
-        inactiveOrDerived.push(/^config\.axisSelection\.z$/i);
-      }
-      for(let index = parameters.length - 1; index >= 0; index -= 1){
-        if(inactiveOrDerived.some(pattern => pattern.test(parameters[index].key))){
-          classified.push({ path: parameters[index].key, reason: 'inactive-or-derived-pca-state' });
-          parameters.splice(index, 1);
-        }
-      }
-      // Minor-tick toggles live in the shared contextual axis popover. Only the
-      // currently selected axis has a concrete DOM control at any instant, so the
-      // generic matrix cannot demand simultaneous X/Y DOM witnesses. They remain
-      // fully exercised through canonical payload + owner-session transitions; the
-      // shared axis-control suites cover the contextual DOM projection itself.
-      parameters.forEach(parameter => {
-        if(/^config\.axis\.minorTicks[XY]$/i.test(parameter.key)){
-          parameter.requiresDomWitness = false;
-        }
-        if(/^config\.loadingsLimit$/i.test(parameter.key)){
-          // The loading limit is a persisted row-count setting. PCA exposes it
-          // only in the contextual results panel, whose rebuilt table is not a
-          // stable exact-DOM witness for this generic matrix.
-          parameter.requiresDomWitness = false;
-        }
-      });
-      const availableLoadings = Array.isArray(baseline?.data)
-        ? Math.max(0, baseline.data.length - 1)
-        : 0;
-      if(availableLoadings > 0 && Number(baseline?.config?.loadingsLimit) > availableLoadings){
-        for(let index = parameters.length - 1; index >= 0; index -= 1){
-          if(/^config\.loadingsLimit$/i.test(parameters[index].key)){
-            classified.push({ path: parameters[index].key, reason: 'data-dependent-loadings-limit-default' });
-            parameters.splice(index, 1);
-          }
-        }
-      }
-    }
-    if(type === 'hist'){
-      const inactivePatterns = [];
-      // Distribution keys identify the fixed distribution definitions. Their label,
-      // color and pattern remain independently user-editable parameters.
-      inactivePatterns.push(/^config\.distributions\.options\.\[\d+\]\.key$/i);
-      if(String(baseline?.config?.seriesLayout?.display || 'overlay').toLowerCase() !== 'panels'){
-        inactivePatterns.push(/^config\.seriesLayout\.(?:arrangement|sharedY)$/i);
-      }
-      if(String(baseline?.config?.frequency?.binningMode || 'auto').toLowerCase() !== 'width'){
-        inactivePatterns.push(/^config\.frequency\.manualBinWidth$/i);
-        inactivePatterns.push(/^config\.frequency\.(?:firstCenter|lastCenter)(?:Auto)?$/i);
-      }
-      if(baseline?.config?.frequency?.firstCenterAuto !== false) inactivePatterns.push(/^config\.frequency\.firstCenter$/i);
-      if(baseline?.config?.frequency?.lastCenterAuto !== false) inactivePatterns.push(/^config\.frequency\.lastCenter$/i);
-      for(let index = parameters.length - 1; index >= 0; index -= 1){
-        if(inactivePatterns.some(pattern => pattern.test(parameters[index].key))){
-          classified.push({ path: parameters[index].key, reason: 'inactive-or-structural-hist-state' });
-          parameters.splice(index, 1);
-        }
-      }
-    }
-    if(type === 'pie'){
-      const statsScope = String(baseline?.config?.stats?.scope || 'all').toLowerCase();
-      const advisorOpen = baseline?.config?.stats?.advisor?.open === true;
-      const inactivePatterns = [
-        /^config\.(?:valueColumn|expectedColumn)$/i,
-        /^config\.stats\.advisor\.activated$/i
-      ];
-      if(!advisorOpen) inactivePatterns.push(/^config\.stats\.advisor\.answers(?:\.|$)/i);
-      if(statsScope !== 'gof'){
-        inactivePatterns.push(/^config\.stats\.(?:valueColumn|expectedColumn)$/i);
-      }
-      if(statsScope !== 'reference') inactivePatterns.push(/^config\.stats\.referenceColumn$/i);
-      if(statsScope !== 'custom') inactivePatterns.push(/^config\.stats\.customPairs(?:\.|$)/i);
-      const chartType = String(baseline?.config?.chartType || 'pie').toLowerCase();
-      if(chartType === 'pie' || chartType === 'donut') inactivePatterns.push(/^meta\.graphSizing\.display\.aspectLocked$/i);
-      for(let index = parameters.length - 1; index >= 0; index -= 1){
-        if(inactivePatterns.some(pattern => pattern.test(parameters[index].key))){
-          const path = parameters[index].key;
-          const reason = /^config\.(?:valueColumn|expectedColumn)$/i.test(path)
-            ? 'derived-pie-stats-compatibility-projection'
-            : (/aspectLocked$/i.test(path) ? 'forced-pie-aspect-state' : 'inactive-or-derived-pie-stats-state');
-          classified.push({ path, reason });
-          parameters.splice(index, 1);
-        }
-      }
-    }
-    if(type === 'survival'){
-      const derivedAdvisorState = /^config\.advisor\.(?:context|lastApplied|activated)(?:\.|$)/i;
-      const advisorAnswersInactive = baseline?.config?.advisor?.open !== true;
-      for(let index = parameters.length - 1; index >= 0; index -= 1){
-        if(parameters[index].key === 'config.statsReportPScientific'){
-          classified.push({ path: parameters[index].key, reason: 'derived-stats-reporting-projection' });
-          parameters.splice(index, 1);
-        }else if(derivedAdvisorState.test(parameters[index].key)){
-          classified.push({ path: parameters[index].key, reason: 'derived-survival-advisor-state' });
-          parameters.splice(index, 1);
-        }else if(advisorAnswersInactive && /^config\.advisor\.answers(?:\.|$)/i.test(parameters[index].key)){
-          classified.push({ path: parameters[index].key, reason: 'inactive-survival-advisor-answer' });
-          parameters.splice(index, 1);
-        }
-      }
-    }
-    if(type === 'box'){
-      // Box grid styling is owned by the shared grid-controls popover. The
-      // popover is transient and is not mounted during a passive tab
-      // activation, so the generic isolation matrix cannot demand a direct
-      // control witness here. The shared grid-controls DOM contract covers
-      // that projection; this matrix still requires exact payload and owner
-      // session witnesses for every grid-style value.
-      parameters.forEach(parameter => {
-        if(/^config\.gridStyle(?:\.|$)/i.test(parameter.key)){
-          parameter.requiresDomWitness = false;
-        }
-      });
-      const inactivePatterns = [];
-      if(baseline?.config?.logScale !== true) inactivePatterns.push(/^config\.logPlusOne$/i);
-      if(String(baseline?.config?.whisker?.rule || '').toLowerCase() !== 'custom') inactivePatterns.push(/^config\.whisker\.customMultiplier$/i);
-      if(baseline?.meta?.statsReporting && Object.prototype.hasOwnProperty.call(baseline.meta.statsReporting, 'pValueScientific')){
-        inactivePatterns.push(/^config\.stats\.reportPScientific$/i);
-      }
-
-      if(String(baseline?.config?.colorMode || '').toLowerCase() === 'unified'){
-        inactivePatterns.push(/^config\.(?:colors|borderColors)(?:\.|$)/i);
-      }
-      if(String(baseline?.config?.tableFormat || 'single').toLowerCase() !== 'grouped'){
-        inactivePatterns.push(/^config\.(?:groupLayout|grouped)(?:\.|$)/i);
-        inactivePatterns.push(/^config\.stats\.grouped(?:Analysis|ComparisonScope|MultiplicityFamily)(?:\.|$)/i);
-      }
-      if(Array.isArray(baseline?.config?.stats?.selectedColumns) && baseline.config.stats.selectedColumns.length === 0){
-        for(let index = parameters.length - 1; index >= 0; index -= 1){
-          if(parameters[index].key === 'config.stats.selectedColumns'){
-            classified.push({ path: parameters[index].key, reason: 'automatic-empty-selection-sentinel' });
-            parameters.splice(index, 1);
-          }
-        }
-      }
-      if(String(baseline?.config?.stats?.test || 'parametric').toLowerCase() === 'parametric'){
-        inactivePatterns.push(/^config\.stats\.(?:effectNonParametric|nonParametricVariant)(?:\.|$)/i);
-      }else{
-        inactivePatterns.push(/^config\.stats\.(?:effectParametric|parametricVariant|omnibusParametricVariant|pairwiseParametricVariant)(?:\.|$)/i);
-      }
-      if(String(baseline?.config?.stats?.outlierMode || 'none').toLowerCase() === 'none'){
-        inactivePatterns.push(/^config\.stats\.outlier(?:Alpha|Q)(?:\.|$)/i);
-      }
-      const statsMode = String(baseline?.config?.stats?.mode || 'all');
-      if(statsMode !== 'oneSample') inactivePatterns.push(/^config\.stats\.oneSampleNullValue(?:\.|$)/i);
-      if(statsMode !== 'reference') inactivePatterns.push(/^config\.stats\.referenceIndex(?:\.|$)/i);
-      if(statsMode !== 'custom') inactivePatterns.push(/^config\.stats\.pairsText(?:\.|$)/i);
-      if(String(baseline?.config?.stats?.resultsTab || 'overall') !== 'comparisons'){
-        inactivePatterns.push(/^config\.stats\.pairwiseParametricVariant(?:\.|$)/i);
-      }
-      inactivePatterns.push(/^config\.stats\.parametricVariant(?:\.|$)/i);
-      if(baseline?.config?.showGrid !== true) inactivePatterns.push(/^config\.gridStyle(?:\.|$)/i);
-      if(baseline?.config?.showSignificanceBars !== true) inactivePatterns.push(/^config\.significance(?:\.|$)/i);
-      if(!baseline?.results && !baseline?.stats?.results){
-        inactivePatterns.push(/^config\.stats\.resultsTab(?:\.|$)/i);
-      }
-      const categoryAxis = baseline?.config?.flipAxes === true ? 'y' : 'x';
-      const valueAxis = categoryAxis === 'x' ? 'y' : 'x';
-      inactivePatterns.push(new RegExp(`^config\\.axis\\.datasetSpacing\\.${valueAxis}$`, 'i'));
-      inactivePatterns.push(new RegExp(`^config\\.axis\\.(?:tickInterval|majorTickLength|minorTicks|minorTickSubdivisions|notation)\\.${categoryAxis}$`, 'i'));
-      const graphType = String(baseline?.config?.graphType || 'box').toLowerCase();
-      if(graphType !== 'bar') inactivePatterns.push(/^config\.(?:barSummary|borderWidths\.bar)(?:\.|$)/i);
-      if(graphType !== 'box') inactivePatterns.push(/^config\.borderWidths\.box(?:\.|$)/i);
-      if(graphType !== 'notched') inactivePatterns.push(/^config\.borderWidths\.notched(?:\.|$)/i);
-      if(graphType !== 'violin') inactivePatterns.push(/^config\.(?:violin|borderWidths\.violin)(?:\.|$)/i);
-      if(graphType !== 'strip') inactivePatterns.push(/^config\.borderWidths\.strip(?:\.|$)/i);
-      inactivePatterns.push(new RegExp(`^config\\.borderWidths\\.${graphType}$`, 'i'));
-      if(baseline?.config?.stats?.advisor?.open !== true){
-        inactivePatterns.push(/^config\.stats\.advisor\.answers(?:\.|$)/i);
-      }
-      for(let index = parameters.length - 1; index >= 0; index -= 1){
-        if(inactivePatterns.some(pattern => pattern.test(parameters[index].key))){
-          classified.push({ path: parameters[index].key, reason: 'inactive-box-mode-state' });
-          parameters.splice(index, 1);
-        }
-      }
-    }
-    const hasActiveReportingElement = selector => Array.from(global.document?.querySelectorAll?.(selector) || [])
-      .some(element => root?.contains?.(element)
-        || (!element.closest?.('[hidden]') && element.getClientRects?.().length > 0));
-    const hasPValueScientificControl = hasActiveReportingElement('[data-parameter-p-value-scientific]');
-    const hasStatsInferenceAlphaControl = hasActiveReportingElement('.stats-inference-controls__input[data-stats-inference-key="alpha"]');
-    const hasStatsInferenceFdrControl = hasActiveReportingElement('.stats-inference-controls__input[data-stats-inference-key="targetFdr"]');
-    for(let index = parameters.length - 1; index >= 0; index -= 1){
-      const key = parameters[index].key;
-      if(key === 'meta.statsReporting.pValueScientific' && !hasPValueScientificControl){
-        classified.push({ path: key, reason: 'inactive-shared-stats-reporting-control' });
-        parameters.splice(index, 1);
-        continue;
-      }
-      if((key === 'meta.statsInference.alpha' && !hasStatsInferenceAlphaControl)
-        || (key === 'meta.statsInference.targetFdr' && !hasStatsInferenceFdrControl)){
-        classified.push({ path: key, reason: 'inactive-shared-stats-inference-control' });
-        parameters.splice(index, 1);
-        continue;
-      }
-      if(/stats-pvalue-format-select/i.test(key)){
-        classified.push({ path: key, reason: 'default-presentation-only-pvalue-control' });
-        parameters.splice(index, 1);
-      }
-    }
-
-    parameters.forEach(parameter => {
-      const mutation = buildAlternative(parameter.path, parameter.before, root);
-      parameter.after = clone(mutation.value);
-      parameter.covered = mutation.covered === true && !equivalent(parameter.before, mutation.value);
-      parameter.mutationSource = mutation.source || null;
-      parameter.uncoveredReason = parameter.covered ? null : (mutation.reason || 'no-valid-alternative');
-      parameter.controlIndex = mutation.controlIndex ?? null;
-      parameter.controlDomKey = mutation.controlDomKey ?? null;
-    });
-    const controlGaps = auditPersistentControlCoverage(root, parameters);
-    return { baseline, storedBaseline, roots, parameters, classified, synthetic, controlGaps };
+    return {
+      baseline,
+      storedBaseline,
+      roots: USER_ROOTS[type] || ['config', 'style', 'notes', 'meta'],
+      parameters: explicit.parameters,
+      classified: explicit.classified,
+      synthetic,
+      controlGaps: [],
+      mutationPlanId: `${type}:explicit-v1`
+    };
   }
 
   function describeError(error){
@@ -2096,7 +1220,11 @@
     const type = String(options.type || '').trim();
     const initialTabId = String(options.tabId || '').trim();
     if(!type || !initialTabId) throw new Error('runPersistenceMatrix requires type and tabId');
-    const discovered = await discover(type, initialTabId, { mutationPlan: options.mutationPlan || null });
+    const mutationPlan = options.mutationPlan;
+    if(!mutationPlan || !Array.isArray(mutationPlan.mutations)){
+      throw new Error(`${type}: explicit mutation plan is required for persistence matrix`);
+    }
+    const discovered = await discover(type, initialTabId, { mutationPlan });
     const requestedPaths = new Set((options.parameterPaths || []).map(String));
     const selectedParameters = requestedPaths.size
       ? discovered.parameters.filter(parameter => requestedPaths.has(parameter.key))
@@ -2182,7 +1310,10 @@
     const initialTabAId = String(options.tabAId || '').trim();
     const initialTabBId = String(options.tabBId || '').trim();
     if(!type || !initialTabAId || !initialTabBId) throw new Error('runSameTypeIsolation requires type, tabAId and tabBId');
-    const mutationPlan = options.mutationPlan || null;
+    const mutationPlan = options.mutationPlan;
+    if(!mutationPlan || !Array.isArray(mutationPlan.mutations)){
+      throw new Error(`${type}: explicit mutation plan is required for same-type isolation`);
+    }
     const discoveredA = await discover(type, initialTabAId, { mutationPlan });
     const discoveredB = await discover(type, initialTabBId, { mutationPlan });
     // The explicit catalog describes independent mutations on one canonical
@@ -2191,9 +1322,8 @@
     // second variant here would make an otherwise valid mutation inactive
     // (for example Line display mode is unavailable in a 3D table). Build
     // both generated parameter tabs from the same reviewed baseline so this
-    // phase isolates one mutation at a time. The legacy discovery path keeps
-    // its historical two-baseline behavior.
-    const baselineB = mutationPlan ? clone(discoveredA.baseline) : discoveredB.baseline;
+    // phase isolates one mutation at a time from the same reviewed baseline.
+    const baselineB = clone(discoveredA.baseline);
     const requestedPaths = new Set((options.parameterPaths || []).map(String));
     const selectedParameters = requestedPaths.size
       ? discoveredA.parameters.filter(parameter => requestedPaths.has(parameter.key))

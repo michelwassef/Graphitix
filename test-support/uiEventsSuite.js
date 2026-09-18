@@ -62,6 +62,17 @@ async function flushAsyncWork(iterations = 25){
   }
 }
 
+async function awaitBoxReady(reason){
+  const box = window.Components?.box;
+  expect(typeof box?.awaitReadyForSnapshot).toBe('function');
+  const result = await box.awaitReadyForSnapshot({
+    reason,
+    timeoutMs: 15000,
+    settleFrames: 1
+  });
+  expect(result?.ok).toBe(true);
+}
+
 function setVennListValue(input, value){
   input.value = value;
   input.dispatchEvent(new Event('input', { bubbles: true }));
@@ -545,7 +556,7 @@ describe('UI events and example loaders', () => {
 
   test('Box Plot: grouped mode uses group + condition header rows and removes manual group list controls', async () => {
     await activateWorkspace('box');
-    await flushAsyncWork(20);
+    await awaitBoxReady('ui-events-box-grouped-start');
 
     const boxComponent = window.Components?.box;
     expect(boxComponent).toBeTruthy();
@@ -557,7 +568,7 @@ describe('UI events and example loaders', () => {
     expect(formatSelect).toBeTruthy();
     formatSelect.value = 'grouped';
     formatSelect.dispatchEvent(new Event('change', { bubbles: true }));
-    await flushAsyncWork(40);
+    await awaitBoxReady('ui-events-box-grouped-format');
     const groupedInitial = hot.getData?.() || [];
     expect(String(groupedInitial?.[0]?.[0] || '')).toMatch(/group|control|^$/i);
     expect(String(groupedInitial?.[0]?.[3] || '')).toMatch(/group|treated|^$/i);
@@ -572,7 +583,7 @@ describe('UI events and example loaders', () => {
     expect(replicatesInput).toBeTruthy();
     replicatesInput.value = '3';
     replicatesInput.dispatchEvent(new Event('change', { bubbles: true }));
-    await flushAsyncWork(40);
+    await awaitBoxReady('ui-events-box-grouped-replicates');
 
     hot.loadData([
       ['Control', '', '', 'Treated', '', ''],
@@ -580,7 +591,7 @@ describe('UI events and example loaders', () => {
       [10, 11, 12, 20, 21, 22],
       [13, 14, 15, 23, 24, 25]
     ]);
-    await flushAsyncWork(60);
+    await awaitBoxReady('ui-events-box-grouped-data');
 
     const matrix = hot.getData?.() || [];
     expect(String(matrix?.[0]?.[0] || '')).toBe('Control');
@@ -594,16 +605,15 @@ describe('UI events and example loaders', () => {
     expect(String(matrix?.[1]?.[4] || '')).toBe('Week 1');
     expect(String(matrix?.[1]?.[5] || '')).toBe('Week 2');
 
-    await flushAsyncWork(40);
     const updateSettingsSpy = jest.spyOn(hot, 'updateSettings');
-    await flushAsyncWork(10);
+    await awaitBoxReady('ui-events-box-grouped-before-edit');
     updateSettingsSpy.mockClear();
     hot.setDataAtCell?.(2, 4, 99);
-    await flushAsyncWork(20);
+    await awaitBoxReady('ui-events-box-grouped-value-edit');
     expect(updateSettingsSpy).not.toHaveBeenCalled();
 
     hot.setDataAtCell?.(1, 4, 'Day 7');
-    await flushAsyncWork(40);
+    await awaitBoxReady('ui-events-box-grouped-condition-edit');
     expect(updateSettingsSpy).not.toHaveBeenCalled();
     updateSettingsSpy.mockRestore();
 
@@ -618,7 +628,7 @@ describe('UI events and example loaders', () => {
     expect(payload?.config?.grouped?.conditions).toEqual(['Baseline', 'Day 7', 'Week 2']);
 
     boxComponent.loadFromPayload(payload);
-    await flushAsyncWork(60);
+    await awaitBoxReady('ui-events-box-grouped-reload');
     const reloaded = hot.getData?.() || [];
     expect(String(reloaded?.[0]?.[0] || '')).toBe('Control');
     expect(String(reloaded?.[0]?.[3] || '')).toBe('Treated');
@@ -626,11 +636,11 @@ describe('UI events and example loaders', () => {
     expect(String(reloaded?.[1]?.[1] || '')).toBe('Day 7');
     expect(String(reloaded?.[1]?.[2] || '')).toBe('Week 2');
     expect(String(reloaded?.[1]?.[4] || '')).toBe('Day 7');
-  }, 20000);
+  }, 30000);
 
   test('Box Plot: grouped replicates show a Prism-style movable legend by default', async () => {
     await activateWorkspace('box');
-    await flushAsyncWork(20);
+    await awaitBoxReady('ui-events-box-legend-start');
 
     const boxComponent = window.Components?.box;
     const state = boxComponent?.__getState?.();
@@ -651,7 +661,7 @@ describe('UI events and example loaders', () => {
     formatSelect.dispatchEvent(new Event('change', { bubbles: true }));
     graphTypeSelect.value = 'bar';
     graphTypeSelect.dispatchEvent(new Event('change', { bubbles: true }));
-    await flushAsyncWork(40);
+    await awaitBoxReady('ui-events-box-legend-format');
     expect(legendToggle.checked).toBe(true);
 
     hot.loadData([
@@ -662,9 +672,9 @@ describe('UI events and example loaders', () => {
       [19, 25, 27, 82, 29, 66],
       [22, 26, 24, 86, 32, 69]
     ]);
-    await flushAsyncWork(80);
+    await awaitBoxReady('ui-events-box-legend-data');
     await boxComponent.draw?.({ reason: 'test-box-legend' });
-    await flushAsyncWork(80);
+    await awaitBoxReady('ui-events-box-legend-draw');
 
     const legend = document.querySelector('#boxPlot svg g[data-box-legend="1"]');
     expect(legend).toBeTruthy();
@@ -686,12 +696,12 @@ describe('UI events and example loaders', () => {
     expect(payload?.config?.showLegend).toBe(true);
     legendToggle.checked = false;
     legendToggle.dispatchEvent(new Event('change', { bubbles: true }));
-    await flushAsyncWork(40);
+    await awaitBoxReady('ui-events-box-legend-hide');
     expect(document.querySelector('#boxPlot svg g[data-box-legend="1"]')).toBeNull();
     payload = boxComponent.getPayload?.();
     expect(payload?.config?.showLegend).toBe(false);
     boxComponent.loadFromPayload(payload);
-    await flushAsyncWork(60);
+    await awaitBoxReady('ui-events-box-legend-reload');
     expect(document.getElementById('boxShowLegend')?.checked).toBe(false);
   }, 20000);
 
@@ -1141,7 +1151,7 @@ describe('UI events and example loaders', () => {
     scatterComponent.loadFromPayload(payload);
     await flushAsyncWork(40);
     expect(document.getElementById('scatterGroupedXReplicates')?.checked).toBe(true);
-  }, 15000);
+  }, 20000);
 
   test('Scatter Plot: Volcano example draws points', async () => {
     await activateWorkspace('scatter');

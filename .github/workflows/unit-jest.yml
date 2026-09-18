@@ -27,7 +27,22 @@ jobs:
         run: npm ci
 
       - name: Run Jest source-coverage projects
-        run: npm run test:lane -- --lane coverage
+        run: npm run test:lane -- --lane coverage --report-file artifacts/test-reports/coverage.json
+
+      - name: Aggregate nightly test trend report
+        if: always()
+        run: node scripts/aggregate-test-trends.cjs --report artifacts/test-reports/coverage.json --coverage coverage/coverage-summary.json --artifact-root coverage --artifact-root artifacts/perf-summaries --output artifacts/test-reports/coverage-trend.json
+
+      - name: Upload coverage lane report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: jest-coverage-report
+          path: |
+            artifacts/test-reports/coverage.json
+            artifacts/test-reports/coverage-trend.json
+          retention-days: 14
+          if-no-files-found: error
 
       - name: Upload Jest coverage
         if: always()
@@ -35,4 +50,5 @@ jobs:
         with:
           name: jest-coverage
           path: coverage
+          retention-days: 14
           if-no-files-found: ignore

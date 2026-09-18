@@ -109,6 +109,155 @@
     return merged;
   };
 
+  namespace.createSessionShapeGuard = function createSessionShapeGuard(options = {}){
+    const fields = Array.isArray(options.fields)
+      ? options.fields.filter(field => field && typeof field.key === 'string' && field.key)
+      : [];
+    const getOwnerKey = typeof options.getOwnerKey === 'function'
+      ? options.getOwnerKey
+      : session => session?.tabId || '';
+    const normalizedBySession = new WeakMap();
+
+    return function shapeSession(session){
+      if(!session || typeof session !== 'object'){
+        return null;
+      }
+      const ownerKey = String(getOwnerKey(session) || '');
+      const previous = normalizedBySession.get(session);
+      const ownerChanged = !previous || previous.ownerKey !== ownerKey;
+      const currentFields = Object.create(null);
+
+      fields.forEach(field => {
+        const read = typeof field.get === 'function'
+          ? () => field.get(session)
+          : () => session[field.key];
+        const current = read();
+        if(ownerChanged || !previous || previous.fields[field.key] !== current){
+          const normalized = typeof field.normalize === 'function'
+            ? field.normalize(current, session)
+            : current;
+          if(typeof field.set === 'function'){
+            field.set(session, normalized);
+          }else{
+            session[field.key] = normalized;
+          }
+        }
+        currentFields[field.key] = read();
+      });
+
+      normalizedBySession.set(session, {
+        ownerKey,
+        fields: currentFields
+      });
+      return session;
+    };
+  };
+
+  const ownerControlHandlerRegistry = new WeakMap();
+
+  namespace.bindOwnerControlHandler = function bindOwnerControlHandler(config = {}){
+    const node = config?.node || null;
+    if(!node || typeof node.addEventListener !== 'function' || typeof config?.handler !== 'function'){
+      return false;
+    }
+    const eventName = String(config.eventName || '').trim();
+    if(!eventName){
+      return false;
+    }
+    const componentKey = normalizeLifecycleTabId(config.componentKey || 'component') || 'component';
+    const key = String(config.key || 'handler');
+    const registryKey = `${componentKey}:${eventName}:${key}`;
+    let nodeHandlers = ownerControlHandlerRegistry.get(node);
+    if(!nodeHandlers){
+      nodeHandlers = new Map();
+      ownerControlHandlerRegistry.set(node, nodeHandlers);
+    }
+    const previous = nodeHandlers.get(registryKey) || null;
+    if(previous){
+      node.removeEventListener(eventName, previous.handler, previous.options);
+      if(typeof config.onUnbind === 'function'){
+        config.onUnbind(previous);
+      }
+    }
+
+    const getReason = typeof config.getReason === 'function'
+      ? config.getReason
+      : context => String(config.reason || `${componentKey}-control-${context.key}`);
+    const wrapped = event => {
+      const target = event?.currentTarget || event?.target || node;
+      const reason = getReason({
+        componentKey,
+        eventName,
+        key,
+        event,
+        target,
+        node
+      });
+      const meta = {
+        componentKey,
+        eventName,
+        key,
+        event,
+        target,
+        node,
+        reason
+      };
+      const invokeHandler = owner => config.handler.call(node, event, owner);
+      if(typeof config.runOwnerCallback === 'function'){
+        return config.runOwnerCallback(event, reason, invokeHandler, meta);
+      }
+      const owner = typeof config.resolveOwner === 'function'
+        ? config.resolveOwner(event, meta)
+        : null;
+      if(typeof config.isOwnerActive === 'function' && config.isOwnerActive(owner, meta) !== true){
+        return undefined;
+      }
+      return invokeHandler(owner);
+    };
+    const record = {
+      node,
+      componentKey,
+      eventName,
+      key,
+      handler: wrapped,
+      options: config.eventOptions
+    };
+    node.addEventListener(eventName, wrapped, config.eventOptions);
+    nodeHandlers.set(registryKey, record);
+    if(typeof config.onBind === 'function'){
+      config.onBind(record);
+    }
+    return true;
+  };
+
+  namespace.hasOwnerControlHandlers = function hasOwnerControlHandlers(node, componentKey = ''){
+    const nodeHandlers = ownerControlHandlerRegistry.get(node) || null;
+    if(!nodeHandlers){
+      return false;
+    }
+    const prefix = `${normalizeLifecycleTabId(componentKey || 'component') || 'component'}:`;
+    for(const key of nodeHandlers.keys()){
+      if(key.startsWith(prefix)){
+        return true;
+      }
+    }
+    return false;
+  };
+
+  namespace.createOwnerControlBinder = function createOwnerControlBinder(options = {}){
+    const defaults = { ...(options || {}) };
+    return function ownerControlBinder(node, eventName, key, handler, eventOptions){
+      return namespace.bindOwnerControlHandler({
+        ...defaults,
+        node,
+        eventName,
+        key,
+        handler,
+        eventOptions: eventOptions === undefined ? defaults.eventOptions : eventOptions
+      });
+    };
+  };
+
   function isPlainDrawObject(value){
     if(!value || typeof value !== 'object'){
       return false;
@@ -217,6 +366,10 @@
     }
     const reason = String(source.reason || owner?.reason || out.reason || 'component-draw').trim();
     out.reason = reason || 'component-draw';
+    const fallbackImpact = source.structural === true
+      ? 'structural'
+      : (source.viewOnly === true ? 'layout' : 'analysis');
+    out.renderImpact = namespace.normalizeRenderImpact(source.renderImpact, fallbackImpact);
     return out;
   };
 
@@ -1092,6 +1245,7 @@
     return {
       ...source,
       reason: String(reason || source.reason || 'structural-view-change'),
+      renderImpact: 'structural',
       structural: true,
       forceOverlay: true,
       viewOnly: source.viewOnly === true,
@@ -1304,19 +1458,93 @@
     return false;
   }
 
-  namespace.detachCacheableChildren = function detachCacheableChildren(node){
+  function createCanvasBitmapImage(sourceCanvas, cloneCanvas){
+    if(!sourceCanvas || !cloneCanvas || typeof sourceCanvas.toDataURL !== 'function'){
+      return null;
+    }
+    let dataUrl = '';
+    try{
+      dataUrl = String(sourceCanvas.toDataURL('image/png') || '').trim();
+    }catch(_err){
+      return null;
+    }
+    if(!dataUrl){
+      return null;
+    }
+    const doc = cloneCanvas.ownerDocument || global.document;
+    if(!doc || typeof doc.createElementNS !== 'function'){
+      return null;
+    }
+    const image = doc.createElementNS('http://www.w3.org/1999/xhtml', 'img');
+    for(const attribute of Array.from(cloneCanvas.attributes || [])){
+      if(attribute.name === 'data-graphitix-render-cache-canvas-restored'
+        || attribute.name === 'data-graphitix-render-cache-canvas-pending-hydration'){
+        continue;
+      }
+      try{
+        image.setAttributeNS(attribute.namespaceURI || null, attribute.name, attribute.value);
+      }catch(_err){
+        image.setAttribute(attribute.name, attribute.value);
+      }
+    }
+    image.setAttribute('src', dataUrl);
+    image.setAttribute('data-graphitix-render-cache-canvas-bitmap', 'true');
+    image.style.pointerEvents = cloneCanvas.style?.pointerEvents || 'none';
+    return image;
+  }
+
+  function replaceCanvasCloneWithBitmapImage(sourceCanvas, cloneCanvas){
+    const image = createCanvasBitmapImage(sourceCanvas, cloneCanvas);
+    if(!image || !cloneCanvas?.parentNode){
+      return false;
+    }
+    cloneCanvas.parentNode.replaceChild(image, cloneCanvas);
+    return true;
+  }
+
+  function copyCanvasBitmapsIntoSnapshot(sourceNode, cloneNode){
+    const sourceCanvases = Array.from(sourceNode?.querySelectorAll?.('canvas') || []);
+    const cloneCanvases = Array.from(cloneNode?.querySelectorAll?.('canvas') || []);
+    if(sourceCanvases.length !== cloneCanvases.length){
+      return false;
+    }
+    for(let index = 0; index < sourceCanvases.length; index += 1){
+      if(!replaceCanvasCloneWithBitmapImage(sourceCanvases[index], cloneCanvases[index])){
+        return false;
+      }
+    }
+    return true;
+  }
+
+  namespace.snapshotCacheableChildren = function snapshotCacheableChildren(node, options = {}){
     if(!node){ return null; }
     const doc = node.ownerDocument || global.document;
     const fragment = doc?.createDocumentFragment?.() || null;
     if(!fragment){ return null; }
     let count = 0;
-    Array.from(node.childNodes || []).forEach(child => {
+    for(const child of Array.from(node.childNodes || [])){
       if(child?.nodeType === 1 && child.getAttribute?.('data-graph-frame-publication') === 'staged'){
-        return;
+        continue;
       }
-      fragment.appendChild(child);
+      const clone = typeof child?.cloneNode === 'function' ? child.cloneNode(true) : null;
+      if(!clone){
+        return null;
+      }
+      let snapshotNode = clone;
+      if(options.copyCanvasBitmaps === true){
+        const childTagName = String(child.tagName || '').toLowerCase();
+        if(childTagName === 'canvas'){
+          snapshotNode = createCanvasBitmapImage(child, clone);
+          if(!snapshotNode){
+            return null;
+          }
+        }else if(!copyCanvasBitmapsIntoSnapshot(child, clone)){
+          return null;
+        }
+      }
+      fragment.appendChild(snapshotNode);
       count += 1;
-    });
+    }
     return { fragment, count };
   };
 
@@ -3597,6 +3825,22 @@
       cleanupRegistered.add(id);
     }
 
+    const mergeOptions = typeof options.mergeOptions === 'function'
+      ? options.mergeOptions
+      : namespace.mergeDrawOptions;
+
+    function mergePendingArgs(previousArgs, nextArgs){
+      const previousFirst = previousArgs?.[0];
+      const nextFirst = nextArgs?.[0];
+      if(typeof mergeOptions !== 'function'
+        || !isPlainDrawObject(previousFirst)
+        || !isPlainDrawObject(nextFirst)){
+        return nextArgs;
+      }
+      const mergedFirst = mergeOptions(previousFirst, nextFirst);
+      return [mergedFirst || nextFirst, ...nextArgs.slice(1)];
+    }
+
     const debounced = function tabScopedFrameDebounced(...args){
       const firstArg = args[0] && typeof args[0] === 'object' ? args[0] : {};
       const meta = {
@@ -3611,7 +3855,9 @@
       }
       ensureCleanup(tabId);
       const existing = pendingByTab.get(tabId) || { scheduled: false, args: null, context: null };
-      existing.args = args;
+      existing.args = existing.args
+        ? mergePendingArgs(existing.args, args)
+        : args;
       existing.context = this;
       pendingByTab.set(tabId, existing);
       if(existing.scheduled){

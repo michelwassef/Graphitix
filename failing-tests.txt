@@ -169,25 +169,25 @@ S17 [Jest] __tests__/toolbar.numericWheel.sharedControls.test.js
     Classification: STALE TEST-HARNESS frame-timing assumption.
     Evidence/fix: same S14 fake-RAF mismatch. The owner/undo expectations remain unchanged.
 
-S18 [Jest] __tests__/axisControls.init.test.js
+S18 [Jest] __tests__/dom/axisControls.init.test.js
     Test: hover-wheel treats tick interval and tick length bursts as one undoable edit each
     Classification: STALE TEST-HARNESS frame-timing assumption.
     Evidence/fix: the expected live value is sampled immediately after `advanceTimersByTime(0)`, before Jest's
     substituted frame clock runs. Preserve the deterministic setup RAF; retain the exact live and undo assertions.
 
-S19 [Jest] __tests__/axisControls.init.test.js
+S19 [Jest] __tests__/dom/axisControls.init.test.js
     Test: wheel thickness uses the declared quarter-pixel step and records one edit for the burst
     Classification: STALE TEST-HARNESS frame-timing assumption.
     Evidence/fix: same S14 mismatch; retain the 0.25 px step and single-undo contract.
 
-S20 [Jest] __tests__/axisControls.init.test.js
+S20 [Jest] __tests__/dom/axisControls.init.test.js
     Test: axis length wheel gesture coalesces rapid wheel length changes and performs one final authoritative commit
     Classification: STALE TEST-HARNESS frame-timing assumption.
     Evidence: no `axis-length-wheel-live` request had fired when the test sampled after zero milliseconds. That is a
     missing fake-RAF flush, distinct from the real browser defect where commit/refinement can occur during a live
     burst. The assertion remains unchanged after correcting the harness.
 
-S21 [Jest] __tests__/axisControls.init.test.js — RECLASSIFIED / NOT COUNTED AS STALE
+S21 [Jest] __tests__/dom/axisControls.init.test.js — RECLASSIFIED / NOT COUNTED AS STALE
     Test: fallback refinement is latest-wins and stale scheduled passes cannot overwrite a newer request
     Classification: MIXED. A stale fixture assumption masked a real shared fallback-axis defect.
     Evidence: the original zero-live-request failure was caused by the fixture omitting `__sharedResizableBoxApi`, so the
@@ -344,9 +344,9 @@ R03 — Heatmap value-scale state is not propagated into current stats/view-only
 Severity: P2 / Medium
 Root-cause confidence: High (serialization/view-state assertions succeed far enough to expose stale statistics).
 Tests:
-  J04 __tests__/heatmap.stats.test.js
+  J04 __tests__/integration/heatmap.stats.test.js
       value scale override and fixed legend height serialize and affect the rendered legend
-  J05 __tests__/heatmap.stats.test.js
+  J05 __tests__/integration/heatmap.stats.test.js
       value scale changes affect cached view-only redraws
 Finding:
   After switching to Data-values and applying a custom numeric scale, the statistics projection can remain on the old
@@ -362,13 +362,13 @@ Tests:
       auxiliary frame reserves preserve canonical graph geometry
   J21 __tests__/box.frameCommit.contract.test.js
       auxiliary reserves resize the physical frame through one transaction
-  PW01 e2e/box.flip-axes.transpose-manual-resize.spec.js
+  PW01 e2e/box/box.flip-axes.transpose-manual-resize.spec.js
       repeated flips preserve exact drawable-axis transposition after manual resizing
-  PW02 e2e/box.flip-axes.transpose-manual-resize.spec.js
+  PW02 e2e/box/box.flip-axes.transpose-manual-resize.spec.js
       flipped significance adds horizontal reserve and grows svg container width without plot distortion
   PW03 e2e/box.horizontal-resize-axis.spec.js
       box manual reopen preserves the first horizontal-resize y-axis anchor
-  PW04 e2e/box.significance-layout.spec.js
+  PW04 e2e/box/box.significance-layout.spec.js
       box width resize keeps the graph clear of the bottom tray
 Finding:
   The old reserve helper disappeared, but this is not merely source drift: current reserve/frame code mutates physical
@@ -389,7 +389,7 @@ Status: wheel-burst path VERIFIED PASS on Windows Chromium; manual fallback-offs
 Tests:
   PW32/PW33 e2e/toolbar.numeric-wheel-gesture.spec.js
       X/Y rapid wheel burst lifecycle
-  J21 __tests__/axisControls.init.test.js
+  J21 __tests__/dom/axisControls.init.test.js
       fallback refinement is latest-wins and stale scheduled passes cannot overwrite a newer request
   e2e/toolbar.numeric-wheel-gesture.spec.js
       X/Y manual length edits preserve the existing non-axis frame offset
@@ -578,7 +578,7 @@ not stale-assumption tests and are not counted among the persistent real-code fa
 insufficient to assign a persistent root cause; keep them as concurrency/timing/performance watch items and re-run
 with the next full suite.
 
-  RT01 [Jest] __tests__/heatmap.stats.test.js
+  RT01 [Jest] __tests__/integration/heatmap.stats.test.js
        graph title stays above long vertical column labels
   RT02 [PW] e2e/box.duplicate-computed-stats.recalc.spec.js
        box duplicate tab with precomputed stats can recalculate without annotation crash

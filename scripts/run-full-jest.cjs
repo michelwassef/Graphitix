@@ -3,6 +3,7 @@ const path = require('path');
 const {
   runReport: runProjectReport
 } = require('./run-jest-shards.cjs');
+const { assertReportSchema } = require('../test-support/testReportSchema.js');
 
 const ROOT_DIR = path.resolve(__dirname, '..');
 const JEST_PROJECTS = Object.freeze(require('../jest.config.js').projects.map(project => project.displayName));
@@ -77,6 +78,7 @@ function run(options) {
     }));
   }
   const report = buildReport(options, projectReports, startedAt);
+  assertReportSchema(report, 'bounded Jest report');
   if (options.reportFile) {
     const reportPath = path.resolve(ROOT_DIR, options.reportFile);
     fs.mkdirSync(path.dirname(reportPath), { recursive: true });

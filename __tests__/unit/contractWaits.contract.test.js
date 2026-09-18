@@ -6,6 +6,12 @@ const {
   waitForArchiveCheckpoint,
   waitForRenderCacheOutcome
 } = require('../../e2e/helpers/contractWaits.js');
+const {
+  summarizeArchiveMetadata
+} = require('../../e2e/helpers/archiveDriver.js');
+const {
+  summarizeLifecycleEvents
+} = require('../../e2e/helpers/diagnostics.js');
 
 describe('render-cache contract waits', () => {
   test('selects only the requested owner, phase, signatures, and outcome', () => {
@@ -69,5 +75,45 @@ describe('render-cache contract waits', () => {
       phase: 'archive-checkpoint',
       outcomes: ['stored']
     }));
+  });
+
+  test('summarizes bounded owner-scoped lifecycle evidence', () => {
+    expect(summarizeLifecycleEvents([
+      { componentKey: 'box', tabId: 'tab-a', action: 'activate', details: { secret: true } },
+      { componentKey: 'box', tabId: 'tab-b', action: 'activate' },
+      { componentKey: 'box', tabId: 'tab-a', action: 'publish', phase: 'graph' }
+    ], { componentType: 'box', tabId: 'tab-a', limit: 1 })).toEqual({
+      schemaVersion: 1,
+      componentType: 'box',
+      tabId: 'tab-a',
+      eventCount: 2,
+      events: [{ componentKey: 'box', tabId: 'tab-a', action: 'publish', reason: null, phase: 'graph' }],
+      lastEvent: { componentKey: 'box', tabId: 'tab-a', action: 'publish', reason: null, phase: 'graph' }
+    });
+  });
+
+  test('summarizes archive metadata without payload contents', () => {
+    const metadata = summarizeArchiveMetadata({
+      source: 'graph-archive',
+      manifest: {
+        format: 'graphitix', version: 3, scope: 'workspace', createdAt: 'now',
+        tabs: [{ type: 'box', title: 'A', payloadMode: 'lite', runtimeTabId: 'archive-a' }]
+      },
+      session: {
+        activeIndex: 0,
+        tabs: [{ title: 'A', type: 'box', payload: { secret: true }, layout: {}, uiState: {} }]
+      }
+    });
+    expect(metadata).toEqual(expect.objectContaining({
+      schemaVersion: 1,
+      source: 'graph-archive',
+      format: 'graphitix',
+      archiveVersion: 3,
+      tabCount: 1
+    }));
+    expect(metadata.tabs[0]).toEqual(expect.objectContaining({
+      type: 'box', payloadMode: 'lite', runtimeTabIdPresent: true, hasLayout: true, hasUiState: true
+    }));
+    expect(JSON.stringify(metadata)).not.toContain('secret');
   });
 });

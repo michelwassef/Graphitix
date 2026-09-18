@@ -1,8 +1,13 @@
 'use strict';
 
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 const {
   parseArgs,
-  partition
+  partition,
+  childEnvironment,
+  writeReport
 } = require('../../scripts/run-jest-shards.cjs');
 
 describe('bounded Jest shard runner', () => {
@@ -49,5 +54,31 @@ describe('bounded Jest shard runner', () => {
     expect(groups).toEqual([['a', 'b'], ['c', 'd'], ['e']]);
     expect(groups.flat()).toEqual(files);
     expect(Math.max(...groups.map(group => group.length))).toBeLessThanOrEqual(2);
+  });
+
+  test('enables teardown enforcement in integration child processes', () => {
+    expect(childEnvironment('integration', { NODE_ENV: 'test' })).toMatchObject({
+      NODE_ENV: 'test',
+      TEST_ENFORCE_INTEGRATION_LEAKS: '1'
+    });
+    expect(childEnvironment('unit-node', { NODE_ENV: 'test' })).toEqual({ NODE_ENV: 'test' });
+  });
+
+  test('writes a readable progress report to the requested path', () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'graphitix-jest-shards-'));
+    const reportPath = path.join(directory, 'progress.json');
+    const report = {
+      state: 'running',
+      totalGroups: 4,
+      completedGroups: 2,
+      failedGroups: []
+    };
+
+    try {
+      writeReport(reportPath, report);
+      expect(JSON.parse(fs.readFileSync(reportPath, 'utf8'))).toEqual(report);
+    } finally {
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
   });
 });

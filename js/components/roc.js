@@ -3,6 +3,10 @@
 
   const NS = 'http://www.w3.org/2000/svg';
   const Shared = global.Shared = global.Shared || {};
+  if((typeof Shared.componentLifecycle?.createSessionShapeGuard !== 'function'
+    || typeof Shared.componentLifecycle?.bindOwnerControlHandler !== 'function') && typeof require === 'function'){
+    require('../shared/componentLifecycle.js');
+  }
   const Components = global.Components = global.Components || {};
   const roc = Components.roc = Components.roc || {};
 
@@ -1064,7 +1068,6 @@
   function getRocAdvisorState(session = null){
     const shaped = ensureRocSessionOwnershipShape(session || getActiveRocSessionForState());
     if(shaped){
-      shaped.advisor = createDefaultRocAdvisorState(shaped.advisor || {});
       return shaped.advisor;
     }
     return rocAdvisorState;
@@ -1234,6 +1237,41 @@
     };
   }
 
+  const rocSessionShapeGuard = Shared.componentLifecycle.createSessionShapeGuard({
+    getOwnerKey: session => session.tabId,
+    fields: [
+      {
+        key: 'state',
+        normalize: value => createDefaultRocDurableState(value || {})
+      },
+      {
+        key: 'results',
+        normalize: (value, session) => createDefaultRocResultsState(value || {
+          statsPanelModel: session.state?.statsPanelModel,
+          compareSelection: session.state?.compareSelection,
+          diffMethod: session.state?.diffMethod,
+          compareResult: session.state?.compareResult
+        })
+      },
+      {
+        key: 'drawRuntime',
+        get: session => session.timers?.drawRuntime,
+        set: (session, value) => { session.timers.drawRuntime = value; },
+        normalize: (value, session) => createDefaultRocDrawRuntime(value || {
+          drawGeneration: session.timers?.drawGeneration
+        })
+      },
+      {
+        key: 'notes',
+        normalize: value => createDefaultRocNotesState(value || {})
+      },
+      {
+        key: 'advisor',
+        normalize: value => createDefaultRocAdvisorState(value || {})
+      }
+    ]
+  });
+
   function ensureRocSessionOwnershipShape(session){
     if(!session || typeof session !== 'object'){
       return null;
@@ -1241,13 +1279,6 @@
     session.componentKey = 'roc';
     session.tabId = String(session.tabId || '').trim();
     session.root = normalizeRocRefValue(session.root) || null;
-    session.state = createDefaultRocDurableState(session.state || {});
-    session.results = createDefaultRocResultsState(session.results || {
-      statsPanelModel: session.state.statsPanelModel,
-      compareSelection: session.state.compareSelection,
-      diffMethod: session.state.diffMethod,
-      compareResult: session.state.compareResult
-    });
     session.refs = createRocRefsSnapshot(session.refs && typeof session.refs === 'object' ? session.refs : createDefaultRocRefs(session.root || null));
     session.refs.root = normalizeRocRefValue(session.refs.root) || session.root || null;
     session.cache = session.cache && typeof session.cache === 'object' ? session.cache : {};
@@ -1258,11 +1289,13 @@
     session.timers = session.timers && typeof session.timers === 'object' ? session.timers : {};
     if(!Object.prototype.hasOwnProperty.call(session.timers, 'scheduleDraw')){ session.timers.scheduleDraw = null; }
     if(!Object.prototype.hasOwnProperty.call(session.timers, 'framePublication')){ session.timers.framePublication = null; }
-    session.timers.drawRuntime = createDefaultRocDrawRuntime(
-      session.timers.drawRuntime || {
+    if(!session.timers.drawRuntime
+      && Object.prototype.hasOwnProperty.call(session.timers, 'drawGeneration')){
+      session.timers.drawRuntime = createDefaultRocDrawRuntime({
         drawGeneration: session.timers.drawGeneration
-      }
-    );
+      });
+    }
+    if(!Object.prototype.hasOwnProperty.call(session.timers, 'drawRuntime')){ session.timers.drawRuntime = null; }
     delete session.timers.pendingDrawOptions;
     delete session.timers.drawGeneration;
     session.workers = session.workers instanceof Map ? session.workers : new Map();
@@ -1272,8 +1305,7 @@
     if(!Object.prototype.hasOwnProperty.call(session.managers, 'dataViews')){ session.managers.dataViews = null; }
     if(!Object.prototype.hasOwnProperty.call(session.managers, 'layout')){ session.managers.layout = null; }
     if(!Object.prototype.hasOwnProperty.call(session.managers, 'fileHandle')){ session.managers.fileHandle = null; }
-    session.notes = createDefaultRocNotesState(session.notes || {});
-    session.advisor = createDefaultRocAdvisorState(session.advisor || {});
+    rocSessionShapeGuard(session);
     session.updatedAt = Number.isFinite(Number(session.updatedAt)) ? Number(session.updatedAt) : Date.now();
     return session;
   }
@@ -4353,25 +4385,11 @@
     console.debug('Debug: ensureLabelColors sync complete', { count: Object.keys(state.labelColors).length });
   }
 
-  function bindRocControlHandler(node, eventName, key, handler){
-    if(!node || typeof node.addEventListener !== 'function'){
-      return;
-    }
-    const registryKey = `${eventName}:${key}`;
-    if(!node.__rocControlHandlers){
-      Object.defineProperty(node, '__rocControlHandlers', {
-        value: Object.create(null),
-        configurable: true
-      });
-    }
-    const previous = node.__rocControlHandlers[registryKey];
-    if(previous){
-      node.removeEventListener(eventName, previous);
-    }
-    const wrapped = event => runRocControlOwner(event, key || registryKey, session => handler(event, session));
-    node.__rocControlHandlers[registryKey] = wrapped;
-    node.addEventListener(eventName, wrapped);
-  }
+  const bindRocControlHandler = Shared.componentLifecycle.createOwnerControlBinder({
+    componentKey: 'roc',
+    resolveOwner: (event, meta) => getRocSessionForEvent(event, { reason: meta?.reason }, { create: true }),
+    isOwnerActive: session => !session?.tabId || isRocSessionActive(session)
+  });
 
   function initExampleAndImport(){
     const loadExampleData = event => {
@@ -6209,7 +6227,7 @@
       return list;
     };
     let tickCount = chartStyle.estimateTickCount(Math.min(baseWidth, height), { axis: graphType, fallback: 6, min: 3, max: 11 });
-    const formatTick = value => chartStyle.formatScientific(value,{maxDecimals:2});
+    const formatTick = value => chartStyle.formatAxisValue(value,{ notation: 'auto', maxDecimals: 2 });
     const rocFontStyles = exportFontStyles('roc', { tabId: drawTabId });
     const xTickMeasureFont = (chartStyle && typeof chartStyle.resolveScopedLabelMeasureFont === 'function')
       ? chartStyle.resolveScopedLabelMeasureFont({ styles: rocFontStyles, role: 'xTick', fallbackPx: fontSize }).fontSpec
@@ -8294,10 +8312,6 @@
     }
   };
 
-  function detachChildren(node){
-    return Shared.componentLifecycle?.detachCacheableChildren?.(node) || null;
-  }
-
   function restoreChildren(node, payload){
     if(!node || !payload || !payload.fragment){ return false; }
     const count = Number(payload.count);
@@ -8510,9 +8524,8 @@
       }
       return null;
     }
-    const plotCache = detachChildren(plot);
+    const plotCache = Shared.componentLifecycle?.snapshotCacheableChildren?.(plot) || null;
     if(!rocFragmentPayloadHasGraph(plotCache)){
-      restoreChildren(plot, plotCache);
       if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
         console.debug('Debug: roc render cache capture skipped', {
           reason: 'empty-graph-fragment',
@@ -8531,7 +8544,9 @@
     }
     // Cache only the published graph. Statistics are durable session state and are
     // rebuilt on restore; serializing their DOM would preserve dead event handlers.
-    return { plot: plotCache, graphOnly: true, __graphitixRenderCache: cacheMeta };
+    const cache = { plot: plotCache, graphOnly: true, __graphitixRenderCache: cacheMeta };
+    Object.defineProperty(cache, '__graphitixLiveDomPreserved', { value: true });
+    return cache;
   };
 
   roc.canRestoreRenderCache = function canRestoreRenderCache(cache, meta = {}){

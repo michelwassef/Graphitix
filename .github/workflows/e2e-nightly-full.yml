@@ -33,7 +33,22 @@ jobs:
       - name: Run full browser lane
         run: npm run test:lane -- --lane full-chromium --report-file artifacts/test-reports/full-chromium.json
 
-      - name: Upload Playwright artifacts
+      - name: Aggregate nightly test trend report
+        if: always()
+        run: node scripts/aggregate-test-trends.cjs --report artifacts/test-reports/full-chromium.json --artifact-root test-results --artifact-root playwright-report --artifact-root artifacts/perf-summaries --output artifacts/test-reports/full-chromium-trend.json
+
+      - name: Upload required lane report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-report-full-chromium
+          path: |
+            artifacts/test-reports/full-chromium.json
+            artifacts/test-reports/full-chromium-trend.json
+          retention-days: 14
+          if-no-files-found: error
+
+      - name: Upload optional Playwright diagnostics
         if: always()
         uses: actions/upload-artifact@v7
         with:
@@ -42,5 +57,5 @@ jobs:
             playwright-report
             test-results
             artifacts/perf-summaries
-            artifacts/test-reports
           if-no-files-found: ignore
+          retention-days: 14

@@ -1,0 +1,223 @@
+const { test, expect } = require('@playwright/test');
+const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
+const {
+  COMPONENT_MATRIX,
+  openComponentFromWelcome,
+  clickExampleButtonIfPresent
+} = require('../helpers/workspaceDriver');
+const { registerIssueCollectors } = require('../helpers/diagnostics');
+const { waitForComponentOwnerReady } = require('../helpers/contractWaits');
+
+async function getWorkspaceTabIds(page) {
+  return page.evaluate(() =>
+    Array.from(document.querySelectorAll('#workspaceTabsList .workspace-tab[data-tab-id]'))
+      .map(tab => String(tab.getAttribute('data-tab-id') || '').trim())
+      .filter(id => id)
+  );
+}
+
+async function openComponentTab(page, component, { first = false } = {}) {
+  await openComponentFromWelcome(page, component, { first });
+}
+
+async function activateTabById(page, tabId, component = null) {
+  const tab = page.locator(`#workspaceTabsList .workspace-tab[data-tab-id="${tabId}"]`).first();
+  await expect(tab).toBeVisible();
+  await tab.click({ force: true });
+  await page.waitForFunction(id => window.Main?.session?.workspaceState?.activeTabId === id, tabId, { timeout: 20_000 });
+  if (component) {
+    await waitForComponentOwnerReady(page, component, {
+      requireMountedRoot: true,
+      requireIdle: true,
+      timeout: 30_000
+    });
+  }
+}
+
+async function activateSelectionTab(page) {
+  const selectionTabId = await page.evaluate(async () => {
+    const tabs = window.Main?.tabs;
+    if (tabs && typeof tabs.handleAddTabClick === 'function') {
+      const maybe = tabs.handleAddTabClick();
+      if (maybe && typeof maybe.then === 'function') await maybe;
+    }
+    return window.Main?.session?.workspaceState?.activeTabId || null;
+  });
+  if (selectionTabId) {
+    await activateTabById(page, selectionTabId);
+  }
+  await expect(page.locator('#welcomeScreen')).toBeVisible({ timeout: 20_000 });
+}
+
+async function forcePreviewCaptureForActiveTab(page) {
+  return page.evaluate(async () => {
+    const state = window.Main?.session?.workspaceState;
+    const tab = state?.tabs?.find(item => item?.id === state?.activeTabId);
+    const config = tab?.type ? window.Main?.components?.registry?.[tab.type] : null;
+    if (!tab || !config || typeof window.Main?.previews?.updateTabPreviewFromWorkspace !== 'function') {
+      return { ok: false };
+    }
+    window.Main.previews.updateTabPreviewFromWorkspace(tab, config, {
+      forceCapture: true,
+      reason: 'e2e-same-type-dual-preview'
+    });
+    await window.Main.previews.awaitPendingCaptures?.([tab.id]);
+    const componentState = window.Components?.[tab.type]?.__getState?.() || null;
+    const stateHot = componentState?.hot || componentState?.ui?.hot || null;
+    return {
+      ok: true,
+      tabId: tab.id,
+      hasPreview: !!tab.previewMarkup,
+      signature: tab.previewSignature || null,
+      payloadRows: Array.isArray(tab.payload?.data) ? tab.payload.data.length : 0,
+      hotRows: config.getHot?.()?.getData?.()?.length || 0,
+      stateHotRows: stateHot?.getData?.()?.length || 0,
+      stateHotTabId: stateHot?.__workspaceTabId || stateHot?.__surfaceTabId || null,
+      boundTabId: window.Components?.[tab.type]?.__boundTabId || null,
+      rootTabId: componentState?.root?.closest?.('[data-workspace-tab-id]')?.dataset?.workspaceTabId || null,
+      drawPending: componentState?.tabContext?.drawPending ?? componentState?.drawPending ?? null,
+      hasScheduler: typeof componentState?.scheduleDraw === 'function',
+      message: componentState?.messageEl?.textContent || '',
+      lifecycle: (window.Shared?.componentLifecycle?.getLifecycleEvents?.() || [])
+        .filter(event => event?.componentKey === tab.type)
+        .slice(-8)
+        .map(event => `${event.action}:${event.reason}`),
+      svgChildren: config.getPreviewSvg?.(tab)?.children?.length || config.getThumbnailSvg?.(tab)?.children?.length || 0
+    };
+  });
+}
+
+async function ensurePreviewForActiveTab(page) {
+  let last = { ok: false, hasPreview: false, tabId: null, signature: null };
+  await expect.poll(async () => {
+    last = await forcePreviewCaptureForActiveTab(page);
+    if (last.ok && last.hasPreview) {
+      await page.waitForFunction((tabId) => {
+        const state = window.Main?.session?.workspaceState;
+        const tab = state?.tabs?.find(item => item?.id === tabId);
+        return !!(tab?.previewMarkup && tab?.previewMeta && tab.previewMeta.updatedAt);
+      }, last.tabId, { timeout: 5000 });
+    }
+    return last.hasPreview;
+  }, { timeout: 30_000, intervals: [100, 250, 500] }).toBe(true);
+  return last;
+}
+
+async function hoverAndAssertPreview(page, tabId) {
+  const tabButton = page.locator(`#workspaceTabsList .workspace-tab[data-tab-id="${tabId}"]`).first();
+  await expect(tabButton).toBeVisible();
+  await tabButton.scrollIntoViewIfNeeded();
+  await tabButton.hover();
+  await page.evaluate((targetId) => {
+    const button = document.querySelector(`#workspaceTabsList .workspace-tab[data-tab-id="${targetId}"]`);
+    const tab = window.Main?.session?.workspaceState?.tabs?.find(item => item?.id === targetId) || null;
+    if (!button || !tab || typeof window.Main?.previews?.handleTabPreviewEnter !== 'function') {
+      return false;
+    }
+    window.Main.previews.handleTabPreviewEnter({ currentTarget: button, target: button }, tab);
+    return true;
+  }, tabId);
+  await page.waitForFunction((targetId) => {
+    const tooltip = document.querySelector('.workspace-tab__preview-tooltip');
+    const hasRenderableContent = !!tooltip?.querySelector?.('svg')
+      || String(tooltip?.innerHTML || '').trim().length > 0;
+    return !!tooltip
+      && tooltip.dataset.tabId === targetId
+      && tooltip.style.display !== 'none'
+      && hasRenderableContent;
+  }, tabId, { timeout: 30_000 });
+  const hoverMeta = await page.evaluate((targetId) => {
+    const tab = window.Main?.session?.workspaceState?.tabs?.find(item => item?.id === targetId) || null;
+    const tooltip = document.querySelector('.workspace-tab__preview-tooltip');
+    const svg = tooltip?.querySelector?.('svg') || null;
+    return {
+      tabId: targetId,
+      tabHasPreview: !!tab?.previewMarkup,
+      previewIconMarkup: String(tab?.previewMarkup || '').includes('resizer-options-icon'),
+      tooltipIcon: !!svg?.classList?.contains('resizer-options-icon'),
+      tooltipLen: String(tooltip?.innerHTML || '').length
+    };
+  }, tabId);
+  expect(hoverMeta.previewIconMarkup, `${tabId} preview markup should not be a resizer icon`).toBe(false);
+  expect(hoverMeta.tooltipIcon, `${tabId} tooltip should not render resizer icon`).toBe(false);
+}
+
+const COMPONENTS_WITH_DUAL_PREVIEW_COVERAGE = COMPONENT_MATRIX.slice();
+
+for (const component of COMPONENTS_WITH_DUAL_PREVIEW_COVERAGE) {
+  test(`inactive preview works for both same-type tabs: ${component.type}`, async ({ page }, testInfo) => {
+    test.setTimeout(180_000);
+    const issues = registerIssueCollectors(page);
+    await installLocalCdnOverrides(page);
+
+    await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
+    await expect(page.locator('#welcomeScreen')).toBeVisible();
+
+    const beforeFirst = new Set(await getWorkspaceTabIds(page));
+    await openComponentTab(page, component, { first: true });
+    expect(await clickExampleButtonIfPresent(page, component.exampleButtonId)).toBe(true);
+    await waitForComponentOwnerReady(page, component, {
+      requireMountedRoot: true,
+      requireIdle: true,
+      timeout: 30_000
+    });
+    const afterFirst = await getWorkspaceTabIds(page);
+    const firstId = afterFirst.find(id => !beforeFirst.has(id) && id !== 'welcome');
+    expect(firstId).toBeTruthy();
+
+    const beforeSecond = new Set(afterFirst);
+    await openComponentTab(page, component, { first: false });
+    expect(await clickExampleButtonIfPresent(page, component.exampleButtonId)).toBe(true);
+    await waitForComponentOwnerReady(page, component, {
+      requireMountedRoot: true,
+      requireIdle: true,
+      timeout: 30_000
+    });
+    const afterSecond = await getWorkspaceTabIds(page);
+    const secondId = afterSecond.find(id => !beforeSecond.has(id) && id !== 'welcome');
+    expect(secondId).toBeTruthy();
+    expect(secondId).not.toBe(firstId);
+
+    await activateTabById(page, secondId, component);
+    const secondCapture = await ensurePreviewForActiveTab(page);
+    expect(secondCapture.ok).toBe(true);
+    expect(secondCapture.tabId).toBe(secondId);
+    expect(secondCapture.hasPreview, JSON.stringify(secondCapture)).toBe(true);
+
+    await activateTabById(page, firstId, component);
+    const firstCapture = await ensurePreviewForActiveTab(page);
+    expect(firstCapture.ok).toBe(true);
+    expect(firstCapture.tabId).toBe(firstId);
+    expect(firstCapture.hasPreview).toBe(true);
+
+    await activateSelectionTab(page);
+
+    await hoverAndAssertPreview(page, firstId);
+    await page.evaluate(() => {
+      if (typeof window.Main?.previews?.handleTabPreviewLeave === 'function') {
+        window.Main.previews.handleTabPreviewLeave('e2e-switch-target');
+      }
+    });
+    await page.waitForFunction(() => {
+      const tooltip = document.querySelector('.workspace-tab__preview-tooltip');
+      return !tooltip || tooltip.style.display === 'none' || !tooltip.dataset.tabId;
+    }, null, { timeout: 5_000, polling: 'raf' });
+    await hoverAndAssertPreview(page, secondId);
+
+    await testInfo.attach(`${component.type}-dual-preview.json`, {
+      body: Buffer.from(JSON.stringify({
+        firstId,
+        secondId,
+        firstCapture,
+        secondCapture
+      }, null, 2), 'utf8'),
+      contentType: 'application/json'
+    });
+
+    const ignoredVennAbort = issue => component.type === 'venn'
+      && issue?.kind === 'requestfailed'
+      && /mygene\.info/i.test(String(issue?.text || ''))
+      && /NS_BINDING_ABORTED/i.test(String(issue?.text || ''));
+    expect((issues.critical || []).filter(issue => !ignoredVennAbort(issue))).toEqual([]);
+  });
+}

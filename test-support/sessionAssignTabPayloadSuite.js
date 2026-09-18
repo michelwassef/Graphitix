@@ -18,7 +18,7 @@ const SESSION_PAYLOAD_SHARD_RANGES = Object.freeze({
   'cache-capture': Object.freeze({
     first: 'archive save keeps a clean loaded tab authoritative without reading live component state',
     last: 'authoritative live layout is not reverse-normalized from payload graph sizing',
-    expected: 15
+    expected: 16
   }),
   'dirty-state': Object.freeze({
     first: 'dirty loaded tab flushes live payload once, then clears payloadDirty',
@@ -428,6 +428,58 @@ describe('session.assignTabPayload null-overwrite guard', () => {
       componentOwnedMarker: 'preserve-me'
     }));
     expect(restoreRenderCache.mock.calls[0][0].__graphitixRenderCache.rollbackOnly).not.toBe(true);
+  });
+
+  test('does not replay a cache that explicitly preserved the mounted live DOM', () => {
+    const tab = createTabWithPayload();
+    tab.loadedFromArchive = true;
+    tab.userModified = false;
+    tab.payloadDirty = false;
+    tab.payloadSignature = session.serializePayloadSignature(tab.payload);
+    tab.layoutState = { version: 1, component: 'box', width: 468, height: 456 };
+    tab.layoutSignature = session.serializePayloadSignature(tab.layoutState);
+    session.workspaceState.activeTabId = tab.id;
+    const rawCache = {
+      plot: { count: 1, owner: tab.id },
+      __graphitixRenderCache: {
+        version: 2,
+        component: 'box',
+        type: 'box',
+        tabId: tab.id,
+        complete: true
+      }
+    };
+    Object.defineProperty(rawCache, '__graphitixLiveDomPreserved', { value: true });
+    const restoreRenderCache = jest.fn(() => true);
+    window.Main.components = {
+      registry: {
+        box: {
+          getPayload: jest.fn(() => tab.payload),
+          captureRenderCache: jest.fn(() => rawCache),
+          restoreRenderCache
+        }
+      }
+    };
+
+    session.persistActiveTabState(tab, {
+      reason: 'read-only-capture-regression',
+      origin: 'lifecycle',
+      captureRenderCache: true,
+      snapshotIntent: {
+        captureLivePayload: false,
+        skipLivePayloadCapture: true,
+        allowSkipLivePayloadCapture: true,
+        lifecycleSnapshot: true,
+        reasonSkippable: true
+      }
+    });
+
+    expect(restoreRenderCache).not.toHaveBeenCalled();
+    expect(tab.renderCache?.cache?.__graphitixRenderCache).toEqual(expect.objectContaining({
+      component: 'box',
+      tabId: tab.id,
+      complete: true
+    }));
   });
 
 
@@ -1446,6 +1498,6 @@ describe('session.assignTabPayload null-overwrite guard', () => {
   });
 });
 global.test = originalJestTest;
-if (!shardStarted || !shardEnded || observedTestCount !== 50 || registeredTestCount !== sessionPayloadShardSpec.expected) {
+if (!shardStarted || !shardEnded || observedTestCount !== 51 || registeredTestCount !== sessionPayloadShardSpec.expected) {
   throw new Error(`Invalid session assignTabPayload shard ${sessionPayloadShard}: observed ${observedTestCount}, registered ${registeredTestCount}.`);
 }

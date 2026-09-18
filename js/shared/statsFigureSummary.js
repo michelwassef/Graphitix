@@ -141,6 +141,19 @@
     return root.querySelector?.(selector) || null;
   }
 
+  function resolveGraphViewportHost(svg){
+    if(!svg){
+      return null;
+    }
+    // Most renderers mount their SVG directly in the plot host. Radial Pie
+    // adds a flex wrapper, so the direct parent is not the node that owns the
+    // published viewport slot. Always update the nearest graph plot host.
+    return svg.closest?.('[data-graph-viewport-host="true"]')
+      || svg.closest?.('[id$="Plot"]')
+      || svg.parentElement
+      || null;
+  }
+
   function getSharedState(tabLike, create){
     const tabId = normalizeTabId(typeof tabLike === 'object' ? tabLike?.id : tabLike);
     if(!tabId || !Shared.workspaceTabs) return null;
@@ -1489,7 +1502,7 @@
     const envelopeMaxY = Math.max(viewport.baseHeight + bottomHeight, viewport.baseHeight + baseBottomReserve);
     const projection = stage({
       svg,
-      plot: svg.parentElement || null,
+      plot: resolveGraphViewportHost(svg),
       svgBox: svg.closest?.('.svgbox') || null,
       baseWidth: viewport.baseWidth,
       baseHeight: viewport.baseHeight,
@@ -1521,7 +1534,7 @@
     if(typeof stage !== 'function') return false;
     const projection = stage({
       svg,
-      plot: svg.parentElement || null,
+      plot: resolveGraphViewportHost(svg),
       svgBox: svg.closest?.('.svgbox') || null,
       baseWidth: viewport.baseWidth,
       baseHeight: viewport.baseHeight,

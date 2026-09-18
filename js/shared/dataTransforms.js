@@ -19,7 +19,24 @@
       if(!trimmed){
         return null;
       }
-      const normalized = trimmed.replace(/,/g, '');
+      const commaIndex = trimmed.lastIndexOf(',');
+      const dotIndex = trimmed.lastIndexOf('.');
+      let normalized = trimmed;
+      if(commaIndex >= 0 && dotIndex >= 0){
+        if(commaIndex > dotIndex){
+          normalized = trimmed.replace(/\./g, '').replace(',', '.');
+        }else{
+          normalized = trimmed.replace(/,/g, '');
+        }
+      }else if(commaIndex >= 0){
+        const commaCount = (trimmed.match(/,/g) || []).length;
+        normalized = commaCount === 1
+          ? trimmed.replace(',', '.')
+          : trimmed.replace(/,/g, '');
+      }
+      if(!/^[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?$/.test(normalized)){
+        return null;
+      }
       const parsed = Number(normalized);
       return Number.isFinite(parsed) ? parsed : null;
     }
@@ -1018,8 +1035,8 @@
         if(raw === null || raw === undefined || String(raw).trim() === ''){
           throw new Error(`RNA-seq raw counts contain a blank value at gene row ${row + 1}, sample "${String(headerRow[col] || `Condition ${sampleIndex + 1}`)}".`);
         }
-        const value = Number(String(raw).trim());
-        if(!Number.isFinite(value)){
+        const value = toFiniteNumber(raw);
+        if(value === null){
           throw new Error(`RNA-seq raw counts contain a non-numeric value at gene row ${row + 1}, sample "${String(headerRow[col] || `Condition ${sampleIndex + 1}`)}".`);
         }
         values[sampleIndex] = value;

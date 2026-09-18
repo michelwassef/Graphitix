@@ -1534,13 +1534,44 @@
 
   chartStyle.formatDecimal = formatDecimal;
 
+  function expandExponentialDecimal(value){
+    const source = String(value);
+    const match = source.match(/^(-?)(\d+)(?:\.(\d+))?[eE]([+-]?\d+)$/);
+    if(!match){
+      return source;
+    }
+    const sign = match[1] || '';
+    const integerPart = match[2] || '';
+    const fractionalPart = match[3] || '';
+    const digits = `${integerPart}${fractionalPart}`;
+    const decimalPosition = integerPart.length + Number(match[4]);
+    if(decimalPosition <= 0){
+      return `${sign}0.${'0'.repeat(-decimalPosition)}${digits}`;
+    }
+    if(decimalPosition >= digits.length){
+      return `${sign}${digits}${'0'.repeat(decimalPosition - digits.length)}`;
+    }
+    return `${sign}${digits.slice(0, decimalPosition)}.${digits.slice(decimalPosition)}`;
+  }
+
   const AXIS_NOTATION_ALLOWED = new Set(['auto','decimal','scientific']);
+  const AXIS_NOTATION_DEFAULT = 'auto';
 
   function normalizeAxisNotation(value){
-    if(typeof value !== 'string'){ return 'auto'; }
+    if(typeof value !== 'string'){ return AXIS_NOTATION_DEFAULT; }
     const trimmed = value.trim().toLowerCase();
-    return AXIS_NOTATION_ALLOWED.has(trimmed) ? trimmed : 'auto';
+    return AXIS_NOTATION_ALLOWED.has(trimmed) ? trimmed : AXIS_NOTATION_DEFAULT;
   }
+
+  chartStyle.AXIS_NOTATION_DEFAULT = AXIS_NOTATION_DEFAULT;
+  chartStyle.normalizeAxisNotation = normalizeAxisNotation;
+
+  chartStyle.resolveAxisNotation = function resolveAxisNotation(options){
+    const opts = options || {};
+    const requested = normalizeAxisNotation(opts.notation);
+    // Automatic logarithmic axes use one consistent power-of-ten format.
+    return opts.logScale === true && requested === 'auto' ? 'scientific' : requested;
+  };
 
   /**
    * Format axis ticks using the requested notation mode.
@@ -1549,11 +1580,12 @@
    * @param {'auto'|'decimal'|'scientific'} [options.notation='auto']
    * @param {number} [options.maxDecimals=2]
    * @param {number} [options.decimalDigits]
+   * @param {boolean} [options.logScale=false] - Use logarithmic-axis notation rules.
    * @returns {string}
    */
   chartStyle.formatAxisValue = function formatAxisValue(value, options){
     const opts = options || {};
-    const notation = normalizeAxisNotation(opts.notation);
+    const notation = chartStyle.resolveAxisNotation(opts);
     if(notation === 'scientific'){
       return chartStyle.formatScientific(value, {
         ...opts,
@@ -1561,13 +1593,23 @@
       });
     }
     if(notation === 'decimal'){
-      const decimalDigits = Number.isFinite(opts.decimalDigits)
+      let decimalDigits = Number.isFinite(opts.decimalDigits)
         ? Math.max(0, Math.min(12, opts.decimalDigits))
         : Math.max(4, Math.min(8, (Number.isFinite(opts.maxDecimals) ? opts.maxDecimals + 4 : 6)));
-      return formatDecimal(value, {
+      if(opts.logScale === true && Number.isFinite(value) && value > 0 && value < 1){
+        // Explicit Decimal remains decimal; add only the precision needed to
+        // keep this positive logarithmic tick from becoming zero.
+        const requiredDigits = Math.max(0, Math.ceil(-Math.log10(value) - 1e-12));
+        decimalDigits = Math.max(decimalDigits, Math.min(12, requiredDigits));
+      }
+      const formatted = formatDecimal(value, {
         maxDecimals: decimalDigits,
         trimTrailingZeros: opts.trimTrailingZeros !== false
       });
+      if(opts.logScale === true && Number.isFinite(value) && value > 0 && Number(formatted) === 0){
+        return expandExponentialDecimal(value);
+      }
+      return formatted;
     }
     return chartStyle.formatScientific(value, opts);
   };

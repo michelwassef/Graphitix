@@ -4,6 +4,26 @@
   'use strict';
   const Shared = global.Shared = global.Shared || {};
   const hotNS = Shared.hot = Shared.hot || {};
+  const hotFilterModel = Shared.hotFilterModel = Shared.hotFilterModel || {};
+  if(typeof hotFilterModel.cloneFilterState !== 'function' && typeof require === 'function'){
+    try{
+      require('./hotFilterModel.js');
+    }catch(_err){
+      // Browser builds load hotFilterModel.js before hot.js.
+    }
+  }
+  const FILTER_VERSION = hotFilterModel.FILTER_VERSION || 1;
+  const FILTER_KIND_SET = hotFilterModel.FILTER_KIND_SET || 'set';
+  const FILTER_KIND_CONDITION = hotFilterModel.FILTER_KIND_CONDITION || 'condition';
+  const EMPTY_FILTER_STATE = hotFilterModel.EMPTY_FILTER_STATE || Object.freeze({
+    version: FILTER_VERSION,
+    columns: Object.freeze({})
+  });
+  const normalizeFilterOperator = (...args) => hotFilterModel.normalizeFilterOperator(...args);
+  const normalizeFilterSelectionValues = (...args) => hotFilterModel.normalizeFilterSelectionValues(...args);
+  const cloneFilterModel = (...args) => hotFilterModel.cloneFilterModel(...args);
+  const cloneFilterState = (...args) => hotFilterModel.cloneFilterState(...args);
+  const areFilterStatesEqual = (...args) => hotFilterModel.areFilterStatesEqual(...args);
   if(!Shared.dataViewPersistence && typeof require === 'function'){
     try{
       require('./dataViewPersistence.js');
@@ -1133,32 +1153,7 @@
       console.debug(message, payload);
     }
   };
-  const FILTER_VERSION = 1;
-  const FILTER_KIND_SET = 'set';
-  const FILTER_KIND_CONDITION = 'condition';
   const FILTER_MENU_MAX_VISIBLE_VALUES = 400;
-  const FILTER_OPERATORS = new Set([
-    'isBlank',
-    'isNotBlank',
-    'equals',
-    'notEqual',
-    'contains',
-    'notContains',
-    'startsWith',
-    'endsWith',
-    'greaterThan',
-    'greaterThanOrEqual',
-    'lessThan',
-    'lessThanOrEqual',
-    'between',
-    'topN',
-    'aboveAverage',
-    'belowAverage'
-  ]);
-  const EMPTY_FILTER_STATE = Object.freeze({
-    version: FILTER_VERSION,
-    columns: Object.freeze({})
-  });
   hotNS.__instanceSeq = Number.isInteger(hotNS.__instanceSeq) ? hotNS.__instanceSeq : 0;
   hotNS.__activeClipboardSelectionOwner = hotNS.__activeClipboardSelectionOwner || null;
   hotNS.flushPendingUndoState = function flushPendingUndoState(){
@@ -1468,112 +1463,6 @@
     }
     return { row: Number(parts[0]), col: Number(parts[1]) };
   };
-
-  function normalizeFilterColId(value){
-    if(typeof value !== 'string'){
-      return null;
-    }
-    const trimmed = value.trim();
-    return /^c\d+$/.test(trimmed) ? trimmed : null;
-  }
-
-  function normalizeFilterOperator(value){
-    if(typeof value !== 'string'){
-      return null;
-    }
-    const trimmed = value.trim();
-    return FILTER_OPERATORS.has(trimmed) ? trimmed : null;
-  }
-
-  function normalizeFilterSelectionValues(values){
-    const source = Array.isArray(values) ? values : [];
-    const seen = new Set();
-    const normalized = [];
-    for(let i = 0; i < source.length; i += 1){
-      const entry = source[i];
-      if(entry == null){
-        continue;
-      }
-      const text = String(entry);
-      if(seen.has(text)){
-        continue;
-      }
-      seen.add(text);
-      normalized.push(text);
-    }
-    normalized.sort();
-    return normalized;
-  }
-
-  function cloneFilterModel(model){
-    const source = model && typeof model === 'object' ? model : null;
-    if(!source){
-      return null;
-    }
-    const kind = source.kind === FILTER_KIND_CONDITION
-      ? FILTER_KIND_CONDITION
-      : FILTER_KIND_SET;
-    if(kind === FILTER_KIND_SET){
-      const selected = normalizeFilterSelectionValues(source.selected || source.values || source.keys);
-      return {
-        kind: FILTER_KIND_SET,
-        selected
-      };
-    }
-    const operator = normalizeFilterOperator(source.operator);
-    if(!operator){
-      return null;
-    }
-    const cloned = {
-      kind: FILTER_KIND_CONDITION,
-      operator
-    };
-    if(Object.prototype.hasOwnProperty.call(source, 'value')){
-      cloned.value = source.value == null ? '' : String(source.value);
-    }
-    if(Object.prototype.hasOwnProperty.call(source, 'valueTo')){
-      cloned.valueTo = source.valueTo == null ? '' : String(source.valueTo);
-    }
-    if(typeof source.columnType === 'string' && source.columnType.trim()){
-      cloned.columnType = source.columnType.trim();
-    }
-    return cloned;
-  }
-
-  function cloneFilterState(state){
-    if(!state || typeof state !== 'object'){
-      return EMPTY_FILTER_STATE;
-    }
-    const rawColumns = state.columns && typeof state.columns === 'object'
-      ? state.columns
-      : state;
-    const columnIds = Object.keys(rawColumns)
-      .map(normalizeFilterColId)
-      .filter(Boolean)
-      .sort((a, b)=>Number(a.slice(1)) - Number(b.slice(1)));
-    if(!columnIds.length){
-      return EMPTY_FILTER_STATE;
-    }
-    const columns = {};
-    for(let i = 0; i < columnIds.length; i += 1){
-      const colId = columnIds[i];
-      const cloned = cloneFilterModel(rawColumns[colId]);
-      if(cloned){
-        columns[colId] = cloned;
-      }
-    }
-    if(!Object.keys(columns).length){
-      return EMPTY_FILTER_STATE;
-    }
-    return {
-      version: FILTER_VERSION,
-      columns
-    };
-  }
-
-  function areFilterStatesEqual(left, right){
-    return JSON.stringify(cloneFilterState(left)) === JSON.stringify(cloneFilterState(right));
-  }
 
   function createExclusionController(instanceAccessor, debugLabel, scheduleChange){
     const rows = new Set();
@@ -2605,11 +2494,10 @@
         if(!trimmed){
           return { type: 'empty', value: '' };
         }
-        if(/^[-+]?(?:\d+(?:\.\d+)?|\.\d+)(?:e[-+]?\d+)?$/i.test(trimmed)){
-          const num = Number(trimmed);
-          if(Number.isFinite(num)){
-            return { type: 'number', value: num };
-          }
+        const parser = Shared.dataTransforms?.toFiniteNumber;
+        const num = typeof parser === 'function' ? parser(trimmed) : Number(trimmed);
+        if(Number.isFinite(num)){
+          return { type: 'number', value: num };
         }
         return { type: 'string', value: trimmed };
       }
@@ -3026,8 +2914,8 @@
         if(!trimmed){
           return null;
         }
-        const normalized = trimmed.replace(',', '.');
-        const num = Number(normalized);
+        const parser = Shared.dataTransforms?.toFiniteNumber;
+        const num = typeof parser === 'function' ? parser(trimmed) : Number(trimmed.replace(',', '.'));
         return Number.isFinite(num) ? num : null;
       }
       return null;
@@ -5844,7 +5732,8 @@
         if(trimmed === ''){
           return null;
         }
-        const num = Number(trimmed);
+        const parser = Shared.dataTransforms?.toFiniteNumber;
+        const num = typeof parser === 'function' ? parser(trimmed) : Number(trimmed);
         return Number.isFinite(num) ? num : null;
       }
       return null;
@@ -9430,6 +9319,10 @@
         const text = String(value).trim();
         if(!text || text.startsWith("'") || text.startsWith('=')){
           return false;
+        }
+        const parser = Shared.dataTransforms?.toFiniteNumber;
+        if(typeof parser === 'function' && Number.isFinite(parser(text))){
+          return true;
         }
         return SPREADSHEET_NUMERIC_VALUE_RE.test(text);
       };

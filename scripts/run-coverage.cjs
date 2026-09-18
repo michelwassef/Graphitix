@@ -155,7 +155,7 @@ function writeAggregateReports(coverageMap, outputDirectory, metadata = {}) {
   return summary;
 }
 
-function runProject(project, temporaryRoot, aggregate) {
+function runProject(project, temporaryRoot, aggregate, projectAggregate = createCoverageMap({})) {
   const projectDirectory = path.join(temporaryRoot, project);
   const configPath = path.join(temporaryRoot, `${project}.jest.config.json`);
   fs.mkdirSync(projectDirectory, { recursive: true });
@@ -170,7 +170,9 @@ function runProject(project, temporaryRoot, aggregate) {
       if (status !== 0) {
         return status;
       }
-      aggregate.merge(readProjectCoverage(`${project} ${testFile}`, shardDirectory));
+      const coverage = readProjectCoverage(`${project} ${testFile}`, shardDirectory);
+      aggregate.merge(coverage);
+      projectAggregate.merge(coverage);
     }
     return 0;
   }
@@ -178,7 +180,9 @@ function runProject(project, temporaryRoot, aggregate) {
   if (status !== 0) {
     return status;
   }
-  aggregate.merge(readProjectCoverage(project, projectDirectory));
+  const coverage = readProjectCoverage(project, projectDirectory);
+  aggregate.merge(coverage);
+  projectAggregate.merge(coverage);
   return 0;
 }
 
@@ -186,9 +190,10 @@ function run() {
   const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'graphitix-coverage-'));
   try {
     const aggregate = createCoverageMap({});
+    const projectAggregates = new Map(COVERAGE_PROJECTS.map(project => [project, createCoverageMap({})]));
     console.log(`Coverage source projects: ${COVERAGE_PROJECTS.join(', ')}; integration is a separate release gate.`);
     for (const project of COVERAGE_PROJECTS) {
-      const status = runProject(project, temporaryRoot, aggregate);
+      const status = runProject(project, temporaryRoot, aggregate, projectAggregates.get(project));
       if (status !== 0) {
         return status;
       }
@@ -202,6 +207,13 @@ function run() {
       excludedProjects: JEST_PROJECTS.filter(project => !COVERAGE_PROJECTS.includes(project)),
       sourceDenominator: 'js/**/*.js and src/**/*.js'
     });
+    for (const project of COVERAGE_PROJECTS) {
+      writeAggregateReports(projectAggregates.get(project), path.join(stagedOutput, 'projects', project), {
+        provider: 'v8',
+        project,
+        sourceDenominator: 'files observed by this Jest project'
+      });
+    }
     fs.rmSync(FINAL_COVERAGE_DIR, { recursive: true, force: true });
     fs.renameSync(stagedOutput, FINAL_COVERAGE_DIR);
     console.log(

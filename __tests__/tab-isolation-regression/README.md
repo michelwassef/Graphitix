@@ -4,10 +4,10 @@ The former standalone tab-isolation server and renderer harness were retired.
 Their coverage now runs through the standard Chromium Playwright runner:
 
 ```powershell
-npx playwright test e2e/component.same-type-tab-switching.isolation.spec.js --project=chromium
-npx playwright test e2e/component.persistence-matrix.spec.js --project=chromium
-npx playwright test e2e/component.same-type-parameter-isolation.spec.js --project=chromium
-npx playwright test e2e/component.resize-exit-reenter.persistence.spec.js --project=chromium
+npx playwright test e2e/ownership/component.same-type-tab-switching.isolation.spec.js --project=chromium
+npx playwright test e2e/ownership/component.persistence-matrix.spec.js --project=chromium
+npx playwright test e2e/ownership/component.same-type-parameter-isolation.spec.js --project=chromium
+npx playwright test e2e/ownership/component.resize-exit-reenter.persistence.spec.js --project=chromium
 ```
 
 The `e2e/helpers/ownerPayloadDriver.js` is an explicit in-page API driver used
