@@ -91,7 +91,13 @@ async function readVennGeometry(page){
 async function prepareSpecializedSummary(page, type, config){
   await openComponentFromWelcome(page, { type, pageId:config.pageId }, { first:true });
   await clickExampleButtonIfPresent(page, config.example);
-  await page.evaluate(componentType => window.Components?.[componentType]?.draw?.(), type);
+  if(config.compute){
+    await expect(page.locator(config.compute)).toBeEnabled({ timeout:30_000 });
+    await page.locator(config.compute).click();
+    await expect(page.locator(config.status)).toContainText(/up to date/i, { timeout:60_000 });
+  }else{
+    await page.evaluate(componentType => window.Components?.[componentType]?.draw?.(), type);
+  }
   const pageSelector = `#${config.pageId}:not([hidden])`;
   const summaryControl = page.locator(`${pageSelector} .stats-figure-summary-checkbox`).last();
   await expect(summaryControl).toBeVisible({ timeout:45_000 });
@@ -136,6 +142,37 @@ async function readSpecializedGeometry(page, config){
       summaryBaseHeight:Number(svg.dataset.statsFigureSummaryBaseHeight || 0),
       viewBox:String(svg.getAttribute('viewBox') || '')
     };
+  }, config);
+}
+
+async function installSummaryRecoverySampler(page, config){
+  await page.addInitScript(({ type, plot, directSvg }) => {
+    window.__statsSummaryRecoverySamples = [];
+    let cacheRestored = false;
+    const startedAt = performance.now();
+    const sample = () => {
+      if(performance.now() - startedAt > 20_000) return;
+      if(cacheRestored){
+        const svg = directSvg
+          ? document.querySelector(plot)
+          : document.querySelector(`${plot} svg`);
+        if(svg){
+          window.__statsSummaryRecoverySamples.push({
+            summaryCount:svg.querySelectorAll('g[data-stats-figure-summary="1"]').length,
+            at:performance.now() - startedAt
+          });
+        }
+      }
+      requestAnimationFrame(sample);
+    };
+    window.addEventListener('graphitix:lifecycle-event', event => {
+      const detail = event?.detail || {};
+      if(detail.action === 'activate-complete'
+        && detail.componentKey === type){
+        cacheRestored = true;
+      }
+    });
+    sample();
   }, config);
 }
 
@@ -248,6 +285,8 @@ test('Venn summary cache preserves graph-to-table spacing through recovery', asy
 });
 
 for (const specialized of [
+  { type:'scatter', pageId:'scatterPage', plot:'#scatterPlot svg', directSvg:true, example:'scatterLoadExample', compute:'#scatterComputeStats', status:'#scatterStatsStatus', recoverySampler:true },
+  { type:'pie', pageId:'piePage', plot:'#piePlot svg', directSvg:true, example:'pieLoadExample', compute:'#pieComputeStats', status:'#pieStatsStatus', recoverySampler:true },
   { type:'heatmap', pageId:'heatmapPage', plot:'#heatmapSvg', example:'heatmapLoadExample' },
   { type:'surface', pageId:'surfacePage', plot:'#surfaceSvg', example:'surfaceLoadExample' }
 ]) {
@@ -265,7 +304,12 @@ for (const specialized of [
 
     const recovery = await captureSpecializedRecoveryArchive(page, specialized.type);
     expect(recovery.hasCache).toBe(true);
-    expect(recovery.hasCanonicalViewport).toBe(true);
+    if(['heatmap', 'surface'].includes(specialized.type)){
+      expect(recovery.hasCanonicalViewport).toBe(true);
+    }
+    if(specialized.recoverySampler){
+      await installSummaryRecoverySampler(page, specialized);
+    }
     const archivePath = testInfo.outputPath(`${specialized.type}-stats-figure-summary-recovery.graph`);
     fs.writeFileSync(archivePath, Buffer.from(recovery.base64, 'base64'));
 
@@ -282,6 +326,20 @@ for (const specialized of [
     expect(after?.reserve).toBeGreaterThan(0);
     expect(after?.gap).toBeLessThan(160);
     expect(after?.gap).toBeGreaterThanOrEqual(-2);
+    if(specialized.type === 'heatmap'){
+      expect(after?.viewBox).toBe(before?.viewBox);
+    }
+    if(specialized.recoverySampler){
+      await page.waitForTimeout(750);
+      const samples = await page.evaluate(() => ({
+        cacheEventSeen:Array.isArray(window.__statsSummaryRecoverySamples)
+          && window.__statsSummaryRecoverySamples.length > 0,
+        emptyAfterCacheRestore:(window.__statsSummaryRecoverySamples || [])
+          .filter(sample => sample.summaryCount === 0).length
+      }));
+      expect(samples.cacheEventSeen).toBe(true);
+      expect(samples.emptyAfterCacheRestore).toBe(0);
+    }
     expect(issues.critical).toEqual([]);
   });
 }

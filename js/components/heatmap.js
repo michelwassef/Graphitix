@@ -15304,6 +15304,12 @@
       styles: HEATMAP_SVG_ROOT_STYLES
     });
     const restoredSvg = restoreChildren(svg, graphCachePayload);
+    if(restoredSvg){
+      // The cached Summary is part of the restored SVG. Rebuild the canonical
+      // graph-content envelope before the workspace publishes the restored
+      // viewport, otherwise the graph and its Summary use different origins.
+      (chartStyle.rehydrateContentViewports || chartStyle.rehydrateLegendViewports)?.(svg);
+    }
     const durableStatsModel = normalizeHeatmapStatsPanelModel(
       restoreSession.results?.statsPanelModel || restoreSession.state?.statsPanelModel || {}
     );

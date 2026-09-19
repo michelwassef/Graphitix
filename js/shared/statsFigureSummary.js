@@ -67,6 +67,12 @@
   const reportByTab = new Map();
   const resizingTabs = new Set();
   const pendingRenders = new Map();
+  // A restored cache already contains the authoritative Summary projection.
+  // Keep this marker until the report model registration has observed that
+  // projection too, so registration cannot queue a destructive redraw after
+  // the cache-restored lifecycle event.
+  const cacheRestoredWithSummary = new Set();
+  const cacheRestoreNeedsSummary = new Set();
   let lifecycleInstalled = false;
 
   function debug(label, payload){
@@ -195,6 +201,18 @@
     const nodes = Array.from(svg.querySelectorAll?.(`g[${GROUP_ATTR}="1"]`) || []);
     nodes.forEach(node => node.parentNode?.removeChild(node));
     return nodes.length > 0;
+  }
+
+  function removeSummaryGroupsExcept(svg, keep){
+    if(!svg) return false;
+    const nodes = Array.from(svg.querySelectorAll?.(`g[${GROUP_ATTR}="1"]`) || []);
+    let removed = false;
+    nodes.forEach(node => {
+      if(node === keep) return;
+      node.parentNode?.removeChild(node);
+      removed = true;
+    });
+    return removed;
   }
 
   function isSummaryStyleEvent(detail = {}){
@@ -1772,9 +1790,9 @@
     }
     const scale = computeRenderedScale(svg, viewport, graphRedrawn ? 0 : (hasSummaryExtension ? previousSummaryReserve : 0));
     const baseBottomReserve = Math.max(0, viewport.bottom);
-    removeSummaryGroup(svg);
 
     if(!isEnabled(key)){
+      removeSummaryGroup(svg);
       removeAccessibleSummary(mountedRoot);
       if(hadGroup || previousSummaryReserve > 0){
         restoreViewportWithoutSummary(svg, viewport, baseBottomReserve, scale);
@@ -1793,6 +1811,7 @@
     const reportModel = options.reportModel || entry?.reportModel || null;
     const model = normalizeModel(reportModel, key, type);
     if(!model){
+      removeSummaryGroup(svg);
       removeAccessibleSummary(mountedRoot);
       if(hadGroup || previousSummaryReserve > 0){
         restoreViewportWithoutSummary(svg, viewport, baseBottomReserve, scale);
@@ -1817,6 +1836,10 @@
       svg.dataset.statsFigureSummaryRenderedScaleY = String(scale.scaleY);
     }
     applyViewport(svg, viewport, baseBottomReserve, rendered.reserve, scale);
+    // Publish the replacement before retiring the previous projection. This
+    // keeps the Summary continuously visible across resize/recovery redraws;
+    // removing it first creates the reported one-frame disappearance.
+    removeSummaryGroupsExcept(svg, rendered.group);
     renderAccessibleSummary(mountedRoot, model, type, key);
     delete svg.dataset?.statsFigureSummaryGraphRedrawn;
     debug('rendered', {
@@ -1880,6 +1903,29 @@
       return false;
     }
     reportByTab.set(tabId, { componentType, reportModel });
+    if(cacheRestoreNeedsSummary.has(tabId)){
+      const projected = isEnabled(tabId) && renderForTab(tabId, {
+        componentType,
+        reportModel,
+        reason: 'report-registration-after-render-cache'
+      });
+      cacheRestoreNeedsSummary.delete(tabId);
+      if(projected){
+        pendingRenders.delete(tabId);
+        debug('cacheProjectionPublishedAfterReportRegistration', { tabId, componentType });
+        return true;
+      }
+    }
+    if(cacheRestoredWithSummary.has(tabId)){
+      const svg = resolveSvg(tabId, componentType);
+      const hasCachedSummary = !!svg?.querySelector?.(`g[${GROUP_ATTR}="1"]`);
+      if(hasCachedSummary && isEnabled(tabId)){
+        pendingRenders.delete(tabId);
+        debug('cacheProjectionKeptAfterReportRegistration', { tabId, componentType });
+        return true;
+      }
+      cacheRestoredWithSummary.delete(tabId);
+    }
     if(options.scheduleRender === false){
       pendingRenders.delete(tabId);
     }else{
@@ -1906,7 +1952,9 @@
     const hadReport = reportByTab.delete(key);
     const hadResizeState = resizingTabs.delete(key);
     const hadPendingRender = pendingRenders.delete(key);
-    const hadState = hadReport || hadResizeState || hadPendingRender;
+    const hadCacheMarker = cacheRestoredWithSummary.delete(key);
+    const hadSummaryMarker = cacheRestoreNeedsSummary.delete(key);
+    const hadState = hadReport || hadResizeState || hadPendingRender || hadCacheMarker || hadSummaryMarker;
     debug('disposedTab', { tabId:key, hadState });
     return hadState;
   }
@@ -1918,6 +1966,36 @@
       const detail = event?.detail || {};
       const action = String(detail.action || '');
       const tabId = normalizeTabId(detail.tabId);
+      if(action === 'saved-render-cache-restored' || action === 'runtime-render-cache-restored'){
+        if(!tabId) return;
+        const componentType = detail.componentKey || detail.type || null;
+        const entry = reportByTab.get(tabId) || null;
+        const svg = resolveSvg(tabId, componentType || entry?.componentType);
+        const hasCachedSummary = !!svg?.querySelector?.(`g[${GROUP_ATTR}="1"]`);
+        // A registration scheduled while the payload was being hydrated must
+        // not remove and recreate a Summary that the cache has just restored.
+        pendingRenders.delete(tabId);
+        if(hasCachedSummary && isEnabled(tabId)){
+          cacheRestoredWithSummary.add(tabId);
+          debug('cacheProjectionKept', { tabId, componentType: componentType || entry?.componentType || null });
+          return;
+        }
+        cacheRestoredWithSummary.delete(tabId);
+        cacheRestoreNeedsSummary.add(tabId);
+        if(entry){
+          const projected = isEnabled(tabId)
+            && renderForTab(tabId, {
+              componentType: componentType || entry.componentType,
+              reason: 'render-cache-summary-restore'
+            });
+          if(!projected){
+            scheduleRender(tabId, { componentType: componentType || entry.componentType });
+          }else{
+            cacheRestoreNeedsSummary.delete(tabId);
+          }
+        }
+        return;
+      }
       if(action === 'resize-phase'){
         if(!tabId || !reportByTab.has(tabId)) return;
         const phase = String(detail.phase || '').toLowerCase();
@@ -1957,6 +2035,50 @@
       }
       if(action !== 'draw-settled' && action !== 'draw-complete' && action !== 'restore-complete' && action !== 'activate-complete') return;
       if(!tabId || !reportByTab.has(tabId)) return;
+      if((action === 'restore-complete' || action === 'activate-complete') && cacheRestoredWithSummary.has(tabId)){
+        const entry = reportByTab.get(tabId);
+        const svg = resolveSvg(tabId, detail.componentKey || detail.type || entry?.componentType || null);
+        if(svg?.querySelector?.(`g[${GROUP_ATTR}="1"]`) && isEnabled(tabId)){
+          debug('cacheProjectionKeptAfterLifecycle', { tabId, action });
+          return;
+        }
+      }
+      if(action === 'restore-complete' || action === 'activate-complete'){
+        const entry = reportByTab.get(tabId);
+        const componentType = detail.componentKey || detail.type || entry?.componentType || null;
+        const svg = resolveSvg(tabId, componentType);
+        if(!entry){
+          // Keep the cache marker until report registration supplies the model.
+          return;
+        }
+        if(isEnabled(tabId)
+          && !svg?.querySelector?.(`g[${GROUP_ATTR}="1"]`)
+          && renderForTab(tabId, {
+            componentType,
+            reason: 'workspace-activation-summary-restore'
+          })){
+          cacheRestoreNeedsSummary.delete(tabId);
+          debug('cacheProjectionPublishedAfterWorkspaceActivation', { tabId, action, componentType });
+          return;
+        }
+      }
+      if(action === 'draw-settled' || action === 'draw-complete'){
+        const entry = reportByTab.get(tabId);
+        const componentType = detail.componentKey || detail.type || entry?.componentType || null;
+        const svg = resolveSvg(tabId, componentType);
+        if(entry && isEnabled(tabId) && svg
+          && !svg.querySelector?.(`g[${GROUP_ATTR}="1"]`)
+          && renderForTab(tabId, {
+            componentType,
+            reason: 'draw-settled-summary-publication'
+          })){
+          cacheRestoreNeedsSummary.delete(tabId);
+          debug('summaryPublishedAfterDrawSettled', { tabId, componentType });
+          return;
+        }
+      }
+      cacheRestoreNeedsSummary.delete(tabId);
+      cacheRestoredWithSummary.delete(tabId);
       if(detail.details?.summaryProjectionHandled === true){
         return;
       }
@@ -2011,6 +2133,8 @@
     reportByTab.clear();
     resizingTabs.clear();
     pendingRenders.clear();
+    cacheRestoredWithSummary.clear();
+    cacheRestoreNeedsSummary.clear();
   };
 
   installLifecycleListener();

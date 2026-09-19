@@ -5,7 +5,7 @@
   "previewSource": "Graphitix owner-scoped SVG projection",
   "width": 320,
   "height": 220,
-  "sourceFingerprint": "dac01ecc36b9a34463696ffbe2b1d2625d935d3f6d43c0c3dacd4c24572f0468",
+  "sourceFingerprint": "7e914f57a34a7167dc4246ac882304c53394a417a173ebc7dfa147ce857e4700",
   "registry": {
     "file": "thumbnails.js",
     "sha256": "b6bf7a30bd7aa9eae6afc5d77bcbd9265d0d267b508595153a61979515851700",
@@ -49,7 +49,7 @@
       "proportionalStrokeContract": "source-viewport-baked-strokes-v1",
       "visualScale": 0.524934383202,
       "nonScalingStrokeCount": 0,
-      "sourceFingerprint": "f4c1555694668c116ceeba161495255fe02dab9cb29806a50ae3a3c2b1912794",
+      "sourceFingerprint": "474e4252cb23d9861925eea15d88e0e5881d7da68c0be98a2423fcf9542ccf61",
       "sha256": "98ecd9c15a2787a7109380b93c9fbbf4e66ac5703e789ecd10c0a03ed59ce5bc"
     },
     {
@@ -89,7 +89,7 @@
       "proportionalStrokeContract": "source-viewport-baked-strokes-v1",
       "visualScale": 0.588631754917,
       "nonScalingStrokeCount": 0,
-      "sourceFingerprint": "7c8b9a2745c367d0153a12ce9b01103bf9afa3f12d258f97b8d80e1f2a40ada1",
+      "sourceFingerprint": "e0a97111f276bac22f526c6e42aceea5cee2512e9e8b3508afcf2bbc633bb14b",
       "sha256": "c9a69f3b22662aef46d64bd6c90831831c8393c6b1166f6ea3e1f704ee3a9c7f"
     },
     {
@@ -129,7 +129,7 @@
       "proportionalStrokeContract": "source-viewport-baked-strokes-v1",
       "visualScale": 0.581784332548,
       "nonScalingStrokeCount": 0,
-      "sourceFingerprint": "c44123c62110ca6ac11f5a4b92ee76dd2d64f539f7285f6d70426a2587e7430b",
+      "sourceFingerprint": "50a9cd35726067e760e6a9818c25ac47165905f3c87a210441b73d805e72ea0e",
       "sha256": "a9cdd29f995f942d05ee9a8760ee8f64f16813d4146af736eb8d01e761b466ed"
     },
     {
@@ -169,7 +169,7 @@
       "proportionalStrokeContract": "source-viewport-baked-strokes-v1",
       "visualScale": 0.576749497507,
       "nonScalingStrokeCount": 0,
-      "sourceFingerprint": "aa2267be4afb7bc1615ab1983d0db46077ecb37fc44bf40b526cb3acf8df1361",
+      "sourceFingerprint": "e8586ea420aceb7e0a2a5bd4dd25d28f8da297bacb7282eb034efa1f4804491b",
       "sha256": "b4de824ff74ab9db49a47588b365d25cfe72a40dbf952b65bbef3fdfc3198176"
     },
     {
@@ -207,7 +207,7 @@
       "proportionalStrokeContract": "source-viewport-baked-strokes-v1",
       "visualScale": 0.058499473084,
       "nonScalingStrokeCount": 10,
-      "sourceFingerprint": "45c87a0696b8bc57d4523f3484e97928e000702517401c7a8335b662ab9593de",
+      "sourceFingerprint": "83a2e4dff2055bbfe320b08692f64f0d809460fab6a27f805d0e899694456991",
       "sha256": "2fdbba77fe514cf36d2a98a476e844bbfe7f3dd848c6aaf26e4a809a7675491a"
     },
     {
@@ -247,7 +247,7 @@
       "proportionalStrokeContract": "source-viewport-baked-strokes-v1",
       "visualScale": 0.592117144456,
       "nonScalingStrokeCount": 0,
-      "sourceFingerprint": "69b9d0497de16cd5250880617572191edf45395fc906120b4cf60b1dc0334ed7",
+      "sourceFingerprint": "cf6014e1ee6860701a2dcd89dc76138a06c990375ba693790e55377577d93cc2",
       "sha256": "00422e2df38e05ba54188091d581a0d0fe0284ccf8e7a1f67eeac5b8f6dd9ea6"
     },
     {
@@ -287,7 +287,7 @@
       "proportionalStrokeContract": "source-viewport-baked-strokes-v1",
       "visualScale": 0.609756097561,
       "nonScalingStrokeCount": 0,
-      "sourceFingerprint": "561336e49aaac870252cde5aae4d20456f8da6044a531265968a6b36d5170220",
+      "sourceFingerprint": "30f65dd8e59c53ec7d887f2fcda42938835f0c32f634366d17d0657e2965a837",
       "sha256": "2fb964af74d2d1be7d7a705f3b4ce5d4caecefec3abfc4199a35b1d6a18ebab7"
     },
     {
@@ -327,7 +327,7 @@
       "proportionalStrokeContract": "source-viewport-baked-strokes-v1",
       "visualScale": 0.581782640188,
       "nonScalingStrokeCount": 0,
-      "sourceFingerprint": "6b5cf6c9cec83953de987ce3eed6b3be1de126ee9b8742561d094452c355cbbe",
+      "sourceFingerprint": "8a0d426323dab2f2ba77a129ca0552ed17b6039d4362848bbbc302428199ae90",
       "sha256": "65d573dad2f6f45b4e0da9e0d5efd0502e34ac92fd432034f72b762c9d8dfd74"
     },
     {
@@ -367,7 +367,7 @@
       "proportionalStrokeContract": "source-viewport-baked-strokes-v1",
       "visualScale": 0.576749497507,
       "nonScalingStrokeCount": 0,
-      "sourceFingerprint": "bb400c5cc56b557ca275b6d604d4f6bf5f38428b7799c6735c11adc79f5d23c8",
+      "sourceFingerprint": "ae4aae45a09bbeccf44deaa16849de5e500c4e333b988aba778391e16898004a",
       "sha256": "c46a06d3fd953ddc865a770156096f266a30643e06688156ac75ef7227953161"
     },
     {
@@ -405,7 +405,7 @@
       "proportionalStrokeContract": "source-viewport-baked-strokes-v1",
       "visualScale": 0.609756097561,
       "nonScalingStrokeCount": 0,
-      "sourceFingerprint": "a30a0830abfb37f6d9886a9151a1f3f008a2fb949d348b57aa3bfb28c3fea597",
+      "sourceFingerprint": "9337072b5c84fc18a418cc7981a04e86cf3d2fd1030131b23eca905c43e29559",
       "sha256": "0592513cbc0d49c4b6e2f1dfd3449f68cba1c7223c85fd57a85f012673ff7171"
     },
     {
@@ -445,7 +445,7 @@
       "proportionalStrokeContract": "source-viewport-baked-strokes-v1",
       "visualScale": 0.595238095238,
       "nonScalingStrokeCount": 0,
-      "sourceFingerprint": "2e85c528e33b5567eb19a5fe38f9e4b20a92b9bf8f8dc4e7425d7fc3e059393b",
+      "sourceFingerprint": "645c95cf364d5f707cf3134852b812f92c6b0e699cdfefdba9411275629559c0",
       "sha256": "ce1226c67dbdd497f1d618a0f92b050ccf27e14c27a5907e01f57e19f4cb3327"
     }
   ]

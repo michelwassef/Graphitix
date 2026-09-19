@@ -2169,6 +2169,13 @@
         type: tab.type,
         activationError: tab.activationError?.reason || null
       });
+      Shared.componentLifecycle?.emitLifecycleEvent?.({
+        componentKey: tab.type,
+        tabId: tab.id,
+        action: 'activate-complete',
+        reason: options.reason || 'workspace-displayed',
+        details: { workspaceDisplayed: true, renderCacheRestored: restored === true }
+      });
       } finally {
         if (fallbackDrawReason) {
           deferredRestoreTransactionEnd = endRestoreTransaction;

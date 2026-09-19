@@ -7916,6 +7916,18 @@ let state = {
       result = await draw({ ...normalizedOptions, tabId: drawSession?.tabId || drawTabId || undefined, reason: nextReason });
     }finally{
       pieOverlayController?.resolve({ reason: 'complete', tabId: drawSession?.tabId || drawTabId || null });
+      Shared.componentLifecycle?.emitLifecycleEvent?.({
+        componentKey: 'pie',
+        tabId: drawSession?.tabId || drawTabId || null,
+        action: 'draw-settled',
+        reason: nextReason,
+        phase: 'complete',
+        details: {
+          source: 'pie.draw',
+          renderImpact: resolvePieRenderImpact(normalizedOptions),
+          viewOnly: isPiePresentationDraw(normalizedOptions)
+        }
+      });
     }
     capturePieSessionStateFromActive(drawSession, {
       reason: nextReason,

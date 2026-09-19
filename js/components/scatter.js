@@ -17384,14 +17384,26 @@
 
     function primeScatterStatsContext(context,options={}){
       const renderPrecomputedPanel = options.renderPrecomputedPanel !== false;
+      const statsSession = getActiveScatterSessionForState();
+      const statsState = normalizeScatterOwnedStatsState(statsSession?.state?.stats || null);
       if(!context || (context.graphType==='scatter' && (!Array.isArray(context.points) || !context.points.length))){
+        const hasRestorableStats = !!statsState.restorePending
+          || !!statsState.precomputedStats
+          || scatterStatsPanelModelHasContent(statsState.panelModel)
+          || scatterStatsPanelHasRenderedResults();
+        if(hasRestorableStats){
+          // A cache publication can draw before payload data has finished binding.
+          // Preserve the restored statistical projection until the owner context is
+          // available; resetting here destroys the report model and its Summary.
+          setScatterStatsStatus('Statistics up to date.');
+          updateScatterStatsButtonState({ disabled:false, label:'Recalculate statistics' });
+          return;
+        }
         resetScatterStatsRuntimeState({ placeholder: options.placeholder || 'Add data to enable statistics.' });
         return;
       }
       const signature=buildScatterStatsSignature(context);
-      const statsSession = getActiveScatterSessionForState();
       const statsRuntime = getScatterStatsRuntime(statsSession, { syncFallbackFromState: !statsSession });
-      const statsState = normalizeScatterOwnedStatsState(statsSession?.state?.stats || null);
       const pendingRestore = statsState.restorePending || (!statsSession ? scatterState.statsRestorePending : null);
       let autoComputeRestoredStats = false;
       let redrawRestoredStats = false;
@@ -17442,6 +17454,14 @@
             currentSignature: signature
           });
         }
+      }
+      if(!pendingRestore
+        && context.graphType === 'scatter'
+        && scatterStatsPanelHasRenderedResults()){
+        // The persisted report panel can arrive before the first post-recovery
+        // context signature. Treat that mounted panel as the restored result;
+        // otherwise the first draw clears it and its Figure Summary together.
+        panelOnlyRestore = true;
       }
 
       const changed = signature !== (statsState.contextSignature || null);
@@ -19571,15 +19591,25 @@
         finishStatsPerf({ outcome: 'no-target' });
         return Promise.resolve(false);
       }
-      clearScatterStatsReportHost();
-      scatterStatsResults.innerHTML='';
       if(context.graphType==='scatter'){
         if(!validateScatterFitSpecControls()){
+          if(scatterStatsPanelHasRenderedResults()){
+            finishStatsPerf({ outcome: 'fit-spec-invalid-preserved', pointCount: context.points?.length || 0 });
+            return Promise.resolve(false);
+          }
+          clearScatterStatsReportHost();
+          scatterStatsResults.innerHTML='';
           scatterStatsResults.textContent='Fix fit specification errors before computing statistics.';
           finishStatsPerf({ outcome: 'fit-spec-invalid', pointCount: context.points?.length || 0 });
           return Promise.resolve(false);
         }
         if(!Array.isArray(context.points) || context.points.length<3){
+          if(scatterStatsPanelHasRenderedResults()){
+            finishStatsPerf({ outcome: 'insufficient-points-preserved', pointCount: context.points?.length || 0 });
+            return Promise.resolve(false);
+          }
+          clearScatterStatsReportHost();
+          scatterStatsResults.innerHTML='';
           scatterStatsResults.textContent='Select at least three paired values to compute regression statistics.';
           finishStatsPerf({ outcome: 'insufficient-points', pointCount: context.points?.length || 0 });
           return Promise.resolve(false);
