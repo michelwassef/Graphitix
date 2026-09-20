@@ -1633,97 +1633,6 @@
     return true;
   }
 
-  function removeAccessibleSummary(root){
-    root?.querySelector?.('[data-stats-figure-summary-accessible="1"]')?.remove?.();
-  }
-
-  function buildAccessibleSummaryModel(model, componentType){
-    const rows = model.sections.flatMap(section => section.rows || [])
-      .map(row => [String(row.label || ''), String(row.value || '')]);
-    return {
-      columns:[
-        { key:'statistic', label:'Statistic', align:'left' },
-        { key:'value', label:'Value', align:'left' }
-      ],
-      rows,
-      caption:model.title,
-      footnotes:['This table contains the rows shown in the figure summary. The complete canonical statistical results remain in the analysis report.'],
-      options:{
-        fileName:`${componentType || 'graph'}-figure-summary`,
-        contextLabel:`${componentType || 'graph'}-figure-summary`
-      }
-    };
-  }
-
-  function renderAccessibleSummary(root, model, componentType, tabId){
-    if(!root || !model || !global.document) return false;
-    let details = root.querySelector?.('[data-stats-figure-summary-accessible="1"]') || null;
-    if(!details){
-      details = global.document.createElement('details');
-      details.className = 'stats-figure-summary-accessible';
-      details.setAttribute('data-stats-figure-summary-accessible', '1');
-      details.setAttribute('data-stats-summary-tab-id', tabId);
-      const summary = global.document.createElement('summary');
-      summary.textContent = 'Accessible summary table and structured data export';
-      details.appendChild(summary);
-      const body = global.document.createElement('div');
-      body.className = 'stats-figure-summary-accessible__body';
-      details.appendChild(body);
-      const exportControls = root.querySelector?.('.graph-export-controls');
-      if(exportControls?.parentElement){
-        exportControls.parentElement.insertBefore(details, exportControls.nextSibling);
-      }else{
-        root.appendChild(details);
-      }
-    }
-    const body = details.querySelector('.stats-figure-summary-accessible__body') || details;
-    const tableModel = buildAccessibleSummaryModel(model, componentType);
-    if(typeof Shared.statsTable?.render === 'function'){
-      Shared.statsTable.render({
-        target:body,
-        model:tableModel,
-        contextLabel:tableModel.options.contextLabel
-      });
-      return true;
-    }
-    body.innerHTML = '';
-    const table = global.document.createElement('table');
-    table.className = 'stats-table';
-    const thead = global.document.createElement('thead');
-    const headerRow = global.document.createElement('tr');
-    ['Statistic', 'Value'].forEach(label => {
-      const th = global.document.createElement('th');
-      th.scope = 'col';
-      th.textContent = label;
-      headerRow.appendChild(th);
-    });
-    thead.appendChild(headerRow);
-    table.appendChild(thead);
-    const tbody = global.document.createElement('tbody');
-    tableModel.rows.forEach(row => {
-      const tr = global.document.createElement('tr');
-      row.forEach((value, index) => {
-        const cell = global.document.createElement(index === 0 ? 'th' : 'td');
-        if(index === 0) cell.scope = 'row';
-        cell.textContent = value;
-        tr.appendChild(cell);
-      });
-      tbody.appendChild(tr);
-    });
-    table.appendChild(tbody);
-    body.appendChild(table);
-    return true;
-  }
-
-  function getExportModel(tabId, componentType){
-    const key = normalizeTabId(tabId);
-    const entry = reportByTab.get(key);
-    if(!entry) return null;
-    const model = normalizeModel(entry.reportModel, key, componentType || entry.componentType);
-    if(!model) return null;
-    return buildAccessibleSummaryModel(model, componentType || entry.componentType);
-  }
-
   function renderForTab(tabId, options = {}){
     const key = normalizeTabId(tabId);
     if(!key) return false;
@@ -1740,8 +1649,6 @@
     // must not be able to project one tab's summary into another tab's root.
     const svg = resolveSvg(key, type);
     if(!svg) return false;
-    const mountedRoot = resolveMountedRoot(key, type);
-
     // A component draw may register its report before performing the direct
     // summary projection at the end of that draw. That direct projection is
     // authoritative for the newly published SVG and supersedes the queued
@@ -1793,7 +1700,6 @@
 
     if(!isEnabled(key)){
       removeSummaryGroup(svg);
-      removeAccessibleSummary(mountedRoot);
       if(hadGroup || previousSummaryReserve > 0){
         restoreViewportWithoutSummary(svg, viewport, baseBottomReserve, scale);
       }
@@ -1812,7 +1718,6 @@
     const model = normalizeModel(reportModel, key, type);
     if(!model){
       removeSummaryGroup(svg);
-      removeAccessibleSummary(mountedRoot);
       if(hadGroup || previousSummaryReserve > 0){
         restoreViewportWithoutSummary(svg, viewport, baseBottomReserve, scale);
       }
@@ -1840,7 +1745,6 @@
     // keeps the Summary continuously visible across resize/recovery redraws;
     // removing it first creates the reported one-frame disappearance.
     removeSummaryGroupsExcept(svg, rendered.group);
-    renderAccessibleSummary(mountedRoot, model, type, key);
     delete svg.dataset?.statsFigureSummaryGraphRedrawn;
     debug('rendered', {
       tabId:key,
@@ -2124,7 +2028,6 @@
   api.COMPACT_P_VALUE_DISPLAY_FLOOR = COMPACT_P_VALUE_DISPLAY_FLOOR;
   api.normalizeModel = normalizeModel;
   api.compactNormalizedModel = compactNormalizedModel;
-  api.getExportModel = getExportModel;
   api.isSummaryStyleEvent = isSummaryStyleEvent;
   api.summaryStyleChangesLayout = summaryStyleChangesLayout;
   api.disposeTab = disposeTab;

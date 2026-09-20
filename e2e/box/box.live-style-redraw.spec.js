@@ -155,6 +155,137 @@ test('Box palette and color-mode changes preserve the active graph type', async 
   expect(persistedGraphType).toBe('bar');
 });
 
+test('Box palette changes keep median overlays visible in box variants', async ({ page }) => {
+  test.setTimeout(90_000);
+  await installLocalCdnOverrides(page);
+  await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
+  await openComponentFromWelcome(page, { type: 'box', pageId: 'boxPage' }, { first: true });
+  await page.locator('#boxLoadExample').click();
+  await waitForBoxIdle(page);
+
+  for (const graphType of ['box', 'notched', 'violin']) {
+    await page.locator('#boxGraphType').selectOption(graphType);
+    await page.locator('#boxPointMode').selectOption('none');
+    await waitForBoxIdle(page);
+    await page.locator('#boxColorSchemeSelect').selectOption('grayscale');
+    await waitForBoxIdle(page);
+    await page.locator('#boxColorSchemeSelect').selectOption('scientific');
+    await waitForBoxIdle(page);
+
+    const result = await page.evaluate(currentGraphType => {
+      const svg = document.querySelector('#boxPlot #boxSvg');
+      if (!svg) {
+        return { medianCount: 0, sameAsBodyCount: 0 };
+      }
+      const bodyByTrace = new Map(
+        Array.from(svg.querySelectorAll('[data-box-shape="body"][data-trace]:not([data-summary-line="1"])'))
+          .filter(node => node.getAttribute('data-box-violin-density') === '1' || node.tagName.toLowerCase() === 'rect')
+          .map(node => [node.getAttribute('data-trace'), node.getAttribute('fill')])
+      );
+      const medians = currentGraphType === 'violin'
+        ? Array.from(svg.querySelectorAll('line[data-box-shape="body"][data-trace]'))
+            .filter(node => node.getAttribute('y1') === node.getAttribute('y2'))
+        : Array.from(svg.querySelectorAll(`[data-box-overlay-kind="${currentGraphType}-median"][data-trace]`));
+      return {
+        medianCount: medians.length,
+        sameAsBodyCount: medians.filter(node => node.getAttribute('stroke') === bodyByTrace.get(node.getAttribute('data-trace'))).length,
+        paints: medians.slice(0, 2).map(node => ({
+          stroke: node.getAttribute('stroke'),
+          body: bodyByTrace.get(node.getAttribute('data-trace'))
+        }))
+      };
+    }, graphType);
+
+    expect(result, `${graphType} median paint`).toMatchObject({ medianCount: 6, sameAsBodyCount: 0 });
+  }
+});
+
+test('Violin palette keeps the inset summary styling after dataset reorder', async ({ page }) => {
+  test.setTimeout(90_000);
+  await installLocalCdnOverrides(page);
+  await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
+  await openComponentFromWelcome(page, { type: 'box', pageId: 'boxPage' }, { first: true });
+  await page.locator('#boxLoadExample').click();
+  await waitForBoxIdle(page);
+  await page.locator('#boxGraphType').selectOption('violin');
+  await page.locator('#boxPointMode').selectOption('none');
+  await waitForBoxIdle(page);
+  await page.locator('#boxColorSchemeSelect').selectOption('grayscale');
+  await waitForBoxIdle(page);
+  await page.locator('#boxColorSchemeSelect').selectOption('soft');
+  await waitForBoxIdle(page);
+
+  const inspectViolinStyles = () => page.evaluate(() => {
+    const svg = document.querySelector('#boxPlot #boxSvg');
+    const firstTrace = svg?.querySelector('path[data-box-violin-density="1"][data-trace="0"]');
+    const traceShapes = firstTrace
+      ? Array.from(svg.querySelectorAll('[data-box-shape="body"][data-trace="0"]'))
+      : [];
+    const inset = traceShapes.find(node => node.tagName.toLowerCase() === 'rect');
+    const median = traceShapes.find(node => node.tagName.toLowerCase() === 'line'
+      && node.getAttribute('y1') === node.getAttribute('y2'));
+    return {
+      bodyFill: firstTrace?.getAttribute('fill') || null,
+      insetFill: inset?.getAttribute('fill') || null,
+      medianStroke: median?.getAttribute('stroke') || null
+    };
+  });
+
+  const before = await inspectViolinStyles();
+  expect(before.insetFill).toBe('#fff');
+
+  const originalHeaderRow = await page.evaluate(() => {
+    const state = window.Components?.box?.__getState?.();
+    const hot = state?.ensureHotForActiveTab?.() || state?.hot;
+    const data = hot?.getData?.() || [];
+    return Array.isArray(data[0]) ? data[0].slice(0, 6) : [];
+  });
+  const dragDispatched = await page.evaluate(async () => {
+    const handle = document.querySelector('#hot .ag-header-cell[col-id="c0"] .hot-col-drag-handle');
+    const target = document.querySelector('#hot .ag-header-cell[col-id="c1"]');
+    if(!handle || !target){
+      return false;
+    }
+    const rect = target.getBoundingClientRect();
+    handle.dispatchEvent(new MouseEvent('mousedown', {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+      buttons: 1,
+      clientX: rect.left,
+      clientY: rect.top + Math.max(8, rect.height / 2)
+    }));
+    target.dispatchEvent(new MouseEvent('mousemove', {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+      buttons: 1,
+      clientX: rect.left + Math.max(8, rect.width * 0.75),
+      clientY: rect.top + Math.max(8, rect.height / 2)
+    }));
+    await new Promise(resolve => requestAnimationFrame(resolve));
+    window.dispatchEvent(new MouseEvent('mouseup', {
+      bubbles: true,
+      cancelable: true,
+      button: 0
+    }));
+    return true;
+  });
+  expect(dragDispatched).toBe(true);
+  await expect.poll(async () => page.evaluate(() => {
+    const state = window.Components?.box?.__getState?.();
+    const hot = state?.ensureHotForActiveTab?.() || state?.hot;
+    const data = hot?.getData?.() || [];
+    return Array.isArray(data[0]) ? data[0].slice(0, 6) : [];
+  }), { timeout: 15_000, intervals: [100, 200, 400] }).not.toEqual(originalHeaderRow);
+  await waitForBoxIdle(page);
+
+  const after = await inspectViolinStyles();
+  expect(after.insetFill).toBe('#fff');
+  expect(after.insetFill).toBe(before.insetFill);
+  expect(after.medianStroke).not.toBe(after.bodyFill);
+});
+
 test('Box Density samples updates only the violin layer', async ({ page }) => {
   test.setTimeout(60_000);
   await installLocalCdnOverrides(page);

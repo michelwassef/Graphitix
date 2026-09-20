@@ -517,9 +517,8 @@ describe('statsFigureSummary shared SVG renderer', () => {
     expect(window.Shared.statsFigureSummary.COMPACT_P_VALUE_DISPLAY_FLOOR).toBe(0.001);
   });
 
-  test('uses the compact p-value floor consistently for SVG, accessible HTML, and export', () => {
+  test('uses the compact p-value floor in the SVG summary', () => {
     const tabId = installWorkspace();
-    root.querySelector('.svgbox').insertAdjacentHTML('afterend', '<div class="graph-export-controls"></div>');
     require('../../js/shared/statsFigureSummary.js');
     window.Shared.statsFigureSummary.setEnabledInSharedState(tabId, true);
     const reportModel = {
@@ -547,10 +546,7 @@ describe('statsFigureSummary shared SVG renderer', () => {
     const expected = 'p < 0.001; p < 0.001; p > 0.0002';
     const group = svg.querySelector('g[data-stats-figure-summary="1"]');
     expect(group?.textContent).toContain(expected);
-    const details = root.querySelector('[data-stats-figure-summary-accessible="1"]');
-    expect(details?.textContent).toContain(expected);
-    expect(window.Shared.statsFigureSummary.getExportModel(tabId, 'box')?.rows)
-      .toEqual([['Key result', expected]]);
+    expect(root.querySelector('details')).toBeNull();
   });
 
   test('structured underflowed p-values are rendered as inequalities, never exact zero', () => {
@@ -833,25 +829,6 @@ describe('statsFigureSummary shared SVG renderer', () => {
       reportModel:{ methodsText:'Legacy report without figureSummary', resultsText:'Results' }
     })).toBe(false);
     expect(window.Shared.statsFigureSummary.__getReportForTab(tabId)).toBeNull();
-  });
-
-  test('projects a semantic summary table with structured export data', () => {
-    const tabId = installWorkspace();
-    root.querySelector('.svgbox').insertAdjacentHTML('afterend', '<div class="graph-export-controls"></div>');
-    require('../../js/shared/statsFigureSummary.js');
-    require('../../js/shared/stats-table.js');
-    window.Shared.statsFigureSummary.setEnabledInSharedState(tabId, true);
-    const reportModel = reportWithValue('t(12) = 2.4; p = 0.031');
-    expect(window.Shared.statsFigureSummary.registerReportModel({ tabId, componentType:'box', reportModel })).toBe(true);
-    expect(window.Shared.statsFigureSummary.renderForTab(tabId, { componentType:'box' })).toBe(true);
-    const details = root.querySelector('[data-stats-figure-summary-accessible="1"]');
-    expect(details).toBeTruthy();
-    expect(details.querySelectorAll('thead th[scope="col"]')).toHaveLength(2);
-    expect(details.querySelector('tbody th[scope="row"]')?.textContent).toBe('Key result');
-    expect(window.Shared.statsFigureSummary.getExportModel(tabId, 'box')).toMatchObject({
-      columns:[{ label:'Statistic' }, { label:'Value' }],
-      rows:[['Key result', expect.stringContaining('t(12) = 2.4')]]
-    });
   });
 
   test('uses an analysis title for descriptive summaries', () => {

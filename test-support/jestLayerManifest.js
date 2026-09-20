@@ -86,7 +86,7 @@ const DOM_UNIT_TESTS = Object.freeze([
   '__tests__/dom/stats.abbreviations.test.js',
   '__tests__/dom/stats.inference.contract.test.js',
   '__tests__/dom/stats.pvalueFormatting.contract.test.js',
-  '__tests__/dom/stats-table.figureSummary.semantic.test.js',
+  '__tests__/dom/stats-table.semantic.test.js',
   '__tests__/dom/dom.autoResizeSvg.test.js',
   '__tests__/dom/dom.enableLabelDrag.test.js',
   '__tests__/dom/dom.enableLegendDrag.test.js',

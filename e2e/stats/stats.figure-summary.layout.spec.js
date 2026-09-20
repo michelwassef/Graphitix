@@ -290,11 +290,11 @@ test('surface summary registration does not render the same draw twice', async (
   });
   const reason = 'surface-summary-render-coalescing';
   await page.evaluate(drawReason => {
-    const table = window.Shared?.statsTable;
-    if(!table || typeof table.render !== 'function') throw new Error('stats table renderer unavailable');
+    const summary = window.Shared?.statsFigureSummary;
+    if(!summary || typeof summary.renderForTab !== 'function') throw new Error('figure summary renderer unavailable');
     window.__surfaceSummaryRenderCount = 0;
-    const originalRender = table.render;
-    table.render = function(...args){
+    const originalRender = summary.renderForTab;
+    summary.renderForTab = function(...args){
       window.__surfaceSummaryRenderCount += 1;
       return originalRender.apply(this, args);
     };

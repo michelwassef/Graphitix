@@ -60,9 +60,9 @@ test('Box example loading keeps the graph controls visible', async ({ page }) =>
   expect(after.controlsRight).toBeLessThanOrEqual(after.graphRight + 1);
   // The stack includes the outward content envelope around the canonical SVG box.
   expect(after.stackWidth).toBeGreaterThanOrEqual(after.svgBoxWidth - 1);
-  expect(after.notesOpen).toBe(true);
+  expect(after.notesOpen).toBe(false);
   expect(Math.abs(after.notesWidth - after.stackWidth)).toBeLessThanOrEqual(1);
-  expect(after.notesHeight).toBeGreaterThan(before.notesHeight);
+  expect(after.notesHeight).toBeLessThanOrEqual(before.notesHeight + 1);
   expect(after.notesFontSizePx).toBeCloseTo(40 / 3, 1);
   expect(after.graphScrollLeft).toBe(0);
   expect(issues.critical).toEqual([]);

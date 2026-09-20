@@ -1892,12 +1892,10 @@
     const preferredDefaultColor = typeof options.defaultColor === 'string' && options.defaultColor.trim() && options.defaultColor !== 'none'
       ? options.defaultColor.trim()
       : null;
-    const summaryColor = resolveBoxSummaryOverlayColor(
-      summaryStyle,
-      preferredDefaultColor || fillColor,
-      preferredDefaultColor ? fillColor : borderColor,
-      { schemeId: options.schemeId }
-    );
+    const summaryColor = resolveBoxOverlayStrokeColor(summaryStyle, fillColor, borderColor, {
+      schemeId: options.schemeId,
+      defaultColor: preferredDefaultColor
+    });
     const summaryOpacityRaw = summaryStyle ? clampSummaryOpacity(summaryStyle.opacity) : null;
     const summaryOpacity = summaryOpacityRaw == null ? (fallbackOpacity == null ? 1 : fallbackOpacity) : summaryOpacityRaw;
     const summaryPattern = sanitizeSummaryLinePattern(summaryStyle?.pattern ?? summaryStyle?.linePattern);
@@ -15585,6 +15583,23 @@
     return '#000000';
   }
 
+  function resolveBoxOverlayStrokeColor(summaryStyle, fillColor, borderColor, options = {}){
+    const providedDefault = typeof options.defaultColor === 'string'
+      && options.defaultColor.trim()
+      && options.defaultColor !== 'none'
+      ? options.defaultColor.trim()
+      : null;
+    const defaultColor = providedDefault || resolveBoxOverlayDefaultColor(fillColor, borderColor, {
+      schemeId: options.schemeId
+    });
+    return resolveBoxSummaryOverlayColor(
+      summaryStyle,
+      defaultColor || fillColor,
+      defaultColor ? fillColor : borderColor,
+      { schemeId: options.schemeId }
+    );
+  }
+
 	  function normalizeSignificanceWhiskerMode(value){
 	    if(typeof value !== 'string'){ return DEFAULT_SIGNIFICANCE_WHISKER_MODE; }
 	    const trimmed = value.trim().toLowerCase();
@@ -16150,7 +16165,8 @@
       );
       const fill = resolveBoxThemeAwareStyleColor(resolveTraceShapeFillStyleColor(styleOverride), themedColors.fillColor, { schemeId });
       const stroke = resolveBoxThemeAwareStyleColor(resolveTraceShapeBorderStyleColor(styleOverride), themedColors.borderColor, { schemeId });
-      if(fill){ node.setAttribute('fill', fill); }
+      const preserveViolinInsetFill = node.getAttribute('data-box-violin-summary') === '1';
+      if(fill && !preserveViolinInsetFill){ node.setAttribute('fill', fill); }
       if(stroke){ node.setAttribute('stroke', stroke); }
       applied = true;
     });
@@ -16217,7 +16233,21 @@
         : null;
       const summaryStyle = traceSummaryStyle || (opts.summaryGlobalStyle && typeof opts.summaryGlobalStyle === 'object' ? opts.summaryGlobalStyle : null);
       const themedSummaryColors = resolvePaletteColors(colorIndex);
-      node.setAttribute('stroke', resolveBoxSummaryOverlayColor(summaryStyle, themedSummaryColors.fillColor, themedSummaryColors.borderColor, { schemeId }));
+      const overlayKind = node.getAttribute('data-box-overlay-kind');
+      const summaryColor = overlayKind
+        ? resolveBoxOverlayStrokeColor(
+          summaryStyle,
+          themedSummaryColors.fillColor,
+          themedSummaryColors.borderColor,
+          { schemeId }
+        )
+        : resolveBoxSummaryOverlayColor(
+          summaryStyle,
+          themedSummaryColors.fillColor,
+          themedSummaryColors.borderColor,
+          { schemeId }
+        );
+      node.setAttribute('stroke', summaryColor);
       applied = true;
     });
 
@@ -33809,7 +33839,7 @@ Technical analysis record (advanced)
         const insetWidth = Math.max(1, Math.abs(config.valuePixels.q3 - config.valuePixels.q1));
         const violinWhisker = add('line',{ x1: config.valuePixels.wMin, y1: config.centerCoord, x2: config.valuePixels.wMax, y2: config.centerCoord, stroke: config.borderColor, 'stroke-width': whiskerStrokeWidth, ...commonAttrs });
         attachBoxShapeHandler(violinWhisker);
-        const violinRect = add('rect',{ x: insetLeft, y: insetY0, width: insetWidth, height: insetBoxSpan, fill: '#fff', 'stroke-width': insetStrokeWidth, ...commonAttrs });
+        const violinRect = add('rect',{ x: insetLeft, y: insetY0, width: insetWidth, height: insetBoxSpan, fill: '#fff', 'stroke-width': insetStrokeWidth, 'data-box-violin-summary': '1', ...commonAttrs });
         attachBoxShapeHandler(violinRect);
         const violinMedian = add('line',{ x1: config.valuePixels.med, y1: insetY0, x2: config.valuePixels.med, y2: insetY1, stroke: config.borderColor, 'stroke-width': insetStrokeWidth, ...commonAttrs });
         attachBoxShapeHandler(violinMedian);
@@ -33821,7 +33851,7 @@ Technical analysis record (advanced)
         const insetX1 = insetX0 + insetBoxSpan;
         const violinWhisker = add('line',{ x1: config.centerCoord, y1: config.valuePixels.wMax, x2: config.centerCoord, y2: config.valuePixels.wMin, stroke: config.borderColor, 'stroke-width': whiskerStrokeWidth, ...commonAttrs });
         attachBoxShapeHandler(violinWhisker);
-        const violinRect = add('rect',{ x: insetX0, y: config.valuePixels.q3, width: insetBoxSpan, height: Math.max(1, config.valuePixels.q1 - config.valuePixels.q3), fill: '#fff', 'stroke-width': insetStrokeWidth, ...commonAttrs });
+        const violinRect = add('rect',{ x: insetX0, y: config.valuePixels.q3, width: insetBoxSpan, height: Math.max(1, config.valuePixels.q1 - config.valuePixels.q3), fill: '#fff', 'stroke-width': insetStrokeWidth, 'data-box-violin-summary': '1', ...commonAttrs });
         attachBoxShapeHandler(violinRect);
         const violinMedian = add('line',{ x1: insetX0, y1: config.valuePixels.med, x2: insetX1, y2: config.valuePixels.med, stroke: config.borderColor, 'stroke-width': insetStrokeWidth, ...commonAttrs });
         attachBoxShapeHandler(violinMedian);

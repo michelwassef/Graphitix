@@ -334,11 +334,15 @@ describe('Shared.exampleDatasets biomedical registry', () => {
 
     expect(registry.applyNotesState(notesState, record)).toBe(true);
     expect(notesState.text).toBe(record.notes);
-    expect(notesState.open).toBe(true);
+    expect(notesState.open).toBe(false);
     expect(calls).toEqual([
       ['value', record.notes],
-      ['open', true]
+      ['open', false]
     ]);
+
+    expect(registry.applyNotesState(notesState, record, { open: true })).toBe(true);
+    expect(notesState.open).toBe(true);
+    expect(calls.at(-1)).toEqual(['open', true]);
   });
 
   test('all component loaders consume the shared registry instead of private example literals', () => {

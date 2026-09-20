@@ -1,4 +1,4 @@
-describe('semantic figure-summary tables', () => {
+describe('semantic statistics tables', () => {
   let mountConfig;
 
   beforeEach(() => {
@@ -22,11 +22,11 @@ describe('semantic figure-summary tables', () => {
     const result = window.Shared.statsTable.render({
       target:document.getElementById('target'),
       model:{
-        caption:'Analysis summary',
+        caption:'Analysis results',
         columns:[{ key:'statistic', label:'Statistic' }, { key:'value', label:'Value' }],
-        rows:[['Analysis', 'Descriptive summary']],
+        rows:[['Analysis', 'Descriptive result']],
         footnotes:[],
-        options:{ fileName:'box-figure-summary', contextLabel:'box-figure-summary' }
+        options:{ fileName:'statistics-report', contextLabel:'statistics-report' }
       }
     });
 

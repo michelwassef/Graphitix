@@ -14,9 +14,9 @@ The feature has a strong technical foundation:
 - resize, SVG export, reopen, recovery, and focused tab-isolation paths are covered, including the recovered Venn render-cache path;
 - the two-column typography, wrapping, horizontal rules, and graph-envelope extension are appropriate publication-oriented choices.
 
-The feature is now publication-oriented and materially safer. The visible projection remains compact by design, but its selection is traceable, essential context is retained for the affected analyses, omissions are disclosed, and the same normalized model feeds SVG, accessible HTML, and structured export. The Venn lifecycle and recovered-cache geometry defects documented below remain resolved.
+The feature is now publication-oriented and materially safer. The visible projection remains compact by design, but its selection is traceable, essential context is retained for the affected analyses, and omissions are disclosed. The Venn lifecycle and recovered-cache geometry defects documented below remain resolved.
 
-**Release recommendation: the six findings in this audit are resolved in the working tree.** Broader component-level archive and statistical-method debt remains outside this feature audit.
+**Release recommendation: the five findings in this audit are resolved in the working tree.** Broader component-level archive and statistical-method debt remains outside this feature audit.
 
 ## First-principles re-audit — 2026-09-09
 
@@ -32,13 +32,12 @@ The reporting baseline used here is appropriate for biomedical/publication-orien
 - The P-value concern remains valid, but it is a precision-policy problem rather than an unconditional violation: SAMPL permits a display floor of `P < 0.001`, whereas Nature asks for exact P values whenever suitable. The application chooses the conventional `P < 0.001` floor for compact figure summaries; detailed reports and source-faithful outputs retain their finer bound or exact value.
 - The ROC/PR cutoff concern is conditional. Cutoffs and sensitivity/specificity or precision/recall/F1 are essential when the figure supports a diagnostic decision threshold; they are not required in every descriptive AUC/average-precision figure. The current model excludes them without an omission marker, so the gap is real but context-dependent. [STARD 2015 checklist](https://www.equator-network.org/wp-content/uploads/2015/03/STARD-2015-checklist.pdf)
 - The font mismatch is a style-consistency recommendation, not a scientific-validity blocker. The hard-coded title is a separate, confirmed semantic defect because descriptive summaries are rendered as `Statistics`.
-- The accessibility finding is a representation gap, not a claim that the SVG has already failed a formal WCAG conformance audit. The renderer exposes text nodes and data attributes, but not table row/cell semantics or a dedicated structured summary export. W3C recommends text alternatives for non-text content and table markup for tabular information where applicable. [WCAG 2.2](https://www.w3.org/TR/wcag/), [W3C table technique H51](https://www.w3.org/WAI/WCAG22/Techniques/html/H51.html)
 
 ### Re-audit conclusion
 
-The six release findings are resolved in the working tree. This audit does not establish that any underlying statistical calculation is numerically wrong; it audits the figure-summary projection, reporting contract, and presentation. The separate full-report probability-formatting issue remains outside this remediation.
+The five release findings are resolved in the working tree. This audit does not establish that any underlying statistical calculation is numerically wrong; it audits the figure-summary projection, reporting contract, and presentation. The separate full-report probability-formatting issue remains outside this remediation.
 
-The root issue is architectural: one canonical structured model is projected through component-specific compact selectors. The selectors now define essential rows explicitly and intentionally omit lower-priority detail from the short figure view; the full report remains the authoritative destination for that detail. The same validated model feeds SVG, accessible HTML, and structured export. Legacy readiness also depends on a valid figure-summary model, not merely on the existence of a report object.
+The root issue is architectural: one canonical structured model is projected through component-specific compact selectors. The selectors now define essential rows explicitly and intentionally omit lower-priority detail from the short figure view; the full report remains the authoritative destination for that detail. Legacy readiness also depends on a valid figure-summary model, not merely on the existence of a report object.
 
 ## Implementation resolution — 2026-09-09
 
@@ -48,8 +47,7 @@ The audit findings were addressed at the shared projection boundary and then ali
 - F-02: Box reports post-exclusion group sample sizes; Survival retains every group’s sample size, events, censoring count, and median-survival summary; ROC/PR retains computed threshold metrics; Heatmap reports the significant-pair result as a key result; Surface retains geometry, mesh, range, exclusions, and resource-limit context; Pie reports the overall denominator; Histogram reports the per-series `n` for displayed goodness-of-fit rows.
 - F-03: report registration validates a non-empty structured figure-summary model. Legacy reports without one remain unavailable to the Summary table control, and a stale report registry entry is cleared.
 - F-04: raw structured P-value tokens are formatted before generic report text rendering; the compact figure uses the documented `p < 0.001` display floor for very small values, zero-valued tail results are never rendered as `p = 0`, detailed reports retain the source value, and finite values outside `[0, 1]` are reported as invalid/unavailable rather than clamped.
-- F-05: the SVG remains the publication projection, while the mounted owner-scoped projection also exposes a semantic HTML table with scoped headers and Download/Copy CSV, Excel, and JSON actions.
-- F-06: the SVG title now follows the normalized model: inferential summaries use “Statistical summary” and descriptive summaries use “Analysis summary.”
+- F-05: the SVG title now follows the normalized model: inferential summaries use “Statistical summary” and descriptive summaries use “Analysis summary.”
 
 Focused validation after the implementation:
 
@@ -138,7 +136,7 @@ Focused validation after the repair:
 - Chromium: **15 shared summary layout/live-resize tests passed**, including all 11 component render checks.
 - Chromium: **9 Venn restore/recovery tests passed**.
 
-The original Venn overlap finding is therefore closed. The overall publication-readiness recommendation remains **hold** because F-01 through F-06 are still open audit findings.
+The original Venn overlap finding is therefore closed. The overall publication-readiness recommendation remains **hold** because F-01 through F-05 are still open audit findings.
 
 ## Findings
 
@@ -199,15 +197,7 @@ The formatter clamps out-of-range finite P values into `[0, 1]`, which can hide 
 
 This aligns with [Nature’s reporting requirements](https://www.nature.com/documents/nr-reporting-summary-flat.pdf), which request exact P values whenever suitable, while adopting the common compact-figure convention supported by SAMPL: report values below the reporting floor as `P < 0.001`. The distinction between compact and detailed/source-faithful output is deliberate and documented.
 
-### F-05 — Medium: the output is visual SVG text, not a semantic table — resolved
-
-The UI calls the control “Summary table”: [index.html:325](/C:/Users/Michel/Graphitix/index.html:325). The renderer creates an SVG group containing text nodes rather than a semantic table: [statsFigureSummary.js:1270](/C:/Users/Michel/Graphitix/js/shared/statsFigureSummary.js:1270).
-
-There is no accessible row/cell structure, structured summary export, or dedicated CSV/TSV representation. This limits screen-reader access, copy/paste reuse, and reproducible extraction from a publication figure. This is a product/accessibility gap; formal WCAG conformance requires a separate accessibility evaluation.
-
-**Required direction:** retain the SVG projection for figures, but expose the same structured model through an accessible HTML table and a text/CSV/TSV export path. Add SVG title/description metadata where appropriate.
-
-### F-06 — Medium: publication style and title semantics are inconsistent — title semantics resolved
+### F-05 — Medium: publication style and title semantics are inconsistent — title semantics resolved
 
 The summary defaults to Georgia/Times: [statsFigureSummary.js:9](/C:/Users/Michel/Graphitix/js/shared/statsFigureSummary.js:9), while the visible publication preset describes Arial/Helvetica. A separate serif choice may be defensible, but it should be deliberate, documented, and consistent with the selected publication preset.
 
@@ -247,7 +237,7 @@ The feature should be considered publication-ready only when:
 - the short table contains only essential parameters and key results; the complete report remains available for additional detail;
 - exact source precision is preserved unless a documented display policy applies;
 - legacy files never expose an enabled-but-empty summary;
-- figure output, accessible table output, and exported structured data use the same model;
+- figure output uses the same validated model as the detailed report;
 - all 11 components pass focused summary rendering, with representative reopen/recovery and same-component isolation coverage; broader all-component archive parity remains a separate test program.
 
 ## Follow-up runtime evidence: recovered Venn cache spacing
@@ -267,7 +257,7 @@ Focused validation after this repair:
 - Chromium: **2 same-component summary-isolation tests passed**.
 - Chromium: **9 existing Venn restore/recovery tests passed**.
 
-The recovered-file spacing defect is closed in the working tree. The publication-readiness recommendation remains **hold** because F-01 through F-05 and the F-06 title-semantics issue remain open; the F-06 font mismatch is not a release blocker.
+The recovered-file spacing defect is closed in the working tree. The publication-readiness recommendation remains **hold** because F-01 through F-05 remain open; the F-05 font mismatch is not a release blocker.
 
 The first-principles renderer recheck also passed: **1 Jest suite, 19 tests passed** (`stats.figureSummary.renderer.contract.test.js`). This confirms the current implementation and its intentional compact-selection behavior; it does not validate the scientific completeness of that behavior.
 
@@ -307,7 +297,7 @@ Focused validation after this repair:
 - Chromium: **6 summary live-resize tests passed** (Box, Histogram, Pie, PCA, Heatmap, Surface);
 - Chromium: **1 existing Surface live-resize stability test passed**.
 
-The duplicate specialized cache-serializer issue is resolved and removed from the actionable `issues.txt` backlog. The publication-readiness recommendation remains **hold**: F-01 through F-05 and the F-06 title-semantics issue are still open. The fixes establish lifecycle, recovery, and live-resize integrity; they do not establish scientific completeness, accessible-table parity, or the remaining precision and legacy-report requirements.
+The duplicate specialized cache-serializer issue is resolved and removed from the actionable `issues.txt` backlog. The publication-readiness recommendation remains **hold**: F-01 through F-05 are still open. The fixes establish lifecycle, recovery, and live-resize integrity; they do not establish scientific completeness or the remaining precision and legacy-report requirements.
 
 ## Heatmap summary-frame invariance follow-up — 2026-09-09
 

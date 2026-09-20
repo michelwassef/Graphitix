@@ -29125,7 +29125,7 @@
       return false;
     }
     notesState.text = text;
-    notesState.open = opts.open !== false;
+    notesState.open = opts.open === true;
     const control = notesState.control;
     if(control && typeof control.setValue === 'function'){
       control.setValue(notesState.text);

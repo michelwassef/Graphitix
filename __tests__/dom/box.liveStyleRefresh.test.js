@@ -49,6 +49,63 @@ describe('Box live style refresh', () => {
     expect(svg.querySelector('[data-legend-swatch="1"]').getAttribute('fill')).toBe('#d55e00');
   });
 
+  test('keeps box and notched median overlays distinct from the colored body', () => {
+    const svg = document.getElementById('boxSvg');
+    const median = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    median.setAttribute('data-summary-line', '1');
+    median.setAttribute('data-box-overlay-kind', 'box-median');
+    median.setAttribute('data-trace', '4');
+    median.setAttribute('data-color-index', '1');
+    svg.appendChild(median);
+
+    const applied = hooks.tryApplyBoxPaletteLive({
+      plot: document.getElementById('boxPlot'),
+      graphType: 'notched',
+      colorScheme: 'scientific',
+      colors: ['#0072b2', '#d55e00'],
+      borderColors: ['#003f63', '#7f3600']
+    });
+
+    expect(applied).toBe(true);
+    expect(median.getAttribute('stroke')).toBe('#7f3600');
+    expect(median.getAttribute('stroke')).not.toBe('#d55e00');
+  });
+
+  test('preserves the fill-based live color for Strip summaries', () => {
+    const applied = hooks.tryApplyBoxPaletteLive({
+      plot: document.getElementById('boxPlot'),
+      graphType: 'strip',
+      colorScheme: 'scientific',
+      colors: ['#0072b2', '#d55e00'],
+      borderColors: ['#003f63', '#7f3600']
+    });
+
+    expect(applied).toBe(true);
+    expect(document.querySelector('[data-summary-line="1"]').getAttribute('stroke')).toBe('#d55e00');
+  });
+
+  test('preserves the white Violin inset while recoloring its border', () => {
+    const inset = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    inset.setAttribute('data-box-shape', 'body');
+    inset.setAttribute('data-box-violin-summary', '1');
+    inset.setAttribute('data-trace', '4');
+    inset.setAttribute('data-color-index', '1');
+    inset.setAttribute('fill', '#fff');
+    document.getElementById('boxSvg').appendChild(inset);
+
+    const applied = hooks.tryApplyBoxPaletteLive({
+      plot: document.getElementById('boxPlot'),
+      graphType: 'violin',
+      colorScheme: 'soft',
+      colors: ['#4e79a7', '#e15759'],
+      borderColors: ['#375a80', '#a83d3f']
+    });
+
+    expect(applied).toBe(true);
+    expect(inset.getAttribute('fill')).toBe('#fff');
+    expect(inset.getAttribute('stroke')).toBe('#a83d3f');
+  });
+
   test('trace border overrides do not become symbol border defaults', () => {
     const applied = hooks.tryApplyBoxPaletteLive({
       plot: document.getElementById('boxPlot'),

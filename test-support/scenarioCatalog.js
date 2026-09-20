@@ -811,7 +811,7 @@ const SCENARIOS_BY_FILE = Object.freeze({
   '__tests__/dom/toolbar.numericWheel.sharedControls.test.js': Object.freeze(['DOM.toolbar-numeric-shared']),
   '__tests__/dom/stats.inference.contract.test.js': Object.freeze(['DOM.stats-formatting']),
   '__tests__/dom/stats.pvalueFormatting.contract.test.js': Object.freeze(['DOM.stats-formatting']),
-  '__tests__/dom/stats-table.figureSummary.semantic.test.js': Object.freeze(['DOM.stats-formatting']),
+  '__tests__/dom/stats-table.semantic.test.js': Object.freeze(['DOM.stats-formatting']),
   '__tests__/statistical-oracle/stats.differential.python.test.js': Object.freeze(['STATS.numerical-oracle']),
   '__tests__/statistical-oracle/stats.component.differential.test.js': Object.freeze(['STATS.numerical-oracle']),
   '__tests__/statistical-oracle/stats.matrix.components.test.js': Object.freeze(['STATS.numerical-oracle']),
