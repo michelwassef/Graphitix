@@ -1,8 +1,8 @@
-const fs = require('fs');
 const { test, expect } = require('@playwright/test');
 const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
 const { openComponentFromWelcome, clickExampleButtonIfPresent, waitForDocumentOpenComplete } = require('../helpers/workspaceDriver');
 const { registerIssueCollectors } = require('../helpers/diagnostics');
+const { saveWorkspaceArchive } = require('../helpers/archiveDriver');
 
 const BOX_COMPONENT = { type: 'box', pageId: 'boxPage' };
 const ALPHA_SELECTOR = '#boxStatsInferenceControls [data-stats-inference-key="alpha"]';
@@ -94,24 +94,12 @@ async function captureActiveAlpha(page) {
 }
 
 async function captureWorkspaceArchive(page, archivePath) {
-  const base64 = await page.evaluate(async () => {
-    const context = window.Main?.tabs?.getSessionActionsContext?.();
-    const blob = await window.Main?.sessionActions?.buildWorkspaceArchiveBlob?.(context, {
-      scope: 'workspace',
-      snapshotKind: 'document-snapshot',
-      compression: 'STORE',
-      reason: 'e2e-stats-inference-roundtrip'
-    });
-    if (!blob) throw new Error('Workspace archive blob was not produced');
-    const bytes = new Uint8Array(await blob.arrayBuffer());
-    let binary = '';
-    const chunkSize = 0x8000;
-    for (let index = 0; index < bytes.length; index += chunkSize) {
-      binary += String.fromCharCode.apply(null, bytes.subarray(index, index + chunkSize));
-    }
-    return btoa(binary);
+  await saveWorkspaceArchive(page, archivePath, {
+    scope: 'workspace',
+    snapshotKind: 'document-snapshot',
+    compression: 'STORE',
+    reason: 'e2e-stats-inference-roundtrip'
   });
-  fs.writeFileSync(archivePath, Buffer.from(base64, 'base64'));
   return archivePath;
 }
 

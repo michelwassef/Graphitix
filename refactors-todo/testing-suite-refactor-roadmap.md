@@ -1,25 +1,25 @@
 # Graphitix testing-suite refactor roadmap
 
 Status: core testing-suite refactor complete for the active Chromium scope; non-blocking roadmap follow-ups and fresh release certification remain
-Audit date: 2026-09-18
+Audit date: 2026-09-20
 Scope: Jest, Playwright, test harnesses, fixtures, runners, CI, coverage, and test documentation.  
 Production changes are out of scope for this roadmap slice; confirmed production defects discovered by the audit are recorded in `issues.txt` for the implementation waves.
 
 This status covers the scoped refactor and its governance. Full integration and full-Chromium runs remain separate release-readiness gates; passing focused lanes does not claim full product readiness.
 
-Recheck status: independently revalidated against the current checkout on 2026-09-18. Counts below define their denominator explicitly; they are not estimates copied from the older July audit.
+Recheck status: independently revalidated against the current checkout on 2026-09-20. Counts below define their denominator explicitly; they are not estimates copied from the older July audit.
 
-## Current recheck — 2026-09-18
+## Current recheck — 2026-09-20
 
 The latest governance wave is complete for its reviewed scope:
 
-- 566 manifest rows cover 315 Jest files and 251 Playwright files; Chromium discovery reports 855 tests.
-- Requirement evidence is 774 explicit and 0 inferred mappings; all 9 critical scenarios remain covered. Each manifest row now also records transition scope alongside component, lane, and environment metadata.
-- All 20 suites above 800 lines are physically grouped; 1 intentionally deferred Firefox-only Playwright suite remains at a legacy root and no Jest suite does. The inventory rejects any future oversized root suite.
+- 567 manifest rows cover 316 Jest files and 251 Playwright files; Chromium discovery reports 860 tests.
+- Requirement evidence is 775 explicit and 0 inferred mappings; all 9 critical scenarios remain covered. Each manifest row now also records transition scope alongside component, lane, and environment metadata.
+- All 19 suites above 800 lines are physically grouped; 1 intentionally deferred Firefox-only Playwright suite remains at a legacy root and no Jest suite does. The inventory rejects any future oversized root suite.
 - All 19 remaining direct component bootstraps have an explicit reviewed reason; safe isolated suites use the manifest-derived production bootstrap.
 - Direct component evidence now covers every catalogued feature, including Venn notes, with no unexplained gaps.
 
-The reviewed refactor scope is complete for the active Chromium and Jest layers. Pure bootstrap/clipboard/export contracts now run in minimal DOM or architecture projects; the bounded app-integration lane has teardown/leak enforcement; reviewed source assertions, fixed-scratch archive paths, lane evidence, coverage reporting, partial Jest shard reports, and nightly full-Jest certification are in place. The ordinary-wait follow-up migrated all 114 inventoried ordinary E2E waits and 11 diagnostic-helper pacing waits: the current E2E scan reports zero `waitForTimeout` calls and 409 `setTimeout` calls. The cache-schema contract, reviewed pure-unit moves, archive-driver migrations, strict full-app preseed guard, repeated owner-order contract, all-eleven negative owner-handoff matrix, unified report-schema validation, and trend aggregation are validated for their current scope. Broader adapter, fixture, capability-matrix, specialized-double, and fresh release-certification follow-ups remain below. Firefox browser parity remains deferred.
+The reviewed refactor scope is complete for the active Chromium and Jest layers. Pure bootstrap/clipboard/export contracts now run in minimal DOM or architecture projects; the bounded app-integration lane has teardown/leak enforcement; reviewed source assertions, fixed-scratch archive paths, lane evidence, coverage reporting, partial Jest shard reports, and nightly full-Jest certification are in place. The ordinary-wait follow-up migrated all 114 inventoried ordinary E2E waits and 11 diagnostic-helper pacing waits: the current E2E scan reports zero `waitForTimeout` calls and 414 `setTimeout` calls. The cache-schema contract, reviewed pure-unit moves, archive-driver migrations, strict full-app preseed guard, repeated owner-order contract, all-eleven negative owner-handoff matrix, unified report-schema validation, and trend aggregation are validated for their current scope. Broader adapter, fixture, capability-matrix, specialized-double, and fresh release-certification follow-ups remain below. Firefox browser parity remains deferred.
 
 This roadmap supersedes the July measurements in `docs/development/testing-suite-audit.md` and consolidates the prior testing refactor plans. The historical audit is evidence only; this document and the generated manifest are the current refactor sources.
 
@@ -79,7 +79,7 @@ Progress: the authorized testing-suite refactor and ordinary-wait follow-up are 
 - An immutable eleven-component catalog is shared by Jest inventory checks and Playwright helpers; worker capability rows are checked against component source.
 - Framework discovery is recorded by `scripts/test-inventory.cjs`; the generated file manifest assigns every discovered test a layer and default lane, while unmapped scenario IDs remain visible for migration.
 - Manifest output is path-sorted and published by `scripts/generate-testing-inventory.cjs`; repeated generation is byte-stable and checked in the static lane.
-- The pre-regeneration scenario snapshot is historical. The generated inventory is authoritative and reports 566 rows, 774 explicit and 0 inferred requirement mappings, with zero unmapped files. Its component matrix separates direct from wildcard evidence and has no unexplained feature gaps; transition scope is generated per manifest row.
+- The pre-regeneration scenario snapshot is historical. The generated inventory is authoritative and reports 567 rows, 775 explicit and 0 inferred requirement mappings, with zero unmapped files. Its component matrix separates direct from wildcard evidence and has no unexplained feature gaps; transition scope is generated per manifest row.
 - Owner readiness now checks active owner, component readiness, restore state, projected root, and lifecycle async generation; pending-work evidence is returned to failures and reports. Cache and archive-checkpoint readiness now also require owner, component, phase, cursor, provenance signatures, and an explicit outcome. Bounded lifecycle and archive metadata summaries are attached by the repeated owner-order and archive/layout contracts; broader diagnostic adoption remains.
 - The strict Playwright UI driver uses locator actions and owner-scoped readiness. The former monolithic helper is now a nine-line compatibility barrel over vendor overrides, workspace actions, and diagnostics; new tests can import the narrow owner directly.
 - Playwright server provenance is checked against the current `index.html`; stale server reuse is opt-in. JSON results, traces, screenshots, and video are retained through failure artifacts.
@@ -122,6 +122,18 @@ Progress: the authorized testing-suite refactor and ordinary-wait follow-up are 
 - Completed reviewed organization batches without forcing specialized bootstraps: architecture 35/35 suites / 338 tests, DOM-unit 138/138 / 1,340 tests, and the ten production-bootstrap render-cache capture suites 10/10. The Box E2E capability batch now lists 82 tests across 35 files under `e2e/box`.
 - Standardized shared Box CSV fixtures under `__tests__/fixtures/box` and regenerated the authoritative inventory. Current counts are 566 manifest rows, 315 Jest files, 251 Playwright files, 855 Chromium tests, 774 explicit mappings, 0 inferred mappings, and 1 intentionally deferred Firefox legacy-root suite.
 - Completed the reviewed physical organization wave: all Jest suites are now under declared layer directories, all active Chromium Playwright suites are under capability/component directories, and all 20 suites above 800 lines are grouped. Final focused evidence is green for DOM (138 suites/1,340 tests), bounded integration (44 one-file groups), unit (85 suites/695 tests), architecture/workers (42 suites/428 tests), and statistical-oracle (6 suites/38 tests). No Firefox discovery or execution was run.
+
+### Execution log — 2026-09-20
+
+- Replaced the reintroduced raw recovery observation pause in `stats.figure-summary.reopen-recovery.spec.js` with an explicit RAF sampling completion signal; the focused Chromium file passed 6/6. The current inventory reports zero `waitForTimeout` calls and 414 `setTimeout` calls.
+- Migrated twelve duplicate archive serializers to the shared Playwright archive writer. The focused Pie, Surface, Box/PCA, Histogram, Venn, ROC, Survival, recovery, and stats batches passed 40/40 with one Chromium worker; no recovery or assertion behavior changed.
+- Migrated the remaining ordinary stats presence and same-component archive contracts in this batch to the shared Playwright archive writer. Focused Chromium validation passed 15/15 with one worker; no specialized archive behavior was changed.
+- Migrated three duplicate PCA archive serializers to the shared Playwright archive writer. Focused Chromium validation passed 10/10 with one worker; PCA recovery and 3D interaction behavior remained unchanged.
+- Migrated the Heatmap geometry and ROC graph-type archive serializers to the shared Playwright archive writer. Focused Chromium validation passed 4/4 with one worker; component-specific recovery and graph assertions remained unchanged.
+- Migrated the Lock-ratio and mixed Scatter CSV archive serializers to the shared Playwright archive writer. The focused Chromium run passed 8/10; the two strict Line/Venn forced-tab cases reproduced the pre-existing owner-readiness timeout before archive capture and are recorded in `issues.txt`.
+- Migrated the Box point-size and Histogram panel document-snapshot builders to the shared archive driver. Focused Chromium validation passed 15/15 with one worker; point-size, panel-layout, and archive-reopen assertions remained unchanged.
+- Split the shared Plot3D Jest contract into core rendering and managed rotation-gesture suites. The focused pair passed 25/25; both files are below 800 lines and now carry separate explicit scenario evidence.
+- Revalidated the current checkout: 567 manifest rows, 316 Jest files, 251 Playwright files, 860 Chromium tests, 775 explicit and 0 inferred mappings, 9/9 critical scenarios, zero legacy-unmapped rows, and `npm run quality:static` passed. Firefox remains deferred.
 
 ### Execution log — 2026-09-13
 
@@ -313,7 +325,7 @@ The scoped test-refactor work and the separately authorized wait-debt pass are c
 
 | Workstream | State | Evidence / next boundary |
 | --- | --- | --- |
-| Discovery and static governance | complete for current scope | Inventory checks pass: 566 manifest rows; all discovered files have reviewed scenario ownership. Firefox browser execution remains deferred. |
+| Discovery and static governance | complete for current scope | Inventory checks pass: 567 manifest rows; all discovered files have reviewed scenario ownership. Firefox browser execution remains deferred. |
 | Test layers | complete for current suite layout | 84 Node-unit, 138 DOM-unit, 35 architecture, 6 statistical-oracle, 44 integration, and 7 worker files; integration runs in bounded one-file processes because multi-file processes approach the memory ceiling. |
 | Production bootstrap | complete for reviewed scope | Safe isolated suites use the manifest-derived production bootstrap, and all 19 remaining direct component bootstraps have reviewed reasons. The pure bootstrap-manifest, clipboard, and exporter contracts now run outside app integration; Firefox browser coverage remains deferred. |
 | Component catalog | live | One immutable eleven-component catalog and one explicit parameter/style/layout mutation plan per component. |
@@ -321,7 +333,7 @@ The scoped test-refactor work and the separately authorized wait-debt pass are c
 | Canonical browser contracts | complete for refactor protocol; product defects open | Focused Chromium canonical contracts pass, including the three workspace control-plane contracts. The prior full run: 753/823 initially passed; one-worker diagnostics cleared 40 of 70 and reproduced 30. Test-boundary corrections and confirmed production defects are separately recorded; assertions remain strict. Firefox is deferred. |
 | Recovery/statistics | complete for authorized critical scope; product defects open | Statistics reopen/recovery, cache, publication, owner, and recovery contracts were exercised; remaining failures identify product boundaries in `issues.txt`, not missing test refactor work. |
 | Timing and suppressed failures | complete | Canonical contract files have zero arbitrary waits, timer waits, and empty-catch suppression. The 20 critical and 114 ordinary inventoried wait sites now use owner, projection, frame, archive, or named observation signals; the current E2E scan reports zero raw `waitForTimeout` calls. Synchronous direct-DOM click shortcuts are 0. |
-| Scenario IDs and evidence | governance complete for current scope | 566 manifest rows contain 774 explicit and 0 inferred mappings; all 9 critical scenarios are covered, every catalogued feature has direct evidence, and no file is unmapped. |
+| Scenario IDs and evidence | governance complete for current scope | 567 manifest rows contain 775 explicit and 0 inferred mappings; all 9 critical scenarios are covered, every catalogued feature has direct evidence, and no file is unmapped. |
 | Owner-payload driver boundary | complete as an explicit API lane | `e2e/helpers/ownerPayloadDriver.js` is used only by the two exhaustive owner/payload matrices; strict UI contracts cover user-facing changes. The former standalone server/renderer tooling is retired. Heatmap's owner hydration defect and the restored-interaction defects remain product evidence in `issues.txt`. |
 | Full CI/release certification | refactor gates complete; product release remains separate | PR static, unit, DOM, architecture, oracle, worker, bounded integration, Chromium contract, full Chromium, and nightly report lanes exist. Static, source-coverage, and post-fix bounded integration checks pass with machine-readable reports; full Chromium remains a separate release gate and Firefox parity is intentionally deferred. |
 
@@ -377,14 +389,14 @@ Measured from the current checkout, not the July archive:
 
 | Area | Current state | Consequence |
 | --- | ---: | --- |
-| Jest-discovered files | 315: 44 integration, 7 workers, 85 Node units, 138 minimal-DOM units, 35 architecture, 6 statistical-oracle | Integration is bounded to one fresh process per file; the separated projects establish explicit boundaries. Reviewed pure helper batches continue to move into the Node boundary. |
-| Jest test files present | 315: all `.test.js`; no orphan `.spec.js` | The discovery gate now rejects Jest-style files outside configured discovery. |
+| Jest-discovered files | 316: 44 integration, 7 workers, 85 Node units, 139 minimal-DOM units, 35 architecture, 6 statistical-oracle | Integration is bounded to one fresh process per file; the separated projects establish explicit boundaries. Reviewed pure helper batches continue to move into the Node boundary. |
+| Jest test files present | 316: all `.test.js`; no orphan `.spec.js` | The discovery gate now rejects Jest-style files outside configured discovery. |
 | Jest source lines | refreshed by generated inventory | The large AG Grid and lifecycle bodies now live in shared capability support; repeated bootstraps and other large suites remain expensive. |
-| Playwright specs | 251; 855 Chromium tests (Firefox discovery deferred) | 20 oversized specs are grouped; one intentionally deferred Firefox-only root spec remains. |
+| Playwright specs | 251; 860 Chromium tests (Firefox discovery deferred) | 20 oversized specs are grouped; one intentionally deferred Firefox-only root spec remains. |
 | Playwright source lines | refreshed by generated inventory across 251 specs | Many tests are browser/control-plane hybrids; narrow helper extraction has not yet reduced every legacy spec body. |
-| Listed Chromium tests | 855 | Parameterized tests multiply the cost of duplicated setup. |
+| Listed Chromium tests | 860 | Parameterized tests multiply the cost of duplicated setup. |
 | E2E `waitForTimeout` calls | 0 in the current inventory; the former 114 inventoried waits and 11 diagnostic-helper pacing waits are migrated; 0 in `.contract.spec.js` files | Ordinary synchronization uses owner, projection, frame, archive, or named observation helpers. |
-| E2E `setTimeout` calls | 409 in the current inventory; 0 unclassified timer waits in contract specs | Timer calls are a separate count and are not additional fixed pauses. |
+| E2E `setTimeout` calls | 414 in the current inventory; 0 unclassified timer waits in contract specs | Timer calls are a separate count and are not additional fixed pauses. |
 | E2E `page.evaluate` calls | 1,413 in 247 files | Internal state and synthetic actions are widely mixed with UI acceptance. |
 | Jest files with direct production `require` calls | reviewed by layer | Remaining direct imports belong to reviewed Node/DOM/architecture/worker tests; no Chromium-eligible integration file retains a copied production module list. The four `ui.events` shards consume the production-derived loader through shared suite support. |
 | Jest lifecycle hooks | 224 `beforeEach` calls; 94 `afterEach` calls | Per-file cleanup and ownership assumptions vary. |
@@ -394,7 +406,7 @@ Measured from the current checkout, not the July archive:
 | Owner-payload browser driver | explicit API driver | Strict UI switching and owner-payload matrices run in standard Playwright; the owner-payload driver is not a standalone runner or UI substitute. Its component evidence is reported separately from wildcard coverage. |
 | Conditional skip declarations | 4; no `fixme` declarations | Remaining skips still need issue IDs, owners, expiry, and removal gates. |
 | Test-code lint coverage | `npm run lint` covers source, scripts, test-support, `__tests__`, and `e2e` | Syntax/ownership-adjacent lint is now blocking in the static lane; semantic migration remains. |
-| Generated test manifest | live | 566 rows: 85 Node units, 138 DOM units, 35 architecture, 6 statistical-oracle, 44 integration, 7 workers, and 251 Chromium browser specs; 774 explicit and 0 inferred requirement mappings, with zero unmapped files. |
+| Generated test manifest | live | 567 rows: 85 Node units, 139 DOM units, 35 architecture, 6 statistical-oracle, 44 integration, 7 workers, and 251 Chromium browser specs; 775 explicit and 0 inferred requirement mappings, with zero unmapped files. |
 | Numerical oracle policy | 3 Python/SciPy differential suites marked `required`; other discovered files marked `not-applicable` | The canonical `stats` lane now forces `TEST_REQUIRE_PYTHON_ORACLE=1`; skipped oracle cases cannot silently make that lane green. |
 | E2E shortcut inventory | 0 direct DOM clicks, 4 suppressed failures, 0 contract-file waits/timer waits | Direct click and raw fixed-wait debt is cleared for the current E2E setup inventory; diagnostic APIs remain explicitly diagnostic, not acceptance evidence. |
 
@@ -979,11 +991,11 @@ The refactor is complete only when:
 
 ## Audit validation
 
-Current recheck — 2026-09-18:
+Current recheck — 2026-09-20:
 
-- `node scripts/test-inventory.cjs --check`: passed; 566 manifest rows, 315 Jest files, 251 Playwright files, 855 Chromium tests, zero legacy-unmapped rows, and 9/9 critical scenarios.
-- Current evidence: 774 explicit / 0 inferred requirement mappings; all eleven components report direct and wildcard evidence with no unexplained gaps. Manifest rows now also carry validated transition scope. Wildcard counts remain separate from direct feature coverage.
-- Current structure: all 20 suites above 800 lines are grouped; 0 Jest suites and 1 intentionally deferred Firefox-only Playwright suite remain at legacy roots. The inventory rejects new oversized root suites.
+- `node scripts/test-inventory.cjs --check`: passed; 567 manifest rows, 316 Jest files, 251 Playwright files, 860 Chromium tests, zero legacy-unmapped rows, and 9/9 critical scenarios.
+- Current evidence: 775 explicit / 0 inferred requirement mappings; all eleven components report direct and wildcard evidence with no unexplained gaps. Manifest rows now also carry validated transition scope. Wildcard counts remain separate from direct feature coverage.
+- Current structure: all 19 suites above 800 lines are grouped; 0 Jest suites and 1 intentionally deferred Firefox-only Playwright suite remain at legacy roots. The inventory rejects new oversized root suites.
 - Targeted reviewed contracts passed: the metadata, inventory, helper, report-schema, and trend-report Jest contracts (64/64), the all-eleven negative owner-handoff matrix (33/33), the production bootstrap loader 4/4, the repeated owner-order Chromium contract 11/11 serially across all components, and the migrated Box archive cases 3/3. Owner-order artifacts now include readiness signatures and bounded lifecycle evidence; archive/layout contracts include redacted archive metadata.
 - `npm run quality:static`: rerun after the latest organization and metadata changes; its component, inventory, bootstrap, vendor, runtime, asset, and lint gates remain the required final static gate. Static inventory now also records E2E artifact-write sites.
 - Firefox discovery and execution remain intentionally deferred; no Firefox result is claimed.

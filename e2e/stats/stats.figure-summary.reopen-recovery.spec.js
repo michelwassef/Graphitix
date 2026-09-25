@@ -148,6 +148,8 @@ async function readSpecializedGeometry(page, config){
 async function installSummaryRecoverySampler(page, config){
   await page.addInitScript(({ type, plot, directSvg }) => {
     window.__statsSummaryRecoverySamples = [];
+    window.__statsSummaryRecoverySamplingComplete = false;
+    const requiredSamples = 8;
     let cacheRestored = false;
     const startedAt = performance.now();
     const sample = () => {
@@ -161,6 +163,9 @@ async function installSummaryRecoverySampler(page, config){
             summaryCount:svg.querySelectorAll('g[data-stats-figure-summary="1"]').length,
             at:performance.now() - startedAt
           });
+          if(window.__statsSummaryRecoverySamples.length >= requiredSamples){
+            window.__statsSummaryRecoverySamplingComplete = true;
+          }
         }
       }
       requestAnimationFrame(sample);
@@ -330,7 +335,7 @@ for (const specialized of [
       expect(after?.viewBox).toBe(before?.viewBox);
     }
     if(specialized.recoverySampler){
-      await page.waitForTimeout(750);
+      await page.waitForFunction(() => window.__statsSummaryRecoverySamplingComplete === true, null, { timeout:30_000 });
       const samples = await page.evaluate(() => ({
         cacheEventSeen:Array.isArray(window.__statsSummaryRecoverySamples)
           && window.__statsSummaryRecoverySamples.length > 0,

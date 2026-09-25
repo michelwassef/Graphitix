@@ -166,6 +166,7 @@ const REVIEWED_SCENARIO_METADATA = Object.freeze({
   , 'DOM.dendrogram-controls': Object.freeze({ requirement: 'Dendrogram controls project Heatmap clustering state', capability: 'component-controls', evidence: 'dendrogram-controls-dom-contract' })
   , 'DOM.heatmap-render-publication': Object.freeze({ requirement: 'Heatmap publication requires a complete render model', capability: 'render-publication', evidence: 'heatmap-render-publication-dom-contract' })
   , 'DOM.venn-label-layout': Object.freeze({ requirement: 'Venn label layout preserves readable geometry', capability: 'layout', evidence: 'venn-label-layout-dom-contract' })
+  , 'DOM.plot3d-rendering': Object.freeze({ requirement: '3D projection and rendering preserve viewport geometry', capability: 'three-dimensional-view', evidence: 'plot3d-rendering-dom-contract' })
   , 'DOM.plot3d-gestures': Object.freeze({ requirement: '3D gestures update the owning viewport only', capability: 'three-dimensional-view', evidence: 'plot3d-gestures-dom-contract' })
   , 'DOM.hist-scheduler-ownership': Object.freeze({ requirement: 'Histogram scheduler updates the owning tab only', capability: 'async-ownership', evidence: 'hist-scheduler-ownership-dom-contract' })
   , 'DOM.grid-controls': Object.freeze({ requirement: 'Grid controls project through the owning table', capability: 'grid-ownership', evidence: 'grid-controls-dom-contract' })
@@ -471,6 +472,7 @@ const RAW_SCENARIO_CATALOG = Object.freeze([
   Object.freeze({ id: 'DOM.heatmap-render-publication', kind: 'dom-unit', components: ['heatmap'] }),
   Object.freeze({ id: 'DOM.roc-statistics-presentation', kind: 'dom-unit', components: ['roc'], requirement: 'ROC statistics presentation', capability: 'statistics', evidence: 'roc-statistics-presentation' }),
   Object.freeze({ id: 'DOM.venn-label-layout', kind: 'dom-unit', components: ['venn'] }),
+  Object.freeze({ id: 'DOM.plot3d-rendering', kind: 'dom-unit', components: ['*'] }),
   Object.freeze({ id: 'DOM.plot3d-gestures', kind: 'dom-unit', components: ['*'] }),
   Object.freeze({ id: 'DOM.hist-scheduler-ownership', kind: 'dom-unit', components: ['hist'] }),
   Object.freeze({ id: 'DOM.grid-controls', kind: 'dom-unit', components: ['*'] }),
@@ -716,7 +718,8 @@ const SCENARIOS_BY_FILE = Object.freeze({
   '__tests__/dom/heatmap.dendrogram-rendering.test.js': Object.freeze(['DOM.heatmap-render-publication']),
   '__tests__/dom/roc.statistics.standard.test.js': Object.freeze(['DOM.roc-statistics-presentation']),
   '__tests__/dom/venn.labelLayout.test.js': Object.freeze(['DOM.venn-label-layout']),
-  '__tests__/shared/plot3d.test.js': Object.freeze(['DOM.plot3d-gestures']),
+  '__tests__/shared/plot3d.test.js': Object.freeze(['DOM.plot3d-rendering']),
+  '__tests__/shared/plot3d.rotationGestures.test.js': Object.freeze(['DOM.plot3d-gestures']),
   '__tests__/dom/hist.schedulerOwnership.test.js': Object.freeze(['DOM.hist-scheduler-ownership']),
   '__tests__/dom/gridControls.liveProjection.test.js': Object.freeze(['DOM.grid-controls']),
   '__tests__/dom/significanceControls.overlay.test.js': Object.freeze(['DOM.significance-controls']),

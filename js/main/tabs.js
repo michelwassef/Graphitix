@@ -243,8 +243,7 @@
         handleTabDragEnd: (event, tab) => handleTabDragEnd(event, tab),
         handleTabDragOver: (event, tab) => handleTabDragOver(event, tab),
         handleTabDragLeave: (event, tab) => handleTabDragLeave(event, tab),
-        handleTabDrop: (event, tab) => handleTabDrop(event, tab),
-        closeTab: tabId => closeTab(tabId)
+        handleTabDrop: (event, tab) => handleTabDrop(event, tab)
       }
     });
     renderTabs = renderHelpers.renderTabs;
@@ -293,6 +292,7 @@
       const menuReuse = dom.tabContextDuplicateReuse || null;
       const menuEmpty = dom.tabContextDuplicateEmpty || null;
       const menuSaveCurrent = dom.tabContextSaveCurrent || null;
+      const menuDelete = dom.tabContextDelete || null;
       let currentContextTabId = null;
 
       function hideTabContextMenu() {
@@ -308,6 +308,11 @@
           const canSaveTab = !!(tab && !tab.isWelcome && tab.type);
           menuSaveCurrent.disabled = !canSaveTab;
           menuSaveCurrent.setAttribute('aria-disabled', canSaveTab ? 'false' : 'true');
+        }
+        if (menuDelete) {
+          const canDeleteTab = !!(tab && !tab.isWelcome && tab.allowClose !== false);
+          menuDelete.disabled = !canDeleteTab;
+          menuDelete.setAttribute('aria-disabled', canDeleteTab ? 'false' : 'true');
         }
         // measure menu size by revealing it invisibly, then position so its bottom abuts the tab's bottom
         try {
@@ -432,6 +437,16 @@
         });
       }
 
+      function deleteTabFromContext(sourceId) {
+        hideTabContextMenu();
+        if (!sourceId) return;
+        const tab = getTabById(sourceId);
+        if (!tab || tab.isWelcome || tab.allowClose === false) {
+          return;
+        }
+        closeTab(sourceId, { reason: 'tab-context-delete' });
+      }
+
       // Disable native browser context menu on tabs list to avoid conflicts
       dom.tabsList.addEventListener('contextmenu', event => {
         const targetBtn = event.target && event.target.closest && event.target.closest('[data-tab-id]');
@@ -448,6 +463,7 @@
       if (menuReuse) menuReuse.addEventListener('click', () => { performDuplicateFromSource(currentContextTabId, false); });
       if (menuEmpty) menuEmpty.addEventListener('click', () => { performDuplicateFromSource(currentContextTabId, true); });
       if (menuSaveCurrent) menuSaveCurrent.addEventListener('click', () => { saveCurrentTabOnly(currentContextTabId); });
+      if (menuDelete) menuDelete.addEventListener('click', () => { deleteTabFromContext(currentContextTabId); });
 
       // hide on outside click or escape
       document.addEventListener('mousedown', event => {

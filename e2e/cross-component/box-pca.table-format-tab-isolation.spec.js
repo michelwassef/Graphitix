@@ -1,5 +1,3 @@
-const fs = require('fs');
-const path = require('path');
 const { test, expect } = require('@playwright/test');
 const {
   openComponentFromWelcome
@@ -8,6 +6,7 @@ const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
 const { registerIssueCollectors } = require('../helpers/diagnostics');
 const { clickExampleButton } = require('../helpers/uiDriver');
 const { waitForComponentOwnerReady } = require('../helpers/contractWaits');
+const { saveWorkspaceArchive } = require('../helpers/archiveDriver');
 
 function expectEditableGridCapacity(snapshot) {
   expect(snapshot.rowCount).toBeGreaterThanOrEqual(100);
@@ -210,31 +209,6 @@ async function captureTableSnapshot(page, component) {
   }, { type: component.type, selectId: component.selectId, groupedClass: component.groupedClass });
 }
 
-async function captureArchive(page, archivePath) {
-  const archive = await page.evaluate(async () => {
-    const context = window.Main?.tabs?.getSessionActionsContext?.();
-    const blob = await window.Main?.sessionActions?.buildWorkspaceArchiveBlob?.(context, {
-      scope: 'workspace',
-      snapshotKind: 'document-snapshot',
-      compression: 'STORE',
-      reason: 'e2e-table-format-isolation'
-    });
-    if (!blob) {
-      throw new Error('No workspace archive blob');
-    }
-    const bytes = new Uint8Array(await blob.arrayBuffer());
-    let binary = '';
-    const chunkSize = 0x8000;
-    for (let offset = 0; offset < bytes.length; offset += chunkSize) {
-      binary += String.fromCharCode.apply(null, bytes.subarray(offset, offset + chunkSize));
-    }
-    return btoa(binary);
-  });
-  fs.mkdirSync(path.dirname(archivePath), { recursive: true });
-  fs.writeFileSync(archivePath, Buffer.from(archive, 'base64'));
-  return archivePath;
-}
-
 async function loadArchive(page, archivePath, component) {
   await page.reload({ waitUntil: 'domcontentloaded' });
   await page.locator('#workspaceSessionInput').setInputFiles(archivePath);
@@ -285,10 +259,13 @@ for (const component of CASES) {
     await activateTab(page, standardTabId, component);
     component.assertStandard(await captureTableSnapshot(page, component));
 
-    const archivePath = await captureArchive(
-      page,
-      testInfo.outputPath(`${component.type}-table-format-tab-isolation.graph`)
-    );
+    const archivePath = testInfo.outputPath(`${component.type}-table-format-tab-isolation.graph`);
+    await saveWorkspaceArchive(page, archivePath, {
+      scope: 'workspace',
+      snapshotKind: 'document-snapshot',
+      compression: 'STORE',
+      reason: 'e2e-table-format-isolation'
+    });
     await loadArchive(page, archivePath, component);
     const restoredIds = await getGraphTabIds(page);
     expect(restoredIds.length).toBeGreaterThanOrEqual(2);

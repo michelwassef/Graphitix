@@ -20,7 +20,8 @@ test('Unsaved close prompt preserves Cancel and honors Discard', async ({ page }
   await page.locator('#nB').fill('9');
   await page.locator('#nAB').fill('4');
   await page.locator('#useNumeric').click();
-  await page.locator(`#workspaceTabsList .workspace-tab[data-tab-id="${tabId}"] .workspace-tab__close`).click();
+  await page.locator(`#workspaceTabsList .workspace-tab[data-tab-id="${tabId}"]`).click({ button: 'right' });
+  await page.locator('#tabContextDelete').click();
 
   const prompt = page.locator('#unsavedPrompt');
   await expect(prompt).toBeVisible();
@@ -29,7 +30,8 @@ test('Unsaved close prompt preserves Cancel and honors Discard', async ({ page }
   await expect(page.locator(`#workspaceTabsList .workspace-tab[data-tab-id="${tabId}"]`)).toBeVisible();
   expect(await activeTabId(page)).toBe(tabId);
 
-  await page.locator(`#workspaceTabsList .workspace-tab[data-tab-id="${tabId}"] .workspace-tab__close`).click();
+  await page.locator(`#workspaceTabsList .workspace-tab[data-tab-id="${tabId}"]`).click({ button: 'right' });
+  await page.locator('#tabContextDelete').click();
   await expect(prompt).toBeVisible();
   await page.locator('#unsavedPromptDiscard').click();
   await expect(prompt).toBeHidden();

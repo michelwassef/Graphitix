@@ -62,4 +62,31 @@ describe('chartStyle.formatAxisValue', () => {
       maxDecimals: 2
     })).toBe('0');
   });
+
+  test('resolves one automatic notation for a complete linear tick set', () => {
+    const { chartStyle } = window.Shared;
+    const ticks = [0, 2500, 5000, 7500, 10000];
+    const formatter = chartStyle.createAxisTickFormatter(ticks, { notation: 'auto', maxDecimals: 2 });
+
+    expect(chartStyle.resolveAxisNotationForTicks(ticks, { notation: 'auto' })).toBe('scientific');
+    expect(ticks.map(formatter)).toEqual(['0', '2.5×10³', '5×10³', '7.5×10³', '10⁴']);
+  });
+
+  test('keeps small automatic linear ticks in one scientific notation', () => {
+    const { chartStyle } = window.Shared;
+    const ticks = [0, 0.01, 0.001, 0.0001];
+    const formatter = chartStyle.createAxisTickFormatter(ticks, { notation: 'auto', maxDecimals: 2 });
+
+    expect(chartStyle.resolveAxisNotationForTicks(ticks, { notation: 'auto' })).toBe('scientific');
+    expect(ticks.map(formatter)).toEqual(['0', '10⁻²', '10⁻³', '10⁻⁴']);
+  });
+
+  test('keeps automatic decimal axes decimal when no threshold is crossed', () => {
+    const { chartStyle } = window.Shared;
+    const ticks = [0, 2500, 5000, 7500, 9999];
+    const formatter = chartStyle.createAxisTickFormatter(ticks, { notation: 'auto', maxDecimals: 2 });
+
+    expect(chartStyle.resolveAxisNotationForTicks(ticks, { notation: 'auto' })).toBe('decimal');
+    expect(ticks.map(formatter)).toEqual(['0', '2500', '5000', '7500', '9999']);
+  });
 });

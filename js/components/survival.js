@@ -4863,14 +4863,6 @@
     return chartStyle.formatScientific(value, { maxDecimals: precision });
   }
 
-  function formatAxisTick(value, digits){
-    if(!Number.isFinite(value)){
-      return 'n/a';
-    }
-    const precision = Number.isFinite(digits) ? digits : 2;
-    return chartStyle.formatAxisValue(value, { notation: 'auto', maxDecimals: precision });
-  }
-
   function sanitizeSurvivalStatsReportPScientific(value){
     return value === true || value === 'true' || value === 1 || value === '1';
   }
@@ -5766,6 +5758,8 @@
     let yScale;
     let xTickLabels = [];
     let yTickLabels = [];
+    let formatXAxisTick = chartStyle.createAxisTickFormatter([], { notation: 'auto', maxDecimals: 2 });
+    let formatYAxisTick = chartStyle.createAxisTickFormatter([], { notation: 'auto', maxDecimals: 2 });
 
     let maxYLabelWidth = 0;
     const manualIntervalX = getAxisTickInterval('x');
@@ -5805,8 +5799,10 @@
           yScale.step = manualIntervalY;
         }
       }
-      xTickLabels = xScale.ticks.map(value => formatAxisTick(value, 2));
-      yTickLabels = yScale.ticks.map(value => formatAxisTick(value, 2));
+      formatXAxisTick = chartStyle.createAxisTickFormatter(xScale.ticks, { notation: 'auto', maxDecimals: 2 });
+      formatYAxisTick = chartStyle.createAxisTickFormatter(yScale.ticks, { notation: 'auto', maxDecimals: 2 });
+      xTickLabels = xScale.ticks.map(formatXAxisTick);
+      yTickLabels = yScale.ticks.map(formatYAxisTick);
       const yLabelWidths = yTickLabels.map(label => chartStyle.measureText ? chartStyle.measureText(label, tickFont) : label.length * fs * 0.6);
       maxYLabelWidth = yLabelWidths.length ? Math.max(...yLabelWidths) : 0;
       cartesianMarginRequirements = resolveMarginRequirements(maxYLabelWidth, xTickLabels);
@@ -6007,7 +6003,7 @@
         fill: chartStyle.TEXT_COLOR || '#000'
       });
       Shared.applyTextBaseline && Shared.applyTextBaseline(text, 'hanging', fs);
-      text.textContent = formatAxisTick(value, 2);
+      text.textContent = formatXAxisTick(value);
       markFontEditable(text, 'xTick');
       xTickNodes.push(text);
     });
@@ -6040,7 +6036,7 @@
         'dominant-baseline': 'middle',
         fill: chartStyle.TEXT_COLOR || '#000'
       });
-      text.textContent = formatAxisTick(value, 2);
+      text.textContent = formatYAxisTick(value);
       markFontEditable(text, 'yTick');
     });
 

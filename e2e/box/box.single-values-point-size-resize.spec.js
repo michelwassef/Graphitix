@@ -1,4 +1,5 @@
 const { test, expect } = require('@playwright/test');
+const { buildWorkspaceArchive } = require('../helpers/archiveDriver');
 const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
 const { openComponentFromWelcome, waitForDocumentOpenComplete } = require('../helpers/workspaceDriver');
 const { registerIssueCollectors } = require('../helpers/diagnostics');
@@ -129,26 +130,13 @@ async function shrinkBoxWidth(page, ratio = 0.42) {
 }
 
 async function captureBoxArchive(page) {
-  const archive = await page.evaluate(async () => {
-    const context = window.Main?.tabs?.getSessionActionsContext?.();
-    const blob = await window.Main?.sessionActions?.buildWorkspaceArchiveBlob?.(context, {
+  const archive = await buildWorkspaceArchive(page, {
       scope: 'workspace',
       snapshotKind: 'document-snapshot',
       compression: 'STORE',
       reason: 'e2e-box-point-size-reopen'
-    });
-    if (!blob) {
-      throw new Error('Box point-size archive was not created.');
-    }
-    const bytes = new Uint8Array(await blob.arrayBuffer());
-    const chunkSize = 0x8000;
-    let binary = '';
-    for (let offset = 0; offset < bytes.length; offset += chunkSize) {
-      binary += String.fromCharCode.apply(null, bytes.subarray(offset, offset + chunkSize));
-    }
-    return btoa(binary);
   });
-  return Buffer.from(archive, 'base64');
+  return Buffer.from(archive.base64, 'base64');
 }
 
 async function openPointSizeEditor(page, trace) {

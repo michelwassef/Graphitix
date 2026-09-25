@@ -6,6 +6,7 @@ const {
   waitForDocumentOpenComplete
 } = require('../helpers/workspaceDriver');
 const { registerIssueCollectors } = require('../helpers/diagnostics');
+const { saveWorkspaceArchive } = require('../helpers/archiveDriver');
 
 async function activeHistTabId(page) {
   return page.evaluate(() => {
@@ -281,26 +282,6 @@ async function waitForHistDensityControls(page) {
   });
 }
 
-async function captureArchive(page, outputPath) {
-  const archive = await page.evaluate(async () => {
-    const context = window.Main.tabs.getSessionActionsContext();
-    const blob = await window.Main.sessionActions.buildWorkspaceArchiveBlob(context, {
-      scope: 'workspace',
-      snapshotKind: 'document-snapshot',
-      compression: 'STORE',
-      reason: 'e2e-hist-frequency-distribution-autodraw'
-    });
-    const bytes = new Uint8Array(await blob.arrayBuffer());
-    let binary = '';
-    for (let i = 0; i < bytes.length; i += 0x8000) {
-      binary += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
-    }
-    return { base64: btoa(binary) };
-  });
-  fs.writeFileSync(outputPath, Buffer.from(archive.base64, 'base64'));
-  return outputPath;
-}
-
 async function reopenArchive(page, archivePath) {
   await page.reload({ waitUntil: 'domcontentloaded' });
   await expect(page.locator('#welcomeScreen')).toBeVisible({ timeout: 20_000 });
@@ -547,7 +528,13 @@ test('Histogram frequency, distribution, and manual-render state stay isolated a
   await waitForHistDensityControls(page);
   expectDensitySnapshot(await snapshotHist(page));
 
-  const archivePath = await captureArchive(page, testInfo.outputPath('hist-frequency-distribution-autodraw.graph'));
+  const archivePath = testInfo.outputPath('hist-frequency-distribution-autodraw.graph');
+  await saveWorkspaceArchive(page, archivePath, {
+    scope: 'workspace',
+    snapshotKind: 'document-snapshot',
+    compression: 'STORE',
+    reason: 'e2e-hist-frequency-distribution-autodraw'
+  });
   await reopenArchive(page, archivePath);
 
   const reopenedIds = await page.evaluate(() =>

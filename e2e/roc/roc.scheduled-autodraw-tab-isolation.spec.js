@@ -1,10 +1,9 @@
-const fs = require('fs');
-const path = require('path');
 const { test, expect } = require('@playwright/test');
 const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
 const { openComponentFromWelcome, waitForDocumentOpenComplete } = require('../helpers/workspaceDriver');
 const { registerIssueCollectors } = require('../helpers/diagnostics');
 const { waitForComponentOwnerReady } = require('../helpers/contractWaits');
+const { saveWorkspaceArchive } = require('../helpers/archiveDriver');
 
 async function activeRocTabId(page) {
   return page.evaluate(() => {
@@ -174,29 +173,17 @@ async function snapshotRoc(page) {
   });
 }
 
-async function captureArchive(page, stem, outputPath) {
-  const archive = await page.evaluate(async () => {
-    const context = window.Main.tabs.getSessionActionsContext();
-    const blob = await window.Main.sessionActions.buildWorkspaceArchiveBlob(context, {
-      scope: 'workspace',
-      snapshotKind: 'document-snapshot',
-      compression: 'STORE',
-      reason: 'e2e-roc-scheduled-autodraw-isolation'
-    });
-    const bytes = new Uint8Array(await blob.arrayBuffer());
-    let binary = '';
-    for(let i = 0; i < bytes.length; i += 0x8000){
-      binary += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
-    }
-    return { base64: btoa(binary) };
-  });
+async function captureArchive(page, _stem, outputPath) {
   if (!outputPath) {
     throw new Error('ROC scheduled archive capture requires a per-test output path.');
   }
-  const archivePath = outputPath;
-  fs.mkdirSync(path.dirname(archivePath), { recursive: true });
-  fs.writeFileSync(archivePath, Buffer.from(archive.base64, 'base64'));
-  return archivePath;
+  await saveWorkspaceArchive(page, outputPath, {
+    scope: 'workspace',
+    snapshotKind: 'document-snapshot',
+    compression: 'STORE',
+    reason: 'e2e-roc-scheduled-autodraw-isolation'
+  });
+  return outputPath;
 }
 
 async function reopenArchive(page, archivePath) {

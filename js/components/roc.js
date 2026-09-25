@@ -6227,7 +6227,9 @@
       return list;
     };
     let tickCount = chartStyle.estimateTickCount(Math.min(baseWidth, height), { axis: graphType, fallback: 6, min: 3, max: 11 });
-    const formatTick = value => chartStyle.formatAxisValue(value,{ notation: 'auto', maxDecimals: 2 });
+    const rocAxisFormatOptions = { notation: 'auto', maxDecimals: 2 };
+    let formatTickX = chartStyle.createAxisTickFormatter([], rocAxisFormatOptions);
+    let formatTickY = chartStyle.createAxisTickFormatter([], rocAxisFormatOptions);
     const rocFontStyles = exportFontStyles('roc', { tabId: drawTabId });
     const xTickMeasureFont = (chartStyle && typeof chartStyle.resolveScopedLabelMeasureFont === 'function')
       ? chartStyle.resolveScopedLabelMeasureFont({ styles: rocFontStyles, role: 'xTick', fallbackPx: fontSize }).fontSpec
@@ -6245,8 +6247,13 @@
     const manualYTicks = buildManualTicksNormalized(manualIntervalY)?.ticks || null;
     let xTicks = manualXTicks || buildTicks(tickCount);
     let yTicks = manualYTicks || buildTicks(tickCount);
-    let yTickLabels = yTicks.map(formatTick);
-    let xTickLabels = xTicks.map(formatTick);
+    const refreshRocAxisTickFormatters = () => {
+      formatTickX = chartStyle.createAxisTickFormatter(xTicks, rocAxisFormatOptions);
+      formatTickY = chartStyle.createAxisTickFormatter(yTicks, rocAxisFormatOptions);
+    };
+    refreshRocAxisTickFormatters();
+    let yTickLabels = yTicks.map(formatTickY);
+    let xTickLabels = xTicks.map(formatTickX);
     let yLabelWidths = yTickLabels.map(lbl => chartStyle.measureText(lbl, tickFont));
     let maxYLabelWidth = Math.max(...yLabelWidths, 0);
     let cartesianMarginRequirements = chartStyle.computeCartesianMarginRequirements({
@@ -6279,8 +6286,9 @@
       tickCount = refinedCount;
       xTicks = manualXTicks || buildTicks(tickCount);
       yTicks = manualYTicks || buildTicks(tickCount);
-      yTickLabels = yTicks.map(formatTick);
-      xTickLabels = xTicks.map(formatTick);
+      refreshRocAxisTickFormatters();
+      yTickLabels = yTicks.map(formatTickY);
+      xTickLabels = xTicks.map(formatTickX);
       yLabelWidths = yTickLabels.map(lbl => chartStyle.measureText(lbl, tickFont));
       maxYLabelWidth = Math.max(...yLabelWidths, 0);
       cartesianMarginRequirements = chartStyle.computeCartesianMarginRequirements({
@@ -6498,7 +6506,7 @@
       const x = xToPx(tick);
       add('line', {x1: x, y1: margin.top + plotHeight, x2: x, y2: margin.top + plotHeight + xMajorTickLength, stroke: axisStroke, 'stroke-width': axisStrokeWidth, 'data-roc-axis-style-target': '1'});
       const extra = Shared.computeAxisLabelYOffset ? Shared.computeAxisLabelYOffset(fontSize, xMajorTickLength, tickGap) : 0;
-      const txt = add('text', {x, y: margin.top + plotHeight + xMajorTickLength + tickGap + extra, 'text-anchor': 'middle', 'font-size': fontSize, fill: chartStyle.TEXT_COLOR}, formatTick(tick), { role: 'xTick' });
+      const txt = add('text', {x, y: margin.top + plotHeight + xMajorTickLength + tickGap + extra, 'text-anchor': 'middle', 'font-size': fontSize, fill: chartStyle.TEXT_COLOR}, formatTickX(tick), { role: 'xTick' });
       Shared.applyTextBaseline && Shared.applyTextBaseline(txt, 'hanging', fontSize);
       xTickNodes.push(txt);
     });
@@ -6522,7 +6530,7 @@
     yTicks.forEach(tick => {
       const y = yToPx(tick);
       add('line', {x1: margin.left - yMajorTickLength, y1: y, x2: margin.left, y2: y, stroke: axisStroke, 'stroke-width': axisStrokeWidth, 'data-roc-axis-style-target': '1'});
-      add('text', {x: margin.left - (yMajorTickLength + tickGap), y, 'text-anchor': 'end', 'font-size': fontSize, 'dominant-baseline': 'middle', fill: chartStyle.TEXT_COLOR}, formatTick(tick), { role: 'yTick' });
+      add('text', {x: margin.left - (yMajorTickLength + tickGap), y, 'text-anchor': 'end', 'font-size': fontSize, 'dominant-baseline': 'middle', fill: chartStyle.TEXT_COLOR}, formatTickY(tick), { role: 'yTick' });
     });
     console.debug('Debug: roc ticks stroke scaled',{xTickCount: xTicks.length, yTickCount: yTicks.length, axisStrokeWidth});
 

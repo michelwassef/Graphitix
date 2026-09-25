@@ -21,6 +21,7 @@ test('Box legend text opens the extended font toolbar', async ({ page }) => {
     }
   });
   await clickExampleButton(page, component, { requireMountedRoot: true });
+  await page.locator('#boxGraphType').selectOption('box');
   await page.evaluate(async () => {
     const toggle = document.querySelector('#boxPage:not([hidden]) #boxShowLegend');
     if (toggle) {
@@ -30,6 +31,10 @@ test('Box legend text opens the extended font toolbar', async ({ page }) => {
     const tabId = window.Main.session.getActiveTab().id;
     await window.Components.box.draw({ reason: 'e2e-legend-font-toolbar', tabId });
   });
+
+  await expect.poll(() => page.locator('#boxPage:not([hidden]) #boxSvg [data-legend-viewport-content="true"] [data-legend-swatch="1"]').evaluateAll(nodes => (
+    nodes.length > 0 && nodes.every(node => Number(node.getAttribute('stroke-width')) === 0)
+  )), { timeout: 10_000 }).toBe(true);
 
   const legendText = page.locator('#boxPage:not([hidden]) #boxSvg [data-legend-viewport-content="true"] text').first();
   await expect(legendText).toBeVisible();

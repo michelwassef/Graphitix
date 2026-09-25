@@ -2364,6 +2364,7 @@
     const userAfterCopy = hotOptions.afterCopy;
     const userAfterCreateRow = hotOptions.afterCreateRow;
     const userAfterCreateCol = hotOptions.afterCreateCol;
+    const userAfterAutoGrowCol = hotOptions.afterAutoGrowCol;
     const userAfterRemoveRow = hotOptions.afterRemoveRow;
     const userAfterRemoveCol = hotOptions.afterRemoveCol;
     const userAfterColumnMove = hotOptions.afterColumnMove;
@@ -3335,6 +3336,7 @@
       afterCopy: [],
       afterCreateRow: [],
       afterCreateCol: [],
+      afterAutoGrowCol: [],
       afterRemoveRow: [],
       afterRemoveCol: [],
       afterColumnMove: [],
@@ -3366,6 +3368,7 @@
     addHook('afterCopy', userAfterCopy);
     addHook('afterCreateRow', userAfterCreateRow);
     addHook('afterCreateCol', userAfterCreateCol);
+    addHook('afterAutoGrowCol', userAfterAutoGrowCol);
     addHook('afterRemoveRow', userAfterRemoveRow);
     addHook('afterRemoveCol', userAfterRemoveCol);
     addHook('afterColumnMove', userAfterColumnMove);
@@ -11936,6 +11939,9 @@
           ensureDims(data, data.length, colCount);
           colHeaders = resolveColHeaders(colCount);
           rebuildColumns(instance.gridApi);
+          if(isAutomaticCapacityGrowth(changeSource)){
+            fireHook('afterAutoGrowCol', insertAt, safeAmount, changeSource);
+          }
           refreshColumnFiltersForDataMutation('alter:insert-col');
           renderAg(instance.gridApi);
           if(!isAutomaticCapacityGrowth(changeSource)){

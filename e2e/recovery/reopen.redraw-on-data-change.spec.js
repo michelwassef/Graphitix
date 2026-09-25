@@ -1,4 +1,3 @@
-const fs = require('fs');
 const { test, expect } = require('@playwright/test');
 const { COMPONENT_MATRIX, openComponentFromWelcome } = require('../helpers/workspaceDriver');
 const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
@@ -7,6 +6,7 @@ const {
   waitForComponentOwnerReady,
   waitForComponentSnapshotReady
 } = require('../helpers/contractWaits');
+const { saveWorkspaceArchive } = require('../helpers/archiveDriver');
 
 // ---------------------------------------------------------------------------
 // In-page helpers (serialized into the browser by page.evaluate — keep them
@@ -141,25 +141,13 @@ async function editGridCell(page, component) {
 }
 
 async function captureWorkspaceArchive(page, archivePath) {
-  const archive = await page.evaluate(async () => {
-    const tabsApi = window.Main?.tabs;
-    const sessionActions = window.Main?.sessionActions;
-    const context = tabsApi.getSessionActionsContext();
-    const blob = await sessionActions.buildWorkspaceArchiveBlob(context, {
-      scope: 'workspace',
-      snapshotKind: 'document-snapshot',
-      compression: 'STORE',
-      reason: 'e2e-reopen-redraw-archive'
-    });
-    const bytes = new Uint8Array(await blob.arrayBuffer());
-    const chunk = 0x8000;
-    let binary = '';
-    for (let i = 0; i < bytes.length; i += chunk) {
-      binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
-    }
-    return { fileName: 'reopen-redraw.graph', base64: btoa(binary) };
+  await saveWorkspaceArchive(page, archivePath, {
+    scope: 'workspace',
+    snapshotKind: 'document-snapshot',
+    compression: 'STORE',
+    reason: 'e2e-reopen-redraw-archive',
+    fileName: 'reopen-redraw.graph'
   });
-  fs.writeFileSync(archivePath, Buffer.from(archive.base64, 'base64'));
   return archivePath;
 }
 

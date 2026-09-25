@@ -11,9 +11,8 @@
  * jsdom cannot host this assertion (no layout / getBoundingClientRect == 0), so the scree
  * SVG and biplot SVG presence must be checked in a real browser.
  */
-const fs = require('fs');
-const path = require('path');
 const { test, expect } = require('@playwright/test');
+const { saveWorkspaceArchive } = require('../helpers/archiveDriver');
 const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
 const { openComponentFromWelcome, clickExampleButtonIfPresent, waitForDocumentOpenComplete } = require('../helpers/workspaceDriver');
 const { registerIssueCollectors } = require('../helpers/diagnostics');
@@ -166,24 +165,17 @@ async function buildPca(page) {
   });
 }
 
-async function captureWorkspaceArchive(page, fileStem, outputPath) {
-  const archive = await page.evaluate(async (stem) => {
-    const context = window.Main.tabs.getSessionActionsContext();
-    const blob = await window.Main.sessionActions.buildWorkspaceArchiveBlob(context, {
-      scope: 'workspace', snapshotKind: 'document-snapshot', compression: 'STORE', reason: 'e2e-pca-stats-archive'
-    });
-    const bytes = new Uint8Array(await blob.arrayBuffer());
-    let binary = '';
-    for (let i = 0; i < bytes.length; i += 0x8000) { binary += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000)); }
-    return { fileName: `${stem}.graph`, base64: btoa(binary) };
-  }, fileStem);
+async function captureWorkspaceArchive(page, outputPath) {
   if (!outputPath) {
     throw new Error('PCA stats archive capture requires a per-test output path.');
   }
-  const archivePath = outputPath;
-  fs.mkdirSync(path.dirname(archivePath), { recursive: true });
-  fs.writeFileSync(archivePath, Buffer.from(archive.base64, 'base64'));
-  return archivePath;
+  await saveWorkspaceArchive(page, outputPath, {
+    scope: 'workspace',
+    snapshotKind: 'document-snapshot',
+    compression: 'STORE',
+    reason: 'e2e-pca-stats-archive'
+  });
+  return outputPath;
 }
 
 async function seedRecoverySnapshot(page) {
@@ -227,7 +219,6 @@ test('PCA scree + biplot survive file reopen (archive load)', async ({ page }, t
   expect(initialLegend.fullyVisible, JSON.stringify(initialLegend, null, 2)).toBe(true);
   const archivePath = await captureWorkspaceArchive(
     page,
-    'pca-stats-reopen',
     testInfo.outputPath('pca-stats-reopen.graph')
   );
 

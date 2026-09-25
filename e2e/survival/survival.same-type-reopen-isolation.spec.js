@@ -1,8 +1,8 @@
-const fs = require('fs');
 const { test, expect } = require('@playwright/test');
 const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
 const { openComponentFromWelcome, clickExampleButtonIfPresent, waitForDocumentOpenComplete } = require('../helpers/workspaceDriver');
 const { registerIssueCollectors } = require('../helpers/diagnostics');
+const { saveWorkspaceArchive } = require('../helpers/archiveDriver');
 
 async function waitForSurvivalRender(page, expected = {}) {
   await page.waitForFunction((wanted) => {
@@ -198,22 +198,13 @@ async function activateTab(page, tabId) {
 }
 
 async function captureWorkspaceArchive(page, archivePath) {
-  const archive = await page.evaluate(async () => {
-    const context = window.Main.tabs.getSessionActionsContext();
-    const blob = await window.Main.sessionActions.buildWorkspaceArchiveBlob(context, {
-      scope: 'workspace',
-      snapshotKind: 'document-snapshot',
-      compression: 'STORE',
-      reason: 'e2e-survival-same-type-reopen-isolation'
-    });
-    const bytes = new Uint8Array(await blob.arrayBuffer());
-    let binary = '';
-    for (let i = 0; i < bytes.length; i += 0x8000) {
-      binary += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
-    }
-    return { fileName: 'survival-same-type-reopen-isolation.graph', base64: btoa(binary) };
+  await saveWorkspaceArchive(page, archivePath, {
+    scope: 'workspace',
+    snapshotKind: 'document-snapshot',
+    compression: 'STORE',
+    reason: 'e2e-survival-same-type-reopen-isolation',
+    fileName: 'survival-same-type-reopen-isolation.graph'
   });
-  fs.writeFileSync(archivePath, Buffer.from(archive.base64, 'base64'));
   return archivePath;
 }
 

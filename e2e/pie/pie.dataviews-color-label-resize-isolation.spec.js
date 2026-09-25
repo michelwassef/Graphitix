@@ -1,9 +1,9 @@
-const fs = require('fs');
 const { test, expect } = require('@playwright/test');
 const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
 const { openComponentFromWelcome, waitForDocumentOpenComplete } = require('../helpers/workspaceDriver');
 const { registerIssueCollectors } = require('../helpers/diagnostics');
 const { waitForComponentOwnerReady } = require('../helpers/contractWaits');
+const { saveWorkspaceArchive } = require('../helpers/archiveDriver');
 
 const PIE = { type: 'pie', pageId: 'piePage' };
 
@@ -210,26 +210,6 @@ async function snapshotPie(page) {
   });
 }
 
-async function captureArchive(page, archivePath) {
-  const archive = await page.evaluate(async () => {
-    const context = window.Main.tabs.getSessionActionsContext();
-    const blob = await window.Main.sessionActions.buildWorkspaceArchiveBlob(context, {
-      scope: 'workspace',
-      snapshotKind: 'document-snapshot',
-      compression: 'STORE',
-      reason: 'e2e-pie-dataviews-color-label-resize'
-    });
-    const bytes = new Uint8Array(await blob.arrayBuffer());
-    let binary = '';
-    for (let i = 0; i < bytes.length; i += 0x8000) {
-      binary += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
-    }
-    return { base64: btoa(binary) };
-  });
-  fs.writeFileSync(archivePath, Buffer.from(archive.base64, 'base64'));
-  return archivePath;
-}
-
 async function reopenArchive(page, archivePath) {
   await page.reload({ waitUntil: 'domcontentloaded' });
   await expect(page.locator('#welcomeScreen')).toBeVisible({ timeout: 20_000 });
@@ -372,7 +352,13 @@ test('Pie DataViews, colors, labels, and finalized resize stay isolated across s
     expectPieSnapshot(await snapshotPie(page), stacked);
   }
 
-  const archivePath = await captureArchive(page, testInfo.outputPath('pie-dataviews-color-label-resize-isolation.graph'));
+  const archivePath = testInfo.outputPath('pie-dataviews-color-label-resize-isolation.graph');
+  await saveWorkspaceArchive(page, archivePath, {
+    scope: 'workspace',
+    snapshotKind: 'document-snapshot',
+    compression: 'STORE',
+    reason: 'e2e-pie-dataviews-color-label-resize'
+  });
   await reopenArchive(page, archivePath);
   const reopenedIds = await page.evaluate(() =>
     (window.Main?.session?.workspaceState?.tabs || [])

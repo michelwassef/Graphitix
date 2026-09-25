@@ -1563,6 +1563,19 @@
     return AXIS_NOTATION_ALLOWED.has(trimmed) ? trimmed : AXIS_NOTATION_DEFAULT;
   }
 
+  function hasAutomaticScientificTick(values, options){
+    const opts = options || {};
+    const thresholdHigh = Number.isFinite(opts.thresholdHigh) ? opts.thresholdHigh : SCIENTIFIC_THRESHOLD_HIGH;
+    const thresholdLow = Number.isFinite(opts.thresholdLow) ? opts.thresholdLow : SCIENTIFIC_THRESHOLD_LOW;
+    return values.some(value => {
+      if(!Number.isFinite(value) || value === 0){
+        return false;
+      }
+      const absValue = Math.abs(value);
+      return absValue >= thresholdHigh || absValue <= thresholdLow;
+    });
+  }
+
   chartStyle.AXIS_NOTATION_DEFAULT = AXIS_NOTATION_DEFAULT;
   chartStyle.normalizeAxisNotation = normalizeAxisNotation;
 
@@ -1571,6 +1584,29 @@
     const requested = normalizeAxisNotation(opts.notation);
     // Automatic logarithmic axes use one consistent power-of-ten format.
     return opts.logScale === true && requested === 'auto' ? 'scientific' : requested;
+  };
+
+  /**
+   * Resolve one notation mode for a complete axis tick set.
+   * Automatic mode is deliberately axis-scoped: if any visible non-zero tick
+   * crosses the scientific thresholds, every tick on that axis uses the same
+   * scientific formatter. This prevents a single axis from mixing notation.
+   *
+   * @param {Array<number>} values - Major tick values in display units
+   * @param {Object} [options] - Formatting options
+   * @returns {'auto'|'decimal'|'scientific'}
+   */
+  chartStyle.resolveAxisNotationForTicks = function resolveAxisNotationForTicks(values, options){
+    const opts = options || {};
+    const requested = chartStyle.resolveAxisNotation(opts);
+    if(requested !== 'auto'){
+      return requested;
+    }
+    if(opts.forceScientific === true){
+      return 'scientific';
+    }
+    const finiteValues = Array.isArray(values) ? values.filter(Number.isFinite) : [];
+    return hasAutomaticScientificTick(finiteValues, opts) ? 'scientific' : 'decimal';
   };
 
   /**
@@ -1585,7 +1621,9 @@
    */
   chartStyle.formatAxisValue = function formatAxisValue(value, options){
     const opts = options || {};
-    const notation = chartStyle.resolveAxisNotation(opts);
+    const notation = Array.isArray(opts.axisValues)
+      ? chartStyle.resolveAxisNotationForTicks(opts.axisValues, opts)
+      : chartStyle.resolveAxisNotation(opts);
     if(notation === 'scientific'){
       return chartStyle.formatScientific(value, {
         ...opts,
@@ -1612,6 +1650,22 @@
       return formatted;
     }
     return chartStyle.formatScientific(value, opts);
+  };
+
+  /**
+   * Create a formatter whose notation is fixed for one complete axis.
+   * Layout measurement, rendering, and export should share this formatter.
+   *
+   * @param {Array<number>} values - Major tick values in display units
+   * @param {Object} [options] - Formatting options
+   * @returns {function(number): string}
+   */
+  chartStyle.createAxisTickFormatter = function createAxisTickFormatter(values, options){
+    const opts = options || {};
+    const notation = chartStyle.resolveAxisNotationForTicks(values, opts);
+    return function formatAxisTick(value){
+      return chartStyle.formatAxisValue(value, { ...opts, notation });
+    };
   };
 
   /**

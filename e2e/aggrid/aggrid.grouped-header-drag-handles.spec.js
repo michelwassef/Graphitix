@@ -178,3 +178,99 @@ for (const component of CASES) {
     expect(issues.critical).toEqual([]);
   });
 }
+
+test('line grouped headers stay normalized while horizontal capacity grows', async ({ page }) => {
+  test.setTimeout(90_000);
+  await installLocalCdnOverrides(page);
+  await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
+  await openComponentFromWelcome(page, { type: 'line', pageId: 'linePage' }, { first: true });
+
+  const linePage = page.locator('#linePage:not([hidden])');
+  await linePage.locator('#lineTableFormat').selectOption('grouped');
+  await linePage.locator('#lineReplicates').fill('2');
+  await linePage.locator('#lineReplicates').press('Enter');
+  await page.waitForFunction(() => {
+    const tabId = window.Main?.session?.workspaceState?.activeTabId;
+    const hot = tabId
+      ? window.Shared?.hot?.__tabTablePools?.line?.byTab?.[tabId]?.instance
+      : null;
+    return hot?.__lineTableFormat === 'grouped'
+      && hot?.rootElement?.classList?.contains('line-grouped-header-merge');
+  });
+
+  const snapshot = await page.evaluate(async () => {
+    const tabId = window.Main?.session?.workspaceState?.activeTabId;
+    const hot = tabId
+      ? window.Shared?.hot?.__tabTablePools?.line?.byTab?.[tabId]?.instance
+      : null;
+    const viewport = hot?.rootElement?.querySelector?.('.ag-body-horizontal-scroll-viewport');
+    if (!hot || !viewport) {
+      throw new Error('Line grouped table unavailable');
+    }
+    const tab = window.Main?.session?.workspaceState?.tabs?.find(item => item?.id === tabId);
+    const payloadBefore = JSON.stringify(tab?.payload?.data || null);
+    viewport.scrollLeft = viewport.scrollWidth;
+    viewport.dispatchEvent(new Event('scroll', { bubbles: true }));
+    await new Promise(resolve => setTimeout(resolve, 260));
+    const count = hot.countCols();
+    return {
+      count,
+      labels: Array.from({ length: count }, (_, index) => hot.getColHeader(index)),
+      payloadBefore,
+      payloadAfter: JSON.stringify(tab?.payload?.data || null)
+    };
+  });
+
+  const expectedLabels = Array.from({ length: snapshot.count }, (_, index) => {
+    if (index === 0) {
+      return 'X values';
+    }
+    return (index - 1) % 2 === 0
+      ? `Group ${Math.floor((index - 1) / 2) + 1}`
+      : ' ';
+  });
+  expect(snapshot.labels).toEqual(expectedLabels);
+  expect(snapshot.payloadAfter).toBe(snapshot.payloadBefore);
+});
+
+test('pca grouped headers stay normalized while horizontal capacity grows', async ({ page }) => {
+  test.setTimeout(90_000);
+  await installLocalCdnOverrides(page);
+  await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
+  await openComponentFromWelcome(page, { type: 'pca', pageId: 'pcaPage' }, { first: true });
+  await configureGroupedMode(page, CASES.find(item => item.type === 'pca'));
+
+  const snapshot = await page.evaluate(async () => {
+    const tabId = window.Main?.session?.workspaceState?.activeTabId;
+    const hot = tabId
+      ? window.Shared?.hot?.__tabTablePools?.pca?.byTab?.[tabId]?.instance
+      : null;
+    const viewport = hot?.rootElement?.querySelector?.('.ag-body-horizontal-scroll-viewport');
+    if (!hot || !viewport) {
+      throw new Error('PCA grouped table unavailable');
+    }
+    const tab = window.Main?.session?.workspaceState?.tabs?.find(item => item?.id === tabId);
+    const payloadBefore = JSON.stringify(tab?.payload?.data || null);
+    viewport.scrollLeft = viewport.scrollWidth;
+    viewport.dispatchEvent(new Event('scroll', { bubbles: true }));
+    await new Promise(resolve => setTimeout(resolve, 260));
+    const count = hot.countCols();
+    return {
+      count,
+      labels: Array.from({ length: count }, (_, index) => hot.getColHeader(index)),
+      payloadBefore,
+      payloadAfter: JSON.stringify(tab?.payload?.data || null)
+    };
+  });
+
+  const expectedLabels = Array.from({ length: snapshot.count }, (_, index) => {
+    if (index === 0) {
+      return '';
+    }
+    return (index - 1) % 2 === 0
+      ? `Group ${Math.floor((index - 1) / 2) + 1}`
+      : ' ';
+  });
+  expect(snapshot.labels).toEqual(expectedLabels);
+  expect(snapshot.payloadAfter).toBe(snapshot.payloadBefore);
+});

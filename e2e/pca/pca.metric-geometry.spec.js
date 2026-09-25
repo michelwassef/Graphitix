@@ -1,6 +1,5 @@
-const fs = require('fs');
-const path = require('path');
 const { test, expect } = require('@playwright/test');
+const { saveWorkspaceArchive } = require('../helpers/archiveDriver');
 const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
 const { openComponentFromWelcome, clickExampleButtonIfPresent, waitForDocumentOpenComplete } = require('../helpers/workspaceDriver');
 const { registerIssueCollectors } = require('../helpers/diagnostics');
@@ -406,29 +405,17 @@ async function findPcaTabByAxisSelection(page, selection) {
   }, selection || {});
 }
 
-async function captureWorkspaceArchive(page, fileStem, outputPath) {
-  const archive = await page.evaluate(async stem => {
-    const context = window.Main.tabs.getSessionActionsContext();
-    const blob = await window.Main.sessionActions.buildWorkspaceArchiveBlob(context, {
-      scope: 'workspace',
-      snapshotKind: 'document-snapshot',
-      compression: 'STORE',
-      reason: 'e2e-pca-metric-archive'
-    });
-    const bytes = new Uint8Array(await blob.arrayBuffer());
-    let binary = '';
-    for (let index = 0; index < bytes.length; index += 0x8000) {
-      binary += String.fromCharCode.apply(null, bytes.subarray(index, index + 0x8000));
-    }
-    return { fileName: `${stem}.graph`, base64: btoa(binary) };
-  }, fileStem);
+async function captureWorkspaceArchive(page, outputPath) {
   if (!outputPath) {
     throw new Error('PCA metric archive capture requires a per-test output path.');
   }
-  const archivePath = outputPath;
-  fs.mkdirSync(path.dirname(archivePath), { recursive: true });
-  fs.writeFileSync(archivePath, Buffer.from(archive.base64, 'base64'));
-  return archivePath;
+  await saveWorkspaceArchive(page, outputPath, {
+    scope: 'workspace',
+    snapshotKind: 'document-snapshot',
+    compression: 'STORE',
+    reason: 'e2e-pca-metric-archive'
+  });
+  return outputPath;
 }
 
 async function seedRecoverySnapshot(page) {
@@ -644,7 +631,6 @@ test('PCA metric geometry survives same-component tab switching and file reopen'
 
   const archivePath = await captureWorkspaceArchive(
     page,
-    'pca-metric-geometry',
     testInfo.outputPath('pca-metric-geometry.graph')
   );
   await page.reload({ waitUntil: 'domcontentloaded' });

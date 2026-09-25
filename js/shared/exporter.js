@@ -3833,6 +3833,27 @@
     return stats;
   }
 
+  function removeHiddenBoundaryLabelsForExport(svgNode) {
+    if (!svgNode?.querySelectorAll) return 0;
+    const roles = new Set(['graphTitle', 'xTitle', 'yTitle', 'zTitle']);
+    let removed = 0;
+    svgNode.querySelectorAll('text[data-font-role]').forEach(node => {
+      const role = node.getAttribute('data-font-role');
+      if (!roles.has(role)) return;
+      const visibility = String(readInlinePresentationValue(node, 'visibility') || '').trim().toLowerCase();
+      const display = String(readInlinePresentationValue(node, 'display') || '').trim().toLowerCase();
+      const hidden = node.dataset?.fontHidden === 'true'
+        || node.hasAttribute?.('hidden')
+        || visibility === 'hidden'
+        || display === 'none';
+      if (hidden) {
+        node.remove();
+        removed += 1;
+      }
+    });
+    return removed;
+  }
+
   function prepareSvgForExport(svgNode, contextLabel, options = {}) {
     if (!svgNode) {
       logDebug('prepareSvgForExport skipped', { contextLabel, reason: 'no svg node' });
@@ -3853,6 +3874,7 @@
       dottedLines: null,
       gridOverlaysRemoved: 0,
       editHighlightsRemoved: 0,
+      hiddenBoundaryLabelsRemoved: 0,
       darkBackgroundInjected: 0,
       scatterOptimization: null
     };
@@ -3894,6 +3916,7 @@
       counters.dottedLines = replaceRoundCapZeroDashLinesForExport(svgNode);
       counters.gridOverlaysRemoved = removeGridControlOverlays(svgNode);
       counters.editHighlightsRemoved = removeEditHighlightArtifacts(svgNode);
+      counters.hiddenBoundaryLabelsRemoved = removeHiddenBoundaryLabelsForExport(svgNode);
       ensureDarkBackgroundRectForExport(svgNode, counters);
 
       // Apply scatter point optimization for large datasets

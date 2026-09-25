@@ -1,6 +1,5 @@
-const fs = require('fs');
-const path = require('path');
 const { test, expect } = require('@playwright/test');
+const { saveWorkspaceArchive } = require('../helpers/archiveDriver');
 const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
 const { openComponentFromWelcome, clickExampleButtonIfPresent, waitForDocumentOpenComplete } = require('../helpers/workspaceDriver');
 const { registerIssueCollectors } = require('../helpers/diagnostics');
@@ -149,29 +148,17 @@ async function expectRocResamplingLayout(page) {
   expect(layout.seedWidth).toBeLessThan(200);
 }
 
-async function captureWorkspaceArchive(page, fileStem, outputPath) {
-  const archive = await page.evaluate(async (stem) => {
-    const context = window.Main.tabs.getSessionActionsContext();
-    const blob = await window.Main.sessionActions.buildWorkspaceArchiveBlob(context, {
-      scope: 'workspace',
-      snapshotKind: 'document-snapshot',
-      compression: 'STORE',
-      reason: 'e2e-roc-graph-type-reopen'
-    });
-    const bytes = new Uint8Array(await blob.arrayBuffer());
-    let binary = '';
-    for (let i = 0; i < bytes.length; i += 0x8000) {
-      binary += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
-    }
-    return { fileName: `${stem}.graph`, base64: btoa(binary) };
-  }, fileStem);
+async function captureWorkspaceArchive(page, outputPath) {
   if (!outputPath) {
     throw new Error('ROC graph archive capture requires a per-test output path.');
   }
-  const archivePath = outputPath;
-  fs.mkdirSync(path.dirname(archivePath), { recursive: true });
-  fs.writeFileSync(archivePath, Buffer.from(archive.base64, 'base64'));
-  return archivePath;
+  await saveWorkspaceArchive(page, outputPath, {
+    scope: 'workspace',
+    snapshotKind: 'document-snapshot',
+    compression: 'STORE',
+    reason: 'e2e-roc-graph-type-reopen'
+  });
+  return outputPath;
 }
 
 async function reopenArchive(page, archivePath) {
@@ -278,7 +265,6 @@ test('ROC and Precision-Recall graph type survives toggles, tab switch, and reop
 
   const archivePath = await captureWorkspaceArchive(
     page,
-    'roc-pr-graph-type',
     testInfo.outputPath('roc-pr-graph-type.graph')
   );
   await reopenArchive(page, archivePath);

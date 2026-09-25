@@ -5542,8 +5542,14 @@
     ['x', 'y', 'z'].forEach(axisKey => {
       const ticks = model.axisTicks[axisKey] || [];
       const labels = model.axisTickLabels[axisKey] || [];
+      const fallbackFormatter = typeof chartStyle.createAxisTickFormatter === 'function'
+        ? chartStyle.createAxisTickFormatter(ticks, { notation: 'auto', maxDecimals: 2 })
+        : null;
       result[axisKey] = value => {
         const numeric = Number(value);
+        if(typeof fallbackFormatter === 'function'){
+          return fallbackFormatter(numeric);
+        }
         let nearest = -1;
         let distance = Infinity;
         ticks.forEach((tick, index) => {
@@ -5557,7 +5563,7 @@
           return labels[nearest];
         }
         return typeof chartStyle.formatAxisValue === 'function'
-          ? chartStyle.formatAxisValue(numeric, { maxDecimals: 2 })
+          ? chartStyle.formatAxisValue(numeric, { axisValues: ticks, maxDecimals: 2 })
           : (Number.isFinite(numeric) ? String(numeric) : '');
       };
     });
@@ -22844,7 +22850,11 @@
       let axisTicks3d = axisTicksOriginal3d;
       let renderAxisRanges3d = axisRanges3d;
       let renderPoints3d = points3dInRange;
-      let axisTickFormatters3d = null;
+      let axisTickFormatters3d = {
+        x: chartStyle.createAxisTickFormatter(axisTicks3d.x, { notation: 'auto', maxDecimals: 2 }),
+        y: chartStyle.createAxisTickFormatter(axisTicks3d.y, { notation: 'auto', maxDecimals: 2 }),
+        z: chartStyle.createAxisTickFormatter(axisTicks3d.z, { notation: 'auto', maxDecimals: 2 })
+      };
       const equalScale3d = !!scatterState.equalScaleAxes;
       const equalLength3d = !!scatterState.equalAxes;
       if(equalScale3d){
@@ -22929,13 +22939,15 @@
           y: axisTicksOriginal3d.y.map(value => scaleValue('y', value)),
           z: axisTicksOriginal3d.z.map(value => scaleValue('z', value))
         };
+        const originalAxisTickFormatters = {
+          x: chartStyle.createAxisTickFormatter(axisTicksOriginal3d.x, { notation: 'auto', maxDecimals: 2 }),
+          y: chartStyle.createAxisTickFormatter(axisTicksOriginal3d.y, { notation: 'auto', maxDecimals: 2 }),
+          z: chartStyle.createAxisTickFormatter(axisTicksOriginal3d.z, { notation: 'auto', maxDecimals: 2 })
+        };
         const formatTick = (axisKey, scaledValue) => {
           const originalValue = unscaleValue(axisKey, scaledValue);
-          if(typeof chartStyle.formatAxisValue === 'function'){
-            return chartStyle.formatAxisValue(originalValue, {
-              maxDecimals: 2,
-              logScale: false
-            });
+          if(typeof originalAxisTickFormatters[axisKey] === 'function'){
+            return originalAxisTickFormatters[axisKey](originalValue);
           }
           if(typeof chartStyle.formatScientific === 'function'){
             return chartStyle.formatScientific(originalValue, { maxDecimals: 2 });
@@ -23583,13 +23595,21 @@
           }
         };
       });
+      const fallbackScatter3dAxisTickFormatters = {
+        x: chartStyle.createAxisTickFormatter(axisTicks3d.x, { notation: 'auto', maxDecimals: 2 }),
+        y: chartStyle.createAxisTickFormatter(axisTicks3d.y, { notation: 'auto', maxDecimals: 2 }),
+        z: chartStyle.createAxisTickFormatter(axisTicks3d.z, { notation: 'auto', maxDecimals: 2 })
+      };
       const formatScatter3dAxisTick = (axisKey, value) => {
         const formatter = axisTickFormatters3d?.[axisKey];
         if(typeof formatter === 'function'){
           return String(formatter(value));
         }
+        if(typeof fallbackScatter3dAxisTickFormatters[axisKey] === 'function'){
+          return String(fallbackScatter3dAxisTickFormatters[axisKey](value));
+        }
         return typeof chartStyle.formatAxisValue === 'function'
-          ? String(chartStyle.formatAxisValue(value, { maxDecimals: 2 }))
+          ? String(chartStyle.formatAxisValue(value, { axisValues: axisTicks3d[axisKey], maxDecimals: 2 }))
           : String(value);
       };
       const scatter3dRotationModel = normalizeScatter3dRotationModel({
@@ -27285,8 +27305,20 @@ async function drawScatter(drawOptions = {}){
       debug('Debug: scatter initial tick targets',{xTickTarget,yTickTarget,width:W,height:H});
       const scatterNotationX = getScatterAxisNotation('x');
       const scatterNotationY = getScatterAxisNotation('y');
-      const formatTickX = v => chartStyle.formatAxisValue(v,{ notation: scatterNotationX, maxDecimals: 2, logScale: logX });
-      const formatTickY = v => chartStyle.formatAxisValue(v,{ notation: scatterNotationY, maxDecimals: 2, logScale: logY });
+      const scatterAxisFormatOptionsX = { notation: scatterNotationX, maxDecimals: 2, logScale: logX };
+      const scatterAxisFormatOptionsY = { notation: scatterNotationY, maxDecimals: 2, logScale: logY };
+      let formatTickX = chartStyle.createAxisTickFormatter([], scatterAxisFormatOptionsX);
+      let formatTickY = chartStyle.createAxisTickFormatter([], scatterAxisFormatOptionsY);
+      const refreshScatterAxisTickFormatters = () => {
+        formatTickX = chartStyle.createAxisTickFormatter(
+          xScale.ticks.map(t => logX ? Math.pow(10, t) : t),
+          scatterAxisFormatOptionsX
+        );
+        formatTickY = chartStyle.createAxisTickFormatter(
+          yScale.ticks.map(t => logY ? Math.pow(10, t) : t),
+          scatterAxisFormatOptionsY
+        );
+      };
       const scatterFontStyles = exportFontStyles('scatter', { tabId: drawTabId });
       const xTickMeasureProfile = (chartStyle && typeof chartStyle.resolveScopedLabelMeasureFont === 'function')
         ? chartStyle.resolveScopedLabelMeasureFont({ styles: scatterFontStyles, role: 'xTick', fallbackPx: fs })
@@ -27371,6 +27403,7 @@ async function drawScatter(drawOptions = {}){
       });
       applyLogTickOverride('x', xScale, manualXMinValue, manualXMaxValue, xMinT, xMaxT, logX);
       applyLogTickOverride('y', yScale, manualYMinValue, manualYMaxValue, yMinT, yMaxT, logY);
+      refreshScatterAxisTickFormatters();
       let xTickLabels=xScale.ticks.map(t=>formatTickX(logX?Math.pow(10,t):t));
       let yTickLabels=yScale.ticks.map(t=>formatTickY(logY?Math.pow(10,t):t));
       let maxYLabelWidth=0;
@@ -27394,6 +27427,7 @@ async function drawScatter(drawOptions = {}){
         });
         applyLogTickOverride('x', xScale, manualXMinValue, manualXMaxValue, xMinT, xMaxT, logX);
         applyLogTickOverride('y', yScale, manualYMinValue, manualYMaxValue, yMinT, yMaxT, logY);
+        refreshScatterAxisTickFormatters();
         xTickLabels=xScale.ticks.map(t=>formatTickX(logX?Math.pow(10,t):t));
         yTickLabels=yScale.ticks.map(t=>formatTickY(logY?Math.pow(10,t):t));
         const yLabelWidths=yTickLabels.map(lbl=>chartStyle.measureText(lbl,tickFont));

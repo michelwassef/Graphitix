@@ -1,4 +1,3 @@
-const fs = require('fs');
 const { test, expect } = require('@playwright/test');
 const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
 const { registerIssueCollectors } = require('../helpers/diagnostics');
@@ -12,6 +11,7 @@ const {
   waitForOwnerProjection
 } = require('../helpers/contractWaits');
 const { activateTab: activateTabWithUi } = require('../helpers/uiDriver');
+const { saveWorkspaceArchive } = require('../helpers/archiveDriver');
 
 const CASES = [
   {
@@ -458,26 +458,12 @@ async function changeActivePValueFormat(page, componentCase) {
 }
 
 async function captureArchive(page, key, outputPath) {
-  const archive = await page.evaluate(async () => {
-    const tabsApi = window.Main?.tabs;
-    const sessionActions = window.Main?.sessionActions;
-    const context = tabsApi?.getSessionActionsContext?.();
-    const blob = await sessionActions?.buildWorkspaceArchiveBlob?.(context, {
-      scope: 'workspace',
-      snapshotKind: 'document-snapshot',
-      compression: 'STORE',
-      reason: 'e2e-stats-same-component-contract'
-    });
-    if (!blob) throw new Error('No workspace archive blob');
-    const bytes = new Uint8Array(await blob.arrayBuffer());
-    let binary = '';
-    const chunk = 0x8000;
-    for (let index = 0; index < bytes.length; index += chunk) {
-      binary += String.fromCharCode.apply(null, bytes.subarray(index, index + chunk));
-    }
-    return { base64: btoa(binary) };
+  await saveWorkspaceArchive(page, outputPath, {
+    scope: 'workspace',
+    snapshotKind: 'document-snapshot',
+    compression: 'STORE',
+    reason: 'e2e-stats-same-component-contract'
   });
-  fs.writeFileSync(outputPath, Buffer.from(archive.base64, 'base64'));
   return outputPath;
 }
 

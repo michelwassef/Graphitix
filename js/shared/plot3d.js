@@ -430,18 +430,30 @@
       }
       return { width, height: textHeight(size) };
     };
+    const ticks = opts.axisTicks || {};
+    const fallbackAxisTickFormatters = {};
+    ['x', 'y', 'z'].forEach(axis => {
+      if(typeof chartStyle.createAxisTickFormatter === 'function'){
+        fallbackAxisTickFormatters[axis] = chartStyle.createAxisTickFormatter(
+          Array.isArray(ticks[axis]) ? ticks[axis] : [],
+          { notation: 'auto', maxDecimals: 2 }
+        );
+      }
+    });
     const formatTick = (axis, value) => {
       const formatter = opts.axisTickFormatters?.[axis];
       if(typeof formatter === 'function'){
         try{ return formatter(value); }catch(_err){ /* fallback below */ }
       }
+      if(typeof fallbackAxisTickFormatters[axis] === 'function'){
+        return fallbackAxisTickFormatters[axis](value);
+      }
       if(typeof chartStyle.formatAxisValue === 'function'){
-        try{ return chartStyle.formatAxisValue(value, { maxDecimals: 2 }); }catch(_err){ /* fallback below */ }
+        try{ return chartStyle.formatAxisValue(value, { axisValues: ticks[axis], maxDecimals: 2 }); }catch(_err){ /* fallback below */ }
       }
       return Number.isFinite(value) ? String(value) : '';
     };
     const labels = opts.axisLabels || {};
-    const ticks = opts.axisTicks || {};
     const axisDiagnostics = {};
     let maxReserve = 0;
     ['x', 'y', 'z'].forEach(axis => {
@@ -1333,6 +1345,15 @@
       z: { entries: [], angle: 0, unitAxis2d: null }
     };
     const axisLabelRegistry = { x: null, y: null, z: null };
+    const fallbackAxisTickFormatters = {};
+    ['x', 'y', 'z'].forEach(axis => {
+      if(typeof chartStyle.createAxisTickFormatter === 'function'){
+        fallbackAxisTickFormatters[axis] = chartStyle.createAxisTickFormatter(
+          Array.isArray(axisTicks[axis]) ? axisTicks[axis] : [],
+          { notation: 'auto', maxDecimals: 2 }
+        );
+      }
+    });
     const formatTickLabel = (axisKey, value) => {
       const formatter = axisTickFormatters && axisTickFormatters[axisKey];
       if(typeof formatter === 'function'){
@@ -1342,8 +1363,11 @@
           debugLog('Debug: plot3d tick formatter error', { label: debugLabel, axis: axisKey, message: err && err.message });
         }
       }
+      if(typeof fallbackAxisTickFormatters[axisKey] === 'function'){
+        return fallbackAxisTickFormatters[axisKey](value);
+      }
       if(typeof chartStyle.formatAxisValue === 'function'){
-        return chartStyle.formatAxisValue(value, { maxDecimals: 2 });
+        return chartStyle.formatAxisValue(value, { axisValues: axisTicks[axisKey], maxDecimals: 2 });
       }
       if(typeof chartStyle.formatScientific === 'function'){
         return chartStyle.formatScientific(value, { maxDecimals: 2 });

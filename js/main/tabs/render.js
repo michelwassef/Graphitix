@@ -116,7 +116,6 @@
 
     function shouldSuppressRenameTarget(target) {
       if (!target || typeof target.closest !== 'function') return false;
-      if (target.closest('.workspace-tab__close')) return true;
       if (target.closest('.workspace-tab__rename')) return true;
       return false;
     }
@@ -174,9 +173,120 @@
       return triggerTabRename(tab, event, { reason: 'synthetic-double-click', source: 'click-handler' });
     }
 
+    function updateTabScrollControls() {
+      if (!dom.tabsList) {
+        return false;
+      }
+      const scrollLeft = dom.tabsList.scrollLeft;
+      const maxScrollLeft = Math.max(0, dom.tabsList.scrollWidth - dom.tabsList.clientWidth);
+      const hasOverflow = maxScrollLeft > 1;
+      const controls = [dom.tabsScrollLeft, dom.tabsScrollRight].filter(Boolean);
+      controls.forEach(button => {
+        button.hidden = !hasOverflow;
+      });
+      if (dom.tabsScrollLeft) {
+        dom.tabsScrollLeft.disabled = !hasOverflow || scrollLeft <= 1;
+        dom.tabsScrollLeft.setAttribute('aria-disabled', dom.tabsScrollLeft.disabled ? 'true' : 'false');
+      }
+      if (dom.tabsScrollRight) {
+        dom.tabsScrollRight.disabled = !hasOverflow || scrollLeft >= maxScrollLeft - 1;
+        dom.tabsScrollRight.setAttribute('aria-disabled', dom.tabsScrollRight.disabled ? 'true' : 'false');
+      }
+      return hasOverflow;
+    }
+
     function syncTabOverflowState() {
-      const hasOverflow = !!dom.tabsList && dom.tabsList.scrollWidth > dom.tabsList.clientWidth;
-      document.documentElement.classList.toggle('workspace-tabs-overflow', hasOverflow);
+      if (!dom.tabsList) {
+        return false;
+      }
+      const controls = [dom.tabsScrollLeft, dom.tabsScrollRight].filter(Boolean);
+      dom.tabsList.classList.remove('is-overflowing');
+      controls.forEach(button => { button.hidden = true; });
+      const initiallyOverflowing = dom.tabsList.scrollWidth > dom.tabsList.clientWidth;
+      if (!initiallyOverflowing) {
+        updateTabScrollControls();
+        return false;
+      }
+      dom.tabsList.classList.add('is-overflowing');
+      controls.forEach(button => { button.hidden = false; });
+      const hasOverflow = updateTabScrollControls();
+      if (!hasOverflow) {
+        dom.tabsList.classList.remove('is-overflowing');
+        controls.forEach(button => { button.hidden = true; });
+      }
+      return hasOverflow;
+    }
+
+    function scrollTabsBy(direction) {
+      if (!dom.tabsList) {
+        return;
+      }
+      const firstTab = dom.tabsList.querySelector('.workspace-tab');
+      const step = firstTab
+        ? Math.max(firstTab.getBoundingClientRect().width * 2, 120)
+        : Math.max(dom.tabsList.clientWidth * 0.8, 120);
+      dom.tabsList.scrollBy({ left: direction * step, behavior: 'smooth' });
+    }
+
+    function ensureActiveTabVisible() {
+      if (!dom.tabsList) {
+        return;
+      }
+      const activeTab = dom.tabsList.querySelector('.workspace-tab.is-active');
+      if (!activeTab) {
+        return;
+      }
+      const listRect = dom.tabsList.getBoundingClientRect();
+      const tabRect = activeTab.getBoundingClientRect();
+      const inset = 4;
+      if (tabRect.left < listRect.left + inset) {
+        dom.tabsList.scrollBy({ left: tabRect.left - listRect.left - inset, behavior: 'auto' });
+      } else if (tabRect.right > listRect.right - inset) {
+        dom.tabsList.scrollBy({ left: tabRect.right - listRect.right + inset, behavior: 'auto' });
+      }
+    }
+
+    function handleTabListWheel(event) {
+      if (!dom.tabsList || dom.tabsList.scrollWidth <= dom.tabsList.clientWidth) {
+        return;
+      }
+      const delta = Math.abs(event.deltaX) >= Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
+      if (!delta) {
+        return;
+      }
+      event.preventDefault();
+      dom.tabsList.scrollBy({ left: delta, behavior: 'auto' });
+    }
+
+    function handleTabListKeydown(event) {
+      if (event.target?.closest?.('.workspace-tab__rename')) {
+        return;
+      }
+      if (event.key === 'ArrowLeft') {
+        event.preventDefault();
+        scrollTabsBy(-1);
+      } else if (event.key === 'ArrowRight') {
+        event.preventDefault();
+        scrollTabsBy(1);
+      } else if (event.key === 'Home') {
+        event.preventDefault();
+        dom.tabsList.scrollTo({ left: 0, behavior: 'smooth' });
+      } else if (event.key === 'End') {
+        event.preventDefault();
+        dom.tabsList.scrollTo({ left: dom.tabsList.scrollWidth, behavior: 'smooth' });
+      }
+    }
+
+    function ensureTabScrollHandlers() {
+      if (!dom.tabsList || dom.tabsList.dataset.scrollHandlersBound === 'true') {
+        return;
+      }
+      dom.tabsList.dataset.scrollHandlersBound = 'true';
+      dom.tabsList.addEventListener('wheel', handleTabListWheel, { passive: false });
+      dom.tabsList.addEventListener('keydown', handleTabListKeydown);
+      dom.tabsList.addEventListener('scroll', updateTabScrollControls, { passive: true });
+      dom.tabsScrollLeft?.addEventListener('click', () => scrollTabsBy(-1));
+      dom.tabsScrollRight?.addEventListener('click', () => scrollTabsBy(1));
     }
 
     function ensureTabOverflowObserver() {
@@ -194,6 +304,7 @@
         previews.hideTabPreviewTooltip('render');
       }
       dom.tabsList.innerHTML = '';
+      ensureTabScrollHandlers();
       workspaceState.tabs.forEach((tab, index) => {
         const btn = document.createElement('button');
         btn.type = 'button';
@@ -347,30 +458,6 @@
           btn.appendChild(renameInput);
         }
 
-        if (!tab.isWelcome && tab.allowClose !== false) {
-          const closeEl = document.createElement('span');
-          closeEl.className = 'workspace-tab__close';
-          closeEl.setAttribute('role', 'button');
-          closeEl.setAttribute('aria-label', `Close ${displayTitle} tab`);
-          closeEl.tabIndex = 0;
-          closeEl.textContent = '×';
-          closeEl.addEventListener('click', event => {
-            event.stopPropagation();
-            if (typeof dragHandlers.closeTab === 'function') {
-              dragHandlers.closeTab(tab.id);
-            }
-          });
-          closeEl.addEventListener('keydown', event => {
-            if (event.key === 'Enter' || event.key === ' ' || event.key === 'Spacebar' || event.key === 'Space') {
-              event.preventDefault();
-              if (typeof dragHandlers.closeTab === 'function') {
-                dragHandlers.closeTab(tab.id);
-              }
-            }
-          });
-          btn.appendChild(closeEl);
-        }
-
         dom.tabsList.appendChild(btn);
 
         if (tab.isRenaming && workspaceState.renameFocusId === tab.id) {
@@ -388,6 +475,15 @@
       applyTabDragClasses();
       syncTabOverflowState();
       ensureTabOverflowObserver();
+      const refreshActiveTabVisibility = () => {
+        ensureActiveTabVisible();
+        updateTabScrollControls();
+      };
+      if (typeof requestAnimationFrame === 'function') {
+        requestAnimationFrame(refreshActiveTabVisibility);
+      } else {
+        refreshActiveTabVisibility();
+      }
     }
 
     return {

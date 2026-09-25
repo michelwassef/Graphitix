@@ -12,7 +12,6 @@
  * jsdom cannot host this (no layout / getBoundingClientRect == 0), so it must run in a
  * real browser.
  */
-const fs = require('fs');
 const { test, expect } = require('@playwright/test');
 const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
 const { registerIssueCollectors } = require('../helpers/diagnostics');
@@ -22,6 +21,7 @@ const {
   waitForDocumentOpenComplete
 } = require('../helpers/workspaceDriver');
 const { waitForComponentOwnerReady } = require('../helpers/contractWaits');
+const { saveWorkspaceArchive } = require('../helpers/archiveDriver');
 
 // compute: id of a "Compute statistics" button to click after loading data (null = auto-computes on draw).
 // containers: the stats-panel container ids that together hold the component's rendered statistics.
@@ -221,15 +221,12 @@ async function buildAndCompute(page, c) {
 }
 
 async function captureArchive(page, stem, outputPath) {
-  const archive = await page.evaluate(async () => {
-    const ctx = window.Main.tabs.getSessionActionsContext();
-    const blob = await window.Main.sessionActions.buildWorkspaceArchiveBlob(ctx, { scope: 'workspace', snapshotKind: 'document-snapshot', compression: 'STORE', reason: 'e2e-stats-contract' });
-    const bytes = new Uint8Array(await blob.arrayBuffer());
-    let bin = '';
-    for (let i = 0; i < bytes.length; i += 0x8000) { bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000)); }
-    return btoa(bin);
+  await saveWorkspaceArchive(page, outputPath, {
+    scope: 'workspace',
+    snapshotKind: 'document-snapshot',
+    compression: 'STORE',
+    reason: 'e2e-stats-contract'
   });
-  fs.writeFileSync(outputPath, Buffer.from(archive, 'base64'));
   return outputPath;
 }
 

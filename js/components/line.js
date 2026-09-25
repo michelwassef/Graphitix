@@ -11604,8 +11604,14 @@
     ['x', 'y', 'z'].forEach(axisKey => {
       const ticks = model.axisTicks?.[axisKey] || [];
       const labels = model.axisTickLabels?.[axisKey] || [];
+      const fallbackFormatter = typeof chartStyle.createAxisTickFormatter === 'function'
+        ? chartStyle.createAxisTickFormatter(ticks, { notation: 'auto', maxDecimals: 2 })
+        : null;
       result[axisKey] = value => {
         const numeric = Number(value);
+        if(typeof fallbackFormatter === 'function'){
+          return fallbackFormatter(numeric);
+        }
         let nearest = -1;
         let distance = Infinity;
         for(let index = 0; index < ticks.length; index += 1){
@@ -11619,7 +11625,7 @@
           return labels[nearest];
         }
         if(typeof chartStyle.formatAxisValue === 'function'){
-          return chartStyle.formatAxisValue(numeric, { maxDecimals: 2 });
+          return chartStyle.formatAxisValue(numeric, { axisValues: ticks, maxDecimals: 2 });
         }
         return Number.isFinite(numeric) ? String(numeric) : '';
       };
@@ -14587,7 +14593,11 @@
       let axisTicks3d = axisTicksOriginal3d;
       let renderAxisRanges3d = axisRanges3d;
       let renderSeries3d = seriesWithData;
-      let axisTickFormatters3d = null;
+      let axisTickFormatters3d = {
+        x: chartStyle.createAxisTickFormatter(axisTicks3d.x, { notation: 'auto', maxDecimals: 2 }),
+        y: chartStyle.createAxisTickFormatter(axisTicks3d.y, { notation: 'auto', maxDecimals: 2 }),
+        z: chartStyle.createAxisTickFormatter(axisTicks3d.z, { notation: 'auto', maxDecimals: 2 })
+      };
       const equalScale3d = !!getLineViewState().equalScaleAxes;
       const equalLength3d = !!getLineViewState().equalAxes;
       if(equalScale3d){
@@ -14671,13 +14681,15 @@
           y: axisTicksOriginal3d.y.map(value => scaleValue('y', value)),
           z: axisTicksOriginal3d.z.map(value => scaleValue('z', value))
         };
-      const formatTick = (axisKey, scaledValue) => {
+        const originalAxisTickFormatters = {
+          x: chartStyle.createAxisTickFormatter(axisTicksOriginal3d.x, { notation: 'auto', maxDecimals: 2 }),
+          y: chartStyle.createAxisTickFormatter(axisTicksOriginal3d.y, { notation: 'auto', maxDecimals: 2 }),
+          z: chartStyle.createAxisTickFormatter(axisTicksOriginal3d.z, { notation: 'auto', maxDecimals: 2 })
+        };
+        const formatTick = (axisKey, scaledValue) => {
           const originalValue = unscaleValue(axisKey, scaledValue);
-          if(typeof chartStyle.formatAxisValue === 'function'){
-            return chartStyle.formatAxisValue(originalValue, {
-              maxDecimals: 2,
-              logScale: false
-            });
+          if(typeof originalAxisTickFormatters[axisKey] === 'function'){
+            return originalAxisTickFormatters[axisKey](originalValue);
           }
           if(typeof chartStyle.formatScientific === 'function'){
             return chartStyle.formatScientific(originalValue, { maxDecimals: 2 });
@@ -15122,13 +15134,21 @@
           }
         };
       });
+      const fallbackLine3dAxisTickFormatters = {
+        x: chartStyle.createAxisTickFormatter(axisTicks3d.x, { notation: 'auto', maxDecimals: 2 }),
+        y: chartStyle.createAxisTickFormatter(axisTicks3d.y, { notation: 'auto', maxDecimals: 2 }),
+        z: chartStyle.createAxisTickFormatter(axisTicks3d.z, { notation: 'auto', maxDecimals: 2 })
+      };
       const formatLine3dAxisTick = (axisKey, value) => {
         const formatter = axisTickFormatters3d?.[axisKey];
         if(typeof formatter === 'function'){
           return String(formatter(value));
         }
+        if(typeof fallbackLine3dAxisTickFormatters[axisKey] === 'function'){
+          return String(fallbackLine3dAxisTickFormatters[axisKey](value));
+        }
         if(typeof chartStyle.formatAxisValue === 'function'){
-          return String(chartStyle.formatAxisValue(value, { maxDecimals: 2 }));
+          return String(chartStyle.formatAxisValue(value, { axisValues: axisTicks3d[axisKey], maxDecimals: 2 }));
         }
         return String(value);
       };
@@ -15789,8 +15809,20 @@
       console.debug('Debug: line initial tick targets',{xTickTarget,yTickTarget,width:W,height:H});
       const lineNotationX = getLineAxisNotation('x', invocation.session);
       const lineNotationY = getLineAxisNotation('y', invocation.session);
-      const formatTickX = v => chartStyle.formatAxisValue(v,{ notation: lineNotationX, maxDecimals: 2, logScale: logX });
-      const formatTickY = v => chartStyle.formatAxisValue(v,{ notation: lineNotationY, maxDecimals: 2, logScale: logY });
+      const lineAxisFormatOptionsX = { notation: lineNotationX, maxDecimals: 2, logScale: logX };
+      const lineAxisFormatOptionsY = { notation: lineNotationY, maxDecimals: 2, logScale: logY };
+      let formatTickX = chartStyle.createAxisTickFormatter([], lineAxisFormatOptionsX);
+      let formatTickY = chartStyle.createAxisTickFormatter([], lineAxisFormatOptionsY);
+      const refreshLineAxisTickFormatters = () => {
+        formatTickX = chartStyle.createAxisTickFormatter(
+          xScale.ticks.map(t => logX ? Math.pow(10, t) : t),
+          lineAxisFormatOptionsX
+        );
+        formatTickY = chartStyle.createAxisTickFormatter(
+          yScale.ticks.map(t => logY ? Math.pow(10, t) : t),
+          lineAxisFormatOptionsY
+        );
+      };
       const lineFontStyles = exportFontStyles('line', { tabId: invocation.session?.tabId || null });
       const xTickMeasureFont = (chartStyle && typeof chartStyle.resolveScopedLabelMeasureFont === 'function')
         ? chartStyle.resolveScopedLabelMeasureFont({ styles: lineFontStyles, role: 'xTick', fallbackPx: fs }).fontSpec
@@ -15861,6 +15893,7 @@
       let yScale=buildAxisScale({ dataMin: yMinT, dataMax: yMaxT, manualMin: manualYMinValue, manualMax: manualYMaxValue, targetTickCount: yTickTarget });
       applyLogTickOverride('x', xScale, manualXMinValue, manualXMaxValue, xMinT, xMaxT, logX);
       applyLogTickOverride('y', yScale, manualYMinValue, manualYMaxValue, yMinT, yMaxT, logY);
+      refreshLineAxisTickFormatters();
       let xTickLabels=xScale.ticks.map(t=>formatTickX(logX?Math.pow(10,t):t));
       let yTickLabels=yScale.ticks.map(t=>formatTickY(logY?Math.pow(10,t):t));
       let maxYLabelWidth=0;
@@ -15916,6 +15949,7 @@
         }
         applyLogTickOverride('x', xScale, manualXMinValue, manualXMaxValue, xMinT, xMaxT, logX);
         applyLogTickOverride('y', yScale, manualYMinValue, manualYMaxValue, yMinT, yMaxT, logY);
+        refreshLineAxisTickFormatters();
         xTickLabels=xScale.ticks.map(t=>formatTickX(logX?Math.pow(10,t):t));
         yTickLabels=yScale.ticks.map(t=>formatTickY(logY?Math.pow(10,t):t));
         const yLabelWidths=yTickLabels.map(lbl=>chartStyle.measureText(lbl,tickFont));
@@ -18404,6 +18438,13 @@
               remapLineSingleSeriesStructureForColumnSplice(instance, index, 0, amount, source || 'line-column-insert');
             }
             syncLineActiveDataViewFromHot(instance, 'afterChange');
+          },
+          afterAutoGrowCol(_index, _amount, source){
+            if(isLineGroupedModeActive(instance)){
+              updateLineNestedHeaders(instance, {
+                reason: source || 'line-auto-grow-header-projection'
+              });
+            }
           },
           afterRemoveRow(){
             syncLineActiveDataViewFromHot(instance, 'afterChange');

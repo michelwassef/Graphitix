@@ -1,4 +1,5 @@
 const { test, expect } = require('@playwright/test');
+const { buildWorkspaceArchive } = require('../helpers/archiveDriver');
 const { COMPONENT_MATRIX, openComponentFromWelcome, waitForDocumentOpenComplete } = require('../helpers/workspaceDriver');
 const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
 
@@ -142,25 +143,13 @@ async function snapshotPanelLayout(page) {
 }
 
 async function captureHistogramArchive(page) {
-  const base64 = await page.evaluate(async () => {
-    const context = window.Main?.tabs?.getSessionActionsContext?.();
-    const blob = await window.Main?.sessionActions?.buildWorkspaceArchiveBlob?.(context, {
+  const archive = await buildWorkspaceArchive(page, {
       scope: 'workspace',
       snapshotKind: 'document-snapshot',
       compression: 'STORE',
       reason: 'e2e-hist-panel-lock-reopen'
-    });
-    if (!blob) {
-      throw new Error('Histogram archive was not created');
-    }
-    const bytes = new Uint8Array(await blob.arrayBuffer());
-    let binary = '';
-    for (let offset = 0; offset < bytes.length; offset += 0x8000) {
-      binary += String.fromCharCode.apply(null, bytes.subarray(offset, offset + 0x8000));
-    }
-    return btoa(binary);
   });
-  return Buffer.from(base64, 'base64');
+  return Buffer.from(archive.base64, 'base64');
 }
 
 test('Histogram separate panels share one SVG, common bins, and comparison scales', async ({ page }) => {

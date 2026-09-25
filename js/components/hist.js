@@ -7883,8 +7883,9 @@
     const gridStrokeAttrs = (gridControls && typeof gridControls.getStrokeAttributes === 'function')
       ? gridControls.getStrokeAttributes(gridStrokeStyle, { fallbackColor: DEFAULT_GRID_COLOR, fallbackThickness: axisStrokeWidth })
       : { stroke: DEFAULT_GRID_COLOR, 'stroke-width': axisStrokeWidth };
-    const formatTickX = value => chartStyle.formatAxisValue(value, { notation: getAxisNotation('x'), maxDecimals: 2 });
-    const formatTickY = value => chartStyle.formatAxisValue(value, { notation: getAxisNotation('y'), maxDecimals: 2, logScale: logY });
+    const histAxisFormatOptionsX = { notation: getAxisNotation('x'), maxDecimals: 2 };
+    const histAxisFormatOptionsY = { notation: getAxisNotation('y'), maxDecimals: 2, logScale: logY };
+    let formatTickX = chartStyle.createAxisTickFormatter([], histAxisFormatOptionsX);
     const horizontalEdgePadding = chartStyle.resolveGraphHorizontalEdgePadding();
     const outer = {
       top: Math.max(34, fs * 2.8),
@@ -7909,6 +7910,7 @@
       targetTickCount: chartStyle.estimateTickCount(Math.max(80, contentWidth), { axis: 'x', fallback: 6 })
     });
     xScale = applyHistManualScaleInterval(xScale, manualIntervalX);
+    formatTickX = chartStyle.createAxisTickFormatter(xScale.ticks, histAxisFormatOptionsX);
     let frequencyModel = null;
     let frequencyByKey = new Map();
     const densityByKey = new Map();
@@ -8009,13 +8011,18 @@
         yScale = applyHistManualScaleInterval(yScale, manualIntervalY);
       }
       model.yScale = yScale;
-      model.yTickLabels = yScale.ticks.map(value => formatTickY(logY ? Math.pow(10, value) : value));
+      const yTickValues = yScale.ticks.map(value => logY ? Math.pow(10, value) : value);
+      model.yTickFormatter = chartStyle.createAxisTickFormatter(yTickValues, histAxisFormatOptionsY);
+      model.yTickLabels = yTickValues.map(value => model.yTickFormatter(value));
     });
     const sharedScale = layoutSettings.sharedY ? panelModels[0]?.yScale : null;
     if(sharedScale){
+      const sharedYTickValues = sharedScale.ticks.map(value => logY ? Math.pow(10, value) : value);
+      const sharedYTickFormatter = chartStyle.createAxisTickFormatter(sharedYTickValues, histAxisFormatOptionsY);
       panelModels.forEach(model => {
         model.yScale = sharedScale;
-        model.yTickLabels = sharedScale.ticks.map(value => formatTickY(logY ? Math.pow(10, value) : value));
+        model.yTickFormatter = sharedYTickFormatter;
+        model.yTickLabels = sharedYTickValues.map(value => sharedYTickFormatter(value));
       });
     }
     const xTickMeasureFont = chartStyle.resolveScopedLabelMeasureFont
@@ -8037,7 +8044,12 @@
     const xTickLabels = xRenderTicks.map(formatTickX);
     const titleReserve = Math.max(24, fs * 2.45);
     panelModels.forEach(model => {
-      const allLabels = model.yScale.ticks.map(value => formatTickY(logY ? Math.pow(10, value) : value));
+      const yTickFormatter = model.yTickFormatter || chartStyle.createAxisTickFormatter(
+        model.yScale.ticks.map(value => logY ? Math.pow(10, value) : value),
+        histAxisFormatOptionsY
+      );
+      model.yTickFormatter = yTickFormatter;
+      const allLabels = model.yScale.ticks.map(value => yTickFormatter(logY ? Math.pow(10, value) : value));
       const capacity = estimateHistPanelTickCapacity(
         Math.max(20, cellHeight - titleReserve - 18),
         allLabels,
@@ -8047,7 +8059,7 @@
       model.renderYTicks = manualIntervalY
         ? model.yScale.ticks.slice()
         : selectHistPanelTicks(model.yScale.ticks, capacity);
-      model.yTickLabels = model.renderYTicks.map(value => formatTickY(logY ? Math.pow(10, value) : value));
+      model.yTickLabels = model.renderYTicks.map(value => yTickFormatter(logY ? Math.pow(10, value) : value));
     });
     const maxYLabelWidth = panelModels.reduce((max, model) => Math.max(
       max,
@@ -8403,7 +8415,7 @@
             'dominant-baseline': 'middle',
             fill: chartStyle.TEXT_COLOR
           }, panelGroup);
-          text.textContent = formatTickY(logY ? Math.pow(10, value) : value);
+          text.textContent = model.yTickFormatter(logY ? Math.pow(10, value) : value);
           markFontEditable(text, 'yTick');
         }
       });
@@ -9205,8 +9217,10 @@
     });
     const histNotationX = getAxisNotation('x');
     const histNotationY = getAxisNotation('y');
-    const formatTickX = v => chartStyle.formatAxisValue(v,{ notation: histNotationX, maxDecimals: 2 });
-    const formatTickY = v => chartStyle.formatAxisValue(v,{ notation: histNotationY, maxDecimals: 2, logScale: logY });
+    const histAxisFormatOptionsX = { notation: histNotationX, maxDecimals: 2 };
+    const histAxisFormatOptionsY = { notation: histNotationY, maxDecimals: 2, logScale: logY };
+    let formatTickX = chartStyle.createAxisTickFormatter([], histAxisFormatOptionsX);
+    let formatTickY = chartStyle.createAxisTickFormatter([], histAxisFormatOptionsY);
     const axisStrokeWidthBase = getAxisStrokeWidthBase();
     const axisStrokeWidth=chartStyle.scaleStrokeWidth(axisStrokeWidthBase, styleScaleInfo, { context: 'hist-axis', min: 0, exact: true });
     const axisStroke = getAxisColor();
@@ -9454,6 +9468,14 @@
           histDebug('Debug: hist manual interval applied',{ axis: 'y', interval: manualIntervalY, tickCount: manualY.ticks.length });
         }
       }
+      formatTickX = chartStyle.createAxisTickFormatter(
+        xScale.ticks,
+        histAxisFormatOptionsX
+      );
+      formatTickY = chartStyle.createAxisTickFormatter(
+        yScale.ticks.map(t => logY ? Math.pow(10, t) : t),
+        histAxisFormatOptionsY
+      );
       xTickLabels=xScale.ticks.map(t=>formatTickX(t));
       yTickLabels=yScale.ticks.map(t=>formatTickY(logY?Math.pow(10,t):t));
       const yLabelWidths=yTickLabels.map(lbl=>chartStyle.measureText(lbl,tickFont));

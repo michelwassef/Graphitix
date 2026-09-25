@@ -11,9 +11,8 @@
  * jsdom cannot host this assertion at all: getBoundingClientRect returns 0 and no layout
  * runs, so the distortion is unobservable there. It must be a real-browser test.
  */
-const fs = require('fs');
-const path = require('path');
 const { test, expect } = require('@playwright/test');
+const { saveWorkspaceArchive } = require('../helpers/archiveDriver');
 const {
   openComponentFromWelcome,
   clickExampleButtonIfPresent,
@@ -199,32 +198,17 @@ async function buildCorrelationHeatmap(page, { resize = false } = {}) {
   return initial;
 }
 
-async function captureWorkspaceArchive(page, fileStem, outputPath) {
+async function captureWorkspaceArchive(page, outputPath) {
   if (!outputPath) {
     throw new Error('Heatmap archive capture requires a per-test output path.');
   }
-  const archive = await page.evaluate(async (stem) => {
-    const tabsApi = window.Main?.tabs;
-    const sessionActions = window.Main?.sessionActions;
-    const context = tabsApi.getSessionActionsContext();
-    const blob = await sessionActions.buildWorkspaceArchiveBlob(context, {
-      scope: 'workspace',
-      snapshotKind: 'document-snapshot',
-      compression: 'STORE',
-      reason: 'e2e-heatmap-reopen-archive'
-    });
-    const bytes = new Uint8Array(await blob.arrayBuffer());
-    const chunk = 0x8000;
-    let binary = '';
-    for (let i = 0; i < bytes.length; i += chunk) {
-      binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
-    }
-    return { fileName: `${stem}.graph`, base64: btoa(binary), byteLength: bytes.length };
-  }, fileStem);
-  const archivePath = outputPath;
-  fs.mkdirSync(path.dirname(archivePath), { recursive: true });
-  fs.writeFileSync(archivePath, Buffer.from(archive.base64, 'base64'));
-  return { archivePath, byteLength: archive.byteLength };
+  const archive = await saveWorkspaceArchive(page, outputPath, {
+    scope: 'workspace',
+    snapshotKind: 'document-snapshot',
+    compression: 'STORE',
+    reason: 'e2e-heatmap-reopen-archive'
+  });
+  return { archivePath: outputPath, byteLength: archive.size };
 }
 
 async function assertDocumentOpenSettled(page, timeoutMs = 30_000) {
@@ -320,7 +304,6 @@ test('Heatmap correlation geometry survives file reopen (archive load)', async (
   const initial = await buildCorrelationHeatmap(page, { resize: true });
   const { byteLength, archivePath } = await captureWorkspaceArchive(
     page,
-    'heatmap-reopen-geometry',
     testInfo.outputPath('heatmap-reopen-geometry.graph')
   );
   expect(byteLength).toBeGreaterThan(0);

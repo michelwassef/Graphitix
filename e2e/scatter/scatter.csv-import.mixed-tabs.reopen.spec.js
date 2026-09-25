@@ -8,6 +8,7 @@ const {
   importDataFile,
   waitForDocumentOpenComplete
 } = require('../helpers/workspaceDriver');
+const { saveWorkspaceArchive } = require('../helpers/archiveDriver');
 const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
 const { registerIssueCollectors } = require('../helpers/diagnostics');
 const { waitForComponentOwnerReady } = require('../helpers/contractWaits');
@@ -130,36 +131,14 @@ async function waitForScatterSnapshotReady(page) {
   }, null, { timeout: 60_000 });
 }
 
-async function captureWorkspaceArchive(page, fileStem, outputPath) {
-  const archive = await page.evaluate(async (stem) => {
-    const tabsApi = window.Main?.tabs;
-    const sessionActions = window.Main?.sessionActions;
-    if (!tabsApi || typeof tabsApi.getSessionActionsContext !== 'function') {
-      throw new Error('Main.tabs.getSessionActionsContext unavailable');
-    }
-    if (!sessionActions || typeof sessionActions.buildWorkspaceArchiveBlob !== 'function') {
-      throw new Error('Main.sessionActions.buildWorkspaceArchiveBlob unavailable');
-    }
-    const context = tabsApi.getSessionActionsContext();
-    const blob = await sessionActions.buildWorkspaceArchiveBlob(context, {
-      scope: 'workspace',
-      snapshotKind: 'document-snapshot',
-      compression: 'STORE',
-      reason: 'e2e-csv-mixed-archive'
-    });
-    if (!blob) throw new Error('buildWorkspaceArchiveBlob returned null');
-    const bytes = new Uint8Array(await blob.arrayBuffer());
-    const chunk = 0x8000;
-    let binary = '';
-    for (let i = 0; i < bytes.length; i += chunk) {
-      binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
-    }
-    return { fileName: `${stem}.graph`, base64: btoa(binary), byteLength: bytes.length };
-  }, fileStem);
-
-  const archivePath = outputPath;
-  fs.writeFileSync(archivePath, Buffer.from(archive.base64, 'base64'));
-  return { archivePath, byteLength: archive.byteLength };
+async function captureWorkspaceArchive(page, outputPath) {
+  const archive = await saveWorkspaceArchive(page, outputPath, {
+    scope: 'workspace',
+    snapshotKind: 'document-snapshot',
+    compression: 'STORE',
+    reason: 'e2e-csv-mixed-archive'
+  });
+  return { archivePath: outputPath, byteLength: archive.size };
 }
 
 async function loadWorkspaceArchiveFromPath(page, archivePath) {
@@ -305,7 +284,7 @@ test('scatter CSV import + box tab: save and reopen preserves data, render cache
   }, beforeSave.tabId, { timeout: 120_000 });
 
   // ── Step 5: Save (capture workspace archive) ────────────────────────────────
-  const { archivePath, byteLength } = await captureWorkspaceArchive(page, 'scatter-csv-box-reopen', testInfo.outputPath('scatter-csv-box-reopen.graph'));
+  const { archivePath, byteLength } = await captureWorkspaceArchive(page, testInfo.outputPath('scatter-csv-box-reopen.graph'));
   expect(byteLength).toBeGreaterThan(0);
 
   // ── Step 6: Inspect archive quality (Node.js side) ─────────────────────────

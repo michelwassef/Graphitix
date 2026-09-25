@@ -120,6 +120,89 @@ test('Box trace border stays independent and meets bar whiskers', async ({ page 
   expect(flippedSeamGap).toBeLessThanOrEqual(0.25);
 });
 
+test('Box grouped formatting scopes trace styles to the selected series', async ({ page }) => {
+  test.setTimeout(60_000);
+  await installLocalCdnOverrides(page);
+  await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
+  await openComponentFromWelcome(page, { type: 'box', pageId: 'boxPage' }, { first: true });
+  await page.locator('#boxTableFormat').selectOption('grouped');
+  await page.locator('#boxLoadExample').click();
+  await page.locator('#boxGraphType').selectOption('bar');
+  await page.locator('#boxShowLegend').check();
+  await waitForBoxIdle(page);
+
+  const groupPair = await page.evaluate(() => {
+    const traces = window.Components?.box?.__getState?.()?.cachedDrawInput?.traces || [];
+    const groups = new Map();
+    traces.forEach((trace, index) => {
+      const name = String(trace?.groupName || '');
+      if(!name){ return; }
+      if(!groups.has(name)){ groups.set(name, []); }
+      groups.get(name).push(index);
+    });
+    const entries = Array.from(groups.entries());
+    const pair = entries.find(([, indices]) => indices.length > 1);
+    return pair ? {
+      name: pair[0],
+      indices: pair[1].slice(0, 2),
+      groupIndex: entries.findIndex(([name]) => name === pair[0])
+    } : null;
+  });
+  expect(groupPair).not.toBeNull();
+
+  const bodyForTrace = index => page.locator(
+    `#boxSvg [data-box-shape="body"][data-trace="${index}"]:not([data-summary-line])`
+  ).first();
+  await bodyForTrace(groupPair.indices[0]).click();
+  const controls = page.locator('.box-shape-controls');
+  await expect(controls).toBeVisible();
+  const traceScope = controls.locator('select').first();
+  const traceScopeOptions = await traceScope.locator('option').evaluateAll(options => options.map(option => ({
+    value: option.value,
+    label: option.textContent?.trim() || '',
+    scopeKind: option.dataset.scopeKind || ''
+  })));
+  expect(traceScopeOptions[0]).toEqual({ value: 'global', label: 'Global', scopeKind: '' });
+  expect(traceScopeOptions.slice(1).length).toBeGreaterThan(0);
+  expect(traceScopeOptions.slice(1).every(option => option.value.startsWith('group::') && option.scopeKind === 'group')).toBe(true);
+  expect(traceScopeOptions.some(option => option.value === 'trace')).toBe(false);
+  await expect(traceScope).toHaveValue(`group::${groupPair.groupIndex}`);
+  const overlayScope = page.locator('.additional-line-controls-panel__field--scope select').first();
+  await expect(overlayScope).toBeVisible();
+  await expect(overlayScope).toHaveValue(`group::${groupPair.groupIndex}`);
+  const overlayScopeOptions = await overlayScope.locator('option').evaluateAll(options => options.map(option => option.value));
+  expect(overlayScopeOptions.slice(1).every(value => value.startsWith('group::'))).toBe(true);
+  await controls.locator('.shared-border-style-chip').click();
+  const picker = page.locator('.shared-color-picker[data-visible="1"]');
+  await picker.locator('input[aria-label="Border thickness"]').fill('4.5');
+  await picker.locator('input[aria-label="Border thickness"]').press('Enter');
+  await waitForBoxIdle(page);
+
+  const selectedGroupWidths = await page.locator(
+    `#boxSvg [data-box-shape="body"][data-group-index="${groupPair.groupIndex}"]:not([data-summary-line="1"])`
+  ).evaluateAll(nodes => nodes.map(node => Number(node.getAttribute('stroke-width'))));
+  expect(selectedGroupWidths.length).toBeGreaterThan(1);
+  expect(selectedGroupWidths.every(width => width === 4.5)).toBe(true);
+
+  await controls.locator('.shared-fill-style-chip').click();
+  const fillPicker = page.locator('.shared-color-picker[data-visible="1"]');
+  await fillPicker.locator('.shared-color-picker__hex-input').fill('#00aa55');
+  await fillPicker.locator('.shared-color-picker__hex-input').press('Enter');
+  await waitForBoxIdle(page);
+
+  const selectedGroupFills = await page.locator(
+    `#boxSvg [data-box-shape="body"][data-group-index="${groupPair.groupIndex}"]:not([data-summary-line="1"])`
+  ).evaluateAll(nodes => nodes.map(node => node.getAttribute('fill')));
+  expect(selectedGroupFills.length).toBeGreaterThan(1);
+  expect(selectedGroupFills.every(fill => String(fill || '').toLowerCase() === '#00aa55')).toBe(true);
+
+  const uniformLegendWidths = await page.locator(
+    '#boxSvg [data-legend-viewport-content="true"] [data-legend-swatch="1"]'
+  ).evaluateAll(nodes => nodes.map(node => Number(node.getAttribute('stroke-width'))));
+  expect(uniformLegendWidths.length).toBeGreaterThan(0);
+  expect(uniformLegendWidths[groupPair.groupIndex]).toBe(4.5);
+});
+
 test('Box palette and color-mode changes preserve the active graph type', async ({ page }) => {
   test.setTimeout(60_000);
   await installLocalCdnOverrides(page);

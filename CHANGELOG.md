@@ -17,6 +17,10 @@
 - Hardened the new regression matrix from the same runtime evidence: deterministic worker fixtures, settled-owner parameter discovery, derived/inactive statistics classification, contextual PCA axis witnesses, and owner-panel assertions now test durable component state without treating synthetic sentinel DOM as canonical after legitimate redraws.
 
 ## Unreleased
+- Replaced a reintroduced recovery sleep with an explicit RAF-sampling completion signal and migrated nineteen duplicate Playwright archive serializers to the shared archive writer; the focused Chromium batches passed 75/75 and the static gate remains green.
+- Continued shared archive-writer adoption for Lock-ratio and mixed Scatter CSV contracts; the focused Chromium batch passed 8/10, with the two pre-archive Line/Venn owner-readiness timeouts recorded separately in `issues.txt`.
+- Migrated the Box point-size and Histogram panel document-snapshot builders to the shared archive driver; focused Chromium validation passed 15/15.
+- Split the shared Plot3D Jest contract into separate rendering and managed-gesture suites, added explicit scenario metadata for both boundaries, and kept the focused pair green at 25/25.
 - Fixed Box numeric collection after the shared locale-aware parser migration: blank AG Grid cells now remain missing instead of being accepted as zero in both single and grouped layouts, while comma-decimal values remain supported. Added parser and rendered-trace regression coverage.
 - Added a shared all-eleven negative owner-handoff matrix covering requested/active mismatch, root/session mismatch, and ABA stale-generation rejection; all 33 cases pass.
 - Unified lane, Jest-shard, bounded-Jest, and trend-report schema validation, and published nightly trend artifacts with retention metadata.

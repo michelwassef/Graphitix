@@ -51,3 +51,41 @@ test('Box grouped editable headers meet the first data row without a body-model 
   })).toBe('19.75');
   expect(issues.critical).toEqual([]);
 });
+
+test('Box grouped empty headers retain edits in the third and later groups', async ({ page }) => {
+  test.setTimeout(90_000);
+  const issues = registerIssueCollectors(page);
+  await installLocalCdnOverrides(page);
+  await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
+  await openComponentFromWelcome(page, { type: 'box', pageId: 'boxPage' }, { first: true });
+
+  const boxPage = page.locator('#boxPage:not([hidden])');
+  await boxPage.locator('#boxTableFormat').selectOption('grouped');
+  await boxPage.locator('#boxGroupedReplicates').fill('2');
+  await boxPage.locator('#boxGroupedReplicates').press('Enter');
+  await page.waitForFunction(() => {
+    const tabId = window.Main?.session?.workspaceState?.activeTabId;
+    const hot = tabId
+      ? window.Shared?.hot?.__tabTablePools?.box?.byTab?.[tabId]?.instance
+      : null;
+    return hot?.__boxTableFormat === 'grouped'
+      && hot?.rootElement?.classList?.contains('box-grouped-header-merge');
+  });
+
+  const headers = await page.evaluate(() => {
+    const tabId = window.Main?.session?.workspaceState?.activeTabId;
+    const hot = tabId
+      ? window.Shared?.hot?.__tabTablePools?.box?.byTab?.[tabId]?.instance
+      : null;
+    if (!hot || typeof hot.setDataAtCell !== 'function' || typeof hot.getDataAtCell !== 'function') {
+      throw new Error('Box grouped table unavailable');
+    }
+    hot.setDataAtCell([[0, 4, 'Third group']], 'e2e-grouped-header-edit');
+    const third = hot.getDataAtCell(0, 4);
+    hot.setDataAtCell([[0, 6, 'Fourth group']], 'e2e-grouped-header-edit');
+    return { third, fourth: hot.getDataAtCell(0, 6) };
+  });
+
+  expect(headers).toEqual({ third: 'Third group', fourth: 'Fourth group' });
+  expect(issues.critical).toEqual([]);
+});

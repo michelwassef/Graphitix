@@ -2345,7 +2345,9 @@
       </section>
     </main>
     <div id="workspaceTabsDock" class="workspace-tabs-dock" role="presentation">
-      <div id="workspaceTabsList" class="workspace-tabs-list" role="tablist" aria-label="Workspace tabs"></div>
+      <button id="workspaceTabsScrollLeft" type="button" class="workspace-tabs-scroll-button workspace-tabs-scroll-button--left" aria-label="Scroll workspace tabs left" aria-controls="workspaceTabsList" hidden>‹</button>
+      <div id="workspaceTabsList" class="workspace-tabs-list" role="tablist" aria-label="Workspace tabs" tabindex="0"></div>
+      <button id="workspaceTabsScrollRight" type="button" class="workspace-tabs-scroll-button workspace-tabs-scroll-button--right" aria-label="Scroll workspace tabs right" aria-controls="workspaceTabsList" hidden>›</button>
       <button id="addWorkspaceTab" type="button" class="workspace-tab workspace-add-tab" aria-label="Add workspace tab">+</button>
       <input id="workspaceSessionInput" type="file" data-file-formats="session" class="idx-inline-001" />
     </div>
@@ -2353,6 +2355,7 @@
       <button id="tabContextDuplicateReuse" type="button" class="tab-context-menu__item">Duplicate (Reuse data)</button>
       <button id="tabContextDuplicateEmpty" type="button" class="tab-context-menu__item">Duplicate (Start empty)</button>
       <button id="tabContextSaveCurrent" type="button" class="tab-context-menu__item">Save this tab only...</button>
+      <button id="tabContextDelete" type="button" class="tab-context-menu__item">Delete tab</button>
     </div>
     <div id="duplicatePrompt" class="workspace-modal" hidden role="dialog" aria-modal="true" aria-labelledby="duplicatePromptTitle">
       <div class="workspace-modal__panel">

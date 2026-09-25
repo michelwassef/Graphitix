@@ -80,6 +80,8 @@
       sessionFileInput: document.getElementById('workspaceSessionInput'),
       welcomeGraphInput: document.getElementById('welcomeGraphFileInput'),
       welcomeFileDropZone: document.getElementById('welcomeFileDropZone'),
+      tabsScrollLeft: document.getElementById('workspaceTabsScrollLeft'),
+      tabsScrollRight: document.getElementById('workspaceTabsScrollRight'),
       welcomePicker: document.querySelector('.welcome-picker'),
       welcomeGraphSearch: document.getElementById('welcomeGraphSearch'),
       welcomeGraphSearchResults: document.getElementById('welcomeGraphResults'),
@@ -151,7 +153,8 @@
       tabContextMenu: document.getElementById('tabContextMenu'),
       tabContextDuplicateReuse: document.getElementById('tabContextDuplicateReuse'),
       tabContextDuplicateEmpty: document.getElementById('tabContextDuplicateEmpty'),
-      tabContextSaveCurrent: document.getElementById('tabContextSaveCurrent')
+      tabContextSaveCurrent: document.getElementById('tabContextSaveCurrent'),
+      tabContextDelete: document.getElementById('tabContextDelete')
     };
     console.debug('Debug: domControls.createDomHandles generated', { keys: Object.keys(handles) });
     return handles;

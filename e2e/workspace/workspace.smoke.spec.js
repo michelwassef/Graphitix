@@ -351,7 +351,7 @@ test('renaming a workspace tab stays inside the tab without expanding the tab li
   await expect.poll(() => tabsList.evaluate(node => node.scrollWidth)).toBe(scrollWidthBefore);
 });
 
-test('overflowing workspace tabs use a thin scrollbar', async ({ page }) => {
+test('overflowing workspace tabs use wheel and arrow scrolling without a scrollbar', async ({ page }) => {
   await installLocalCdnOverrides(page);
   await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
 
@@ -366,32 +366,72 @@ test('overflowing workspace tabs use a thin scrollbar', async ({ page }) => {
   const scrollbar = await page.locator('#workspaceTabsList').evaluate(node => {
     const tab = node.querySelector('.workspace-tab');
     const label = tab.querySelector('.workspace-tab__label');
-    const listBox = node.getBoundingClientRect();
-    const thickness = node.offsetHeight - node.clientHeight;
+    const activeLabel = node.querySelector('.workspace-tab.is-active .workspace-tab__label');
+    const activeUnderline = activeLabel ? getComputedStyle(activeLabel, '::after') : null;
     return {
-      thickness,
       overflows: node.scrollWidth > node.clientWidth,
-      dockHeight: node.closest('.workspace-tabs-dock').getBoundingClientRect().height,
-      visibleBottom: listBox.bottom - thickness,
+      dock: node.closest('.workspace-tabs-dock').getBoundingClientRect(),
       tabHeight: tab.getBoundingClientRect().height,
       tabBottom: tab.getBoundingClientRect().bottom,
-      labelBottom: label.getBoundingClientRect().bottom
+      labelBottom: label.getBoundingClientRect().bottom,
+      closeControls: node.querySelectorAll('.workspace-tab__close').length,
+      activeUnderlineHeight: activeUnderline?.height || null,
+      activeUnderlineWidth: activeUnderline ? Number.parseFloat(activeUnderline.width) : null,
+      activeLabelWidth: activeLabel?.getBoundingClientRect().width || null,
+      activeUnderlineBottom: activeUnderline?.bottom || null,
+      scrollLeftVisible: !document.getElementById('workspaceTabsScrollLeft').hidden,
+      scrollRightVisible: !document.getElementById('workspaceTabsScrollRight').hidden
     };
   });
 
   expect(scrollbar.overflows).toBe(true);
-  expect(scrollbar.dockHeight).toBe(42);
-  expect(scrollbar.thickness).toBeLessThanOrEqual(8);
-  expect(scrollbar.tabHeight).toBeGreaterThanOrEqual(36);
-  expect(scrollbar.tabBottom).toBeLessThanOrEqual(scrollbar.visibleBottom);
-  expect(scrollbar.labelBottom).toBeLessThanOrEqual(scrollbar.visibleBottom);
+  expect(scrollbar.dock.height).toBe(32);
+  expect(scrollbar.tabHeight).toBeGreaterThanOrEqual(32);
+  expect(scrollbar.tabBottom).toBeLessThanOrEqual(scrollbar.dock.bottom);
+  expect(scrollbar.labelBottom).toBeLessThanOrEqual(scrollbar.dock.bottom);
+  expect(scrollbar.closeControls).toBe(0);
+  expect(scrollbar.activeUnderlineHeight).toBe('2px');
+  expect(scrollbar.activeUnderlineWidth).toBeLessThanOrEqual(scrollbar.activeLabelWidth);
+  expect(scrollbar.activeUnderlineBottom).toBe('-4px');
+  expect(scrollbar.scrollLeftVisible).toBe(true);
+  expect(scrollbar.scrollRightVisible).toBe(true);
+
+  const list = page.locator('#workspaceTabsList');
+  const scrollBeforeArrow = await list.evaluate(node => node.scrollLeft);
+  await page.locator('#workspaceTabsScrollRight').click();
+  await expect.poll(() => list.evaluate(node => node.scrollLeft)).toBeGreaterThan(scrollBeforeArrow);
+
+  const scrollBeforeWheel = await list.evaluate(node => node.scrollLeft);
+  await list.evaluate(node => {
+    node.dispatchEvent(new WheelEvent('wheel', { deltaY: -300, bubbles: true, cancelable: true }));
+  });
+  await expect.poll(() => list.evaluate(node => node.scrollLeft)).toBeLessThan(scrollBeforeWheel);
+
+  await list.focus();
+  const scrollBeforeKey = await list.evaluate(node => node.scrollLeft);
+  await list.press('End');
+  await expect.poll(() => list.evaluate(node => node.scrollLeft)).toBeGreaterThan(scrollBeforeKey);
 
   await page.evaluate(() => {
     const { session, tabs } = window.Main;
     session.workspaceState.tabs.splice(1);
     tabs.renderTabs();
   });
-  await expect.poll(() => page.locator('#workspaceTabsDock').evaluate(node => node.getBoundingClientRect().height)).toBe(36);
+  await expect.poll(() => page.locator('#workspaceTabsDock').evaluate(node => node.getBoundingClientRect().height)).toBe(32);
+  await expect.poll(() => page.locator('#workspaceTabsList').evaluate(node => {
+    const add = document.getElementById('addWorkspaceTab');
+    return {
+      listRight: Math.round(node.getBoundingClientRect().right),
+      addLeft: Math.round(add.getBoundingClientRect().left),
+      leftArrowHidden: document.getElementById('workspaceTabsScrollLeft').hidden,
+      rightArrowHidden: document.getElementById('workspaceTabsScrollRight').hidden
+    };
+  })).toEqual({
+    listRight: await page.locator('#addWorkspaceTab').evaluate(node => Math.round(node.getBoundingClientRect().left)),
+    addLeft: await page.locator('#addWorkspaceTab').evaluate(node => Math.round(node.getBoundingClientRect().left)),
+    leftArrowHidden: true,
+    rightArrowHidden: true
+  });
 });
 
 test('Surface legend visibility is canonical and does not alter plot geometry', async ({ page }) => {

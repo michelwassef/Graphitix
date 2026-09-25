@@ -1884,6 +1884,7 @@
     const styleTraceIndex = options.styleTraceIndex == null
       ? traceIndex
       : String(options.styleTraceIndex);
+    const groupIndex = Number(options.groupIndex);
     const colorIndex = options.colorIndex == null ? null : Number(options.colorIndex);
     const fillColor = options.fillColor;
     const borderColor = options.borderColor;
@@ -1937,6 +1938,9 @@
         }
         if(Number.isFinite(colorIndex) && attrs['data-color-index'] == null){
           attrs['data-color-index'] = colorIndex;
+        }
+        if(Number.isInteger(groupIndex) && groupIndex >= 0 && attrs['data-group-index'] == null){
+          attrs['data-group-index'] = groupIndex;
         }
         if(patternAttrs['stroke-dasharray']){
           attrs['stroke-dasharray'] = patternAttrs['stroke-dasharray'];
@@ -2804,33 +2808,143 @@
     return formatBoxTraceFallbackLabel(traceKey);
   }
 
-  function persistBoxSummaryStyle(traceIndexValue, patch){
-    if(traceIndexValue == null){ return; }
-    state.summaryStyles = state.summaryStyles || {};
-    const previous = cloneSimple(state.summaryStyles[traceIndexValue]) || {};
-    const next = Object.assign({}, previous, patch);
-    state.summaryStyles[traceIndexValue] = next;
-    try{ scheduleBoxViewRefresh('summary-style-change', { renderImpact: 'paint' }); }catch(err){ console.warn('persistBoxSummaryStyle scheduleDraw error', err); }
-    try{
-      recordBoxChange(`box:summary-style:${traceIndexValue}`, previous, next, value => {
-        state.summaryStyles[traceIndexValue] = value || null;
-        scheduleBoxViewRefresh('summary-style-undo', { renderImpact: 'paint' });
+  function getBoxGroupedTraceRecords(){
+    const traces = Array.isArray(state.cachedDrawInput?.traces) ? state.cachedDrawInput.traces : [];
+    return traces.reduce((records, trace, traceIndex) => {
+      const groupIndex = Number(trace?.groupIndex);
+      if(!Number.isInteger(groupIndex) || groupIndex < 0){
+        return records;
+      }
+      records.push({
+        traceIndex,
+        groupIndex,
+        groupName: String(trace?.groupName || '').trim()
       });
-    }catch(err){ console.warn('persistBoxSummaryStyle error', err); }
+      return records;
+    }, []);
+  }
+
+  function getBoxGroupedScopeEntries(){
+    const labels = Array.isArray(state.cachedDrawInput?.groupedGroups)
+      ? state.cachedDrawInput.groupedGroups
+      : [];
+    const entries = new Map();
+    const addEntry = (groupIndexValue, groupName = '') => {
+      const groupIndex = Number(groupIndexValue);
+      if(!Number.isInteger(groupIndex) || groupIndex < 0){
+        return;
+      }
+      const key = String(groupIndex);
+      if(entries.has(key)){
+        return;
+      }
+      const label = String(groupName || labels[groupIndex] || '').trim();
+      entries.set(key, {
+        groupIndex,
+        label: label || `Group ${groupIndex + 1}`
+      });
+    };
+    getBoxGroupedTraceRecords().forEach(record => addEntry(record.groupIndex, record.groupName));
+    const plot = getBoxNodeById('boxPlot');
+    if(plot?.querySelectorAll){
+      plot.querySelectorAll(`${getBoxBodyShapeSelector()}[data-group-index]`).forEach(node => {
+        addEntry(node.getAttribute('data-group-index'));
+      });
+    }
+    return Array.from(entries.values()).sort((a, b) => a.groupIndex - b.groupIndex);
+  }
+
+  function getBoxGroupedTraceIndices(groupIndexValue){
+    const groupIndex = Number(groupIndexValue);
+    if(!Number.isInteger(groupIndex) || groupIndex < 0){
+      return [];
+    }
+    const indices = new Set(
+      getBoxGroupedTraceRecords()
+        .filter(record => record.groupIndex === groupIndex)
+        .map(record => record.traceIndex)
+    );
+    const plot = getBoxNodeById('boxPlot');
+    if(plot?.querySelectorAll){
+      plot.querySelectorAll(`${getBoxBodyShapeSelector()}[data-group-index]`).forEach(node => {
+        if(Number(node.getAttribute('data-group-index')) !== groupIndex){
+          return;
+        }
+        const styleIndex = Number(node.getAttribute('data-style-trace') ?? node.getAttribute('data-trace'));
+        if(Number.isInteger(styleIndex) && styleIndex >= 0){
+          indices.add(styleIndex);
+        }
+      });
+    }
+    return Array.from(indices).sort((a, b) => a - b);
+  }
+
+  function resolveBoxGroupedGroupIndexForTrace(traceIndexValue){
+    const traceIndex = Number(traceIndexValue);
+    if(!Number.isInteger(traceIndex) || traceIndex < 0){
+      return null;
+    }
+    const record = getBoxGroupedTraceRecords().find(entry => entry.traceIndex === traceIndex);
+    return record ? record.groupIndex : null;
+  }
+
+  function persistBoxStyleMapPatch(mapKey, traceIndices, patch, options = {}){
+    const indices = Array.from(new Set(
+      (Array.isArray(traceIndices) ? traceIndices : [traceIndices])
+        .map(value => Number(value))
+        .filter(value => Number.isInteger(value) && value >= 0)
+    ));
+    if(!indices.length || !patch || typeof patch !== 'object'){
+      return;
+    }
+    const current = state[mapKey] && typeof state[mapKey] === 'object' ? state[mapKey] : {};
+    const previous = cloneSimple(current) || {};
+    const next = cloneSimple(current) || {};
+    indices.forEach(index => {
+      next[index] = Object.assign({}, next[index] || {}, patch);
+    });
+    state[mapKey] = next;
+    const drawReason = options.drawReason || `${mapKey}-change`;
+    const undoReason = options.undoReason || `${mapKey}-undo`;
+    try{ scheduleBoxViewRefresh(drawReason, { renderImpact: 'paint' }); }catch(err){ console.warn(`${mapKey} scheduleDraw error`, err); }
+    try{
+      recordBoxChange(options.label || `box:${mapKey}`, previous, next, value => {
+        state[mapKey] = value || {};
+        scheduleBoxViewRefresh(undoReason, { renderImpact: 'paint' });
+      });
+    }catch(err){ console.warn(`${mapKey} error`, err); }
+  }
+
+  function persistBoxSummaryStyle(traceIndexValue, patch){
+    persistBoxStyleMapPatch('summaryStyles', traceIndexValue, patch, {
+      label: `box:summary-style:${traceIndexValue}`,
+      drawReason: 'summary-style-change',
+      undoReason: 'summary-style-undo'
+    });
+  }
+
+  function persistBoxSummaryStyles(traceIndices, patch, scopeLabel){
+    persistBoxStyleMapPatch('summaryStyles', traceIndices, patch, {
+      label: `box:summary-style:${scopeLabel || 'group'}`,
+      drawReason: 'summary-style-group-change',
+      undoReason: 'summary-style-group-undo'
+    });
   }
 
   function persistTraceShapeStyle(traceIndexValue, patch){
-    if(traceIndexValue == null){ return; }
-    state.traceShapeStyles = state.traceShapeStyles || {};
-    const previous = cloneSimple(state.traceShapeStyles[traceIndexValue]) || {};
-    const next = Object.assign({}, previous, patch);
-    state.traceShapeStyles[traceIndexValue] = next;
-    try{
-      recordBoxChange(`box:shape-style:${traceIndexValue}`, previous, next, value => {
-        state.traceShapeStyles[traceIndexValue] = value || null;
-        scheduleBoxViewRefresh('shape-style-undo', { renderImpact: 'paint' });
-      });
-    }catch(err){ console.warn('persistTraceShapeStyle error', err); }
+    persistBoxStyleMapPatch('traceShapeStyles', traceIndexValue, patch, {
+      label: `box:shape-style:${traceIndexValue}`,
+      drawReason: 'shape-style-change',
+      undoReason: 'shape-style-undo'
+    });
+  }
+
+  function persistTraceShapeStyles(traceIndices, patch, scopeLabel){
+    persistBoxStyleMapPatch('traceShapeStyles', traceIndices, patch, {
+      label: `box:shape-style:${scopeLabel || 'group'}`,
+      drawReason: 'shape-style-group-change',
+      undoReason: 'shape-style-group-undo'
+    });
   }
 
   function applyTraceShapeGlobalStyle(patch){
@@ -3476,6 +3590,15 @@
           : (target?.getAttribute?.('data-trace') != null && target.getAttribute('data-trace') !== '' && target.getAttribute('data-trace') !== 'null'
             ? String(target.getAttribute('data-trace'))
             : (parentGroup?.dataset?.trace != null ? String(parentGroup.dataset.trace) : null))));
+    const groupedMode = normalizeBoxTableFormat(state.tableFormat) === 'grouped';
+    let selectedGroupIndex = groupedMode
+      ? Number(target?.getAttribute?.('data-group-index'))
+      : null;
+    if(groupedMode && (!Number.isInteger(selectedGroupIndex) || selectedGroupIndex < 0)){
+      selectedGroupIndex = resolveBoxGroupedGroupIndexForTrace(traceIndex);
+    }
+    const groupedScopeEntries = groupedMode ? getBoxGroupedScopeEntries() : [];
+    const selectedGroupEntry = () => groupedScopeEntries.find(entry => entry.groupIndex === selectedGroupIndex) || null;
     const summaryScopeLabel = resolveBoxTraceDisplayLabel(traceIndex);
     const knownSummaryTraceIndices = () => {
       const keys = new Set();
@@ -3509,6 +3632,11 @@
       if(!plot){
         return sourceLine ? [sourceLine] : [];
       }
+      if(scopeValue === 'group' && selectedGroupIndex != null){
+        return Array.from(plot.querySelectorAll('[data-summary-line="1"]')).filter(node => (
+          Number(node.getAttribute('data-group-index')) === selectedGroupIndex
+        ));
+      }
       if(scopeValue === 'trace' && traceIndex != null){
         return Array.from(plot.querySelectorAll('[data-summary-line="1"]')).filter(node => {
           const group = node.closest && node.closest('g[data-trace]');
@@ -3522,19 +3650,32 @@
       applyStrokePatternToNodes(nodes, width, patternValue);
     };
     const resolveScope = ctx => {
-      const requested = ctx?.scope === 'global' ? 'global' : 'trace';
+      const requested = ctx?.scope === 'global'
+        ? 'global'
+        : (groupedMode ? 'group' : 'trace');
+      if(requested === 'group' && selectedGroupIndex == null){
+        return 'global';
+      }
       if(requested === 'trace' && traceIndex == null){
         return 'global';
       }
       return requested;
     };
     const resolveStyle = scopeValue => {
-      if(scopeValue === 'trace' && traceIndex != null){
+      if((scopeValue === 'trace' || scopeValue === 'group') && traceIndex != null){
         return getSummaryStyle(traceIndex) || null;
       }
       return state.summaryGlobalStyle || null;
     };
     const applyPatch = (patch, scopeValue) => {
+      if(scopeValue === 'group' && selectedGroupIndex != null){
+        persistBoxSummaryStyles(
+          getBoxGroupedTraceIndices(selectedGroupIndex),
+          patch,
+          `group-${selectedGroupIndex}`
+        );
+        return;
+      }
       if(scopeValue === 'trace' && traceIndex != null){
         persistBoxSummaryStyle(traceIndex, patch);
         return;
@@ -3575,6 +3716,19 @@
         label: 'Scope',
         options: (() => {
           const options = [{ value: 'global', label: 'Global', disabled: false }];
+          if(groupedMode){
+            groupedScopeEntries.forEach(entry => {
+              options.push({
+                value: `group::${entry.groupIndex}`,
+                label: entry.label,
+                datasetLabel: entry.label,
+                scopeDataset: String(entry.groupIndex),
+                scopeKind: 'group',
+                disabled: false
+              });
+            });
+            return options;
+          }
           const keys = orderedSummaryTraceIndices();
           if(keys.length){
             keys.forEach(name => {
@@ -3600,9 +3754,21 @@
           }
           return options;
         })(),
-        value: traceIndex != null ? 'trace' : 'global',
+        value: groupedMode
+          ? (selectedGroupIndex != null ? `group::${selectedGroupIndex}` : 'global')
+          : (traceIndex != null ? 'trace' : 'global'),
         onChange(nextScope, ctx){
-          if(nextScope === 'trace'){
+          const isGroupScope = ctx?.scope === 'group' || String(nextScope || '').startsWith('group::');
+          if(isGroupScope){
+            const scopedGroup = Number(String(ctx?.scopeDataset || '').trim());
+            if(Number.isInteger(scopedGroup) && scopedGroup >= 0){
+              selectedGroupIndex = scopedGroup;
+              const firstTrace = getBoxGroupedTraceIndices(scopedGroup)[0];
+              if(Number.isInteger(firstTrace)){
+                traceIndex = String(firstTrace);
+              }
+            }
+          }else if(nextScope === 'trace'){
             const scopedTrace = String(ctx?.scopeDataset || '').trim();
             if(scopedTrace){
               traceIndex = scopedTrace;
@@ -3612,6 +3778,9 @@
       },
       getSummary: ctx => {
         const scopeValue = resolveScope(ctx);
+        if(scopeValue === 'group'){
+          return selectedGroupEntry()?.label || 'Group';
+        }
         if(scopeValue === 'trace' && traceIndex != null){
           return resolveBoxTraceDisplayLabel(traceIndex);
         }
@@ -3706,6 +3875,15 @@
       let selectedColorIndex = colorIndexAttrValue != null && colorIndexAttrValue !== ''
         ? Number(colorIndexAttrValue)
         : (selectedTraceIndex != null ? selectedTraceIndex : null);
+      const groupedMode = normalizeBoxTableFormat(state.tableFormat) === 'grouped';
+      let selectedGroupIndex = groupedMode
+        ? Number(target.getAttribute('data-group-index'))
+        : null;
+      if(groupedMode && (!Number.isInteger(selectedGroupIndex) || selectedGroupIndex < 0)){
+        selectedGroupIndex = resolveBoxGroupedGroupIndexForTrace(selectedTraceIndex);
+      }
+      const groupedScopeEntries = groupedMode ? getBoxGroupedScopeEntries() : [];
+      const selectedGroupEntry = () => groupedScopeEntries.find(entry => entry.groupIndex === selectedGroupIndex) || null;
       const knownTraceIndices = () => {
         const keys = new Set();
         const addKey = value => {
@@ -3736,6 +3914,13 @@
         if(scopeValue === 'global'){
           return plotRootNode ? Array.from(plotRootNode.querySelectorAll(getBoxBodyShapeSelector())) : [target];
         }
+        if(scopeValue === 'group' && selectedGroupIndex != null){
+          return plotRootNode
+            ? Array.from(plotRootNode.querySelectorAll(`${getBoxBodyShapeSelector()}[data-group-index]`)).filter(node => (
+              Number(node.getAttribute('data-group-index')) === selectedGroupIndex
+            ))
+            : [target];
+        }
         if(selectedTraceIndex == null){
           return plotRootNode ? Array.from(plotRootNode.querySelectorAll(getBoxBodyShapeSelector())) : [target];
         }
@@ -3743,7 +3928,15 @@
           ? Array.from(plotRootNode.querySelectorAll(`${getBoxBodyShapeSelector()}[data-trace]`)).filter(node => String(node.getAttribute('data-style-trace') ?? node.getAttribute('data-trace')) === String(selectedTraceIndex))
           : [target];
       };
-      const resolveScope = ctx => (ctx?.scope === 'global' ? 'global' : 'trace');
+      const resolveScope = ctx => {
+        if(ctx?.scope === 'global'){
+          return 'global';
+        }
+        if(groupedMode){
+          return selectedGroupIndex == null ? 'global' : 'group';
+        }
+        return 'trace';
+      };
       const resolveStyleByScope = scopeValue => {
         if(scopeValue === 'global'){
           return (state.traceShapeGlobalStyle && typeof state.traceShapeGlobalStyle === 'object')
@@ -3755,6 +3948,12 @@
       const applyScopePatch = (patch, scopeValue) => {
         if(scopeValue === 'global'){
           applyTraceShapeGlobalStyle(patch);
+        }else if(scopeValue === 'group' && selectedGroupIndex != null){
+          persistTraceShapeStyles(
+            getBoxGroupedTraceIndices(selectedGroupIndex),
+            patch,
+            `group-${selectedGroupIndex}`
+          );
         }else if(selectedTraceIndex != null){
           persistTraceShapeStyle(selectedTraceIndex, patch);
         }
@@ -3812,6 +4011,19 @@
           label: 'Scope',
           options: (() => {
             const options = [{ value: 'global', label: 'Global', disabled: false }];
+            if(groupedMode){
+              groupedScopeEntries.forEach(entry => {
+                options.push({
+                  value: `group::${entry.groupIndex}`,
+                  label: entry.label,
+                  datasetLabel: entry.label,
+                  scopeDataset: String(entry.groupIndex),
+                  scopeKind: 'group',
+                  disabled: false
+                });
+              });
+              return options;
+            }
             const keys = orderedTraceIndices();
             if(keys.length){
               keys.forEach(name => {
@@ -3837,9 +4049,22 @@
             }
             return options;
           })(),
-          value: selectedTraceIndex != null ? 'trace' : 'global',
+          value: groupedMode
+            ? (selectedGroupIndex != null ? `group::${selectedGroupIndex}` : 'global')
+            : (selectedTraceIndex != null ? 'trace' : 'global'),
           onChange(nextScope, ctx){
-            if(nextScope === 'trace'){
+            const isGroupScope = ctx?.scope === 'group' || String(nextScope || '').startsWith('group::');
+            if(isGroupScope){
+              const scopedGroup = Number(String(ctx?.scopeDataset || '').trim());
+              if(Number.isInteger(scopedGroup) && scopedGroup >= 0){
+                selectedGroupIndex = scopedGroup;
+                selectedColorIndex = scopedGroup;
+                const firstTrace = getBoxGroupedTraceIndices(scopedGroup)[0];
+                if(Number.isInteger(firstTrace)){
+                  selectedTraceIndex = firstTrace;
+                }
+              }
+            }else if(nextScope === 'trace'){
               const scopedTrace = Number(String(ctx?.scopeDataset || '').trim());
               if(Number.isFinite(scopedTrace)){
                 selectedTraceIndex = scopedTrace;
@@ -3875,7 +4100,7 @@
                 try{ els.boxFill.value = value; }catch(e){}
               }
               state.lastDefaultFill = value;
-            }else if(selectedColorIndex != null && selectedColorIndex >= 0){
+            }else if((scopeValue === 'group' || scopeValue === 'trace') && selectedColorIndex != null && selectedColorIndex >= 0){
               state.fillColors[selectedColorIndex] = value;
             }
             applyScopePatch({ fill: value }, scopeValue);
@@ -16977,6 +17202,24 @@
     return maxUsed + 1;
   }
 
+  function getBoxGroupedHeaderColumnCount(matrix){
+    if(!Array.isArray(matrix)){
+      return 0;
+    }
+    let maxUsed = -1;
+    for(let rowIndex = 0; rowIndex < BOX_GROUPED_HEADER_ROW_COUNT; rowIndex += 1){
+      const row = Array.isArray(matrix[rowIndex]) ? matrix[rowIndex] : [];
+      for(let colIndex = row.length - 1; colIndex >= 0; colIndex -= 1){
+        const value = row[colIndex];
+        if(value != null && String(value).trim() !== ''){
+          maxUsed = Math.max(maxUsed, colIndex);
+          break;
+        }
+      }
+    }
+    return maxUsed + 1;
+  }
+
   function areBoxColumnsEmpty(matrix, startCol, endCol){
     const start = Math.max(0, Number(startCol) || 0);
     const end = Math.max(start, Number(endCol) || start);
@@ -17361,10 +17604,15 @@
       getBoxUsedValueColumnCount(data, { headerRows: BOX_GROUPED_HEADER_ROW_COUNT }),
       getBoxUsedValueColumnCount(data, { headerRows: 1 })
     );
+    const usedHeaderCols = getBoxGroupedHeaderColumnCount(data);
     const requestedGroupCount = Number.isInteger(Number(options.minGroupCount))
       ? Math.max(1, Number(options.minGroupCount))
       : 2;
-    const meaningfulGroupCount = Math.max(requestedGroupCount, Math.ceil(usedValueCols / replicates));
+    const meaningfulGroupCount = Math.max(
+      requestedGroupCount,
+      Math.ceil(usedValueCols / replicates),
+      Math.ceil(usedHeaderCols / replicates)
+    );
     const meaningfulColCount = Math.max(replicates, meaningfulGroupCount * replicates);
     const groupEntries = getBoxGroupedHeaderEntries(hot, {
       replicates,
@@ -29095,6 +29343,7 @@ Technical analysis record (advanced)
       errorBarWidthPx,
       finalizeOrientationTraceLayers,
       formatTick,
+      updateAxisTickFormatter,
       fs,
       getAdditionalLineStyle,
       graphTypeRaw,
@@ -29313,6 +29562,7 @@ Technical analysis record (advanced)
         applyLogTickOverride(yScale);
         ensureNegativeAutoAxisLowerPadding(yScale);
       }
+      updateAxisTickFormatter(yScale.ticks.map(t => logScale ? Math.pow(10, t) : t));
       tickLabels = yScale.ticks.map(t => formatTick(logScale ? Math.pow(10, t) : t));
       tickWidths = tickLabels.map(lbl => chartStyle.measureText(lbl, tickFont));
       maxTickWidth = Math.max(...tickWidths, 0);
@@ -30329,6 +30579,7 @@ Technical analysis record (advanced)
       errorBarWidthPx,
       finalizeOrientationTraceLayers,
       formatTick,
+      updateAxisTickFormatter,
       fs,
       getAdditionalLineStyle,
       graphTypeRaw,
@@ -30508,6 +30759,7 @@ Technical analysis record (advanced)
       return nextScale;
     };
     let yScale = buildHorizontalValueScale();
+    updateAxisTickFormatter(yScale.ticks.map(t => logScale ? Math.pow(10, t) : t));
     const horizontalValueTickLabels = yScale.ticks.map(t => formatTick(logScale ? Math.pow(10, t) : t));
     const horizontalEndpointMargins = chartStyle.computeXAxisEndpointLabelMargins({
       labels: horizontalValueTickLabels,
@@ -31486,9 +31738,17 @@ Technical analysis record (advanced)
       checkpoint = null,
       finalizationContext = null
     } = context;
+    const axisFormatOptions = {
+      notation: numericAxisKey === 'x' ? boxAxisNotationX : boxAxisNotationY,
+      maxDecimals: 2,
+      logScale
+    };
+    let axisTickFormatter = chartStyle.createAxisTickFormatter([], axisFormatOptions);
+    const updateAxisTickFormatter = values => {
+      axisTickFormatter = chartStyle.createAxisTickFormatter(values, axisFormatOptions);
+    };
     function formatTick(v){
-      const notation = numericAxisKey === 'x' ? boxAxisNotationX : boxAxisNotationY;
-      return chartStyle.formatAxisValue(v,{ notation, maxDecimals: 2, logScale });
+      return axisTickFormatter(v);
     }
     const appendToLayer = (layer, tag, attrs) => {
       const target = layer || dataLayer || svg;
@@ -33132,6 +33392,7 @@ Technical analysis record (advanced)
         traceIndex,
         styleTraceIndex: colorInfo.styleIndex,
         colorIndex: colorInfo.colorIndex,
+        groupIndex: trace?.groupIndex,
         fillColor,
         borderColor,
         fallbackOpacity: opacityOverride,
@@ -33229,6 +33490,18 @@ Technical analysis record (advanced)
       annotateWithTitle(path, whiskerAnnotation);
       return path;
     };
+    const getBoxTraceDataAttributes = (config, colorIndex) => {
+      const attrs = {
+        'data-trace': config.traceIndex,
+        'data-style-trace': config.colorInfo?.styleIndex,
+        'data-color-index': colorIndex
+      };
+      const groupIndex = Number(config.trace?.groupIndex);
+      if(Number.isInteger(groupIndex) && groupIndex >= 0){
+        attrs['data-group-index'] = groupIndex;
+      }
+      return attrs;
+    };
     const resolveNotchInterval = ({ q1, q3, med, iqr, sampleCount }) => {
       const notchSpan = 1.57 * iqr / Math.sqrt(sampleCount);
       let lower = Math.max(q1, med - notchSpan);
@@ -33249,9 +33522,7 @@ Technical analysis record (advanced)
         fill: config.fillColor,
         stroke: config.bodyStrokeColor,
         'stroke-width': config.strokeWidthEffective,
-        'data-trace': traceIndex,
-        'data-style-trace': config.colorInfo?.styleIndex,
-        'data-color-index': colorIndex,
+        ...getBoxTraceDataAttributes(config, colorIndex),
         'data-box-shape': 'body'
       };
       const rectAttrs = isHorizontal
@@ -33367,9 +33638,7 @@ Technical analysis record (advanced)
         fill: config.fillColor,
         stroke: config.bodyStrokeColor,
         'stroke-width': config.strokeWidthEffective,
-        'data-trace': traceIndex,
-        'data-style-trace': config.colorInfo?.styleIndex,
-        'data-color-index': colorIndex,
+        ...getBoxTraceDataAttributes(config, colorIndex),
         'data-box-shape': 'body'
       }, config.opacityOverride, config.strokeWidthEffective);
       addBoxBodyShape('path', notchAttrs, config.whiskerAnnotation);
@@ -33662,9 +33931,7 @@ Technical analysis record (advanced)
         fill: config.fillColor,
         stroke: config.bodyStrokeColor,
         'stroke-width': config.strokeWidthEffective,
-        'data-trace': traceIndex,
-        'data-style-trace': config.colorInfo?.styleIndex,
-        'data-color-index': config.colorInfo?.colorIndex,
+        ...getBoxTraceDataAttributes(config, config.colorInfo?.colorIndex),
         'data-box-shape': 'body'
       };
       applyShapeOpacityAttrs(barAttrs, config.opacityOverride, config.strokeWidthEffective);
@@ -33805,9 +34072,7 @@ Technical analysis record (advanced)
       });
       const commonAttrs = {
         stroke: config.borderColor,
-        'data-trace': traceIndex,
-        'data-style-trace': config.colorInfo?.styleIndex,
-        'data-color-index': config.colorInfo?.colorIndex,
+        ...getBoxTraceDataAttributes(config, config.colorInfo?.colorIndex),
         'data-box-shape': 'body',
         ...(config.opacityOverride != null ? { 'stroke-opacity': config.opacityOverride } : {})
       };
@@ -33912,6 +34177,7 @@ Technical analysis record (advanced)
       errorBarWidthPx,
       finalizeOrientationTraceLayers,
       formatTick,
+      updateAxisTickFormatter,
       fs,
       getAdditionalLineStyle,
       graphTypeRaw,
@@ -34720,6 +34986,30 @@ Technical analysis record (advanced)
     let axisLabels = [];
     let axisGroupIndices = [];
     const groupColorAssignments = new Map();
+    const recordGroupColorAssignment = (groupName, colors) => {
+      if(!isGroupedMode || !groupName){
+        return;
+      }
+      const effectiveStrokeWidth = resolveBoxBodyStrokeStyle(
+        colors.strokeWidth,
+        borderWidthPx,
+        colors.border
+      ).width;
+      const existing = groupColorAssignments.get(groupName);
+      if(!existing){
+        groupColorAssignments.set(groupName, {
+          fill: colors.fill,
+          border: colors.border,
+          colorIndex: colors.colorIndex,
+          strokeWidth: effectiveStrokeWidth,
+          strokeWidthMixed: false
+        });
+        return;
+      }
+      if(Math.abs(existing.strokeWidth - effectiveStrokeWidth) > 1e-9){
+        existing.strokeWidthMixed = true;
+      }
+    };
     const resolveTraceColor = (trace, index) => {
       const styleIndex = resolveBoxTraceStyleIndex(trace, index);
       const rawColorIndex = isGroupedMode && Number.isInteger(trace?.groupIndex) ? trace.groupIndex : styleIndex;
@@ -34762,9 +35052,12 @@ Technical analysis record (advanced)
         const opacity = styleOverride && styleOverride.opacity != null ? Math.min(1, Math.max(0, Number(styleOverride.opacity))) : null;
         const fillResolved = resolveBoxThemeAwareStyleColor(resolveTraceShapeFillStyleColor(styleOverride), fillColor, { schemeId: activeColorSchemeId });
         const borderResolved = resolveBoxThemeAwareStyleColor(resolveTraceShapeBorderStyleColor(styleOverride), borderColor, { schemeId: activeColorSchemeId });
-        if(isGroupedMode && trace?.groupName && !groupColorAssignments.has(trace.groupName)){
-          groupColorAssignments.set(trace.groupName, { fill: fillColor, border: borderColor, colorIndex });
-        }
+        recordGroupColorAssignment(trace?.groupName, {
+          fill: fillResolved,
+          border: borderResolved,
+          colorIndex,
+          strokeWidth
+        });
         return {
           fillColor: fillResolved,
           borderColor: borderResolved,
@@ -34790,9 +35083,12 @@ Technical analysis record (advanced)
       const opacity = styleOverride && styleOverride.opacity != null ? Math.min(1, Math.max(0, Number(styleOverride.opacity))) : null;
       const fillResolved = resolveBoxThemeAwareStyleColor(resolveTraceShapeFillStyleColor(styleOverride), fillColor, { schemeId: activeColorSchemeId });
       const borderResolved = resolveBoxThemeAwareStyleColor(resolveTraceShapeBorderStyleColor(styleOverride), borderColor, { schemeId: activeColorSchemeId });
-      if(isGroupedMode && trace?.groupName && !groupColorAssignments.has(trace.groupName)){
-        groupColorAssignments.set(trace.groupName, { fill: fillColor, border: borderColor, colorIndex });
-      }
+      recordGroupColorAssignment(trace?.groupName, {
+        fill: fillResolved,
+        border: borderResolved,
+        colorIndex,
+        strokeWidth
+      });
       return {
         fillColor: fillResolved,
         borderColor: borderResolved,
@@ -35813,14 +36109,17 @@ Technical analysis record (advanced)
       ? computeSeparatedCategoryUnits(axisGroupIndices)
       : null;
     if(isGroupedMode && groupColorAssignments.size && showLegend){
-      const legendStrokeWidth = borderWidthPx > 0
-        ? borderWidthPx
-        : chartStyle.scaleStrokeWidth(1, styleScaleInfo, { context: 'box-legend-border', min: 0.5 });
+      const legendStrokeWidth = Math.max(0, borderWidthPx);
+      const mixedGroupLegendStrokeWidth = chartStyle.scaleStrokeWidth(
+        1,
+        styleScaleInfo,
+        { context: 'box-legend-mixed-border', min: 0.5 }
+      );
       const legendEntries = Array.from(groupColorAssignments.entries()).map(([name, colors]) => ({
         label: name,
         fill: colors.fill,
         stroke: colors.border,
-        strokeWidth: legendStrokeWidth,
+        strokeWidth: colors.strokeWidthMixed ? mixedGroupLegendStrokeWidth : colors.strokeWidth,
         shape: 'rectangle'
       }));
       legendLayout = chartStyle.computeLegendLayout({

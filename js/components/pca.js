@@ -1686,6 +1686,11 @@
           // position changes the active analysis schema.
           syncPcaActiveDataViewFromHot(pcaHot, 'afterChange');
         },
+        afterAutoGrowCol() {
+          if (pcaState.tableFormat === 'grouped') {
+            updatePcaGroupedHeaders(pcaHot);
+          }
+        },
         afterRemoveCol() {
           if (pcaState.tableFormat === 'grouped') {
             normalizePcaGroupedHeaderRow(pcaHot, {
@@ -10468,8 +10473,14 @@
     for (const axisKey of ['x', 'y', 'z']) {
       const ticks = model.axisTicks[axisKey] || [];
       const labels = model.axisTickLabels[axisKey] || [];
+      const fallbackFormatter = typeof chartStyle.createAxisTickFormatter === 'function'
+        ? chartStyle.createAxisTickFormatter(ticks, { notation: 'auto', maxDecimals: 2 })
+        : null;
       formatters[axisKey] = value => {
         const numeric = Number(value);
+        if(typeof fallbackFormatter === 'function'){
+          return fallbackFormatter(numeric);
+        }
         let nearestIndex = -1;
         let nearestDistance = Infinity;
         ticks.forEach((tick, index) => {
@@ -10483,7 +10494,7 @@
           return labels[nearestIndex];
         }
         return typeof chartStyle.formatAxisValue === 'function'
-          ? chartStyle.formatAxisValue(numeric, { maxDecimals: 2 })
+          ? chartStyle.formatAxisValue(numeric, { axisValues: ticks, maxDecimals: 2 })
           : (Number.isFinite(numeric) ? String(numeric) : '');
       };
     }
@@ -15181,13 +15192,21 @@
             }
           };
         });
+        const pca3dAxisTickFormatters = {
+          x: chartStyle.createAxisTickFormatter(axisTicks.x, { notation: 'auto', maxDecimals: 2 }),
+          y: chartStyle.createAxisTickFormatter(axisTicks.y, { notation: 'auto', maxDecimals: 2 }),
+          z: chartStyle.createAxisTickFormatter(axisTicks.z, { notation: 'auto', maxDecimals: 2 })
+        };
         const formatPca3dAxisTick = (axisKey, value) => {
           const formatter = axisTickFormatters3d?.[axisKey];
           if (typeof formatter === 'function') {
             return String(formatter(value));
           }
+          if(typeof pca3dAxisTickFormatters[axisKey] === 'function'){
+            return String(pca3dAxisTickFormatters[axisKey](value));
+          }
           return typeof chartStyle.formatAxisValue === 'function'
-            ? String(chartStyle.formatAxisValue(value, { maxDecimals: 2 }))
+            ? String(chartStyle.formatAxisValue(value, { axisValues: axisTicks[axisKey], maxDecimals: 2 }))
             : String(value);
         };
         const pca3dRotationModel = normalizePca3dRotationModel({
@@ -15384,10 +15403,9 @@
         width: W,
         height: H
       });
-      const formatTick = value => chartStyle.formatAxisValue(value, {
-        notation: 'auto',
-        maxDecimals: 2
-      });
+      const pcaAxisFormatOptions = { notation: 'auto', maxDecimals: 2 };
+      let formatTickX = chartStyle.createAxisTickFormatter([], pcaAxisFormatOptions);
+      let formatTickY = chartStyle.createAxisTickFormatter([], pcaAxisFormatOptions);
       const pcaFontStyles = exportFontStyles('pca', { tabId: drawTabId });
       const xTickMeasureFont = (chartStyle && typeof chartStyle.resolveScopedLabelMeasureFont === 'function') ?
         chartStyle.resolveScopedLabelMeasureFont({
@@ -15460,8 +15478,10 @@
               niceScale(yMin, yMax, targetY),
               manualIntervalY
             );
-        const candidateXLabels = candidateXScale.ticks.map(t => formatTick(t));
-        const candidateYLabels = candidateYScale.ticks.map(t => formatTick(t));
+        const candidateFormatTickX = chartStyle.createAxisTickFormatter(candidateXScale.ticks, pcaAxisFormatOptions);
+        const candidateFormatTickY = chartStyle.createAxisTickFormatter(candidateYScale.ticks, pcaAxisFormatOptions);
+        const candidateXLabels = candidateXScale.ticks.map(t => candidateFormatTickX(t));
+        const candidateYLabels = candidateYScale.ticks.map(t => candidateFormatTickY(t));
         const yLabelWidths = candidateYLabels.map(lbl => chartStyle.measureText(lbl, tickFont));
         const xLabelWidths = candidateXLabels.map(lbl => chartStyle.measureText(lbl, xTickMeasureFont));
         const candidateMaxYLabelWidth = Math.max(...yLabelWidths, 0);
@@ -15628,6 +15648,8 @@
       }
       let xScale = tickLayout.xScale;
       let yScale = tickLayout.yScale;
+      formatTickX = chartStyle.createAxisTickFormatter(xScale.ticks, pcaAxisFormatOptions);
+      formatTickY = chartStyle.createAxisTickFormatter(yScale.ticks, pcaAxisFormatOptions);
       const maxXLabelWidth = tickLayout.maxXLabelWidth;
       const maxYLabelWidth = tickLayout.maxYLabelWidth;
       let margin = tickLayout.margin;
@@ -15954,7 +15976,7 @@
           'font-size': fs,
           'text-anchor': 'middle',
           fill: chartStyle.TEXT_COLOR,
-        }, formatTick(t));
+        }, formatTickX(t));
         Shared.applyTextBaseline && Shared.applyTextBaseline(txt, 'hanging', fs);
         markFontEditable(txt, 'xTick');
         xTickFontCount += 1;
@@ -16001,7 +16023,7 @@
           'text-anchor': 'end',
           'dominant-baseline': 'middle',
           fill: chartStyle.TEXT_COLOR,
-        }, formatTick(t));
+        }, formatTickY(t));
         markFontEditable(txt, 'yTick');
         yTickFontCount += 1;
         yTickNodes.push(txt);

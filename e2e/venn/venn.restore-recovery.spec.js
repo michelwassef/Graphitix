@@ -10,7 +10,6 @@
  *
  * These need a real browser (layout-driven canvas sizing, live undo wiring).
  */
-const fs = require('fs');
 const { test, expect } = require('@playwright/test');
 const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
 const { registerIssueCollectors } = require('../helpers/diagnostics');
@@ -20,6 +19,7 @@ const {
   waitForDocumentOpenComplete
 } = require('../helpers/workspaceDriver');
 const { waitForComponentOwnerReady } = require('../helpers/contractWaits');
+const { saveWorkspaceArchive } = require('../helpers/archiveDriver');
 const GENES = {
   A: ['BRCA1', 'ATM', 'BAP1', 'EZH2', 'SUZ12', 'RING1B'],
   B: ['BRCA1', 'BAP1', 'RING1B', 'CBX2', 'HDAC1', 'PAXIP1', 'HUWE1'],
@@ -120,15 +120,14 @@ async function switchAnalysisTab(page, which) {
     requireIdle: true
   });
 }
-async function captureArchive(page, stem, outputPath) {
-  const a = await page.evaluate(async () => {
-    const ctx = window.Main.tabs.getSessionActionsContext();
-    const blob = await window.Main.sessionActions.buildWorkspaceArchiveBlob(ctx, { scope: 'workspace', snapshotKind: 'document-snapshot', compression: 'STORE', reason: 'e2e-venn' });
-    const by = new Uint8Array(await blob.arrayBuffer()); let s = '';
-    for (let i = 0; i < by.length; i += 0x8000) s += String.fromCharCode.apply(null, by.subarray(i, i + 0x8000));
-    return btoa(s);
+async function captureArchive(page, _stem, outputPath) {
+  await saveWorkspaceArchive(page, outputPath, {
+    scope: 'workspace',
+    snapshotKind: 'document-snapshot',
+    compression: 'STORE',
+    reason: 'e2e-venn'
   });
-  fs.writeFileSync(outputPath, Buffer.from(a, 'base64')); return outputPath;
+  return outputPath;
 }
 async function reopen(page, archivePath) {
   await page.reload({ waitUntil: 'domcontentloaded' });

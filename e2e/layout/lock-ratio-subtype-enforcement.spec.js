@@ -1,5 +1,5 @@
 const { test, expect } = require('@playwright/test');
-const fs = require('fs');
+const { saveWorkspaceArchive } = require('../helpers/archiveDriver');
 const {
   waitForDocumentOpenComplete
 } = require('../helpers/workspaceDriver');
@@ -205,29 +205,13 @@ async function readActiveLockSnapshot(page, pageId, modeSelector) {
 }
 
 async function captureArchive(page, name) {
-  const archive = await page.evaluate(async () => {
-    const tabsApi = window.Main?.tabs;
-    const sessionActions = window.Main?.sessionActions;
-    const context = tabsApi?.getSessionActionsContext?.();
-    const blob = await sessionActions?.buildWorkspaceArchiveBlob?.(context, {
-      scope: 'workspace',
-      snapshotKind: 'document-snapshot',
-      compression: 'STORE',
-      reason: 'e2e-lock-ratio-archive'
-    });
-    if (!blob) {
-      throw new Error('No workspace archive blob');
-    }
-    const bytes = new Uint8Array(await blob.arrayBuffer());
-    let binary = '';
-    for (let index = 0; index < bytes.length; index += 0x8000) {
-      binary += String.fromCharCode.apply(null, bytes.subarray(index, index + 0x8000));
-    }
-    return btoa(binary);
+  await saveWorkspaceArchive(page, name, {
+    scope: 'workspace',
+    snapshotKind: 'document-snapshot',
+    compression: 'STORE',
+    reason: 'e2e-lock-ratio-archive'
   });
-  const archivePath = name;
-  fs.writeFileSync(archivePath, Buffer.from(archive, 'base64'));
-  return archivePath;
+  return name;
 }
 
 async function loadArchive(page, archivePath, type) {

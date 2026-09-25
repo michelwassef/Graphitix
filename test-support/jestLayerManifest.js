@@ -206,6 +206,7 @@ const DOM_UNIT_TESTS = Object.freeze([
   '__tests__/dom/toolbar.numericWheel.sharedControls.test.js',
   '__tests__/dom/tableImport.ownerTransaction.test.js',
   '__tests__/shared/plot3d.test.js',
+  '__tests__/shared/plot3d.rotationGestures.test.js',
   '__tests__/dom/hist.schedulerOwnership.test.js'
 ]);
 
