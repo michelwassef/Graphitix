@@ -1,6 +1,6 @@
 const { test, expect } = require('@playwright/test');
 const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
-const { openComponentFromWelcome, clickExampleButtonIfPresent } = require('../helpers/workspaceDriver');
+const { openComponentFromWelcome, clickExpectedExampleButton } = require('../helpers/workspaceDriver');
 const { registerIssueCollectors } = require('../helpers/diagnostics');
 
 async function waitForLineIdle(page) {
@@ -107,7 +107,7 @@ test('Line keeps colors and marker symbols attached to existing series across co
   await expect(page.locator('#welcomeScreen')).toBeVisible();
   await openComponentFromWelcome(page, { type: 'line', pageId: 'linePage' }, { first: true });
 
-  await clickExampleButtonIfPresent(page, 'lineLoadExample');
+  await clickExpectedExampleButton(page, 'lineLoadExample');
   await waitForLineIdle(page);
 
   const before = await captureLineSeriesIdentity(page);

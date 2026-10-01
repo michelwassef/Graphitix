@@ -10,7 +10,8 @@ const HEADER = [
   'status', 'scenario_ids', 'requirements', 'requirement_evidence', 'component_scope', 'capability_scope',
   'contracts', 'transition_scope', 'browser', 'expected_worker_mode', 'fixture_provenance',
   'bootstrap_review', 'owner_expectations', 'readiness', 'mutation', 'required_artifacts',
-  'skip_policy', 'predecessor_scenario_ids', 'oracle', 'setup', 'provenance'
+  'skip_policy', 'predecessor_scenario_ids', 'oracle', 'setup', 'setup_classification',
+  'setup_evidence', 'provenance'
 ];
 
 function escapeCsv(value) {
@@ -51,6 +52,8 @@ function renderInventoryCsv(inventory) {
       entry.predecessorScenarioIds,
       entry.oracle,
       entry.setup,
+      entry.setupClassification,
+      entry.setupEvidence,
       entry.provenance
     ].map(escapeCsv).join(','));
   }

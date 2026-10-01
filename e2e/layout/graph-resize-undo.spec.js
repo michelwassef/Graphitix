@@ -3,7 +3,7 @@ const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
 const {
   COMPONENT_MATRIX,
   openComponentFromWelcome,
-  clickExampleButtonIfPresent
+  clickExpectedExampleButton
 } = require('../helpers/workspaceDriver');
 const { registerIssueCollectors } = require('../helpers/diagnostics');
 const { waitForComponentOwnerReady } = require('../helpers/contractWaits');
@@ -141,7 +141,7 @@ test('svgbox drag resize undo and redo restore dimensions in every component', a
     const component = COMPONENT_MATRIX[index];
     await test.step(`resize undo: ${component.type}`, async () => {
       await openComponentFromWelcome(page, component, { first: index === 0, loadExample: true });
-      await clickExampleButtonIfPresent(page, component.exampleButtonId);
+      await clickExpectedExampleButton(page, component.exampleButtonId);
       await waitForGraphSvg(page, component.pageId);
       const pcaMetricResize = component.type === 'pca';
       if (pcaMetricResize) {
@@ -207,7 +207,7 @@ test('lock ratio toggle undo and redo restore scatter dimensions and aspect stat
   await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
   await expect(page.locator('#welcomeScreen')).toBeVisible();
   await openComponentFromWelcome(page, { type: 'scatter', pageId: 'scatterPage', exampleButtonId: 'scatterLoadExample' }, { first: true, loadExample: true });
-  await clickExampleButtonIfPresent(page, 'scatterLoadExample');
+  await clickExpectedExampleButton(page, 'scatterLoadExample');
   await waitForGraphSvg(page, 'scatterPage');
   await setLockRatio(page, 'scatterPage', false);
   await clearActiveUndoHistory(page);

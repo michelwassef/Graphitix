@@ -15,7 +15,7 @@ function distinctRounded(values, digits = 2) {
 
 test.describe('Box large strip resize behavior', () => {
   test('keeps SVG geometry live during resize move while reusing canvas point layer', async ({ page, browserName }) => {
-    test.skip(browserName !== 'chromium', 'Resize-step sampling is timing-sensitive across browsers; validated on Chromium.');
+    test.skip(browserName !== 'chromium', '[skip-policy issue=ROADMAP-FIREFOX-PARITY owner=test-infrastructure expires=2026-12-31 gate=firefox-parity-enabled] Resize-step sampling is timing-sensitive across browsers; validated on Chromium.');
     test.setTimeout(300000);
     await installLocalCdnOverrides(page);
     await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
@@ -26,7 +26,7 @@ test.describe('Box large strip resize behavior', () => {
       { first: true }
     );
 
-    const csvPath = path.resolve(__dirname, '../../__tests__/fixtures/box/test-box-large.csv');
+    const csvPath = path.resolve(__dirname, '../../__tests__/fixtures/box/v1/test-box-large.csv');
     const fileChooserPromise = page.waitForEvent('filechooser');
     await page.getByRole('button', { name: /^Import$/ }).click();
     const fileChooser = await fileChooserPromise;

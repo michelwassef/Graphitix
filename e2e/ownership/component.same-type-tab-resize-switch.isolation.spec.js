@@ -3,7 +3,7 @@ const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
 const {
   COMPONENT_MATRIX,
   openComponentFromWelcome,
-  clickExampleButtonIfPresent
+  clickExpectedExampleButton
 } = require('../helpers/workspaceDriver');
 const { registerIssueCollectors } = require('../helpers/diagnostics');
 const { waitForComponentOwnerReady } = require('../helpers/contractWaits');
@@ -121,7 +121,7 @@ for (const component of COMPONENT_MATRIX) {
 
     const beforeFirst = new Set(await getWorkspaceTabIds(page));
     await openComponentTab(page, component, { first: true });
-    await clickExampleButtonIfPresent(page, component.exampleButtonId);
+    await clickExpectedExampleButton(page, component.exampleButtonId);
     await waitForComponentOwnerReady(page, component, {
       requireMountedRoot: true,
       requireIdle: true
@@ -132,7 +132,7 @@ for (const component of COMPONENT_MATRIX) {
 
     const beforeSecond = new Set(afterFirst);
     await openComponentTab(page, component, { first: false });
-    await clickExampleButtonIfPresent(page, component.exampleButtonId);
+    await clickExpectedExampleButton(page, component.exampleButtonId);
     await waitForComponentOwnerReady(page, component, {
       requireMountedRoot: true,
       requireIdle: true

@@ -2,12 +2,12 @@ const path = require('path');
 const { test, expect } = require('@playwright/test');
 const {
   openComponentFromWelcome,
-  clickExampleButtonIfPresent
+  clickExpectedExampleButton
 } = require('../helpers/workspaceDriver');
 const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
 const { registerIssueCollectors } = require('../helpers/diagnostics');
 
-const LARGE_VALUES_CSV = path.resolve(__dirname, '..', '..', '__tests__', 'test-scatter-medium.csv');
+const LARGE_VALUES_CSV = path.resolve(__dirname, '..', '..', '__tests__', 'fixtures', 'scatter', 'v1', 'test-scatter-medium.csv');
 
 async function activeTabId(page) {
   return page.evaluate(() => window.Main?.session?.workspaceState?.activeTabId || null);
@@ -90,7 +90,7 @@ test('heavy and ordinary Heatmap tabs retain exact owner DOM, fonts, geometry, a
     { type: 'heatmap', pageId: 'heatmapPage', exampleButtonId: 'heatmapLoadExample' },
     { first: false }
   );
-  await clickExampleButtonIfPresent(page, 'heatmapLoadExample');
+  await clickExpectedExampleButton(page, 'heatmapLoadExample');
   await page.waitForFunction(() => {
     const svg = document.getElementById('heatmapSvg');
     return !!svg?.querySelector('[data-export-layer="heatmap-cells"]')

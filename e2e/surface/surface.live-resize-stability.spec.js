@@ -1,6 +1,6 @@
 const { test, expect } = require('@playwright/test');
 const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
-const { openComponentFromWelcome, clickExampleButtonIfPresent } = require('../helpers/workspaceDriver');
+const { openComponentFromWelcome, clickExpectedExampleButton } = require('../helpers/workspaceDriver');
 const { registerIssueCollectors } = require('../helpers/diagnostics');
 const { waitForAnimationFrame } = require('../helpers/contractWaits');
 
@@ -49,7 +49,7 @@ test('surface live resize and release publish the same projected frame', async (
   await installLocalCdnOverrides(page);
   await page.goto('/index.html');
   await openComponentFromWelcome(page, { type: 'surface', pageId: 'surfacePage' }, { first: true });
-  await clickExampleButtonIfPresent(page, 'surfaceLoadExample');
+  await clickExpectedExampleButton(page, 'surfaceLoadExample');
   await page.waitForFunction(() => {
     const workspace = window.Main?.session?.workspaceState;
     const svg = document.querySelector('#surfacePage:not([hidden]) #surfaceSvg');

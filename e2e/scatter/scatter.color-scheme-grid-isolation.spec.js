@@ -2,7 +2,7 @@ const { test, expect } = require('@playwright/test');
 const {
   COMPONENT_MATRIX,
   openComponentFromWelcome,
-  clickExampleButtonIfPresent
+  clickExpectedExampleButton
 } = require('../helpers/workspaceDriver');
 const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
 
@@ -11,7 +11,7 @@ const SCATTER = COMPONENT_MATRIX.find(item => item.type === 'scatter');
 async function openScatter(page, first) {
   await openComponentFromWelcome(page, SCATTER, { first });
   await page.waitForSelector('#scatterPage:not([hidden])', { timeout: 30_000 });
-  await clickExampleButtonIfPresent(page, SCATTER.exampleButtonId);
+  await clickExpectedExampleButton(page, SCATTER.exampleButtonId);
   await page.waitForFunction(() => {
     const state = window.Main?.session?.workspaceState;
     const tab = state?.tabs?.find(item => item?.id === state.activeTabId) || null;

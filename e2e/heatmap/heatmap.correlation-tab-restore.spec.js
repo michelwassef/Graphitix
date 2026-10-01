@@ -1,6 +1,6 @@
 const { test, expect } = require('@playwright/test');
 const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
-const { openComponentFromWelcome, clickExampleButtonIfPresent } = require('../helpers/workspaceDriver');
+const { openComponentFromWelcome, clickExpectedExampleButton } = require('../helpers/workspaceDriver');
 const { waitForComponentOwnerReady } = require('../helpers/contractWaits');
 
 function parseAspectRatio(value) {
@@ -168,7 +168,7 @@ for (const scenario of [
     await setHeatmapView(page, scenario.view);
     const empty = await captureHeatmapGeometry(page);
 
-    await clickExampleButtonIfPresent(page, 'heatmapLoadExample');
+    await clickExpectedExampleButton(page, 'heatmapLoadExample');
     await waitForHeatmapCells(page);
     await waitForComponentOwnerReady(page, 'heatmap', { requireMountedRoot: true, requireIdle: true, timeout: 30_000 });
 

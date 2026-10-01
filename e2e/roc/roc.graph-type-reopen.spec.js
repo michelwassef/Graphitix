@@ -1,7 +1,7 @@
 const { test, expect } = require('@playwright/test');
 const { saveWorkspaceArchive } = require('../helpers/archiveDriver');
 const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
-const { openComponentFromWelcome, clickExampleButtonIfPresent, waitForDocumentOpenComplete } = require('../helpers/workspaceDriver');
+const { openComponentFromWelcome, clickExpectedExampleButton, waitForDocumentOpenComplete } = require('../helpers/workspaceDriver');
 const { registerIssueCollectors } = require('../helpers/diagnostics');
 
 async function waitForRocRender(page, expectedType) {
@@ -222,7 +222,7 @@ test('ROC and Precision-Recall graph type survives toggles, tab switch, and reop
   await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
   await expect(page.locator('#welcomeScreen')).toBeVisible({ timeout: 20_000 });
   await openComponentFromWelcome(page, { type: 'roc', pageId: 'rocPage' }, { first: true });
-  await clickExampleButtonIfPresent(page, 'rocLoadExample');
+  await clickExpectedExampleButton(page, 'rocLoadExample');
   await waitForRocRender(page, 'roc');
   expectRocConsistency(await readRocState(page), 'roc');
 

@@ -1,7 +1,7 @@
 const { waitForComponentOwnerReady } = require('../helpers/contractWaits');
 const { test, expect } = require('@playwright/test');
 const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
-const { openComponentFromWelcome, clickExampleButtonIfPresent, waitForDocumentOpenComplete } = require('../helpers/workspaceDriver');
+const { openComponentFromWelcome, clickExpectedExampleButton, waitForDocumentOpenComplete } = require('../helpers/workspaceDriver');
 const { registerIssueCollectors } = require('../helpers/diagnostics');
 const { saveWorkspaceArchive } = require('../helpers/archiveDriver');
 
@@ -32,7 +32,7 @@ async function openRocExampleTab(page, { first = false } = {}) {
   );
   await openComponentFromWelcome(page, { type: 'roc', pageId: 'rocPage' }, { first });
   await page.waitForFunction(() => !!window.Components?.roc?.ready, null, { timeout: 35_000 });
-  await clickExampleButtonIfPresent(page, 'rocLoadExample');
+  await clickExpectedExampleButton(page, 'rocLoadExample');
   await page.waitForFunction(() => {
     const payload = window.Components?.roc?.getPayload?.();
     return Array.isArray(payload?.data) && payload.data.length > 3 && (payload.data[0] || []).length >= 3;

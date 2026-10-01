@@ -45,6 +45,9 @@ describe('generated test manifest', () => {
       && entry.expectedWorkerMode
       && entry.fixtureProvenance
       && Object.prototype.hasOwnProperty.call(entry, 'bootstrapReview')
+      && entry.setupClassification
+      && Array.isArray(entry.setupEvidence)
+      && entry.setupEvidence.length > 0
       && entry.ownerExpectations
       && entry.readiness
       && entry.mutation
@@ -52,7 +55,12 @@ describe('generated test manifest', () => {
       && Array.isArray(entry.requiredArtifacts)
       && Array.isArray(entry.predecessorScenarioIds)
     ))).toBe(true);
-    expect(validateManifest(entries)).toEqual([]);
+    expect(validateManifest(entries)).toEqual([
+      'manifest entry has no reviewed scenario mapping: file:__tests__/dom/example.test.js',
+      'manifest entry has no reviewed scenario mapping: file:__tests__/session.example.test.js',
+      'manifest entry has no reviewed scenario mapping: file:__tests__/unit/example.test.js',
+      'manifest entry has no reviewed scenario mapping: file:__tests__/workers/example.test.js'
+    ]);
   });
 
   test('keeps browser parity and contract inventory visible', () => {
@@ -163,11 +171,34 @@ describe('generated test manifest', () => {
   });
 
   test('marks Python differential suites as requiring the numerical oracle', () => {
-    const entry = classifyTestFile('__tests__/statistical-oracle/stats.component.differential.test.js');
-    expect(entry.layer).toBe('statistical-oracle');
-    expect(entry.defaultLane).toBe('stats');
-    expect(entry.oracle).toBe('required');
-    expect(validateManifest([entry])).toEqual([]);
+    const files = [
+      '__tests__/statistical-oracle/stats.component.differential.matrix.test.js',
+      '__tests__/statistical-oracle/stats.component.differential.edges.test.js'
+    ];
+    files.forEach(file => {
+      const entry = classifyTestFile(file);
+      expect(entry.layer).toBe('statistical-oracle');
+      expect(entry.defaultLane).toBe('stats');
+      expect(entry.oracle).toBe('required');
+      expect(validateManifest([entry])).toEqual([]);
+    });
+  });
+
+  test('keeps rendered statistics and restore suites out of the numerical-oracle lane', () => {
+    const cases = [
+      ['__tests__/integration/stats.ui.presentation.branches.test.js', 'STATS.ui-presentation-branches'],
+      ['__tests__/integration/stats.ui.persistence.restore.test.js', 'STATS.ui-persistence-restore']
+    ];
+
+    for (const [file, scenarioId] of cases) {
+      const entry = classifyTestFile(file);
+      expect(entry.layer).toBe('app-integration');
+      expect(entry.defaultLane).toBe('integration');
+      expect(entry.oracle).toBe('not-applicable');
+      expect(entry.setupClassification).toBe('mixed');
+      expect(entry.scenarioIds).toEqual([scenarioId]);
+      expect(validateManifest([entry])).toEqual([]);
+    }
   });
 
   test('only explicit migrated files receive scenario IDs', () => {
@@ -178,10 +209,10 @@ describe('generated test manifest', () => {
     expect(migrated.scenarioIds).toEqual(['BOOTSTRAP.browser-smoke']);
     expect(legacy.status).toBe('legacy-unmapped');
     expect(legacy.scenarioIds).toEqual([]);
-    expect(legacy.skipPolicy).toEqual(expect.objectContaining({
-      issueRef: expect.any(String),
-      expiresOn: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/)
-    }));
+    expect(legacy.skipPolicy).toBeNull();
+    expect(validateManifest([legacy])).toContain(
+      'manifest entry has no reviewed scenario mapping: file:e2e/unknown-legacy.spec.js'
+    );
   });
 
   test('rejects entries without readiness metadata', () => {
@@ -194,6 +225,7 @@ describe('generated test manifest', () => {
 
   test('rejects invented scenario IDs', () => {
     const entry = classifyTestFile('__tests__/unit/example.test.js');
+    entry.status = 'migrated';
     entry.scenarioIds = ['OWN.invented'];
     expect(validateManifest([entry])).toEqual([
       'manifest entry has unknown scenario IDs: OWN.invented'
@@ -236,5 +268,31 @@ describe('generated test manifest', () => {
       reason: expect.stringContaining('production bootstrap')
     });
     expect(validateManifest([entry])).toEqual([]);
+  });
+
+  test('records UI and API setup boundaries separately', () => {
+    const ui = classifyTestFile('e2e/ownership/component.ui-parameter-persistence.spec.js', 'playwright');
+    const api = classifyTestFile('e2e/ownership/component.persistence-matrix.spec.js', 'playwright');
+
+    expect(ui.setupClassification).toBe('ui');
+    expect(api.setupClassification).toBe('api');
+    expect(validateManifest([ui, api])).toEqual([]);
+  });
+
+  test('grounds untagged browser setup classifications in suite behavior', () => {
+    const entries = buildFileManifest({
+      e2ePaths: [
+        'e2e/layout/axis.tick-label-optical-clearance.spec.js',
+        'e2e/workspace/welcome.icons.contract.spec.js',
+        'e2e/diagnostics/vendor.runtime.smoke.spec.js'
+      ]
+    });
+    const byFile = new Map(entries.map(entry => [entry.file, entry]));
+
+    expect(byFile.get('e2e/layout/axis.tick-label-optical-clearance.spec.js').setupClassification).toBe('api');
+    expect(byFile.get('e2e/workspace/welcome.icons.contract.spec.js').setupClassification).toBe('ui');
+    expect(byFile.get('e2e/diagnostics/vendor.runtime.smoke.spec.js').setupClassification).toBe('declared-in-suite');
+    expect(byFile.get('e2e/diagnostics/vendor.runtime.smoke.spec.js').setupEvidence[0]).toMatch(/^reviewed-in-suite:/);
+    expect(validateManifest(entries, { requireReviewedSetupClassification: true })).toEqual([]);
   });
 });

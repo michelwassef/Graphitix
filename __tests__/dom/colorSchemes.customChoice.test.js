@@ -180,7 +180,7 @@ describe('color scheme custom-color choice', () => {
 
   test('testfile.graph keeps every shared green point assignment together', async () => {
     const archive = await JSZip.loadAsync(
-      fs.readFileSync(path.join(__dirname, '..', 'testfile.graph'))
+      fs.readFileSync(path.join(__dirname, '..', 'fixtures', 'archive', 'v1', 'testfile.graph'))
     );
     const payloadEntry = archive.file('tabs/new validation set/payload.json');
     const payload = JSON.parse(await payloadEntry.async('string'));

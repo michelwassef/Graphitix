@@ -1,7 +1,7 @@
 const { test, expect } = require('@playwright/test');
 const {
   openComponentFromWelcome,
-  clickExampleButtonIfPresent
+  clickExpectedExampleButton
 } = require('../helpers/workspaceDriver');
 const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
 const { waitForComponentOwnerReady } = require('../helpers/contractWaits');
@@ -109,7 +109,7 @@ test('Heatmap resize keeps the canonical graph frame independent of the summary 
     { type:'heatmap', pageId:'heatmapPage', exampleButtonId:'heatmapLoadExample' },
     { first:true }
   );
-  await clickExampleButtonIfPresent(page, 'heatmapLoadExample');
+  await clickExpectedExampleButton(page, 'heatmapLoadExample');
   await waitForHeatmap(page);
 
   await resizeVertically(page, 90);

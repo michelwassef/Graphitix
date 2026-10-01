@@ -16,6 +16,10 @@
   const Components = global.Components = global.Components || {};
   const scatter = Components.scatter = Components.scatter || {};
   const chartStyle = Shared.chartStyle = Shared.chartStyle || {};
+  const symbolGeometry = Shared.symbolGeometry = Shared.symbolGeometry || {};
+  if(typeof symbolGeometry.resolveEqualAreaHalfExtent !== 'function' && typeof require === 'function'){
+    require('../shared/symbolGeometry.js');
+  }
   const svgGeometry = Shared.svgGeometry = Shared.svgGeometry || {};
   if(typeof svgGeometry.buildCompoundLinePath !== 'function' && typeof require === 'function'){
     try{
@@ -1803,7 +1807,10 @@
         const hasCurrentPositions = scatterLabelPositionsHasValues(current.positions);
         const hasPayloadPositions = scatterLabelPositionsHasValues(payloadLabels.positions);
         if(hasPayloadPositions && !hasCurrentPositions){
-          shaped.state.labels = mergeScatterOwnedLabelsState(current, payloadLabels);
+          shaped.state.labels = normalizeScatterOwnedLabelsState({
+            ...current,
+            positions: mergeScatterOwnedLabelPositions(current.positions, payloadLabels.positions)
+          });
           return shaped.state.labels;
         }
         shaped.state.labels = current;
@@ -1843,32 +1850,111 @@
   function bindScatterInlineTextInteraction(node, ownerSession = null, stateKey = ''){
     const owner = ensureScatterSessionOwnershipShape(ownerSession || getActiveScatterSessionForState());
     if(!node || !owner || !['title', 'x', 'y', 'z'].includes(stateKey)){ return false; }
-    makeEditableLocal(node, value => {
-      const labels = getScatterLabelsState(owner);
-      const previous = labels?.[stateKey] != null ? String(labels[stateKey]) : '';
-      const nextValue = value != null ? String(value) : '';
-      if(previous === nextValue){ return; }
-      const apply = next => {
-        const normalized = next != null ? String(next) : '';
-        patchScatterLabelsState(owner, { [stateKey]: normalized }, { reason: `scatter-${stateKey}-label-edit` });
-        if((stateKey === 'x' || stateKey === 'y' || stateKey === 'z') && typeof syncScatterAxisHeader === 'function'){
+    let editInitialValue = null;
+    let editInitialAxisMode = null;
+    const applyDraft = value => {
+      const normalized = String(value == null ? '' : value).replace(/\r\n?/g, '\n');
+      patchScatterLabelsState(owner, { [stateKey]: normalized }, { reason: `scatter-${stateKey}-label-draft` });
+      if(editInitialAxisMode){
+        setScatterSessionAxisLabelMode(
+          owner,
+          stateKey,
+          normalized === editInitialValue ? editInitialAxisMode : 'manual',
+          `scatter-${stateKey}-label-draft`
+        );
+      }
+      if(['x', 'y', 'z'].includes(stateKey) && typeof syncScatterAxisHeader === 'function'){
+        syncScatterAxisHeader(stateKey, normalized, {
+          hot: owner.managers?.hot || scatterHot || null,
+          source: `scatter-${stateKey}-axis-inline-draft`
+        });
+      }
+      global.Main?.session?.markWorkspaceTargetUserModified?.(
+        node,
+        `scatter-${stateKey}-label-draft`,
+        {
+          tabId: owner.tabId,
+          componentKey: 'scatter',
+          source: 'scatter-inline-title-draft',
+          origin: 'user',
+          affectsPayload: true
+        }
+      );
+      return normalized;
+    };
+    const createApply = (baselineValue, baselineAxisMode) => next => {
+      const normalized = String(next == null ? '' : next).replace(/\r\n?/g, '\n');
+      patchScatterLabelsState(owner, { [stateKey]: normalized }, { reason: `scatter-${stateKey}-label-edit` });
+      if(['x', 'y', 'z'].includes(stateKey)){
+        setScatterSessionAxisLabelMode(
+          owner,
+          stateKey,
+          normalized === baselineValue ? baselineAxisMode : 'manual',
+          `scatter-${stateKey}-label-edit`
+        );
+        if(typeof syncScatterAxisHeader === 'function'){
           syncScatterAxisHeader(stateKey, normalized, {
             hot: owner.managers?.hot || scatterHot || null,
             source: `scatter-${stateKey}-axis-inline`
           });
         }
-        if(node.textContent !== normalized){ node.textContent = normalized; }
-        scheduleScatterDrawForSession(owner, {
-          tabId: owner.tabId || undefined,
-          viewOnly: true,
-          renderImpact: 'layout',
-          reason: stateKey === 'title' ? 'title-change' : `${stateKey}-label-change`
-        });
-        return true;
-      };
+      }
+      if(!Shared.fontControls?.setTitleText?.(node, normalized) && node.textContent !== normalized){
+        node.textContent = normalized;
+      }
+      scheduleScatterDrawForSession(owner, {
+        tabId: owner.tabId || undefined,
+        viewOnly: true,
+        renderImpact: 'layout',
+        reason: stateKey === 'title' ? 'title-change' : `${stateKey}-label-change`
+      });
+      return true;
+    };
+    makeEditableLocal(node, value => {
+      const labels = getScatterLabelsState(owner);
+      const previous = editInitialValue != null
+        ? editInitialValue
+        : (labels?.[stateKey] != null ? String(labels[stateKey]) : '');
+      const nextValue = String(value == null ? '' : value).replace(/\r\n?/g, '\n');
+      if(previous === nextValue){ return; }
+      const apply = createApply(previous, editInitialAxisMode);
       apply(nextValue);
       const changeLabel = stateKey === 'title' ? 'scatter:title' : `scatter:${stateKey}-label`;
       recordScatterChange(changeLabel, previous, nextValue, apply);
+    }, {
+      getInitialValue: () => String(getScatterLabelsState(owner)?.[stateKey] ?? ''),
+      onEditCheckpoint: (currentValue, _target, reason) => {
+        const nextValue = String(currentValue == null ? '' : currentValue).replace(/\r\n?/g, '\n');
+        if(reason === 'history-restore'){
+          editInitialValue = nextValue;
+          if(['x', 'y', 'z'].includes(stateKey)) editInitialAxisMode = getScatterSessionAxisLabelMode(owner, stateKey);
+          return true;
+        }
+        const labels = getScatterLabelsState(owner);
+        const previous = editInitialValue != null ? editInitialValue : String(labels?.[stateKey] ?? '');
+        if(previous === nextValue) return false;
+        const apply = createApply(previous, editInitialAxisMode);
+        recordScatterChange(stateKey === 'title' ? 'scatter:title' : `scatter:${stateKey}-label`, previous, nextValue, apply);
+        editInitialValue = nextValue;
+        if(['x', 'y', 'z'].includes(stateKey)) editInitialAxisMode = getScatterSessionAxisLabelMode(owner, stateKey);
+        return true;
+      },
+      onEditStart: () => {
+        const labels = getScatterLabelsState(owner);
+        editInitialValue = labels?.[stateKey] != null ? String(labels[stateKey]) : '';
+        editInitialAxisMode = ['x', 'y', 'z'].includes(stateKey)
+          ? getScatterSessionAxisLabelMode(owner, stateKey)
+          : null;
+      },
+      onInput: value => applyDraft(value),
+      onEditEnd: (_target, finalValue) => {
+        const finalText = String(finalValue == null ? '' : finalValue).replace(/\r\n?/g, '\n');
+        if(String(getScatterLabelsState(owner)?.[stateKey] ?? '') !== finalText){
+          applyDraft(finalText);
+        }
+        editInitialValue = null;
+        editInitialAxisMode = null;
+      }
     });
     return true;
   }
@@ -2659,6 +2745,24 @@
       scatterDebug('Debug: scatter view state updated', { reason: meta.reason, tabId: shaped?.tabId || getScatterProjectionTabId() || null, viewMode: view.viewMode });
     }
     return syncScatterViewStateMirror(view, shaped);
+  }
+
+  function getScatterSessionAxisLabelMode(session, axis){
+    const owner = ensureScatterSessionOwnershipShape(session || getActiveScatterSessionForState());
+    const view = normalizeScatterOwnedViewState(owner?.state?.view || createDefaultScatterOwnedViewState());
+    return normalizeScatterAxisLabelModes(view.axisLabelModes, createDefaultScatterOwnedViewState().axisLabelModes)[axis] || 'auto';
+  }
+
+  function setScatterSessionAxisLabelMode(session, axis, mode, reason = 'scatter-axis-label-mode'){
+    const owner = ensureScatterSessionOwnershipShape(session || getActiveScatterSessionForState());
+    if(!owner || !['x', 'y', 'z'].includes(axis)){ return false; }
+    const view = normalizeScatterOwnedViewState(owner.state?.view || createDefaultScatterOwnedViewState());
+    const axisLabelModes = normalizeScatterAxisLabelModes({
+      ...view.axisLabelModes,
+      [axis]: mode === 'manual' ? 'manual' : 'auto'
+    }, view.axisLabelModes);
+    setScatterSessionViewState(owner, { ...view, axisLabelModes }, { reason });
+    return true;
   }
 
   function setScatterSessionGroupedState(session = null, groupedState = null, meta = {}){
@@ -5749,7 +5853,7 @@
               scatterZLabelText = resolved;
             }
             syncScatterAxisHeader(axisKey, resolved, { source: 'scatter-axis-inline' });
-            if(node.textContent !== resolved){ node.textContent = resolved; }
+            if(!Shared.fontControls?.setTitleText?.(node, resolved) && node.textContent !== resolved){ node.textContent = resolved; }
             scheduleScatterDrawForSession(target, {
               tabId: target.tabId || null,
               viewOnly: true,
@@ -5760,6 +5864,9 @@
             return resolved;
           };
           markFontEditable(node, role, role);
+          if(String(model.axisLabels[axisKey] || '').includes('\n')){
+            Shared.fontControls?.setTitleText?.(node, model.axisLabels[axisKey]);
+          }
           makeEditableLocal(node, text => {
             const previous = model.axisLabels[axisKey] || '';
             const nextValue = applyAxisLabel(text);
@@ -5787,7 +5894,7 @@
         pointBounds.push({
           cx: entry.projected.x,
           cy: entry.projected.y,
-          r: entry.runtime.model.radius,
+          r: symbolGeometry.resolveEqualAreaHalfExtent(entry.runtime.model.shape, entry.runtime.model.radius),
           pointId: layoutPointId
         });
         if(entry.runtime.model.manualLabel){
@@ -5800,7 +5907,7 @@
             text: entry.runtime.model.manualLabel,
             cx: entry.projected.x,
             cy: entry.projected.y,
-            radius: entry.runtime.model.radius,
+            radius: symbolGeometry.resolveEqualAreaHalfExtent(entry.runtime.model.shape, entry.runtime.model.radius),
             pointId: layoutPointId,
             labelKey,
             pinnedPosition: getScatterLabelsState(target)?.positions?.pointLabels?.[labelKey] || null
@@ -11813,19 +11920,29 @@
   let scatterSeriesGroupLabels = [];
   let scatterLastGraphType='scatter';
   let scatterLastRegressionSummary=null;
-  function getScatterOverlayPointCount(){
-    const renderRuntime = getScatterRenderRuntime(null, { syncFallbackFromState: true });
-    if(Array.isArray(renderRuntime?.cachedCollect?.points)){
-      return renderRuntime.cachedCollect.points.length;
-    }
-    const hot = scatter.__ensureHotForActiveTab?.() || scatterHot || scatterRefs.hot || null;
+  function getScatterOverlayPointCount(options = {}){
+    const tabId = String(options?.tabId || getScatterProjectionTabId() || '').trim() || null;
+    const ownerSession = tabId
+      ? getScatterSession(tabId, { tabId, reason: 'scatter-overlay-point-count' }, { create: false })
+      : getActiveScatterSessionForState();
+    const activeTabId = getScatterProjectionTabId();
+    const hot = scatter.__ensureHotForActiveTab?.(tabId ? { tabId } : {})
+      || ownerSession?.managers?.hot
+      || ownerSession?.refs?.hot
+      || ((!tabId || tabId === activeTabId) ? (scatterHot || scatterRefs.hot) : null)
+      || null;
     if(!hot){
-      return 0;
+      const renderRuntime = getScatterRenderRuntime(ownerSession, { syncFallbackFromState: true });
+      return Array.isArray(renderRuntime?.cachedCollect?.points)
+        ? renderRuntime.cachedCollect.points.length
+        : 0;
     }
     if(typeof hot.countRows === 'function'){
       return Math.max(0, hot.countRows() - 1);
     }
-    const source = typeof hot.getData === 'function' ? hot.getData() : null;
+    const source = typeof hot.getSourceData === 'function'
+      ? hot.getSourceData()
+      : (typeof hot.getData === 'function' ? hot.getData() : null);
     return Array.isArray(source) ? Math.max(0, source.length - 1) : 0;
   }
 
@@ -11840,7 +11957,7 @@
     if(reasonText === 'file-import' || reasonText.includes('opening saved')){
       return true;
     }
-    return getScatterOverlayPointCount() >= SCATTER_POINT_BATCH_THRESHOLD;
+    return getScatterOverlayPointCount(options) >= SCATTER_POINT_BATCH_THRESHOLD;
   }
 
   const scatterOverlayController = Shared.loadingOverlay?.createPendingController?.({
@@ -21225,7 +21342,7 @@
       }
       if(normalized === 'diamond'){
         const size = Math.max(radius * 2, 2);
-        const half = size / 2;
+        const half = symbolGeometry.resolveEqualAreaHalfExtent(normalized, size / 2);
         const path = doc.createElementNS(NS, 'path');
         const d = `M ${cx} ${cy - half} L ${cx + half} ${cy} L ${cx} ${cy + half} L ${cx - half} ${cy} Z`;
         path.setAttribute('d', d);
@@ -21333,10 +21450,11 @@
         return;
       }
       if(normalized === 'diamond'){
-        ctx.moveTo(x, y - safeRadius);
-        ctx.lineTo(x + safeRadius, y);
-        ctx.lineTo(x, y + safeRadius);
-        ctx.lineTo(x - safeRadius, y);
+        const halfExtent = symbolGeometry.resolveEqualAreaHalfExtent(normalized, safeRadius);
+        ctx.moveTo(x, y - halfExtent);
+        ctx.lineTo(x + halfExtent, y);
+        ctx.lineTo(x, y + halfExtent);
+        ctx.lineTo(x - halfExtent, y);
         ctx.closePath();
         return;
       }
@@ -22083,9 +22201,12 @@
         yMajorTickLength,
         tickGap,
         yTitleSeparation,
+        plotTranslation,
         info
       } = context;
       const positions = scatterLabelsState?.positions || {};
+      const titleShiftX = Number(plotTranslation?.x) || 0;
+      const titleShiftY = Number(plotTranslation?.y) || 0;
       const updatePosition = (key, position, reason) => {
         const nextPositions = cloneSimple(getScatterLabelsState(drawSession).positions) || {};
         nextPositions[key] = position;
@@ -22099,7 +22220,13 @@
         refreshReason,
         axis = null
       }) => {
-        const apply = value => {
+        let editInitialValue = stateKey === 'title'
+          ? String(scatterLabelsState?.[stateKey] ?? '')
+          : (scatterLabelsState?.[stateKey] != null ? String(scatterLabelsState[stateKey]) : '');
+        let editInitialAxisMode = axis
+          ? getScatterSessionAxisLabelMode(drawSession, axis)
+          : null;
+        const createApply = (baselineValue, baselineAxisMode) => value => {
           const nextValue = value != null ? String(value) : '';
           if(stateKey === 'title'){
             scatterTitleText = nextValue;
@@ -22112,33 +22239,113 @@
           }
           updateScatterDrawLabels({ [stateKey]: nextValue }, editReason);
           if(axis){
-            scatterState.axisLabelModes = normalizeScatterAxisLabelModes({
-              ...scatterState.axisLabelModes,
-              [axis]: 'manual'
-            }, scatterState.axisLabelModes);
+            setScatterSessionAxisLabelMode(
+              drawSession,
+              axis,
+              nextValue === baselineValue ? baselineAxisMode : 'manual',
+              editReason
+            );
             syncScatterAxisHeader(axis, nextValue, {
               hot: scatterHot || drawSession?.managers?.hot || null,
               source: `scatter-${axis}-axis-inline`
             });
           }
-          if(node.textContent !== nextValue){
+        if(!Shared.fontControls?.setTitleText?.(node, nextValue) && node.textContent !== nextValue){
             node.textContent = nextValue;
           }
           scheduleScatterViewRefresh(refreshReason);
           return true;
         };
         makeEditableLocal(node, value => {
-          const previous = scatterLabelsState?.[stateKey] != null
-            ? String(scatterLabelsState[stateKey])
-            : '';
+          const previous = editInitialValue;
           const nextValue = value != null ? String(value) : '';
           if(previous === nextValue){
             return;
           }
+          const apply = createApply(previous, editInitialAxisMode);
           apply(nextValue);
           recordScatterChange(changeLabel, previous, nextValue, apply);
+        }, {
+          getInitialValue: () => String(getScatterLabelsState(drawSession)?.[stateKey] ?? ''),
+          onEditCheckpoint: (currentValue, _target, reason) => {
+            const nextValue = currentValue != null ? String(currentValue) : '';
+            if(reason === 'history-restore'){
+              editInitialValue = nextValue;
+              if(axis) editInitialAxisMode = getScatterSessionAxisLabelMode(drawSession, axis);
+              return true;
+            }
+            const previous = editInitialValue;
+            if(previous === nextValue) return false;
+            const apply = createApply(previous, editInitialAxisMode);
+            recordScatterChange(changeLabel, previous, nextValue, apply);
+            editInitialValue = nextValue;
+            if(axis) editInitialAxisMode = getScatterSessionAxisLabelMode(drawSession, axis);
+            return true;
+          },
+          onEditStart: () => {
+            const labels = getScatterLabelsState(drawSession);
+            editInitialValue = labels?.[stateKey] != null ? String(labels[stateKey]) : '';
+            editInitialAxisMode = axis ? getScatterSessionAxisLabelMode(drawSession, axis) : null;
+          },
+          onInput: value => {
+            const normalized = String(value == null ? '' : value).replace(/\r\n?/g, '\n');
+            updateScatterDrawLabels({ [stateKey]: normalized }, editReason + '-draft');
+            if(axis){
+              setScatterSessionAxisLabelMode(
+                drawSession,
+                axis,
+                normalized === editInitialValue ? editInitialAxisMode : 'manual',
+                editReason + '-draft'
+              );
+              syncScatterAxisHeader(axis, normalized, {
+                hot: scatterHot || drawSession?.managers?.hot || null,
+                source: 'scatter-' + axis + '-axis-inline-draft'
+              });
+            }
+            global.Main?.session?.markWorkspaceTargetUserModified?.(
+              node,
+              editReason + '-draft',
+              {
+                tabId: drawSession?.tabId || null,
+                componentKey: 'scatter',
+                source: 'scatter-inline-title-draft',
+                origin: 'user',
+                affectsPayload: true
+              }
+            );
+          },
+          onEditEnd: (_target, finalValue) => {
+            const normalized = String(finalValue == null ? '' : finalValue).replace(/\r\n?/g, '\n');
+            if(String(getScatterLabelsState(drawSession)?.[stateKey] ?? '') !== normalized){
+              updateScatterDrawLabels({ [stateKey]: normalized }, editReason + '-cancel');
+              if(axis){
+                setScatterSessionAxisLabelMode(
+                  drawSession,
+                  axis,
+                  normalized === editInitialValue ? editInitialAxisMode : 'manual',
+                  editReason + '-cancel'
+                );
+                syncScatterAxisHeader(axis, normalized, {
+                  hot: scatterHot || drawSession?.managers?.hot || null,
+                  source: 'scatter-' + axis + '-axis-inline-cancel'
+                });
+                global.Main?.session?.markWorkspaceTargetUserModified?.(
+                  node,
+                  editReason + '-cancel',
+                  {
+                    tabId: drawSession?.tabId || null,
+                    componentKey: 'scatter',
+                    source: 'scatter-inline-title-draft',
+                    origin: 'user',
+                    affectsPayload: true
+                  }
+                );
+              }
+            }
+            editInitialValue = '';
+            editInitialAxisMode = null;
+          }
         });
-        return apply;
       };
 
       const xAxisBase = margin.top + plotH;
@@ -22149,7 +22356,7 @@
         { x: defaultXLabelX, y: defaultXLabelY },
         (relX, relY) => ({
           x: margin.left + (relX * plotW),
-          y: xAxisBase + (relY * (plotH + margin.top))
+          y: xAxisBase + (relY * (plotH + margin.top - titleShiftY))
         })
       );
       const xText = add('text', {
@@ -22176,7 +22383,7 @@
               x: position.x,
               y: position.y,
               relX: (position.x - margin.left) / plotW,
-              relY: (position.y - xAxisBase) / (plotH + margin.top)
+              relY: (position.y - xAxisBase) / (plotH + margin.top - titleShiftY)
             };
             updatePosition('xLabel', next, 'scatter-x-label-position');
             scatterDebug('Debug: scatter x-label position saved', next);
@@ -22187,9 +22394,9 @@
       const yLabelOffsetSpan = maxYLabelWidth + yMajorTickLength + tickGap + yTitleSeparation;
       const yPosition = resolveScatterSavedLabelPosition(
         positions.yLabel,
-        { x: margin.left - yLabelOffsetSpan, y: margin.top + (plotH / 2) },
+        { x: margin.left - yLabelOffsetSpan - titleShiftX, y: margin.top + (plotH / 2) },
         (relX, relY) => ({
-          x: margin.left + (relX * yLabelOffsetSpan),
+          x: margin.left + (relX * yLabelOffsetSpan) - titleShiftX,
           y: margin.top + (relY * plotH)
         })
       );
@@ -22218,7 +22425,7 @@
             const next = {
               x: position.x,
               y: position.y,
-              relX: (position.x - margin.left) / yLabelOffsetSpan,
+              relX: (position.x - margin.left + titleShiftX) / yLabelOffsetSpan,
               relY: (position.y - margin.top) / plotH
             };
             updatePosition('yLabel', next, 'scatter-y-label-position');
@@ -22229,10 +22436,10 @@
 
       const titlePosition = resolveScatterSavedLabelPosition(
         positions.title,
-        { x: margin.left + (plotW / 2), y: margin.top / 2 },
+        { x: margin.left + (plotW / 2), y: (margin.top - titleShiftY) / 2 },
         (relX, relY) => ({
           x: margin.left + (relX * plotW),
-          y: margin.top + (relY * plotH)
+          y: margin.top + (relY * plotH) - titleShiftY
         })
       );
       const titleText = add('text', {
@@ -22258,7 +22465,7 @@
               x: position.x,
               y: position.y,
               relX: (position.x - margin.left) / plotW,
-              relY: (position.y - margin.top) / plotH
+              relY: (position.y - margin.top + titleShiftY) / plotH
             };
             updatePosition('title', next, 'scatter-title-position');
             scatterDebug('Debug: scatter title position saved', next);
@@ -23001,18 +23208,36 @@
         }).fontSizePx)).filter(size => Number.isFinite(size) && size > 0);
         return sizes.length ? Math.max(...sizes) : fs;
       })();
-      let projector = plot3d.createProjector({
-        rotatedPoints,
-        rotatedCorners,
-        width: W3,
-        height: H3,
-        margin: margin3,
-        shiftX: legendShiftX
-      });
       const scatter3dAxisLabels = {
         x: scatterState.xLabelText || 'X',
         y: scatterState.yLabelText || 'Y',
         z: scatterState.zLabelText || 'Z'
+      };
+      const scatter3dTitleBlocks = {
+        graphTitle: chartStyle.resolveTitleBlockLayout({
+          text: scatterLabelsState?.title || '',
+          role: 'graphTitle',
+          styles: scatter3dFontStyles,
+          fallbackPx: fs
+        }),
+        xTitle: chartStyle.resolveTitleBlockLayout({
+          text: scatter3dAxisLabels.x,
+          role: 'xTitle',
+          styles: scatter3dFontStyles,
+          fallbackPx: fs
+        }),
+        yTitle: chartStyle.resolveTitleBlockLayout({
+          text: scatter3dAxisLabels.y,
+          role: 'yTitle',
+          styles: scatter3dFontStyles,
+          fallbackPx: fs
+        }),
+        zTitle: chartStyle.resolveTitleBlockLayout({
+          text: scatter3dAxisLabels.z,
+          role: 'zTitle',
+          styles: scatter3dFontStyles,
+          fallbackPx: fs
+        })
       };
       const scatter3dSafeViewport = typeof plot3d.resolveRotationSafeViewport === 'function'
         ? plot3d.resolveRotationSafeViewport({
@@ -23025,26 +23250,34 @@
             fontSize: fs,
             tickFontSize: scatter3dTickFontSize,
             axisStrokeWidth,
+            titleBlocks: scatter3dTitleBlocks,
             chartStyle,
             rotationLimits: plot3d.DEFAULT_ROTATION_LIMITS
           })
         : { minX: 0, minY: 0, maxX: W3, maxY: H3, left: 0, top: 0, right: 0, bottom: 0, width: W3, height: H3 };
       if(typeof plot3d.resolveRotationSafeMargin === 'function'){
         Object.assign(margin3, plot3d.resolveRotationSafeMargin({ margin: margin3, safeViewport: scatter3dSafeViewport }));
-        legendShiftX = typeof plot3d.resolveLegendShiftX === 'function'
-          ? plot3d.resolveLegendShiftX({ legendVisible, margin: margin3, fontSize: fs, legendWidth })
-          : 0;
-        plotW3 = Math.max(20, W3 - margin3.left - margin3.right);
-        plotH3 = Math.max(20, H3 - margin3.top - margin3.bottom);
-        projector = plot3d.createProjector({
-          rotatedPoints,
-          rotatedCorners,
-          width: W3,
-          height: H3,
-          margin: margin3,
-          shiftX: legendShiftX
-        });
       }
+      const scatter3dTitleFrame = typeof plot3d.resolveTitleFrame === 'function'
+        ? plot3d.resolveTitleFrame({ width: W3, height: H3, margin: margin3, titleBlocks: scatter3dTitleBlocks, fontSize: fs })
+        : { width: W3, height: H3, margin: { ...margin3 }, plotWidth: plotW3, plotHeight: plotH3, titleExtensions: { graphTitle: 0, axisTitles: { x: 0, y: 0, z: 0 }, right: 0, bottom: 0 } };
+      const scatter3dTitleExtensions = scatter3dTitleFrame.titleExtensions;
+      Object.assign(margin3, scatter3dTitleFrame.margin);
+      const scatter3dFrameWidth = scatter3dTitleFrame.width;
+      const scatter3dFrameHeight = scatter3dTitleFrame.height;
+      legendShiftX = typeof plot3d.resolveLegendShiftX === 'function'
+        ? plot3d.resolveLegendShiftX({ legendVisible, margin: margin3, fontSize: fs, legendWidth })
+        : 0;
+      plotW3 = scatter3dTitleFrame.plotWidth;
+      plotH3 = scatter3dTitleFrame.plotHeight;
+      let projector = plot3d.createProjector({
+        rotatedPoints,
+        rotatedCorners,
+        width: scatter3dFrameWidth,
+        height: scatter3dFrameHeight,
+        margin: margin3,
+        shiftX: legendShiftX
+      });
       const labelBounds3d = computeScatterLabelBounds3d(rotatedCorners, projector.project);
       if(labelBounds3d){
         scatterDebug('Debug: scatter 3d label bounds resolved', {
@@ -23136,9 +23369,11 @@
           if(!node){ return; }
           const role = axisKey === 'z' ? 'zTitle' : (axisKey === 'y' ? 'yTitle' : 'xTitle');
           const defaultLabel = axisKey === 'y' ? 'Y' : (axisKey === 'z' ? 'Z' : 'X');
-          const applyAxisLabel = (value) => {
-            const trimmed = value != null ? String(value).trim() : '';
-            const resolved = trimmed || defaultLabel;
+          const initialLabel = String(scatterLabelsState?.[axisKey] ?? defaultLabel);
+          const initialAxisMode = getScatterSessionAxisLabelMode(drawSession, axisKey);
+          const applyAxisLabel = (value, axisMode = 'manual') => {
+            const rawLabel = String(value == null ? '' : value).replace(/\r\n?/g, '\n');
+            const resolved = rawLabel.trim() ? rawLabel : defaultLabel;
             const current = axisKey === 'x'
               ? scatterLabelsState?.x
               : (axisKey === 'y' ? scatterLabelsState?.y : scatterLabelsState?.z);
@@ -23148,49 +23383,52 @@
                 scatterState.xLabelText = resolved;
                 scatterXLabelText = resolved;
                 updateScatterDrawLabels({ x: resolved }, 'scatter-3d-x-label-edit');
-                scatterState.axisLabelModes = normalizeScatterAxisLabelModes({
-                  ...scatterState.axisLabelModes,
-                  x: 'manual'
-                }, scatterState.axisLabelModes);
               }
             }else if(axisKey === 'y'){
               if(didChange){
                 scatterState.yLabelText = resolved;
                 scatterYLabelText = resolved;
                 updateScatterDrawLabels({ y: resolved }, 'scatter-3d-y-label-edit');
-                scatterState.axisLabelModes = normalizeScatterAxisLabelModes({
-                  ...scatterState.axisLabelModes,
-                  y: 'manual'
-                }, scatterState.axisLabelModes);
               }
             }else{
               if(didChange){
                 scatterState.zLabelText = resolved;
                 scatterZLabelText = resolved;
                 updateScatterDrawLabels({ z: resolved }, 'scatter-3d-z-label-edit');
-                scatterState.axisLabelModes = normalizeScatterAxisLabelModes({
-                  ...scatterState.axisLabelModes,
-                  z: 'manual'
-                }, scatterState.axisLabelModes);
               }
             }
+            setScatterSessionAxisLabelMode(
+              drawSession,
+              axisKey,
+              axisMode,
+              `scatter-3d-${axisKey}-label-edit`
+            );
             syncScatterAxisHeader(axisKey, resolved, { source: 'scatter-axis-inline' });
-            if(node.textContent !== resolved){ node.textContent = resolved; }
+            if(!Shared.fontControls?.setTitleText?.(node, resolved) && node.textContent !== resolved){ node.textContent = resolved; }
             if(didChange){
               scheduleScatterViewRefresh(`axis-label-${axisKey}-change`);
             }
             return resolved;
           };
           markFontEditable(node, role, role);
+          if(String(scatter3dAxisLabels[axisKey] || '').includes('\n')){
+            Shared.fontControls?.setTitleText?.(node, scatter3dAxisLabels[axisKey]);
+          }
           makeEditableLocal(node, text => {
             const previous = axisKey === 'x'
               ? (scatterLabelsState?.x ?? '')
               : (axisKey === 'y' ? (scatterLabelsState?.y ?? '') : (scatterLabelsState?.z ?? ''));
-            const nextValue = applyAxisLabel(text);
+            const applyTrackedValue = value => applyAxisLabel(
+              value,
+              String(value == null ? '' : value).replace(/\r\n?/g, '\n') === initialLabel
+                ? initialAxisMode
+                : 'manual'
+            );
+            const nextValue = applyTrackedValue(text);
             if(previous === nextValue){
               return;
             }
-            recordScatterChange(`scatter:${axisKey}-label`, previous, nextValue, applyAxisLabel);
+            recordScatterChange(`scatter:${axisKey}-label`, previous, nextValue, applyTrackedValue);
           });
         }
       });
@@ -23243,11 +23481,12 @@
         pointLayer.appendChild(marker);
         const manualLabelText = (entry.data?.pointName || entry.data?.label || '').trim();
         const markerRadius = markerSize != null ? markerSize : dotSizePx;
+        const markerHalfExtent = symbolGeometry.resolveEqualAreaHalfExtent(entry.shape, markerRadius);
         const layoutPointId = pointBounds3d.length;
         pointBounds3d.push({
           cx: entry.projected?.x,
           cy: entry.projected?.y,
-          r: markerRadius,
+          r: markerHalfExtent,
           pointId: layoutPointId
         });
         if((entry.data?.isManualLabel || entry.data?.isThresholdLabel) && manualLabelText){
@@ -23256,7 +23495,7 @@
             text: manualLabelText,
             cx: entry.projected?.x,
             cy: entry.projected?.y,
-            radius: markerRadius,
+            radius: markerHalfExtent,
             pointId: layoutPointId,
             labelKey,
             pinnedPosition: scatterLabelsState?.positions?.pointLabels?.[labelKey] || null
@@ -23277,7 +23516,7 @@
           xReplicates: Array.isArray(entry.data.xReplicates) ? entry.data.xReplicates : undefined,
           xStdev: Number.isFinite(entry.data.xStdev) ? entry.data.xStdev : undefined
         });
-        const approxRight = entry.projected?.x + markerRadius + (markerBorderWidth>0 ? markerBorderWidth : 0);
+        const approxRight = entry.projected?.x + markerHalfExtent + (markerBorderWidth>0 ? markerBorderWidth : 0);
         if(Number.isFinite(approxRight)){
           maxPointRight = Math.max(maxPointRight, approxRight);
         }
@@ -23414,7 +23653,7 @@
         const canonicalLegendX3=legendPosition.canonicalX;
         const canonicalLegendY3=legendPosition.canonicalY;
         const legendHeight=legendContentHeight;
-        const legendBottomLimit=Math.max(baseLegendY,H3-margin3.bottom-legendHeight);
+        const legendBottomLimit=Math.max(baseLegendY,scatter3dFrameHeight-margin3.bottom-legendHeight);
         const verticalPadding=Math.max(fs*0.45,8);
         const candidates=[baseLegendY];
         axisLabelBounds.forEach(bounds=>{
@@ -23483,8 +23722,12 @@
         }
       }
       const defaultTitle = typeof plot3d.resolveDefaultTitlePosition === 'function'
-        ? plot3d.resolveDefaultTitlePosition({ margin: margin3, plotWidth: plotW3, fontSize: fs })
-        : { x: margin3.left + plotW3 / 2, y: Math.max(margin3.top * 0.4, fs * 1.6) };
+        ? plot3d.resolveDefaultTitlePosition({
+            margin: { ...margin3, top: margin3.top - scatter3dTitleExtensions.graphTitle },
+            plotWidth: plotW3,
+            fontSize: fs
+          })
+        : { x: margin3.left + plotW3 / 2, y: Math.max((margin3.top - scatter3dTitleExtensions.graphTitle) * 0.4, fs * 1.6) };
       const defaultTitleX = defaultTitle.x;
       const defaultTitleY = defaultTitle.y;
       const titlePos = scatterLabelsState?.positions?.title;
@@ -23496,7 +23739,7 @@
         if (titlePos.relX !== undefined && titlePos.relY !== undefined) {
           // Use relative positioning
           absoluteTitleX = margin3.left + titlePos.relX * plotW3;
-          absoluteTitleY = margin3.top + titlePos.relY * plotH3;
+          absoluteTitleY = (margin3.top - scatter3dTitleExtensions.graphTitle) + titlePos.relY * plotH3;
         } else if (titlePos.x !== undefined && titlePos.y !== undefined) {
           // Use absolute positioning (backward compatibility)
           absoluteTitleX = titlePos.x;
@@ -23518,7 +23761,7 @@
         const nextValue = value != null ? String(value) : '';
         scatterTitleText = nextValue;
         updateScatterDrawLabels({ title: nextValue }, 'scatter-3d-title-edit');
-        if(title3d.textContent !== nextValue){
+        if(!Shared.fontControls?.setTitleText?.(title3d, nextValue) && title3d.textContent !== nextValue){
           title3d.textContent=nextValue;
         }
         scheduleScatterViewRefresh('title-change');
@@ -23614,8 +23857,8 @@
       };
       const scatter3dRotationModel = normalizeScatter3dRotationModel({
         version: SCATTER_3D_ROTATION_MODEL_VERSION,
-        width: W3,
-        height: H3,
+        width: scatter3dFrameWidth,
+        height: scatter3dFrameHeight,
         margin: margin3,
         legendShiftX,
         axisRanges: renderAxisRanges3d,
@@ -23666,13 +23909,18 @@
             svg: svg3,
             baseWidth: baseW3,
             baseHeight: H3,
-            canonicalWidth: W3,
-            canonicalHeight: H3,
+            canonicalWidth: W3 + scatter3dTitleExtensions.right,
+            canonicalHeight: scatter3dFrameHeight,
             legendWidth: legendVisible ? legendWidth + appliedLegendAxisGap : 0,
             safeViewport: scatter3dSafeViewport
           })
         : null;
-      const scatter3dViewport = { minX: 0, minY: 0, width: W3, height: H3 };
+      const scatter3dViewport = {
+        minX: 0,
+        minY: 0,
+        width: W3 + scatter3dTitleExtensions.right,
+        height: scatter3dFrameHeight
+      };
       // 3D plots must scale uniformly so the projected cube, axis labels, title,
       // legend, and every glyph keep their proportions. preserveAspectRatio
       // "xMidYMid meet" (vs the 2D "none"/fill-distort default) prevents the SVG
@@ -24792,6 +25040,7 @@ time(`scatterSvgDraw_${token}`);
         const markerRadius = isBubbleView && resolveBubbleRadius
           ? resolveBubbleRadius(p)
           : (radiusOverride != null ? radiusOverride : dotSizePx);
+        const markerHalfExtent = symbolGeometry.resolveEqualAreaHalfExtent(markerShape, markerRadius);
         const markerBorderColor = styleOverride && styleOverride.borderColor ? styleOverride.borderColor : borderColor;
         const markerOpacity = 1 - (markerAlpha != null ? markerAlpha : alpha);
         const canBatchCirclePoint = !!batchedCircleBuckets
@@ -24879,7 +25128,7 @@ time(`scatterSvgDraw_${token}`);
         }
         const layoutPointId = pointBounds ? pointBounds.length : null;
         if(pointBounds){
-          pointBounds.push({ cx: cxVal, cy: cyVal, r: markerRadius, pointId: layoutPointId });
+          pointBounds.push({ cx: cxVal, cy: cyVal, r: markerHalfExtent, pointId: layoutPointId });
         }
         const manualLabelText = (p.pointName || p.label || '').trim();
         if((p.isManualLabel || p.isThresholdLabel) && manualLabelText){
@@ -24888,7 +25137,7 @@ time(`scatterSvgDraw_${token}`);
             text: manualLabelText,
             cx: cxVal,
             cy: cyVal,
-            radius: markerRadius,
+            radius: markerHalfExtent,
             pointId: layoutPointId,
             labelKey,
             pinnedPosition: scatterLabelsState?.positions?.pointLabels?.[labelKey] || null,
@@ -24925,7 +25174,7 @@ time(`scatterSvgDraw_${token}`);
             bucket.variableRadius = true;
           }
           bucket.points.push({ x: cxVal, y: cyVal, r: radiusValue });
-          canvasPointBounds = updateScatterPointCanvasBounds(canvasPointBounds, cxVal, cyVal, markerRadius, strokeWidthValue);
+          canvasPointBounds = updateScatterPointCanvasBounds(canvasPointBounds, cxVal, cyVal, markerHalfExtent, strokeWidthValue);
         }else if(canBatchCirclePoint){
           const strokeValue = markerBorderWidth>0 ? markerBorderColor : '';
           const strokeWidthValue = markerBorderWidth>0 ? markerBorderWidth : 0;
@@ -25484,7 +25733,10 @@ async function drawScatter(drawOptions = {}){
       });
       const drawPayloadLabels = getScatterPayloadLabelsState(drawTabId);
       if(drawPayloadLabels && scatterLabelPositionsHasValues(drawPayloadLabels.positions)){
-        scatterLabelsState = mergeScatterOwnedLabelsState(scatterLabelsState, drawPayloadLabels);
+        scatterLabelsState = normalizeScatterOwnedLabelsState({
+          ...scatterLabelsState,
+          positions: mergeScatterOwnedLabelPositions(drawPayloadLabels.positions, scatterLabelsState.positions)
+        });
         setScatterLabelsState(drawSession, scatterLabelsState, { reason: 'scatter-draw-payload-labels-merge' });
       }
       const updateScatterDrawLabels = (patch, reason) => {
@@ -27502,11 +27754,17 @@ async function drawScatter(drawOptions = {}){
         component: 'scatter',
         generation: Number(drawOptions?.__workspaceSessionMeta?.sessionGeneration) || null
       };
+      const scatterTitleBlocks = {
+        graphTitle: chartStyle.resolveTitleBlockLayout({ text: scatterLabelsState?.title || '', role: 'graphTitle', styles: scatterFontStyles, fallbackPx: fs }),
+        xTitle: chartStyle.resolveTitleBlockLayout({ text: scatterLabelsState?.x || '', role: 'xTitle', styles: scatterFontStyles, fallbackPx: fs }),
+        yTitle: chartStyle.resolveTitleBlockLayout({ text: scatterLabelsState?.y || '', role: 'yTitle', styles: scatterFontStyles, fallbackPx: fs })
+      };
       let scatterCartesianPlan = Shared.cartesianLayout?.planCartesianLayout?.({
         owner: scatterLayoutOwner,
         userFrame: { width: W, height: H },
         baselineMargins: margin,
         requiredMargins,
+        titleBlocks: scatterTitleBlocks,
         auxiliaryReserves: [],
         externalExtensions: { right: legendVisible ? legendWidth : 0 },
         orientation: 'normal',
@@ -27732,6 +27990,7 @@ async function drawScatter(drawOptions = {}){
         yMajorTickLength,
         tickGap,
         yTitleSeparation,
+        plotTranslation: scatterCartesianPlan?.plotTranslation,
         info
       });
       const scatterStatsLayer = renderScatter2dStatsLayer({
@@ -27796,13 +28055,14 @@ async function drawScatter(drawOptions = {}){
           userFrame: scatterCartesianPlan.userFrame,
           baselineMargins: scatterCartesianPlan.baselineMargins,
           requiredMargins: scatterCartesianPlan.requiredMargins,
+          titleBlocks: scatterTitleBlocks,
           auxiliaryReserves: [],
           externalExtensions: { right: legendVisible ? legendWidth : 0 },
           orientation: 'normal',
           lock: scatterCartesianPlan.lock,
           plotConstraint,
           minimumPlot: scatterCartesianPlan.minimumPlot,
-          contentBounds: {
+          contentBounds: measuredScatterViewport.renderedContentBounds || {
             minX: measuredScatterViewport.minX,
             minY: measuredScatterViewport.minY,
             maxX: measuredScatterViewport.maxX,
@@ -27820,7 +28080,7 @@ async function drawScatter(drawOptions = {}){
             canCommit: () => isScatterDrawTokenCurrent(drawSession, token) && !drawJob?.signal?.aborted,
             projectionTarget: svg,
             commitFrame: () => { commitScatterSvg(); return true; },
-            commitPresentation: () => legendProjection.commit()
+            commitPresentation: plan => legendProjection.commit(plan)
           })
         : false;
       if(scatterCartesianPlan && !scatterLayoutPublished){
@@ -30643,11 +30903,14 @@ async function drawScatter(drawOptions = {}){
     return true;
   };
 
-  scatter.isIdleForSnapshot = function isIdleForSnapshot(){
-    const activeSession = getActiveScatterSessionForState();
-    const runtime = getScatterDrawRuntime(activeSession);
-    const statsRuntime = getScatterStatsRuntime(activeSession, { syncFallbackFromState: !activeSession });
-    const rotationActive = !!(activeSession?.tabId && plot3d.isRotationGestureActiveForTab?.(activeSession.tabId, 'scatter'));
+  scatter.isIdleForSnapshot = function isIdleForSnapshot(meta = {}){
+    const requestedTabId = String(meta.tabId || meta.tab?.id || '').trim();
+    const ownerSession = requestedTabId
+      ? getScatterSession(requestedTabId, { ...meta, tabId: requestedTabId, reason: meta.reason || 'scatter-snapshot-idle-owner' }, { create: false })
+      : getActiveScatterSessionForState();
+    const runtime = getScatterDrawRuntime(ownerSession);
+    const statsRuntime = getScatterStatsRuntime(ownerSession, { syncFallbackFromState: !ownerSession });
+    const rotationActive = !!(ownerSession?.tabId && plot3d.isRotationGestureActiveForTab?.(ownerSession.tabId, 'scatter'));
     return !runtime?.inProgress
       && !runtime?.scheduled
       && !statsRuntime?.computationPending
@@ -30844,7 +31107,9 @@ async function drawScatter(drawOptions = {}){
       return false;
     }
     const cacheMeta = getScatterRenderCacheMetadata(cache);
-    return cacheMeta?.complete === true && cacheMeta?.type === 'scatter';
+    return cacheMeta?.complete === true
+      && cacheMeta?.type === 'scatter'
+      && symbolGeometry.isRenderCacheCurrent(cache);
   }
 
   function captureScatterRenderCacheMetadata(meta = {}, sourceSvg = null){
@@ -30852,6 +31117,7 @@ async function drawScatter(drawOptions = {}){
     const svg = sourceSvg || getScatterNodeById('scatterPlot')?.querySelector?.('#scatterSvg') || null;
     const ownerTabId = meta?.session?.tabId || getScatterProjectionTabId() || tab?.id || null;
     const extra = {
+      symbolGeometryVersion: symbolGeometry.RENDER_GEOMETRY_VERSION,
       viewMode: svg?.dataset?.viewMode || null,
       width: svg?.getAttribute?.('width') || '',
       height: svg?.getAttribute?.('height') || '',
@@ -31114,6 +31380,7 @@ async function drawScatter(drawOptions = {}){
       tab
       && targetTabId
       && targetTabId !== activeTabId
+      && symbolGeometry.isRenderCacheCurrent(tab.renderCache?.cache)
       && tab.renderCache?.cache?.plot?.fragment
       && typeof tab.renderCache.cache.plot.fragment.querySelector === 'function'
     );
@@ -31124,7 +31391,7 @@ async function drawScatter(drawOptions = {}){
         return cachedSvg;
       }
     }
-    const plot = getScatterNodeById('scatterPlot');
+    const plot = getScatterNodeById('scatterPlot', tab || null);
     return plot?.querySelector?.('#scatterSvg') || plot?.querySelector?.('svg') || null;
   }
 

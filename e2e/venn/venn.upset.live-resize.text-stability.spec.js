@@ -1,6 +1,6 @@
 const { test, expect } = require('@playwright/test');
 const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
-const { openComponentFromWelcome, clickExampleButtonIfPresent } = require('../helpers/workspaceDriver');
+const { openComponentFromWelcome, clickExpectedExampleButton } = require('../helpers/workspaceDriver');
 const { observeStableValue, waitForAnimationFrame, waitForComponentOwnerReady } = require('../helpers/contractWaits');
 
 test('UpSet resize has one painted viewport fit and live text scaling', async ({ page }) => {
@@ -12,7 +12,7 @@ test('UpSet resize has one painted viewport fit and live text scaling', async ({
     { type: 'venn', pageId: 'vennPage', exampleButtonId: 'sample' },
     { first: true }
   );
-  await clickExampleButtonIfPresent(page, 'sample');
+  await clickExpectedExampleButton(page, 'sample');
   await page.evaluate(() => {
     const root = document.querySelector('#vennPage:not([hidden])');
     const plotType = root?.querySelector('#vennPlotType');
@@ -123,7 +123,7 @@ test('UpSet defaults to unlocked ratio and redraws live during fixed-font axis d
     { type: 'venn', pageId: 'vennPage', exampleButtonId: 'sample' },
     { first: true }
   );
-  await clickExampleButtonIfPresent(page, 'sample');
+  await clickExpectedExampleButton(page, 'sample');
   await page.locator('#vennPage:not([hidden]) #vennPlotType').selectOption('upset');
   const ratioLock = page.locator('#vennPage:not([hidden]) #vennGraphPanel .resizer-aspect-checkbox');
   await expect(ratioLock).not.toBeChecked();
@@ -293,7 +293,7 @@ test('UpSet narrow live resize keeps set labels outside the matrix and columns a
     { type: 'venn', pageId: 'vennPage', exampleButtonId: 'sample' },
     { first: true }
   );
-  await clickExampleButtonIfPresent(page, 'sample');
+  await clickExpectedExampleButton(page, 'sample');
   await page.locator('#vennPage:not([hidden]) #vennPlotType').selectOption('upset');
   await page.waitForFunction(() => (
     document.querySelectorAll('#vennPage:not([hidden]) #stage [data-upset-matrix-cell]').length > 0

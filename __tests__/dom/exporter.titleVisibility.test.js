@@ -41,4 +41,42 @@ describe('SVG export title visibility', () => {
     expect(graphTitle.style.visibility).toBe('hidden');
     expect(xTitle.style.visibility).toBe('hidden');
   });
+
+  test('preserves explicit multiline title baselines and alignment in static SVG', () => {
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('width', '240');
+    svg.setAttribute('height', '160');
+    svg.setAttribute('viewBox', '-8 -16 256 192');
+    const title = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    title.setAttribute('data-font-role', 'graphTitle');
+    title.setAttribute('data-title-block-text', 'A longer title\nshort');
+    title.setAttribute('data-title-text-align', 'right');
+
+    const firstLine = document.createElementNS('http://www.w3.org/2000/svg', 'tspan');
+    firstLine.setAttribute('data-title-line', '1');
+    firstLine.setAttribute('x', '120');
+    firstLine.setAttribute('y', '22');
+    firstLine.setAttribute('text-anchor', 'end');
+    firstLine.textContent = 'A longer title';
+    const secondLine = document.createElementNS('http://www.w3.org/2000/svg', 'tspan');
+    secondLine.setAttribute('data-title-line', '1');
+    secondLine.setAttribute('x', '120');
+    secondLine.setAttribute('y', '38');
+    secondLine.setAttribute('text-anchor', 'end');
+    secondLine.textContent = 'short';
+    title.append(firstLine, secondLine);
+    svg.appendChild(title);
+
+    const xml = window.Shared.exporter.svgElementToXml(svg, 'multiline-title-export');
+    const parsed = new DOMParser().parseFromString(xml, 'image/svg+xml');
+    const exportedTitle = parsed.querySelector('text');
+    const exportedLines = [...(exportedTitle?.querySelectorAll('tspan') || [])];
+
+    expect(parsed.querySelector('svg').getAttribute('viewBox')).toBe('-8 -16 256 192');
+    expect(exportedTitle.textContent).toBe('A longer titleshort');
+    expect(exportedLines.map(node => node.getAttribute('y'))).toEqual(['22', '38']);
+    expect(exportedLines.map(node => node.getAttribute('text-anchor'))).toEqual(['end', 'end']);
+    expect(exportedLines.every(node => !node.hasAttribute('data-title-line'))).toBe(true);
+    expect(title.querySelectorAll('tspan[data-title-line="1"]')).toHaveLength(2);
+  });
 });

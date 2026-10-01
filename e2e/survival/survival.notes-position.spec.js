@@ -1,6 +1,6 @@
 const { test, expect } = require('@playwright/test');
 const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
-const { openComponentFromWelcome, clickExampleButtonIfPresent } = require('../helpers/workspaceDriver');
+const { openComponentFromWelcome, clickExpectedExampleButton } = require('../helpers/workspaceDriver');
 const { registerIssueCollectors } = require('../helpers/diagnostics');
 
 async function waitForSurvivalSvg(page, timeoutMs = 20000) {
@@ -40,7 +40,7 @@ test('survival notes are mounted under graph drawing zone', async ({ page }) => 
   await expect(page.locator('#welcomeScreen')).toBeVisible();
   await openComponentFromWelcome(page, { type: 'survival', pageId: 'survivalPage' }, { first: true });
 
-  await clickExampleButtonIfPresent(page, 'survivalLoadExample');
+  await clickExpectedExampleButton(page, 'survivalLoadExample');
   const hasSvg = await waitForSurvivalSvg(page, 20_000);
   if (!hasSvg) {
     test.info().annotations.push({

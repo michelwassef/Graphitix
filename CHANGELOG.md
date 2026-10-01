@@ -1,3 +1,17 @@
+## 2026-09-29 — Multiline titles and Font alignment
+
+- Graph and axis titles across all eleven components accept explicit line breaks in the inline editor. Enter keeps editing active; clicking outside commits the title. Shared title rendering preserves line baselines, and the layout adapters move the plot and extend the SVG from measured content without changing the canonical data frame.
+- Added left, center, and right title-block alignment beside the Font toolbar's Color field. Alignment uses the owner-scoped font style, undo, archive, cache restore, and redraw paths; older archives without the optional `textAlign` value remain centered.
+- Preserved explicit multiline title baselines in SVG, PNG, TIFF, PDF, EMF, and hybrid SVG output. Positioned multiline text uses raster-backed PDF/EMF output; hybrid SVG raster layers keep the title as positioned SVG text.
+- Validation: the 25-case supported-mode matrix and 17-case Chromium archive/cache/scope/undo run passed; the focused export-format and hybrid-title browser tests passed 2/2; the shared DOM suite passed 152 suites / 1,359 tests.
+
+## 2026-09-28 — Owner publication, recovery, and geometry contracts
+
+- Replaced animation-frame polling in snapshot readiness with owner-scoped lifecycle, job, and DOM-publication signals; Scatter readiness now reads the requested session.
+- Fixed Heatmap recovery projection to preserve payload-backed settings and the owner title; normalized saved split restoration, Box legend strokes, PCA 3D legend clamping, and Scatter overlay counts at their shared/owner boundaries.
+- Corrected Cartesian title baseline clearance and made Plot3D fallback tick precision adapt to actual tick spacing, preserving distinct labels while containing Surface output.
+- Rechecked the Box cancellation budget and documented the intentional scope of per-axis notation overrides; focused Jest and Chromium regressions pass.
+
 ## 2026-09-01 — Cartesian acceptance and cache provenance
 
 - Completed the in-scope Cartesian layout acceptance gates for Box, Scatter, PCA, Line, ROC, Survival, Histogram, and stacked Pie. Verified shared planning, Lock-ratio behavior, geometry, same-component isolation, reopen/recovery, and render-cache restoration while keeping 3D, Heatmap, Venn/UpSet, and radial Pie/Donut outside the Cartesian transaction.
@@ -17,10 +31,53 @@
 - Hardened the new regression matrix from the same runtime evidence: deterministic worker fixtures, settled-owner parameter discovery, derived/inactive statistics classification, contextual PCA axis witnesses, and owner-panel assertions now test durable component state without treating synthetic sentinel DOM as canonical after legitimate redraws.
 
 ## Unreleased
+- Case-evidence validation now rejects unknown outcomes, files with no individual test results, and empty evidence reports, keeping successful lanes fail-closed.
+- Diamond markers now use the same filled area as square markers across Line, Scatter, PCA, Box, legends, and symbol previews. Label spacing, Box swarm layout, and render-cache compatibility follow the new geometry.
+- Removed empty failure catches from the Scatter tab-switch and Venn reopen acceptance tests; inventory now allows them only in the bounded diagnostic probe. The Chromium contract lane passed 35/35.
+- Completed the in-scope Jest/Chromium test-infrastructure refactor: physically split the AG Grid clipboard and component-lifecycle suites into six capability files each (270/270 pass serially and with four workers), AG Grid binding into four files (25/25), session payload tests into five files (51/51), and UI events into four files. The UI split restores an ROC HTML-escaping test previously omitted by title filtering. All title-range test dispatch is removed; unmapped manifest rows fail closed, and the unused E2E compatibility barrel is retired. The initial UI split run passed 40/41; the Box Prism-style movable-legend case passed its focused retest on 2026-10-01. Current static inventory is 606 rows with 826 explicit mappings, 9/9 critical scenarios, and zero unmapped rows. The prior full coverage run was red for the Box legend and Scatter instrumentation-only activation findings; the full coverage lane was not rerun on 2026-10-01. Firefox remains deferred.
+- Enforced unused-variable checks across Jest, Playwright, and test helpers; reviewed and cleared 52 findings across 29 test files, restoring an unused Benjamini-Yekutieli expected-value assertion.
+- Strengthened the PCA 3D legend-drag contract to trigger a fresh owner-scoped redraw; the repeatable right-edge clamp mismatch is preserved and tracked in `issues.txt`.
+- Regenerated all welcome-example thumbnails from current production source after visual comparison confirmed unchanged output; all 11 provenance checks and the full static-quality lane pass.
+- Added a typed, bounded diagnostic-evidence envelope to the workspace exercise, retaining owner/readiness, lifecycle, cache-outcome, and payload/layout-signature evidence while excluding raw cache payload details; its unit contract passed 3/3.
+- Adopted the same typed diagnostic evidence in the Box/Scatter/Line cache-lifecycle diagnostic; a focused Chromium case passed 1/1 without changing its acceptance assertions.
+- Moved four pure session-actions suites (owner readiness, cache serialization, save policy, and UI save/load) from app integration to minimal DOM after verifying their explicit session fixture has no application bootstrap dependency; focused validation passed 24/24.
+- Added the shared JSDOM `scrollBy` polyfill and completed a fresh 57-process integration certification; 56 groups passed, with one deterministic Box legend rendering issue recorded separately.
+- Completed a fresh full-Jest certification across 137 bounded process groups and all six Jest projects; every group passed except the same deterministic Box grouped-bar legend contract, with the initial non-green status preserved.
+- Completed the fresh full-Chromium certification: 826/864 tests passed initially under four workers; 38 failures remain classified as release-certification evidence, with no diagnostic retry and Firefox deferred.
+- Serially classified 18 representative full-Chromium failures: 11 passed with one worker and 7 stable contract findings were recorded in `issues.txt`; assertions were preserved.
+- Replaced generic render-cache payload mutation with explicit per-component adapters; the adapter contract passed 15/15 and the 25-case Chromium cache/reopen/recovery matrix passed serially.
+- Extracted logical component-parameter mutation rules from the owner-payload driver into a browser-injectable adapter module; its focused contract passed 7/7. The owner-payload Chromium certification passed 20/22, with the two reproducible Heatmap persistence failures recorded separately in `issues.txt`.
+- Extracted canonical-vs-projection parameter assertions and result bookkeeping into a browser-injectable assertion module; its focused contract passed 8/8, and the post-extraction owner-payload certification reproduced only the same two Heatmap failures.
+- Migrated the Line uncertainty-band contract to the shared archive/recovery drivers, including in-memory archive reopen support; its focused Chromium cases passed 2/2.
+- Migrated the Box pre-compute statistics reopen/recovery contract to the shared archive/recovery drivers; its focused Chromium cases passed 2/2.
+- Migrated the axis-major-tick-length and x-axis-label-angle contracts to the shared archive build/parse driver; their combined focused Chromium batch passed 13/13.
+- Migrated the immediate-recovery graph-view-controls contract to the shared recovery driver; 9/10 Chromium cases passed, with the existing Heatmap mode/restore defect reproduced and tracked separately.
+- Migrated the live-capture recovery contract to the shared recovery driver with an explicit canonical-journal preservation option; its focused Chromium cases passed 5/5.
+- Moved eight loose CSV/Graph fixtures, two formerly unversioned Box CSV fixtures, and 22 repository-level Prism/PZFX fixtures into named versioned fixture directories; updated consumers and added inventory enforcement against loose and unversioned test fixtures.
+- Moved remaining E2E diagnostic/performance writes to Playwright per-test artifacts and added inventory enforcement against repository-level scratch output.
+- Lane reports now publish full manifest and skip-ledger sidecars, and CI uploads them with the corresponding lane and trend artifacts.
+- Added parity coverage for the PowerShell full-test wrapper so it delegates to the canonical Node lane and preserves initial failure status and machine-readable reports.
+- Added enforced governance metadata to all four conditional Chromium-only skips: issue ID, owner, expiry, and removal gate are now inventory-validated.
+- Added explicit vendor-mode metadata to lane, bounded-Jest, shard, and trend reports, with shared schema validation; Chromium smoke reports also retain verified server provenance.
 - Replaced a reintroduced recovery sleep with an explicit RAF-sampling completion signal and migrated nineteen duplicate Playwright archive serializers to the shared archive writer; the focused Chromium batches passed 75/75 and the static gate remains green.
 - Continued shared archive-writer adoption for Lock-ratio and mixed Scatter CSV contracts; the focused Chromium batch passed 8/10, with the two pre-archive Line/Venn owner-readiness timeouts recorded separately in `issues.txt`.
 - Migrated the Box point-size and Histogram panel document-snapshot builders to the shared archive driver; focused Chromium validation passed 15/15.
 - Split the shared Plot3D Jest contract into separate rendering and managed-gesture suites, added explicit scenario metadata for both boundaries, and kept the focused pair green at 25/25.
+- Split AxisControls into core, editing, and ownership/rehydration Jest suites; the focused group passed 21/21 and all three files are below 800 lines. Added current exporter title-visibility metadata, removed one unused Box assignment, and refreshed its generated welcome-example provenance.
+- Split the Heatmap stats integration suite into rendering/layout, data-view transform, and correlation-reporting suites with one shared harness; focused Jest validation passed 25/25 and inventory evidence remains explicit.
+- Split the PCA view integration suite into ownership/table, statistics, redraw/cache, and preprocessing suites with one shared harness; focused Jest validation passed 29/29.
+- Split the Venn additional-tab integration suite into tab/payload, GO/STRING ownership, and cache/recovery suites while preserving its reviewed partial bootstrap; focused Jest validation passed 21/21.
+- Split the session-actions integration suite into save policies, owner readiness, cache serialization, and UI save/load suites with one shared harness; focused Jest validation passed 24/24.
+- Split the Line view integration suite into legend/3D/cache rendering, style/table edits, and owner-scoped statistics/overlays; focused Jest validation passed 16/16.
+- Split the Box swarm DOM suite into density, point styling/layout, interaction, and preview/resize suites with one shared harness; focused Jest validation passed 40/40.
+- Split the mixed Box/Line/Scatter statistical-oracle matrix into component-specific suites backed by one shared numerical harness; focused Jest validation passed 10/10 and inventory evidence remains explicit.
+- Migrated Heatmap geometry reopen/recovery and Histogram first-resize recovery contracts to the shared archive/recovery drivers while preserving component-specific geometry and redraw assertions; the focused Chromium batch passed 4/4. Firefox remains deferred.
+- Migrated the Line horizontal-resize reopen/recovery contract to the shared archive/recovery drivers while preserving its axis and drag assertions; focused Chromium validation passed 2/2.
+- Migrated the Box horizontal-resize contract to the shared archive/recovery drivers while preserving reserve and drag assertions; the isolated rerun of its initial live-drag timeout passed 1/1. Firefox remains deferred.
+- Migrated PCA stats-restore and metric-geometry contracts to the shared archive/recovery drivers; focused Chromium validation passed 4/4.
+- Migrated the stats-presence contract's generic reopen/recovery plumbing to the shared drivers; all 11 Chromium cases passed.
+- Migrated figure-summary, Venn UpSet/numeric, Survival covariate, and 3D legend recovery plumbing to the shared drivers; focused Chromium validation passed 12/12. Firefox remains deferred.
+- Rechecked the specialized heavy Heatmap no-cache recovery path with its original direct fixture setup; the title-loss assertion still reproduces serially and is tracked in `issues.txt` rather than being hidden by a helper migration.
 - Fixed Box numeric collection after the shared locale-aware parser migration: blank AG Grid cells now remain missing instead of being accepted as zero in both single and grouped layouts, while comma-decimal values remain supported. Added parser and rendered-trace regression coverage.
 - Added a shared all-eleven negative owner-handoff matrix covering requested/active mismatch, root/session mismatch, and ABA stale-generation rejection; all 33 cases pass.
 - Unified lane, Jest-shard, bounded-Jest, and trend-report schema validation, and published nightly trend artifacts with retention metadata.
@@ -35,6 +92,7 @@
 - Extracted Line overlay normalization/path modeling, Scatter label-distribution modeling, and Venn circle/rectangle geometry into shared render-model boundaries; focused Line, Scatter, and Venn characterization suites remain green.
 - Completed the authorized ordinary-wait follow-up: 114 inventoried E2E sleeps and 11 diagnostic-helper sleeps now use owner/projection/frame signals or named bounded observation windows; the current E2E scan reports zero `waitForTimeout` calls.
 - Added integration teardown/leak enforcement, per-project coverage reports, manifest/discovery evidence in lane reports, and a scheduled bounded full-Jest certification workflow. Fixed-scratch archive/recovery/cache usage is now zero by inventory.
+- Added a catalog-driven UI mutation driver and explicit visible parameter/style/layout probes for all eleven components. The UI-originated write-through and archive-reopen contract passed 11/11 in Chromium with one worker; API/owner-payload mutation coverage remains separately named.
 - Fixed Pie reopen layout restoration by preserving the archived aspect-lock state and using owner-session capture intent; targeted stacked-axis and first-interaction checks now pass.
 - Replaced render-cache contract leaf guessing with explicit component data-cell candidates and retained schema-aware Venn/ROC mutations.
 - Completed the reviewed test-suite governance pass: safe isolated Jest suites now use the manifest-derived component bootstrap, specialized partial bootstraps carry explicit reasons, oversized suites are grouped by layer/capability, and the generated inventory enforces both contracts.

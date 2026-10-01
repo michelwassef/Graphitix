@@ -5,7 +5,7 @@ const { openComponentFromWelcome } = require('../helpers/workspaceDriver');
 const { registerIssueCollectors } = require('../helpers/diagnostics');
 const { waitForAnimationFrame } = require('../helpers/contractWaits');
 
-const LARGE_VALUES_CSV = path.resolve(__dirname, '..', '..', '__tests__', 'test-scatter-medium.csv');
+const LARGE_VALUES_CSV = path.resolve(__dirname, '..', '..', '__tests__', 'fixtures', 'scatter', 'v1', 'test-scatter-medium.csv');
 
 async function readHeatmapLayout(page) {
   return page.evaluate(() => {

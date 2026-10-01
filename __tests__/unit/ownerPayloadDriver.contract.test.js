@@ -92,7 +92,7 @@ describe('owner-payload driver persistence contract', () => {
     const controlBody = functionBody('function domObservableControlEntries(', 'function flattenPrimitives(');
     const domBody = functionBody('function captureDomObservables(', 'function flattenPrimitives(');
 
-    expect(controlBody).toContain('parameterControlCandidates(root)');
+    expect(controlBody).toContain('rootControls.concat(externalControls)');
     expect(controlBody).toContain('getClientRects?.().length > 0');
     expect(domBody).toContain('domObservableControlEntries(root)');
     expect(domBody).toContain("external ? 'active-ui:' : ''");

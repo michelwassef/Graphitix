@@ -21,6 +21,10 @@ test('empty title edits hide without erasing text and restore from graph options
   const editor = page.locator('.inline-edit-input');
   await editor.fill('');
   await editor.press('Enter');
+  await expect(editor).toBeVisible();
+  await expect(editor).toHaveValue('\n');
+  await page.mouse.click(3, 3);
+  await expect(editor).toBeHidden();
 
   await expect.poll(() => svgBox.locator('text[data-font-role="graphTitle"]').first().evaluate(node => ({
     text: node.textContent,
@@ -51,8 +55,13 @@ test('empty title edits hide without erasing text and restore from graph options
   const yTitle = svgBox.locator('text[data-font-role="yTitle"]').first();
   const originalYTitle = await yTitle.textContent();
   await yTitle.dblclick();
-  await page.locator('.inline-edit-input').fill('');
-  await page.locator('.inline-edit-input').press('Enter');
+  const axisEditor = page.locator('.inline-edit-input');
+  await axisEditor.fill('');
+  await axisEditor.press('Enter');
+  await expect(axisEditor).toBeVisible();
+  await expect(axisEditor).toHaveValue('\n');
+  await page.mouse.click(3, 3);
+  await expect(axisEditor).toBeHidden();
 
   await svgBox.locator('.resizer-options-summary').click();
   const axesToggle = svgBox.locator('.resizer-axes-title-checkbox');

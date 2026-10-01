@@ -1,7 +1,7 @@
 const { test, expect } = require('@playwright/test');
 const { saveWorkspaceArchive } = require('../helpers/archiveDriver');
 const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
-const { openComponentFromWelcome, clickExampleButtonIfPresent, waitForDocumentOpenComplete } = require('../helpers/workspaceDriver');
+const { openComponentFromWelcome, clickExpectedExampleButton, waitForDocumentOpenComplete } = require('../helpers/workspaceDriver');
 const { registerIssueCollectors } = require('../helpers/diagnostics');
 const { waitForComponentOwnerReady } = require('../helpers/contractWaits');
 
@@ -23,7 +23,7 @@ async function buildPca3d(page) {
   await expect(page.locator('#welcomeScreen')).toBeVisible({ timeout: 20_000 });
   await openComponentFromWelcome(page, { type: 'pca', pageId: 'pcaPage', exampleButtonId: 'pcaLoadExample' }, { first: true });
   await page.waitForFunction(() => !!window.Components?.pca?.ready, null, { timeout: 30_000 });
-  await clickExampleButtonIfPresent(page, 'pcaLoadExample');
+  await clickExpectedExampleButton(page, 'pcaLoadExample');
   await page.waitForFunction(() => !!document.querySelector('#pcaPlot svg'), null, { timeout: 30_000 });
   await page.locator('#pcaViewMode').selectOption('3d');
   await page.waitForFunction(() => {
@@ -54,7 +54,7 @@ async function waitForPca3dInteractionReady(page, timeout = 30_000) {
 
 async function prepareScatter3dExample(page) {
   await page.locator('#scatterPage:not([hidden]) #scatterViewMode').selectOption('3d');
-  await clickExampleButtonIfPresent(page, 'scatterLoadExample');
+  await clickExpectedExampleButton(page, 'scatterLoadExample');
   await page.waitForFunction(() => {
     const svg = document.querySelector('#scatterPage:not([hidden]) #scatterPlot #scatterSvg');
     const state = window.Main?.session?.workspaceState;

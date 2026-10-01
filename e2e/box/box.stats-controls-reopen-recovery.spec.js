@@ -5,7 +5,15 @@ const {
 } = require('../helpers/workspaceDriver');
 const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
 const { registerIssueCollectors } = require('../helpers/diagnostics');
-const { saveWorkspaceArchive } = require('../helpers/archiveDriver');
+const {
+  saveWorkspaceArchive,
+  buildWorkspaceArchive,
+  openWorkspaceArchive
+} = require('../helpers/archiveDriver');
+const {
+  seedRecoveryArchive,
+  reloadAndAcceptRecovery: reloadAndAcceptRecoveryDriver
+} = require('../helpers/recoveryDriver');
 
 function boxStatsControlsSnapshotInPage() {
   const normalizeSnapshotText = value => String(value || '').replace(/\s+/g, ' ').trim();
@@ -85,76 +93,33 @@ async function openBoxWithExampleButDoNotCompute(page) {
 }
 
 async function loadWorkspaceArchive(page, archivePath) {
-  await page.reload({ waitUntil: 'domcontentloaded' });
-  await expect(page.locator('#welcomeScreen')).toBeVisible({ timeout: 20_000 });
-  await expect(page.locator('#workspaceSessionInput')).toHaveCount(1, { timeout: 20_000 });
-  await page.locator('#workspaceSessionInput').setInputFiles(archivePath);
+  await openWorkspaceArchive(page, archivePath, {
+    componentType: 'box',
+    timeout: 40_000
+  });
   await waitForDocumentOpenComplete(page);
   await expect(page.locator('#boxPage:not([hidden])')).toBeVisible({ timeout: 40_000 });
 }
 
 async function seedRecoverySnapshot(page) {
-  return page.evaluate(async () => {
-    const openWebDb = () => new Promise((resolve, reject) => {
-      const request = window.indexedDB.open('graphitix-document-state', 2);
-      request.onupgradeneeded = () => {
-        const db = request.result;
-        if (!db.objectStoreNames.contains('snapshots')) {
-          db.createObjectStore('snapshots');
-        }
-      };
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error || new Error('IndexedDB open failed'));
-    });
-    const ctx = window.Main?.tabs?.getSessionActionsContext?.();
-    const blob = await window.Main?.sessionActions?.buildWorkspaceArchiveBlob?.(ctx, {
-      scope: 'workspace',
-      snapshotKind: 'recovery',
-      policyMode: 'recovery',
-      useWorker: true,
-      reason: 'recovery-interval'
-    });
-    if (!blob) {
-      throw new Error('Recovery snapshot blob was empty');
-    }
-    const workspaceState = window.Main?.session?.workspaceState || {};
-    const tabs = Array.isArray(workspaceState.tabs) ? workspaceState.tabs.filter(tab => tab && !tab.isWelcome) : [];
-    const db = await openWebDb();
-    await new Promise((resolve, reject) => {
-      const tx = db.transaction('snapshots', 'readwrite');
-      tx.objectStore('snapshots').put({
-        meta: {
-          app: 'Graphitix',
-          kind: 'recovery',
-          version: 1,
-          savedAt: new Date().toISOString(),
-          updatedAt: Date.now(),
-          reason: 'recovery-interval',
-          dirty: true,
-          hasData: true,
-          tabCount: tabs.length,
-          fileName: workspaceState.sessionFileName || 'recovered.graph',
-          filePath: workspaceState.sessionFilePath || '',
-          fileScope: workspaceState.sessionFileScope || 'workspace'
-        },
-        blob
-      }, 'active-recovery');
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error || new Error('IndexedDB snapshot write failed'));
-    });
-    return { bytes: blob.size, tabCount: tabs.length };
+  const archive = await buildWorkspaceArchive(page, {
+    scope: 'workspace',
+    snapshotKind: 'recovery',
+    policyMode: 'recovery',
+    useWorker: true,
+    reason: 'recovery-interval'
   });
+  const meta = await seedRecoveryArchive(page, archive.base64, {
+    reason: 'recovery-interval',
+    fileName: 'recovered.graph'
+  });
+  return { bytes: archive.size, tabCount: meta.tabCount };
 }
 
 async function reloadAndAcceptRecovery(page) {
-  const handler = async dialog => { await dialog.accept(); };
-  page.on('dialog', handler);
-  try {
-    await page.reload({ waitUntil: 'domcontentloaded' });
-    await expect(page.locator('#boxPage:not([hidden])')).toBeVisible({ timeout: 40_000 });
-  } finally {
-    page.off('dialog', handler);
-  }
+  const accepted = await reloadAndAcceptRecoveryDriver(page, { timeout: 40_000 });
+  expect(accepted).toBe(true);
+  await expect(page.locator('#boxPage:not([hidden])')).toBeVisible({ timeout: 40_000 });
 }
 
 test('box pre-compute statistics controls survive archive reopen', async ({ page }, testInfo) => {

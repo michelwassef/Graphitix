@@ -19,6 +19,7 @@ const {
   validatePartialBootstrapReview
 } = require('../test-support/partialBootstrapReview.js');
 const { SCENARIO_CATALOG } = require('../test-support/scenarioCatalog.js');
+const { parseSkipPolicy } = require('../test-support/skipGovernance.js');
 
 const ROOT_DIR = path.resolve(__dirname, '..');
 const JEST_PROJECT_NAMES = Object.freeze(require('../jest.config.js').projects.map(project => project.displayName));
@@ -41,6 +42,15 @@ const JEST_GENERATED_ARTIFACT_READ_FILES = new Set([
   '__tests__/unit/testLaneRunner.contract.test.js',
   '__tests__/unit/vendorProvenance.contract.test.js',
   '__tests__/unit/welcome.example-assets.test.js'
+]);
+const LIFECYCLE_SOURCE_CONTRACT_FILES = new Set([
+  '__tests__/dom/componentLifecycle.core.cache-and-editing.test.js',
+  '__tests__/dom/componentLifecycle.core.cleanup-and-publication.test.js',
+  '__tests__/dom/componentLifecycle.core.runtime-ownership.test.js'
+]);
+const E2E_EMPTY_CATCH_ALLOWANCES = new Map([
+  // Diagnostic probes keep collecting evidence after optional readiness signals time out.
+  ['e2e/diagnostics/box-scatter.render-cache-lifecycle.diagnostic.spec.js', 2]
 ]);
 
 function toRelative(filePath, rootDir = ROOT_DIR) {
@@ -135,7 +145,8 @@ function collectLineMatches(filePaths, pattern, rootDir = ROOT_DIR) {
     const matches = [];
     lines.forEach((line, index) => {
       if (!pattern.test(line)) return;
-      matches.push({ line: index + 1, text: line.trim() });
+      const text = line.trim();
+      matches.push({ line: index + 1, text, skipPolicy: parseSkipPolicy(text) });
       pattern.lastIndex = 0;
     });
     if (matches.length > 0) {
@@ -166,6 +177,74 @@ function collectArtifactWrites(filePaths, rootDir = ROOT_DIR) {
   return {
     count: records.reduce((total, record) => total + record.matches.length, 0),
     files: records
+  };
+}
+
+function collectFixedScratchPaths(filePaths, rootDir = ROOT_DIR) {
+  const sourceMatches = countMatches(
+    filePaths,
+    /path\.resolve\(__dirname,\s*(?:['"]\.\.['"],\s*)?['"]\.tmp[^'"]*['"]\s*\)/g,
+    rootDir
+  );
+  const generatedDirectories = [
+    '.tmp',
+    'e2e/.tmp',
+    '__tests__/tab-isolation-regression/artifacts'
+  ].filter(relative => fs.existsSync(path.resolve(rootDir, relative)));
+  return {
+    count: sourceMatches.count + generatedDirectories.length,
+    files: [
+      ...sourceMatches.files,
+      ...generatedDirectories.map(file => ({ file, count: 1 }))
+    ]
+  };
+}
+
+function validateSuppressedFailurePolicy(records = []) {
+  const failures = [];
+  for (const record of records) {
+    const allowance = E2E_EMPTY_CATCH_ALLOWANCES.get(record.file);
+    if (allowance === undefined) {
+      failures.push(`E2E spec suppresses failures outside reviewed diagnostics: ${record.file}`);
+    } else if (record.count > allowance) {
+      failures.push(`E2E diagnostic exceeds its reviewed empty-catch allowance: ${record.file}`);
+    }
+  }
+  return failures;
+}
+
+function collectLooseTestFixtures(rootDir = ROOT_DIR) {
+  const testsDirectory = path.join(rootDir, '__tests__');
+  if (!fs.existsSync(testsDirectory)) {
+    return { count: 0, files: [] };
+  }
+  const fixtureExtensions = new Set(['.csv', '.graph', '.prism', '.pzfx', '.zip']);
+  const files = fs.readdirSync(testsDirectory, { withFileTypes: true })
+    .filter(entry => entry.isFile() && fixtureExtensions.has(path.extname(entry.name).toLowerCase()))
+    .map(entry => toRelative(path.join(testsDirectory, entry.name), rootDir));
+  return { count: files.length, files: files.map(file => ({ file, count: 1 })) };
+}
+
+function collectUnversionedTestFixtures(rootDir = ROOT_DIR) {
+  const fixturesDirectory = path.join(rootDir, '__tests__', 'fixtures');
+  const fixtureExtensions = new Set(['.csv', '.graph', '.prism', '.pzfx', '.zip']);
+  const prefix = '__tests__/fixtures/';
+  const files = walkFiles(fixturesDirectory)
+    .filter(file => fixtureExtensions.has(path.extname(file).toLowerCase()))
+    .map(file => toRelative(file, rootDir))
+    .filter(relative => {
+      const fixtureRelative = relative.startsWith(prefix) ? relative.slice(prefix.length) : relative;
+      return !/^[^/]+\/v\d+(?:\/|$)/i.test(fixtureRelative);
+    });
+  return { count: files.length, files: files.map(file => ({ file, count: 1 })) };
+}
+
+function collectLegacyFixtureDirectories(rootDir = ROOT_DIR) {
+  const directories = ['prism files']
+    .filter(relative => fs.existsSync(path.resolve(rootDir, relative)));
+  return {
+    count: directories.length,
+    files: directories.map(file => ({ file, count: 1 }))
   };
 }
 
@@ -219,6 +298,13 @@ function collectStaticInventory(rootDir = ROOT_DIR) {
     ...e2eSpecs.map(file => ({ file, lines: readSourceLines(path.resolve(rootDir, file)) }))
   ]);
   const jestFileReads = collectJestFileReads(jestFiles, rootDir);
+  const lifecycleTextReads = {
+    count: jestFileReads.sourceContracts.files
+      .filter(record => LIFECYCLE_SOURCE_CONTRACT_FILES.has(record.file))
+      .reduce((total, record) => total + record.count, 0),
+    files: jestFileReads.sourceContracts.files
+      .filter(record => LIFECYCLE_SOURCE_CONTRACT_FILES.has(record.file))
+  };
 
   return {
     files: {
@@ -245,6 +331,7 @@ function collectStaticInventory(rootDir = ROOT_DIR) {
       e2eDirectDomClicks: countMatches(e2eSpecs, /(?<!await )\b(?:button|element|node)\.click\s*\(/g, rootDir),
       e2eSuppressedFailures: countMatches(e2eSpecs, /\.catch\(\s*\(\)\s*=>\s*\{\s*\}\s*\)/g, rootDir),
       e2eArtifactWrites: collectArtifactWrites(e2eSpecs, rootDir),
+      e2eFixedArtifactPaths: countMatches(e2eSpecs, /path\.resolve\(\s*(?:process\.cwd\(\)\s*,\s*)?['"](?:artifacts|test-results)['"]/g, rootDir),
       e2eContractWaitForTimeout: countMatches(contractSpecs, /\bwaitForTimeout\s*\(/g, rootDir),
       e2eContractSetTimeout: countMatches(contractSpecs, /(?<![\w.])setTimeout\s*\(/g, rootDir),
       e2eContractSuppressedFailures: countMatches(contractSpecs, /\.catch\(\s*\(\)\s*=>\s*\{\s*\}\s*\)/g, rootDir),
@@ -255,10 +342,14 @@ function collectStaticInventory(rootDir = ROOT_DIR) {
       jestSourceReads: jestFileReads.sourceContracts,
       jestFixtureReads: jestFileReads.fixtures,
       jestGeneratedArtifactReads: jestFileReads.generatedArtifacts,
+      lifecycleSourceTextReads: lifecycleTextReads,
       conditionalSkips: countMatches([...jestFiles, ...e2eSpecs], /\btest\.skip\s*\(/g, rootDir),
       skipDeclarations: collectLineMatches([...jestFiles, ...e2eSpecs], /\btest\.skip\s*\(/g, rootDir),
       fixmes: countMatches([...jestFiles, ...e2eSpecs], /\b(?:test|describe)\.fixme\s*\(/g, rootDir),
-      fixedScratchPaths: countMatches(e2eSpecs, /path\.resolve\(__dirname,\s*(?:['"]\.\.['"],\s*)?['"]\.tmp[^'"]*['"]\s*\)/g, rootDir),
+      fixedScratchPaths: collectFixedScratchPaths(e2eSpecs, rootDir),
+      looseTestFixtures: collectLooseTestFixtures(rootDir),
+      unversionedTestFixtures: collectUnversionedTestFixtures(rootDir),
+      legacyFixtureDirectories: collectLegacyFixtureDirectories(rootDir),
       componentMatrixArrays: countMatches([...testTree, ...e2eTree], /COMPONENT_MATRIX\s*=\s*\[/g, rootDir),
       directComponentBootstraps: collectComponentBootstrapRecords(jestFiles, rootDir)
     },
@@ -373,6 +464,7 @@ function validateInventory(inventory) {
   }
   failures.push(...validateTestOrganization(staticData.organization));
   failures.push(...validatePartialBootstrapReview(staticData.patterns.directComponentBootstraps));
+  failures.push(...validateSuppressedFailurePolicy(staticData.patterns.e2eSuppressedFailures.files));
   const discoveredJest = new Set(discovery.jest.paths);
   const missingJest = staticData._files.jestTests.filter(file => !discoveredJest.has(file));
   if (staticData.files.orphanJestSpecs > 0) {
@@ -411,10 +503,29 @@ function validateInventory(inventory) {
   if (staticData.patterns.e2eContractSuppressedFailures.count > 0) {
     failures.push('contract specs suppress failures with empty catch handlers');
   }
+  if (staticData.patterns.e2eFixedArtifactPaths.count > 0) {
+    failures.push('E2E specs write artifacts outside per-test output paths');
+  }
+  if (staticData.patterns.lifecycleSourceTextReads.count > 0) {
+    const files = staticData.patterns.lifecycleSourceTextReads.files.map(record => record.file).join(', ');
+    failures.push(`lifecycle contracts must use runtime behavior or AST queries instead of direct source-text assertions: ${files}`);
+  }
+  if (staticData.patterns.looseTestFixtures.count > 0) {
+    failures.push(`test fixtures remain loose under __tests__: ${staticData.patterns.looseTestFixtures.files.map(file => file.file).join(', ')}`);
+  }
+  if (staticData.patterns.unversionedTestFixtures.count > 0) {
+    failures.push(`data fixtures are outside a named version directory: ${staticData.patterns.unversionedTestFixtures.files.map(file => file.file).join(', ')}`);
+  }
+  if (staticData.patterns.legacyFixtureDirectories.count > 0) {
+    failures.push(`legacy repository fixture directories remain: ${staticData.patterns.legacyFixtureDirectories.files.map(file => file.file).join(', ')}`);
+  }
   for (const fileRecord of staticData.patterns.skipDeclarations.files) {
     for (const match of fileRecord.matches) {
       if (!/,\s*['"`][^'"`\r\n]+['"`]/.test(match.text)) {
         failures.push(`conditional skip has no explicit reason: ${fileRecord.file}:${match.line}`);
+      }
+      if (!match.skipPolicy) {
+        failures.push(`conditional skip has no governance metadata: ${fileRecord.file}:${match.line}`);
       }
       if (fileRecord.file.startsWith('e2e/')
         && (!/browserName/.test(match.text) || !/chromium/i.test(match.text))) {
@@ -427,7 +538,8 @@ function validateInventory(inventory) {
   }
   if (inventory.manifest?.entries) {
     failures.push(...validateManifest(inventory.manifest.entries, {
-      requireCriticalScenarioCoverage: true
+      requireCriticalScenarioCoverage: true,
+      requireReviewedSetupClassification: true
     }));
     const componentMatrix = inventory.manifest.summary.componentMatrix || {};
     for (const componentType of EXPECTED_COMPONENT_TYPES) {
@@ -452,6 +564,7 @@ function buildInventory(rootDir = ROOT_DIR) {
   const staticInventory = collectStaticInventory(rootDir);
   const discovery = collectFrameworkDiscovery(rootDir);
   const manifestEntries = buildFileManifest({
+    rootDir,
     jestPaths: discovery.jest.paths,
     e2ePaths: staticInventory._files.e2eSpecs
   });
@@ -516,6 +629,7 @@ module.exports = {
   collectStaticInventory,
   collectFrameworkDiscovery,
   findDuplicateJestProjectPaths,
+  validateSuppressedFailurePolicy,
   validateInventory,
   buildInventory
 };

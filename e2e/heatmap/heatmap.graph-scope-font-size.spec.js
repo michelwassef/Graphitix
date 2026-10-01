@@ -1,7 +1,7 @@
 const { observeStableValue, waitForComponentOwnerReady } = require('../helpers/contractWaits');
 const { test, expect } = require('@playwright/test');
 const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
-const { openComponentFromWelcome, clickExampleButtonIfPresent } = require('../helpers/workspaceDriver');
+const { openComponentFromWelcome, clickExpectedExampleButton } = require('../helpers/workspaceDriver');
 
 async function getHeatmapDrawPerf(page) {
   return page.evaluate(() => {
@@ -30,7 +30,7 @@ test.describe('Heatmap graph-scope font sizing', () => {
       { type: 'heatmap', pageId: 'heatmapPage', exampleButtonId: 'heatmapLoadExample' },
       { first: true }
     );
-    await clickExampleButtonIfPresent(page, 'heatmapLoadExample');
+    await clickExpectedExampleButton(page, 'heatmapLoadExample');
     await waitForComponentOwnerReady(page, 'heatmap', { requireMountedRoot: true, requireIdle: true, timeout: 30_000 });
 
     const showValues = page.locator('#heatmapPage:not([hidden]) #heatmapShowValues');
@@ -138,7 +138,7 @@ test.describe('Heatmap graph-scope font sizing', () => {
       { type: 'heatmap', pageId: 'heatmapPage', exampleButtonId: 'heatmapLoadExample' },
       { first: true }
     );
-    await clickExampleButtonIfPresent(page, 'heatmapLoadExample');
+    await clickExpectedExampleButton(page, 'heatmapLoadExample');
     await page.waitForSelector('#heatmapPage:not([hidden]) #heatmapSvg .heatmap-color-scale text[data-font-role="scaleTick"]');
 
     const before = await getHeatmapDrawPerf(page);

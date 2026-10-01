@@ -337,11 +337,11 @@ test.describe('Lock ratio subtype enforcement', () => {
         reason: `e2e-lock-ratio-${componentCase.type}-user-tab`
       });
       expect(userTab).toBeTruthy();
-      if (componentCase.type === 'pie') {
+      if (componentCase.type === 'pie' || componentCase.type === 'venn') {
         await clickExampleButton(page, {
-          type: 'pie',
-          pageId: 'piePage',
-          exampleButtonId: 'pieLoadExample'
+          type: componentCase.type,
+          pageId: componentCase.pageId,
+          exampleButtonId: componentCase.type === 'venn' ? 'sample' : 'pieLoadExample'
         }, { expectedTabId: userTab, requireMountedRoot: true });
       }
       await selectMode(page, componentCase.pageId, componentCase.modeSelector, componentCase.userMode);
@@ -362,11 +362,11 @@ test.describe('Lock ratio subtype enforcement', () => {
       });
       expect(forcedTab).toBeTruthy();
       expect(forcedTab).not.toBe(userTab);
-      if (componentCase.type === 'pie') {
+      if (componentCase.type === 'pie' || componentCase.type === 'venn') {
         await clickExampleButton(page, {
-          type: 'pie',
-          pageId: 'piePage',
-          exampleButtonId: 'pieLoadExample'
+          type: componentCase.type,
+          pageId: componentCase.pageId,
+          exampleButtonId: componentCase.type === 'venn' ? 'sample' : 'pieLoadExample'
         }, { expectedTabId: forcedTab, requireMountedRoot: true });
       }
       await selectMode(page, componentCase.pageId, componentCase.modeSelector, componentCase.forcedMode);

@@ -1,6 +1,6 @@
 const { test, expect } = require('@playwright/test');
 const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
-const { openComponentFromWelcome, clickExampleButtonIfPresent } = require('../helpers/workspaceDriver');
+const { openComponentFromWelcome, clickExpectedExampleButton } = require('../helpers/workspaceDriver');
 const { registerIssueCollectors } = require('../helpers/diagnostics');
 
 async function waitForClassification(page, expected){
@@ -17,7 +17,7 @@ test('ROC classification controls are visible, effective, undoable, and warnings
   await installLocalCdnOverrides(page);
   await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
   await openComponentFromWelcome(page, { type: 'roc', pageId: 'rocPage' }, { first: true });
-  await clickExampleButtonIfPresent(page, 'rocLoadExample');
+  await clickExpectedExampleButton(page, 'rocLoadExample');
 
   const root = page.locator('#rocPage:not([hidden])');
   const setup = root.locator('[data-roc-classification-fieldset="1"]');

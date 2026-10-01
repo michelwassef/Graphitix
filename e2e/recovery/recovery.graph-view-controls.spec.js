@@ -1,9 +1,10 @@
 const { test, expect } = require('@playwright/test');
 const {
   openComponentFromWelcome,
-  clickExampleButtonIfPresent
+  clickExpectedExampleButton
 } = require('../helpers/workspaceDriver');
 const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
+const { reloadAndAcceptRecovery } = require('../helpers/recoveryDriver');
 
 async function clearDocumentStateDb(page) {
   await page.evaluate(() => {
@@ -71,16 +72,6 @@ async function chooseTrustedOption(page, selector, value) {
   await expect(control).toHaveValue(value, { timeout: 20_000 });
 }
 
-async function readPayloadValue(page, path) {
-  return page.evaluate(pathParts => {
-    const state = window.Main?.session?.workspaceState || {};
-    const active = (state.tabs || []).find(tab => tab.id === state.activeTabId);
-    let value = active?.payload || null;
-    for (const part of pathParts) value = value == null ? undefined : value[part];
-    return value;
-  }, path);
-}
-
 async function readLocalJournalValue(page, tabId, path) {
   return page.evaluate(({ tabId, path }) => {
     const raw = window.localStorage.getItem('graphitix.canonical-journal.v1');
@@ -99,7 +90,7 @@ async function prepareComponent(page, scenario) {
   await expect(page.locator('#welcomeScreen')).toBeVisible({ timeout: 20_000 });
   await openComponentFromWelcome(page, { type: scenario.type, pageId: scenario.pageId }, { first: true });
   await page.waitForSelector(`${scenario.root}:not([hidden])`, { timeout: 30_000 });
-  await clickExampleButtonIfPresent(page, scenario.exampleButtonId);
+  await clickExpectedExampleButton(page, scenario.exampleButtonId);
   await page.waitForFunction(selector => !!document.querySelector(selector), scenario.renderSelector, {
     timeout: 45_000
   });
@@ -134,38 +125,25 @@ async function runImmediateRecoveryCase(page, scenario) {
     message: `${scenario.name}: durable canonical journal did not contain the control value`
   }).toBe(scenario.value);
 
-  let accepted = false;
-  const dialogHandler = async dialog => {
-    if (/recover|restore/i.test(dialog.message())) accepted = true;
-    await dialog.accept();
-  };
-  page.on('dialog', dialogHandler);
-  try {
-    await page.reload({ waitUntil: 'domcontentloaded' });
-    await expect.poll(() => accepted, {
-      timeout: 20_000,
-      message: `${scenario.name}: recovery prompt was not shown`
-    }).toBe(true);
-    await page.waitForFunction(({ root, selector, renderSelector, path, value, type }) => {
-      const state = window.Main?.session?.workspaceState || {};
-      const active = (state.tabs || []).find(tab => tab.id === state.activeTabId);
-      let actual = active?.payload || null;
-      for (const part of path) actual = actual == null ? undefined : actual[part];
-      return active?.type === type
-        && actual === value
-        && document.querySelector(`${root}:not([hidden]) ${selector}`)?.value === value
-        && !!document.querySelector(`${root}:not([hidden]) ${renderSelector}`);
-    }, {
-      root: scenario.root,
-      selector: scenario.controlSelector,
-      renderSelector: scenario.renderSelector,
-      path: scenario.payloadPath,
-      value: scenario.value,
-      type: scenario.type
-    }, { timeout: 60_000 });
-  } finally {
-    page.off('dialog', dialogHandler);
-  }
+  const accepted = await reloadAndAcceptRecovery(page, { timeout: 20_000 });
+  expect(accepted, `${scenario.name}: recovery prompt was not shown`).toBe(true);
+  await page.waitForFunction(({ root, selector, renderSelector, path, value, type }) => {
+    const state = window.Main?.session?.workspaceState || {};
+    const active = (state.tabs || []).find(tab => tab.id === state.activeTabId);
+    let actual = active?.payload || null;
+    for (const part of path) actual = actual == null ? undefined : actual[part];
+    return active?.type === type
+      && actual === value
+      && document.querySelector(`${root}:not([hidden]) ${selector}`)?.value === value
+      && !!document.querySelector(`${root}:not([hidden]) ${renderSelector}`);
+  }, {
+    root: scenario.root,
+    selector: scenario.controlSelector,
+    renderSelector: scenario.renderSelector,
+    path: scenario.payloadPath,
+    value: scenario.value,
+    type: scenario.type
+  }, { timeout: 60_000 });
 }
 
 const scenarios = [
@@ -188,7 +166,7 @@ const scenarios = [
     payloadPath: ['config', 'viewMode'], renderSelector: '#scatterPlot svg',
     prepare: async page => {
       await chooseTrustedOption(page, '#scatterViewMode', '3d');
-      await clickExampleButtonIfPresent(page, 'scatterLoadExample');
+      await clickExpectedExampleButton(page, 'scatterLoadExample');
       await page.waitForFunction(() => document.querySelector('#scatterPage:not([hidden]) #scatterPlot svg')?.dataset?.viewMode === '3d', null, { timeout: 45_000 });
       await chooseTrustedOption(page, '#scatterViewMode', '2d');
       await page.waitForFunction(() => document.querySelector('#scatterPage:not([hidden]) #scatterPlot svg')?.dataset?.viewMode === '2d', null, { timeout: 45_000 });

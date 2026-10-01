@@ -122,6 +122,47 @@ describe('Heatmap tab context isolation', () => {
     expect(restoredB.dendrogramSettings).toEqual({ mode: 'auto', thicknessPt: 2, color: '#445566' });
   });
 
+  test('runtime capture preserves the owner title when the module mirror is stale', async () => {
+    const Main = window.Main;
+    await handleGraphSelection(Main, 'heatmap');
+    const heatmap = window.Components.heatmap;
+    const tab = Main.tabs.getActiveTab();
+
+    heatmap.loadFromPayload({
+      type: 'heatmap',
+      data: [['', 'A', 'B'], ['row-1', 1, 2]],
+      config: { title: 'Recovered owner title' }
+    }, { tabId: tab.id, skipDraw: true, source: 'owner-title-capture-test' });
+    heatmap.__getState().titleText = 'Heatmap';
+
+    const snapshot = heatmap.captureRuntimeState({ tabId: tab.id, reason: 'owner-title-capture-test' });
+    expect(heatmap.__testHooks.getSession(tab.id).state.titleText).toBe('Recovered owner title');
+    expect(snapshot.titleText).toBe('Recovered owner title');
+  });
+
+  test('payload-backed settings survive a stale default runtime snapshot during recovery', async () => {
+    const Main = window.Main;
+    await handleGraphSelection(Main, 'heatmap');
+    const heatmap = window.Components.heatmap;
+    const tab = Main.tabs.getActiveTab();
+
+    heatmap.loadFromPayload({
+      type: 'heatmap',
+      data: [['', 'A', 'B'], ['row-1', 1, 2]],
+      config: { title: 'Recovered title', view: 'values', colorScheme: 'viridis' }
+    }, { tabId: tab.id, skipDraw: true, source: 'stale-runtime-test' });
+    heatmap.applyRuntimeState({
+      titleText: 'Heatmap',
+      controls: { view: 'corr-columns' },
+      colorScheme: 'scientific'
+    }, { tabId: tab.id, preservePayloadState: true, reason: 'stale-runtime-test' });
+
+    const session = heatmap.__testHooks.getSession(tab.id);
+    expect(session.state.titleText).toBe('Recovered title');
+    expect(session.state.controls.view).toBe('values');
+    expect(session.state.colorScheme).toBe('viridis');
+  });
+
   test('heatmap activation replays an owner pending draw queue even without hidden-draw state', async () => {
     const Main = window.Main;
     await handleGraphSelection(Main, 'heatmap');

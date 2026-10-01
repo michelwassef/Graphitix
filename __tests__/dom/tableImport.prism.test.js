@@ -46,7 +46,7 @@ describe('tableImport Prism import mappings', () => {
   }
 
   async function importPrismFixture(fixtureName, dataset = {}, options = {}) {
-    const fixturePath = path.join(__dirname, '..', '..', 'prism files', fixtureName);
+    const fixturePath = path.join(__dirname, '..', 'fixtures', 'prism', 'v1', fixtureName);
     return importPrismBuffer(fs.readFileSync(fixturePath), fixtureName, dataset, options);
   }
 
@@ -59,7 +59,7 @@ describe('tableImport Prism import mappings', () => {
   }
 
   async function buildGroupedBarOverlayFixture() {
-    const fixturePath = path.join(__dirname, '..', '..', 'prism files', 'individual-chart.prism');
+    const fixturePath = path.join(__dirname, '..', 'fixtures', 'prism', 'v1', 'individual-chart.prism');
     const zip = await global.JSZip.loadAsync(fs.readFileSync(fixturePath));
     const documentModel = JSON.parse(await zip.file('document.json').async('string'));
     const dataSheetId = documentModel.sheets.data[0];
@@ -84,7 +84,7 @@ describe('tableImport Prism import mappings', () => {
   }
 
   async function buildSingletonConditionPrismFixture() {
-    const fixturePath = path.join(__dirname, '..', '..', 'prism files', 'demo_dataset.prism');
+    const fixturePath = path.join(__dirname, '..', 'fixtures', 'prism', 'v1', 'demo_dataset.prism');
     const zip = await global.JSZip.loadAsync(fs.readFileSync(fixturePath));
     const documentModel = JSON.parse(await zip.file('document.json').async('string'));
     for (const dataSheetId of documentModel.sheets.data) {

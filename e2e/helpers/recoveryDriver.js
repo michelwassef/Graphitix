@@ -1,7 +1,7 @@
 'use strict';
 
-async function clearRecoverySnapshot(page) {
-  await page.evaluate(async () => {
+async function clearRecoverySnapshot(page, options = {}) {
+  await page.evaluate(async ({ clearCanonicalJournal }) => {
     const request = window.indexedDB.open('graphitix-document-state');
     const db = await new Promise((resolve, reject) => {
       request.onupgradeneeded = () => {
@@ -14,7 +14,7 @@ async function clearRecoverySnapshot(page) {
     });
     try {
       const stores = ['snapshots'];
-      if (db.objectStoreNames.contains('canonical-journal')) {
+      if (clearCanonicalJournal && db.objectStoreNames.contains('canonical-journal')) {
         stores.push('canonical-journal');
       }
       await new Promise((resolve, reject) => {
@@ -22,7 +22,7 @@ async function clearRecoverySnapshot(page) {
         if (db.objectStoreNames.contains('snapshots')) {
           transaction.objectStore('snapshots').delete('active-recovery');
         }
-        if (db.objectStoreNames.contains('canonical-journal')) {
+        if (clearCanonicalJournal && db.objectStoreNames.contains('canonical-journal')) {
           transaction.objectStore('canonical-journal').clear();
         }
         transaction.oncomplete = resolve;
@@ -30,9 +30,9 @@ async function clearRecoverySnapshot(page) {
       });
     } finally {
       db.close();
-      window.localStorage?.removeItem?.('graphitix.canonical-journal.v1');
+      if (clearCanonicalJournal) window.localStorage?.removeItem?.('graphitix.canonical-journal.v1');
     }
-  });
+  }, { clearCanonicalJournal: options.clearCanonicalJournal !== false });
 }
 
 async function seedRecoveryArchive(page, base64, options = {}) {

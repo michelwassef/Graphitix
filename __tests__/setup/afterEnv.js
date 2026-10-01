@@ -3,8 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 const {
-  collectIntegrationLeaks,
-  disposeIntegrationTabs,
+  inspectIntegrationTeardown,
   formatIntegrationLeakReport
 } = require('../../test-support/integrationTeardown');
 const { resetProductionNamespaces } = require('../../test-support/productionLoader');
@@ -17,7 +16,10 @@ beforeEach(() => {
     if (!integrationEventTracker) {
       integrationEventTracker = installProductionTestEventTracker({ window, document });
     } else {
-      integrationEventTracker.reset();
+      const reset = integrationEventTracker.reset();
+      if (reset.failures.length > 0) {
+        throw new Error(`Failed to isolate integration listeners: ${JSON.stringify(reset.failures)}`);
+      }
     }
     resetProductionNamespaces();
   }
@@ -46,10 +48,13 @@ afterEach(() => {
   let leakFailure = null;
   try {
     if (process.env.TEST_ENFORCE_INTEGRATION_LEAKS === '1') {
-      disposeIntegrationTabs(window);
-      const leaks = collectIntegrationLeaks(window);
-      if (leaks.pendingScopes.length > 0) {
-        leakFailure = new Error(`Integration async work leaked across test boundary: ${formatIntegrationLeakReport(leaks)}`);
+      const teardown = inspectIntegrationTeardown(window, integrationEventTracker);
+      if (teardown.disposalUnavailable || teardown.disposalFailures.length > 0
+        || teardown.pendingScopes.length > 0) {
+        leakFailure = new Error(`Integration resources leaked across test boundary: ${formatIntegrationLeakReport({
+          ...teardown,
+          disposalFailures: teardown.disposalFailures
+        })}`);
       }
     }
     if (typeof global.__isStrictConsoleErrorsEnabled === 'function'
@@ -66,7 +71,10 @@ afterEach(() => {
     }
   } finally {
     if (process.env.TEST_ENFORCE_INTEGRATION_LEAKS === '1') {
-      integrationEventTracker?.reset();
+      const listenerCleanup = integrationEventTracker?.reset();
+      if (listenerCleanup?.failures?.length > 0 && !leakFailure) {
+        leakFailure = new Error(`Failed to isolate integration listeners: ${JSON.stringify(listenerCleanup.failures)}`);
+      }
     }
     // A failed assertion must not leave spies or fake timers active for the
     // next test in the same integration worker.
@@ -79,4 +87,9 @@ afterEach(() => {
   if (leakFailure) {
     throw leakFailure;
   }
+});
+
+afterAll(() => {
+  integrationEventTracker?.restore();
+  integrationEventTracker = null;
 });

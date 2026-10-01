@@ -1,8 +1,13 @@
 const { test, expect } = require('@playwright/test');
-const { saveWorkspaceArchive } = require('../helpers/archiveDriver');
+const {
+  buildWorkspaceArchive,
+  openWorkspaceArchive,
+  saveWorkspaceArchive
+} = require('../helpers/archiveDriver');
 const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
-const { openComponentFromWelcome, clickExampleButtonIfPresent, waitForDocumentOpenComplete } = require('../helpers/workspaceDriver');
+const { openComponentFromWelcome, clickExpectedExampleButton, waitForDocumentOpenComplete } = require('../helpers/workspaceDriver');
 const { registerIssueCollectors } = require('../helpers/diagnostics');
+const { reloadAndAcceptRecovery, seedRecoveryArchive } = require('../helpers/recoveryDriver');
 
 const PCA_COMPONENT = { type: 'pca', pageId: 'pcaPage', exampleButtonId: 'pcaLoadExample' };
 
@@ -158,7 +163,7 @@ async function setEqualAxisLengths(page, checked, options = {}) {
 async function openPcaExample(page) {
   await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
   await openComponentFromWelcome(page, PCA_COMPONENT, { first: true });
-  await clickExampleButtonIfPresent(page, 'pcaLoadExample');
+  await clickExpectedExampleButton(page, 'pcaLoadExample');
   await waitForPcaMetric(page);
 }
 
@@ -419,39 +424,29 @@ async function captureWorkspaceArchive(page, outputPath) {
 }
 
 async function seedRecoverySnapshot(page) {
-  await page.evaluate(async () => {
-    const openDb = () => new Promise((resolve, reject) => {
-      const request = indexedDB.open('graphitix-document-state', 2);
-      request.onupgradeneeded = () => {
-        if (!request.result.objectStoreNames.contains('snapshots')) request.result.createObjectStore('snapshots');
-      };
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error);
-    });
-    const context = window.Main.tabs.getSessionActionsContext();
-        const graphTabs = (window.Main?.session?.workspaceState?.tabs || []).filter(tab => tab && !tab.isWelcome && tab.type);
-    const blob = await window.Main.sessionActions.buildWorkspaceArchiveBlob(context, {
-      scope: 'workspace',
-      snapshotKind: 'recovery',
-      policyMode: 'recovery',
-      reason: 'recovery-interval',
-      useWorker: true
-    });
-    const db = await openDb();
-    await new Promise((resolve, reject) => {
-      const tx = db.transaction('snapshots', 'readwrite');
-      tx.objectStore('snapshots').put({
-        meta: {
-          app: 'Graphitix', kind: 'recovery', version: 1, savedAt: new Date().toISOString(), updatedAt: Date.now(),
-          reason: 'recovery-interval', dirty: true, hasData: true, tabCount: graphTabs.length,
-          revision: Number(window.Main?.session?.workspaceState?.sessionRevision) || 0,
-          fileName: 'workspace.graph', fileScope: 'workspace'
-        },
-        blob
-      }, 'active-recovery');
-      tx.oncomplete = () => resolve(true);
-      tx.onerror = () => reject(tx.error);
-    });
+  const archive = await buildWorkspaceArchive(page, {
+    scope: 'workspace',
+    snapshotKind: 'recovery',
+    policyMode: 'recovery',
+    reason: 'recovery-interval',
+    useWorker: true
+  });
+  const metadata = await page.evaluate(() => {
+    const workspaceState = window.Main?.session?.workspaceState || {};
+    const graphTabs = (workspaceState.tabs || []).filter(tab => tab && !tab.isWelcome && tab.type);
+    return {
+      tabCount: graphTabs.length,
+      revision: Number(workspaceState.sessionRevision) || 0,
+      fileName: workspaceState.sessionFileName || 'workspace.graph',
+      filePath: workspaceState.sessionFilePath || '',
+      fileScope: workspaceState.sessionFileScope || 'workspace'
+    };
+  });
+  return seedRecoveryArchive(page, archive.base64, {
+    reason: 'recovery-interval',
+    dirty: true,
+    hasData: true,
+    ...metadata
   });
 }
 
@@ -633,9 +628,10 @@ test('PCA metric geometry survives same-component tab switching and file reopen'
     page,
     testInfo.outputPath('pca-metric-geometry.graph')
   );
-  await page.reload({ waitUntil: 'domcontentloaded' });
-  await expect(page.locator('#welcomeScreen')).toBeVisible({ timeout: 20_000 });
-  await page.locator('#workspaceSessionInput').setInputFiles(archivePath);
+  await openWorkspaceArchive(page, archivePath, {
+    componentType: 'pca',
+    timeout: 60_000
+  });
   await waitForDocumentOpenComplete(page);
   const reopenedTargetId = await findPcaTabByAxisSelection(page, { x: before.selectedX, y: before.selectedY });
   expect(reopenedTargetId, 'reopened archive must contain the PCA tab with the persisted PC selection').toBeTruthy();
@@ -690,26 +686,14 @@ test('PCA metric geometry survives crash-recovery restore', async ({ page }) => 
   });
   expect(seededRecoveryAxes.axes).toContainEqual({ x: Number(before.selectedX), y: Number(before.selectedY), z: 1 });
 
-  let recoveryAccepted = false;
-  const dialogHandler = async dialog => {
-    if (/recover|restore/i.test(dialog.message())) {
-      recoveryAccepted = true;
-    }
-    await dialog.accept();
-  };
-  page.on('dialog', dialogHandler);
-  await page.reload({ waitUntil: 'domcontentloaded' });
-  await expect.poll(() => recoveryAccepted, {
-    timeout: 20_000,
-    message: 'PCA crash-recovery prompt should be accepted'
-  }).toBe(true);
+  const recoveryAccepted = await reloadAndAcceptRecovery(page, { timeout: 20_000 });
+  expect(recoveryAccepted, 'PCA crash-recovery prompt should be accepted').toBe(true);
   await waitForDocumentOpenComplete(page);
   await page.waitForFunction(() => {
     const state = window.Main?.session?.workspaceState || null;
     return (state?.tabs || []).some(tab => tab?.type === 'pca')
       && state?.documentOperation?.active !== true;
   }, null, { timeout: 60_000 });
-  page.off('dialog', dialogHandler);
   const recoveredTargetId = await findPcaTabByAxisSelection(page, { x: before.selectedX, y: before.selectedY });
   expect(recoveredTargetId, 'recovery snapshot must contain the PCA tab with the persisted PC selection').toBeTruthy();
   await activateTab(page, recoveredTargetId);

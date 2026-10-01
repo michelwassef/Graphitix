@@ -1,6 +1,60 @@
 (function(global){
   'use strict';
   const Shared = global.Shared = global.Shared || {};
+  let activeTitleEditRecord = null;
+
+  function withVisibleInlineTitleTargetsForCapture(tabId, capture){
+    const ownerTabId = String(tabId || '').trim();
+    const record = activeTitleEditRecord;
+    if(typeof capture !== 'function') return null;
+    if(!record || !ownerTabId || record.tabId !== ownerTabId || record.state?.finished){
+      return capture();
+    }
+    const changed = (record.state.hiddenTargets || []).map(entry => {
+      const target = entry?.target || null;
+      if(!target?.style) return null;
+      const scopeId = String(target.dataset?.fontScope || '').trim();
+      const role = String(target.dataset?.fontRole || '').trim();
+      if(scopeId && role
+        && typeof Shared.fontControls?.areRolesVisible === 'function'
+        && !Shared.fontControls.areRolesVisible(scopeId, [role], { tabId: ownerTabId })) return null;
+      const currentVisibility = target.style.visibility;
+      const currentOpacity = target.style.opacity;
+      target.style.visibility = entry.restoreVisibility || '';
+      target.style.opacity = entry.restoreOpacity || '';
+      return { target, currentVisibility, currentOpacity };
+    }).filter(Boolean);
+    try{
+      return capture();
+    }finally{
+      changed.forEach(({ target, currentVisibility, currentOpacity }) => {
+        if(!target?.style) return;
+        target.style.visibility = currentVisibility;
+        target.style.opacity = currentOpacity;
+      });
+    }
+  }
+
+  Shared.withVisibleInlineTitleTargetsForCapture = withVisibleInlineTitleTargetsForCapture;
+
+  Shared.checkpointInlineTitleEditForTab = function checkpointInlineTitleEditForTab(tabId, reason = 'snapshot'){
+    const ownerTabId = String(tabId || '').trim();
+    const record = activeTitleEditRecord;
+    if(!ownerTabId || !record || record.tabId !== ownerTabId || record.state?.finished){
+      return false;
+    }
+    return typeof record.checkpoint === 'function' && record.checkpoint(reason) === true;
+  };
+
+  Shared.finalizeInlineTitleEditForTab = function finalizeInlineTitleEditForTab(tabId, reason = 'owner-deactivation'){
+    const ownerTabId = String(tabId || '').trim();
+    const record = activeTitleEditRecord;
+    if(!ownerTabId || !record || record.tabId !== ownerTabId || record.state?.finished){
+      return false;
+    }
+    if(typeof record.finalize !== 'function') return false;
+    return record.finalize(reason) === true;
+  };
 
   const logDebug = (label, payload) => {
     try {
@@ -682,7 +736,11 @@
   };
 
   const buildStyleMapFromElement = (node) => {
-    const text = node?.textContent ?? '';
+    const isTitleBlock = Shared.textBlock?.isTitleRole(node?.dataset?.fontRole) === true;
+    const canonicalTitleText = isTitleBlock && typeof node?.dataset?.titleBlockText === 'string'
+      ? node.dataset.titleBlockText
+      : null;
+    const text = canonicalTitleText ?? node?.textContent ?? '';
     const length = text.length;
     const styleMap = new Array(length).fill(null);
     const baseStyle = {};
@@ -726,7 +784,20 @@
         walk(children[i], nextInherited);
       }
     };
-    walk(node, { ...baseStyle });
+    const titleRows = isTitleBlock
+      ? Array.from(node.children || []).filter(child => child.matches?.('tspan[data-title-line="1"]'))
+      : [];
+    if(titleRows.length){
+      titleRows.forEach((row, index) => {
+        if(index > 0){
+          cursor += 1;
+          styleMap[cursor - 1] = null;
+        }
+        walk(row, { ...baseStyle });
+      });
+    }else{
+      walk(node, { ...baseStyle });
+    }
     return { text, styleMap, baseStyle };
   };
 
@@ -836,36 +907,66 @@
     }
     const fallbackColor = baseStyle.fill || baseStyle.color || '#222';
     const hasStyles = hasStyledCharacters(styleMap);
-    if (!hasStyles) {
-      const span = doc.createElement('span');
-      applyPreviewStyles(span, null, baseStyle, fallbackColor, scale);
-      span.textContent = textValue;
-      container.appendChild(span);
-      return;
-    }
-    let index = 0;
-    while (index < textValue.length) {
-      const styleEntry = styleMap[index];
-      let end = index + 1;
-      while (end < textValue.length && stylesEqual(styleEntry, styleMap[end])) {
-        end += 1;
-      }
-      const segmentText = textValue.slice(index, end);
-      if (segmentText.length === 0) {
+    const lineHeight = container.style.lineHeight || '1em';
+    const lines = Shared.textBlock?.splitLines(textValue) || [{ text: textValue, start: 0, end: textValue.length }];
+    lines.forEach(line => {
+      const row = doc.createElement('div');
+      row.style.display = 'block';
+      row.style.minHeight = lineHeight;
+      row.style.lineHeight = lineHeight;
+      row.style.whiteSpace = 'pre';
+      const appendRun = (start, end, styleEntry) => {
+        if(end <= start) return;
+        const span = doc.createElement('span');
+        applyPreviewStyles(span, styleEntry || null, baseStyle, fallbackColor, scale);
+        span.textContent = textValue.slice(start, end);
+        row.appendChild(span);
+      };
+      let index = line.start;
+      while(index < line.end){
+        const styleEntry = hasStyles ? styleMap?.[index] : null;
+        let end = index + 1;
+        while(end < line.end && stylesEqual(styleEntry, hasStyles ? styleMap?.[end] : null)){
+          end += 1;
+        }
+        appendRun(index, end, styleEntry);
         index = end;
-        continue;
       }
-      const span = doc.createElement('span');
-      applyPreviewStyles(span, styleEntry || null, baseStyle, fallbackColor, scale);
-      span.textContent = segmentText;
-      container.appendChild(span);
-      index = end;
-    }
+      container.appendChild(row);
+    });
   };
 
   const renderStyledText = (targetEl, textValue, styleMap) => {
     if (!targetEl) { return; }
     const doc = targetEl.ownerDocument || global.document;
+    const normalizedText = Shared.textBlock?.normalizeText(textValue);
+    if(Shared.textBlock?.isTitleRole(targetEl.dataset?.fontRole)
+      && normalizedText?.includes('\n')){
+      const rendered = Shared.textBlock.renderLines(targetEl, normalizedText, (row, line) => {
+        let index = line.start;
+        while(index < line.end){
+          const styleEntry = styleMap?.[index] || null;
+          let end = index + 1;
+          while(end < line.end && stylesEqual(styleEntry, styleMap?.[end] || null)) end += 1;
+          const content = normalizedText.slice(index, end);
+          if(!styleEntry || Object.keys(styleEntry).length === 0){
+            row.appendChild(doc.createTextNode(content));
+          }else{
+            const run = doc.createElementNS(targetEl.namespaceURI || SVG_NS, 'tspan');
+            run.setAttribute('data-title-line-run', '1');
+            run.textContent = content;
+            STYLE_PROPS.forEach(({ key, attr }) => {
+              const value = styleEntry[key];
+              if(value) run.setAttribute(attr, value);
+            });
+            row.appendChild(run);
+          }
+          index = end;
+        }
+      }, { styleMap });
+      if(rendered) return;
+    }
+    Shared.textBlock?.clearRenderedLines(targetEl);
     if (!textValue) {
       targetEl.textContent = '';
       return;
@@ -1020,19 +1121,32 @@
       return;
     }
 
+    const titleRoleAtBind = Shared.textBlock?.isTitleRole(el.dataset?.fontRole) === true;
+    if(titleRoleAtBind && !el.dataset?.titleBlockText){
+      const initialTitle = Shared.textBlock.normalizeText(
+        typeof options.getInitialValue === 'function' ? options.getInitialValue(el) : el.textContent
+      );
+      if(initialTitle.includes('\n')){
+        const initialInlineStyle = buildStyleMapFromElement(el);
+        renderStyledText(el, initialTitle, initialInlineStyle.styleMap);
+      }
+    }
+
+    const rolePolicy = Shared.textBlock?.isTitleRole(el?.dataset?.fontRole) === true;
     const {
-      getInitialValue = node => node?.textContent ?? '',
+      getInitialValue = node => node?.dataset?.titleBlockText ?? node?.textContent ?? '',
       applyValue: applyValueOption,
       onEditStart,
       onEditEnd,
       onInput,
       cursor = 'pointer',
       overlayParent,
-      multiline = false,
+      multiline = rolePolicy,
       minWidth = 0,
       minHeight = 0,
       inputProps = {},
     } = options;
+    const titleEditing = options.titleEditing === true || (options.titleEditing !== false && rolePolicy);
 
     const applyValueDelegate = typeof applyValueOption === 'function'
       ? applyValueOption
@@ -1049,6 +1163,21 @@
     el.dataset.inlineEditable = '1';
     el.style.cursor = cursor;
     el.style.touchAction = 'none';
+    if(titleEditing && activeTitleEditRecord && !activeTitleEditRecord.state?.finished){
+      const targetTabId = String(
+        el?.dataset?.fontTabId
+        || el?.closest?.('[data-workspace-tab-id]')?.dataset?.workspaceTabId
+        || el?.closest?.('[data-tab-id]')?.dataset?.tabId
+        || ''
+      ).trim();
+      const targetScope = String(el?.dataset?.fontScope || '').trim();
+      const targetKey = String(el?.dataset?.fontKey || el?.dataset?.fontRole || '').trim();
+      if(targetTabId === activeTitleEditRecord.tabId
+        && targetScope === activeTitleEditRecord.componentKey
+        && targetKey === activeTitleEditRecord.titleKey){
+        activeTitleEditRecord.attachTarget?.(el);
+      }
+    }
 
     const previousBinding = el.__graphitixInlineEditBinding || null;
     if(previousBinding?.dblclick){
@@ -1113,6 +1242,9 @@
 
     const removeOverlay = (state) => {
       if (!state) return;
+      if(activeTitleEditRecord?.state === state){
+        activeTitleEditRecord = null;
+      }
       if (typeof state.stopDeferredCommitWatcher === 'function') {
         try {
           state.stopDeferredCommitWatcher();
@@ -1122,6 +1254,11 @@
       }
       if (state.overlay) {
         state.overlay.remove();
+      }
+      if(state.input && state.undoKeydownBridge
+        && state.input.__undoManagerHandleKeydown === state.undoKeydownBridge){
+        delete state.input.__undoManagerHandleKeydown;
+        state.undoKeydownBridge = null;
       }
       if (state.measure) {
         state.measure.remove();
@@ -1159,7 +1296,14 @@
           const target = entry?.target || null;
           if (!target || !target.style) { return; }
           try {
-            if (entry.restoreVisibility === null) {
+            const scopeId = String(target.dataset?.fontScope || '').trim();
+            const role = String(target.dataset?.fontRole || '').trim();
+            const hiddenByTitlePreference = scopeId && role
+              && typeof Shared.fontControls?.areRolesVisible === 'function'
+              && !Shared.fontControls.areRolesVisible(scopeId, [role], { tabId: state.ownerTabId });
+            if(hiddenByTitlePreference){
+              target.style.visibility = 'hidden';
+            }else if (entry.restoreVisibility === null) {
               target.style.removeProperty('visibility');
             } else {
               target.style.visibility = entry.restoreVisibility;
@@ -1192,7 +1336,14 @@
       event?.preventDefault?.();
       try {
         safeCall(onEditStart, [el], 'Shared.makeEditable onEditStart error');
-        const initialValue = safeCall(getInitialValue, [el], 'Shared.makeEditable getInitialValue error');
+        const storedTitleText = titleEditing ? el?.dataset?.titleBlockText : null;
+        const hasOwnerValueReader = typeof options.getInitialValue === 'function';
+        const initialValueRaw = hasOwnerValueReader
+          ? safeCall(getInitialValue, [el], 'Shared.makeEditable getInitialValue error')
+          : (storedTitleText != null
+            ? storedTitleText
+            : safeCall(getInitialValue, [el], 'Shared.makeEditable getInitialValue error'));
+        const initialValue = titleEditing ? Shared.textBlock.normalizeText(initialValueRaw) : initialValueRaw;
         const rect = typeof el.getBoundingClientRect === 'function'
           ? el.getBoundingClientRect()
           : { left: 0, top: 0, width: minWidth, height: minHeight };
@@ -1209,6 +1360,7 @@
         overlay.style.position = 'absolute';
         overlay.style.zIndex = '9999';
         overlay.style.display = 'inline-flex';
+        overlay.style.boxSizing = 'border-box';
         overlay.style.alignItems = 'stretch';
         overlay.style.justifyContent = 'stretch';
         overlay.style.pointerEvents = 'auto';
@@ -1240,6 +1392,12 @@
 
         const input = ownerDocument.createElement(multiline ? 'textarea' : 'input');
         input.className = 'inline-edit-input';
+        if(titleEditing){
+          // Inline title text is committed through its owner component's
+          // session-aware undo command. Do not also record this temporary
+          // textarea as a generic form-control change.
+          input.setAttribute('data-undo-ignore', '1');
+        }
         Object.keys(inputProps || {}).forEach(key => {
           try {
             input[key] = inputProps[key];
@@ -1248,6 +1406,12 @@
           }
         });
         input.value = initialValue ?? '';
+        if(titleEditing){
+          input.wrap = 'off';
+          input.style.whiteSpace = 'pre';
+          input.style.resize = 'none';
+          input.style.overflow = 'hidden';
+        }
         input.setAttribute('aria-label', 'Edit text');
         input.style.width = '100%';
         input.style.height = '100%';
@@ -1263,7 +1427,9 @@
         const rawFontSize = computedStyle?.fontSize || '14px';
         const overlayFontSize = scaleFontSizeValue(rawFontSize, displayScale) || rawFontSize || '14px';
         const rawLineHeight = computedStyle?.lineHeight || '1.2';
-        const overlayLineHeight = scaleLineHeightValue(rawLineHeight, displayScale) || rawLineHeight || '1.2';
+        const overlayLineHeight = titleEditing
+          ? overlayFontSize
+          : (scaleLineHeightValue(rawLineHeight, displayScale) || rawLineHeight || '1.2');
         const textAlignMode = (() => {
           const anchor = el?.getAttribute?.('text-anchor');
           if (anchor === 'end') { return 'right'; }
@@ -1301,7 +1467,7 @@
         measureNode.className = 'inline-edit-measure';
         measureNode.style.position = 'absolute';
         measureNode.style.visibility = 'hidden';
-        measureNode.style.whiteSpace = multiline ? 'pre-wrap' : 'pre';
+        measureNode.style.whiteSpace = 'pre';
         measureNode.style.fontSize = overlayFontSize;
         measureNode.style.fontFamily = input.style.fontFamily;
         measureNode.style.fontWeight = input.style.fontWeight;
@@ -1325,6 +1491,19 @@
         const normalizedInitialStyleMap = Array.isArray(initialStyleMap)
           ? initialStyleMap.slice()
           : new Array(inlineInitialValue.length).fill(null);
+        const titleRoleAtOpen = String(el?.dataset?.fontRole || '').trim();
+        const titleVisibilityRoles = titleRoleAtOpen === 'graphTitle'
+          ? ['graphTitle']
+          : (['xTitle', 'yTitle', 'zTitle'].includes(titleRoleAtOpen) ? ['xTitle', 'yTitle', 'zTitle'] : []);
+        const titleVisibilityScope = String(el?.dataset?.fontScope || '').trim();
+        const titleVisibilityAtOpen = titleVisibilityRoles.length && titleVisibilityScope
+          && typeof Shared.fontControls?.areRolesVisible === 'function'
+          ? Shared.fontControls.areRolesVisible(titleVisibilityScope, titleVisibilityRoles, {
+            tabId: String(el?.dataset?.fontTabId || '').trim()
+              || String(el?.closest?.('[data-workspace-tab-id]')?.dataset?.workspaceTabId || '').trim()
+              || null
+          })
+          : true;
 
         const state = {
           overlay,
@@ -1332,6 +1511,7 @@
           measure: measureNode,
           initialValue,
           target: el || null,
+          renderTarget: el || null,
           hiddenTargets: [],
           centerX: targetCenterX,
           centerY: targetCenterY,
@@ -1342,6 +1522,8 @@
           selection: null,
           stopDeferredCommitWatcher: null,
           inlineText: inlineInitialValue,
+          editCheckpointValue: inlineInitialValue,
+          finished: false,
           styleMap: normalizedInitialStyleMap.slice(),
           usingInlineSegments: hasStyledCharacters(initialStyleMap),
           baseStyle: { ...(styleMeta.baseStyle || {}) },
@@ -1349,6 +1531,10 @@
           preview: null,
           initialText: inlineInitialValue,
           initialStyleMap: normalizedInitialStyleMap,
+          titleVisibilityRoles,
+          titleVisibilityScope,
+          titleVisibilityAtOpen,
+          snapshotNormalizedEmptyDraft: false,
           preventCollapsedSelectionOverwrite: false,
           safePointerdownHandler: null,
           pendingSafeFocus: false,
@@ -1358,6 +1544,12 @@
           displayScale,
           overlayFontSize,
           overlayLineHeight,
+          ownerTabId: String(
+            el?.dataset?.fontTabId
+            || el?.closest?.('[data-workspace-tab-id]')?.dataset?.workspaceTabId
+            || el?.closest?.('[data-tab-id]')?.dataset?.tabId
+            || ''
+          ).trim(),
         };
 
         const resolveFontControlsApi = () => {
@@ -1372,7 +1564,7 @@
           const api = resolveFontControlsApi();
           if (!api || typeof api.captureInlineState !== 'function') { return; }
           try {
-            api.captureInlineState(el, state, { reason, ...detail });
+            api.captureInlineState(state.renderTarget || el, state, { reason, ...detail });
             logDebug('makeEditable fontControls notified', {
               reason,
               hasInlineSegments: !!state.usingInlineSegments,
@@ -1426,7 +1618,13 @@
                 }
               });
             }
-            candidates.forEach(hideInlineVisibilityTarget);
+            candidates.forEach(node => {
+              hideInlineVisibilityTarget(node);
+              if(node !== el && node.isConnected
+                && String(node.dataset?.fontRole || '') === titleRoleAtBind){
+                activeTitleEditRecord?.attachTarget?.(node);
+              }
+            });
           };
           state.visibilityObserver = new MutationObserverCtor(mutations => {
             mutations.forEach(mutation => {
@@ -1444,11 +1642,8 @@
         preview.style.right = '0';
         preview.style.bottom = '0';
         preview.style.pointerEvents = 'none';
-        preview.style.display = 'flex';
-        preview.style.alignItems = 'center';
-        preview.style.justifyContent = textAlignMode === 'right'
-          ? 'flex-end'
-          : (textAlignMode === 'center' ? 'center' : 'flex-start');
+        preview.style.display = 'block';
+        preview.style.textAlign = textAlignMode;
         preview.style.fontSize = overlayFontSize;
         preview.style.fontFamily = input.style.fontFamily;
         preview.style.fontWeight = input.style.fontWeight;
@@ -1475,12 +1670,24 @@
 
         const refreshInlineRendering = (forcePlain = false) => {
           const textValue = state.inlineText ?? '';
+          const renderTarget = state.renderTarget || el;
           if (forcePlain) {
             state.styleMap = new Array(textValue.length).fill(null);
           }
           state.usingInlineSegments = !forcePlain && hasStyledCharacters(state.styleMap);
-          renderStyledText(el, textValue, state.styleMap);
-          syncBaseStyleAttributes(el, state.baseStyle);
+          if(titleEditing && Shared.textBlock?.resolveLineHeight){
+            const titleLineHeight = Shared.textBlock.resolveLineHeight(el, state.styleMap, {
+              fontSize: Number.parseFloat(overlayFontSize),
+              scale: state.displayScale
+            });
+            const lineHeightCss = `${titleLineHeight}px`;
+            state.overlayLineHeight = lineHeightCss;
+            if(state.input?.style) state.input.style.lineHeight = lineHeightCss;
+            if(state.measure?.style) state.measure.style.lineHeight = lineHeightCss;
+            if(state.preview?.style) state.preview.style.lineHeight = lineHeightCss;
+          }
+          renderStyledText(renderTarget, textValue, state.styleMap);
+          syncBaseStyleAttributes(renderTarget, state.baseStyle);
           if (state.preview) {
             renderStyledPreview(state.preview, textValue, state.styleMap, state.baseStyle, { scale: state.displayScale });
           }
@@ -1696,6 +1903,7 @@
             if (node.closest('.inline-edit-overlay')) { return true; }
             if (node.closest('.font-controls-panel')) { return true; }
             if (node.closest('[data-font-controls-overlay="1"]')) { return true; }
+            if (node.closest('#workspaceTabsList .workspace-tab[data-tab-id]')) { return true; }
           }
           if (node.dataset && node.dataset.fontControlsOverlay === '1') {
             return true;
@@ -1881,6 +2089,10 @@
             return;
           }
           if (!isSafeFocusTarget(target)) {
+            if(titleEditing && !overlay.contains(target)){
+              rememberSelection({ skipCollapsed: true, reason: 'title-outside-pointer' });
+              commit(input.value, 'outside-pointer');
+            }
             return;
           }
           state.preventCollapsedSelectionOverwrite = true;
@@ -1952,19 +2164,47 @@
             measureRect = { width: state.minWidth, height: state.minHeight };
           }
           const nextWidth = Math.max(state.minWidth, measureRect?.width || 0);
-          const nextHeight = Math.max(state.minHeight, measureRect?.height || 0);
+          let nextHeight = Math.max(state.minHeight, measureRect?.height || 0);
+          let verticalChrome = 0;
+          if(titleEditing && multiline){
+            const lineHeight = Number.parseFloat(state.overlayLineHeight)
+              || Number.parseFloat(input.style.lineHeight)
+              || Number.parseFloat(input.style.fontSize)
+              || 14;
+            const lineCount = Shared.textBlock.splitLines(value).length;
+            try{
+              const overlayStyle = ownerWindow.getComputedStyle?.(overlay);
+              verticalChrome = (Number.parseFloat(overlayStyle?.borderTopWidth) || 0)
+                + (Number.parseFloat(overlayStyle?.borderBottomWidth) || 0);
+            }catch(_overlayStyleError){}
+            const minContentHeight = Math.max(0, state.minHeight - verticalChrome);
+            const contentHeight = Math.max(
+              lineHeight * lineCount,
+              measureRect?.height || 0,
+              minContentHeight
+            );
+            nextHeight = contentHeight + verticalChrome;
+          }
           // Keep a small safety allowance so glyph overhangs never clip at the left edge.
           const paddedWidth = nextWidth + (state.widthPadding || 0) + 4;
           overlay.style.width = `${paddedWidth}px`;
           overlay.style.height = `${nextHeight}px`;
           if (multiline) {
-            input.style.minHeight = `${Math.max(nextHeight, state.minHeight)}px`;
+            input.style.minHeight = titleEditing
+              ? `${Math.max(0, nextHeight - verticalChrome)}px`
+              : `${Math.max(nextHeight, state.minHeight)}px`;
           }
           overlay.style.left = `${state.centerX - paddedWidth / 2}px`;
           overlay.style.top = `${state.centerY - nextHeight / 2}px`;
+          if(titleEditing && multiline){
+            input.scrollTop = 0;
+          }
         };
+        state.syncSizeToContent = syncSizeToContent;
 
         function commit(nextValue, reason) {
+          if(state.finished) return;
+          state.finished = true;
           let finalValue = nextValue ?? '';
           let emptyTitleVisibility = null;
           const titleRole = String(el?.dataset?.fontRole || '').trim();
@@ -2005,8 +2245,12 @@
           if (hasInlineStyles) {
             state.refreshInlineRendering(false);
           } else {
-            safeCall(applyValueDelegate, [el, finalValue], 'Shared.makeEditable applyValue error');
-            syncBaseStyleAttributes(el, state.baseStyle);
+            const renderTarget = state.renderTarget || el;
+            safeCall(applyValueDelegate, [renderTarget, finalValue], 'Shared.makeEditable applyValue error');
+            syncBaseStyleAttributes(renderTarget, state.baseStyle);
+          }
+          if(titleEditing){
+            renderStyledText(state.renderTarget || el, finalValue, state.styleMap);
           }
           removeOverlay(state);
           if(emptyTitleVisibility){
@@ -2041,13 +2285,172 @@
           safeCall(onEditEnd, [el, finalValue], 'Shared.makeEditable onEditEnd error');
         }
 
+        if(titleEditing && state.ownerTabId){
+          activeTitleEditRecord = {
+            tabId: state.ownerTabId,
+            componentKey: String(el?.dataset?.fontScope || '').trim(),
+            titleKey: String(el?.dataset?.fontKey || el?.dataset?.fontRole || '').trim(),
+            state,
+            attachTarget: target => {
+              if(!target || state.finished || target.dataset?.inlineEditable !== '1') return false;
+              const targetTabId = String(
+                target.dataset?.fontTabId
+                || target.closest?.('[data-workspace-tab-id]')?.dataset?.workspaceTabId
+                || target.closest?.('[data-tab-id]')?.dataset?.tabId
+                || ''
+              ).trim();
+              if(targetTabId !== state.ownerTabId
+                || String(target.dataset?.fontScope || '').trim() !== String(el?.dataset?.fontScope || '').trim()
+                || String(target.dataset?.fontKey || target.dataset?.fontRole || '').trim()
+                  !== String(el?.dataset?.fontKey || el?.dataset?.fontRole || '').trim()
+                || String(target.dataset?.fontRole || '').trim() !== titleRoleAtOpen) return false;
+              state.target = target;
+              state.renderTarget = target;
+              try{
+                Object.defineProperty(target, '__inlineEditState', {
+                  value: state,
+                  configurable: true,
+                  writable: true
+                });
+              }catch(_bindStateErr){ target.__inlineEditState = state; }
+              hideInlineVisibilityTarget(target);
+              state.refreshInlineRendering?.(false);
+              logDebug('makeEditable title projection rebound during edit', {
+                tabId: state.ownerTabId,
+                titleKey: String(target.dataset?.fontKey || target.dataset?.fontRole || '')
+              });
+              return true;
+            },
+            checkpoint: reason => {
+              if(state.finished || !state.input) return false;
+              const currentValue = Shared.textBlock.normalizeText(state.input.value ?? '');
+              let checkpointed = false;
+              if(reason === 'history-command'){
+                if(currentValue === state.editCheckpointValue) return false;
+                if(typeof options.onEditCheckpoint !== 'function') return false;
+                checkpointed = safeCall(options.onEditCheckpoint, [currentValue, state.renderTarget || el, reason], 'Shared.makeEditable title history checkpoint error') === true;
+                if(checkpointed) state.editCheckpointValue = currentValue;
+                return checkpointed;
+              }
+              if(reason === 'font-command' && currentValue.trim() !== '' && typeof options.onEditCheckpoint === 'function'){
+                checkpointed = safeCall(options.onEditCheckpoint, [currentValue, state.renderTarget || el, reason], 'Shared.makeEditable title checkpoint error') === true;
+                if(checkpointed) state.editCheckpointValue = currentValue;
+              }
+              if(reason === 'font-command' && !state.titleVisibilityRoles?.length){
+                return checkpointed;
+              }
+              const restoreValue = String(state.initialText ?? '');
+              if(currentValue.trim() !== '' || restoreValue.trim() === '') return checkpointed;
+
+              state.inlineText = restoreValue;
+              state.editCheckpointValue = restoreValue;
+              state.styleMap = Array.isArray(state.initialStyleMap)
+                ? state.initialStyleMap.slice()
+                : new Array(restoreValue.length).fill(null);
+              state.usingInlineSegments = hasStyledCharacters(state.styleMap);
+              state.input.value = restoreValue;
+              if(typeof state.input.setSelectionRange === 'function'){
+                try{ state.input.setSelectionRange(restoreValue.length, restoreValue.length); }catch(_selectionErr){}
+              }
+              state.refreshInlineRendering(false);
+              notifyFontControlsInlineChange('empty-title-restore', {
+                range: { start: 0, end: restoreValue.length },
+                entire: true
+              });
+              safeCall(onInput, [restoreValue, el], 'Shared.makeEditable snapshot title restore error');
+
+              const fontControlsApi = (Shared && Shared.fontControls) || ownerWindow?.Shared?.fontControls || null;
+              const visibilityChanged = typeof fontControlsApi?.setRoleVisibility === 'function'
+                ? fontControlsApi.setRoleVisibility(state.titleVisibilityScope, state.titleVisibilityRoles, false, {
+                  tabId: state.ownerTabId,
+                  recordUndo: false
+                })
+                : false;
+              if(visibilityChanged){
+                const sessionApi = ownerWindow?.Main?.session || global.Main?.session || null;
+                if(typeof sessionApi?.markWorkspaceTargetUserModified === 'function'){
+                  sessionApi.markWorkspaceTargetUserModified(el, 'title-hidden-by-empty-snapshot', {
+                    tabId: state.ownerTabId,
+                    componentKey: state.titleVisibilityScope,
+                    source: 'inline-title-edit-snapshot',
+                    origin: 'user',
+                    affectsPayload: true
+                  });
+                }
+              }
+              state.snapshotNormalizedEmptyDraft = true;
+              state.snapshotNormalizedText = restoreValue;
+              syncSizeToContent();
+              logDebug('makeEditable empty title normalized for snapshot', {
+                reason,
+                tabId: state.ownerTabId,
+                role: titleRoleAtOpen
+              });
+              return true;
+            },
+            handleHistoryCommand: command => {
+              if(state.finished || !state.input) return 'native';
+              const normalizedCommand = command === 'redo' ? 'redo' : 'undo';
+              const currentValue = Shared.textBlock.normalizeText(state.input.value ?? '');
+              const hasUncheckpointedDraft = currentValue !== state.editCheckpointValue;
+              if(hasUncheckpointedDraft){
+                if(!activeTitleEditRecord.checkpoint('history-command')) return 'native';
+                // A new title edit creates a new history branch, so redo must not replay a stale future edit.
+                if(normalizedCommand === 'redo') return true;
+              }
+              const undoManager = Shared.undoManager || ownerWindow?.Shared?.undoManager || null;
+              const historyMethod = normalizedCommand === 'redo' ? undoManager?.redo : undoManager?.undo;
+              if(typeof historyMethod !== 'function') return 'native';
+              const handled = historyMethod.call(undoManager, {
+                tabId: state.ownerTabId,
+                target: state.input
+              }) === true;
+              if(!handled) return 'native';
+
+              const target = state.renderTarget || state.target || el;
+              const restoredRaw = safeCall(getInitialValue, [target], 'Shared.makeEditable title history restore read error');
+              const restoredValue = Shared.textBlock.normalizeText(
+                restoredRaw ?? target?.dataset?.titleBlockText ?? target?.textContent ?? ''
+              );
+              state.input.value = restoredValue;
+              state.updateInlineText(restoredValue);
+              state.editCheckpointValue = restoredValue;
+              safeCall(options.onEditCheckpoint, [restoredValue, target, 'history-restore'], 'Shared.makeEditable title history baseline restore error');
+              if(typeof state.input.setSelectionRange === 'function'){
+                const length = restoredValue.length;
+                const start = Math.min(Number.isInteger(state.selection?.start) ? state.selection.start : length, length);
+                const end = Math.min(Number.isInteger(state.selection?.end) ? state.selection.end : start, length);
+                try{ state.input.setSelectionRange(start, end); }catch(_selectionErr){}
+              }
+              state.refreshInlineRendering(false);
+              state.syncSizeToContent?.();
+              state.input.scrollTop = 0;
+              return true;
+            },
+            finalize: reason => {
+              if(state.finished || !state.input) return false;
+              commit(state.input.value, reason || 'owner-deactivation');
+              return true;
+            }
+          };
+          state.undoKeydownBridge = event => {
+            if(!(event?.ctrlKey || event?.metaKey) || event?.altKey) return false;
+            const key = String(event?.key || '').toLowerCase();
+            if(key !== 'z' && key !== 'y') return false;
+            const command = key === 'y' || (key === 'z' && event.shiftKey) ? 'redo' : 'undo';
+            return activeTitleEditRecord.handleHistoryCommand(command);
+          };
+          input.__undoManagerHandleKeydown = state.undoKeydownBridge;
+        }
+
         function cancel(reason) {
-          if (state.target) {
+          const renderTarget = state.renderTarget || state.target;
+          if (renderTarget) {
             const originalText = typeof state.initialText === 'string' ? state.initialText : (initialValue ?? '');
             const originalMap = Array.isArray(state.initialStyleMap)
               ? state.initialStyleMap.slice()
               : new Array(originalText.length).fill(null);
-            renderStyledText(state.target, originalText, originalMap);
+            renderStyledText(renderTarget, originalText, originalMap);
             if (state.preview) {
               renderStyledPreview(state.preview, originalText, originalMap, state.baseStyle, { scale: state.displayScale });
             }
@@ -2090,12 +2493,32 @@
               });
               return;
             }
+            if(titleEditing){
+              try{ input.focus(); }catch(_focusErr){}
+              return;
+            }
             stopDeferredCommitWatcher();
             commit(input.value, 'blur');
           }, 0);
         };
         const handleKeyDown = (e) => {
           if (!e) return;
+          if(titleEditing){
+            if(e.isComposing || e.keyCode === 229) return;
+            if(e.key === 'Enter'){
+              e.preventDefault();
+              e.stopPropagation();
+              const start = Number.isInteger(input.selectionStart) ? input.selectionStart : input.value.length;
+              const end = Number.isInteger(input.selectionEnd) ? input.selectionEnd : start;
+              input.setRangeText('\n', start, end, 'end');
+              input.dispatchEvent(new ownerWindow.Event('input', { bubbles: true }));
+              return;
+            }
+            if(e.key === 'Escape'){
+              e.stopPropagation();
+              return;
+            }
+          }
           if ((e.ctrlKey || e.metaKey) && !e.altKey) {
             const key = typeof e.key === 'string' ? e.key.toLowerCase() : '';
             if (inlineShortcutConfigs[key]) {
@@ -2123,10 +2546,45 @@
         input.addEventListener('blur', handleBlur);
         input.addEventListener('keydown', handleKeyDown);
         input.addEventListener('input', () => {
-          const nextValue = input.value ?? '';
+          const nextValue = titleEditing
+            ? Shared.textBlock.normalizeText(input.value)
+            : (input.value ?? '');
+          if(titleEditing && input.value !== nextValue){
+            const cursor = input.selectionStart;
+            input.value = nextValue;
+            if(Number.isInteger(cursor)) input.setSelectionRange(cursor, cursor);
+          }
           state.updateInlineText(nextValue);
           state.refreshInlineRendering(false);
+          let restoreTitleVisibility = false;
+          if(titleEditing && state.snapshotNormalizedEmptyDraft
+            && nextValue !== state.snapshotNormalizedText){
+            state.snapshotNormalizedEmptyDraft = false;
+            restoreTitleVisibility = state.titleVisibilityAtOpen === true
+              && state.titleVisibilityRoles?.length > 0
+          }
           safeCall(onInput, [nextValue, el], 'Shared.makeEditable onInput error');
+          if(restoreTitleVisibility){
+            const fontControlsApi = (Shared && Shared.fontControls) || ownerWindow?.Shared?.fontControls || null;
+            const visibilityChanged = typeof fontControlsApi?.setRoleVisibility === 'function'
+              ? fontControlsApi.setRoleVisibility(state.titleVisibilityScope, state.titleVisibilityRoles, true, {
+                tabId: state.ownerTabId,
+                recordUndo: false
+              })
+              : false;
+            if(visibilityChanged){
+              const sessionApi = ownerWindow?.Main?.session || global.Main?.session || null;
+              if(typeof sessionApi?.markWorkspaceTargetUserModified === 'function'){
+                sessionApi.markWorkspaceTargetUserModified(el, 'title-shown-after-snapshot-edit', {
+                  tabId: state.ownerTabId,
+                  componentKey: state.titleVisibilityScope,
+                  source: 'inline-title-edit-snapshot',
+                  origin: 'user',
+                  affectsPayload: true
+                });
+              }
+            }
+          }
           syncSizeToContent();
         });
 
@@ -2374,6 +2832,8 @@
     const axisLock = options.axisLock === 'x' || options.axisLock === 'y' ? options.axisLock : null;
     const shouldRecordUndo = options.recordUndo !== false;
     const fontRole = String(el?.dataset?.fontRole || '').trim();
+    const syncChildAnchors = syncChildX || (SVG_BOUNDARY_LABEL_ROLES.has(fontRole)
+      && Array.from(el.children || []).some(child => child.matches?.('tspan[data-title-line="1"]')));
     const shouldConstrainToSvg = constrainToSvg === true
       || (constrainToSvg !== false && SVG_BOUNDARY_LABEL_ROLES.has(fontRole));
     let pointerDown = false;
@@ -2387,61 +2847,74 @@
     el.style.touchAction = 'none';
 
     const datasetKey = `data-${CAPTURE_ATTR.replace(/([A-Z])/g,'-$1').toLowerCase()}`;
-    const getChildOffset = (child) => {
+    const getChildOffset = (child, axis = 'x') => {
       if(!child){ return NaN; }
-      const raw = child.dataset ? child.dataset[CAPTURE_ATTR] : child.getAttribute(datasetKey);
+      const dataKey = axis === 'y' ? 'dragYOffset' : CAPTURE_ATTR;
+      const attrKey = axis === 'y' ? 'data-drag-y-offset' : datasetKey;
+      const raw = child.dataset ? child.dataset[dataKey] : child.getAttribute(attrKey);
       return Number(raw);
     };
-    const setChildOffset = (child, offset) => {
+    const setChildOffset = (child, offset, axis = 'x') => {
       if(!child){ return; }
+      const dataKey = axis === 'y' ? 'dragYOffset' : CAPTURE_ATTR;
+      const attrKey = axis === 'y' ? 'data-drag-y-offset' : datasetKey;
       if(child.dataset){
-        child.dataset[CAPTURE_ATTR] = String(offset);
+        child.dataset[dataKey] = String(offset);
       }else{
-        child.setAttribute(datasetKey, String(offset));
+        child.setAttribute(attrKey, String(offset));
       }
     };
-    const clearChildOffset = (child) => {
+    const clearChildOffset = (child, axis = 'x') => {
       if(!child){ return; }
+      const dataKey = axis === 'y' ? 'dragYOffset' : CAPTURE_ATTR;
+      const attrKey = axis === 'y' ? 'data-drag-y-offset' : datasetKey;
       if(child.dataset){
-        delete child.dataset[CAPTURE_ATTR];
+        delete child.dataset[dataKey];
       }else{
-        child.removeAttribute(datasetKey);
+        child.removeAttribute(attrKey);
       }
     };
 
-    const applyChildAnchors = (baseX) => {
-      if(!syncChildX){
+    const applyChildAnchors = (baseX, baseY) => {
+      if(!syncChildAnchors){
         return;
       }
       try{
         Array.from(el.children || []).forEach(child => {
-          const offset = getChildOffset(child);
-          if(Number.isFinite(offset)){
-            child.setAttribute('x', String(baseX + offset));
-          }
+          const offsetX = getChildOffset(child, 'x');
+          const offsetY = getChildOffset(child, 'y');
+          if(Number.isFinite(offsetX)) child.setAttribute('x', String(baseX + offsetX));
+          if(Number.isFinite(offsetY)) child.setAttribute('y', String(baseY + offsetY));
         });
       }catch(err){
         logDebug('enableLabelDrag applyChildAnchors error', { message: err?.message });
       }
     };
 
-    const captureChildAnchors = () => {
-      if(!syncChildX){
+    const captureChildAnchors = (basePosition = origPos) => {
+      if(!syncChildAnchors){
         return;
       }
+      const baseX = Number(basePosition?.x) || 0;
+      const baseY = Number(basePosition?.y) || 0;
       Array.from(el.children || []).forEach(child => {
         if(!child || typeof child.getAttribute !== 'function'){
           return;
         }
         const rawChildX = child.getAttribute('x');
         const childX = rawChildX == null || rawChildX === '' ? NaN : parseFloat(rawChildX);
-        if(Number.isFinite(childX)){
-          setChildOffset(child, childX - origPos.x);
-        }else{
+        if(Number.isFinite(childX)) setChildOffset(child, childX - baseX, 'x');
+        else{
           // Inline tspans intentionally inherit the parent text position.
           // Giving them x during drag breaks SVG text flow (for example,
           // a superscript exponent collapses onto the line start).
-          clearChildOffset(child);
+          clearChildOffset(child, 'x');
+        }
+        const rawChildY = child.getAttribute('y');
+        const childY = rawChildY == null || rawChildY === '' ? NaN : parseFloat(rawChildY);
+        if(Number.isFinite(childY)) setChildOffset(child, childY - baseY, 'y');
+        else{
+          clearChildOffset(child, 'y');
         }
       });
     };
@@ -2464,11 +2937,19 @@
     };
 
     const updateTransformForPosition = (x, y) => updateLabelTransformForPosition(el, x, y);
+    const syncTextBlockAnchor = (x, y) => {
+      if(!Shared.textBlock?.isTitleRole(fontRole) || !el.dataset) return;
+      el.dataset.titleAnchorX = String(x);
+      el.dataset.titleAnchorY = String(y);
+      el.setAttribute('data-title-anchor-x', String(x));
+      el.setAttribute('data-title-anchor-y', String(y));
+    };
     const applyPosition = (x, y) => {
       el.setAttribute('x', String(x));
       el.setAttribute('y', String(y));
-      applyChildAnchors(x);
+      applyChildAnchors(x, y);
       updateTransformForPosition(x, y);
+      syncTextBlockAnchor(x, y);
     };
     const constrainPosition = (position, reason) => {
       if(!shouldConstrainToSvg){
@@ -2614,10 +3095,7 @@
           const apply = (pos, reason) => {
             if (!pos) return false;
             try {
-              el.setAttribute('x', String(pos.x));
-              el.setAttribute('y', String(pos.y));
-              applyChildAnchors(pos.x);
-              updateTransformForPosition(pos.x, pos.y);
+              applyPosition(pos.x, pos.y);
               safeCall(onDragMove, [{ x: pos.x, y: pos.y, element: el, reason: reason || 'history' }], 'enableLabelDrag onDragMove error');
               safeCall(onPositionChange, [{ x: pos.x, y: pos.y, element: el, reason: reason || 'history' }], 'enableLabelDrag onPositionChange error');
               logDebug('enableLabelDrag apply position', { reason, x: pos.x, y: pos.y });
@@ -2656,6 +3134,10 @@
         x: parseFloat(el.getAttribute('x') || '0'),
         y: parseFloat(el.getAttribute('y') || '0')
       };
+      // Initial viewport normalization may move a multiline title. Record each
+      // line's offset first so the block moves together instead of only its
+      // parent text node.
+      captureChildAnchors(initial);
       const constrained = constrainPosition(initial, 'initial-normalize');
       if(constrained.x !== initial.x || constrained.y !== initial.y){
         const payload = {
@@ -2792,8 +3274,16 @@
       return { position: current, changed: false };
     }
     const position = {
-      x: clampAxis(current.x, viewport.left - bounds.x, viewport.right - bounds.x - bounds.width),
-      y: clampAxis(current.y, viewport.top - bounds.y, viewport.bottom - bounds.y - bounds.height)
+      x: clampAxis(
+        current.x,
+        viewport.left + Math.max(0, Number(options.viewportPadding?.left) || 0) - bounds.x,
+        viewport.right - Math.max(0, Number(options.viewportPadding?.right) || 0) - bounds.x - bounds.width
+      ),
+      y: clampAxis(
+        current.y,
+        viewport.top + Math.max(0, Number(options.viewportPadding?.top) || 0) - bounds.y,
+        viewport.bottom - Math.max(0, Number(options.viewportPadding?.bottom) || 0) - bounds.y - bounds.height
+      )
     };
     const changed = position.x !== current.x || position.y !== current.y;
     if(changed && options.apply !== false){
@@ -2829,6 +3319,7 @@
     };
     const constrainPosition = point => constrainLegendPositionToViewport(group, svg, {
       position: point,
+      viewportPadding: options.viewportPadding,
       apply: false
     }).position;
 
@@ -2856,6 +3347,7 @@
       const current = normalizeLegendPoint(getPosition());
       return constrainLegendPositionToViewport(group, svg, {
         position: current,
+        viewportPadding: options.viewportPadding,
         setPosition
       });
     };
@@ -3062,6 +3554,7 @@
       undoLabel: options.undoLabel || 'legend-position',
       positionAnchor: options.positionAnchor || null,
       deferInitialConstraint: options.deferInitialConstraint,
+      viewportPadding: options.viewportPadding,
       onPositionConstrained: commitPosition,
       onDragEnd: commitPosition
     });

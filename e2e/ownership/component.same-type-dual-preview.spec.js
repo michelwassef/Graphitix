@@ -3,7 +3,7 @@ const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
 const {
   COMPONENT_MATRIX,
   openComponentFromWelcome,
-  clickExampleButtonIfPresent
+  clickExpectedExampleButton
 } = require('../helpers/workspaceDriver');
 const { registerIssueCollectors } = require('../helpers/diagnostics');
 const { waitForComponentOwnerReady } = require('../helpers/contractWaits');
@@ -155,7 +155,7 @@ for (const component of COMPONENTS_WITH_DUAL_PREVIEW_COVERAGE) {
 
     const beforeFirst = new Set(await getWorkspaceTabIds(page));
     await openComponentTab(page, component, { first: true });
-    expect(await clickExampleButtonIfPresent(page, component.exampleButtonId)).toBe(true);
+    expect(await clickExpectedExampleButton(page, component.exampleButtonId)).toBe(true);
     await waitForComponentOwnerReady(page, component, {
       requireMountedRoot: true,
       requireIdle: true,
@@ -167,7 +167,7 @@ for (const component of COMPONENTS_WITH_DUAL_PREVIEW_COVERAGE) {
 
     const beforeSecond = new Set(afterFirst);
     await openComponentTab(page, component, { first: false });
-    expect(await clickExampleButtonIfPresent(page, component.exampleButtonId)).toBe(true);
+    expect(await clickExpectedExampleButton(page, component.exampleButtonId)).toBe(true);
     await waitForComponentOwnerReady(page, component, {
       requireMountedRoot: true,
       requireIdle: true,

@@ -654,7 +654,6 @@ test('legend envelope follows its owner across same-component render-cache resto
   await page.waitForFunction(({ tabId, selector }) => {
     const active = window.Main.session.getActiveTab();
     const svg = document.querySelector(selector);
-    const svgBox = svg?.closest?.('.svgbox');
     return active?.id === tabId
       && Number(svg?.dataset?.legendReserveWidth) === 0
       && Number(svg?.dataset?.legendBaseWidth) > 0;

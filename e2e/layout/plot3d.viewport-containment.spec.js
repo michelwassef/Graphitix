@@ -1,6 +1,6 @@
 const { test, expect } = require('@playwright/test');
 const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
-const { openComponentFromWelcome, clickExampleButtonIfPresent } = require('../helpers/workspaceDriver');
+const { openComponentFromWelcome, clickExpectedExampleButton } = require('../helpers/workspaceDriver');
 const { registerIssueCollectors } = require('../helpers/diagnostics');
 const { waitForComponentOwnerReady } = require('../helpers/contractWaits');
 
@@ -47,6 +47,10 @@ async function readContainment(page, selector) {
         ].filter(Boolean);
         if (points.length !== 4) return null;
         return {
+          tag: node.tagName,
+          role: node.getAttribute('data-font-role') || node.getAttribute('data-role') || '',
+          className: String(node.getAttribute('class') || ''),
+          text: String(node.textContent || '').trim().slice(0, 48),
           left: Math.min(...points.map(point => point.x)),
           top: Math.min(...points.map(point => point.y)),
           right: Math.max(...points.map(point => point.x)),
@@ -113,7 +117,7 @@ for (const component of CASES) {
     await select3d(page, component);
     await waitForComponentOwnerReady(page, component.type, { requireMountedRoot: true, requireIdle: true, timeout: 30_000 });
     const emptyLayout = await readOuterLayout(page, component.svg, component.pageId);
-    await clickExampleButtonIfPresent(page, component.exampleButtonId);
+    await clickExpectedExampleButton(page, component.exampleButtonId);
     await page.waitForFunction(({ selector, type }) => {
       const svg = document.querySelector(selector);
       return !!svg && (type === 'surface' || svg.dataset?.viewMode === '3d');
@@ -142,7 +146,7 @@ for (const component of CASES) {
     expectContained(cacheRestored, `${component.type} cache-restored`);
     expect(JSON.stringify({ view: cacheRestored.view, envelope: cacheRestored.envelope, reserves: cacheRestored.reserves }), `${component.type} cache restore should preserve the authoritative viewport`).toBe(initialSignature);
 
-    await clickExampleButtonIfPresent(page, component.exampleButtonId);
+    await clickExpectedExampleButton(page, component.exampleButtonId);
     await waitForComponentOwnerReady(page, component.type, { requireMountedRoot: true, requireIdle: true, timeout: 45_000 });
     const redrawn = await readContainment(page, component.svg);
     expectContained(redrawn, `${component.type} redrawn`);

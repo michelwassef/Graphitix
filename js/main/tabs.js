@@ -582,6 +582,9 @@
         return false;
       }
       const current = getActiveTab();
+      if (current && current.id !== tabId) {
+        window.Shared?.finalizeInlineTitleEditForTab?.(current.id, options.reason || 'activate-switch');
+      }
       if (current && current.id !== tabId && !options.skipPersist) {
         persistCompletedOwnerBeforeDeactivation(current, {
           reason: options.reason || 'activate-switch',

@@ -13,8 +13,12 @@ describe('test trend report', () => {
       initialStatus: 0,
       diagnosticStatus: null,
       durationMs: 1,
-      environment: { node: 'v20.0.0', platform: 'win32' },
-      manifestEvidence: {},
+      environment: { node: 'v20.0.0', platform: 'win32', vendorMode: 'fake' },
+      manifestEvidence: {
+        coveredScenarioIds: [],
+        omittedScenarioIds: [],
+        skipDeclarations: { count: 0, entries: [] }
+      },
       artifactPolicy: {},
       artifacts: {},
       initial: [],
@@ -27,7 +31,8 @@ describe('test trend report', () => {
       durationMs: 1,
       projects: ['unit-node'],
       summary: {},
-      groups: []
+      groups: [],
+      environment: { node: 'v20.0.0', platform: 'win32', vendorMode: 'fake' }
     })).toEqual([]);
     expect(validateReportSchema({ schemaVersion: 1, lane: 'unit' })).not.toEqual([]);
   });
@@ -55,9 +60,18 @@ describe('test trend report', () => {
         initialStatus: 0,
         durationMs: 42,
         diagnosticStatus: null,
-        environment: { node: 'v20.0.0', platform: 'win32' },
+        environment: { node: 'v20.0.0', platform: 'win32', vendorMode: 'fake' },
         oracle: { policy: 'not-applicable' },
-        manifestEvidence: { status: 'passed', schemaVersion: 1, checks: [], manifest: { total: 7 } },
+        vendorMode: 'fake',
+        manifestEvidence: {
+          status: 'passed',
+          schemaVersion: 1,
+          checks: [],
+          manifest: { total: 7 },
+          coveredScenarioIds: ['UNIT.one'],
+          omittedScenarioIds: ['OWN.one'],
+          skipDeclarations: { count: 0, entries: [] }
+        },
         artifactPolicy: { schemaVersion: 1, retentionDays: 14 },
         artifacts: { laneReport: 'unit.json' },
         initial: [{ status: 0, durationMs: 42 }],

@@ -15,10 +15,12 @@ for (const component of COMPONENTS) {
   test(`${component.type} panel divider survives tab switching`, async ({ page }) => {
     await installLocalCdnOverrides(page);
     await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
+    await page.setViewportSize({ width: 1280, height: 900 });
     await openComponentFromWelcome(page, component, { first: true, loadExample: true });
+    await expect.poll(() => page.locator(`#${component.pageId} .wrap`).evaluate(wrap => getComputedStyle(wrap).flexDirection)).toBe('row');
 
     const ids = {
-      table: `${component.type}TablePanel`,
+      table: component.type === 'venn' ? 'vennInputPanel' : `${component.type}TablePanel`,
       graph: `${component.type}GraphPanel`,
       resizer: `${component.type}PanelResizer`
     };
@@ -57,6 +59,11 @@ for (const component of COMPONENTS) {
     expect(draggedGeometry.tableWidth).toBeGreaterThan(before.tableWidth + 100);
     expect(draggedGeometry.split).toBeGreaterThan(0);
     const tabId = before.tabId;
+    const savedSplit = await page.evaluate(ownerTabId => {
+      const tab = window.Main?.session?.workspaceState?.tabs?.find(item => item?.id === ownerTabId);
+      return Number(tab?.layoutState?.workspace?.tableFraction);
+    }, tabId);
+    expect(savedSplit).toBeCloseTo(draggedGeometry.split, 2);
 
     await page.locator('#workspaceTabsList .workspace-tab').filter({ hasText: 'Welcome' }).first().click();
     await expect(page.locator('#welcomeScreen')).toBeVisible();

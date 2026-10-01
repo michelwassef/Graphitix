@@ -15,8 +15,6 @@ const REVIEWED_PARTIAL_BOOTSTRAPS = Object.freeze({
   '__tests__/unit/scatter.pointContextMenuSelection.test.js': 'tests a pure selection helper without a DOM bootstrap',
   '__tests__/unit/scatter.pointStyleOverrides.test.js': 'tests style resolution with intentionally minimal globals',
   '__tests__/unit/scatter.regressionOverlayRange.test.js': 'tests a pure regression-bound helper with intentionally minimal globals',
-  '__tests__/statistical-oracle/stats.component.differential.test.js': 'loads only statistical primitives for Python-oracle comparison',
-  '__tests__/statistical-oracle/stats.matrix.components.test.js': 'loads only statistical primitives for generated Python-oracle comparison',
   '__tests__/unit/stats.audit.remediation.components.test.js': 'uses a reviewed cross-component statistical fixture with explicit shared dependencies',
   '__tests__/statistical-oracle/stats.extended.coverage.test.js': 'uses a reviewed cross-component statistical fixture with explicit shared dependencies',
   '__tests__/unit/line.model.test.js': 'isolates Line model helpers with a chartStyle test double'

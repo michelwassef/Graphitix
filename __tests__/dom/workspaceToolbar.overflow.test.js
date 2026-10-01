@@ -148,7 +148,6 @@ describe('workspace toolbar overflow integration', () => {
     window.Shared.workspaceToolbar.renderForElement(container);
     await flushToolbar();
 
-    const toolbar = container.querySelector('.workspace-toolbar');
     const trigger = document.getElementById(`${key}-open`);
     const wrapper = trigger.closest('.workspace-toolbar__menu');
     const menu = wrapper.querySelector('.workspace-toolbar__menu-list');

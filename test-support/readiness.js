@@ -113,7 +113,9 @@ function inspectOwnerReadiness(options = {}) {
 
   let published = null;
   if (requirePublished) {
-    published = component.hasRenderedGraph?.({ tabId: activeTabId }) === true;
+    const publicationValidator = window.Main?.components?.get?.(type)?.hasRenderedGraph;
+    published = typeof publicationValidator === 'function'
+      && publicationValidator({ tabId: activeTabId, root }) === true;
     if (!published) return failure('primary-graph-not-published', { published: false });
   }
 

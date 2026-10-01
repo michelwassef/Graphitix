@@ -161,7 +161,7 @@ async function openPointSizeEditor(page, trace) {
 
 test.describe('Box single-values point sizing', () => {
   test('keeps auto size truthful through resize/flip and applies the shown value exactly as manual size', async ({ page, browserName }, testInfo) => {
-    test.skip(browserName !== 'chromium', 'Graph resize and SVG size projection are validated on Chromium.');
+    test.skip(browserName !== 'chromium', '[skip-policy issue=ROADMAP-FIREFOX-PARITY owner=test-infrastructure expires=2026-12-31 gate=firefox-parity-enabled] Graph resize and SVG size projection are validated on Chromium.');
     test.setTimeout(180_000);
     const issues = registerIssueCollectors(page);
 
@@ -226,7 +226,7 @@ test.describe('Box single-values point sizing', () => {
   });
 
   test('preserves auto point size after resize, save, and archive reopen', async ({ page, browserName }) => {
-    test.skip(browserName !== 'chromium', 'Graph resize and SVG size projection are validated on Chromium.');
+    test.skip(browserName !== 'chromium', '[skip-policy issue=ROADMAP-FIREFOX-PARITY owner=test-infrastructure expires=2026-12-31 gate=firefox-parity-enabled] Graph resize and SVG size projection are validated on Chromium.');
     test.setTimeout(180_000);
 
     await installLocalCdnOverrides(page);

@@ -12,16 +12,23 @@
  * runs, so the distortion is unobservable there. It must be a real-browser test.
  */
 const { test, expect } = require('@playwright/test');
-const { saveWorkspaceArchive } = require('../helpers/archiveDriver');
+const {
+  buildWorkspaceArchive,
+  openWorkspaceArchive,
+  saveWorkspaceArchive
+} = require('../helpers/archiveDriver');
 const {
   openComponentFromWelcome,
-  clickExampleButtonIfPresent,
+  clickExpectedExampleButton,
   waitForDocumentOpenComplete
 } = require('../helpers/workspaceDriver');
 const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
 const { registerIssueCollectors } = require('../helpers/diagnostics');
 const { waitForComponentOwnerReady } = require('../helpers/contractWaits');
-const { reloadAndAcceptRecovery: reloadAndAcceptRecoveryDriver } = require('../helpers/recoveryDriver');
+const {
+  reloadAndAcceptRecovery: reloadAndAcceptRecoveryDriver,
+  seedRecoveryArchive
+} = require('../helpers/recoveryDriver');
 
 async function waitForHeatmapCells(page) {
   await page.waitForFunction(() => {
@@ -182,7 +189,7 @@ async function buildCorrelationHeatmap(page, { resize = false } = {}) {
     { type: 'heatmap', pageId: 'heatmapPage', exampleButtonId: 'heatmapLoadExample' },
     { first: true }
   );
-  await clickExampleButtonIfPresent(page, 'heatmapLoadExample');
+  await clickExpectedExampleButton(page, 'heatmapLoadExample');
   await waitForHeatmapCells(page);
   await waitForHeatmapOwnerIdle(page);
   if (resize) {
@@ -229,66 +236,39 @@ async function assertDocumentOpenSettled(page, timeoutMs = 30_000) {
 }
 
 async function loadWorkspaceArchiveFromPath(page, archivePath) {
-  const input = page.locator('#workspaceSessionInput');
-  await expect(input).toHaveCount(1, { timeout: 20_000 });
-  await input.setInputFiles(archivePath);
+  await openWorkspaceArchive(page, archivePath, {
+    componentType: 'heatmap',
+    timeout: 30_000
+  });
   await assertDocumentOpenSettled(page);
   await waitForHeatmapOwnerIdle(page);
 }
 
 async function seedRecoverySnapshot(page) {
-  await page.evaluate(async () => {
-    const openWebDb = () => new Promise((resolve, reject) => {
-      const request = window.indexedDB.open('graphitix-document-state', 2);
-      request.onupgradeneeded = () => {
-        const db = request.result;
-        if (!db.objectStoreNames.contains('snapshots')) {
-          db.createObjectStore('snapshots');
-        }
-      };
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error || new Error('IndexedDB open failed.'));
-    });
-    const putRecoverySnapshot = async (record) => {
-      const db = await openWebDb();
-      return new Promise((resolve, reject) => {
-        const tx = db.transaction('snapshots', 'readwrite');
-        tx.objectStore('snapshots').put(record, 'active-recovery');
-        tx.oncomplete = () => resolve(true);
-        tx.onerror = () => reject(tx.error || new Error('IndexedDB snapshot write failed.'));
-      });
-    };
-    const tabsApi = window.Main?.tabs;
-    const sessionActions = window.Main?.sessionActions;
+  const archive = await buildWorkspaceArchive(page, {
+    scope: 'workspace',
+    snapshotKind: 'recovery',
+    policyMode: 'recovery',
+    reason: 'recovery-interval',
+    useWorker: true
+  });
+  const metadata = await page.evaluate(() => {
     const workspaceState = window.Main?.session?.workspaceState || {};
     const graphTabs = Array.isArray(workspaceState.tabs)
       ? workspaceState.tabs.filter(tab => tab && !tab.isWelcome && tab.type)
       : [];
-    const context = tabsApi.getSessionActionsContext();
-    const blob = await sessionActions.buildWorkspaceArchiveBlob(context, {
-      scope: 'workspace',
-      snapshotKind: 'recovery',
-      policyMode: 'recovery',
-      reason: 'recovery-interval',
-      useWorker: true
-    });
-    await putRecoverySnapshot({
-      meta: {
-        app: 'Graphitix',
-        kind: 'recovery',
-        version: 1,
-        savedAt: new Date().toISOString(),
-        updatedAt: Date.now(),
-        reason: 'recovery-interval',
-        dirty: true,
-        hasData: true,
-        tabCount: graphTabs.length,
-        fileName: workspaceState.sessionFileName || 'workspace.graph',
-        filePath: workspaceState.sessionFilePath || '',
-        fileScope: workspaceState.sessionFileScope || 'workspace'
-      },
-      blob
-    });
+    return {
+      tabCount: graphTabs.length,
+      fileName: workspaceState.sessionFileName || 'workspace.graph',
+      filePath: workspaceState.sessionFilePath || '',
+      fileScope: workspaceState.sessionFileScope || 'workspace'
+    };
+  });
+  return seedRecoveryArchive(page, archive.base64, {
+    reason: 'recovery-interval',
+    dirty: true,
+    hasData: true,
+    ...metadata
   });
 }
 

@@ -1,5 +1,7 @@
 # Graphitix Testing Infrastructure Audit
 
+> Historical snapshot dated 2026-07-31; its counts and findings are superseded. Use `AGENTS.md` for current rules and the generated `testing-suite-inventory.csv` for current discovered coverage.
+
 **Audit date:** 2026-07-31
 **Audited baseline:** `graphitix-current-v11-final-professional-v2`
 **Scope:** Jest configuration and setup, all `__tests__` test sources, all Playwright specifications and helpers, test runners, package scripts, documentation, and repository validation gates.

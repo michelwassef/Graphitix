@@ -1,6 +1,6 @@
 const { test, expect } = require('@playwright/test');
 const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
-const { openComponentFromWelcome, clickExampleButtonIfPresent } = require('../helpers/workspaceDriver');
+const { openComponentFromWelcome, clickExpectedExampleButton } = require('../helpers/workspaceDriver');
 const { registerIssueCollectors } = require('../helpers/diagnostics');
 const { waitForComponentOwnerReady } = require('../helpers/contractWaits');
 
@@ -100,7 +100,7 @@ test('scatter restores computed trendline intervals, plot stats, and statistics 
   await installLocalCdnOverrides(page);
 
   await openWorkspace(page, { type: 'scatter', pageId: 'scatterPage' });
-  await clickExampleButtonIfPresent(page, 'scatterLoadExample');
+  await clickExpectedExampleButton(page, 'scatterLoadExample');
   await page.waitForFunction(() => !!document.querySelector('#scatterPlot svg'), null, { timeout: 30_000 });
 
   // Trend/stats overlays are disabled until statistics are calculated (matches line.js),
@@ -255,7 +255,7 @@ test('pie restores computed statistics results and calculated button state from 
   await installLocalCdnOverrides(page);
 
   await openWorkspace(page, { type: 'pie', pageId: 'piePage' });
-  await clickExampleButtonIfPresent(page, 'pieLoadExample');
+  await clickExpectedExampleButton(page, 'pieLoadExample');
   await page.waitForFunction(() => !!document.querySelector('#piePlot svg'), null, { timeout: 30_000 });
 
   await expect(page.locator('#pieComputeStats')).toBeEnabled({ timeout: 20_000 });
@@ -290,7 +290,7 @@ test('line regression overlays require calculated statistics and interval toggle
   await installLocalCdnOverrides(page);
 
   await openWorkspace(page, { type: 'line', pageId: 'linePage' });
-  await clickExampleButtonIfPresent(page, 'lineLoadExample');
+  await clickExpectedExampleButton(page, 'lineLoadExample');
   await page.waitForFunction(() => !!document.querySelector('#linePlot svg'), null, { timeout: 30_000 });
 
   await expect(page.locator('#lineShowTrendLine')).toBeDisabled({ timeout: 20_000 });
@@ -341,7 +341,7 @@ test('line restores persisted statistics results and calculated button state fro
   await installLocalCdnOverrides(page);
 
   await openWorkspace(page, { type: 'line', pageId: 'linePage' });
-  await clickExampleButtonIfPresent(page, 'lineLoadExample');
+  await clickExpectedExampleButton(page, 'lineLoadExample');
   await page.waitForFunction(() => !!document.querySelector('#linePlot svg'), null, { timeout: 30_000 });
 
   await setCheckboxes(page, ['lineShowTrendLine', 'lineShowIntervals', 'lineShowPredictionIntervals'], true);

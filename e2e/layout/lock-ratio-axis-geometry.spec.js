@@ -1,7 +1,7 @@
 const { test, expect } = require('@playwright/test');
 const {
   openComponentFromWelcome,
-  clickExampleButtonIfPresent
+  clickExpectedExampleButton
 } = require('../helpers/workspaceDriver');
 const { activateTab: activateTabUi } = require('../helpers/uiDriver');
 const { buildWorkspaceArchive, openWorkspaceArchive } = require('../helpers/archiveDriver');
@@ -49,7 +49,7 @@ const FORCED_3D_COMPONENTS = [
     exampleButtonId: 'scatterLoadExample',
     prepare: async page => {
       await page.locator('#scatterPage:not([hidden]) #scatterViewMode').selectOption('3d');
-      await clickExampleButtonIfPresent(page, 'scatterLoadExample');
+      await clickExpectedExampleButton(page, 'scatterLoadExample');
       await page.waitForFunction(() => {
         const data = window.Components?.scatter?.__getActiveHot?.()?.getData?.() || [];
         return data.some((row, index) => index > 0 && Array.isArray(row) && row[3] !== '' && row[3] != null);
@@ -217,7 +217,6 @@ async function readGeometry(page, pageId) {
 
 async function waitForStableGeometry(page, pageId, options = {}) {
   const timeout = options.timeout ?? 8_000;
-  const interval = options.interval ?? 175;
   const tolerance = options.tolerance ?? 0.08;
   const deadline = Date.now() + timeout;
   await page.evaluate(async ({ pageId }) => {
@@ -395,7 +394,7 @@ test('Lock ratio is toggle-neutral and preserves primary-axis proportions across
     const component = lockRatioComponents[index];
     await test.step(component.type, async () => {
       await openComponentFromWelcome(page, component, { first: index === 0, loadExample: true });
-      await clickExampleButtonIfPresent(page, component.exampleButtonId);
+      await clickExpectedExampleButton(page, component.exampleButtonId);
       if(component.prepare) await component.prepare(page);
       await waitForAxes(page, component.pageId);
 
@@ -496,7 +495,7 @@ test('forced Lock ratio preserves projected x/y axis proportions in every 3D com
     const component = FORCED_3D_COMPONENTS[index];
     await test.step(component.type, async () => {
       await openComponentFromWelcome(page, component, { first: index === 0, loadExample: true });
-      await clickExampleButtonIfPresent(page, component.exampleButtonId);
+      await clickExpectedExampleButton(page, component.exampleButtonId);
       if(component.prepare){
         await component.prepare(page);
       }

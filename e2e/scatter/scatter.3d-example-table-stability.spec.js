@@ -1,6 +1,6 @@
 const { test, expect } = require('@playwright/test');
 const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
-const { openComponentFromWelcome, clickExampleButtonIfPresent } = require('../helpers/workspaceDriver');
+const { openComponentFromWelcome, clickExpectedExampleButton } = require('../helpers/workspaceDriver');
 const { observeStableValue } = require('../helpers/contractWaits');
 
 async function captureScatterTable(page) {
@@ -24,7 +24,7 @@ test('Scatter 3D example load does not rewrite its table schema', async ({ page 
   await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
   await openComponentFromWelcome(page, { type: 'scatter', pageId: 'scatterPage' }, { first: true, loadExample: true });
   await page.locator('#scatterViewMode').selectOption('3d');
-  await clickExampleButtonIfPresent(page, 'scatterLoadExample');
+  await clickExpectedExampleButton(page, 'scatterLoadExample');
 
   await expect.poll(async () => (await captureScatterTable(page)).header, { timeout: 15_000 }).toEqual([
     'Sample', 'PSD95_N', 'SYP_N', 'CaNA_N'

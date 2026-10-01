@@ -46,6 +46,42 @@ function expectGeometryUnchanged(actual, expected) {
   expect(actual.preserveAspectRatio).toBe(expected.preserveAspectRatio);
 }
 
+async function assertExactTitleLineAdvance(page, svgBox, selector){
+  const title = svgBox.locator(selector).first();
+  if(await title.count() === 0) return false;
+  const initial = await title.evaluate(node => node.dataset.titleBlockText || node.textContent || '');
+  const expectedText = `${initial}\nReserve line`;
+  await title.dblclick();
+  const editor = page.locator('.inline-edit-input').last();
+  await expect(editor).toBeVisible();
+  await editor.fill(initial);
+  await editor.press('End');
+  await editor.press('Enter');
+  await editor.type('Reserve line');
+  await expect(editor).toBeVisible();
+  await page.mouse.click(3, 3);
+  await expect(editor).toBeHidden();
+  await expect.poll(() => svgBox.locator(selector).first().evaluate(
+    node => node.dataset.titleBlockText || node.textContent || ''
+  )).toBe(expectedText);
+  const geometry = await svgBox.locator(selector).first().evaluate(node => {
+    const rows = Array.from(node.querySelectorAll('tspan[data-title-line="1"]'));
+    const fontSizes = [Number.parseFloat(getComputedStyle(node).fontSize), ...Array.from(
+      node.querySelectorAll('tspan[data-title-line-run]'), run => Number.parseFloat(getComputedStyle(run).fontSize)
+    )].filter(Number.isFinite);
+    return {
+      rows: rows.length,
+      baselineStep: Number(rows[1]?.getAttribute('y')) - Number(rows[0]?.getAttribute('y')),
+      renderedLineHeight: Number(node.dataset.titleLineHeight),
+      maximumFontSize: Math.max(...fontSizes)
+    };
+  });
+  expect(geometry.rows).toBe(2);
+  expect(geometry.baselineStep).toBeCloseTo(geometry.renderedLineHeight, 3);
+  expect(geometry.renderedLineHeight).toBeCloseTo(geometry.maximumFontSize, 2);
+  return true;
+}
+
 for (const component of COMPONENT_MATRIX) {
   test(`${component.type} exposes persistent title visibility controls`, async ({ page }) => {
     await installLocalCdnOverrides(page);
@@ -69,6 +105,10 @@ for (const component of COMPONENT_MATRIX) {
     const editor = page.locator('.inline-edit-input');
     await editor.fill('');
     await editor.press('Enter');
+    await expect(editor).toBeVisible();
+    await expect(editor).toHaveValue('\n');
+    await page.mouse.click(3, 3);
+    await expect(editor).toBeHidden();
     await expect.poll(() => svgBox.locator('text[data-font-role="graphTitle"]').first().evaluate(node => ({
       text: node.textContent,
       hidden: getComputedStyle(node).visibility === 'hidden'
@@ -136,6 +176,25 @@ for (const component of COMPONENT_MATRIX) {
       await expect.poll(() => axesToggle.evaluate(input => input.closest('label').hidden)).toBe(true);
       await expect(axesControl).toBeHidden();
     }
+
+    await graphToggle.check();
+    await expect.poll(() => graphTitle.evaluate(node => getComputedStyle(node).visibility)).not.toBe('hidden');
+    if(expectsAxes) await axesToggle.check();
+    await svgBox.locator('.resizer-options-summary').click();
+    expect(await assertExactTitleLineAdvance(page, svgBox, 'text[data-font-role="graphTitle"]')).toBe(true);
+    if(expectsAxes){
+      const titleRoles = [
+        'text[data-font-role="xTitle"]',
+        'text[data-font-role="yTitle"]',
+        'text[data-font-role="zTitle"]',
+        'text[data-font-role="axis3d"]'
+      ];
+      for(const selector of titleRoles){
+        if(await svgBox.locator(selector).count() > 0){
+          expect(await assertExactTitleLineAdvance(page, svgBox, selector)).toBe(true);
+        }
+      }
+    }
   });
 }
 
@@ -180,4 +239,7 @@ test('Pie exposes axis-title visibility only for Stacked Bar and preserves its p
   await expect(axesControl).toBeVisible();
   await expect(axesToggle).not.toBeChecked();
   await expect.poll(() => yTitle.evaluate(node => getComputedStyle(node).visibility)).toBe('hidden');
+  await axesToggle.check();
+  await svgBox.locator('.resizer-options-summary').click();
+  expect(await assertExactTitleLineAdvance(page, svgBox, 'text[data-font-role="yTitle"]')).toBe(true);
 });

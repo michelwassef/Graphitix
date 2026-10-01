@@ -1,5 +1,5 @@
 const { test, expect } = require('@playwright/test');
-const { COMPONENT_MATRIX, openComponentFromWelcome, clickExampleButtonIfPresent } = require('../helpers/workspaceDriver');
+const { COMPONENT_MATRIX, openComponentFromWelcome, clickExpectedExampleButton } = require('../helpers/workspaceDriver');
 const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
 const { registerIssueCollectors } = require('../helpers/diagnostics');
 const { waitForComponentOwnerReady } = require('../helpers/contractWaits');
@@ -15,7 +15,7 @@ if(!HISTOGRAM){
 
 async function openHistogramAxisToolbar(page, axisKey = 'y') {
   await openComponentFromWelcome(page, HISTOGRAM, { first: true, loadExample: true });
-  await clickExampleButtonIfPresent(page, HISTOGRAM.exampleButtonId);
+  await clickExpectedExampleButton(page, HISTOGRAM.exampleButtonId);
   const axis = page.locator(`#${HISTOGRAM.pageId}:not([hidden]) #histSvg [data-axis-control="1"][data-axis-key="${axisKey}"]`).first();
   await expect(axis).toHaveCount(1, { timeout: 30_000 });
   await axis.dispatchEvent('click');

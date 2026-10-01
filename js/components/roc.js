@@ -801,6 +801,7 @@
     fileHandle: null,
     fileName: 'roc.graph',
     titleText: 'ROC curve',
+    axisTitleOverrides: {},
     axisSettings: createDefaultAxisSettings(),
     gridStyle: null,
     autoDrawEnabled: true,
@@ -909,6 +910,7 @@
       minSvgWidth: Number.isFinite(Number(src.minSvgWidth)) ? Number(src.minSvgWidth) : 0,
       fileName: typeof src.fileName === 'string' && src.fileName.trim() ? src.fileName : 'roc.graph',
       titleText: src.titleText != null ? String(src.titleText) : getDefaultRocTitle(controls.graphType),
+      axisTitleOverrides: normalizeRocAxisTitleOverrides(src.axisTitleOverrides),
       axisSettings: cloneSimple(src.axisSettings || src.axis) || createDefaultAxisSettings(),
       gridStyle: cloneSimple(src.gridStyle) || null,
       autoDrawEnabled: Object.prototype.hasOwnProperty.call(src, 'autoDrawEnabled') ? !!src.autoDrawEnabled : true,
@@ -1647,12 +1649,23 @@
     return { title: null, xLabel: null, yLabel: null, legend: null, stats: null, ...source };
   }
 
+  function normalizeRocAxisTitleOverrides(value){
+    const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+    return Object.fromEntries(Object.entries(source)
+      .filter(([key, text]) => /^(?:roc|pr)\.[xy]$/.test(String(key)) && typeof text === 'string')
+      .map(([key, text]) => [key, String(text).replace(/\r\n?/g, '\n')]));
+  }
+
   function patchRocVisualState(session = null, patch = {}, meta = {}){
     const owner = ensureRocSessionOwnershipShape(session || getActiveRocSessionForState());
     const hasTitle = Object.prototype.hasOwnProperty.call(patch || {}, 'titleText');
     const hasPositions = Object.prototype.hasOwnProperty.call(patch || {}, 'labelPositions');
+    const hasAxisTitleOverrides = Object.prototype.hasOwnProperty.call(patch || {}, 'axisTitleOverrides');
     const nextTitle = hasTitle ? String(patch.titleText == null ? '' : patch.titleText) : state.titleText;
     const nextPositions = hasPositions ? normalizeRocLabelPositions(patch.labelPositions) : normalizeRocLabelPositions(state.labelPositions);
+    const nextAxisTitleOverrides = hasAxisTitleOverrides
+      ? normalizeRocAxisTitleOverrides(patch.axisTitleOverrides)
+      : normalizeRocAxisTitleOverrides(owner?.state?.axisTitleOverrides || state.axisTitleOverrides);
     if(owner?.state){
       if(hasTitle){
         owner.state.titleText = nextTitle;
@@ -1660,6 +1673,7 @@
       if(hasPositions){
         owner.state.labelPositions = nextPositions;
       }
+      if(hasAxisTitleOverrides){ owner.state.axisTitleOverrides = nextAxisTitleOverrides; }
       owner.updatedAt = Date.now();
       console.debug('Debug: roc visual state patched to owner session', {
         tabId: owner.tabId || null,
@@ -1671,8 +1685,9 @@
     if(!owner || isRocSessionActive(owner)){
       if(hasTitle){ state.titleText = nextTitle; }
       if(hasPositions){ state.labelPositions = nextPositions; }
+      if(hasAxisTitleOverrides){ state.axisTitleOverrides = nextAxisTitleOverrides; }
     }
-    return { titleText: nextTitle, labelPositions: nextPositions };
+    return { titleText: nextTitle, labelPositions: nextPositions, axisTitleOverrides: nextAxisTitleOverrides };
   }
 
   function patchRocLabelPosition(session = null, key, value, meta = {}){
@@ -1685,25 +1700,128 @@
   function bindRocTitleInlineInteraction(node, ownerSession = null){
     const owner = ensureRocSessionOwnershipShape(ownerSession || getActiveRocSessionForState());
     if(!node || !owner || typeof makeEditable !== 'function'){ return false; }
+    let editInitialValue = null;
     makeEditable(node, txt => {
-      const previous = owner.state?.titleText != null ? String(owner.state.titleText) : '';
+      const previous = editInitialValue != null ? editInitialValue : (owner.state?.titleText != null ? String(owner.state.titleText) : '');
       const nextValue = txt != null ? String(txt) : '';
       if(previous === nextValue){ return; }
       const applyRocTitle = value => {
         const normalized = value != null ? String(value) : '';
         patchRocVisualState(owner, { titleText: normalized }, { reason: 'roc-title-edit' });
-        if(node.textContent !== normalized){ node.textContent = normalized; }
+        if(!Shared.fontControls?.setTitleText?.(node, normalized) && node.textContent !== normalized){ node.textContent = normalized; }
         scheduleRocDrawForSession(owner, { reason: 'roc-title-edit' });
       };
       applyRocTitle(nextValue);
       recordRocChange('roc:title', previous, nextValue, applyRocTitle);
+    }, {
+      getInitialValue: () => String(owner.state?.titleText ?? ''),
+      onEditCheckpoint: (currentValue, _target, reason) => {
+        const nextValue = currentValue != null ? String(currentValue) : '';
+        if(reason === 'history-restore'){
+          editInitialValue = nextValue;
+          return true;
+        }
+        const previous = editInitialValue != null ? editInitialValue : (owner.state?.titleText != null ? String(owner.state.titleText) : '');
+        if(previous === nextValue) return false;
+        recordRocChange('roc:title', previous, nextValue, value => {
+          const normalized = value != null ? String(value) : '';
+          patchRocVisualState(owner, { titleText: normalized }, { reason: 'roc-title-edit' });
+          if(!Shared.fontControls?.setTitleText?.(node, normalized) && node.textContent !== normalized) node.textContent = normalized;
+          scheduleRocDrawForSession(owner, { reason: 'roc-title-edit' });
+          return true;
+        });
+        editInitialValue = nextValue;
+        return true;
+      },
+      onEditStart: () => { editInitialValue = owner.state?.titleText != null ? String(owner.state.titleText) : ''; },
+      onInput: value => {
+        const nextValue = String(value == null ? '' : value).replace(/\r\n?/g, '\n');
+        patchRocVisualState(owner, { titleText: nextValue }, { reason: 'roc-title-draft' });
+        Shared.textBlock?.markDraftModified?.(node, owner, 'roc', 'roc-title-draft');
+      },
+      onEditEnd: (_target, finalValue) => {
+        const nextValue = String(finalValue == null ? '' : finalValue).replace(/\r\n?/g, '\n');
+        if(String(owner.state?.titleText ?? '') !== nextValue){
+          patchRocVisualState(owner, { titleText: nextValue }, { reason: 'roc-title-cancel' });
+          Shared.textBlock?.markDraftModified?.(node, owner, 'roc', 'roc-title-cancel');
+        }
+        editInitialValue = null;
+      }
+    });
+    return true;
+  }
+
+  function bindRocAxisTitleInlineInteraction(node, ownerSession = null){
+    const owner = ensureRocSessionOwnershipShape(ownerSession || getActiveRocSessionForState());
+    const key = String(node?.dataset?.rocAxisTitleKey || '');
+    if(!node || !owner || !/^(?:roc|pr)\.[xy]$/.test(key) || typeof makeEditable !== 'function') return false;
+    const generatedLabel = String(node.dataset.rocAxisGeneratedLabel ?? '');
+    let editInitialValue = null;
+    const writeOverride = (value, reason = 'roc-axis-title-draft') => {
+      const normalized = String(value == null ? '' : value).replace(/\r\n?/g, '\n');
+      const overrides = normalizeRocAxisTitleOverrides(owner.state?.axisTitleOverrides);
+      if(normalized === generatedLabel) delete overrides[key];
+      else overrides[key] = normalized;
+      patchRocVisualState(owner, { axisTitleOverrides: overrides }, { reason });
+      Shared.textBlock?.markDraftModified?.(node, owner, 'roc', reason);
+      return normalized;
+    };
+    makeEditable(node, value => {
+      const current = normalizeRocAxisTitleOverrides(owner.state?.axisTitleOverrides);
+      const previous = editInitialValue != null ? editInitialValue : String(current[key] ?? generatedLabel);
+      const nextValue = String(value == null ? '' : value).replace(/\r\n?/g, '\n');
+      if(!nextValue.trim() || previous === nextValue) return;
+      const apply = next => {
+        const normalized = String(next == null ? '' : next).replace(/\r\n?/g, '\n');
+        writeOverride(normalized, 'roc-axis-title-edit');
+        if(!Shared.fontControls?.setTitleText?.(node, normalized) && node.textContent !== normalized) node.textContent = normalized;
+        scheduleRocDrawForSession(owner, { reason: 'roc-axis-title-edit', renderImpact: 'layout' });
+        return true;
+      };
+      apply(nextValue);
+      recordRocChange(`roc:${key}`, previous, nextValue, apply);
+    }, {
+      getInitialValue: () => String(normalizeRocAxisTitleOverrides(owner.state?.axisTitleOverrides)[key] ?? generatedLabel),
+      onEditCheckpoint: (currentValue, _target, reason) => {
+        const nextValue = String(currentValue == null ? '' : currentValue).replace(/\r\n?/g, '\n');
+        if(reason === 'history-restore'){
+          editInitialValue = nextValue;
+          return true;
+        }
+        const overrides = normalizeRocAxisTitleOverrides(owner.state?.axisTitleOverrides);
+        const previous = editInitialValue != null ? editInitialValue : String(overrides[key] ?? generatedLabel);
+        if(!nextValue.trim() || previous === nextValue) return false;
+        recordRocChange(`roc:${key}`, previous, nextValue, value => {
+          const normalized = String(value == null ? '' : value).replace(/\r\n?/g, '\n');
+          writeOverride(normalized, 'roc-axis-title-edit');
+          if(!Shared.fontControls?.setTitleText?.(node, normalized) && node.textContent !== normalized) node.textContent = normalized;
+          scheduleRocDrawForSession(owner, { reason: 'roc-axis-title-edit', renderImpact: 'layout' });
+          return true;
+        });
+        editInitialValue = nextValue;
+        return true;
+      },
+      onEditStart: () => {
+        const overrides = normalizeRocAxisTitleOverrides(owner.state?.axisTitleOverrides);
+        editInitialValue = String(overrides[key] ?? generatedLabel);
+      },
+      onInput: value => { writeOverride(value); },
+      onEditEnd: (_target, finalValue) => {
+        const overrides = normalizeRocAxisTitleOverrides(owner.state?.axisTitleOverrides);
+        const current = String(overrides[key] ?? generatedLabel);
+        const nextValue = String(finalValue == null ? '' : finalValue).replace(/\r\n?/g, '\n');
+        if(current !== nextValue) writeOverride(nextValue, 'roc-axis-title-cancel');
+        editInitialValue = null;
+      }
     });
     return true;
   }
 
   function rehydrateRocInlineTextInteractions(svg, ownerSession = null){
     const title = svg?.querySelector?.('[data-font-role="graphTitle"]') || null;
-    return title ? bindRocTitleInlineInteraction(title, ownerSession) : true;
+    const axes = Array.from(svg?.querySelectorAll?.('[data-roc-axis-title-key]') || []);
+    return (title ? bindRocTitleInlineInteraction(title, ownerSession) : true)
+      && axes.every(node => bindRocAxisTitleInlineInteraction(node, ownerSession));
   }
 
   function bindRocLegendInteractions(legend, svg, ownerSession = null, metrics = {}){
@@ -1838,6 +1956,7 @@
       minSvgWidth: state.minSvgWidth,
       fileName: state.fileName,
       titleText: state.titleText,
+      axisTitleOverrides: state.axisTitleOverrides,
       axisSettings: state.axisSettings,
       gridStyle: state.gridStyle,
       autoDrawEnabled: state.autoDrawEnabled,
@@ -1884,6 +2003,7 @@
     state.minSvgWidth = Number.isFinite(Number(shaped.state.minSvgWidth)) ? Number(shaped.state.minSvgWidth) : 0;
     state.fileName = shaped.state.fileName || state.fileName || 'roc.graph';
     state.titleText = shaped.state.titleText != null ? String(shaped.state.titleText) : 'ROC curve';
+    state.axisTitleOverrides = normalizeRocAxisTitleOverrides(shaped.state.axisTitleOverrides);
     state.axisSettings = cloneSimple(shaped.state.axisSettings) || createDefaultAxisSettings();
     state.gridStyle = cloneSimple(shaped.state.gridStyle) || null;
     state.autoDrawEnabled = !!shaped.state.autoDrawEnabled;
@@ -2002,6 +2122,7 @@
       ...session.state,
       ...config,
       titleText: Object.prototype.hasOwnProperty.call(config, 'title') ? config.title : session.state.titleText,
+      axisTitleOverrides: config.axisTitleOverrides || session.state.axisTitleOverrides,
       axisSettings: config.axis || config.axisSettings || session.state.axisSettings,
       diffMethod: stats.diffMethod,
       singleRocPMethod: stats.singleRocPMethod,
@@ -6238,8 +6359,17 @@
       ? chartStyle.resolveScopedLabelMeasureFont({ styles: rocFontStyles, role: 'yTick', fallbackPx: fontSize }).fontSpec
       : chartStyle.makeFont(fontSize);
     const tickFont = yTickMeasureFont;
-    const xAxisLabel = graphType === 'roc' ? 'False Positive Rate' : 'Recall';
-    const yAxisLabel = graphType === 'roc' ? 'True Positive Rate' : 'Precision';
+    const generatedXAxisLabel = graphType === 'roc' ? 'False Positive Rate' : 'Recall';
+    const generatedYAxisLabel = graphType === 'roc' ? 'True Positive Rate' : 'Precision';
+    const xAxisTitleKey = `${graphType}.x`;
+    const yAxisTitleKey = `${graphType}.y`;
+    const axisTitleOverrides = normalizeRocAxisTitleOverrides(drawSession?.state?.axisTitleOverrides || state.axisTitleOverrides);
+    const xAxisLabel = Object.prototype.hasOwnProperty.call(axisTitleOverrides, xAxisTitleKey)
+      ? axisTitleOverrides[xAxisTitleKey]
+      : generatedXAxisLabel;
+    const yAxisLabel = Object.prototype.hasOwnProperty.call(axisTitleOverrides, yAxisTitleKey)
+      ? axisTitleOverrides[yAxisTitleKey]
+      : generatedYAxisLabel;
     const hasYTitle = yAxisLabel.trim().length > 0;
     const manualIntervalX = getAxisTickInterval('x');
     const manualIntervalY = getAxisTickInterval('y');
@@ -6274,6 +6404,11 @@
       ...cartesianMarginRequirements.requiredMargins,
       right: cartesianMarginRequirements.requiredMargins.right + defaultGutterDelta,
       bottom: Math.max(cartesianMarginRequirements.requiredMargins.bottom, bottomLayout.requiredBottom || margin.bottom)
+    };
+    const rocTitleBlocks = {
+      graphTitle: chartStyle.resolveTitleBlockLayout({ text: state.titleText, role: 'graphTitle', styles: rocFontStyles, fallbackPx: fontSize }),
+      xTitle: chartStyle.resolveTitleBlockLayout({ text: xAxisLabel, role: 'xTitle', styles: rocFontStyles, fallbackPx: fontSize }),
+      yTitle: chartStyle.resolveTitleBlockLayout({ text: yAxisLabel, role: 'yTitle', styles: rocFontStyles, fallbackPx: fontSize })
     };
     plotWidth = Math.max(20, width - margin.left - margin.right);
     plotHeight = Math.max(20, height - margin.top - margin.bottom);
@@ -6339,6 +6474,7 @@
       userFrame: { width, height },
       baselineMargins: margin,
       requiredMargins,
+      titleBlocks: rocTitleBlocks,
       auxiliaryReserves: [],
       externalExtensions: { right: legendWidth },
       orientation: 'normal',
@@ -6360,6 +6496,9 @@
       plotWidth = rocCartesianPlan.plotRect.width;
       plotHeight = rocCartesianPlan.plotRect.height;
     }
+    const rocTitleShiftX = rocCartesianPlan?.plotTranslation?.x || 0;
+    const rocTitleShiftY = rocCartesianPlan?.plotTranslation?.y || 0;
+    const rocMultilineSettleSides = Shared.cartesianLayout?.resolveMultilineTitleOverflowSides?.(rocTitleBlocks, 'normal') || [];
     // Match Survival: a Cartesian plot keeps its canonical plot rail, then
     // publishes labels and legends through the full outward content envelope.
     // ROC's legacy legend-only viewport deliberately ignored negative label
@@ -6374,7 +6513,9 @@
       leftWidth: rocCartesianPlan?.contentEnvelope?.extensionLeft || 0,
       topHeight: rocCartesianPlan?.contentEnvelope?.extensionTop || 0,
       bottomHeight: rocCartesianPlan?.contentEnvelope?.extensionBottom || 0,
-      legendWidth
+      legendWidth,
+      settleContentBounds: rocMultilineSettleSides.length > 0,
+      settleContentBoundsSides: rocMultilineSettleSides
     });
     console.debug('Debug: roc layout',{margin,plotWidth,plotHeight,rotate:bottomLayout.shouldRotate,cartesianPlan:!!rocCartesianPlan});
 
@@ -6560,6 +6701,9 @@
       'font-size': fontSize,
       fill: chartStyle.TEXT_COLOR
     }, xAxisLabel, { role: 'xTitle', key: 'xTitle' });
+    xText.dataset.rocAxisTitleKey = xAxisTitleKey;
+    xText.dataset.rocAxisGeneratedLabel = generatedXAxisLabel;
+    bindRocAxisTitleInlineInteraction(xText, drawSession);
     // Enable drag for x-axis label
     if(typeof Shared.enableLabelDrag === 'function'){
       Shared.enableLabelDrag(xText, svg, {
@@ -6579,7 +6723,7 @@
     }
 
     const yLabelOffsetSpan = (maxYLabelWidth + yMajorTickLength + tickGap + axisMetrics.axisTitleGap + fontSize * 0.5);
-    const defaultYLabelX = margin.left - yLabelOffsetSpan;
+    const defaultYLabelX = margin.left - yLabelOffsetSpan - rocTitleShiftX;
     const defaultYLabelY = margin.top + plotHeight / 2;
     const yLabelPos = state.labelPositions?.yLabel;
 
@@ -6589,7 +6733,7 @@
     if (yLabelPos) {
       if (yLabelPos.relX !== undefined && yLabelPos.relY !== undefined) {
         // Use relative positioning
-        absoluteYTextX = margin.left + yLabelPos.relX * yLabelOffsetSpan;
+        absoluteYTextX = margin.left + yLabelPos.relX * yLabelOffsetSpan - rocTitleShiftX;
         absoluteYTextY = margin.top + yLabelPos.relY * plotHeight;
       } else if (yLabelPos.x !== undefined && yLabelPos.y !== undefined) {
         // Use saved absolute positioning when no relative anchor is present
@@ -6606,12 +6750,15 @@
       transform: `rotate(-90 ${absoluteYTextX} ${absoluteYTextY})`,
       fill: chartStyle.TEXT_COLOR
     }, yAxisLabel, { role: 'yTitle', key: 'yTitle' });
+    yText.dataset.rocAxisTitleKey = yAxisTitleKey;
+    yText.dataset.rocAxisGeneratedLabel = generatedYAxisLabel;
+    bindRocAxisTitleInlineInteraction(yText, drawSession);
     // Enable drag for y-axis label
     if(typeof Shared.enableLabelDrag === 'function'){
       Shared.enableLabelDrag(yText, svg, {
         onDragEnd: pos => {
           // Store both absolute and relative positions for yLabel
-          const relX = (pos.x - margin.left) / yLabelOffsetSpan;
+          const relX = (pos.x - margin.left + rocTitleShiftX) / yLabelOffsetSpan;
           const relY = (pos.y - margin.top) / plotHeight;
           patchRocLabelPosition(drawSession, 'yLabel', {
             x: pos.x,
@@ -6624,7 +6771,7 @@
       });
     }
 
-    const titleY = Math.max(fontSize * 1.6, margin.top * 0.5);
+    const titleY = Math.max(fontSize * 1.6, (margin.top - rocTitleShiftY) * 0.5);
     const defaultTitle = getDefaultRocTitle(graphType);
     const titleValue = state.titleText != null ? String(state.titleText) : defaultTitle;
     const defaultTitleX = margin.left + plotWidth / 2;
@@ -6837,12 +6984,13 @@
         userFrame: rocCartesianPlan.userFrame,
         baselineMargins: rocCartesianPlan.baselineMargins,
         requiredMargins: rocCartesianPlan.requiredMargins,
+        titleBlocks: rocTitleBlocks,
         auxiliaryReserves: [],
         externalExtensions: { right: legendWidth },
         orientation: 'normal',
         lock: rocCartesianPlan.lock,
         minimumPlot: rocCartesianPlan.minimumPlot,
-        contentBounds: {
+        contentBounds: measuredRocViewport.renderedContentBounds || {
           minX: measuredRocViewport.minX, minY: measuredRocViewport.minY,
           maxX: measuredRocViewport.maxX, maxY: measuredRocViewport.maxY
         },
@@ -6857,7 +7005,7 @@
             && Number(getRocDrawRuntime(drawSession).generation || 0) === Number(meta?.drawGeneration || 0),
           projectionTarget: svg,
           commitFrame: () => commitRocFrame(),
-          commitPresentation: () => legendViewport.commit()
+          commitPresentation: plan => legendViewport.commit(plan)
         })
       : false;
     if(rocCartesianPlan && !rocLayoutPublished){
@@ -7119,6 +7267,7 @@
         labelOpacity: state.labelOpacity,
         labelLinePattern: state.labelLinePattern,
         title: state.titleText,
+        axisTitleOverrides: normalizeRocAxisTitleOverrides(state.axisTitleOverrides),
         graphType: controls.graphType,
         positiveClass: state.positiveClass,
         negativeClass: state.negativeClass,
@@ -7162,6 +7311,7 @@
       reportModel: statsPanelModel.reportModel || null
     };
     payload.config.labelPositions = state.labelPositions || null;
+    payload.config.axisTitleOverrides = normalizeRocAxisTitleOverrides(state.axisTitleOverrides);
     captureRocSessionStateFromActive(getRocProjectionSession({ reason: 'roc-projection-mutation' }), {
       reason: 'roc-get-payload',
       captureStatsPanel: false
@@ -7410,6 +7560,7 @@
     payload.config.showLegend = payload.config.showLegend !== undefined ? payload.config.showLegend !== false : true;
     payload.config.showComparisonOnPlot = false;
     payload.config.labelPositions = { title: null, xLabel: null, yLabel: null, legend: null, stats: null };
+    payload.config.axisTitleOverrides = {};
     return payload;
   };
 
@@ -7533,6 +7684,7 @@
       const inferredType = config.graphType || refs.graphType?.value || 'roc';
       state.titleText = getDefaultRocTitle(inferredType);
     }
+    state.axisTitleOverrides = normalizeRocAxisTitleOverrides(config.axisTitleOverrides);
     state.labelColors = config.labelColors || {};
     state.labelStrokeWidth = config.labelStrokeWidth || {};
     state.labelOpacity = config.labelOpacity || {};

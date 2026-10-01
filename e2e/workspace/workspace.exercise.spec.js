@@ -1,7 +1,7 @@
 const { test, expect } = require('@playwright/test');
 const fs = require('fs');
 const path = require('path');
-const { COMPONENT_MATRIX, openComponentFromWelcome, clickExampleButtonIfPresent } = require('../helpers/workspaceDriver');
+const { COMPONENT_MATRIX, openComponentFromWelcome, clickExpectedExampleButton } = require('../helpers/workspaceDriver');
 const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
 const {
   registerIssueCollectors,
@@ -18,27 +18,14 @@ const OWNER_PROJECTION_SELECTORS = {
   hist: '#histSvg'
 };
 
-function writePerfSummary(fileName, payload) {
-  const outDir = path.resolve('artifacts', 'perf-summaries');
-  fs.mkdirSync(outDir, { recursive: true });
-  const target = path.join(outDir, fileName);
-  const data = JSON.stringify(payload, null, 2);
-  let lastError = null;
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    try {
-      fs.writeFileSync(target, data, 'utf8');
-      return;
-    } catch (err) {
-      lastError = err;
-      const code = String(err?.code || '');
-      if (code !== 'EBUSY' && code !== 'EACCES' && code !== 'UNKNOWN') {
-        break;
-      }
-      const start = Date.now();
-      while (Date.now() - start < (attempt + 1) * 120) { /* retry backoff */ }
-    }
-  }
-  console.warn('workspace exercise perf summary write skipped', { fileName, error: lastError?.message || String(lastError) });
+async function attachPerfSummary(testInfo, fileName, payload) {
+  const target = testInfo.outputPath(`perf-summaries/${fileName}`);
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  fs.writeFileSync(target, JSON.stringify(payload, null, 2), 'utf8');
+  await testInfo.attach(fileName, {
+    path: target,
+    contentType: 'application/json'
+  });
 }
 
 test.describe('Workspace Stress Matrix', () => {
@@ -58,7 +45,7 @@ test.describe('Workspace Stress Matrix', () => {
         await openComponentFromWelcome(page, component, { first: index === 0 });
         const openMs = Date.now() - openStart;
         const exampleStart = Date.now();
-        const exampleLoaded = await clickExampleButtonIfPresent(page, component.exampleButtonId);
+        const exampleLoaded = await clickExpectedExampleButton(page, component.exampleButtonId);
         const exampleMs = Date.now() - exampleStart;
         const perfSnapshot = await collectComponentPerformanceSnapshot(page, component.type);
         report.push({
@@ -104,7 +91,7 @@ test.describe('Workspace Stress Matrix', () => {
       }, null, 2), 'utf8'),
       contentType: 'application/json'
     });
-    writePerfSummary(`all-components-${testInfo.project.name}.json`, {
+    await attachPerfSummary(testInfo, `all-components-${testInfo.project.name}.json`, {
       browser: testInfo.project.name,
       report,
       totals: {
@@ -129,7 +116,7 @@ test.describe('Workspace Stress Matrix', () => {
       await openComponentFromWelcome(page, component, { first: true });
       const openMs = Date.now() - openStart;
       const exampleStart = Date.now();
-      const exampleLoaded = await clickExampleButtonIfPresent(page, component.exampleButtonId);
+      const exampleLoaded = await clickExpectedExampleButton(page, component.exampleButtonId);
       const exampleMs = Date.now() - exampleStart;
       const perfBeforeExercise = await collectComponentPerformanceSnapshot(page, component.type);
       const exerciseStart = Date.now();
@@ -174,7 +161,7 @@ test.describe('Workspace Stress Matrix', () => {
         }, null, 2), 'utf8'),
         contentType: 'application/json'
       });
-      writePerfSummary(`component-${component.type}-${testInfo.project.name}.json`, {
+      await attachPerfSummary(testInfo, `component-${component.type}-${testInfo.project.name}.json`, {
         browser: testInfo.project.name,
         component: component.type,
         page: component.pageId,

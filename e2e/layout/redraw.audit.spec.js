@@ -1,7 +1,7 @@
 const { test, expect } = require('@playwright/test');
 const {
   openComponentFromWelcome,
-  clickExampleButtonIfPresent
+  clickExpectedExampleButton
 } = require('../helpers/workspaceDriver');
 const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
 const { waitForAnimationFrame, waitForComponentOwnerReady } = require('../helpers/contractWaits');
@@ -50,7 +50,7 @@ test.describe('Redraw minimization audit', () => {
     await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
 
     await openComponentFromWelcome(page, { type: 'box', pageId: 'boxPage', exampleButtonId: 'boxLoadExample' }, { first: true });
-    await clickExampleButtonIfPresent(page, 'boxLoadExample');
+    await clickExpectedExampleButton(page, 'boxLoadExample');
     await waitForComponentOwnerReady(page, 'box', {
       requireMountedRoot: true,
       requirePublished: true,
@@ -103,7 +103,7 @@ test.describe('Redraw minimization audit', () => {
     expect(after, 'box table edit should trigger data collect').toBeGreaterThan(before);
 
     await openComponentFromWelcome(page, { type: 'scatter', pageId: 'scatterPage', exampleButtonId: 'scatterLoadExample' }, { first: false });
-    await clickExampleButtonIfPresent(page, 'scatterLoadExample');
+    await clickExpectedExampleButton(page, 'scatterLoadExample');
     await waitForComponentOwnerReady(page, 'scatter', {
       requireMountedRoot: true,
       requirePublished: true,
@@ -176,7 +176,7 @@ test.describe('Redraw minimization audit', () => {
     await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
 
     await openComponentFromWelcome(page, { type: 'pca', pageId: 'pcaPage', exampleButtonId: 'pcaLoadExample' }, { first: true });
-    await clickExampleButtonIfPresent(page, 'pcaLoadExample');
+    await clickExpectedExampleButton(page, 'pcaLoadExample');
     await waitForComponentOwnerReady(page, 'pca', {
       requireMountedRoot: true,
       requirePublished: true,
@@ -286,7 +286,7 @@ test.describe('Redraw minimization audit', () => {
     await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
 
     await openComponentFromWelcome(page, { type: 'heatmap', pageId: 'heatmapPage', exampleButtonId: 'heatmapLoadExample' }, { first: true });
-    await clickExampleButtonIfPresent(page, 'heatmapLoadExample');
+    await clickExpectedExampleButton(page, 'heatmapLoadExample');
     await waitForComponentOwnerReady(page, 'heatmap', {
       requireMountedRoot: true,
       requirePublished: true,

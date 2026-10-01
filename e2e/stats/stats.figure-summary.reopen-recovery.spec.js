@@ -1,12 +1,16 @@
-const fs = require('fs');
 const { test, expect } = require('@playwright/test');
+const {
+  buildWorkspaceArchive,
+  openWorkspaceArchiveBuffer,
+  parseWorkspaceArchive
+} = require('../helpers/archiveDriver');
 const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
-const { openComponentFromWelcome, clickExampleButtonIfPresent } = require('../helpers/workspaceDriver');
+const { openComponentFromWelcome, clickExpectedExampleButton } = require('../helpers/workspaceDriver');
 const { registerIssueCollectors } = require('../helpers/diagnostics');
 
 async function prepareBox(page){
   await openComponentFromWelcome(page, { type:'box', pageId:'boxPage' }, { first:true });
-  await clickExampleButtonIfPresent(page, 'boxLoadExample');
+  await clickExpectedExampleButton(page, 'boxLoadExample');
   await expect(page.locator('#boxComputeStats')).toBeEnabled({ timeout:30_000 });
   await page.locator('#boxComputeStats').click();
   await expect(page.locator('#boxStatsStatus')).toContainText(/up to date/i, { timeout:60_000 });
@@ -32,28 +36,22 @@ async function exportSummaryGeometry(page){
 }
 
 async function captureArchivePayload(page, snapshotKind, componentType = 'box'){
-  return page.evaluate(async ({ kind, componentType }) => {
-    const context = window.Main.tabs.getSessionActionsContext();
-    const blob = await window.Main.sessionActions.buildWorkspaceArchiveBlob(context, {
-      scope:'workspace', snapshotKind:kind,
-      policyMode:kind === 'recovery' ? 'recovery' : 'manual-save',
-      reason:`e2e-stats-figure-summary-${kind}`,
-      compression:'STORE', useWorker:false
-    });
-    const parsed = await window.Shared.graphArchive.parseFile(blob, { fileName:`${kind}.graph` });
-    const component = parsed.session.tabs.find(tab => tab.type === componentType);
-    const bytes = new Uint8Array(await blob.arrayBuffer());
-    let binary = '';
-    for(let index = 0; index < bytes.length; index += 0x8000){
-      binary += String.fromCharCode.apply(null, bytes.subarray(index, index + 0x8000));
-    }
-    return { meta:component?.payload?.meta || null, session:parsed.session, base64:btoa(binary) };
-  }, { kind:snapshotKind, componentType });
+  const archive = await buildWorkspaceArchive(page, {
+    scope:'workspace',
+    snapshotKind,
+    policyMode:snapshotKind === 'recovery' ? 'recovery' : 'manual-save',
+    reason:`e2e-stats-figure-summary-${snapshotKind}`,
+    compression:'STORE',
+    useWorker:false
+  });
+  const parsed = await parseWorkspaceArchive(page, archive.base64, `${snapshotKind}.graph`);
+  const component = parsed.session.tabs.find(tab => tab.type === componentType);
+  return { meta:component?.payload?.meta || null, session:parsed.session, base64:archive.base64 };
 }
 
 async function prepareVennSummary(page, first){
   await openComponentFromWelcome(page, { type:'venn', pageId:'vennPage' }, { first });
-  await clickExampleButtonIfPresent(page, 'sample');
+  await clickExpectedExampleButton(page, 'sample');
   await page.waitForFunction(() => document.querySelector('#vennPage:not([hidden]) #stage [data-venn-trace-id]'));
   await page.locator('#significanceSection').evaluate(node => { node.open = true; });
   await page.locator('#totalGenes').fill('25000');
@@ -90,7 +88,7 @@ async function readVennGeometry(page){
 
 async function prepareSpecializedSummary(page, type, config){
   await openComponentFromWelcome(page, { type, pageId:config.pageId }, { first:true });
-  await clickExampleButtonIfPresent(page, config.example);
+  await clickExpectedExampleButton(page, config.example);
   if(config.compute){
     await expect(page.locator(config.compute)).toBeEnabled({ timeout:30_000 });
     await page.locator(config.compute).click();
@@ -182,38 +180,30 @@ async function installSummaryRecoverySampler(page, config){
 }
 
 async function captureSpecializedRecoveryArchive(page, type){
-  return page.evaluate(async componentType => {
-    const context = window.Main.tabs.getSessionActionsContext();
-    const blob = await window.Main.sessionActions.buildWorkspaceArchiveBlob(context, {
-      scope:'workspace',
-      snapshotKind:'recovery',
-      policyMode:'recovery',
-      reason:`e2e-stats-figure-summary-${componentType}-recovery`,
-      compression:'STORE',
-      useWorker:false
-    });
-    const parsed = await window.Shared.graphArchive.parseFile(blob, { fileName:'recovery.graph' });
-    const tab = parsed.session.tabs.find(entry => entry.type === componentType) || null;
-    const cache = tab?.archiveRenderCache || null;
-    const rootState = cache?.svgRootState || null;
-    const dataAttributes = rootState?.dataAttributes || {};
-    const bytes = new Uint8Array(await blob.arrayBuffer());
-    let binary = '';
-    for(let index = 0; index < bytes.length; index += 0x8000){
-      binary += String.fromCharCode.apply(null, bytes.subarray(index, index + 0x8000));
-    }
-    return {
-      base64:btoa(binary),
-      hasCache:!!cache,
-      hasCanonicalViewport:!!(
-        dataAttributes['data-graph-content-base-height']
-        || dataAttributes['data-stats-figure-summary-base-height']
-      )
-    };
-  }, type);
+  const archive = await buildWorkspaceArchive(page, {
+    scope:'workspace',
+    snapshotKind:'recovery',
+    policyMode:'recovery',
+    reason:`e2e-stats-figure-summary-${type}-recovery`,
+    compression:'STORE',
+    useWorker:false
+  });
+  const parsed = await parseWorkspaceArchive(page, archive.base64, 'recovery.graph');
+  const tab = parsed.session.tabs.find(entry => entry.type === type) || null;
+  const cache = tab?.archiveRenderCache || null;
+  const rootState = cache?.svgRootState || null;
+  const dataAttributes = rootState?.dataAttributes || {};
+  return {
+    base64:archive.base64,
+    hasCache:!!cache,
+    hasCanonicalViewport:!!(
+      dataAttributes['data-graph-content-base-height']
+      || dataAttributes['data-stats-figure-summary-base-height']
+    )
+  };
 }
 
-test('figure-summary toggle is serialized and projected after file reopen and recovery archive creation', async ({ page }, testInfo) => {
+test('figure-summary toggle is serialized and projected after file reopen and recovery archive creation', async ({ page }) => {
   test.setTimeout(180_000);
   const issues = registerIssueCollectors(page);
   await installLocalCdnOverrides(page);
@@ -231,18 +221,18 @@ test('figure-summary toggle is serialized and projected after file reopen and re
   expect(manual.meta?.statsReporting?.figureSummaryEnabled).toBe(true);
   expect(recovery.meta?.statsReporting?.figureSummaryEnabled).toBe(true);
 
-  const archivePath = testInfo.outputPath('stats-figure-summary-reopen.graph');
-  fs.writeFileSync(archivePath, Buffer.from(manual.base64, 'base64'));
-  await page.reload({ waitUntil:'domcontentloaded' });
-  await expect(page.locator('#welcomeScreen')).toBeVisible({ timeout:20_000 });
-  await page.locator('#workspaceSessionInput').setInputFiles(archivePath);
+  await openWorkspaceArchiveBuffer(page, Buffer.from(manual.base64, 'base64'), {
+    fileName:'stats-figure-summary-reopen.graph',
+    componentType:'box',
+    timeout:45_000
+  });
   await expect(page.locator('#boxPage:not([hidden])')).toBeVisible({ timeout:45_000 });
   await expect(page.locator('.workspace-page:not([hidden]) .stats-figure-summary-checkbox').last()).toBeChecked({ timeout:30_000 });
   await expect(page.locator('#boxPlot svg g[data-stats-figure-summary="1"]')).toHaveCount(1, { timeout:30_000 });
   expect(issues.critical).toEqual([]);
 });
 
-test('Venn summary cache preserves graph-to-table spacing through recovery', async ({ page }, testInfo) => {
+test('Venn summary cache preserves graph-to-table spacing through recovery', async ({ page }) => {
   test.setTimeout(180_000);
   const issues = registerIssueCollectors(page);
   await installLocalCdnOverrides(page);
@@ -263,11 +253,11 @@ test('Venn summary cache preserves graph-to-table spacing through recovery', asy
   }, summaryTab);
 
   const recovery = await captureArchivePayload(page, 'recovery', 'venn');
-  const archivePath = testInfo.outputPath('stats-figure-summary-venn-recovery.graph');
-  fs.writeFileSync(archivePath, Buffer.from(recovery.base64, 'base64'));
-  await page.reload({ waitUntil:'domcontentloaded' });
-  await expect(page.locator('#welcomeScreen')).toBeVisible({ timeout:20_000 });
-  await page.locator('#workspaceSessionInput').setInputFiles(archivePath);
+  await openWorkspaceArchiveBuffer(page, Buffer.from(recovery.base64, 'base64'), {
+    fileName:'stats-figure-summary-venn-recovery.graph',
+    componentType:'venn',
+    timeout:45_000
+  });
   await expect(page.locator('#vennPage:not([hidden])')).toBeVisible({ timeout:45_000 });
 
   const recoveredSummaryTab = await page.evaluate(() => {
@@ -295,7 +285,7 @@ for (const specialized of [
   { type:'heatmap', pageId:'heatmapPage', plot:'#heatmapSvg', example:'heatmapLoadExample' },
   { type:'surface', pageId:'surfacePage', plot:'#surfaceSvg', example:'surfaceLoadExample' }
 ]) {
-  test(`${specialized.type} summary cache preserves graph-to-table spacing through recovery`, async ({ page }, testInfo) => {
+  test(`${specialized.type} summary cache preserves graph-to-table spacing through recovery`, async ({ page }) => {
     test.setTimeout(180_000);
     const issues = registerIssueCollectors(page);
     await installLocalCdnOverrides(page);
@@ -315,12 +305,11 @@ for (const specialized of [
     if(specialized.recoverySampler){
       await installSummaryRecoverySampler(page, specialized);
     }
-    const archivePath = testInfo.outputPath(`${specialized.type}-stats-figure-summary-recovery.graph`);
-    fs.writeFileSync(archivePath, Buffer.from(recovery.base64, 'base64'));
-
-    await page.reload({ waitUntil:'domcontentloaded' });
-    await expect(page.locator('#welcomeScreen')).toBeVisible({ timeout:20_000 });
-    await page.locator('#workspaceSessionInput').setInputFiles(archivePath);
+    await openWorkspaceArchiveBuffer(page, Buffer.from(recovery.base64, 'base64'), {
+      fileName:`${specialized.type}-stats-figure-summary-recovery.graph`,
+      componentType:specialized.type,
+      timeout:45_000
+    });
     await expect(page.locator(`#${specialized.pageId}:not([hidden])`)).toBeVisible({ timeout:45_000 });
     await expect(page.locator(`#${specialized.pageId}:not([hidden]) .stats-figure-summary-checkbox`).last())
       .toBeChecked({ timeout:30_000 });

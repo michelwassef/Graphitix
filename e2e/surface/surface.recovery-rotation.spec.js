@@ -2,7 +2,7 @@ const { test, expect } = require('@playwright/test');
 const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
 const {
   openComponentFromWelcome,
-  clickExampleButtonIfPresent
+  clickExpectedExampleButton
 } = require('../helpers/workspaceDriver');
 const { registerIssueCollectors } = require('../helpers/diagnostics');
 const {
@@ -126,9 +126,9 @@ async function activateWorkspaceTab(page, tabId, type, pageId) {
 
 async function openPca3dTab(page) {
   await openComponentFromWelcome(page, { type: 'pca', pageId: 'pcaPage', exampleButtonId: 'pcaLoadExample' });
-  await clickExampleButtonIfPresent(page, 'pcaLoadExample');
+  await clickExpectedExampleButton(page, 'pcaLoadExample');
   await page.locator('#pcaPage:not([hidden]) #pcaViewMode').selectOption('3d');
-  await clickExampleButtonIfPresent(page, 'pcaLoadExample');
+  await clickExpectedExampleButton(page, 'pcaLoadExample');
   await page.waitForFunction(() => {
     const svg = document.querySelector('#pcaPage:not([hidden]) #pcaSvg');
     return !!svg && svg.dataset?.viewMode === '3d' && svg.dataset?.rotationControlsAttached === 'true';
@@ -137,9 +137,9 @@ async function openPca3dTab(page) {
 
 async function openScatter3dTab(page) {
   await openComponentFromWelcome(page, { type: 'scatter', pageId: 'scatterPage', exampleButtonId: 'scatterLoadExample' });
-  await clickExampleButtonIfPresent(page, 'scatterLoadExample');
+  await clickExpectedExampleButton(page, 'scatterLoadExample');
   await page.locator('#scatterPage:not([hidden]) #scatterViewMode').selectOption('3d');
-  await clickExampleButtonIfPresent(page, 'scatterLoadExample');
+  await clickExpectedExampleButton(page, 'scatterLoadExample');
   await page.waitForFunction(() => {
     const svg = document.querySelector('#scatterPage:not([hidden]) #scatterSvg');
     return !!svg && svg.dataset?.viewMode === '3d' && svg.dataset?.rotationControlsAttached === 'true';
@@ -245,7 +245,7 @@ test('recovered surface scale drag and 3D rotation remain live and stable', asyn
   await page.goto('/index.html');
   await clearRecoverySnapshot(page);
   await openComponentFromWelcome(page, { type: 'surface', pageId: 'surfacePage' }, { first: true });
-  await clickExampleButtonIfPresent(page, 'surfaceLoadExample');
+  await clickExpectedExampleButton(page, 'surfaceLoadExample');
   await waitForSurfaceDraw(page);
 
   await seedRecoverySnapshot(page);
@@ -291,7 +291,7 @@ test('recovered Surface rotation remains owner-scoped with PCA and Scatter 3D si
   await clearRecoverySnapshot(page);
 
   await openComponentFromWelcome(page, { type: 'surface', pageId: 'surfacePage' }, { first: true });
-  await clickExampleButtonIfPresent(page, 'surfaceLoadExample');
+  await clickExpectedExampleButton(page, 'surfaceLoadExample');
   await waitForSurfaceDraw(page);
   const surfaceTabId = await page.evaluate(() => window.Main?.session?.workspaceState?.activeTabId || null);
   expect(surfaceTabId).toBeTruthy();

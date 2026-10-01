@@ -4016,7 +4016,9 @@
       && requestedWorkspaceFraction > 0
       && requestedWorkspaceFraction < 1;
     const applyWorkspaceSplit = () => {
-      if(!hasWorkspaceSplit || hasManualPanelSizing){
+      // Persisted split state outranks stale pixel-sizing markers from the
+      // divider drag that originally produced that split.
+      if(!hasWorkspaceSplit){
         return false;
       }
       const fraction = Math.min(0.95, Math.max(0.05, requestedWorkspaceFraction));

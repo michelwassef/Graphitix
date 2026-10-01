@@ -1,100 +1,14 @@
-const { loadProductionBootstrap } = require('../../test-support/productionLoader');
-
-const cloneForTest = value => JSON.parse(JSON.stringify(value));
+const { createHeatmapStatsTestContext } = require('../../test-support/heatmapStatsSuite');
 
 jest.setTimeout(240_000);
 
-function getActiveHeatmapTabId() {
-  return window.Main?.session?.getActiveTab?.()?.id
-    || window.Main?.tabs?.getActiveTab?.()?.id
-    || null;
-}
-
-describe('Heatmap stats formatting', () => {
-  let originalCreateStandardTable;
-  async function flushAsyncWork(iterations = 20){
-    for(let i = 0; i < iterations; i += 1){
-      await new Promise(resolve => setTimeout(resolve, 0));
-    }
-  }
-  async function waitFor(predicate, iterations = 80){
-    for(let i = 0; i < iterations; i += 1){
-      if(predicate()){
-        return true;
-      }
-      await new Promise(resolve => setTimeout(resolve, 0));
-    }
-    return !!predicate();
-  }
-  async function ensureCorrelationView(){
-    const viewSelect = document.getElementById('heatmapView');
-    if(viewSelect){
-      viewSelect.value = 'corr-columns';
-      viewSelect.dispatchEvent(new Event('change', { bubbles: true }));
-      await flushAsyncWork(8);
-    }
-  }
-
-  beforeEach(async () => {
-    const previousHeatmap = window.Components?.heatmap || null;
-    const previousTabs = window.Main?.session?.workspaceState?.tabs || [];
-    if (previousHeatmap?.disposeTab) {
-      previousTabs.filter(tab => tab?.type === 'heatmap').forEach(tab => {
-        previousHeatmap.disposeTab(tab, { tabId: tab.id, reason: 'heatmap-stats-test-reset' });
-      });
-    }
-    delete window.Main;
-    delete window.Components;
-    delete window.Shared;
-    if (globalThis !== window) {
-      delete globalThis.Shared;
-    }
-    delete global.__LAST_HEATMAP_HOT__;
-    jest.resetModules();
-    loadProductionBootstrap({
-      vendorMode: 'fake',
-      preloadComponents: ['heatmap']
-    });
-    const canvasProto = window.HTMLCanvasElement?.prototype;
-    if(canvasProto){
-      canvasProto.getContext = jest.fn(() => ({
-        font: '',
-        measureText: text => ({ width: String(text || '').length * 8 })
-      }));
-    }
-    const Shared = window.Shared || {};
-    originalCreateStandardTable = Shared.hot?.createStandardTable;
-    if(originalCreateStandardTable){
-      Shared.hot.createStandardTable = function wrappedCreateStandardTable(){
-        const instance = originalCreateStandardTable.apply(this, arguments);
-        if(instance && arguments?.[0]?.id === 'heatmapHot'){
-          global.__LAST_HEATMAP_HOT__ = instance;
-        }
-        return instance;
-      };
-    }
-
-    const maybe = window.Main?.tabs?.handleGraphSelection?.('heatmap', {
-      reason: 'heatmap-stats-test-setup'
-    });
-    if (maybe && typeof maybe.then === 'function') {
-      await maybe;
-    }
-    const duplicatePrompt = document.getElementById('duplicatePrompt');
-    if (duplicatePrompt && !duplicatePrompt.hasAttribute('hidden')) {
-      document.getElementById('duplicateEmpty')?.click();
-    }
-    await flushAsyncWork(2);
-  });
-
-  afterEach(() => {
-    const Shared = window.Shared || {};
-    if(originalCreateStandardTable){
-      Shared.hot.createStandardTable = originalCreateStandardTable;
-    }
-    delete global.__LAST_HEATMAP_HOT__;
-    originalCreateStandardTable = undefined;
-  });
+describe('Heatmap stats formatting — rendering and layout', () => {
+  const {
+    cloneForTest,
+    flushAsyncWork,
+    waitFor,
+    ensureCorrelationView,
+  } = createHeatmapStatsTestContext();
 
   test('strongest magnitude displays positive value even for negative correlation', async () => {
     const hot = global.__LAST_HEATMAP_HOT__;
@@ -398,6 +312,7 @@ describe('Heatmap stats formatting', () => {
       correlationLabelDisplayScale: 0.4,
       cellSize: 20,
       maxRowLabelFontSize: 16,
+
       maxColumnLabelFontSize: 16
     };
 
@@ -697,215 +612,6 @@ describe('Heatmap stats formatting', () => {
     }
   });
 
-  test('data transform controls create a derived data tab while keeping raw tab', async () => {
-    const hot = global.__LAST_HEATMAP_HOT__;
-    expect(hot).toBeTruthy();
-    const matrix = [
-      ['Gene', 'ArrayA', 'ArrayB'],
-      ['Gene1', 1, 3],
-      ['Gene2', 2, 4]
-    ];
-    hot.loadData(matrix);
-
-    const centerGenes = document.getElementById('heatmapCenterGenes');
-    const normalizeGenes = document.getElementById('heatmapNormalizeGenes');
-    expect(centerGenes).toBeTruthy();
-    expect(normalizeGenes).toBeTruthy();
-    const initialTabCount = document.querySelectorAll('#heatmapHotWrapper .data-view-tabs__tab').length;
-    centerGenes.checked = true;
-    centerGenes.dispatchEvent(new Event('change'));
-    expect(document.querySelectorAll('#heatmapHotWrapper .data-view-tabs__tab')).toHaveLength(initialTabCount);
-    await flushAsyncWork(4);
-
-    let tabs = Array.from(document.querySelectorAll('#heatmapHotWrapper .data-view-tabs__tab'));
-
-    normalizeGenes.checked = true;
-    normalizeGenes.dispatchEvent(new Event('change'));
-    await flushAsyncWork(4);
-
-    tabs = Array.from(document.querySelectorAll('#heatmapHotWrapper .data-view-tabs__tab'));
-    if(tabs.length){
-      expect(tabs.length).toBeGreaterThanOrEqual(initialTabCount);
-      const activeTab = document.querySelector('#heatmapHotWrapper .data-view-tabs__tab--active');
-      expect(activeTab).toBeTruthy();
-    }
-
-    const transformed = hot.getData();
-    expect(Number.isFinite(Number(transformed?.[1]?.[1]))).toBe(true);
-    expect(Number.isFinite(Number(transformed?.[1]?.[2]))).toBe(true);
-  });
-
-  test('toolbar multiple mode applies selected transforms as one derived tab', () => {
-    const hot = global.__LAST_HEATMAP_HOT__;
-    expect(hot).toBeTruthy();
-    hot.loadData([
-      ['Gene', 'ArrayA', 'ArrayB'],
-      ['Gene1', 1, 3],
-      ['Gene2', 2, 4]
-    ]);
-
-    const multiToggle = document.getElementById('heatmapTransformMultiMode');
-    const logButton = document.getElementById('heatmapTransformLog2p1');
-    const centerButton = document.getElementById('heatmapTransformCenterRowsMean');
-    const applyButton = document.getElementById('heatmapTransformApplySelected');
-    expect(multiToggle).toBeTruthy();
-    expect(logButton).toBeTruthy();
-    expect(centerButton).toBeTruthy();
-    expect(applyButton).toBeTruthy();
-    const beforeTabs = document.querySelectorAll('#heatmapHotWrapper .data-view-tabs__tab').length;
-
-    multiToggle.checked = true;
-    multiToggle.dispatchEvent(new Event('change', { bubbles: true }));
-    logButton.click();
-    centerButton.click();
-    expect(applyButton.disabled).toBe(false);
-    expect(document.querySelectorAll('#heatmapHotWrapper .data-view-tabs__tab').length).toBe(beforeTabs);
-
-    applyButton.click();
-
-    const tabs = Array.from(document.querySelectorAll('#heatmapHotWrapper .data-view-tabs__tab'));
-    if(tabs.length){
-      expect(tabs.length).toBeGreaterThanOrEqual(beforeTabs);
-      const activeTab = document.querySelector('#heatmapHotWrapper .data-view-tabs__tab--active');
-      expect(activeTab).toBeTruthy();
-    }
-
-    const transformed = hot.getData();
-    expect(Number.isFinite(Number(transformed?.[1]?.[1]))).toBe(true);
-    expect(Number.isFinite(Number(transformed?.[1]?.[2]))).toBe(true);
-  });
-
-  test('custom transform opens dropdown editor in multiple mode', () => {
-    const hot = global.__LAST_HEATMAP_HOT__;
-    expect(hot).toBeTruthy();
-    hot.loadData([
-      ['Gene', 'ArrayA', 'ArrayB'],
-      ['Gene1', 1, 3],
-      ['Gene2', 2, 4]
-    ]);
-
-    const multiToggle = document.getElementById('heatmapTransformMultiMode');
-    const customButton = document.getElementById('heatmapTransformCustom');
-    expect(multiToggle).toBeTruthy();
-    expect(customButton).toBeTruthy();
-    const beforeTabs = document.querySelectorAll('#heatmapHotWrapper .data-view-tabs__tab').length;
-
-    multiToggle.checked = true;
-    multiToggle.dispatchEvent(new Event('change', { bubbles: true }));
-    customButton.click();
-
-    const transformSection = customButton.closest('.workspace-toolbar__section[data-transform-section="1"]');
-    const dropdown = transformSection?.querySelector('[data-transform-custom-dropdown="1"]');
-    const input = document.getElementById('heatmapTransformCustomExpr');
-    const applyCustomButton = document.getElementById('heatmapTransformCustomApply');
-    expect(dropdown).toBeTruthy();
-    expect(dropdown?.dataset?.open).toBe('1');
-    expect(input).toBeTruthy();
-    expect(applyCustomButton).toBeTruthy();
-
-    input.value = 'x+1';
-    input.dispatchEvent(new Event('change', { bubbles: true }));
-    applyCustomButton.click();
-
-    const tabs = document.querySelectorAll('#heatmapHotWrapper .data-view-tabs__tab');
-    if(tabs.length){
-      expect(tabs.length).toBeGreaterThanOrEqual(beforeTabs);
-    }
-  });
-
-  test('closing materialized transform tab clears adjust/filter selections', async () => {
-    const hot = global.__LAST_HEATMAP_HOT__;
-    expect(hot).toBeTruthy();
-    hot.loadData([
-      ['Gene', 'ArrayA', 'ArrayB'],
-      ['Gene1', 1, 3],
-      ['Gene2', 2, 4]
-    ]);
-
-    const centerGenes = document.getElementById('heatmapCenterGenes');
-    const filterPresent = document.getElementById('heatmapFilterPresentEnable');
-    expect(centerGenes).toBeTruthy();
-    expect(filterPresent).toBeTruthy();
-
-    centerGenes.checked = true;
-    centerGenes.dispatchEvent(new Event('change'));
-    filterPresent.checked = true;
-    filterPresent.dispatchEvent(new Event('change'));
-    await flushAsyncWork(4);
-
-    const activeClose = document.querySelector('#heatmapHotWrapper .data-view-tabs__item--active .data-view-tabs__close');
-    if(activeClose){
-      activeClose.click();
-    }
-
-    if(activeClose){
-      expect(centerGenes.checked).toBe(false);
-      expect(filterPresent.checked).toBe(false);
-      const activeTab = document.querySelector('#heatmapHotWrapper .data-view-tabs__tab--active');
-      expect(activeTab).toBeTruthy();
-      expect((activeTab.textContent || '').toLowerCase()).toContain('raw');
-    }
-  });
-
-  test('switching to the correlation matrix tab does not trigger recursive redraw loads', async () => {
-    if(typeof global.__resetGrid__ === 'function'){
-      global.__resetGrid__();
-    }
-    const hot = global.__LAST_HEATMAP_HOT__;
-    expect(hot).toBeTruthy();
-    const originalApplyExclusions = hot.applyExclusions;
-    const applyExclusionsCalls = [];
-    hot.applyExclusions = function wrappedApplyExclusions(payload){
-      applyExclusionsCalls.push(payload);
-      return originalApplyExclusions.apply(this, arguments);
-    };
-    try{
-    hot.loadData([
-      ['Gene', 'Baseline_A', 'Baseline_B', 'Treatment_A', 'Treatment_B', 'Stress_A', 'Stress_B', 'Recovery'],
-      ['Gene1', 10, 9.7, 3.2, 3.1, 6.1, 6.3, 8.2],
-      ['Gene2', 11, 10.8, 4.1, 4.0, 5.9, 6.0, 8.0],
-      ['Gene3', 12, 11.7, 2.9, 3.0, 6.4, 6.6, 7.6],
-      ['Gene4', 9.5, 9.4, 7.5, 7.6, 5.2, 5.1, 8.8]
-    ]);
-    window.Components.heatmap.draw();
-    await flushAsyncWork();
-
-    const correlationTab = Array.from(
-      document.querySelectorAll('#heatmapHotWrapper .data-view-tabs__tab')
-    ).find(tab => /correlation matrix/i.test(tab.textContent || ''));
-    if(!correlationTab){
-      expect(Array.isArray(global.__GRID_CALLS__ || [])).toBe(true);
-      return;
-    }
-
-    const loadCallsBefore = (global.__GRID_CALLS__ || []).filter(call =>
-      call.type === 'loadData' && call.containerId === 'heatmapHot'
-    ).length;
-    correlationTab.click();
-    const manager = hot.__heatmapDataViewsManager;
-    const correlationReady = await waitFor(
-      () => manager?.getActiveView?.()?.transformSpec?.type === 'heatmapCorrelationMatrix',
-      80
-    );
-    expect(correlationReady).toBe(true);
-    const activeView = manager?.getActiveView?.() || null;
-    const loadCallsAfter = (global.__GRID_CALLS__ || []).filter(call =>
-      call.type === 'loadData' && call.containerId === 'heatmapHot'
-    );
-    const loadSources = loadCallsAfter.slice(loadCallsBefore).map(call => call.source);
-    const activeTab = document.querySelector('#heatmapHotWrapper .data-view-tabs__tab--active');
-
-    expect(activeView?.transformSpec?.type).toBe('heatmapCorrelationMatrix');
-    expect(activeView?.sourceViewId).toBe('raw');
-    expect(loadSources).toEqual(['heatmap-correlation-tab-activate']);
-    expect(applyExclusionsCalls).toEqual([]);
-    expect(activeTab).toBeTruthy();
-    expect((activeTab.textContent || '').toLowerCase()).toContain('correlation matrix');
-    } finally {
-      hot.applyExclusions = originalApplyExclusions;
-    }
-  });
-
   test('graph title stays above long vertical column labels', async () => {
     const hot = global.__LAST_HEATMAP_HOT__;
     expect(hot).toBeTruthy();
@@ -957,6 +663,7 @@ describe('Heatmap stats formatting', () => {
     // Title's y position should be above (smaller than) the highest label top extent
     expect(titleY).toBeLessThan(highestLabelTop);
   });
+
   test('heavy SVG helpers compact dendrogram coordinates without changing geometry', () => {
     const hooks = window.Components?.heatmap?.__testHooks;
     expect(hooks?.formatSvgNumber(12.34567)).toBe('12.35');
@@ -973,86 +680,6 @@ describe('Heatmap stats formatting', () => {
       { x: 3.45678, y: 4.56789 },
       { x: 5.67891, y: 6.78912 }
     )).toBe('M1.2346 4.5679H5.6789M1.2346 2.3457V4.5679M5.6789 4.5679V6.7891');
-  });
-
-
-  test('correlation significance correction defaults to BH and persists through payload state', async () => {
-    const correction = document.getElementById('heatmapSignificanceCorrection');
-    expect(correction).toBeTruthy();
-    expect(correction.value).toBe('bh');
-    correction.value = 'holm';
-    correction.dispatchEvent(new Event('change', { bubbles: true }));
-    await flushAsyncWork(4);
-    const payload = window.Components.heatmap.getPayload();
-    expect(payload.config.significanceCorrection).toBe('holm');
-    window.Components.heatmap.loadFromPayload(cloneForTest(payload), {
-      tabId: getActiveHeatmapTabId(),
-      skipDraw: true,
-      skipInitialDraw: true
-    });
-    expect(document.getElementById('heatmapSignificanceCorrection').value).toBe('holm');
-  });
-
-
-  test('runtime snapshots preserve the current correlation correction', async () => {
-    const heatmap = window.Components.heatmap;
-    const correction = document.getElementById('heatmapSignificanceCorrection');
-    expect(correction).toBeTruthy();
-
-    correction.value = 'by';
-    correction.dispatchEvent(new Event('change', { bubbles: true }));
-    await flushAsyncWork(4);
-
-    const snapshot = cloneForTest(heatmap.captureRuntimeState({
-      tabId: getActiveHeatmapTabId(),
-      reason: 'heatmap-current-runtime-capture-test'
-    }));
-    expect(snapshot?.controls?.significanceCorrection).toBe('by');
-
-    correction.value = 'holm';
-    expect(heatmap.applyRuntimeState(snapshot, {
-      tabId: getActiveHeatmapTabId(),
-      reason: 'heatmap-current-runtime-apply-test'
-    })).toBe(true);
-    expect(document.getElementById('heatmapSignificanceCorrection').value).toBe('by');
-    expect(heatmap.getPayload().config.significanceCorrection).toBe('by');
-  });
-
-  test('correlation reporting records the active multiplicity family and inference level', async () => {
-    const hot = global.__LAST_HEATMAP_HOT__;
-    const heatmap = window.Components.heatmap;
-    hot.loadData([
-      ['Gene', 'A', 'B', 'C'],
-      ['G1', 1, 1, 4],
-      ['G2', 2, 3, 3],
-      ['G3', 3, 2, 2],
-      ['G4', 4, 4, 1]
-    ]);
-    await ensureCorrelationView();
-    const showSignificance = document.getElementById('heatmapShowSignificance');
-    const correction = document.getElementById('heatmapSignificanceCorrection');
-    showSignificance.checked = true;
-    showSignificance.dispatchEvent(new Event('change', { bubbles: true }));
-    correction.value = 'bh';
-    correction.dispatchEvent(new Event('change', { bubbles: true }));
-
-    expect(await waitFor(() => {
-      const stats = heatmap.__getState().lastStats;
-      return stats?.type === 'correlation'
-        && stats.showSignificance === true
-        && stats.significanceCorrection === 'bh'
-        && stats.testedPairCount === 3;
-    })).toBe(true);
-
-    const statsText = document.getElementById('heatmapStatsContent')?.textContent || '';
-    expect(statsText).toContain('Benjamini–Hochberg FDR');
-    expect(statsText).toContain('target FDR = 0.05');
-    expect(statsText).toContain('unique pairs');
-    expect(heatmap.__getState().lastStats).toMatchObject({
-      showSignificance: true,
-      significanceCorrection: 'bh',
-      testedPairCount: 3
-    });
   });
 
   test('Heatmap keeps the canonical horizontal edge gutter in both layout engines', () => {

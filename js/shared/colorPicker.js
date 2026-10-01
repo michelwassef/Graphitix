@@ -4,6 +4,10 @@
   'use strict';
 
   const Shared = global.Shared = global.Shared || {};
+  const symbolGeometry = Shared.symbolGeometry = Shared.symbolGeometry || {};
+  if(typeof symbolGeometry.resolveEqualAreaHalfExtent !== 'function' && typeof require === 'function'){
+    require('./symbolGeometry.js');
+  }
   const documentRef = global.document;
 
   const STANDARD_COLORS = ['#000000', '#C00000', '#FF0000', '#FFC000', '#FFFF00', '#92D050', '#00B050', '#00B0F0', '#0070C0', '#002060', '#7030A0'];
@@ -512,7 +516,8 @@
     }
     if(normalized === 'diamond'){
       const path = documentRef.createElementNS(SVG_NS, 'path');
-      path.setAttribute('d', `M ${center} ${center - radius} L ${center + radius} ${center} L ${center} ${center + radius} L ${center - radius} ${center} Z`);
+      const halfExtent = symbolGeometry.resolveEqualAreaHalfExtent(normalized, radius);
+      path.setAttribute('d', `M ${center} ${center - halfExtent} L ${center + halfExtent} ${center} L ${center} ${center + halfExtent} L ${center - halfExtent} ${center} Z`);
       path.setAttribute('fill', 'currentColor');
       svg.appendChild(path);
       return svg;

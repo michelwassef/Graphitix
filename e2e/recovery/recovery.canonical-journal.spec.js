@@ -1,7 +1,7 @@
 const { test, expect } = require('@playwright/test');
 const {
   openComponentFromWelcome,
-  clickExampleButtonIfPresent
+  clickExpectedExampleButton
 } = require('../helpers/workspaceDriver');
 const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
 const { waitForComponentOwnerReady } = require('../helpers/contractWaits');
@@ -44,7 +44,7 @@ test('canonical recovery journal restores an edit made immediately before reload
   await expect(page.locator('#welcomeScreen')).toBeVisible({ timeout: 20_000 });
   await openComponentFromWelcome(page, { type: 'box', pageId: 'boxPage' }, { first: true });
   await page.waitForSelector('#boxPage:not([hidden])', { timeout: 30_000 });
-  await clickExampleButtonIfPresent(page, 'boxLoadExample');
+  await clickExpectedExampleButton(page, 'boxLoadExample');
   await waitForComponentOwnerReady(page, 'box', {
     requireMountedRoot: true,
     requireIdle: true
@@ -107,7 +107,7 @@ test('canonical recovery journal preserves immediate Box control changes', async
   await expect(page.locator('#welcomeScreen')).toBeVisible({ timeout: 20_000 });
   await openComponentFromWelcome(page, { type: 'box', pageId: 'boxPage' }, { first: true });
   await page.waitForSelector('#boxPage:not([hidden])', { timeout: 30_000 });
-  await clickExampleButtonIfPresent(page, 'boxLoadExample');
+  await clickExpectedExampleButton(page, 'boxLoadExample');
   await page.waitForSelector('#boxPage:not([hidden]) #boxPlot svg', { timeout: 30_000 });
   await clearRecoverySnapshot(page);
 
@@ -192,7 +192,7 @@ test('canonical recovery journal preserves an immediate Histogram density change
   await expect(page.locator('#welcomeScreen')).toBeVisible({ timeout: 20_000 });
   await openComponentFromWelcome(page, { type: 'hist', pageId: 'histPage' }, { first: true });
   await page.waitForSelector('#histPage:not([hidden])', { timeout: 30_000 });
-  await clickExampleButtonIfPresent(page, 'histLoadExample');
+  await clickExpectedExampleButton(page, 'histLoadExample');
   await page.waitForSelector('#histPage:not([hidden]) #histPlot svg', { timeout: 30_000 });
   await clearRecoverySnapshot(page);
 
@@ -233,7 +233,7 @@ test('canonical recovery journal preserves an immediate Scatter resize', async (
   await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
   await expect(page.locator('#welcomeScreen')).toBeVisible({ timeout: 20_000 });
   await openComponentFromWelcome(page, { type: 'scatter', pageId: 'scatterPage' }, { first: true });
-  await clickExampleButtonIfPresent(page, 'scatterLoadExample');
+  await clickExpectedExampleButton(page, 'scatterLoadExample');
   await page.waitForFunction(() => !!document.querySelector('#scatterPage:not([hidden]) #scatterPlot svg'), null, { timeout: 30_000 });
   await waitForComponentOwnerReady(page, 'scatter', {
     requireMountedRoot: true,

@@ -1,12 +1,12 @@
 const { test, expect } = require('@playwright/test');
 const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
-const { openComponentFromWelcome, clickExampleButtonIfPresent } = require('../helpers/workspaceDriver');
+const { openComponentFromWelcome, clickExpectedExampleButton } = require('../helpers/workspaceDriver');
 
 test('Surface color scale does not add a second right margin to the SVG box', async ({ page }) => {
   await installLocalCdnOverrides(page);
   await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
   await openComponentFromWelcome(page, { type: 'surface', pageId: 'surfacePage' }, { first: true });
-  await clickExampleButtonIfPresent(page, 'surfaceLoadExample');
+  await clickExpectedExampleButton(page, 'surfaceLoadExample');
   await page.waitForFunction(() => {
     const svg = document.querySelector('#surfacePage:not([hidden]) #surfaceSvg');
     return !!svg?.querySelector('g.surface-legend')

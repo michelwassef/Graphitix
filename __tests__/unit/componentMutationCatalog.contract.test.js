@@ -5,6 +5,11 @@ const {
   COMPONENT_MUTATION_CATALOG,
   REQUIRED_MUTATION_KINDS
 } = require('../../test-support/componentMutationCatalog.js');
+const {
+  applyLogicalParameterMutation,
+  buildParameterVariantPayload
+} = require('../../e2e/helpers/mutationAdapters.js');
+const parameterAssertions = require('../../e2e/helpers/parameterAssertions.js');
 
 describe('component mutation catalog', () => {
   test('has one explicit persistence plan for every component', () => {
@@ -19,6 +24,10 @@ describe('component mutation catalog', () => {
       expect(plan.interactionRestore.selector).toBeTruthy();
       expect(plan.interactionRestore.targetSelector).toBeTruthy();
       expect(plan.interactionRestore.action).toBeTruthy();
+      expect(plan.uiMutations).toHaveLength(3);
+      expect(plan.uiMutations.map(mutation => mutation.kind)).toEqual(['parameter', 'style', 'layout']);
+      expect(plan.uiMutations[2].authority).toBe('layout');
+      expect(plan.uiMutations[2].path).toBe('display.widthPx');
       expect(new Set(plan.mutations.map(mutation => mutation.kind))).toEqual(
         new Set(REQUIRED_MUTATION_KINDS)
       );
@@ -27,6 +36,107 @@ describe('component mutation catalog', () => {
         expect(mutation.path).not.toMatch(/\*/);
         expect(mutation.fingerprint).toContain(mutation.path);
       }
+      for (const mutation of plan.uiMutations) {
+        expect(mutation.id).toMatch(new RegExp(`^${component.type}\\.`));
+        expect(mutation.selector).toBeTruthy();
+        expect(mutation.path).not.toMatch(/\*/);
+        if (mutation.action === 'drag-horizontal') {
+          expect(mutation.delta).toEqual(expect.any(Number));
+          expect(mutation.minDelta).toEqual(expect.any(Number));
+        }
+      }
     }
+  });
+
+  test('builds immutable variants and preserves component-specific mutation contracts', () => {
+    const baseline = {
+      type: 'scatter',
+      config: {
+        showErrorBars: false,
+        showGroupedReplicatePoints: true,
+        rotation: { x: 0, y: 0, z: 0, quaternion: [1, 0, 0, 0] }
+      },
+      data: [[1, 2]]
+    };
+    const variant = buildParameterVariantPayload(baseline, [
+      { path: ['config', 'showErrorBars'], before: false, after: true },
+      { path: ['config', 'rotation', 'x'], before: 0, after: 20 }
+    ], 'after');
+
+    expect(variant).toEqual({
+      type: 'scatter',
+      config: {
+        showErrorBars: true,
+        showGroupedReplicatePoints: false,
+        rotation: { x: 20, y: 0, z: 0 }
+      },
+      data: [[1, 2]]
+    });
+    expect(baseline.config.showErrorBars).toBe(false);
+    expect(baseline.config.rotation.quaternion).toEqual([1, 0, 0, 0]);
+  });
+
+  test.each([
+    ['box', ['config', 'fill'], '#123456', { colorScheme: 'custom' }],
+    ['line', ['config', 'tableFormat'], 'grouped', { replicates: 2 }],
+    ['heatmap', ['config', 'filters', 'sdThreshold'], 1.5, { filters: { sdEnabled: true } }],
+    ['surface', ['config', 'settings', 'backgroundColor'], '#f2f5fa', {
+      backgroundColor: '#f2f5fa',
+      settings: { backgroundColor: '#f2f5fa' }
+    }],
+    ['roc', ['config', 'positiveClass'], 'treated', { negativeClass: 'control' }]
+  ])('applies the %s adapter side effects', (type, path, value, expectedConfig) => {
+    const baseline = {
+      type,
+      config: type === 'heatmap'
+        ? { filters: { sdEnabled: false, sdThreshold: 0 } }
+        : type === 'roc'
+          ? { positiveClass: 'control', negativeClass: 'treated' }
+          : {}
+    };
+    const parameter = {
+      path,
+      before: type === 'roc' ? 'control' : path[path.length - 1] === 'tableFormat' ? 'single' : undefined
+    };
+
+    applyLogicalParameterMutation(baseline, parameter, value);
+
+    if(type === 'heatmap'){
+      expect(baseline.config.filters).toEqual(expect.objectContaining(expectedConfig.filters));
+    } else {
+      expect(baseline.config).toEqual(expect.objectContaining(expectedConfig));
+    }
+  });
+
+  test('keeps parameter authority and projection assertions in one pure module', () => {
+    const parameter = {
+      key: 'config.value',
+      path: ['config', 'value'],
+      before: 1,
+      after: 2,
+      kind: 'parameter',
+      semanticFingerprint: ['config.value']
+    };
+    const results = parameterAssertions.createParameterResults([parameter]);
+    const state = {
+      tabId: 'tab-1',
+      payload: { config: { value: 2 } },
+      dom: { 'input.value': 2 },
+      owner: { 'session.config.value': 2 }
+    };
+
+    parameterAssertions.recordParameterAssertion(
+      results,
+      parameter,
+      state,
+      2,
+      { domKey: 'input.value', ownerKey: 'session.config.value' },
+      'mutated',
+      () => 1
+    );
+
+    expect(parameterAssertions.collectResultFailures(results)).toEqual([]);
+    expect(results.get(parameter.key).snapshots).toHaveLength(1);
+    expect(results.get(parameter.key).before).toBe(1);
   });
 });

@@ -3,7 +3,7 @@ const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
 const { registerIssueCollectors } = require('../helpers/diagnostics');
 const {
   openComponentFromWelcome,
-  clickExampleButtonIfPresent,
+  clickExpectedExampleButton,
   waitForDocumentOpenComplete
 } = require('../helpers/workspaceDriver');
 const {
@@ -345,7 +345,7 @@ async function openComponentTab(page, componentCase, { first = false } = {}) {
   }
   await expect(page.locator(`#${componentCase.component.pageId}:not([hidden])`)).toBeVisible({ timeout: 25_000 });
   await page.waitForFunction(type => !!window.Components?.[type]?.getPayload, componentCase.key, { timeout: 25_000 });
-  await clickExampleButtonIfPresent(page, componentCase.exampleButtonId);
+  await clickExpectedExampleButton(page, componentCase.exampleButtonId);
   await waitForComponentOwnerReady(page, componentCase.component, { requireMountedRoot: true });
 }
 

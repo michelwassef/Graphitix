@@ -974,35 +974,76 @@
     const normalizedKind = kind === 'title' || kind === 'x' || kind === 'y' ? kind : '';
     if(!normalizedKind){ return false; }
     node.dataset.histInlineRole = normalizedKind;
+    let editInitialValue = null;
+    const plotMode = normalizeHistPlotMode(owner.state?.plotMode || state.plotMode);
+    const frequencySettings = sanitizeHistFrequencySettings(owner.state?.frequencySettings || state.frequencySettings || {});
+    const buildPatch = value => {
+      const normalized = String(value ?? '').replace(/\r\n?/g, '\n');
+      return normalizedKind === 'title'
+        ? { title: normalized, titleAuto: normalized === getHistDefaultTitle(plotMode) }
+        : normalizedKind === 'y'
+          ? { y: normalized, yAuto: normalized === getHistDefaultYLabel(plotMode, frequencySettings) }
+          : { x: normalized };
+    };
+    const writeDraft = value => {
+      const normalized = String(value ?? '').replace(/\r\n?/g, '\n');
+      patchHistLabelsState(owner, buildPatch(normalized), { reason: `hist-${normalizedKind}-label-draft` });
+      if(normalizedKind === 'x'){
+        const sourceColumn = Number(node.dataset.histSourceColumnIndex);
+        const hot = owner.managers?.hot || null;
+        if(Number.isInteger(sourceColumn) && sourceColumn >= 0 && hot?.setDataAtCell){
+          hot.setDataAtCell([0, sourceColumn, normalized], 'hist-x-axis-inline-draft');
+        }
+      }
+      Shared.textBlock?.markDraftModified?.(node, owner, 'hist', `hist-${normalizedKind}-label-draft`);
+      return normalized;
+    };
+    const apply = value => {
+      const normalized = String(value ?? '').replace(/\r\n?/g, '\n');
+      patchHistLabelsState(owner, buildPatch(normalized), { reason: `hist-${normalizedKind}-label-edit` });
+      if(!Shared.fontControls?.setTitleText?.(node, normalized) && node.textContent !== normalized){ node.textContent = normalized; }
+      if(normalizedKind === 'x'){
+        const sourceColumn = Number(node.dataset.histSourceColumnIndex);
+        const hot = owner.managers?.hot || null;
+        if(Number.isInteger(sourceColumn) && sourceColumn >= 0 && hot?.setDataAtCell){
+          try{ hot.setDataAtCell([0, sourceColumn, normalized], 'hist-x-axis-edit'); }
+          catch(err){ console.error('hist x label header sync failed', err); }
+        }
+      }
+      scheduleHistOwnerDraw(owner, { reason: `hist-${normalizedKind}-label-edit`, renderImpact: 'layout' });
+      return true;
+    };
     Shared.makeEditable(node, text => {
       const labels = getHistLabelsState(owner);
-      const previous = String(labels?.[normalizedKind] ?? '');
-      const nextValue = String(text ?? '');
+      const previous = editInitialValue != null ? editInitialValue : String(labels?.[normalizedKind] ?? '');
+      const nextValue = String(text ?? '').replace(/\r\n?/g, '\n');
       if(previous === nextValue){ return; }
-      const plotMode = normalizeHistPlotMode(owner.state?.plotMode || state.plotMode);
-      const frequencySettings = sanitizeHistFrequencySettings(owner.state?.frequencySettings || state.frequencySettings || {});
-      const apply = value => {
-        const normalized = String(value ?? '');
-        const patch = normalizedKind === 'title'
-          ? { title: normalized, titleAuto: normalized === getHistDefaultTitle(plotMode) }
-          : normalizedKind === 'y'
-            ? { y: normalized, yAuto: normalized === getHistDefaultYLabel(plotMode, frequencySettings) }
-            : { x: normalized };
-        patchHistLabelsState(owner, patch, { reason: `hist-${normalizedKind}-label-edit` });
-        if(node.textContent !== normalized){ node.textContent = normalized; }
-        if(normalizedKind === 'x'){
-          const sourceColumn = Number(node.dataset.histSourceColumnIndex);
-          const hot = owner.managers?.hot || null;
-          if(Number.isInteger(sourceColumn) && sourceColumn >= 0 && hot?.setDataAtCell){
-            try{ hot.setDataAtCell([0, sourceColumn, normalized], 'hist-x-axis-edit'); }
-            catch(err){ console.error('hist x label header sync failed', err); }
-          }
-        }
-        scheduleHistOwnerDraw(owner, { reason: `hist-${normalizedKind}-label-edit`, renderImpact: 'layout' });
-      };
       apply(nextValue);
       const undoKey = normalizedKind === 'title' ? 'title' : `${normalizedKind}-label`;
       recordHistChange(`hist:${undoKey}`, previous, nextValue, apply);
+    }, {
+      getInitialValue: () => String(getHistLabelsState(owner)?.[normalizedKind] ?? ''),
+      onEditCheckpoint: (currentValue, _target, reason) => {
+        const nextValue = String(currentValue ?? '').replace(/\r\n?/g, '\n');
+        if(reason === 'history-restore'){
+          editInitialValue = nextValue;
+          return true;
+        }
+        const labels = getHistLabelsState(owner);
+        const previous = editInitialValue != null ? editInitialValue : String(labels?.[normalizedKind] ?? '');
+        if(previous === nextValue) return false;
+        const undoKey = normalizedKind === 'title' ? 'title' : `${normalizedKind}-label`;
+        recordHistChange(`hist:${undoKey}`, previous, nextValue, apply);
+        editInitialValue = nextValue;
+        return true;
+      },
+      onEditStart: () => { editInitialValue = String(getHistLabelsState(owner)?.[normalizedKind] ?? ''); },
+      onInput: writeDraft,
+      onEditEnd: (_target, finalValue) => {
+        const finalText = String(finalValue ?? '').replace(/\r\n?/g, '\n');
+        if(String(getHistLabelsState(owner)?.[normalizedKind] ?? '') !== finalText) writeDraft(finalText);
+        editInitialValue = null;
+      }
     });
     return true;
   }
@@ -8147,11 +8188,18 @@
       { name: 'panel-y-interior-rails', side: 'right', amount: panelReserves.yInteriorRails || 0, behavior: 'external' },
       { name: 'panel-x-last-row', side: 'bottom', amount: panelReserves.xLastRow || 0, behavior: 'external' }
     ];
+    const histPanelFontStyles = exportFontStyles('hist', { tabId: histPanelLayoutOwner.tabId }) || null;
+    const histPanelTitleBlocks = {
+      graphTitle: chartStyle.resolveTitleBlockLayout({ text: state.titleText, role: 'graphTitle', styles: histPanelFontStyles, fallbackPx: fs }),
+      xTitle: chartStyle.resolveTitleBlockLayout({ text: state.xLabelText, role: 'xTitle', styles: histPanelFontStyles, fallbackPx: fs }),
+      yTitle: chartStyle.resolveTitleBlockLayout({ text: state.yLabelText, role: 'yTitle', styles: histPanelFontStyles, fallbackPx: fs })
+    };
     let histPanelCartesianPlan = Shared.cartesianLayout?.planCartesianLayout?.({
       owner: histPanelLayoutOwner,
       userFrame: { width: W, height: H },
       baselineMargins: outer,
       requiredMargins: outer,
+      titleBlocks: histPanelTitleBlocks,
       auxiliaryReserves: panelAuxiliaryReserves,
       externalExtensions: {},
       orientation: 'normal',
@@ -8176,6 +8224,20 @@
       minimumPlot: { width: 10, height: 10 },
       rounding: { mode: 'none', precision: 6 }
     }) || null;
+    const histPanelTitleShiftX = histPanelCartesianPlan?.plotTranslation?.x || 0;
+    const histPanelTitleShiftY = histPanelCartesianPlan?.plotTranslation?.y || 0;
+    if(histPanelTitleShiftX || histPanelTitleShiftY){
+      panelModels.forEach(model => {
+        if(model.cell){
+          model.cell.x += histPanelTitleShiftX;
+          model.cell.y += histPanelTitleShiftY;
+        }
+        if(model.plot){
+          model.plot.x += histPanelTitleShiftX;
+          model.plot.y += histPanelTitleShiftY;
+        }
+      });
+    }
     const svg = document.createElementNS(NS, 'svg');
     svg.setAttribute('width', String(W));
     svg.setAttribute('height', String(H));
@@ -8653,15 +8715,15 @@
       }
     }
     const panelEnvelope = panelTracks.envelopeExtensions || { left: 0, right: 0, top: 0, bottom: 0 };
-    const globalPlotLeft = outer.left;
-    const globalPlotTop = outer.top;
+    const globalPlotLeft = outer.left + histPanelTitleShiftX;
+    const globalPlotTop = outer.top + histPanelTitleShiftY;
     const globalPlotWidth = contentWidth + Math.max(0, Number(panelEnvelope.right) || 0);
     const globalPlotHeight = contentHeight;
     const xLabelDefault = {
       x: globalPlotLeft + (globalPlotWidth / 2),
-      y: H + Math.max(0, Number(panelEnvelope.bottom) || 0) - Math.max(5, fs * 0.35),
+      y: H + Math.max(0, Number(panelEnvelope.bottom) || 0, Number(histPanelCartesianPlan?.contentEnvelope?.extensionBottom) || 0) - Math.max(5, fs * 0.35),
       originX: globalPlotLeft,
-      originY: outer.top + contentHeight + Math.max(0, Number(panelEnvelope.bottom) || 0)
+      originY: outer.top + contentHeight + Math.max(0, Number(panelEnvelope.bottom) || 0) + histPanelTitleShiftY
     };
     const xLabelPos = resolveHistPanelLabelPosition(state.labelPositions?.xLabel, xLabelDefault, globalPlotWidth, outer.bottom);
     const xLabel = add('text', {
@@ -8679,13 +8741,13 @@
         x: position.x,
         y: position.y,
         relX: (position.x - globalPlotLeft) / Math.max(globalPlotWidth, 1),
-        relY: (position.y - (outer.top + contentHeight)) / Math.max(outer.bottom, 1)
+        relY: (position.y - (outer.top + contentHeight + histPanelTitleShiftY)) / Math.max(outer.bottom, 1)
       }, { reason: 'hist-x-label-position' })
     });
     const yLabelDefault = {
-      x: horizontalEdgePadding + (fs * 0.5) - Math.max(0, Number(panelEnvelope.left) || 0),
+      x: horizontalEdgePadding + (fs * 0.5) - Math.max(0, Number(panelEnvelope.left) || 0) - histPanelTitleShiftX,
       y: globalPlotTop + (globalPlotHeight / 2),
-      originX: -Math.max(0, Number(panelEnvelope.left) || 0),
+      originX: -Math.max(0, Number(panelEnvelope.left) || 0) - histPanelTitleShiftX,
       originY: globalPlotTop
     };
     const yLabelPos = resolveHistPanelLabelPosition(state.labelPositions?.yLabel, yLabelDefault, outer.left, globalPlotHeight);
@@ -8704,7 +8766,7 @@
       onDragEnd: position => patchHistLabelPosition(drawSession, 'yLabel', {
         x: position.x,
         y: position.y,
-        relX: position.x / Math.max(outer.left, 1),
+        relX: (position.x + histPanelTitleShiftX) / Math.max(outer.left, 1),
         relY: (position.y - globalPlotTop) / Math.max(globalPlotHeight, 1)
       }, { reason: 'hist-y-label-position' })
     });
@@ -8787,6 +8849,7 @@
         userFrame: histPanelCartesianPlan.userFrame,
         baselineMargins: histPanelCartesianPlan.baselineMargins,
         requiredMargins: histPanelCartesianPlan.requiredMargins,
+        titleBlocks: histPanelTitleBlocks,
         auxiliaryReserves: panelAuxiliaryReserves,
         externalExtensions: {},
         orientation: 'normal',
@@ -8794,7 +8857,7 @@
         axisFrameModel: histPanelCartesianPlan.axisFrameModel,
         lock: histPanelCartesianPlan.lock,
         minimumPlot: histPanelCartesianPlan.minimumPlot,
-        contentBounds: {
+        contentBounds: measuredPanelViewport.renderedContentBounds || {
           minX: measuredPanelViewport.minX,
           minY: measuredPanelViewport.minY,
           maxX: measuredPanelViewport.maxX,
@@ -8813,7 +8876,7 @@
             && (!drawSession || isHistSessionActiveForModuleState(drawSession)),
           projectionTarget: svg,
           commitFrame: () => framePublication.commit(),
-          commitPresentation: () => histPanelContentViewport.commit()
+          commitPresentation: plan => histPanelContentViewport.commit(plan)
         })
       : false;
     if(histPanelCartesianPlan && !panelLayoutPublished){
@@ -9520,6 +9583,15 @@
       generation: Number(execution?.owner?.sessionGeneration) || null
     };
     const histAspectData = state.svgBox?.dataset || {};
+    const histLayoutFontStyles = exportFontStyles('hist', { tabId: histLayoutOwner.tabId }) || null;
+    const histLayoutTitleBlocks = {
+      graphTitle: chartStyle.resolveTitleBlockLayout({ text: state.titleText, role: 'graphTitle', styles: histLayoutFontStyles, fallbackPx: fs }),
+      xTitle: chartStyle.resolveTitleBlockLayout({
+        text: String(state.xLabelText || '') === 'Value' && seriesEntries.length === 1 ? seriesEntries[0].label : state.xLabelText,
+        role: 'xTitle', styles: histLayoutFontStyles, fallbackPx: fs
+      }),
+      yTitle: chartStyle.resolveTitleBlockLayout({ text: state.yLabelText, role: 'yTitle', styles: histLayoutFontStyles, fallbackPx: fs })
+    };
     const histCartesianTransaction = histAspectData.resizerAspectLocked === 'true'
       ? state.svgBox?.__sharedResizableBoxApi?.getCartesianLayoutTransaction?.({ resizePhase: options?.resizePhase })
       : null;
@@ -9539,6 +9611,7 @@
       userFrame: { width: W, height: H },
       baselineMargins: margin,
       requiredMargins,
+      titleBlocks: histLayoutTitleBlocks,
       auxiliaryReserves: [],
       externalExtensions: { right: legendWidth },
       orientation: 'normal',
@@ -9560,6 +9633,8 @@
       plotW = histCartesianPlan.plotRect.width;
       plotH = histCartesianPlan.plotRect.height;
     }
+    const histTitleShiftX = histCartesianPlan?.plotTranslation?.x || 0;
+    const histTitleShiftY = histCartesianPlan?.plotTranslation?.y || 0;
     const histContentViewport = chartStyle.stageGraphContentViewport({
       svgBox: state.svgBox,
       plot: plotEl,
@@ -9958,9 +10033,9 @@
       }
       return { x: defaults.x, y: defaults.y };
     };
-    const storedXLabel = String(state.xLabelText == null ? '' : state.xLabelText).trim();
+    const storedXLabel = String(state.xLabelText == null ? '' : state.xLabelText);
     const renderedXLabel = storedXLabel
-      ? (storedXLabel === 'Value' && seriesEntries.length === 1 ? seriesEntries[0].label : storedXLabel)
+      ? (storedXLabel.trim() === 'Value' && seriesEntries.length === 1 ? seriesEntries[0].label : storedXLabel)
       : (seriesEntries.length === 1 ? seriesEntries[0].label : 'Value');
     const xLabelPos = resolveLabelPosition(state.labelPositions?.xLabel, { x: margin.left+plotW/2, y: xAxisBase+bottomLayout.titleOffset, originX: margin.left, originY: xAxisBase }, plotW, plotH + margin.top);
     const xText=add('text',{x: xLabelPos.x, y: xLabelPos.y,'text-anchor':'middle','font-size':fs,fill:chartStyle.TEXT_COLOR});
@@ -9983,7 +10058,7 @@
       });
     }
     const yLabelOffsetSpan = (maxYLabelWidth + yMajorTickLength + tickGap + axisMetrics.axisTitleGap + fs * 0.5);
-    const yLabelPos = resolveLabelPosition(state.labelPositions?.yLabel, { x: margin.left - yLabelOffsetSpan, y: margin.top+plotH/2, originX: margin.left, originY: margin.top }, yLabelOffsetSpan, plotH);
+    const yLabelPos = resolveLabelPosition(state.labelPositions?.yLabel, { x: margin.left - yLabelOffsetSpan - histTitleShiftX, y: margin.top+plotH/2, originX: margin.left - histTitleShiftX, originY: margin.top }, yLabelOffsetSpan, plotH);
     const yText=add('text',{x:yLabelPos.x,y:yLabelPos.y,'dominant-baseline':'middle',transform:`rotate(-90 ${yLabelPos.x} ${yLabelPos.y})`,'text-anchor':'middle','font-size':fs,fill:chartStyle.TEXT_COLOR});
     yText.textContent=state.yLabelText;
     markFontEditable(yText,'yTitle','yTitle');
@@ -9994,13 +10069,13 @@
           patchHistLabelPosition(drawSession, 'yLabel', {
             x: pos.x,
             y: pos.y,
-            relX: (pos.x - margin.left) / Math.max(yLabelOffsetSpan, 1),
+            relX: (pos.x - margin.left + histTitleShiftX) / Math.max(yLabelOffsetSpan, 1),
             relY: (pos.y - margin.top) / Math.max(plotH, 1)
           }, { reason: 'hist-y-label-position' });
         }
       });
     }
-    const titlePos = resolveLabelPosition(state.labelPositions?.title, { x: margin.left+plotW/2, y: margin.top/2, originX: margin.left, originY: margin.top }, plotW, plotH);
+    const titlePos = resolveLabelPosition(state.labelPositions?.title, { x: margin.left+plotW/2, y: (margin.top - histTitleShiftY) / 2, originX: margin.left, originY: margin.top - histTitleShiftY }, plotW, plotH);
     const titleText=add('text',{x: titlePos.x, y: titlePos.y,'text-anchor':'middle','font-size':fs,fill:chartStyle.TEXT_COLOR});
     titleText.textContent=state.titleText;
     markFontEditable(titleText,'graphTitle','graphTitle');
@@ -10012,7 +10087,7 @@
             x: pos.x,
             y: pos.y,
             relX: (pos.x - margin.left) / Math.max(plotW, 1),
-            relY: (pos.y - margin.top) / Math.max(plotH, 1)
+            relY: (pos.y - margin.top + histTitleShiftY) / Math.max(plotH, 1)
           }, { reason: 'hist-title-position' });
         }
       });
@@ -10149,12 +10224,13 @@
         userFrame: histCartesianPlan.userFrame,
         baselineMargins: histCartesianPlan.baselineMargins,
         requiredMargins: histCartesianPlan.requiredMargins,
+        titleBlocks: histLayoutTitleBlocks,
         auxiliaryReserves: [],
         externalExtensions: { right: legendWidth },
         orientation: 'normal',
         lock: histCartesianPlan.lock,
         minimumPlot: histCartesianPlan.minimumPlot,
-        contentBounds: {
+        contentBounds: measuredHistViewport.renderedContentBounds || {
           minX: measuredHistViewport.minX,
           minY: measuredHistViewport.minY,
           maxX: measuredHistViewport.maxX,
@@ -10173,7 +10249,7 @@
             && (!drawSession || isHistSessionActiveForModuleState(drawSession)),
           projectionTarget: svg,
           commitFrame: () => framePublication.commit(),
-          commitPresentation: () => histContentViewport.commit()
+          commitPresentation: plan => histContentViewport.commit(plan)
         })
       : false;
     if(histCartesianPlan && !histLayoutPublished){

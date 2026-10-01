@@ -251,4 +251,20 @@ describe('chartStyle proportional font resize behavior', () => {
     expect(scale.fontFamily).toBe('Georgia');
     expect(selected.fontSizePx).toBe(20);
   });
+
+  test('title layout metrics preserve line breaks and account for larger inline runs', () => {
+    const { chartStyle } = window.Shared;
+    const layout = chartStyle.resolveTitleBlockLayout({
+      text: 'First\r\nsecond',
+      role: 'graphTitle',
+      fallbackPx: 12,
+      styles: {
+        __graph__: { fontSize: '12px' },
+        graphTitle: { inlineSegments: [{ start: 0, end: 5, style: { fontSize: '24px' } }] }
+      }
+    });
+    expect(layout.text).toBe('First\nsecond');
+    expect(layout.fontSize).toBe(24);
+    expect(layout.lineHeight).toBeCloseTo(24);
+  });
 });

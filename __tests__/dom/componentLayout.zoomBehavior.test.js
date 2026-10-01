@@ -290,6 +290,35 @@ describe('componentLayout zoom behavior contract', () => {
     expect(stateB?.svgBox?.dataset?.resizerLockedGeometryInsetY).toBe('45');
   });
 
+  test('restored workspace split overrides stale manual panel-width markers', () => {
+    const layout = window.Shared.componentLayout.createStandardPanels({
+      componentName: 'line',
+      selectors: {
+        tablePanel: '#lineTablePanel',
+        graphPanel: '#lineGraphPanel',
+        configPanel: '#lineConfigPanel',
+        panelResizer: '#linePanelResizer',
+        svgBox: '#lineSvgBox',
+        resizeTarget: '#lineSvgBox'
+      },
+      panelSyncOptions: { lockGraphPanelWidth: false }
+    });
+    const tablePanel = layout.elements.tablePanel;
+    const graphPanel = layout.elements.graphPanel;
+
+    layout.applyState({
+      component: 'line',
+      workspace: { tableFraction: 0.52 },
+      tablePanel: { dataset: { panelManualWidth: 'true', panelDefaultWidth: '360' } },
+      graphPanel: { dataset: { panelManualWidth: 'true', panelDefaultWidth: '980' } }
+    }, { skipSchedule: true });
+
+    expect(tablePanel.style.flex).toBe('0.52 1 0px');
+    expect(graphPanel.style.flex).toBe('0.48 1 0px');
+    expect(tablePanel.dataset.panelManualWidth).toBeUndefined();
+    expect(graphPanel.dataset.panelManualWidth).toBeUndefined();
+  });
+
   test('pending schedule suppression applies when layout is created after restore begins', () => {
     const syncPanelSpy = jest.fn((table, graph, config, scheduleDraw, options) => {
       if(typeof scheduleDraw === 'function'){
@@ -461,6 +490,7 @@ describe('componentLayout zoom behavior contract', () => {
 
     expect(layout.captureState().workspace).toEqual(snapshot.workspace);
   });
+
 });
 
 describe('componentLayout observer scheduling contract', () => {

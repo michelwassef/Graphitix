@@ -131,7 +131,7 @@ The defect is resolved in the working tree at the owner-binding boundary:
 
 Focused validation after the repair:
 
-- Jest: **2 suites, 22 tests passed** (`stats.figureSummary.renderer.contract.test.js`, `venn.tabRuntime.test.js`), including the legacy-cache compatibility case.
+- Jest: **2 suites, 22 tests passed** (the renderer contract shards and `venn.tabRuntime.test.js`), including the legacy-cache compatibility case.
 - Chromium: **2 same-component summary-isolation tests passed**.
 - Chromium: **15 shared summary layout/live-resize tests passed**, including all 11 component render checks.
 - Chromium: **9 Venn restore/recovery tests passed**.
@@ -153,7 +153,7 @@ Evidence:
 
 The screenshots already show this inconsistency: the XY summary displays more than five result rows, while Survival displays no group-level rows.
 
-The Survival renderer selects the analysis, log-rank, one hazard-ratio result, and model fit, but can omit every group’s `n`, events, censoring count, and median survival. The test suite explicitly encodes that omission: [renderer contract test:529](/C:/Users/Michel/Graphitix/__tests__/dom/stats.figureSummary.renderer.contract.test.js:529).
+The Survival renderer selects the analysis, log-rank, one hazard-ratio result, and model fit, but can omit every group’s `n`, events, censoring count, and median survival. The test suite explicitly encodes that omission: [renderer reporting contract](/C:/Users/Michel/Graphitix/__tests__/dom/stats.figureSummary.renderer.reporting.test.js).
 
 This is unsafe because a reader may interpret the visible summary as complete. Scientific reporting guidance expects group sizes, estimates, uncertainty, test statistics, degrees of freedom, P values, and multiplicity information, subject to the analysis type. See the [Nature reporting summary](https://www.nature.com/documents/nr-reporting-summary-flat.pdf) and [SAMPL guidelines](https://www.equator-network.org/wp-content/uploads/2013/03/SAMPL-Guidelines-3-13-13.pdf).
 
@@ -252,14 +252,14 @@ Regression coverage now creates two Venn tabs, enables the summary on the first,
 
 Focused validation after this repair:
 
-- Jest: **2 suites, 22 tests passed** (`stats.figureSummary.renderer.contract.test.js`, `venn.tabRuntime.test.js`), including the legacy-cache compatibility case.
+- Jest: **2 suites, 22 tests passed** (the renderer contract shards and `venn.tabRuntime.test.js`), including the legacy-cache compatibility case.
 - Chromium: **2 summary reopen/recovery tests passed**, including the new Venn recovery case.
 - Chromium: **2 same-component summary-isolation tests passed**.
 - Chromium: **9 existing Venn restore/recovery tests passed**.
 
 The recovered-file spacing defect is closed in the working tree. The publication-readiness recommendation remains **hold** because F-01 through F-05 remain open; the F-05 font mismatch is not a release blocker.
 
-The first-principles renderer recheck also passed: **1 Jest suite, 19 tests passed** (`stats.figureSummary.renderer.contract.test.js`). This confirms the current implementation and its intentional compact-selection behavior; it does not validate the scientific completeness of that behavior.
+The first-principles renderer recheck also passed: **1 Jest suite, 19 tests passed** (the renderer contract shards). This confirms the current implementation and its intentional compact-selection behavior; it does not validate the scientific completeness of that behavior.
 
 The repair also identified a broader maintainability risk, recorded separately in `issues.txt`: specialized SVG cache serializers still duplicate root-state contracts in Heatmap and Surface. No sibling failure is claimed without reproduction, but a shared graph-viewport metadata capture/restore helper should be implemented before declaring recovery fidelity complete for every summary-enabled component.
 
@@ -291,7 +291,7 @@ New regression coverage asserts:
 
 Focused validation after this repair:
 
-- Jest: **3 suites, 28 tests passed** (`dom.framePublication.test.js`, `stats.figureSummary.renderer.contract.test.js`, `venn.tabRuntime.test.js`);
+- Jest: **3 suites, 28 tests passed** (`dom.framePublication.test.js`, the renderer contract shards, and `venn.tabRuntime.test.js`);
 - Heatmap Jest: **3 suites, 61 tests passed** (`heatmap.dendrogram-rendering.test.js`, `heatmap.stats.test.js`, `heatmap.tabContext.test.js`);
 - Chromium: **4 summary reopen/recovery tests passed** (Box, Venn, Heatmap, Surface);
 - Chromium: **6 summary live-resize tests passed** (Box, Histogram, Pie, PCA, Heatmap, Surface);
@@ -307,7 +307,7 @@ This is a shared summary-projection lifecycle contract, exposed by Heatmap’s r
 
 The table remains mounted throughout the synchronous redraw, while the outer SVG viewport grows only after the new matrix frame is established. This restores the intended invariant: resizing with a table produces the same matrix, title, and colour-scale geometry as resizing without it and then enabling the table.
 
-Regression coverage compares both user paths in Chromium: [heatmap.summary-resize-frame.spec.js](/C:/Users/Michel/Graphitix/e2e/heatmap/heatmap.summary-resize-frame.spec.js). It also has a shared renderer contract for a reused SVG root: [stats.figureSummary.renderer.contract.test.js](/C:/Users/Michel/Graphitix/__tests__/dom/stats.figureSummary.renderer.contract.test.js). The earlier precision assertion is now covered by the explicit compact `p < 0.001` display-floor contract; it is independent of this geometry path.
+Regression coverage compares both user paths in Chromium: [heatmap.summary-resize-frame.spec.js](/C:/Users/Michel/Graphitix/e2e/heatmap/heatmap.summary-resize-frame.spec.js). It also has a shared renderer contract for a reused SVG root: [stats.figureSummary.renderer.layout.test.js](/C:/Users/Michel/Graphitix/__tests__/dom/stats.figureSummary.renderer.layout.test.js). The earlier precision assertion is now covered by the explicit compact `p < 0.001` display-floor contract; it is independent of this geometry path.
 
 ## Surface delayed disappearance and shared 3D recovery follow-up — 2026-09-09
 

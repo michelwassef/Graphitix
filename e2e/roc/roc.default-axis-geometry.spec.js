@@ -1,5 +1,5 @@
 const { test, expect } = require('@playwright/test');
-const { COMPONENT_MATRIX, openComponentFromWelcome, clickExampleButtonIfPresent } = require('../helpers/workspaceDriver');
+const { COMPONENT_MATRIX, openComponentFromWelcome, clickExpectedExampleButton } = require('../helpers/workspaceDriver');
 const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
 const { registerIssueCollectors } = require('../helpers/diagnostics');
 
@@ -55,7 +55,7 @@ test('new ROC graph starts square and horizontal resize is continuous from that 
   await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
   await expect(page.locator('#welcomeScreen')).toBeVisible();
   await openComponentFromWelcome(page, ROC_COMPONENT, { first: true, loadExample: true });
-  await clickExampleButtonIfPresent(page, ROC_COMPONENT.exampleButtonId);
+  await clickExpectedExampleButton(page, ROC_COMPONENT.exampleButtonId);
   await waitForRocAxes(page);
 
   const before = await readRocGeometry(page);

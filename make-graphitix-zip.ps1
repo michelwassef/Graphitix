@@ -26,7 +26,7 @@ try {
             $TempZip `
             '.\*' `
             '-xr!_site' `
-            '-xr!prism files' `
+            '-xr!__tests__\fixtures\prism' `
             '-xr!node_modules' `
             '-xr!test-results' `
             '-xr!.git' `

@@ -3,7 +3,7 @@ const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
 const {
   COMPONENT_MATRIX,
   openComponentFromWelcome,
-  clickExampleButtonIfPresent
+  clickExpectedExampleButton
 } = require('../helpers/workspaceDriver');
 const { registerIssueCollectors } = require('../helpers/diagnostics');
 
@@ -182,7 +182,7 @@ for (const component of COMPONENT_MATRIX) {
     await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
 
     await openComponentFromWelcome(page, component, { first: true });
-    await clickExampleButtonIfPresent(page, component.exampleButtonId);
+    await clickExpectedExampleButton(page, component.exampleButtonId);
     await waitForActiveTabPayload(page);
 
     const sourceTabId = await page.evaluate(() => window.Main?.session?.workspaceState?.activeTabId || null);

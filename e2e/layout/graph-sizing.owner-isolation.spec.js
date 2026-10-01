@@ -3,7 +3,7 @@ const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
 const {
   COMPONENT_MATRIX,
   openComponentFromWelcome,
-  clickExampleButtonIfPresent
+  clickExpectedExampleButton
 } = require('../helpers/workspaceDriver');
 const { registerIssueCollectors } = require('../helpers/diagnostics');
 
@@ -72,14 +72,14 @@ test('delayed graph sizing stays with its owner and superseded retries cannot re
 
   const beforeFirst = new Set(await getWorkspaceTabIds(page));
   await openComponentFromWelcome(page, SCATTER, { first: true });
-  await clickExampleButtonIfPresent(page, SCATTER.exampleButtonId);
+  await clickExpectedExampleButton(page, SCATTER.exampleButtonId);
   const afterFirst = await getWorkspaceTabIds(page);
   const tabA = afterFirst.find(id => !beforeFirst.has(id));
   expect(tabA).toBeTruthy();
 
   const beforeSecond = new Set(afterFirst);
   await openComponentFromWelcome(page, SCATTER, { first: false });
-  await clickExampleButtonIfPresent(page, SCATTER.exampleButtonId);
+  await clickExpectedExampleButton(page, SCATTER.exampleButtonId);
   const afterSecond = await getWorkspaceTabIds(page);
   const tabB = afterSecond.find(id => !beforeSecond.has(id));
   expect(tabB).toBeTruthy();

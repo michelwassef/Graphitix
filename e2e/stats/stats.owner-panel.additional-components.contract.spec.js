@@ -1,6 +1,6 @@
 const { test, expect } = require('@playwright/test');
 const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
-const { openComponentFromWelcome, clickExampleButtonIfPresent, waitForDocumentOpenComplete } = require('../helpers/workspaceDriver');
+const { openComponentFromWelcome, clickExpectedExampleButton, waitForDocumentOpenComplete } = require('../helpers/workspaceDriver');
 const { registerIssueCollectors } = require('../helpers/diagnostics');
 const { saveWorkspaceArchive } = require('../helpers/archiveDriver');
 
@@ -64,7 +64,7 @@ async function activateTab(page, type, tabId) {
 
 async function prepareComponentData(page, componentCase) {
   if (componentCase.key !== 'heatmap') return;
-  await clickExampleButtonIfPresent(page, 'heatmapLoadExample');
+  await clickExpectedExampleButton(page, 'heatmapLoadExample');
   await expect(page.locator('#heatmapPage:not([hidden]) #heatmapSvg')).toBeVisible({ timeout: 25_000 });
   await page.waitForFunction(() => {
     const component = window.Components?.heatmap;

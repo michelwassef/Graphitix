@@ -18,7 +18,6 @@ test('Data transformation uses the shared Format panel surface and title geometr
   const toolbar = page.locator('#boxPage:not([hidden]) .workspace-toolbar');
   await toolbar.locator('.workspace-toolbar__tab', { hasText: 'Data' }).click();
   const dataPanel = toolbar.locator('.workspace-toolbar__panel--transform');
-  const dataTitle = dataPanel.locator(':scope > .workspace-toolbar__panel-title');
   await expect(dataPanel).toBeVisible();
   await dataPanel.locator('[data-transform-multi-toggle="1"]').check();
 

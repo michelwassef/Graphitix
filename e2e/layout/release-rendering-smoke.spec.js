@@ -18,7 +18,7 @@
 const { test, expect } = require('@playwright/test');
 const {
   openComponentFromWelcome,
-  clickExampleButtonIfPresent
+  clickExpectedExampleButton
 } = require('../helpers/workspaceDriver');
 const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
 const { registerIssueCollectors } = require('../helpers/diagnostics');
@@ -545,7 +545,7 @@ async function openComponentWithExample(page, component) {
   await openComponentFromWelcome(page, component, { first: true });
   await page.waitForFunction(type => window.Components?.[type]?.ready === true, component.type, { timeout: 45_000 });
   if (!component.examplePerVariant) {
-    await clickExampleButtonIfPresent(page, component.exampleButtonId);
+    await clickExpectedExampleButton(page, component.exampleButtonId);
     await expect(page.locator(primaryGraphSelector(component))).toBeVisible({ timeout: 45_000 });
   }
   return issues;
@@ -573,7 +573,7 @@ for (const component of COMPONENTS) {
       await test.step(variant.id, async () => {
         await applyControls(page, component, variant.controls);
         if (component.examplePerVariant) {
-          await clickExampleButtonIfPresent(page, component.exampleButtonId);
+          await clickExpectedExampleButton(page, component.exampleButtonId);
         }
         const evidence = await waitForVariantEvidence(page, component, variant, previousSignature);
         const snapshot = await waitForStableVisualSnapshot(page, component);

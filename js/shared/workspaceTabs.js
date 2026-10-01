@@ -1606,6 +1606,16 @@
     if(!tab){
       return false;
     }
+    try{
+      Shared.finalizeInlineTitleEditForTab?.(tab.id, meta.reason || 'deactivate-workspace');
+    }catch(err){
+      console.error('workspaceTabs title edit finalization error', {
+        tabId: tab.id,
+        type: resolvedType || null,
+        reason: meta.reason || 'deactivate-workspace',
+        err
+      });
+    }
     const sharedState = ensureRecordShape(tab);
     sharedState.metadata.active = false;
     sharedState.metadata.lastDeactivatedAt = Date.now();
@@ -1664,6 +1674,16 @@
       return false;
     }
     const tabId = tab.id || meta.tabId || null;
+    try{
+      Shared.finalizeInlineTitleEditForTab?.(tabId, meta.reason || 'dispose-tab');
+    }catch(err){
+      console.error('workspaceTabs title edit finalization error', {
+        tabId,
+        type: resolvedType || null,
+        reason: meta.reason || 'dispose-tab',
+        err
+      });
+    }
     invokeWorkspaceHook(resolvedConfig, 'disposeTab', [tab, {
       ...meta,
       tabId,

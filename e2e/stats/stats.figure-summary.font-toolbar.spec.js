@@ -1,13 +1,13 @@
 const { test, expect } = require('@playwright/test');
 const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
-const { openComponentFromWelcome, clickExampleButtonIfPresent } = require('../helpers/workspaceDriver');
+const { openComponentFromWelcome, clickExpectedExampleButton } = require('../helpers/workspaceDriver');
 
 test('statistical summary text opens and edits the shared font toolbar', async ({ page }) => {
   test.setTimeout(90_000);
   await installLocalCdnOverrides(page);
   await page.goto('/index.html', { waitUntil:'domcontentloaded' });
   await openComponentFromWelcome(page, { type:'hist', pageId:'histPage' }, { first:true });
-  await clickExampleButtonIfPresent(page, 'histLoadExample');
+  await clickExpectedExampleButton(page, 'histLoadExample');
   await page.evaluate(() => window.Components?.hist?.draw?.());
 
   const summaryToggle = page.locator('#histPage:not([hidden]) .stats-figure-summary-checkbox').last();

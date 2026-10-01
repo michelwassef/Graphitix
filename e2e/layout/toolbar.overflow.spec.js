@@ -1,7 +1,7 @@
 const { test, expect } = require('@playwright/test');
 const {
   openComponentFromWelcome,
-  clickExampleButtonIfPresent
+  clickExpectedExampleButton
 } = require('../helpers/workspaceDriver');
 const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
 const { registerIssueCollectors } = require('../helpers/diagnostics');
@@ -12,7 +12,7 @@ async function openLineExample(page) {
   await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
   await expect(page.locator('#welcomeScreen')).toBeVisible();
   await openComponentFromWelcome(page, { type: 'line', pageId: 'linePage' }, { first: true });
-  await clickExampleButtonIfPresent(page, 'lineLoadExample');
+  await clickExpectedExampleButton(page, 'lineLoadExample');
   await page.waitForFunction(() => document.querySelectorAll('#linePlot path[data-series]').length > 0);
 }
 

@@ -225,7 +225,7 @@ function expectLargePrSnapshot(snapshot) {
 }
 
 test('ROC scheduled draw and auto-draw state stay isolated across same-type tabs and reopen', async ({ page, browserName }, testInfo) => {
-  test.skip(browserName !== 'chromium', 'Focused acceptance requested for Chromium.');
+  test.skip(browserName !== 'chromium', '[skip-policy issue=ROADMAP-FIREFOX-PARITY owner=test-infrastructure expires=2026-12-31 gate=firefox-parity-enabled] Focused acceptance requested for Chromium.');
   test.setTimeout(300_000);
   const issues = registerIssueCollectors(page);
   await installLocalCdnOverrides(page);

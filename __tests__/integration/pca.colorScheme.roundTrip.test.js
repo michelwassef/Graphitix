@@ -259,7 +259,4 @@ describe('PCA color scheme survives a tab round-trip (regression)', () => {
     expect(grayAfter.labelColors).toBe(grayBefore.labelColors);
   });
 
-  function workspaceColorScheme() {
-    return window.Main.components.registry.pca.getPayload?.()?.config?.colorScheme || '';
-  }
 });

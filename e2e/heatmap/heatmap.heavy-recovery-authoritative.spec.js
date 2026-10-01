@@ -7,7 +7,7 @@ const {
 const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
 const { registerIssueCollectors } = require('../helpers/diagnostics');
 
-const LARGE_VALUES_CSV = path.resolve(__dirname, '..', '..', '__tests__', 'test-scatter-medium.csv');
+const LARGE_VALUES_CSV = path.resolve(__dirname, '..', '..', '__tests__', 'fixtures', 'scatter', 'v1', 'test-scatter-medium.csv');
 
 async function waitForPublishedHeatmap(page) {
   await page.waitForFunction(() => {
@@ -93,7 +93,8 @@ async function editHeatmapTitle(page, value) {
   const editor = page.locator('.inline-edit-input').last();
   await expect(editor).toBeVisible();
   await editor.fill(value);
-  await editor.press('Enter');
+  await page.mouse.click(3, 3);
+  await expect(editor).toBeHidden();
   await expect(page.locator('#heatmapPage:not([hidden]) #heatmapSvg text[data-font-role="graphTitle"]').first()).toHaveText(value);
 }
 
@@ -229,6 +230,10 @@ test('heavy Heatmap publishes one complete graph after crash recovery', async ({
     return {
       complete: svg?.getAttribute('data-heatmap-render-complete') || null,
       title: svg?.querySelector('text[data-font-role="graphTitle"]')?.textContent || '',
+      activeTabId: window.Main?.session?.workspaceState?.activeTabId || null,
+      payloadTitle: window.Main?.session?.getActiveTab?.()?.payload?.config?.title ?? null,
+      ownerTitle: window.Components?.heatmap?.__testHooks?.getSession?.(window.Main?.session?.workspaceState?.activeTabId)?.state?.titleText ?? null,
+      moduleTitle: window.Components?.heatmap?.__testHooks?.getState?.()?.titleText ?? null,
       rectCount: layer?.querySelectorAll('rect').length || 0,
       canvasCount: layer?.querySelectorAll('canvas').length || 0,
       overlaySeen: window.__heatmapRecoveryOverlaySeen === true,

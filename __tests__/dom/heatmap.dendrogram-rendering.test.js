@@ -419,7 +419,17 @@ describe('heatmap draw scheduling lifecycle', () => {
     expect(applyTitleSource).toContain("patchHeatmapVisualState(owner, { titleText: nextValue }");
     expect(applyTitleSource).not.toContain('scheduleHeatmapDrawForSession');
     expect(applyTitleSource).not.toContain('draw(');
-    expect(binderSource).toContain("onInput: value => applyTitle(value, 'heatmap-title-input')");
+    const inputHandlerStart = binderSource.indexOf('onInput: value => {');
+    const editEndStart = binderSource.indexOf('onEditEnd:', inputHandlerStart);
+    expect(inputHandlerStart).toBeGreaterThan(-1);
+    expect(editEndStart).toBeGreaterThan(inputHandlerStart);
+    const inputHandlerSource = binderSource.slice(inputHandlerStart, editEndStart);
+    expect(inputHandlerSource).toContain("applyTitle(value, 'heatmap-title-input')");
+    expect(inputHandlerSource).toContain(
+      "markDraftModified?.(title, owner, 'heatmap', 'heatmap-title-draft')"
+    );
+    expect(inputHandlerSource).not.toContain('scheduleHeatmapDrawForSession');
+    expect(inputHandlerSource).not.toContain('draw(');
   });
 
   test('nested Heatmap reflow hands render ownership to the committed inner frame', () => {

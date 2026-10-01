@@ -76,7 +76,6 @@ async function waitForPcaDrawStable(page) {
 
 async function readPcaLabelGeometry(page, text) {
   return page.evaluate(labelText => {
-    const svg = document.getElementById('pcaSvg');
     const node = Array.from(document.querySelectorAll('#pcaSvg [data-point-label-key]'))
       .find(label => String(label.textContent || '').trim() === labelText);
     const leader = node?.previousElementSibling;

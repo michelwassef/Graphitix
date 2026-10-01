@@ -1,8 +1,13 @@
 const { test, expect } = require('@playwright/test');
+const { buildWorkspaceArchive } = require('../helpers/archiveDriver');
 const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
 const { openComponentFromWelcome } = require('../helpers/workspaceDriver');
 const { registerIssueCollectors } = require('../helpers/diagnostics');
 const { waitForComponentOwnerReady } = require('../helpers/contractWaits');
+const {
+  reloadAndAcceptRecovery,
+  seedRecoveryArchive
+} = require('../helpers/recoveryDriver');
 
 function readHistFrameMetrics() {
   const root = document.querySelector('#histPage:not([hidden])') || null;
@@ -62,91 +67,49 @@ async function prepareHistogram(page) {
 }
 
 async function seedHistogramRecoverySnapshot(page) {
-  return page.evaluate(async () => {
-    const request = window.indexedDB.open('graphitix-document-state', 2);
-    const db = await new Promise((resolve, reject) => {
-      request.onupgradeneeded = () => {
-        const opened = request.result;
-        if (!opened.objectStoreNames.contains('snapshots')) {
-          opened.createObjectStore('snapshots');
-        }
-      };
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error || new Error('IndexedDB open failed.'));
-    });
-    const context = window.Main?.tabs?.getSessionActionsContext?.();
-    const blob = await window.Main?.sessionActions?.buildWorkspaceArchiveBlob?.(context, {
-      scope: 'workspace',
-      snapshotKind: 'recovery',
-      policyMode: 'recovery',
-      reason: 'e2e-hist-first-resize-recovery',
-      useWorker: true
-    });
-    if (!blob) {
-      db.close();
-      throw new Error('Histogram recovery archive was not created.');
-    }
+  const archive = await buildWorkspaceArchive(page, {
+    scope: 'workspace',
+    snapshotKind: 'recovery',
+    policyMode: 'recovery',
+    reason: 'e2e-hist-first-resize-recovery',
+    useWorker: true
+  });
+  const metadata = await page.evaluate(() => {
     const workspaceState = window.Main?.session?.workspaceState || {};
     const graphTabs = Array.isArray(workspaceState.tabs)
       ? workspaceState.tabs.filter(tab => tab && !tab.isWelcome && tab.type)
       : [];
-    await new Promise((resolve, reject) => {
-      const tx = db.transaction('snapshots', 'readwrite');
-      tx.objectStore('snapshots').put({
-        meta: {
-          app: 'Graphitix',
-          kind: 'recovery',
-          version: 1,
-          savedAt: new Date().toISOString(),
-          updatedAt: Date.now(),
-          reason: 'e2e-hist-first-resize-recovery',
-          dirty: true,
-          hasData: true,
-          tabCount: graphTabs.length,
-          fileName: workspaceState.sessionFileName || 'recovered.graph',
-          filePath: workspaceState.sessionFilePath || '',
-          fileScope: workspaceState.sessionFileScope || 'workspace'
-        },
-        blob
-      }, 'active-recovery');
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error || new Error('IndexedDB recovery write failed.'));
-    });
-    db.close();
-    return { bytes: blob.size, tabCount: graphTabs.length };
+    return {
+      tabCount: graphTabs.length,
+      fileName: workspaceState.sessionFileName || 'recovered.graph',
+      filePath: workspaceState.sessionFilePath || '',
+      fileScope: workspaceState.sessionFileScope || 'workspace'
+    };
   });
+  await seedRecoveryArchive(page, archive.base64, {
+    reason: 'e2e-hist-first-resize-recovery',
+    dirty: true,
+    hasData: true,
+    ...metadata
+  });
+  return { bytes: archive.size, tabCount: metadata.tabCount };
 }
 
 async function reloadAndAcceptHistogramRecovery(page) {
-  let recoveryAccepted = false;
-  const dialogHandler = async dialog => {
-    if (/recover|restore/i.test(dialog.message())) {
-      recoveryAccepted = true;
-    }
-    await dialog.accept();
-  };
-  page.on('dialog', dialogHandler);
-  try {
-    await page.reload({ waitUntil: 'domcontentloaded' });
-    await expect.poll(() => recoveryAccepted, {
-      timeout: 20_000,
-      message: 'Histogram crash-recovery prompt should be accepted'
-    }).toBe(true);
-    await page.waitForFunction(() => {
-      const state = window.Main?.session?.workspaceState || null;
-      const active = state?.tabs?.find(tab => tab?.id === state.activeTabId) || null;
-      const root = document.querySelector('#histPage:not([hidden])');
-      return active?.type === 'hist'
-        && window.Components?.hist?.ready === true
-        && !!root?.querySelector?.('#histSvg');
-    }, null, { timeout: 60_000 });
-    await waitForComponentOwnerReady(page, 'hist', {
-      requireMountedRoot: true,
-      requireIdle: true
-    });
-  } finally {
-    page.off('dialog', dialogHandler);
-  }
+  const recoveryAccepted = await reloadAndAcceptRecovery(page, { timeout: 20_000 });
+  expect(recoveryAccepted, 'Histogram crash-recovery prompt should be accepted').toBe(true);
+  await page.waitForFunction(() => {
+    const state = window.Main?.session?.workspaceState || null;
+    const active = state?.tabs?.find(tab => tab?.id === state.activeTabId) || null;
+    const root = document.querySelector('#histPage:not([hidden])');
+    return active?.type === 'hist'
+      && window.Components?.hist?.ready === true
+      && !!root?.querySelector?.('#histSvg');
+  }, null, { timeout: 60_000 });
+  await waitForComponentOwnerReady(page, 'hist', {
+    requireMountedRoot: true,
+    requireIdle: true
+  });
 }
 
 async function dragHistogramWidthOnce(page, dx) {

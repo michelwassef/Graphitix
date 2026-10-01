@@ -101,8 +101,8 @@ describe('chartStyle.computeBottomLayout reserve rotated space', () => {
     expect(wide.requiredBottom).toBe(80 + wide.reservedExtra);
     expect(wide.reservedExtra).toBeCloseTo(wide.rotatedExtra + wide.rotationOpticalPaddingPx, 9);
     expect(narrow.requiredBottom).toBe(wide.requiredBottom);
-    expect(wide.titleOffset).toBe(wide.nominalTitleOffset);
-    expect(narrow.titleOffset).toBeCloseTo(narrow.nominalTitleOffset + narrow.activeExtra, 9);
+    expect(wide.titleOffset).toBe(wide.nominalTitleOffset - wide.titleBaselineInset);
+    expect(narrow.titleOffset).toBeCloseTo(narrow.nominalTitleOffset + narrow.activeExtra - narrow.titleBaselineInset, 9);
   });
 
   test('explicit band width triggers rotation when categorical spacing is compressed', () => {
@@ -193,5 +193,39 @@ describe('chartStyle.computeBottomLayout reserve rotated space', () => {
     expect(layout.shouldRotate).toBe(true);
     expect(inset).toBeGreaterThan(0);
     expect(chartStyle.resolveRotatedXAxisLeadingInset({ ...layout, shouldRotate: false }, 40)).toBe(0);
+  });
+
+  test('settles graph content bounds against the published SVG viewport', () => {
+    const { chartStyle } = window.Shared;
+    const svgBox = document.createElement('div');
+    svgBox.className = 'svgbox';
+    const plot = document.createElement('div');
+    svgBox.appendChild(plot);
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    plot.appendChild(svg);
+    document.body.appendChild(svgBox);
+    let measurementCount = 0;
+    svg.getBBox = jest.fn(() => {
+      measurementCount += 1;
+      const maxY = measurementCount === 1 ? 125 : 120;
+      return { x: 0, y: 0, width: 100, height: maxY };
+    });
+
+    const viewport = chartStyle.stageGraphContentViewport({
+      svgBox,
+      plot,
+      svg,
+      baseWidth: 100,
+      baseHeight: 100,
+      refineContentBounds: true,
+      settleContentBounds: true
+    });
+    viewport.commit();
+
+    expect(measurementCount).toBeGreaterThanOrEqual(3);
+    expect(viewport.getViewport().bottomHeight).toBe(20);
+    expect(svg.dataset.graphContentReserveBottom).toBe('20');
+    expect(svg.getAttribute('viewBox')).toBe('0 0 100 120');
+    svgBox.remove();
   });
 });

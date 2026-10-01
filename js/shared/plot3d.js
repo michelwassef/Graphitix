@@ -25,6 +25,20 @@
   const NS = 'http://www.w3.org/2000/svg';
   const activeRotationControls = new Set();
 
+  function resolveAxisTickDecimalDigits(values){
+    const ticks = Array.isArray(values)
+      ? Array.from(new Set(values.filter(Number.isFinite))).sort((a, b) => a - b)
+      : [];
+    let minStep = Infinity;
+    for(let index = 1; index < ticks.length; index += 1){
+      const step = ticks[index] - ticks[index - 1];
+      if(step > 0){ minStep = Math.min(minStep, step); }
+    }
+    if(!Number.isFinite(minStep) || minStep <= 0){ return 2; }
+    return Math.max(2, Math.min(8, Math.ceil(-Math.log10(minStep)) + 1));
+  }
+  plot3d.resolveAxisTickDecimalDigits = resolveAxisTickDecimalDigits;
+
   function cloneRotationState(rotation){
     const source = rotation || {};
     const quaternion = source.quaternion || null;
@@ -390,6 +404,56 @@
     };
   };
 
+  plot3d.resolveTitleBlockExtensions = function(options = {}){
+    const fallbackLineHeight = Math.max(1, Number(options.fontSize) || 12);
+    const blocks = options.titleBlocks && typeof options.titleBlocks === 'object'
+      ? options.titleBlocks
+      : {};
+    const extent = block => {
+      const text = String(block?.text ?? '').replace(/\r\n?/g, '\n');
+      if(!text.trim()) return 0;
+      const lineCount = text.split('\n').length;
+      const lineHeight = Math.max(1, Number(block?.lineHeight) || Number(block?.fontSize) || fallbackLineHeight);
+      return Math.max(0, lineCount - 1) * lineHeight;
+    };
+    const graphTitle = extent(blocks.graphTitle);
+    const axisTitles = {
+      x: extent(blocks.xTitle),
+      y: extent(blocks.yTitle),
+      z: extent(blocks.zTitle)
+    };
+    return {
+      graphTitle,
+      axisTitles,
+      right: axisTitles.y,
+      bottom: graphTitle + axisTitles.x + axisTitles.z
+    };
+  };
+
+  plot3d.resolveTitleFrame = function(options = {}){
+    const width = Math.max(1, Number(options.width) || 1);
+    const height = Math.max(1, Number(options.height) || 1);
+    const sourceMargin = options.margin && typeof options.margin === 'object' ? options.margin : {};
+    const readMargin = key => Math.max(0, Number(sourceMargin[key]) || 0);
+    const titleExtensions = plot3d.resolveTitleBlockExtensions(options);
+    const margin = {
+      top: readMargin('top') + titleExtensions.graphTitle,
+      right: readMargin('right'),
+      bottom: readMargin('bottom') + titleExtensions.axisTitles.x + titleExtensions.axisTitles.z,
+      left: readMargin('left') + titleExtensions.axisTitles.y
+    };
+    return {
+      baseWidth: width,
+      baseHeight: height,
+      width: width + titleExtensions.right,
+      height: height + titleExtensions.bottom,
+      margin,
+      plotWidth: Math.max(1, width + titleExtensions.right - margin.left - margin.right),
+      plotHeight: Math.max(1, height + titleExtensions.bottom - margin.top - margin.bottom),
+      titleExtensions
+    };
+  };
+
   /**
    * Return a fixed envelope for a 3D graph. The projector keeps the cube in
    * its canonical frame; this envelope reserves space around that frame for
@@ -436,7 +500,11 @@
       if(typeof chartStyle.createAxisTickFormatter === 'function'){
         fallbackAxisTickFormatters[axis] = chartStyle.createAxisTickFormatter(
           Array.isArray(ticks[axis]) ? ticks[axis] : [],
-          { notation: 'auto', maxDecimals: 2 }
+          {
+            notation: 'auto',
+            maxDecimals: 2,
+            decimalDigits: resolveAxisTickDecimalDigits(ticks[axis])
+          }
         );
       }
     });
@@ -454,10 +522,18 @@
       return Number.isFinite(value) ? String(value) : '';
     };
     const labels = opts.axisLabels || {};
+    const titleExtensions = plot3d.resolveTitleBlockExtensions({
+      titleBlocks: opts.titleBlocks,
+      fontSize
+    });
     const axisDiagnostics = {};
     let maxReserve = 0;
     ['x', 'y', 'z'].forEach(axis => {
-      const title = measure(labels[axis] || axis.toUpperCase(), fontSize);
+      const titleBlock = opts.titleBlocks?.[`${axis}Title`] || null;
+      const baselineTitle = String(titleBlock?.text ?? labels[axis] ?? axis.toUpperCase())
+        .replace(/\r\n?/g, '\n')
+        .split('\n')[0];
+      const title = measure(baselineTitle, fontSize);
       let maxTick = { width: 0, height: textHeight(tickFontSize), text: '' };
       const values = Array.isArray(ticks[axis]) ? ticks[axis] : [];
       values.forEach(value => {
@@ -507,6 +583,7 @@
       bottom: reserve,
       reserve,
       requiredMargin: reserve,
+      titleExtensions,
       rotationLimits,
       diagnostics: {
         axis: axisDiagnostics,
@@ -1350,7 +1427,11 @@
       if(typeof chartStyle.createAxisTickFormatter === 'function'){
         fallbackAxisTickFormatters[axis] = chartStyle.createAxisTickFormatter(
           Array.isArray(axisTicks[axis]) ? axisTicks[axis] : [],
-          { notation: 'auto', maxDecimals: 2 }
+          {
+            notation: 'auto',
+            maxDecimals: 2,
+            decimalDigits: resolveAxisTickDecimalDigits(axisTicks[axis])
+          }
         );
       }
     });
@@ -2243,8 +2324,7 @@
           entry.y = y;
           el.setAttribute('x', String(x));
           el.setAttribute('y', String(y));
-          const angle = Number.isFinite(meta.angle) ? meta.angle : 0;
-          el.setAttribute('transform', `rotate(${angle} ${x} ${y})`);
+          el.setAttribute('transform', `rotate(${meta.angle} ${x} ${y})`);
           alignedCount += 1;
         }
         if(alignedCount){

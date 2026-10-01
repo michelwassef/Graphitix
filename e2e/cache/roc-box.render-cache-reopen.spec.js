@@ -6,7 +6,7 @@ const {
 const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
 const { registerIssueCollectors } = require('../helpers/diagnostics');
 
-const ARCHIVE_PATH = path.resolve(__dirname, '../../__tests__/testfile2.graph');
+const ARCHIVE_PATH = path.resolve(__dirname, '../../__tests__/fixtures/archive/v1/testfile2.graph');
 
 async function activateNamedTab(page, title) {
   await page.locator('.workspace-tab', { hasText: title }).click();

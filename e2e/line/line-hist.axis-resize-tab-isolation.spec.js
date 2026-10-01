@@ -1,5 +1,5 @@
 const { test, expect } = require('@playwright/test');
-const { COMPONENT_MATRIX, openComponentFromWelcome, clickExampleButtonIfPresent } = require('../helpers/workspaceDriver');
+const { COMPONENT_MATRIX, openComponentFromWelcome, clickExpectedExampleButton } = require('../helpers/workspaceDriver');
 const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
 const { registerIssueCollectors } = require('../helpers/diagnostics');
 const { waitForComponentOwnerReady } = require('../helpers/contractWaits');
@@ -47,7 +47,7 @@ async function waitForGraphSvg(page, component) {
 async function openComponentTab(page, component, { first = false } = {}) {
   const before = new Set(await getWorkspaceTabIds(page));
   await openComponentFromWelcome(page, component, { first });
-  await clickExampleButtonIfPresent(page, component.exampleButtonId);
+  await clickExpectedExampleButton(page, component.exampleButtonId);
   await waitForGraphSvg(page, component);
   const after = await getWorkspaceTabIds(page);
   const tabId = after.find(id => !before.has(id));

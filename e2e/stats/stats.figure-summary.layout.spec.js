@@ -5,7 +5,6 @@ const { openComponentFromWelcome } = require('../helpers/workspaceDriver');
 const { clickExampleButton } = require('../helpers/uiDriver');
 const {
   observeStableValue,
-  waitForComponentOwnerReady,
   waitForObservationWindow,
   waitForOwnerProjection
 } = require('../helpers/contractWaits');

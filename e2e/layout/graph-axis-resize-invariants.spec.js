@@ -2,7 +2,7 @@ const { test, expect } = require('@playwright/test');
 const {
   COMPONENT_MATRIX,
   openComponentFromWelcome,
-  clickExampleButtonIfPresent
+  clickExpectedExampleButton
 } = require('../helpers/workspaceDriver');
 const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
 const { registerIssueCollectors } = require('../helpers/diagnostics');
@@ -184,7 +184,7 @@ test('unlocked one-axis graph resize preserves the orthogonal SVG axis scale in 
     const component = CARTESIAN_AXIS_COMPONENTS[index];
     await test.step(`axis resize invariants: ${component.type}`, async () => {
       await openComponentFromWelcome(page, component, { first: index === 0, loadExample: true });
-      await clickExampleButtonIfPresent(page, component.exampleButtonId);
+      await clickExpectedExampleButton(page, component.exampleButtonId);
       await waitForGraphSvg(page, component.pageId);
       await unlockRatio(page, component);
       await waitForGraphSvg(page, component.pageId);

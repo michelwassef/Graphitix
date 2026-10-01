@@ -1398,11 +1398,14 @@
     let captured = null;
     let rawValidation = null;
     try {
-      rawCaptured = config.captureRenderCache({
+      const captureOwnedRenderCache = () => config.captureRenderCache({
         tabId: tab.id,
         type: tab.type,
         reason
       });
+      rawCaptured = typeof Shared.withVisibleInlineTitleTargetsForCapture === 'function'
+        ? Shared.withVisibleInlineTitleTargetsForCapture(tab.id, captureOwnedRenderCache)
+        : captureOwnedRenderCache();
       if (!rawCaptured) {
         emitRenderCacheEvent({
           tabId: tab?.id,
@@ -3185,6 +3188,9 @@
     const isLifecycleOrigin = options.origin === 'lifecycle';
     const shouldCaptureLivePayloadForSave = snapshotIntent.captureLivePayload === true
       || isSaveLikeLiveCaptureReason(reason, options);
+    if(shouldCaptureLivePayloadForSave){
+      Shared.checkpointInlineTitleEditForTab?.(tab.id, reason);
+    }
     const allowSkipLivePayloadCapture = snapshotIntent.allowSkipLivePayloadCapture !== false;
     const lifecycleSkipEligible = snapshotIntent.lifecycleSnapshot === true
       || (snapshotIntent.lifecycleSnapshot !== false && isLifecycleOrigin);

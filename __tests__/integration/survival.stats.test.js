@@ -155,9 +155,10 @@ describe('Survival statistics pipeline', () => {
     expect(editor).toBeTruthy();
     editor.value = 'Months';
     editor.dispatchEvent(new Event('input', { bubbles: true }));
-    editor.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    document.body.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
     await flushAsyncWork();
 
+    expect(document.querySelector('.inline-edit-input')).toBeNull();
     const payload = window.Components?.survival?.getPayload?.();
     expect(payload?.config?.xLabel).toBe('Months');
   }, 30000);

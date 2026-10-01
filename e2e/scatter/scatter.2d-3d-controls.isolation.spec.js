@@ -2,7 +2,7 @@ const { waitForComponentOwnerReady } = require('../helpers/contractWaits');
 const { test, expect } = require('@playwright/test');
 const {
   openComponentFromWelcome,
-  clickExampleButtonIfPresent
+  clickExpectedExampleButton
 } = require('../helpers/workspaceDriver');
 const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
 const { registerIssueCollectors } = require('../helpers/diagnostics');
@@ -82,7 +82,7 @@ async function setShowFrame(page, checked) {
 }
 
 async function loadScatterExampleForMode(page, mode) {
-  await clickExampleButtonIfPresent(page, 'scatterLoadExample');
+  await clickExpectedExampleButton(page, 'scatterLoadExample');
   await page.waitForFunction(() => {
     const hot = window.Components?.scatter?.__getActiveHot?.();
     const data = hot?.getData?.() || [];
@@ -90,7 +90,7 @@ async function loadScatterExampleForMode(page, mode) {
   }, null, { timeout: 30_000 });
   if (mode === '3d') {
     await page.locator('#scatterPage:not([hidden]) #scatterViewMode').selectOption('3d');
-    await clickExampleButtonIfPresent(page, 'scatterLoadExample');
+    await clickExpectedExampleButton(page, 'scatterLoadExample');
     await page.waitForFunction(() => {
       const hot = window.Components?.scatter?.__getActiveHot?.();
       const data = hot?.getData?.() || [];

@@ -50,6 +50,10 @@
   }
   const pca = Components.pca = Components.pca || {};
   const chartStyle = Shared.chartStyle = Shared.chartStyle || {};
+  const symbolGeometry = Shared.symbolGeometry = Shared.symbolGeometry || {};
+  if(typeof symbolGeometry.resolveEqualAreaHalfExtent !== 'function' && typeof require === 'function'){
+    require('../shared/symbolGeometry.js');
+  }
   const svgGeometry = Shared.svgGeometry = Shared.svgGeometry || {};
   if(typeof svgGeometry.buildCompoundLinePath !== 'function' && typeof require === 'function'){
     try{
@@ -3234,10 +3238,11 @@
       ctx.lineTo(cx - half, cy + half);
       ctx.closePath();
     } else if (normalized === 'diamond') {
-      ctx.moveTo(cx, cy - half);
-      ctx.lineTo(cx + half, cy);
-      ctx.lineTo(cx, cy + half);
-      ctx.lineTo(cx - half, cy);
+      const halfExtent = symbolGeometry.resolveEqualAreaHalfExtent(normalized, half);
+      ctx.moveTo(cx, cy - halfExtent);
+      ctx.lineTo(cx + halfExtent, cy);
+      ctx.lineTo(cx, cy + halfExtent);
+      ctx.lineTo(cx - halfExtent, cy);
       ctx.closePath();
     } else if (normalized === 'cross') {
       const bar = Math.max(size / 3, 2);
@@ -5446,7 +5451,8 @@
       screeShowParallel: true,
       loadingsLimit: PCA_LOADINGS_ROW_LIMIT,
       labels: {
-        title: getDefaultTitleForMethod('pca')
+        title: getDefaultTitleForMethod('pca'),
+        axisTitleOverrides: {}
       },
       pointStyleScopes: normalizePcaPointStyleScopes({}, { controls }),
       lastMethod: 'pca',
@@ -7080,6 +7086,7 @@
       scaleX: Number.isFinite(Number(options.scaleX)) ? options.scaleX : Number(legend.dataset.pcaLegendScaleX),
       scaleY: Number.isFinite(Number(options.scaleY)) ? options.scaleY : Number(legend.dataset.pcaLegendScaleY),
       positionAnchor: chartStyle.LEGEND_POSITION_ANCHOR,
+      viewportPadding: options.viewportPadding,
       undoLabel: `pca-legend-${legend.dataset.pcaLegendMode}`,
       onCommit: (position, boundOwner) => {
         const dragOwner = ensurePcaSessionOwnershipShape(boundOwner || getActivePcaSessionForState());
@@ -7180,7 +7187,81 @@
     if (typeof state.labels.title !== 'string') {
       state.labels.title = getDefaultTitleForMethod(method);
     }
+    state.labels.axisTitleOverrides = normalizePcaAxisTitleOverrides(state.labels.axisTitleOverrides);
     return state.labels;
+  }
+
+  function normalizePcaAxisTitleOverrides(value){
+    const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+    return Object.fromEntries(Object.entries(source)
+      .filter(([key, text]) => /^[a-z][a-z0-9_-]*\.(?:pc|dimension)\d+$/i.test(key) && typeof text === 'string')
+      .map(([key, text]) => [key, String(text).replace(/\r\n?/g, '\n')]));
+  }
+
+  function getPcaAxisTitleOverrideKey(method, dimensionIndex){
+    const normalizedMethod = String(method || 'pca').trim().toLowerCase() || 'pca';
+    const index = Number(dimensionIndex);
+    if(!Number.isInteger(index) || index < 0) return null;
+    return `${normalizedMethod}.${normalizedMethod === 'pca' ? 'pc' : 'dimension'}${index + 1}`;
+  }
+
+  function bindPcaAxisTitleInlineInteraction(node, ownerSession = null){
+    const owner = ensurePcaSessionOwnershipShape(ownerSession || getActivePcaSessionForState());
+    const key = String(node?.dataset?.pcaAxisTitleOverrideKey || '');
+    if(!node || !owner || !key || typeof makeEditableHelper !== 'function') return false;
+    const generatedLabel = String(node.dataset.pcaAxisGeneratedLabel ?? '');
+    let editInitialValue = null;
+    const writeOverride = (value, reason = 'pca-axis-title-draft') => {
+      const normalized = String(value == null ? '' : value).replace(/\r\n?/g, '\n');
+      const current = normalizePcaAxisTitleOverrides(getPcaLabelsState(owner).axisTitleOverrides);
+      if(normalized === generatedLabel) delete current[key];
+      else current[key] = normalized;
+      patchPcaLabelsState(owner, { axisTitleOverrides: current }, { reason });
+      Shared.textBlock?.markDraftModified?.(node, owner, 'pca', reason);
+      return normalized;
+    };
+    const applyAxisTitle = value => {
+      const normalized = String(value == null ? '' : value).replace(/\r\n?/g, '\n');
+      writeOverride(normalized, 'pca-axis-title-edit');
+      if(!Shared.fontControls?.setTitleText?.(node, normalized) && node.textContent !== normalized) node.textContent = normalized;
+      requestPcaViewRefresh('pca-axis-title-edit', { tabId: owner.tabId || null, renderImpact: 'layout' });
+      return true;
+    };
+    makeEditableHelper(node, value => {
+      const labels = getPcaLabelsState(owner, owner.state?.lastMethod || 'pca');
+      const previous = editInitialValue != null ? editInitialValue : String(labels.axisTitleOverrides?.[key] ?? generatedLabel);
+      const nextValue = value == null ? '' : String(value).replace(/\r\n?/g, '\n');
+      if(!nextValue.trim() || previous === nextValue) return;
+      applyAxisTitle(nextValue);
+      recordPcaChange(`pca:${key}`, previous, nextValue, applyAxisTitle);
+    }, {
+      getInitialValue: () => String(getPcaLabelsState(owner).axisTitleOverrides?.[key] ?? generatedLabel),
+      onEditCheckpoint: (currentValue, _target, reason) => {
+        const nextValue = String(currentValue == null ? '' : currentValue).replace(/\r\n?/g, '\n');
+        if(reason === 'history-restore'){
+          editInitialValue = nextValue;
+          return true;
+        }
+        const previous = editInitialValue != null ? editInitialValue : String(getPcaLabelsState(owner).axisTitleOverrides?.[key] ?? generatedLabel);
+        if(!nextValue.trim() || previous === nextValue) return false;
+        recordPcaChange(`pca:${key}`, previous, nextValue, applyAxisTitle);
+        editInitialValue = nextValue;
+        return true;
+      },
+      onEditStart: () => {
+        const labels = getPcaLabelsState(owner, owner.state?.lastMethod || 'pca');
+        editInitialValue = String(labels.axisTitleOverrides?.[key] ?? generatedLabel);
+      },
+      onInput: value => { writeOverride(value); },
+      onEditEnd: (_target, finalValue) => {
+        const labels = getPcaLabelsState(owner, owner.state?.lastMethod || 'pca');
+        const current = String(labels.axisTitleOverrides?.[key] ?? generatedLabel);
+        const nextValue = String(finalValue == null ? '' : finalValue).replace(/\r\n?/g, '\n');
+        if(current !== nextValue) writeOverride(nextValue, 'pca-axis-title-cancel');
+        editInitialValue = null;
+      }
+    });
+    return true;
   }
 
   function patchPcaLabelsState(session = null, patch = {}, meta = {}) {
@@ -8177,29 +8258,79 @@
   function bindPcaTitleInlineInteraction(node, ownerSession = null) {
     const owner = ensurePcaSessionOwnershipShape(ownerSession || getActivePcaSessionForState());
     if (!node || !owner || typeof makeEditableHelper !== 'function') { return false; }
+    let editInitialValue = null;
+    const resolveTitle = value => {
+      const method = owner.state?.lastMethod || pcaState.lastMethod || 'pca';
+      const fallbackTitle = getDefaultTitleForMethod(method);
+      const rawTitle = String(value == null ? '' : value).replace(/\r\n?/g, '\n');
+      return { method, fallbackTitle, normalized: rawTitle.trim() ? rawTitle : fallbackTitle };
+    };
+    const applyTitle = titleValue => {
+      const method = owner.state?.lastMethod || pcaState.lastMethod || 'pca';
+      const fallbackTitle = getDefaultTitleForMethod(method);
+      const rawTitle = String(titleValue == null ? '' : titleValue).replace(/\r\n?/g, '\n');
+      const normalized = rawTitle.trim() ? rawTitle : fallbackTitle;
+      patchPcaLabelsState(owner, { title: normalized }, { reason: 'pca-title-change' });
+      if (!Shared.fontControls?.setTitleText?.(node, normalized) && node.textContent !== normalized) { node.textContent = normalized; }
+      requestPcaViewRefresh('pca-title-change', { tabId: owner.tabId || null, renderImpact: 'layout' });
+      return true;
+    };
     makeEditableHelper(node, value => {
       const method = owner.state?.lastMethod || pcaState.lastMethod || 'pca';
       const fallbackTitle = getDefaultTitleForMethod(method);
       const currentLabels = getPcaLabelsState(owner, method);
-      const previous = currentLabels.title || fallbackTitle;
-      const nextValue = String(value || '').trim() || fallbackTitle;
+      const previous = editInitialValue != null ? editInitialValue : (currentLabels.title || fallbackTitle);
+      const rawValue = String(value == null ? '' : value).replace(/\r\n?/g, '\n');
+      const nextValue = rawValue.trim() ? rawValue : fallbackTitle;
       if (previous === nextValue) { return; }
-      const apply = titleValue => {
-        const normalized = String(titleValue || '').trim() || fallbackTitle;
-        patchPcaLabelsState(owner, { title: normalized }, { reason: 'pca-title-change' });
-        if (node.textContent !== normalized) { node.textContent = normalized; }
-        schedulePcaDrawForSession(owner, { reason: 'pca-title-change', renderImpact: 'layout' });
+      applyTitle(nextValue);
+      recordPcaChange('pca:title', previous, nextValue, applyTitle);
+    }, {
+      getInitialValue: () => {
+        const { method, fallbackTitle } = resolveTitle('');
+        return getPcaLabelsState(owner, method).title || fallbackTitle;
+      },
+      onEditCheckpoint: (currentValue, _target, reason) => {
+        const method = owner.state?.lastMethod || pcaState.lastMethod || 'pca';
+        const fallbackTitle = getDefaultTitleForMethod(method);
+        const { normalized } = resolveTitle(currentValue);
+        if(reason === 'history-restore'){
+          editInitialValue = normalized;
+          return true;
+        }
+        const previous = editInitialValue != null ? editInitialValue : (getPcaLabelsState(owner, method).title || fallbackTitle);
+        if(previous === normalized) return false;
+        recordPcaChange('pca:title', previous, normalized, applyTitle);
+        editInitialValue = normalized;
         return true;
-      };
-      apply(nextValue);
-      recordPcaChange('pca:title', previous, nextValue, apply);
+      },
+      onEditStart: () => {
+        const { method, fallbackTitle } = resolveTitle('');
+        editInitialValue = getPcaLabelsState(owner, method).title || fallbackTitle;
+      },
+      onInput: value => {
+        const { normalized } = resolveTitle(value);
+        patchPcaLabelsState(owner, { title: normalized }, { reason: 'pca-title-draft' });
+        Shared.textBlock?.markDraftModified?.(node, owner, 'pca', 'pca-title-draft');
+      },
+      onEditEnd: (_target, finalValue) => {
+        const { method, fallbackTitle, normalized } = resolveTitle(finalValue);
+        const current = getPcaLabelsState(owner, method).title || fallbackTitle;
+        if(current !== normalized){
+          patchPcaLabelsState(owner, { title: normalized }, { reason: 'pca-title-cancel' });
+          Shared.textBlock?.markDraftModified?.(node, owner, 'pca', 'pca-title-cancel');
+        }
+        editInitialValue = null;
+      }
     });
     return true;
   }
 
   function rehydratePcaInlineTextInteractions(svg, ownerSession = null) {
     const title = svg?.querySelector?.('[data-font-role="graphTitle"]') || null;
-    return title ? bindPcaTitleInlineInteraction(title, ownerSession) : true;
+    const axisTitles = Array.from(svg?.querySelectorAll?.('[data-pca-axis-title-override-key]') || []);
+    return (title ? bindPcaTitleInlineInteraction(title, ownerSession) : true)
+      && axisTitles.every(node => bindPcaAxisTitleInlineInteraction(node, ownerSession));
   }
 
   function applyPcaGroupColor(index, value) {
@@ -9022,6 +9153,7 @@
         userFrame: { width: totalWidth, height: totalHeight },
         baselineMargins: baselineMargin,
         requiredMargins,
+        titleBlocks: options.titleBlocks,
         auxiliaryReserves: options.auxiliaryReserves || [],
         externalExtensions,
         orientation: 'normal',
@@ -9520,7 +9652,7 @@
     }
     if (normalized === 'diamond') {
       const size = Math.max(radius * 2, 2);
-      const half = size / 2;
+      const half = symbolGeometry.resolveEqualAreaHalfExtent(normalized, size / 2);
       const path = `M ${cx} ${cy - half} L ${cx + half} ${cy} L ${cx} ${cy + half} L ${cx - half} ${cy} Z`;
       return addFunction('path', {
         d: path,
@@ -10446,6 +10578,12 @@
         y: value.axisLabels?.y != null ? String(value.axisLabels.y) : 'PC2',
         z: value.axisLabels?.z != null ? String(value.axisLabels.z) : 'PC3'
       },
+      method: String(value.method || '').trim().toLowerCase(),
+      axisIndices: {
+        x: value.axisIndices?.x != null && Number.isInteger(Number(value.axisIndices.x)) ? Number(value.axisIndices.x) : null,
+        y: value.axisIndices?.y != null && Number.isInteger(Number(value.axisIndices.y)) ? Number(value.axisIndices.y) : null,
+        z: value.axisIndices?.z != null && Number.isInteger(Number(value.axisIndices.z)) ? Number(value.axisIndices.z) : null
+      },
       fontSize: Math.max(1, Number(value.fontSize) || 12),
       tickFontSize: Math.max(1, Number(value.tickFontSize) || Number(value.fontSize) || 12),
       axisStrokeWidth: Math.max(0, Number(value.axisStrokeWidth) || 0),
@@ -10515,7 +10653,23 @@
 
   function bindPca3dRotationRenderer(session = null, svg = null, modelOverride = null) {
     const target = ensurePcaSessionOwnershipShape(session || getActivePcaSessionForState());
-    const model = normalizePca3dRotationModel(modelOverride || target?.cache?.pca3dRotationModel || null);
+    const normalizedModel = normalizePca3dRotationModel(modelOverride || target?.cache?.pca3dRotationModel || null);
+    const analysisCache = normalizedModel && target
+      ? normalizePcaAnalysisCachePayload(getPcaAnalysisCache(target), { clone: false })
+      : null;
+    const ownedState = normalizedModel && target ? getPcaSessionOwnedState(target).state : null;
+    const fallbackAxisIndices = analysisCache?.axisIndices || {};
+    const model = normalizedModel ? {
+      ...normalizedModel,
+      method: normalizedModel.method || analysisCache?.method || ownedState?.lastMethod || '',
+      axisIndices: Object.fromEntries(['x', 'y', 'z'].map(axisKey => {
+        const modelIndex = normalizedModel.axisIndices?.[axisKey];
+        const cachedIndex = fallbackAxisIndices[axisKey];
+        return [axisKey, Number.isInteger(modelIndex)
+          ? modelIndex
+          : (cachedIndex != null && Number.isInteger(Number(cachedIndex)) ? Number(cachedIndex) : null)];
+      }))
+    } : null;
     if (!target || !svg || svg.dataset?.viewMode !== '3d' || !model) {
       if (target) {
         target.refs.rotationRenderer = null;
@@ -10616,8 +10770,20 @@
         frontFrameTarget: frontFrame,
         debugLabel: 'pca-3d-rotation',
         onAxisTickLabel: markPca3dAxisTickLabel,
-        onAxisLabel: (node, _axisKey, labelText) => {
+        onAxisLabel: (node, axisKey, labelText) => {
           markFontEditable(node, 'axis3d', labelText);
+          if(String(labelText || '').includes('\n')){
+            Shared.fontControls?.setTitleText?.(node, labelText);
+          }
+          const dimensionIndex = model.axisIndices?.[axisKey];
+          const overrideKey = model.method && Number.isInteger(dimensionIndex)
+            ? getPcaAxisTitleOverrideKey(model.method, dimensionIndex)
+            : null;
+          if (overrideKey) {
+            node.dataset.pcaAxisTitleOverrideKey = overrideKey;
+            node.dataset.pcaAxisGeneratedLabel = String(labelText == null ? '' : labelText);
+            bindPcaAxisTitleInlineInteraction(node, target);
+          }
         },
         createElement: add
       });
@@ -10631,11 +10797,12 @@
       const pointLabelPositions = getPcaLabelPositionsState(target).pointLabels || {};
       projectedPoints.forEach(projected => {
         const descriptor = projected.descriptor;
+        const markerHalfExtent = symbolGeometry.resolveEqualAreaHalfExtent(descriptor.shape, descriptor.radius);
         const layoutPointId = pointBounds.length;
         pointBounds.push({
           cx: projected.x,
           cy: projected.y,
-          r: descriptor.radius,
+          r: markerHalfExtent,
           pointId: layoutPointId
         });
         const marker = drawShape(add, descriptor.shape, {
@@ -10664,7 +10831,7 @@
             text: descriptor.label,
             cx: projected.x,
             cy: projected.y,
-            radius: descriptor.radius,
+            radius: markerHalfExtent,
             pointId: layoutPointId,
             labelKey,
             pinnedPosition: pointLabelPositions[labelKey] || null
@@ -12669,8 +12836,8 @@
       let pcaLabelsState = getPcaLabelsState(drawSession, method);
       if (methodChanged) {
         const previousDefaultTitle = getDefaultTitleForMethod(previousMethod);
-        const currentTitle = (pcaLabelsState.title || '').trim();
-        if (!currentTitle || currentTitle === previousDefaultTitle) {
+        const currentTitle = String(pcaLabelsState.title || '');
+        if (!currentTitle.trim() || currentTitle === previousDefaultTitle) {
           pcaLabelsState = patchPcaLabelsState(drawSession, {
             title: getDefaultTitleForMethod(method)
           }, {
@@ -12685,8 +12852,8 @@
       if (shouldMirrorPcaSessionToActive(drawSession)) {
         pcaState.lastMethod = method;
       }
-      let pcaTitleText = (pcaLabelsState.title || '').trim();
-      if (!pcaTitleText) {
+      let pcaTitleText = String(pcaLabelsState.title || '').replace(/\r\n?/g, '\n');
+      if (!pcaTitleText.trim()) {
         pcaTitleText = getDefaultTitleForMethod(method);
       }
       let pcaLabelPositionsState = getPcaLabelPositionsState(drawSession);
@@ -14303,6 +14470,22 @@
         });
       }
 
+      const pcaAxisTitleOverrides = normalizePcaAxisTitleOverrides(
+        getPcaLabelsState(drawSession, method).axisTitleOverrides
+      );
+      const pcaXTitleOverrideKey = getPcaAxisTitleOverrideKey(method, axisIndices.x);
+      const pcaYTitleOverrideKey = getPcaAxisTitleOverrideKey(method, axisIndices.y);
+      const pcaZTitleOverrideKey = getPcaAxisTitleOverrideKey(method, axisIndices.z);
+      if(pcaXTitleOverrideKey && Object.prototype.hasOwnProperty.call(pcaAxisTitleOverrides, pcaXTitleOverrideKey)){
+        pcaXLabelText = pcaAxisTitleOverrides[pcaXTitleOverrideKey];
+      }
+      if(pcaYTitleOverrideKey && Object.prototype.hasOwnProperty.call(pcaAxisTitleOverrides, pcaYTitleOverrideKey)){
+        pcaYLabelText = pcaAxisTitleOverrides[pcaYTitleOverrideKey];
+      }
+      if(pcaZTitleOverrideKey && Object.prototype.hasOwnProperty.call(pcaAxisTitleOverrides, pcaZTitleOverrideKey)){
+        pcaZLabelText = pcaAxisTitleOverrides[pcaZTitleOverrideKey];
+      }
+
       if (effectiveViewMode === '3d') {
         Shared.cartesianLayout?.clearPublishedLayout?.(pcaSvgBox, {
           tabId: drawTabId || null,
@@ -14531,6 +14714,12 @@
           y: pcaYLabelText,
           z: pcaZLabelText
         };
+        const pca3dTitleBlocks = {
+          graphTitle: chartStyle.resolveTitleBlockLayout({ text: pcaTitleText, role: 'graphTitle', styles: pca3dFontStyles, fallbackPx: fs }),
+          xTitle: chartStyle.resolveTitleBlockLayout({ text: pcaXLabelText, role: 'axis3d', styles: pca3dFontStyles, fallbackPx: fs }),
+          yTitle: chartStyle.resolveTitleBlockLayout({ text: pcaYLabelText, role: 'axis3d', styles: pca3dFontStyles, fallbackPx: fs }),
+          zTitle: chartStyle.resolveTitleBlockLayout({ text: pcaZLabelText, role: 'axis3d', styles: pca3dFontStyles, fallbackPx: fs })
+        };
         const pca3dSafeViewport = typeof plot3d.resolveRotationSafeViewport === 'function'
           ? plot3d.resolveRotationSafeViewport({
               width: W3,
@@ -14542,26 +14731,34 @@
               fontSize: fs,
               tickFontSize: pca3dTickFontSize,
               axisStrokeWidth,
+              titleBlocks: pca3dTitleBlocks,
               chartStyle,
               rotationLimits: plot3d.DEFAULT_ROTATION_LIMITS
             })
           : { minX: 0, minY: 0, maxX: W3, maxY: H3, left: 0, top: 0, right: 0, bottom: 0, width: W3, height: H3 };
         if(typeof plot3d.resolveRotationSafeMargin === 'function'){
           Object.assign(margin3, plot3d.resolveRotationSafeMargin({ margin: margin3, safeViewport: pca3dSafeViewport }));
-          legendShiftX = typeof plot3d.resolveLegendShiftX === 'function'
-            ? plot3d.resolveLegendShiftX({ legendVisible, margin: margin3, fontSize: fs, legendWidth })
-            : 0;
-          plotW3 = Math.max(20, W3 - margin3.left - margin3.right);
-          plotH3 = Math.max(20, H3 - margin3.top - margin3.bottom);
-          projector = plot3d.createProjector({
-            rotatedPoints,
-            rotatedCorners,
-            width: W3,
-            height: H3,
-            margin: margin3,
-            shiftX: legendShiftX
-          });
         }
+        const pca3dTitleFrame = typeof plot3d.resolveTitleFrame === 'function'
+          ? plot3d.resolveTitleFrame({ width: W3, height: H3, margin: margin3, titleBlocks: pca3dTitleBlocks, fontSize: fs })
+          : { width: W3, height: H3, margin: { ...margin3 }, plotWidth: W3 - margin3.left - margin3.right, plotHeight: H3 - margin3.top - margin3.bottom, titleExtensions: { graphTitle: 0, axisTitles: { x: 0, y: 0, z: 0 }, right: 0, bottom: 0 } };
+        const pca3dTitleExtensions = pca3dTitleFrame.titleExtensions;
+        Object.assign(margin3, pca3dTitleFrame.margin);
+        const pca3dFrameWidth = pca3dTitleFrame.width;
+        const pca3dFrameHeight = pca3dTitleFrame.height;
+        legendShiftX = typeof plot3d.resolveLegendShiftX === 'function'
+          ? plot3d.resolveLegendShiftX({ legendVisible, margin: margin3, fontSize: fs, legendWidth })
+          : 0;
+        plotW3 = Math.max(20, pca3dTitleFrame.plotWidth);
+        plotH3 = Math.max(20, pca3dTitleFrame.plotHeight);
+        projector = plot3d.createProjector({
+          rotatedPoints,
+          rotatedCorners,
+          width: pca3dFrameWidth,
+          height: pca3dFrameHeight,
+          margin: margin3,
+          shiftX: legendShiftX
+        });
         const project3 = (pt) => projector.project(pt);
         const labelBounds3d = computePcaLabelBounds3d(rotatedCorners, project3);
         if (labelBounds3d) {
@@ -14628,6 +14825,15 @@
           onAxisTickLabel: markPca3dAxisTickLabel,
           onAxisLabel: (el, axisKey, labelText) => {
             markFontEditable(el, 'axis3d', labelText);
+            if(String(labelText || '').includes('\n')){
+              Shared.fontControls?.setTitleText?.(el, labelText);
+            }
+            const overrideKey = getPcaAxisTitleOverrideKey(method, axisIndices[axisKey]);
+            if(overrideKey){
+              el.dataset.pcaAxisTitleOverrideKey = overrideKey;
+              el.dataset.pcaAxisGeneratedLabel = String(labelText == null ? '' : labelText);
+              bindPcaAxisTitleInlineInteraction(el, drawSession);
+            }
           },
           createElement: (tag, attrs, text, target) => add3(tag, attrs, text, target)
         });
@@ -14664,8 +14870,9 @@
             }
           }
         }
+        const titleBaselineTop3 = margin3.top - pca3dTitleExtensions.graphTitle;
         const defaultTitle3 = typeof plot3d.resolveDefaultTitlePosition === 'function'
-          ? plot3d.resolveDefaultTitlePosition({ margin: margin3, plotWidth: plotW3, fontSize: fs })
+          ? plot3d.resolveDefaultTitlePosition({ margin: { ...margin3, top: titleBaselineTop3 }, plotWidth: plotW3, fontSize: fs })
           : { x: margin3.left + plotW3 / 2, y: Math.max(margin3.top * 0.4, fs * 1.6) };
         const defaultTitleX3 = defaultTitle3.x;
         const defaultTitleY3 = defaultTitle3.y;
@@ -14679,7 +14886,7 @@
           if (titlePos.relX !== undefined && titlePos.relY !== undefined) {
             // Use relative positioning
             absoluteTitleX3 = margin3.left + titlePos.relX * plotW3;
-            absoluteTitleY3 = margin3.top + titlePos.relY * plotH3;
+            absoluteTitleY3 = titleBaselineTop3 + titlePos.relY * plotH3;
           } else if (titlePos.x !== undefined && titlePos.y !== undefined) {
             // Use absolute positioning (backward compatibility)
             absoluteTitleX3 = titlePos.x;
@@ -14695,6 +14902,9 @@
           fill: pcaThemeTextColor,
         }, pcaTitleText);
         markFontEditable(title3d, 'graphTitle', 'graphTitle');
+        if(String(pcaTitleText || '').includes('\n')){
+          Shared.fontControls?.setTitleText?.(title3d, pcaTitleText);
+        }
         bindPcaTitleInlineInteraction(title3d, drawSession);
         plot3d.applyLegendPointerGuards(title3d, {
           label: 'pca-title-3d'
@@ -14707,7 +14917,7 @@
             onDragEnd: pos => {
               // Store both absolute and relative positions for 3D title
               const relX = (pos.x - margin3.left) / plotW3;
-              const relY = (pos.y - margin3.top) / plotH3;
+              const relY = (pos.y - titleBaselineTop3) / plotH3;
               pcaLabelPositionsState = patchPcaLabelPositionsState(drawSession, {
                 title: {
                   x: pos.x,
@@ -14730,7 +14940,7 @@
             }
           });
         }
-        if (!hasTitlePos && typeof title3d.getBBox === 'function' && axisLabelBounds.length) {
+        if (!hasTitlePos && !String(pcaTitleText || '').includes('\n') && typeof title3d.getBBox === 'function' && axisLabelBounds.length) {
           try {
             const titlePadding = Math.max(fs * 0.45, 10);
             const minAxisTop = axisLabelBounds.reduce((min, bounds) => (
@@ -14815,6 +15025,7 @@
             context: 'pca-dot-size-label',
             min: 0.5
           });
+          const markerHalfExtent = symbolGeometry.resolveEqualAreaHalfExtent(shape, markerRadius);
           const pointTransparency = Number(pointStyle.alpha);
           const pointOpacity = Math.min(Math.max(1 - pointTransparency, 0), 1);
           const pointBorderWidthBase = Number(pointStyle.borderWidth);
@@ -14828,7 +15039,7 @@
           pointBounds3d.push({
             cx: pt.x,
             cy: pt.y,
-            r: markerRadius,
+            r: markerHalfExtent,
             pointId: layoutPointId
           });
           const manualLabelText = pt.label ? String(pt.label).trim() : '';
@@ -14842,7 +15053,7 @@
               text: manualLabelText,
               cx: pt.x,
               cy: pt.y,
-              radius: markerRadius,
+              radius: markerHalfExtent,
               pointId: layoutPointId,
               labelKey,
               pinnedPosition: pcaLabelPositionsState?.pointLabels?.[labelKey] || null
@@ -14877,7 +15088,7 @@
               columnIndex: Number.isInteger(original.columnIndex) ? original.columnIndex : null
             });
           }
-          const approxRight = pt.x + markerRadius + borderWidthPx;
+          const approxRight = pt.x + markerHalfExtent + borderWidthPx;
           if (Number.isFinite(approxRight)) {
             maxPointRight = Math.max(maxPointRight, approxRight);
           }
@@ -15016,25 +15227,6 @@
           });
           let legendX3 = legendPosition.x;
           const safeRightPad = Math.max(fs * 0.6, 12);
-          const maxLegendX = W3 - safeRightPad - legendContentWidth;
-          if (maxLegendX < horizontalBase) {
-            debugLog('Debug: pca legend width constraint', {
-              mode: '3d',
-              horizontalBase,
-              maxLegendX,
-              safeRightPad
-            });
-          }
-          if (legendX3 > maxLegendX) {
-            const previousX = legendX3;
-            legendX3 = Math.max(horizontalBase, maxLegendX);
-            debugLog('Debug: pca legend horizontal clamped', {
-              mode: '3d',
-              previousX,
-              legendX3,
-              maxLegendX
-            });
-          }
           const baseLegendY = margin3.top;
           const canonicalLegendX3 = legendPosition.canonicalX;
           const canonicalLegendY3 = legendPosition.canonicalY;
@@ -15108,6 +15300,24 @@
             canonicalX: canonicalLegendX3,
             canonicalY: canonicalLegendY3
           });
+          if(legendGroup){
+            let renderedBounds = null;
+            try{ renderedBounds = legendGroup.getBBox?.() || null; }catch(_err){}
+            const renderedWidth = Number(renderedBounds?.width);
+            const renderedLeft = Number(renderedBounds?.x) || 0;
+            const maxLegendX = W3 - safeRightPad - (Number.isFinite(renderedWidth) ? renderedWidth : legendContentWidth) - renderedLeft;
+            if(legendX3 > maxLegendX){
+              const previousX = legendX3;
+              legendX3 = Math.max(horizontalBase, maxLegendX);
+              legendGroup.setAttribute('transform', `translate(${legendX3},${legendStartY})`);
+              debugLog('Debug: pca legend horizontal clamped to rendered bounds', {
+                previousX,
+                legendX3,
+                maxLegendX,
+                renderedWidth
+              });
+            }
+          }
           legendGroup?.setAttribute?.('data-role', 'pca-legend');
           legendGroup3d = legendGroup;
           if (legendGroup) {
@@ -15120,6 +15330,7 @@
           });
           bindPcaLegendInteractions(legendGroup, svg3, drawSession, {
             mode: '3d',
+            viewportPadding: { right: safeRightPad },
             originX: legendPosition.originX,
             originY: legendPosition.originY,
             scaleX: legendPosition.scaleX,
@@ -15211,8 +15422,10 @@
         };
         const pca3dRotationModel = normalizePca3dRotationModel({
           version: PCA_3D_ROTATION_MODEL_VERSION,
-          width: W3,
-          height: H3,
+          method,
+          axisIndices,
+          width: pca3dFrameWidth,
+          height: pca3dFrameHeight,
           margin: margin3,
           legendShiftX,
           axisRanges: renderAxisRanges3d,
@@ -15271,13 +15484,13 @@
               svg: svg3,
               baseWidth: baseW3,
               baseHeight: H3,
-              canonicalWidth: W3,
-              canonicalHeight: H3,
+              canonicalWidth: pca3dFrameWidth,
+              canonicalHeight: pca3dFrameHeight,
               legendWidth: legendVisible ? effectiveLegendWidth : 0,
               safeViewport: pca3dSafeViewport
             })
           : null;
-        const pca3dViewport = { minX: 0, minY: 0, width: W3, height: H3 };
+        const pca3dViewport = { minX: 0, minY: 0, width: pca3dFrameWidth, height: pca3dFrameHeight };
         // 3D plots must scale uniformly so the projected cube, axis labels, title,
         // legend, and every glyph keep their proportions. preserveAspectRatio
         // "xMidYMid meet" (vs the 2D "none"/fill-distort default) prevents the SVG
@@ -15407,6 +15620,11 @@
       let formatTickX = chartStyle.createAxisTickFormatter([], pcaAxisFormatOptions);
       let formatTickY = chartStyle.createAxisTickFormatter([], pcaAxisFormatOptions);
       const pcaFontStyles = exportFontStyles('pca', { tabId: drawTabId });
+      const pcaTitleBlocks = {
+        graphTitle: chartStyle.resolveTitleBlockLayout({ text: pcaTitleText, role: 'graphTitle', styles: pcaFontStyles, fallbackPx: fs }),
+        xTitle: chartStyle.resolveTitleBlockLayout({ text: pcaXLabelText, role: 'xTitle', styles: pcaFontStyles, fallbackPx: fs }),
+        yTitle: chartStyle.resolveTitleBlockLayout({ text: pcaYLabelText, role: 'yTitle', styles: pcaFontStyles, fallbackPx: fs })
+      };
       const xTickMeasureFont = (chartStyle && typeof chartStyle.resolveScopedLabelMeasureFont === 'function') ?
         chartStyle.resolveScopedLabelMeasureFont({
           styles: pcaFontStyles,
@@ -15528,6 +15746,7 @@
           {
             owner: pcaCartesianOwner,
             requiredMargins: candidateRequiredMargins,
+            titleBlocks: pcaTitleBlocks,
             externalExtensions: { right: legendVisible ? effectiveLegendWidth : 0 },
             resizeMetricLocked: true,
             resizeDrive: pcaSvgBox?.dataset?.resizerLastAxis === 'x'
@@ -15559,6 +15778,7 @@
           {
             owner: pcaCartesianOwner,
             requiredMargins: candidateRequiredMargins,
+            titleBlocks: pcaTitleBlocks,
             externalExtensions: { right: legendVisible ? effectiveLegendWidth : 0 },
             resizeMetricLocked: true,
             resizeDrive: pcaSvgBox?.dataset?.resizerLastAxis === 'x'
@@ -15662,6 +15882,8 @@
       const aspectRightExtension = tickLayout.aspectRightExtension;
       const pcaRequiredMargins = tickLayout.requiredMargins || margin;
       let pcaCartesianPlan = tickLayout.cartesianPlan || null;
+      const pcaTitleShiftX = pcaCartesianPlan?.plotTranslation?.x || 0;
+      const pcaTitleShiftY = pcaCartesianPlan?.plotTranslation?.y || 0;
 
       debugLog('Debug: pca tick targets finalized', {
         xTickTarget,
@@ -16071,7 +16293,12 @@
         'text-anchor': 'middle',
         fill: chartStyle.TEXT_COLOR,
       }, pcaXLabelText);
+      if(pcaXTitleOverrideKey){
+        xAxisText.dataset.pcaAxisTitleOverrideKey = pcaXTitleOverrideKey;
+        xAxisText.dataset.pcaAxisGeneratedLabel = String(pcaXLabelText == null ? '' : pcaXLabelText);
+      }
       markFontEditable(xAxisText, 'xTitle', 'xTitle');
+      bindPcaAxisTitleInlineInteraction(xAxisText, drawSession);
       // Enable drag for x-axis label
       if (typeof Shared.enableLabelDrag === 'function') {
         Shared.enableLabelDrag(xAxisText, svg, {
@@ -16159,7 +16386,7 @@
       }
 
       const yLabelOffsetSpan = (maxYLabelWidth + yMajorTickLength + tickGap + axisMetrics.axisTitleGap + fs * 0.5);
-      const defaultYLabelX = margin.left - yLabelOffsetSpan;
+      const defaultYLabelX = margin.left - yLabelOffsetSpan - pcaTitleShiftX;
       const defaultYLabelY = margin.top + plotH / 2;
       const yLabelPos = pcaLabelPositionsState?.yLabel;
 
@@ -16169,7 +16396,7 @@
       if (yLabelPos) {
         if (yLabelPos.relX !== undefined && yLabelPos.relY !== undefined) {
           // Use relative positioning
-          absoluteYTextX = margin.left + yLabelPos.relX * yLabelOffsetSpan;
+          absoluteYTextX = margin.left + yLabelPos.relX * yLabelOffsetSpan - pcaTitleShiftX;
           absoluteYTextY = margin.top + yLabelPos.relY * plotH;
         } else if (yLabelPos.x !== undefined && yLabelPos.y !== undefined) {
           // Use absolute positioning (backward compatibility)
@@ -16186,13 +16413,18 @@
         transform: `rotate(-90 ${absoluteYTextX} ${absoluteYTextY})`,
         fill: chartStyle.TEXT_COLOR,
       }, pcaYLabelText);
+      if(pcaYTitleOverrideKey){
+        yAxisText.dataset.pcaAxisTitleOverrideKey = pcaYTitleOverrideKey;
+        yAxisText.dataset.pcaAxisGeneratedLabel = String(pcaYLabelText == null ? '' : pcaYLabelText);
+      }
       markFontEditable(yAxisText, 'yTitle', 'yTitle');
+      bindPcaAxisTitleInlineInteraction(yAxisText, drawSession);
       // Enable drag for y-axis label
       if (typeof Shared.enableLabelDrag === 'function') {
         Shared.enableLabelDrag(yAxisText, svg, {
           onDragEnd: pos => {
             // Store both absolute and relative positions for yLabel
-            const relX = (pos.x - margin.left) / yLabelOffsetSpan;
+            const relX = (pos.x - margin.left + pcaTitleShiftX) / yLabelOffsetSpan;
             const relY = (pos.y - margin.top) / plotH;
             pcaLabelPositionsState = patchPcaLabelPositionsState(drawSession, {
               yLabel: {
@@ -16216,7 +16448,7 @@
       }
 
       const defaultTitleX = margin.left + plotW / 2;
-      const defaultTitleY = Math.max(fs, margin.top * 0.5);
+      const defaultTitleY = Math.max(fs, (margin.top - pcaTitleShiftY) * 0.5);
       const titlePos = pcaLabelPositionsState?.title;
 
       // Convert relative positions to absolute if needed
@@ -16226,7 +16458,7 @@
         if (titlePos.relX !== undefined && titlePos.relY !== undefined) {
           // Use relative positioning
           absoluteTitleX = margin.left + titlePos.relX * plotW;
-          absoluteTitleY = margin.top + titlePos.relY * plotH;
+          absoluteTitleY = margin.top + titlePos.relY * plotH - pcaTitleShiftY;
         } else if (titlePos.x !== undefined && titlePos.y !== undefined) {
           // Use absolute positioning (backward compatibility)
           absoluteTitleX = titlePos.x;
@@ -16249,7 +16481,7 @@
           onDragEnd: pos => {
             // Store both absolute and relative positions
             const relX = (pos.x - margin.left) / plotW;
-            const relY = (pos.y - margin.top) / plotH;
+            const relY = (pos.y - margin.top + pcaTitleShiftY) / plotH;
             pcaLabelPositionsState = patchPcaLabelPositionsState(drawSession, {
               title: {
                 x: pos.x,
@@ -16366,11 +16598,18 @@
         points.forEach(pt => {
           const cx = x2px(pt.x);
           const cy = y2px(pt.y);
+          const assignment = (groupMeta && Number.isInteger(pt.index)) ? groupMeta.assignments[pt.index] : null;
+          const pointStyle = resolvePcaPointStyle(pt, Number.isInteger(assignment) ? assignment : null, pt.index);
+          const pointRadius = chartStyle.scaleStrokeWidth(Number(pointStyle.size), styleScaleInfo, {
+            context: 'pca-dot-size-label',
+            min: 0.5
+          });
+          const pointHalfExtent = symbolGeometry.resolveEqualAreaHalfExtent(pointStyle.shape || 'circle', pointRadius);
           const layoutPointId = pointBounds.length;
           pointBounds.push({
             cx,
             cy,
-            r: dotSizePx,
+            r: pointHalfExtent,
             pointId: layoutPointId
           });
           const labelText = pt.label ? String(pt.label).trim() : '';
@@ -16380,7 +16619,7 @@
               text: labelText,
               cx,
               cy,
-              radius: dotSizePx,
+              radius: pointHalfExtent,
               pointId: layoutPointId,
               labelKey,
               pinnedPosition: pcaLabelPositionsState?.pointLabels?.[labelKey] || null
@@ -16568,12 +16807,13 @@
           {
             owner: pcaCartesianOwner,
             requiredMargins: pcaRequiredMargins,
+            titleBlocks: pcaTitleBlocks,
             externalExtensions: { right: legendVisible ? effectiveLegendWidth : 0 },
             resizeMetricLocked: true,
             resizeDrive: pcaSvgBox?.dataset?.resizerLastAxis === 'x'
               ? 'width'
               : (pcaSvgBox?.dataset?.resizerLastAxis === 'y' ? 'height' : 'both'),
-            contentBounds: {
+            contentBounds: measuredPcaViewport.renderedContentBounds || {
               minX: measuredPcaViewport.minX,
               minY: measuredPcaViewport.minY,
               maxX: measuredPcaViewport.maxX,
@@ -16611,7 +16851,7 @@
               && (!drawSession || getPcaSession(drawSession.tabId, {}, { create: false }) === drawSession),
             projectionTarget: svg,
             commitFrame: () => framePublication.commit(),
-            commitPresentation: () => legendProjection.commit()
+            commitPresentation: plan => legendProjection.commit(plan)
           })
         : false;
       if(pcaCartesianPlan && !pcaLayoutPublished){
@@ -16925,6 +17165,7 @@
       labels: {
         title: typeof labels.title === 'string' ? labels.title : getDefaultTitleForMethod(state.lastMethod || controls.method || 'pca')
       },
+      axisTitleOverrides: normalizePcaAxisTitleOverrides(labels.axisTitleOverrides),
       viewMode: controls.viewMode,
       axisSelection: {
         x: axisSelection.x,
@@ -17179,6 +17420,12 @@
       if(c.axisSelection) payloadOwnedState.axisSelection = cloneSimple(c.axisSelection);
       if(c.rotation) payloadOwnedState.rotation = cloneSimple(c.rotation);
       if(c.labels) payloadOwnedState.labels = cloneSimple(c.labels);
+      if(Object.prototype.hasOwnProperty.call(c, 'axisTitleOverrides')){
+        payloadOwnedState.labels = {
+          ...(payloadOwnedState.labels || {}),
+          axisTitleOverrides: normalizePcaAxisTitleOverrides(c.axisTitleOverrides)
+        };
+      }
       if(c.grouped) payloadOwnedState.grouped = cloneSimple(c.grouped);
       if(c.pointStyleScopes) payloadOwnedState.pointStyleScopes = cloneSimple(c.pointStyleScopes);
       payloadOwnedState.theme = {
@@ -17272,7 +17519,7 @@
       const restoredMethod = pcaMethod.value || 'pca';
       const fallbackTitle = getDefaultTitleForMethod(restoredMethod);
       const restoredTitle = c.labels && typeof c.labels === 'object' && typeof c.labels.title === 'string' ?
-        c.labels.title.trim() :
+        c.labels.title :
         '';
       const nextTitle = restoredTitle || getPcaLabelsState(getActivePcaSessionForState(), restoredMethod).title || fallbackTitle;
       patchPcaLabelsState(getPcaProjectionSession({
@@ -18580,6 +18827,7 @@
       payload.config.labels = {
         title: getDefaultTitleForMethod('pca')
       };
+      payload.config.axisTitleOverrides = {};
       payload.config.axisSelection = {
         x: 1,
         y: 2,
@@ -18757,8 +19005,19 @@
       markupPattern: /(<svg\b|id=["']pcaSvg["']|<canvas\b)/i
     }) ?? (Number(plotCache?.count || 0) > 0);
     const ownerTabId = session?.tabId || getPcaProjectionTabId() || meta?.tabId || null;
-    const cacheMeta = Shared.renderCacheSchema?.createMetadata?.({ component: 'pca', tabId: ownerTabId, complete })
-      || { version: 2, component: 'pca', type: 'pca', tabId: ownerTabId, complete };
+    const cacheMeta = Shared.renderCacheSchema?.createMetadata?.({
+      component: 'pca',
+      tabId: ownerTabId,
+      complete,
+      extra: { symbolGeometryVersion: symbolGeometry.RENDER_GEOMETRY_VERSION }
+    }) || {
+      version: 2,
+      component: 'pca',
+      type: 'pca',
+      tabId: ownerTabId,
+      complete,
+      symbolGeometryVersion: symbolGeometry.RENDER_GEOMETRY_VERSION
+    };
     const rotationModel = normalizePca3dRotationModel(session?.cache?.pca3dRotationModel || null);
     const cache = {
       plot: plotCache,
@@ -18771,6 +19030,9 @@
   };
 
   pca.canRestoreRenderCache = function canRestoreRenderCache(cache, meta = {}) {
+    if(!symbolGeometry.isRenderCacheCurrent(cache)){
+      return false;
+    }
     const valid = Shared.componentLifecycle?.validateRenderCache?.(cache, meta, {
       componentKey: 'pca',
       graph: {

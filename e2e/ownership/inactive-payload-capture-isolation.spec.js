@@ -3,7 +3,7 @@ const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
 const {
   COMPONENT_MATRIX,
   openComponentFromWelcome,
-  clickExampleButtonIfPresent
+  clickExpectedExampleButton
 } = require('../helpers/workspaceDriver');
 
 const CASES = ['scatter', 'pca', 'roc'].map(type => {
@@ -31,7 +31,7 @@ async function waitForCanonicalExample(page, type) {
 async function openExample(page, component, first) {
   await openComponentFromWelcome(page, component, { first });
   await page.waitForSelector(`#${component.pageId}:not([hidden])`, { timeout: 30_000 });
-  await clickExampleButtonIfPresent(page, component.exampleButtonId);
+  await clickExpectedExampleButton(page, component.exampleButtonId);
   await waitForCanonicalExample(page, component.type);
   return page.evaluate(() => window.Main?.session?.workspaceState?.activeTabId || null);
 }

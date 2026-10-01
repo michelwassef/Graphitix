@@ -41,7 +41,11 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: test-report-e2e-contracts-chromium
-          path: artifacts/test-reports/e2e-contracts.json
+          path: |
+            artifacts/test-reports/e2e-contracts.json
+            artifacts/test-reports/e2e-contracts.manifest.json
+            artifacts/test-reports/e2e-contracts.skips.json
+            artifacts/test-reports/e2e-contracts.cases.json
           retention-days: 14
           if-no-files-found: error
 

@@ -1354,6 +1354,7 @@
         fileName: 'venn.graph',
       },
       titleText: DEFAULT_VENN_TITLE,
+      axisTitleOverrides: {},
       labelPositions: { title: null }
     };
   }
@@ -1689,6 +1690,7 @@
       runtime: cloneVennRuntimeSnapshot(src.runtime) || null,
       fileName: src.fileName || src.snapshot?.fileName || 'venn.graph',
       titleText: src.titleText || src.snapshot?.payload?.style?.title || DEFAULT_VENN_TITLE,
+      axisTitleOverrides: normalizeVennAxisTitleOverrides(src.axisTitleOverrides || src.snapshot?.payload?.style?.axisTitleOverrides),
       labelPositions: cloneSimple(src.labelPositions || src.snapshot?.payload?.style?.labelPositions) || { title: null },
       lockRatioPrevious: (src.lockRatioPrevious === true || src.lockRatioPrevious === false)
         ? !!src.lockRatioPrevious
@@ -2351,25 +2353,32 @@
   function patchVennVisualState(session = null, patch = {}, meta = {}){
     const owner = ensureVennSessionOwnershipShape(session || getActiveVennSessionForState());
     const hasTitle = Object.prototype.hasOwnProperty.call(patch || {}, 'titleText');
+    const hasAxisTitleOverrides = Object.prototype.hasOwnProperty.call(patch || {}, 'axisTitleOverrides');
     const hasPositions = Object.prototype.hasOwnProperty.call(patch || {}, 'labelPositions');
     const nextTitle = hasTitle ? String(patch.titleText == null ? '' : patch.titleText) : state.titleText;
+    const nextAxisTitleOverrides = hasAxisTitleOverrides
+      ? normalizeVennAxisTitleOverrides(patch.axisTitleOverrides)
+      : normalizeVennAxisTitleOverrides(owner?.state?.axisTitleOverrides || state.axisTitleOverrides);
     const nextPositions = hasPositions ? normalizeVennLabelPositions(patch.labelPositions) : normalizeVennLabelPositions(state.labelPositions);
     if(owner?.state){
       if(hasTitle){ owner.state.titleText = nextTitle || DEFAULT_VENN_TITLE; }
+      if(hasAxisTitleOverrides){ owner.state.axisTitleOverrides = nextAxisTitleOverrides; }
       if(hasPositions){ owner.state.labelPositions = nextPositions; }
       owner.updatedAt = Date.now();
       debugLog('venn visual state patched to owner session', {
         tabId: owner.tabId || null,
         reason: meta?.reason || null,
         title: hasTitle,
+        axisTitleOverrides: hasAxisTitleOverrides,
         labelPositions: hasPositions
       });
     }
     if(!owner || isVennSessionActiveForModuleState(owner)){
       if(hasTitle){ state.titleText = nextTitle; }
+      if(hasAxisTitleOverrides){ state.axisTitleOverrides = nextAxisTitleOverrides; }
       if(hasPositions){ state.labelPositions = nextPositions; }
     }
-    return { titleText: nextTitle, labelPositions: nextPositions };
+    return { titleText: nextTitle, axisTitleOverrides: nextAxisTitleOverrides, labelPositions: nextPositions };
   }
 
   function patchVennLabelPosition(session = null, key, value, meta = {}){
@@ -2435,6 +2444,7 @@
       runtime,
       fileName: state.persistence.fileName || 'venn.graph',
       titleText: state.titleText || DEFAULT_VENN_TITLE,
+      axisTitleOverrides: state.axisTitleOverrides,
       labelPositions: state.labelPositions || { title: null },
       lockRatioPrevious: state.ui.lockRatioPrevious,
       notes,
@@ -2518,6 +2528,7 @@
       ? shaped.managers.fileHandle
       : (durable.snapshot?.fileHandle ?? durable.runtime?.persistence?.fileHandle ?? null);
     state.titleText = durable.titleText || state.titleText || DEFAULT_VENN_TITLE;
+    state.axisTitleOverrides = normalizeVennAxisTitleOverrides(durable.axisTitleOverrides);
     state.labelPositions = cloneSimple(durable.labelPositions) || state.labelPositions || { title: null };
     state.ui.lockRatioPrevious = durable.lockRatioPrevious;
     state.drawPending = durable.drawPending === true;
@@ -2710,6 +2721,7 @@
       borderWidth: '1.2',
       fontsize: '12',
       title: DEFAULT_VENN_TITLE,
+      axisTitleOverrides: {},
       labelPositions: { title: null },
       upset: {
         ...DEFAULT_UPSET_SETTINGS,
@@ -2839,6 +2851,7 @@
     if(style.vennTraceStyles){
       style.vennTraceStyles = cloneVennTraceStyles(style.vennTraceStyles);
     }
+    style.axisTitleOverrides = normalizeVennAxisTitleOverrides(style.axisTitleOverrides);
     return {
       ...cloned,
       type: cloned.type || 'venn',
@@ -2851,6 +2864,22 @@
 
   function normalizeVennTextPayloadValue(value){
     return value == null ? '' : String(value);
+  }
+
+  const VENN_AXIS_TITLE_OVERRIDE_KEYS = new Set([
+    'upset.intersectionSize',
+    'upset.setSize'
+  ]);
+
+  function normalizeVennAxisTitleOverrides(value){
+    const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+    const normalized = {};
+    VENN_AXIS_TITLE_OVERRIDE_KEYS.forEach(key => {
+      if(typeof source[key] !== 'string') return;
+      const text = source[key].replace(/\r\n?/g, '\n');
+      if(text.trim()) normalized[key] = text;
+    });
+    return normalized;
   }
 
   function normalizeVennCountPayloadValue(value){
@@ -2949,13 +2978,14 @@
       fontStyles: style.fontStyles ? cloneFontStyles(style.fontStyles) : undefined,
       vennTraceStyles: cloneVennTraceStyles(style.vennTraceStyles),
       title: style.title !== undefined ? style.title : defaultStyle.title,
+      axisTitleOverrides: normalizeVennAxisTitleOverrides(style.axisTitleOverrides),
       labelPositions: cloneSimple(style.labelPositions || defaultStyle.labelPositions) || { title: null },
       upset: {
         ...defaultStyle.upset,
         ...(style.upset && typeof style.upset === 'object' ? style.upset : {})
       },
       ...Object.keys(style).reduce((extra, key) => {
-        if(!['colorScheme','plotType','colorA','colorB','colorC','opacity','borderColor','borderWidth','fontsize','fontStyles','vennTraceStyles','title','labelPositions','upset'].includes(key)){
+        if(!['colorScheme','plotType','colorA','colorB','colorC','opacity','borderColor','borderWidth','fontsize','fontStyles','vennTraceStyles','title','axisTitleOverrides','labelPositions','upset'].includes(key)){
           extra[key] = style[key];
         }
         return extra;
@@ -3039,6 +3069,7 @@
       snapshot,
       fileName: snapshot?.fileName || session.state?.fileName || 'venn.graph',
       titleText: payload?.style?.title || session.state?.titleText || DEFAULT_VENN_TITLE,
+      axisTitleOverrides: normalizeVennAxisTitleOverrides(payload?.style?.axisTitleOverrides || session.state?.axisTitleOverrides),
       labelPositions: payload?.style?.labelPositions || session.state?.labelPositions || { title: null },
       notes: payload?.notes || session.state?.notes || {}
     });
@@ -3170,6 +3201,7 @@
     state.titleText = style.title !== undefined
       ? (style.title == null ? '' : String(style.title))
       : (plotType === 'upset' ? DEFAULT_UPSET_TITLE : DEFAULT_VENN_TITLE);
+    state.axisTitleOverrides = normalizeVennAxisTitleOverrides(style.axisTitleOverrides);
     if(inputs.colorA){ inputs.colorA.value = sanitizeColor(style.colorA, defaultStyle.colorA); }
     if(inputs.colorB){ inputs.colorB.value = sanitizeColor(style.colorB, defaultStyle.colorB); }
     if(inputs.colorC){ inputs.colorC.value = sanitizeColor(style.colorC, defaultStyle.colorC); }
@@ -3527,7 +3559,7 @@
     });
   }
 
-  function recordVennTitleChange(previous, next, apply){
+  function recordVennTitleChange(previous, next, apply, label = 'venn:title'){
     if(!vennUndoManager || typeof vennUndoManager.recordStateChange !== 'function'){
       return;
     }
@@ -3540,7 +3572,7 @@
     const recorder = Shared.styleUndo?.recordStateChange || (opts => vennUndoManager.recordStateChange(opts));
     recorder({
       manager: vennUndoManager,
-      label: 'venn:title',
+      label,
       scope: 'vennGraphPanel',
       from: previous,
       to: next,
@@ -5824,8 +5856,10 @@
     if (!node || !key) return false;
     const stageWidth = Math.max(1, Number(options.stageWidth) || resolveVennStageDimensions().width);
     const stageHeight = Math.max(1, Number(options.stageHeight) || resolveVennStageDimensions().height);
-    const saved = resolveVennSavedLabelPosition(key, stageWidth, stageHeight);
+    const positionStageHeight = Math.max(1, Number(options.positionStageHeight) || stageHeight);
+    const saved = resolveVennSavedLabelPosition(key, stageWidth, positionStageHeight);
     if (!saved) return false;
+    saved.y += Number(options.offsetY) || 0;
     const fallback = {
       x: Number(node.getAttribute('x')) || 0,
       y: Number(node.getAttribute('y')) || 0
@@ -5834,7 +5868,8 @@
     node.setAttribute('y', String(saved.y));
     const fontSize = Math.max(1, Number(options.fontSize) || 12);
     const box = measureVennTextNodeBox(node, fontSize, options.fontFamily);
-    const outsideStage = box.x < 0 || box.y < 0 || box.x + box.width > stageWidth || box.y + box.height > stageHeight;
+    const boundsStageHeight = Math.max(stageHeight, Number(options.boundsStageHeight) || stageHeight);
+    const outsideStage = box.x < 0 || box.y < 0 || box.x + box.width > stageWidth || box.y + box.height > boundsStageHeight;
     if (outsideStage) {
       node.setAttribute('x', String(fallback.x));
       node.setAttribute('y', String(fallback.y));
@@ -9716,25 +9751,136 @@
   function bindVennTitleInlineInteraction(node, ownerSession = null){
     const owner = ensureVennSessionOwnershipShape(ownerSession || getActiveVennSessionForState());
     if(!node || !owner || typeof makeEditable !== 'function'){ return false; }
+    let editInitialValue = null;
     makeEditable(node, txt => {
-      const previous = owner.state?.titleText != null ? String(owner.state.titleText) : '';
+      const previous = editInitialValue != null ? editInitialValue : (owner.state?.titleText != null ? String(owner.state.titleText) : '');
       const nextValue = txt != null ? String(txt) : '';
       if(previous === nextValue){ return; }
       const apply = value => {
         const normalized = value != null ? String(value) : '';
         patchVennVisualState(owner, { titleText: normalized }, { reason: 'venn-title-edit' });
-        if(node.textContent !== normalized){ node.textContent = normalized; }
+        if(!Shared.fontControls?.setTitleText?.(node, normalized) && node.textContent !== normalized){ node.textContent = normalized; }
+        if(isVennSessionActiveForModuleState(owner)) persistActiveVennUserChange('venn-title-edit');
         scheduleVennDrawForSession(owner, { renderImpact: 'layout', reason: 'venn-title-edit' });
       };
       apply(nextValue);
       recordVennTitleChange(previous, nextValue, apply);
+    }, {
+      getInitialValue: () => String(owner.state?.titleText ?? ''),
+      onEditCheckpoint: (currentValue, _target, reason) => {
+        const nextValue = currentValue != null ? String(currentValue) : '';
+        if(reason === 'history-restore'){
+          editInitialValue = nextValue;
+          return true;
+        }
+        const previous = editInitialValue != null ? editInitialValue : (owner.state?.titleText != null ? String(owner.state.titleText) : '');
+        if(previous === nextValue) return false;
+        recordVennTitleChange(previous, nextValue, value => {
+          const normalized = value != null ? String(value) : '';
+          patchVennVisualState(owner, { titleText: normalized }, { reason: 'venn-title-edit' });
+          if(!Shared.fontControls?.setTitleText?.(node, normalized) && node.textContent !== normalized) node.textContent = normalized;
+          if(isVennSessionActiveForModuleState(owner)) persistActiveVennUserChange('venn-title-edit');
+          scheduleVennDrawForSession(owner, { renderImpact: 'layout', reason: 'venn-title-edit' });
+          return true;
+        });
+        editInitialValue = nextValue;
+        return true;
+      },
+      onEditStart: () => { editInitialValue = owner.state?.titleText != null ? String(owner.state.titleText) : ''; },
+      onInput: value => {
+        const nextValue = String(value == null ? '' : value).replace(/\r\n?/g, '\n');
+        patchVennVisualState(owner, { titleText: nextValue }, { reason: 'venn-title-draft' });
+        Shared.textBlock?.markDraftModified?.(node, owner, 'venn', 'venn-title-draft');
+      },
+      onEditEnd: (_target, finalValue) => {
+        const nextValue = String(finalValue == null ? '' : finalValue).replace(/\r\n?/g, '\n');
+        if(String(owner.state?.titleText ?? '') !== nextValue){
+          patchVennVisualState(owner, { titleText: nextValue }, { reason: 'venn-title-cancel' });
+          Shared.textBlock?.markDraftModified?.(node, owner, 'venn', 'venn-title-cancel');
+        }
+        editInitialValue = null;
+      }
+    });
+    return true;
+  }
+
+  function bindUpSetAxisTitleInlineInteraction(node, ownerSession = null){
+    const owner = ensureVennSessionOwnershipShape(ownerSession || getActiveVennSessionForState());
+    const key = String(node?.dataset?.upsetAxisTitleKey || '');
+    const generatedLabel = String(node?.dataset?.upsetAxisGeneratedLabel || '');
+    if(!node || !owner || !VENN_AXIS_TITLE_OVERRIDE_KEYS.has(key) || typeof makeEditable !== 'function') return false;
+    let editInitialValue = null;
+    const writeOverride = (value, reason = 'venn-upset-axis-title-draft') => {
+      const normalized = String(value == null ? '' : value).replace(/\r\n?/g, '\n');
+      const nextOverrides = { ...normalizeVennAxisTitleOverrides(owner.state?.axisTitleOverrides) };
+      if(normalized === generatedLabel) delete nextOverrides[key];
+      else nextOverrides[key] = normalized;
+      patchVennVisualState(owner, { axisTitleOverrides: nextOverrides }, { reason });
+      Shared.textBlock?.markDraftModified?.(node, owner, 'venn', reason);
+      return normalized;
+    };
+    makeEditable(node, value => {
+      const previousOverrides = normalizeVennAxisTitleOverrides(owner.state?.axisTitleOverrides);
+      const previous = editInitialValue != null ? editInitialValue : String(previousOverrides[key] ?? generatedLabel);
+      const nextValue = String(value == null ? '' : value).replace(/\r\n?/g, '\n');
+      if(!nextValue.trim() || previous === nextValue) return;
+      const apply = next => {
+        const normalized = String(next == null ? '' : next).replace(/\r\n?/g, '\n');
+        writeOverride(normalized, 'venn-upset-axis-title-edit');
+        if(!Shared.fontControls?.setTitleText?.(node, normalized) && node.textContent !== normalized){ node.textContent = normalized; }
+        if(isVennSessionActiveForModuleState(owner)) persistActiveVennUserChange('venn-upset-axis-title-edit');
+        scheduleVennDrawForSession(owner, { renderImpact: 'layout', reason: 'venn-upset-axis-title-edit' });
+        return true;
+      };
+      apply(nextValue);
+      recordVennTitleChange(previous, nextValue, apply, `venn:${key}`);
+    }, {
+      titleEditing: true,
+      getInitialValue: () => normalizeVennAxisTitleOverrides(owner.state?.axisTitleOverrides)[key]
+        ?? generatedLabel,
+      onEditCheckpoint: (currentValue, _target, reason) => {
+        const nextValue = String(currentValue == null ? '' : currentValue).replace(/\r\n?/g, '\n');
+        if(reason === 'history-restore'){
+          editInitialValue = nextValue;
+          return true;
+        }
+        const overrides = normalizeVennAxisTitleOverrides(owner.state?.axisTitleOverrides);
+        const previous = editInitialValue != null ? editInitialValue : String(overrides[key] ?? node.dataset.titleBlockText ?? generatedLabel);
+        if(!nextValue.trim() || previous === nextValue) return false;
+        const applyCheckpoint = value => {
+          const normalized = String(value == null ? '' : value).replace(/\r\n?/g, '\n');
+          writeOverride(normalized, 'venn-upset-axis-title-edit');
+          if(!Shared.fontControls?.setTitleText?.(node, normalized) && node.textContent !== normalized) node.textContent = normalized;
+          if(isVennSessionActiveForModuleState(owner)) persistActiveVennUserChange('venn-upset-axis-title-edit');
+          scheduleVennDrawForSession(owner, { renderImpact: 'layout', reason: 'venn-upset-axis-title-edit' });
+          return true;
+        };
+        recordVennTitleChange(previous, nextValue, applyCheckpoint, `venn:${key}`);
+        editInitialValue = nextValue;
+        return true;
+      },
+      onEditStart: () => {
+        const overrides = normalizeVennAxisTitleOverrides(owner.state?.axisTitleOverrides);
+        editInitialValue = String(overrides[key] ?? node.dataset.titleBlockText ?? generatedLabel);
+      },
+      onInput: value => { writeOverride(value); },
+      onEditEnd: (_target, finalValue) => {
+        const overrides = normalizeVennAxisTitleOverrides(owner.state?.axisTitleOverrides);
+        const current = String(overrides[key] ?? generatedLabel);
+        const nextValue = String(finalValue == null ? '' : finalValue).replace(/\r\n?/g, '\n');
+        if(current !== nextValue) writeOverride(nextValue, 'venn-upset-axis-title-cancel');
+        editInitialValue = null;
+      }
     });
     return true;
   }
 
   function rehydrateVennInlineTextInteractions(stage, ownerSession = null){
     const title = stage?.querySelector?.('[data-font-role="graphTitle"]') || null;
-    return title ? bindVennTitleInlineInteraction(title, ownerSession) : true;
+    const titleReady = title ? bindVennTitleInlineInteraction(title, ownerSession) : true;
+    const axisTitlesReady = Array.from(stage?.querySelectorAll?.('[data-upset-axis-title-key]') || [])
+      .every(node => bindUpSetAxisTitleInlineInteraction(node, ownerSession));
+    return titleReady && axisTitlesReady;
   }
 
   function renderPlotTitle({ stageWidth, stageHeight, fontFamily, textColor, fontSizePx, defaultText, interactive = true }) {
@@ -9755,6 +9901,9 @@
     const fallback = defaultText || DEFAULT_VENN_TITLE;
     titleText.textContent = state.titleText != null ? String(state.titleText) : fallback;
     markFontEditable(titleText, 'graphTitle', 'graphTitle', { register: interactive });
+    if(String(titleText.textContent || '').includes('\n')){
+      Shared.fontControls?.setTitleText?.(titleText, titleText.textContent);
+    }
     if(interactive){
       bindVennTitleInlineInteraction(titleText, getVennProjectionSession({ reason: 'venn-title-bind' }));
       enableVennTextDrag(titleText, {
@@ -9762,22 +9911,27 @@
         fallbackPosition: { x: defaultTitleX, y: defaultTitleY }
       });
     }
+    const titleLines = Array.from(titleText.querySelectorAll?.('tspan[data-title-line="1"]') || []);
+    const titleLineHeight = Math.max(1, Number(titleText.dataset?.titleLineHeight) || fontSizePx);
+    const titleAdditionalExtent = Math.max(0, titleLines.length - 1) * titleLineHeight;
+    const firstTitleLine = titleLines[0] || titleText;
     const hasVisibleTitle = String(titleText.textContent || '').trim().length > 0;
     const displayedTitleBounds = hasVisibleTitle
-      ? measureVennTextNodeBox(titleText, fontSizePx, fontFamily)
+      ? measureVennTextNodeBox(firstTitleLine, fontSizePx, fontFamily)
       : null;
     const titleAnchorOffsetY = displayedTitleBounds
       ? displayedTitleBounds.y - absoluteTitleY
       : -fontSizePx;
     const layoutTitleTop = defaultTitleY + titleAnchorOffsetY;
     const layoutTitleHeight = displayedTitleBounds?.height || fontSizePx * 1.2;
-    const titleBandBottom = hasVisibleTitle
+    const baseTitleBandBottom = hasVisibleTitle
       ? Math.max(
         minimumTitleBand,
         layoutTitleTop + layoutTitleHeight + fontSizePx * VENN_DIAGRAM_LAYOUT.titleGapEm
       )
       : VENN_DIAGRAM_LAYOUT.outerPaddingPx;
-    return { titleText, titleBandBottom };
+    const titleBandBottom = baseTitleBandBottom + (hasVisibleTitle ? titleAdditionalExtent : 0);
+    return { titleText, titleBandBottom, baseTitleBandBottom, titleAdditionalExtent };
   }
 
   function measureVennStyledSetLabel(text, key, style, fontFamily, textColor) {
@@ -9802,7 +9956,7 @@
     const metrics = configureStage(style);
     if (!metrics) return;
     const { stage, svgBox, svgBoxRect, stageWidth, stageHeight, fontFamily, textColor } = metrics;
-    const { titleBandBottom } = renderPlotTitle({
+    const { titleBandBottom, titleAdditionalExtent } = renderPlotTitle({
       stageWidth,
       stageHeight,
       fontFamily,
@@ -9838,7 +9992,7 @@
     const layoutOwner = getVennProjectionSession({ reason: 'venn-diagram-layout' });
     const diagramLayout = resolveVennDiagramLayoutForSession(layoutOwner, {
       stageWidth,
-      stageHeight,
+      stageHeight: stageHeight + titleAdditionalExtent,
       fontSize: style.fontSizePx,
       circles: rawCircles,
       labelMetrics,
@@ -9948,7 +10102,9 @@
         if (resolvedRole === 'setLabel') t.dataset.vennSetLabel = regionCode || resolvedKey.replace(/^set-/, '');
         applyVennSavedLabelPosition(t, resolvedKey, {
           stageWidth: W,
-          stageHeight: H,
+          stageHeight: H + titleAdditionalExtent,
+          positionStageHeight: H,
+          offsetY: titleAdditionalExtent,
           fontSize: style.fontSizePx,
           fontFamily
         });
@@ -10038,6 +10194,19 @@
       ensureGraphViewport(stage, viewportOptions);
     }
     enforceVennLockedViewportRatio(stage, svgBox, 'venn-locked-axis-ratio');
+    chartStyle.stageGraphContentViewport?.({
+      svgBox,
+      plot: stage.parentElement,
+      svg: stage,
+      baseWidth: stageWidth,
+      baseHeight: stageHeight,
+      legendWidth: 0,
+      refineLegendReserve: false,
+      refineLegendVerticalReserve: false,
+      refineContentBounds: titleAdditionalExtent > 0,
+      settleContentBounds: titleAdditionalExtent > 0,
+      debugLabel: 'venn-title-envelope'
+    })?.commit?.();
   }
 
   function formatCount(value) {
@@ -10307,6 +10476,15 @@
   function drawUpSet(counts, labels, style, options = {}) {
     let drawOptions = options?.drawOptions || {};
     drawOptions = sanitizeVennScheduleOptions(drawOptions, getActiveVennSessionForState());
+    const ownerSession = drawOptions?.tabId
+      ? getVennSession(drawOptions.tabId, { tabId: drawOptions.tabId, reason: drawOptions.reason || 'venn-upset-title-owner' }, { create: false })
+      : getActiveVennSessionForState();
+    const axisTitleOverrides = normalizeVennAxisTitleOverrides(ownerSession?.state?.axisTitleOverrides || state.axisTitleOverrides);
+    const intersectionAxisGeneratedLabel = 'Intersection Size';
+    const setAxisGeneratedLabel = 'Set Size';
+    const intersectionAxisTitleText = axisTitleOverrides['upset.intersectionSize'] ?? intersectionAxisGeneratedLabel;
+    const setAxisTitleText = axisTitleOverrides['upset.setSize'] ?? setAxisGeneratedLabel;
+    const titleFontStyles = exportFontStyles('venn') || {};
     const resizePreview = drawOptions?.resizePhase === 'move';
     const metrics = configureStage(style, { preserveContent: true });
     if (!metrics) return;
@@ -10331,7 +10509,11 @@
     };
     try {
     stage.onclick = null;
-    const { titleBandBottom } = renderPlotTitle({
+    const {
+      titleBandBottom,
+      baseTitleBandBottom,
+      titleAdditionalExtent: renderedGraphTitleAdditionalExtent
+    } = renderPlotTitle({
       stageWidth,
       stageHeight,
       fontFamily,
@@ -10340,7 +10522,33 @@
       defaultText: DEFAULT_UPSET_TITLE,
       interactive: !resizePreview
     });
-    const topPadding = Math.max(titleBandBottom, style.fontSizePx * 2.6 + 8);
+    const resolveAdditionalLineExtent = (text, role, fallbackPx) => {
+      const normalized = String(text == null ? '' : text).replace(/\r\n?/g, '\n');
+      if(!normalized.trim()) return 0;
+      const block = chartStyle.resolveTitleBlockLayout?.({
+        text: normalized,
+        role,
+        styles: titleFontStyles,
+        fallbackPx
+      }) || {
+        text: normalized,
+        lineHeight: Math.max(1, Number(fallbackPx) || 12)
+      };
+      return Math.max(0, normalized.split('\n').length - 1) * Math.max(1, Number(block.lineHeight) || Number(fallbackPx) || 12);
+    };
+    const graphTitleAdditionalExtent = renderedGraphTitleAdditionalExtent
+      || resolveAdditionalLineExtent(state.titleText, 'graphTitle', style.fontSizePx);
+    const intersectionTitleAdditionalExtent = resolveAdditionalLineExtent(intersectionAxisTitleText, 'yTitle', style.fontSizePx);
+    const setTitleAdditionalExtent = resolveAdditionalLineExtent(setAxisTitleText, 'xTitle', style.fontSizePx);
+    const layoutStageHeight = stageHeight + graphTitleAdditionalExtent;
+    const baseTopPadding = Math.max(baseTitleBandBottom || titleBandBottom, style.fontSizePx * 2.6 + 8);
+    const topPadding = baseTopPadding + graphTitleAdditionalExtent;
+    const plotXOffset = intersectionTitleAdditionalExtent;
+    const upsetPlotGroup = makeEl('g', {
+      'data-upset-plot-content': 'true',
+      transform: `translate(${plotXOffset} 0)`
+    });
+    activeVennRenderParent = upsetPlotGroup;
 
     const settings = { ...DEFAULT_UPSET_SETTINGS, ...resolveUpSetSettings(), ...(style.upset || {}) };
     const upsetData = options?.upsetData || null;
@@ -10453,7 +10661,7 @@
     });
     const gap = Math.max(style.fontSizePx * 0.65, 10);
     const setAxisHeight = Math.max(style.fontSizePx * 3.4, 52);
-    const innerHeight = Math.max(1, stageHeight - topPadding - pad);
+    const innerHeight = Math.max(1, layoutStageHeight - topPadding - pad);
     const contentHeight = Math.max(1, innerHeight - setAxisHeight);
     const sharedPanelHeight = Math.max(1, contentHeight - gap);
     const minRowHeight = Math.max(dotSizePx * 2.4, style.fontSizePx * 1.15);
@@ -10644,13 +10852,13 @@
     const requiredSetAxisBottomSpace = xMajorTickLength + setTickOffset + setTickReserveHeight + setTitleGap + setAxisLabelHeight + 4;
     const axisYPreferred = matrixBottom + setAxisHeight * 0.35;
     const axisYMin = matrixBottom + Math.max(2, Math.round(style.fontSizePx * 0.2));
-    const axisYMax = stageHeight - requiredSetAxisBottomSpace;
+    const axisYMax = layoutStageHeight - requiredSetAxisBottomSpace;
     const axisY = axisYMax >= axisYMin
       ? Math.min(axisYMax, Math.max(axisYMin, axisYPreferred))
       : axisYMin;
     let setTickLabelY = axisY + xMajorTickLength + setTickOffset;
     let setAxisLabelY = setTickLabelY + setTickReserveHeight + setTitleGap;
-    const maxSetAxisLabelY = stageHeight - setAxisLabelHeight - 2;
+    const maxSetAxisLabelY = layoutStageHeight - setAxisLabelHeight - 2;
     if (setAxisLabelY > maxSetAxisLabelY) {
       setAxisLabelY = maxSetAxisLabelY;
     }
@@ -10819,14 +11027,20 @@
     );
     const intersectionAxisLabelY = barTop + barChartHeight / 2;
     const axisLabel = makeEl('text', {
-      x: axisLabelX,
+      x: axisLabelX - plotXOffset,
       y: intersectionAxisLabelY,
       'text-anchor': 'middle',
       'font-size': axisLabelFontSize,
-      fill: textColor
+      fill: textColor,
+      'data-upset-axis-label': 'intersection-y',
+      'data-upset-axis-title-key': 'upset.intersectionSize',
+      'data-upset-axis-generated-label': intersectionAxisGeneratedLabel
     });
-    axisLabel.textContent = 'Intersection Size';
-    axisLabel.setAttribute('transform', `rotate(-90 ${axisLabelX} ${intersectionAxisLabelY})`);
+    axisLabel.setAttribute('transform', `rotate(-90 ${axisLabelX - plotXOffset} ${intersectionAxisLabelY})`);
+    axisLabel.textContent = intersectionAxisTitleText;
+    markFontEditable(axisLabel, 'yTitle', 'upset.intersectionSize', { register: !resizePreview });
+    Shared.fontControls?.setTitleText?.(axisLabel, intersectionAxisTitleText);
+    if(!resizePreview) bindUpSetAxisTitleInlineInteraction(axisLabel, ownerSession);
 
     intersectionLayout.forEach(layout => {
       const { entry, columnCenter, barWidth, barHeight, barX, barY } = layout;
@@ -11164,9 +11378,14 @@
       dy: setAxisLabelBaselineDy,
       'font-size': setAxisLabelFontSize,
       fill: textColor,
-      'data-upset-axis-label': 'set-x'
+      'data-upset-axis-label': 'set-x',
+      'data-upset-axis-title-key': 'upset.setSize',
+      'data-upset-axis-generated-label': setAxisGeneratedLabel
     });
-    setAxisLabel.textContent = 'Set Size';
+    setAxisLabel.textContent = setAxisTitleText;
+    markFontEditable(setAxisLabel, 'xTitle', 'upset.setSize', { register: !resizePreview });
+    Shared.fontControls?.setTitleText?.(setAxisLabel, setAxisTitleText);
+    if(!resizePreview) bindUpSetAxisTitleInlineInteraction(setAxisLabel, ownerSession);
 
     // Keep intersection axes in the foreground so bars/dots never hide them.
     const yAxisLine = makeEl('line', {
@@ -11212,6 +11431,24 @@
       ensureGraphViewport(stage, viewportOptions);
     }
     enforceVennLockedViewportRatio(stage, svgBox, 'upset-locked-axis-ratio');
+    const titleViewport = chartStyle.stageGraphContentViewport?.({
+      svgBox,
+      plot: stage.parentElement,
+      svg: stage,
+      baseWidth: stageWidth,
+      baseHeight: stageHeight,
+      legendWidth: 0,
+      refineLegendReserve: false,
+      refineLegendVerticalReserve: false,
+      refineContentBounds: graphTitleAdditionalExtent > 0
+        || intersectionTitleAdditionalExtent > 0
+        || setTitleAdditionalExtent > 0,
+      settleContentBounds: graphTitleAdditionalExtent > 0
+        || intersectionTitleAdditionalExtent > 0
+        || setTitleAdditionalExtent > 0,
+      debugLabel: 'upset-title-envelope'
+    });
+    titleViewport?.commit?.();
     debugLog('drawUpSet complete', {
       intersections: intersections.length,
       sets: sets.length,
@@ -11810,6 +12047,7 @@
         fontStyles: exportFontStyles('venn') || undefined,
         vennTraceStyles: cloneVennTraceStyles(state.analysis?.vennTraceStyles),
         title: state.titleText,
+        axisTitleOverrides: normalizeVennAxisTitleOverrides(payloadOwnerSession?.state?.axisTitleOverrides || state.axisTitleOverrides),
         labelPositions: state.labelPositions || null,
         upset: resolveUpSetSettings()
       },

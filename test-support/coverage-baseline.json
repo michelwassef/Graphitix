@@ -9,9 +9,10 @@
       "statistical-oracle",
       "unit-node",
       "dom-unit",
+      "integration",
       "workers"
     ],
-    "excludedProjects": ["integration"],
+    "excludedProjects": [],
     "sourceDenominator": "js/**/*.js and src/**/*.js"
   },
   "metrics": {

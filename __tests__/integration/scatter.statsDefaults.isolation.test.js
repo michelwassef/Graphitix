@@ -211,6 +211,27 @@ describe('Scatter stats defaults isolation', () => {
     }
   });
 
+  test('snapshot readiness reads the requested Scatter owner instead of the active mirror', async () => {
+    await activateWorkspace('scatter');
+    const Main = window.Main;
+    const scatter = window.Components.scatter;
+    const tabA = Main.tabs.getActiveTab();
+    const sessionA = scatter.__testHooks.getSession(tabA.id);
+
+    Main.tabs.handleAddTabClick();
+    await flushAsyncWork(4);
+    await activateWorkspace('scatter');
+    await ensureEmptyDuplicateTab();
+    const tabB = Main.tabs.getActiveTab();
+    const sessionB = scatter.__testHooks.getSession(tabB.id);
+    expect(tabB.id).not.toBe(tabA.id);
+
+    sessionA.timers.drawRuntime.inProgress = true;
+    sessionB.timers.drawRuntime.inProgress = false;
+    expect(scatter.isIdleForSnapshot({ tabId: tabA.id })).toBe(false);
+    expect(scatter.isIdleForSnapshot({ tabId: tabB.id })).toBe(true);
+  });
+
   test('new empty scatter tab resets association metric to default', async () => {
     await activateWorkspace('scatter');
 

@@ -3,7 +3,7 @@
 const globals = require('globals');
 
 const sourceFiles = ['js/**/*.js', 'scripts/**/*.{js,cjs}', 'test-support/**/*.js'];
-const testFiles = ['__tests__/**/*.js', 'e2e/**/*.js', 'test-support/uiEventsSuite.js', 'test-support/hotAggridClipboardSuite.js', 'test-support/componentLifecycleCoreSuite.js', 'test-support/hotAggridBindingSuite.js', 'test-support/sessionAssignTabPayloadSuite.js'];
+const testFiles = ['__tests__/**/*.js', 'e2e/**/*.js', 'test-support/uiEventsTestSetup.js', 'test-support/hotAggridClipboardSuite.js', 'test-support/componentLifecycleTestSetup.js', 'test-support/hotAggridBindingSuite.js', 'test-support/sessionAssignTabPayloadTestSetup.js'];
 const testGlobals = {
   ...globals.browser,
   ...globals.node,
@@ -73,6 +73,12 @@ const testCorrectnessRules = {
   // fixed-wait cleanup rather than this syntax/ownership gate.
   'no-promise-executor-return': 'off'
 };
+const unusedVarsRule = ['error', {
+  vars: 'all',
+  args: 'none',
+  caughtErrors: 'none',
+  ignoreRestSiblings: true
+}];
 
 module.exports = [
   {
@@ -101,19 +107,13 @@ module.exports = [
     },
     rules: {
       ...correctnessRules,
-      'no-unused-vars': ['error', {
-        vars: 'all',
-        args: 'none',
-        caughtErrors: 'none',
-        ignoreRestSiblings: true
-      }],
+      'no-unused-vars': unusedVarsRule,
       'no-with': 'error'
     }
   },
   {
-    // Test code is intentionally linted with the globals supplied by its
-    // runner. Unused-variable cleanup is a later migration because many old
-    // fixtures deliberately expose callback-shaped arguments.
+    // Test code uses the globals supplied by its runner. Keep declarations
+    // checked while allowing intentionally unused callback parameters.
     files: testFiles,
     languageOptions: {
       ecmaVersion: 2022,
@@ -123,6 +123,9 @@ module.exports = [
     linterOptions: {
       reportUnusedDisableDirectives: 'error'
     },
-    rules: testCorrectnessRules
+    rules: {
+      ...testCorrectnessRules,
+      'no-unused-vars': unusedVarsRule
+    }
   }
 ];

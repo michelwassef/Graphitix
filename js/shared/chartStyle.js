@@ -2,6 +2,10 @@
   'use strict';
   const Shared = global.Shared = global.Shared || {};
   const chartStyle = Shared.chartStyle = Shared.chartStyle || {};
+  const symbolGeometry = Shared.symbolGeometry = Shared.symbolGeometry || {};
+  if(typeof symbolGeometry.resolveEqualAreaHalfExtent !== 'function' && typeof require === 'function'){
+    require('./symbolGeometry.js');
+  }
   const NS = 'http://www.w3.org/2000/svg';
   const FONT_FAMILY = 'Arial, Helvetica, sans-serif';
   const TEXT_COLOR = '#000000';
@@ -62,7 +66,8 @@
     const el = input;
     const opts = options || {};
     const requestedSize = normalizeSwatchSize(opts.size);
-    const px = `${requestedSize}px`;
+    // Let the control's stylesheet choose its size; explicit caller sizes still win.
+    const px = opts.size == null ? `var(--color-input-size, ${requestedSize}px)` : `${requestedSize}px`;
     const dataset = el.dataset || null;
     const payload = {
       id: el.id || null,
@@ -1353,6 +1358,33 @@
     };
   };
 
+  chartStyle.resolveTitleBlockLayout = function resolveTitleBlockLayout(options = {}){
+    const text = String(options.text == null ? '' : options.text).replace(/\r\n?/g, '\n');
+    const role = typeof options.role === 'string' ? options.role : '';
+    const styles = options.styles && typeof options.styles === 'object' ? options.styles : null;
+    const fallbackPx = Number.isFinite(Number(options.fallbackPx)) && Number(options.fallbackPx) > 0
+      ? Number(options.fallbackPx)
+      : 12;
+    const profile = chartStyle.resolveScopedLabelMeasureFont({ styles, role, fallbackPx });
+    let fontSize = Number(profile.fontSizePx) || fallbackPx;
+    const relevantStyles = [styles?.__graph__, styles?.[role]];
+    relevantStyles.forEach(style => {
+      (Array.isArray(style?.inlineSegments) ? style.inlineSegments : []).forEach(segment => {
+        const px = parseFontSizePx(segment?.style?.fontSize, fontSize);
+        if(Number.isFinite(px) && px > fontSize) fontSize = px;
+      });
+    });
+    const lineHeight = Number.isFinite(Number(options.lineHeight)) && Number(options.lineHeight) > 0
+      ? Number(options.lineHeight)
+      : fontSize * (Number(Shared.textBlock?.DEFAULT_LINE_HEIGHT_EM) || 1);
+    return {
+      text,
+      fontSize,
+      lineHeight,
+      ...(['top', 'right', 'bottom', 'left'].includes(options.side) ? { side: options.side } : {})
+    };
+  };
+
   /**
    * Unicode superscript digits for rendering exponents.
    * @type {Object<string, string>}
@@ -1814,6 +1846,8 @@
     const adjustedLabelOffset = baseLabelOffset + tickLabelFontSize;
     const includeAxisTitleReserve = options?.includeAxisTitleReserve !== false;
     const axisTitleReserve = includeAxisTitleReserve ? axisTitleGap + fontSize : 0;
+    // SVG text y is a baseline; keep the font's descent inside the reserved title rail.
+    const titleBaselineInset = includeAxisTitleReserve ? Math.max(1, Math.ceil(fontSize * 0.2)) : 0;
     const nominalTitleOffset = adjustedLabelOffset + axisTitleReserve;
     const labelReserveMarginRaw = Number(options?.labelReserveMarginPx);
     const labelReserveMarginPx = Number.isFinite(labelReserveMarginRaw) && labelReserveMarginRaw >= 0
@@ -1939,8 +1973,8 @@
     // Keep the title at its normal position until labels actually rotate. The
     // proactive reserve is an outward envelope allowance, not an active gap.
     const titleOffset = preservePlotRail
-      ? adjustedLabelOffset + activeExtra + axisTitleReserve
-      : nominalTitleOffset;
+      ? adjustedLabelOffset + activeExtra + axisTitleReserve - titleBaselineInset
+      : nominalTitleOffset - titleBaselineInset;
     debugLog('Debug: chartStyle.computeBottomLayout', {
       labelCount: labels.length,
       fontSize,
@@ -1971,9 +2005,10 @@
       preservePlotRail,
       labelOffset: adjustedLabelOffset,
       titleOffset,
+      titleBaselineInset,
       tickLength
     }); // Debug: bottom layout computation
-    return {bottom, requiredBottom, contentReserveBottom: Math.max(0, requiredBottom - baseBottom), shouldRotate, shouldRotateRaw, hasManualLabelRotation, manualLabelRotationAngleDeg, labelRotationAngleDeg: hasManualLabelRotation ? manualLabelRotationAngleDeg : -rotationAngleDeg, widths, bandWidth, maxLabelWidth, maxLabelWidthRatio, maxAdjacentOverlapRatio, projectedRotatedLabelHeight, rotatedExtra, rotationOpticalPaddingPx, activeExtra, reservedExtra, rotatedLabelHorizontalProjections, labelOffset: adjustedLabelOffset, titleOffset, nominalTitleOffset, tickLength, tickLabelGap, axisTitleGap, outerPadding, labelMeasureFont, tickLabelFontSize};
+    return {bottom, requiredBottom, contentReserveBottom: Math.max(0, requiredBottom - baseBottom), shouldRotate, shouldRotateRaw, hasManualLabelRotation, manualLabelRotationAngleDeg, labelRotationAngleDeg: hasManualLabelRotation ? manualLabelRotationAngleDeg : -rotationAngleDeg, widths, bandWidth, maxLabelWidth, maxLabelWidthRatio, maxAdjacentOverlapRatio, projectedRotatedLabelHeight, rotatedExtra, rotationOpticalPaddingPx, activeExtra, reservedExtra, rotatedLabelHorizontalProjections, labelOffset: adjustedLabelOffset, titleOffset, titleBaselineInset, nominalTitleOffset, tickLength, tickLabelGap, axisTitleGap, outerPadding, labelMeasureFont, tickLabelFontSize};
   };
 
   chartStyle.resolveRotatedXAxisEndpointInsets = function resolveRotatedXAxisEndpointInsets(bottomLayout, margins = {}){
@@ -3150,7 +3185,8 @@
         node.setAttribute('d', d);
       }else if(shape === 'diamond'){
         node = doc.createElementNS(NS, 'path');
-        const d = `M ${centerX} ${centerY - radius} L ${centerX + radius} ${centerY} L ${centerX} ${centerY + radius} L ${centerX - radius} ${centerY} Z`;
+        const halfExtent = symbolGeometry.resolveEqualAreaHalfExtent(shape, radius);
+        const d = `M ${centerX} ${centerY - halfExtent} L ${centerX + halfExtent} ${centerY} L ${centerX} ${centerY + halfExtent} L ${centerX - halfExtent} ${centerY} Z`;
         node.setAttribute('d', d);
       }else if(shape === 'cross'){
         node = doc.createElementNS(NS, 'path');
@@ -3496,6 +3532,12 @@
 
   chartStyle.stageGraphContentViewport = function stageGraphContentViewport(options){
     const opts = options || {};
+    const requestedContentReserves = {
+      right: Math.max(0, Number(opts.rightWidth ?? opts.legendWidth) || 0),
+      bottom: Math.max(0, Number(opts.bottomHeight) || 0),
+      left: Math.max(0, Number(opts.leftWidth) || 0),
+      top: Math.max(0, Number(opts.topHeight) || 0)
+    };
     const carriedSummaryReserve = opts.includeCarriedStatsFigureSummary === false
       ? 0
       : (opts.svg?.dataset?.statsFigureSummaryCarried === '1'
@@ -3802,6 +3844,7 @@
       }
       applyViewportSlot(svg);
     }
+    let renderedContentBounds = null;
     const refineContentBoundsFromRenderedSvg = () => {
       if(opts.refineContentBounds === false || !svg || typeof svg.getBBox !== 'function') return false;
       let bounds = null;
@@ -3834,24 +3877,40 @@
       const width = Number(bounds?.width);
       const height = Number(bounds?.height);
       if(!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(width) || !Number.isFinite(height) || width < 0 || height < 0) return false;
+      renderedContentBounds = { minX: x, minY: y, maxX: x + width, maxY: y + height };
+      const settleToRenderedContent = opts.settleContentBounds === true;
+      const requestedSettleSides = Array.isArray(opts.settleContentBoundsSides)
+        ? opts.settleContentBoundsSides.filter(side => ['left', 'right', 'top', 'bottom'].includes(side))
+        : ['left', 'right', 'top', 'bottom'];
+      const settlesSide = side => !settleToRenderedContent || requestedSettleSides.includes(side);
+      const settledReserve = side => {
+        if(side !== 'right') return requestedContentReserves[side];
+        // Legend width includes the shared horizontal edge gap added by its
+        // measurement pass. Keep that semantic rail while allowing temporary
+        // SVG bounds on other sides to settle back down to their true deficit.
+        const requestedLegendRail = hasExplicitLegendWidth ? requestedLegendWidth : 0;
+        const nonLegendRightRail = Math.max(0, requestedContentReserves.right - requestedLegendRail);
+        return Math.max(requestedContentReserves.right, legendReserveWidth + nonLegendRightRail);
+      };
       const next = chartStyle.computeGraphContentViewport({
         baseWidth: viewport.baseWidth,
         baseHeight: viewport.baseHeight,
-        rightWidth: viewport.rightWidth,
-        bottomHeight: viewport.bottomHeight,
-        leftWidth: viewport.leftWidth,
-        topHeight: viewport.topHeight,
+        rightWidth: settleToRenderedContent && settlesSide('right') ? settledReserve('right') : viewport.rightWidth,
+        bottomHeight: settleToRenderedContent && settlesSide('bottom') ? settledReserve('bottom') : viewport.bottomHeight,
+        leftWidth: settleToRenderedContent && settlesSide('left') ? settledReserve('left') : viewport.leftWidth,
+        topHeight: settleToRenderedContent && settlesSide('top') ? settledReserve('top') : viewport.topHeight,
         contentBounds: {
-          minX: Math.min(viewport.minX, x),
-          minY: Math.min(viewport.minY, y),
-          maxX: Math.max(viewport.maxX, x + width),
-          maxY: Math.max(viewport.maxY, y + height)
+          minX: settleToRenderedContent && settlesSide('left') ? x : Math.min(viewport.minX, x),
+          minY: settleToRenderedContent && settlesSide('top') ? y : Math.min(viewport.minY, y),
+          maxX: settleToRenderedContent && settlesSide('right') ? x + width : Math.max(viewport.maxX, x + width),
+          maxY: settleToRenderedContent && settlesSide('bottom') ? y + height : Math.max(viewport.maxY, y + height)
         }
       });
-      if(Math.abs(next.minX - viewport.minX) <= 0.25
-        && Math.abs(next.minY - viewport.minY) <= 0.25
-        && Math.abs(next.maxX - viewport.maxX) <= 0.25
-        && Math.abs(next.maxY - viewport.maxY) <= 0.25){
+      const contentTolerance = settleToRenderedContent ? 0.01 : 0.25;
+      if(Math.abs(next.minX - viewport.minX) <= contentTolerance
+        && Math.abs(next.minY - viewport.minY) <= contentTolerance
+        && Math.abs(next.maxX - viewport.maxX) <= contentTolerance
+        && Math.abs(next.maxY - viewport.maxY) <= contentTolerance){
         return false;
       }
       viewport = next;
@@ -3866,6 +3925,22 @@
       svg.setAttribute('viewBox', `${format(publishedViewport.minX)} ${format(publishedViewport.minY)} ${format(publishedViewport.width)} ${format(publishedViewport.height)}`);
       syncSvgViewportDatasets();
     };
+    const settleContentBoundsToRenderedSvg = () => {
+      if(opts.settleContentBounds !== true || opts.refineContentBounds === false) return false;
+      const settlementSides = Array.isArray(opts.settleContentBoundsSides)
+        ? opts.settleContentBoundsSides.filter(side => ['left', 'right', 'top', 'bottom'].includes(side))
+        : ['left', 'right', 'top', 'bottom'];
+      if(!settlementSides.length) return false;
+      let settled = false;
+      for(let pass = 0; pass < 3; pass += 1){
+        if(!refineContentBoundsFromRenderedSvg()) break;
+        settled = true;
+        applySvgViewport();
+        applyViewportSlot(svg);
+        applyViewportSlot(plot);
+      }
+      return settled;
+    };
     let measured = false;
     let committed = false;
     const measure = () => {
@@ -3873,20 +3948,72 @@
         refineLegendReserveFromRenderedContent();
         refineLegendVerticalReserveFromRenderedContent();
         refineContentBoundsFromRenderedSvg();
+        if(opts.settleContentBounds === true && opts.refineContentBounds !== false){
+          applySvgViewport();
+          applyViewportSlot(svg);
+          applyViewportSlot(plot);
+          settleContentBoundsToRenderedSvg();
+        }
         measured = true;
       }
-      return { ...viewport, legendWidth: legendReserveWidth };
+      return {
+        ...viewport,
+        legendWidth: legendReserveWidth,
+        renderedContentBounds: renderedContentBounds ? { ...renderedContentBounds } : null
+      };
     };
     return Object.assign({}, viewport, {
-      getViewport(){ return { ...viewport, legendWidth: legendReserveWidth }; },
+      getViewport(){
+        return {
+          ...viewport,
+          legendWidth: legendReserveWidth,
+          renderedContentBounds: renderedContentBounds ? { ...renderedContentBounds } : null
+        };
+      },
       measure,
-      commit(){
+      commit(cartesianPlan = null){
         if(committed) return true;
         committed = true;
         measure();
+        const plannedEnvelope = cartesianPlan?.contentEnvelope;
+        if(plannedEnvelope && cartesianPlan?.userFrame){
+          const plannedReserves = {
+            left: Math.max(0, Number(plannedEnvelope.extensionLeft) || 0),
+            top: Math.max(0, Number(plannedEnvelope.extensionTop) || 0),
+            right: Math.max(0, Number(plannedEnvelope.extensionRight) || 0),
+            bottom: Math.max(0, Number(plannedEnvelope.extensionBottom) || 0)
+          };
+          const requestedLegendRail = hasExplicitLegendWidth ? requestedLegendWidth : 0;
+          const nonLegendRightRail = Math.max(0, plannedReserves.right - requestedLegendRail);
+          plannedReserves.right = Math.max(plannedReserves.right, legendReserveWidth + nonLegendRightRail);
+          Object.assign(requestedContentReserves, plannedReserves);
+          const baseWidth = Number(cartesianPlan.userFrame.width) || viewport.baseWidth;
+          const baseHeight = Number(cartesianPlan.userFrame.height) || viewport.baseHeight;
+          viewport = chartStyle.computeGraphContentViewport({
+            baseWidth,
+            baseHeight,
+            ...{
+              leftWidth: plannedReserves.left,
+              topHeight: plannedReserves.top,
+              rightWidth: plannedReserves.right,
+              bottomHeight: plannedReserves.bottom
+            },
+            contentBounds: {
+              minX: Number(plannedEnvelope.minX) || 0,
+              minY: Number(plannedEnvelope.minY) || 0,
+              maxX: Number(plannedEnvelope.maxX) || baseWidth,
+              maxY: Number(plannedEnvelope.maxY) || baseHeight
+            }
+          });
+          syncSvgViewportDatasets();
+        }
         applySvgViewport();
         applyViewportSlot(svg);
         applyViewportSlot(plot);
+        // Some renderers use viewport-relative SVG text. Publishing the first
+        // measured envelope can change those rendered bounds slightly, so
+        // settle before returning measured geometry and again at publication.
+        settleContentBoundsToRenderedSvg();
         if(svgBox?.dataset && svgBox?.style){
           const clearSvgBoxEnvelope = () => {
             delete svgBox.dataset.graphContentEnvelope;
@@ -3947,6 +4074,10 @@
     const canonicalWidth = resolveDimension(opts.canonicalWidth ?? safe.baseWidth, baseWidth);
     const canonicalHeight = resolveDimension(opts.canonicalHeight ?? safe.baseHeight, baseHeight);
     const legendWidth = Math.max(0, Number(opts.legendWidth) || 0);
+    const titleExtensions = opts.titleExtensions || safe.titleExtensions || {};
+    const titleReserveRight = Math.max(0, Number(titleExtensions.right) || 0);
+    const titleReserveBottom = Math.max(0, Number(titleExtensions.bottom) || 0);
+    const hasTitleExtension = titleReserveRight > 0 || titleReserveBottom > 0;
     const applyOuterEnvelope = opts.applyOuterEnvelope !== false;
     const leftWidth = Math.max(0, Number(safe.left) || 0);
     const topHeight = Math.max(0, Number(safe.top) || 0);
@@ -3962,21 +4093,21 @@
       ...opts,
       baseWidth,
       baseHeight,
-      rightWidth: legendWidth,
+      rightWidth: legendWidth + titleReserveRight,
       legendWidth,
       leftWidth: 0,
       topHeight: 0,
-      bottomHeight: 0,
+      bottomHeight: titleReserveBottom,
       contentBounds: {
         minX: 0,
         minY: 0,
-        maxX: baseWidth + legendWidth,
-        maxY: baseHeight
+        maxX: baseWidth + legendWidth + titleReserveRight,
+        maxY: baseHeight + titleReserveBottom
       },
       refineContentBounds: false,
       refineLegendReserve: false,
       includeCarriedStatsFigureSummary: false,
-      applySvgBoxEnvelope: applyOuterEnvelope
+      applySvgBoxEnvelope: applyOuterEnvelope || hasTitleExtension
     });
     const svg = opts.svg;
     const safeWidth = Math.max(1, maxX - minX);
@@ -3987,8 +4118,8 @@
     const viewportMinX = 0;
     const viewportMinY = 0;
     const formatViewportValue = value => Math.round(Number(value) * 1000) / 1000;
-    const viewportWidth = Math.max(1, formatViewportValue(canonicalWidth));
-    const viewportHeight = Math.max(1, formatViewportValue(canonicalHeight));
+    const viewportWidth = Math.max(1, formatViewportValue(Math.max(canonicalWidth, baseWidth + legendWidth + titleReserveRight)));
+    const viewportHeight = Math.max(1, formatViewportValue(Math.max(canonicalHeight, baseHeight + titleReserveBottom)));
     const applySafeSvgViewport = () => {
       if(!svg){
         return;
@@ -4010,8 +4141,8 @@
       svg.dataset.plot3dViewport = 'true';
       svg.dataset.plot3dBaseWidth = String(baseWidth);
       svg.dataset.plot3dBaseHeight = String(baseHeight);
-      svg.dataset.plot3dCanonicalWidth = String(canonicalWidth);
-      svg.dataset.plot3dCanonicalHeight = String(canonicalHeight);
+      svg.dataset.plot3dCanonicalWidth = String(viewportWidth);
+      svg.dataset.plot3dCanonicalHeight = String(viewportHeight);
       svg.dataset.plot3dViewportMinX = String(viewportMinX);
       svg.dataset.plot3dViewportMinY = String(viewportMinY);
       svg.dataset.plot3dViewportMaxX = String(viewportWidth);
@@ -4030,6 +4161,8 @@
       svg.dataset.plot3dReserveRight = String(Math.max(0, Number(safe.right) || 0));
       svg.dataset.plot3dReserveBottom = String(bottomHeight);
       svg.dataset.plot3dLegendReserveWidth = String(legendWidth);
+      svg.dataset.plot3dTitleReserveRight = String(titleReserveRight);
+      svg.dataset.plot3dTitleReserveBottom = String(titleReserveBottom);
       if(safe.rotationLimits){
         try{ svg.dataset.plot3dRotationLimits = JSON.stringify(safe.rotationLimits); }catch(_err){ /* metadata is optional */ }
       }
@@ -4049,7 +4182,9 @@
           plot3dSafeMaxX: maxX,
           plot3dSafeMaxY: maxY,
           plot3dSafeWidth: safeWidth,
-          plot3dSafeHeight: safeHeight
+          plot3dSafeHeight: safeHeight,
+          plot3dTitleReserveRight: titleReserveRight,
+          plot3dTitleReserveBottom: titleReserveBottom
         };
       },
       commit(){
@@ -4175,6 +4310,8 @@
       const right = Number(svg.dataset?.plot3dReserveRight);
       const bottom = Number(svg.dataset?.plot3dReserveBottom);
       const legendWidth = Number(svg.dataset?.plot3dLegendReserveWidth);
+      const titleReserveRight = Number(svg.dataset?.plot3dTitleReserveRight);
+      const titleReserveBottom = Number(svg.dataset?.plot3dTitleReserveBottom);
       if(!Number.isFinite(baseWidth) || baseWidth <= 0
         || !Number.isFinite(baseHeight) || baseHeight <= 0
         || !Number.isFinite(canonicalWidth) || canonicalWidth <= 0
@@ -4204,6 +4341,10 @@
           minY: Number.isFinite(safeMinY) ? safeMinY : minY,
           maxX: Number.isFinite(safeMaxX) ? safeMaxX : maxX,
           maxY: Number.isFinite(safeMaxY) ? safeMaxY : maxY,
+          titleExtensions: {
+            right: Number.isFinite(titleReserveRight) && titleReserveRight >= 0 ? titleReserveRight : 0,
+            bottom: Number.isFinite(titleReserveBottom) && titleReserveBottom >= 0 ? titleReserveBottom : 0
+          },
           left: Number.isFinite(left) ? Math.max(0, left) : Math.max(0, -minX),
           top: Number.isFinite(top) ? Math.max(0, top) : Math.max(0, -minY),
           right: Number.isFinite(right) ? Math.max(0, right) : Math.max(0, maxX - canonicalWidth),

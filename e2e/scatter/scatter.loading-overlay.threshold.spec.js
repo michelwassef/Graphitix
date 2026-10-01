@@ -6,7 +6,7 @@ const {
 const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
 const { waitForComponentOwnerReady } = require('../helpers/contractWaits');
 
-const MEDIUM_SCATTER_CSV = path.resolve(__dirname, '..', '..', '__tests__', 'test-scatter-medium.csv');
+const MEDIUM_SCATTER_CSV = path.resolve(__dirname, '..', '..', '__tests__', 'fixtures', 'scatter', 'v1', 'test-scatter-medium.csv');
 
 async function waitForScatterTable(page) {
   await page.waitForFunction(() => {

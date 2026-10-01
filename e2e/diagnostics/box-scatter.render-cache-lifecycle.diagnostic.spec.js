@@ -1,9 +1,15 @@
 const fs = require('fs');
-const path = require('path');
 const { test, expect } = require('@playwright/test');
 const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
-const { registerIssueCollectors } = require('../helpers/diagnostics');
-const { openComponentFromWelcome, waitForDocumentOpenComplete } = require('../helpers/workspaceDriver');
+const {
+  collectOwnerDiagnosticEvidence,
+  registerIssueCollectors
+} = require('../helpers/diagnostics');
+const {
+  COMPONENT_MATRIX,
+  openComponentFromWelcome,
+  waitForDocumentOpenComplete
+} = require('../helpers/workspaceDriver');
 const { waitForComponentOwnerReady } = require('../helpers/contractWaits');
 
 const COMPONENTS = ['scatter', 'box', 'line'];
@@ -25,35 +31,13 @@ function sanitizeDiagnosticFileName(name) {
 async function attachJson(testInfo, name, value) {
   const fileName = sanitizeDiagnosticFileName(String(name || 'diagnostic').endsWith('.json') ? name : `${name}.json`);
   const serialized = stableJson(value);
-  const paths = [];
-
-  if (testInfo && typeof testInfo.outputPath === 'function') {
-    paths.push(testInfo.outputPath(fileName));
+  if (!testInfo || typeof testInfo.attach !== 'function') {
+    throw new Error('Playwright test information is required for diagnostic attachments');
   }
-
-  // Also write a stable copy under test-results so the diagnostics can be collected
-  // with `Get-ChildItem .\test-results -Recurse -Filter *.json` regardless of the
-  // Playwright reporter's attachment handling. This is intentionally test-only.
-  const titleSlug = sanitizeDiagnosticFileName(testInfo?.title || 'unknown-test');
-  paths.push(path.resolve(process.cwd(), 'test-results', 'render-cache-diagnostics-json', titleSlug, fileName));
-
-  let primaryPath = null;
-  for (const outputPath of Array.from(new Set(paths))) {
-    try {
-      fs.mkdirSync(path.dirname(outputPath), { recursive: true });
-      fs.writeFileSync(outputPath, serialized, 'utf8');
-      if (!primaryPath) primaryPath = outputPath;
-    } catch (_err) {
-      // Do not let diagnostics-writing failures hide the actual lifecycle failure.
-    }
-  }
-
-  if (testInfo && typeof testInfo.attach === 'function' && primaryPath) {
-    await testInfo.attach(fileName, {
-      path: primaryPath,
-      contentType: 'application/json'
-    });
-  }
+  await testInfo.attach(fileName, {
+    body: Buffer.from(serialized, 'utf8'),
+    contentType: 'application/json'
+  });
 }
 
 function installLifecycleConsoleCapture(page) {
@@ -800,8 +784,23 @@ async function runLifecycleScenario(page, testInfo, scenario, issues) {
   await waitForComponentRenderer(page, scenario.component, scenario.size);
   const afterRenderWait = await collectWorkspaceDiagnostics(page, `${label}-06-after-target-render-wait`, restoredTargetTabId);
   await attachJson(testInfo, `${label}-06-after-target-render-wait.json`, afterRenderWait);
+  const componentEntry = COMPONENT_MATRIX.find(entry => entry.type === scenario.component);
+  const ownerEvidenceBeforeEdit = await collectOwnerDiagnosticEvidence(page, componentEntry, {
+    expectedTabId: restoredTargetTabId,
+    requireMountedRoot: true
+  });
 
   const edit = await performUserGraphEditAndCollect(page, testInfo, restoredTargetTabId, scenario.component, `${label}-07-cache-invalidation`);
+  const ownerEvidenceAfterEdit = await collectOwnerDiagnosticEvidence(page, componentEntry, {
+    expectedTabId: restoredTargetTabId,
+    requireMountedRoot: true,
+    afterLifecycleCursor: ownerEvidenceBeforeEdit.lifecycle?.cursor,
+    afterCacheCursor: ownerEvidenceBeforeEdit.cache?.cursor
+  });
+  await attachJson(testInfo, `${label}-07-owner-evidence.json`, {
+    beforeEdit: ownerEvidenceBeforeEdit,
+    afterEdit: ownerEvidenceAfterEdit
+  });
   const summary = {
     scenario,
     workspace,

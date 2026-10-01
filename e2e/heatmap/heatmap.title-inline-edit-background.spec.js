@@ -44,12 +44,16 @@ test('Heatmap replacement title stays hidden during inline editing', async ({ pa
   expect(titleVisibility.length).toBeGreaterThan(0);
   expect(titleVisibility.every(item => item.visibility === 'hidden' || item.opacity === '0')).toBe(true);
 
-  await editor.press('Escape');
+  await editor.press('Enter');
+  await expect(editor).toBeVisible();
+  await expect(editor).toHaveValue('Heatmap revised\n');
+  await page.mouse.click(3, 3);
+  await expect(editor).toBeHidden();
   await expect.poll(() => svgBox.locator('text[data-font-role="graphTitle"]').first().evaluate(
-    node => node.textContent === 'Heatmap'
+    node => node.dataset.titleBlockText === 'Heatmap revised\n'
       && getComputedStyle(node).visibility !== 'hidden'
       && getComputedStyle(node).opacity !== '0'
   )).toBe(true);
   await expect.poll(() => page.evaluate(() => window.Components?.heatmap?.__getState?.()?.titleText))
-    .toBe('Heatmap');
+    .toBe('Heatmap revised\n');
 });

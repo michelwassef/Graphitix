@@ -6,11 +6,17 @@ const { waitForOwnerReady } = require('../../test-support/readiness.js');
 const { clickExampleButton } = require('./uiDriver');
 
 const COMPONENT_MATRIX = COMPONENT_CATALOG;
+const PARAMETER_ASSERTIONS_PATH = path.resolve(__dirname, './parameterAssertions.js');
+const MUTATION_ADAPTER_PATH = path.resolve(__dirname, './mutationAdapters.js');
 const OWNER_PAYLOAD_DRIVER_PATH = path.resolve(__dirname, './ownerPayloadDriver.js');
 
 async function installOwnerPayloadDriver(page) {
+  await page.addScriptTag({ path: PARAMETER_ASSERTIONS_PATH });
+  await page.addScriptTag({ path: MUTATION_ADAPTER_PATH });
   await page.addScriptTag({ path: OWNER_PAYLOAD_DRIVER_PATH });
-  await page.waitForFunction(() => !!window.GraphitixOwnerPayloadDriver?.runSameTypeIsolation);
+  await page.waitForFunction(() => !!window.GraphitixParameterAssertions
+    && !!window.GraphitixMutationAdapters
+    && !!window.GraphitixOwnerPayloadDriver?.runSameTypeIsolation);
 }
 
 async function getWorkspaceTabIds(page, type = null) {
@@ -117,20 +123,24 @@ async function openComponentFromWelcome(page, component, options = {}) {
   }
 }
 
-async function clickExampleButtonIfPresent(page, buttonId) {
+async function clickExpectedExampleButton(page, buttonId) {
   if (!buttonId) {
-    return false;
+    throw new Error('Expected example action requires a button ID');
   }
   const activeTabMeta = await getActiveWorkspaceTabMeta(page);
   const activeType = String(activeTabMeta?.type || '').trim();
   if (!activeType) {
-    return false;
+    throw new Error(`Expected an active component before clicking example button ${buttonId}`);
   }
   const component = COMPONENT_CATALOG.find(entry => entry.type === activeType);
   if (!component) {
     throw new Error(`Unknown active component type: ${activeType}`);
   }
-  return !!await clickExampleButton(page, { ...component, exampleButtonId: buttonId }, { optional: true });
+  if (buttonId !== component.exampleButtonId) {
+    throw new Error(`${activeType}: expected example button ${component.exampleButtonId}, received ${buttonId}`);
+  }
+  await clickExampleButton(page, component, { expectedTabId: activeTabMeta.id });
+  return true;
 }
 
 async function confirmDataImportPrompt(page, options = {}) {
@@ -182,7 +192,7 @@ async function waitForDocumentOpenComplete(page, timeoutMs = 120_000) {
 
 module.exports = {
   COMPONENT_MATRIX,
-  clickExampleButtonIfPresent,
+  clickExpectedExampleButton,
   confirmDataImportPrompt,
   getActiveWorkspaceTabMeta,
   getWorkspaceTabIds,

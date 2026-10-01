@@ -15,6 +15,11 @@ const COMPONENT_MUTATION_CATALOG = Object.freeze({
       { id: 'venn.title', kind: 'style', path: 'style.title', operation: 'text-suffix', suffix: ' [restored]', fingerprint: ['style.title'] },
       { id: 'venn.width', kind: 'layout', path: 'meta.graphSizing.display.widthPx', operation: 'number-delta', delta: 72, fingerprint: ['meta.graphSizing.display.widthPx'] }
     ],
+    uiMutations: [
+      { id: 'venn.plot-mode', kind: 'parameter', path: 'style.plotType', selector: '#vennPlotType', action: 'select-alternative', values: ['venn', 'upset'] },
+      { id: 'venn.color-scheme', kind: 'style', path: 'style.colorScheme', selector: 'select[data-color-scheme-select="1"][data-component-type="venn"]', action: 'select-alternative', values: ['scientific', 'soft', 'normal', 'grayscale'] },
+      { id: 'venn.width', kind: 'layout', authority: 'layout', path: 'display.widthPx', selector: '.svgbox .resizer-vertical', action: 'drag-horizontal', delta: 72, minDelta: 16 }
+    ],
     interactionRestore: { selector: '.svgbox svg', targetSelector: 'svg text[data-font-role="graphTitle"]', action: 'inline-title-edit' }
   },
   box: {
@@ -28,6 +33,11 @@ const COMPONENT_MUTATION_CATALOG = Object.freeze({
       { id: 'box.connect-points', kind: 'parameter', path: 'config.connectPointsAcrossDatasets', operation: 'boolean-toggle', fingerprint: ['config.connectPointsAcrossDatasets'] },
       { id: 'box.width', kind: 'layout', path: 'meta.graphSizing.display.widthPx', operation: 'number-delta', delta: 72, fingerprint: ['meta.graphSizing.display.widthPx'] }
     ],
+    uiMutations: [
+      { id: 'box.graph-type', kind: 'parameter', path: 'config.graphType', selector: '#boxGraphType', action: 'select-alternative', values: ['strip', 'box', 'notched', 'bar', 'violin'] },
+      { id: 'box.color-scheme', kind: 'style', path: 'config.colorScheme', selector: 'select[data-color-scheme-select="1"][data-component-type="box"]', action: 'select-alternative', values: ['scientific', 'soft', 'normal', 'grayscale'] },
+      { id: 'box.width', kind: 'layout', authority: 'layout', path: 'display.widthPx', selector: '.svgbox .resizer-vertical', action: 'drag-horizontal', delta: 72, minDelta: 16 }
+    ],
     interactionRestore: { selector: '.svgbox svg', targetSelector: 'svg text[data-font-role="graphTitle"]', action: 'inline-title-edit' }
   },
   scatter: {
@@ -39,6 +49,11 @@ const COMPONENT_MUTATION_CATALOG = Object.freeze({
       { id: 'scatter.error-bars', kind: 'parameter', path: 'config.showErrorBars', operation: 'boolean-toggle', sideEffects: [{ path: 'config.showGroupedReplicatePoints', value: false }], fingerprint: ['config.showErrorBars'] },
       { id: 'scatter.color-scheme', kind: 'style', path: 'config.colorScheme', operation: 'scheme-cycle', values: ['grayscale', 'scientific', 'soft', 'normal'], sideEffects: [{ path: 'config.colorSchemeUserOverride', value: true }], fingerprint: ['config.colorScheme'] },
       { id: 'scatter.width', kind: 'layout', path: 'meta.graphSizing.display.widthPx', operation: 'number-delta', delta: 72, fingerprint: ['meta.graphSizing.display.widthPx'] }
+    ],
+    uiMutations: [
+      { id: 'scatter.view-mode', kind: 'parameter', path: 'config.viewMode', selector: '#scatterViewMode', action: 'select-alternative', values: ['2d', 'bubble', '3d'] },
+      { id: 'scatter.color-scheme', kind: 'style', path: 'config.colorScheme', selector: 'select[data-color-scheme-select="1"][data-component-type="scatter"]', action: 'select-alternative', values: ['scientific', 'soft', 'normal', 'grayscale'] },
+      { id: 'scatter.width', kind: 'layout', authority: 'layout', path: 'display.widthPx', selector: '.svgbox .resizer-vertical', action: 'drag-horizontal', delta: 72, minDelta: 16 }
     ],
     interactionRestore: { selector: '.svgbox svg, .svgbox canvas', targetSelector: 'svg text[data-font-editable="1"]', action: 'label-toolbar' }
   },
@@ -52,6 +67,11 @@ const COMPONENT_MUTATION_CATALOG = Object.freeze({
       { id: 'pca.color-scheme', kind: 'style', path: 'config.colorScheme', operation: 'scheme-cycle', values: ['scientific', 'soft', 'normal'], fingerprint: ['config.colorScheme'] },
       { id: 'pca.width', kind: 'layout', path: 'meta.graphSizing.display.widthPx', operation: 'number-delta', delta: 72, fingerprint: ['meta.graphSizing.display.widthPx'] }
     ],
+    uiMutations: [
+      { id: 'pca.standardization', kind: 'parameter', path: 'config.standardizeVariables', selector: '#pcaStandardizeVariables', action: 'toggle' },
+      { id: 'pca.color-scheme', kind: 'style', path: 'config.colorScheme', selector: 'select[data-color-scheme-select="1"][data-component-type="pca"]', action: 'select-alternative', values: ['scientific', 'soft', 'normal', 'grayscale'] },
+      { id: 'pca.width', kind: 'layout', authority: 'layout', path: 'display.widthPx', selector: '.svgbox .resizer-vertical', action: 'drag-horizontal', delta: 72, minDelta: 16 }
+    ],
     interactionRestore: { selector: '.svgbox svg', targetSelector: '[data-plot-point="1"]', action: 'label-toolbar' }
   },
   line: {
@@ -63,6 +83,11 @@ const COMPONENT_MUTATION_CATALOG = Object.freeze({
       { id: 'line.display-mode', kind: 'parameter', path: 'config.displayMode', operation: 'enum-cycle', values: ['line', 'area'], fingerprint: ['config.displayMode'] },
       { id: 'line.color-scheme', kind: 'style', path: 'config.colorScheme', operation: 'scheme-cycle', values: ['scientific', 'soft', 'normal'], fingerprint: ['config.colorScheme'] },
       { id: 'line.width', kind: 'layout', path: 'meta.graphSizing.display.widthPx', operation: 'number-delta', delta: 72, fingerprint: ['meta.graphSizing.display.widthPx'] }
+    ],
+    uiMutations: [
+      { id: 'line.display-mode', kind: 'parameter', path: 'config.displayMode', selector: '#lineDisplayMode', action: 'select-alternative', values: ['line', 'area'] },
+      { id: 'line.color-scheme', kind: 'style', path: 'config.colorScheme', selector: 'select[data-color-scheme-select="1"][data-component-type="line"]', action: 'select-alternative', values: ['scientific', 'soft', 'normal', 'grayscale'] },
+      { id: 'line.width', kind: 'layout', authority: 'layout', path: 'display.widthPx', selector: '.svgbox .resizer-vertical', action: 'drag-horizontal', delta: 72, minDelta: 16 }
     ],
     interactionRestore: { selector: '.svgbox svg', targetSelector: 'svg text[data-font-role="graphTitle"]', action: 'inline-title-edit' }
   },
@@ -76,6 +101,11 @@ const COMPONENT_MUTATION_CATALOG = Object.freeze({
       { id: 'heatmap.color-scheme', kind: 'style', path: 'config.colorScheme', operation: 'scheme-cycle', values: ['scientific', 'soft', 'normal'], fingerprint: ['config.colorScheme'] },
       { id: 'heatmap.width', kind: 'layout', path: 'meta.graphSizing.display.widthPx', operation: 'number-delta', delta: 72, fingerprint: ['meta.graphSizing.display.widthPx'] }
     ],
+    uiMutations: [
+      { id: 'heatmap.view', kind: 'parameter', path: 'config.view', selector: '#heatmapView', action: 'select-alternative', values: ['corr-columns', 'values', 'corr-rows'] },
+      { id: 'heatmap.color-scheme', kind: 'style', path: 'config.colorScheme', selector: 'select[data-color-scheme-select="1"][data-component-type="heatmap"]', action: 'select-alternative', values: ['scientific', 'soft', 'normal', 'grayscale'] },
+      { id: 'heatmap.width', kind: 'layout', authority: 'layout', path: 'display.widthPx', selector: '.svgbox .resizer-vertical', action: 'drag-horizontal', delta: 72, minDelta: 16 }
+    ],
     interactionRestore: { selector: '.svgbox svg, .svgbox canvas', targetSelector: '[data-export-layer="heatmap-cells"] rect:not([data-heatmap-cell-hit-layer])', action: 'heatmap-palette-toolbar' }
   },
   surface: {
@@ -87,6 +117,11 @@ const COMPONENT_MUTATION_CATALOG = Object.freeze({
       { id: 'surface.background', kind: 'parameter', path: 'config.settings.backgroundColor', operation: 'color-alternative', value: '#f2f5fa', fingerprint: ['config.settings.backgroundColor'] },
       { id: 'surface.color-scheme', kind: 'style', path: 'config.colorScheme', operation: 'scheme-cycle', values: ['surface-viridis', 'surface-plasma', 'surface-magma'], fingerprint: ['config.colorScheme'] },
       { id: 'surface.width', kind: 'layout', path: 'meta.graphSizing.display.widthPx', operation: 'number-delta', delta: 72, fingerprint: ['meta.graphSizing.display.widthPx'] }
+    ],
+    uiMutations: [
+      { id: 'surface.interpolation', kind: 'parameter', path: 'config.settings.interpolation', selector: '#surfaceInterpolation', action: 'select-alternative', values: ['grid', 'scatter'] },
+      { id: 'surface.color-scheme', kind: 'style', path: 'config.settings.colorScheme', selector: 'select[data-color-scheme-select="1"][data-component-type="surface"]', action: 'select-alternative', values: ['surface-viridis', 'surface-plasma', 'surface-magma'] },
+      { id: 'surface.width', kind: 'layout', authority: 'layout', path: 'display.widthPx', selector: '.svgbox .resizer-vertical', action: 'drag-horizontal', delta: 72, minDelta: 16 }
     ],
     interactionRestore: { selector: '.svgbox svg', targetSelector: '[data-plot3d-rotation-hit-surface="1"]', action: '3d-rotation' }
   },
@@ -100,6 +135,11 @@ const COMPONENT_MUTATION_CATALOG = Object.freeze({
       { id: 'roc.color-scheme', kind: 'style', path: 'config.colorScheme', operation: 'scheme-cycle', values: ['scientific', 'soft', 'normal'], fingerprint: ['config.colorScheme'] },
       { id: 'roc.width', kind: 'layout', path: 'meta.graphSizing.display.widthPx', operation: 'number-delta', delta: 72, fingerprint: ['meta.graphSizing.display.widthPx'] }
     ],
+    uiMutations: [
+      { id: 'roc.graph-type', kind: 'parameter', path: 'config.graphType', selector: '#rocGraphType', action: 'select-alternative', values: ['roc', 'pr'] },
+      { id: 'roc.color-scheme', kind: 'style', path: 'config.colorScheme', selector: 'select[data-color-scheme-select="1"][data-component-type="roc"]', action: 'select-alternative', values: ['scientific', 'soft', 'normal', 'grayscale'] },
+      { id: 'roc.width', kind: 'layout', authority: 'layout', path: 'display.widthPx', selector: '.svgbox .resizer-vertical', action: 'drag-horizontal', delta: 72, minDelta: 16 }
+    ],
     interactionRestore: { selector: '.svgbox svg', targetSelector: 'svg text[data-font-role="graphTitle"]', action: 'inline-title-edit' }
   },
   survival: {
@@ -111,6 +151,11 @@ const COMPONENT_MUTATION_CATALOG = Object.freeze({
       { id: 'survival.risk-table', kind: 'parameter', path: 'config.showRiskTable', operation: 'boolean-toggle', fingerprint: ['config.showRiskTable'] },
       { id: 'survival.color-scheme', kind: 'style', path: 'config.colorScheme', operation: 'scheme-cycle', values: ['scientific', 'soft', 'normal'], fingerprint: ['config.colorScheme'] },
       { id: 'survival.width', kind: 'layout', path: 'meta.graphSizing.display.widthPx', operation: 'number-delta', delta: 72, fingerprint: ['meta.graphSizing.display.widthPx'] }
+    ],
+    uiMutations: [
+      { id: 'survival.risk-table', kind: 'parameter', path: 'config.showRiskTable', selector: '#survivalShowRiskTable', action: 'toggle' },
+      { id: 'survival.color-scheme', kind: 'style', path: 'config.colorScheme', selector: 'select[data-color-scheme-select="1"][data-component-type="survival"]', action: 'select-alternative', values: ['scientific', 'soft', 'normal', 'grayscale'] },
+      { id: 'survival.width', kind: 'layout', authority: 'layout', path: 'display.widthPx', selector: '.svgbox .resizer-vertical', action: 'drag-horizontal', delta: 72, minDelta: 16 }
     ],
     interactionRestore: { selector: '.svgbox svg', targetSelector: 'svg text[data-font-role="graphTitle"]', action: 'inline-title-edit' }
   },
@@ -124,6 +169,11 @@ const COMPONENT_MUTATION_CATALOG = Object.freeze({
       { id: 'hist.color-scheme', kind: 'style', path: 'config.colorScheme', operation: 'scheme-cycle', values: ['scientific', 'soft', 'normal'], fingerprint: ['config.colorScheme'] },
       { id: 'hist.width', kind: 'layout', path: 'meta.graphSizing.display.widthPx', operation: 'number-delta', delta: 72, fingerprint: ['meta.graphSizing.display.widthPx'] }
     ],
+    uiMutations: [
+      { id: 'hist.plot-mode', kind: 'parameter', path: 'config.plotMode', selector: '#histPlotMode', action: 'select-alternative', values: ['histogram', 'density'] },
+      { id: 'hist.color-scheme', kind: 'style', path: 'config.colorScheme', selector: 'select[data-color-scheme-select="1"][data-component-type="hist"]', action: 'select-alternative', values: ['scientific', 'soft', 'normal', 'grayscale'] },
+      { id: 'hist.width', kind: 'layout', authority: 'layout', path: 'display.widthPx', selector: '.svgbox .resizer-vertical', action: 'drag-horizontal', delta: 72, minDelta: 16 }
+    ],
     interactionRestore: { selector: '.svgbox svg', targetSelector: 'svg text[data-font-role="graphTitle"]', action: 'inline-title-edit' }
   },
   pie: {
@@ -135,6 +185,11 @@ const COMPONENT_MUTATION_CATALOG = Object.freeze({
       { id: 'pie.chart-type', kind: 'parameter', path: 'config.chartType', operation: 'enum-cycle', values: ['pie', 'donut'], fingerprint: ['config.chartType'] },
       { id: 'pie.percent-labels', kind: 'style', path: 'config.showPercents', operation: 'boolean-toggle', fingerprint: ['config.showPercents'] },
       { id: 'pie.width', kind: 'layout', path: 'meta.graphSizing.display.widthPx', operation: 'number-delta', delta: 72, fingerprint: ['meta.graphSizing.display.widthPx'] }
+    ],
+    uiMutations: [
+      { id: 'pie.chart-type', kind: 'parameter', path: 'config.chartType', selector: '#pieChartType', action: 'select-alternative', values: ['pie', 'donut', 'stacked'] },
+      { id: 'pie.percent-labels', kind: 'style', path: 'config.showPercents', selector: '#pieShowPercents', action: 'toggle' },
+      { id: 'pie.width', kind: 'layout', authority: 'layout', path: 'display.widthPx', selector: '.svgbox .resizer-vertical', action: 'drag-horizontal', delta: 72, minDelta: 16 }
     ],
     interactionRestore: { selector: '.svgbox svg', targetSelector: 'svg text[data-font-role="graphTitle"]', action: 'inline-title-edit' }
   }
@@ -155,6 +210,23 @@ for (const [type, plan] of Object.entries(COMPONENT_MUTATION_CATALOG)) {
   for (const mutation of plan.mutations) {
     if (!mutation.id || !mutation.path || !mutation.operation || !Array.isArray(mutation.fingerprint)) {
       throw new Error(`Mutation plan for ${type} contains an incomplete probe`);
+    }
+  }
+  if (!Array.isArray(plan.uiMutations) || plan.uiMutations.length < 2) {
+    throw new Error(`Mutation plan for ${type} has no reviewed UI mutation probes`);
+  }
+  for (const mutation of plan.uiMutations) {
+    if (!mutation.id || !mutation.path || !mutation.selector || !mutation.action) {
+      throw new Error(`Mutation plan for ${type} contains an incomplete UI probe`);
+    }
+    if (mutation.action === 'select-alternative' && !Array.isArray(mutation.values)) {
+      throw new Error(`UI select probe for ${type}/${mutation.id} has no candidate values`);
+    }
+    if (mutation.action === 'drag-horizontal'
+      && (mutation.authority !== 'layout'
+        || !Number.isFinite(Number(mutation.delta))
+        || !Number.isFinite(Number(mutation.minDelta)))) {
+      throw new Error(`UI resize probe for ${type}/${mutation.id} has no numeric drag contract`);
     }
   }
 }

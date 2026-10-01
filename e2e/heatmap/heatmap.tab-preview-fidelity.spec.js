@@ -1,7 +1,7 @@
 const { test, expect } = require('@playwright/test');
 const {
   openComponentFromWelcome,
-  clickExampleButtonIfPresent,
+  clickExpectedExampleButton,
 } = require('../helpers/workspaceDriver');
 const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
 const { registerIssueCollectors } = require('../helpers/diagnostics');
@@ -15,7 +15,7 @@ test('Data-values PNG preview preserves the rendered panel proportions', async (
     { type: 'heatmap', pageId: 'heatmapPage', exampleButtonId: 'heatmapLoadExample' },
     { first: true }
   );
-  await clickExampleButtonIfPresent(page, 'heatmapLoadExample');
+  await clickExpectedExampleButton(page, 'heatmapLoadExample');
 
   await page.evaluate(() => {
     const view = document.getElementById('heatmapView');
@@ -91,7 +91,7 @@ test('Heatmap preview follows populated, empty, and repopulated graph state', as
     { type: 'heatmap', pageId: 'heatmapPage', exampleButtonId: 'heatmapLoadExample' },
     { first: true }
   );
-  await clickExampleButtonIfPresent(page, 'heatmapLoadExample');
+  await clickExpectedExampleButton(page, 'heatmapLoadExample');
   const heatmapTabId = await page.evaluate(() => window.Main?.session?.workspaceState?.activeTabId || null);
   await page.waitForFunction(() => {
     const svg = document.querySelector('#heatmapPage:not([hidden]) #heatmapSvg');

@@ -4,7 +4,7 @@ const { test, expect } = require('@playwright/test');
 const JSZip = require('jszip');
 const {
   openComponentFromWelcome,
-  clickExampleButtonIfPresent,
+  clickExpectedExampleButton,
   importDataFile,
   waitForDocumentOpenComplete
 } = require('../helpers/workspaceDriver');
@@ -13,7 +13,7 @@ const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
 const { registerIssueCollectors } = require('../helpers/diagnostics');
 const { waitForComponentOwnerReady } = require('../helpers/contractWaits');
 
-const CSV_PATH = path.resolve(__dirname, '../../__tests__/test-scatter-medium.csv');
+const CSV_PATH = path.resolve(__dirname, '../../__tests__/fixtures/scatter/v1/test-scatter-medium.csv');
 
 // Count data rows (lines minus header, minus trailing empty line)
 const CSV_ROW_COUNT = fs.readFileSync(CSV_PATH, 'utf8')
@@ -93,17 +93,6 @@ async function waitForScatterRender(page) {
   }, null, { timeout: 120_000 });
 }
 
-// Keep alias for callers that specifically expect canvas mode
-async function waitForScatterCanvas(page) {
-  await page.waitForFunction(() => {
-    const layer = document.querySelector('#scatterPage:not([hidden]) #scatterPlot svg [data-layer="points"]');
-    if (!layer) return false;
-    const mode = layer.getAttribute('data-render-mode');
-    if (mode !== 'canvas' && mode !== 'canvas-resize-reused') return false;
-    return !!layer.querySelector('foreignObject[data-point-renderer] canvas');
-  }, null, { timeout: 120_000 });
-}
-
 async function waitForScatterSnapshotReady(page) {
   await waitForScatterRender(page);
 
@@ -152,13 +141,6 @@ async function inspectArchiveForScatterTab(archivePath) {
   const buf = fs.readFileSync(archivePath);
   const zip = await JSZip.loadAsync(buf);
   const allFiles = Object.keys(zip.files);
-
-  // Find scatter tab directory (has a render-cache.json under tabs/*/render-cache.json)
-  const scatterRcPath = allFiles.find(name => {
-    if (!name.endsWith('render-cache.json')) return false;
-    // Read tab.json in same directory to find type
-    return true; // we'll filter by type below
-  });
 
   // Find all tab.json files and pick the scatter one
   const scatterTabEntry = await (async () => {
@@ -265,7 +247,7 @@ test('scatter CSV import + box tab: save and reopen preserves data, render cache
   const boxTabId = await openNewTabType(page, 'box');
   expect(boxTabId).toBeTruthy();
   await expect(page.locator('#boxPage:not([hidden])')).toBeVisible({ timeout: 20_000 });
-  await clickExampleButtonIfPresent(page, 'boxLoadExample');
+  await clickExpectedExampleButton(page, 'boxLoadExample');
   await waitForComponentOwnerReady(page, 'box', {
     requireMountedRoot: true,
     requireIdle: true

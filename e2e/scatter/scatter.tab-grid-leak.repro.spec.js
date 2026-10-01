@@ -3,7 +3,7 @@ const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
 const { registerIssueCollectors } = require('../helpers/diagnostics');
 const {
   openComponentFromWelcome,
-  clickExampleButtonIfPresent
+  clickExpectedExampleButton
 } = require('../helpers/workspaceDriver');
 
 async function activateTabById(page, tabId) {
@@ -38,7 +38,7 @@ test('scatter two-tab AG Grid mounts remain owner-scoped across tab switches', a
   await expect(page.locator('#welcomeScreen')).toBeVisible();
 
   await openComponentFromWelcome(page, { type: 'scatter', pageId: 'scatterPage', exampleButtonId: 'scatterLoadExample' }, { first: true });
-  await clickExampleButtonIfPresent(page, 'scatterLoadExample');
+  await clickExpectedExampleButton(page, 'scatterLoadExample');
   await page.waitForFunction(() => !!document.querySelector('#scatterPlot svg'));
 
   await page.evaluate(async () => {
@@ -65,11 +65,11 @@ test('scatter two-tab AG Grid mounts remain owner-scoped across tab switches', a
   }
   // Fallback if graph selection grid is still visible after add-tab flow.
   const scatterCard = page.locator('#graphSelectionGrid [data-graph-type="scatter"]');
-  if (await scatterCard.count()) {
-    await scatterCard.first().click({ force: true }).catch(() => {});
+  if (await scatterCard.first().isVisible()) {
+    await scatterCard.first().click({ force: true });
   }
   await page.waitForSelector('#scatterPage:not([hidden])', { timeout: 20_000 });
-  await clickExampleButtonIfPresent(page, 'scatterLoadExample');
+  await clickExpectedExampleButton(page, 'scatterLoadExample');
   await page.waitForFunction(() => !!document.querySelector('#scatterPlot svg'));
 
   const scatterTabIds = await page.evaluate(() =>

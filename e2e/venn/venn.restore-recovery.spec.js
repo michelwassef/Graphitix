@@ -15,7 +15,7 @@ const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
 const { registerIssueCollectors } = require('../helpers/diagnostics');
 const {
   openComponentFromWelcome,
-  clickExampleButtonIfPresent,
+  clickExpectedExampleButton,
   waitForDocumentOpenComplete
 } = require('../helpers/workspaceDriver');
 const { waitForComponentOwnerReady } = require('../helpers/contractWaits');
@@ -52,7 +52,7 @@ async function buildVenn(page) {
   await expect(page.locator('#welcomeScreen')).toBeVisible({ timeout: 20_000 });
   await openComponentFromWelcome(page, { type: 'venn', pageId: 'vennPage', exampleButtonId: 'sample' }, { first: true });
   await page.waitForFunction(() => !!window.Components?.venn?.ready, null, { timeout: 30_000 });
-  await clickExampleButtonIfPresent(page, 'sample');
+  await clickExpectedExampleButton(page, 'sample');
   await page.waitForFunction(() => !!document.getElementById('stage'), null, { timeout: 30_000 });
   await page.waitForFunction(() => window.Components?.venn?.isIdleForSnapshot?.() === true, null, { timeout: 30_000 });
   await waitForComponentOwnerReady(page, 'venn', {
@@ -65,7 +65,7 @@ async function openAdditionalVenn(page) {
   const before = new Set(await getWorkspaceTabIds(page));
   await openComponentFromWelcome(page, { type: 'venn', pageId: 'vennPage', exampleButtonId: 'sample' });
   await page.waitForFunction(() => !!window.Components?.venn?.ready, null, { timeout: 30_000 });
-  await clickExampleButtonIfPresent(page, 'sample');
+  await clickExpectedExampleButton(page, 'sample');
   await page.waitForFunction(() => window.Components?.venn?.isIdleForSnapshot?.() === true, null, { timeout: 30_000 });
   await waitForComponentOwnerReady(page, 'venn', {
     requireMountedRoot: true,
@@ -134,7 +134,7 @@ async function reopen(page, archivePath) {
   await expect(page.locator('#welcomeScreen')).toBeVisible({ timeout: 20_000 });
   await page.locator('#workspaceSessionInput').setInputFiles(archivePath);
   await waitForDocumentOpenComplete(page);
-  await page.waitForSelector('#vennPage:not([hidden])', { timeout: 30_000 }).catch(() => {});
+  await page.waitForSelector('#vennPage:not([hidden])', { timeout: 30_000 });
   await waitForComponentOwnerReady(page, 'venn', {
     requireMountedRoot: true,
     requireIdle: true

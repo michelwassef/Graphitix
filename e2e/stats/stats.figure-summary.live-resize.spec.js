@@ -1,6 +1,6 @@
 const { test, expect } = require('@playwright/test');
 const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
-const { openComponentFromWelcome, clickExampleButtonIfPresent } = require('../helpers/workspaceDriver');
+const { openComponentFromWelcome, clickExpectedExampleButton } = require('../helpers/workspaceDriver');
 const { registerIssueCollectors } = require('../helpers/diagnostics');
 const { waitForAnimationFrame } = require('../helpers/contractWaits');
 
@@ -14,7 +14,7 @@ const CASES = [
 ];
 
 async function prepare(page, componentCase){
-  await clickExampleButtonIfPresent(page, componentCase.example);
+  await clickExpectedExampleButton(page, componentCase.example);
   if(componentCase.compute){
     await expect(page.locator(componentCase.compute)).toBeEnabled({ timeout:30_000 });
     await page.locator(componentCase.compute).click();

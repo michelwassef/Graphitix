@@ -2,7 +2,7 @@ const { waitForComponentOwnerReady } = require('../helpers/contractWaits');
 const { test, expect } = require('@playwright/test');
 const {
   openComponentFromWelcome,
-  clickExampleButtonIfPresent
+  clickExpectedExampleButton
 } = require('../helpers/workspaceDriver');
 const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
 
@@ -23,6 +23,111 @@ async function waitForHeatmapDrawAdvance(page, previousTimestamp, timeout = 60_0
 }
 
 test.describe('Heatmap title clearance', () => {
+  test('each added graph-title line moves the matrix by exactly one em and survives a redraw', async ({ page }) => {
+    test.setTimeout(120_000);
+    await installLocalCdnOverrides(page);
+    await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
+    await openComponentFromWelcome(
+      page,
+      { type: 'heatmap', pageId: 'heatmapPage', exampleButtonId: 'heatmapLoadExample' },
+      { first: true }
+    );
+    await clickExpectedExampleButton(page, 'heatmapLoadExample');
+    await waitForComponentOwnerReady(page, 'heatmap', { requireMountedRoot: true, requireIdle: true, timeout: 30_000 });
+
+    const capture = () => page.locator('#heatmapPage:not([hidden]) #heatmapSvg').evaluate(svg => {
+      const title = svg.querySelector('text[data-font-role="graphTitle"]');
+      const matrix = svg.querySelector('[data-export-layer="heatmap-cells"]');
+      const matrixBounds = matrix?.getBBox?.();
+      const summary = svg.querySelector('g[data-stats-figure-summary="1"]');
+      const summaryParent = summary?.parentNode || null;
+      const summaryNext = summary?.nextSibling || null;
+      if(summaryParent) summaryParent.removeChild(summary);
+      let contentBottom = 0;
+      try{
+        const bounds = svg.getBBox();
+        contentBottom = Number(bounds.y) + Number(bounds.height);
+      }finally{
+        if(summaryParent){
+          if(summaryNext?.parentNode === summaryParent) summaryParent.insertBefore(summary, summaryNext);
+          else summaryParent.appendChild(summary);
+        }
+      }
+      const viewBox = String(svg.getAttribute('viewBox') || '').trim().split(/[\s,]+/).map(Number);
+      const matrixRect = matrix?.getBoundingClientRect?.();
+      const projection = svg.__heatmapLabelProjection || null;
+      return {
+        text: title?.dataset?.titleBlockText ?? title?.textContent ?? '',
+        titleY: Number(title?.getAttribute('y')),
+        baselines: Array.from(title?.querySelectorAll('tspan[data-title-line="1"]') || [])
+          .map(row => Number(row.getAttribute('y'))),
+        lineHeight: Number(title?.dataset?.titleLineHeight) || Number.parseFloat(getComputedStyle(title).fontSize),
+        matrixY: Number(matrixBounds?.y),
+        matrixWidth: Number(matrixBounds?.width),
+        matrixHeight: Number(matrixBounds?.height),
+        matrixClientHeight: Number(matrixRect?.height),
+        sceneMode: svg.dataset.heatmapSceneMode || null,
+        projection: projection ? {
+          matrixTop: projection.matrixTop,
+          dataStartY: projection.dataStartY,
+          labelRowHeight: projection.labelRowHeight,
+          labelColumnWidth: projection.labelColumnWidth,
+          heatmapWidth: projection.heatmapWidth,
+          cellWidth: projection.cellWidth,
+          cellHeight: projection.cellHeight
+        } : null,
+        contentBottom,
+        sceneHeight: Number(svg.dataset.heatmapSceneHeight),
+        viewBox
+      };
+    });
+
+    const before = await capture();
+    const title = page.locator('#heatmapSvg text[data-font-role="graphTitle"]').first();
+    await title.dblclick();
+    const editor = page.locator('.inline-edit-input').last();
+    await expect(editor).toBeVisible();
+    await editor.fill(before.text);
+    await editor.press('End');
+    await editor.press('Enter');
+    await editor.type('Reserve line one');
+    await editor.press('Enter');
+    await editor.type('Reserve line two');
+    await expect(editor).toBeVisible();
+    await page.mouse.click(3, 3);
+    await expect(editor).toBeHidden();
+    const editedTitle = `${before.text}\nReserve line one\nReserve line two`;
+    await expect.poll(async () => (await capture()).text).toBe(editedTitle);
+    await waitForComponentOwnerReady(page, 'heatmap', { requireMountedRoot: true, requireIdle: true, timeout: 30_000 });
+
+    const after = await capture();
+    expect(after.baselines).toHaveLength(3);
+    expect(after.baselines[1] - after.baselines[0]).toBeCloseTo(after.lineHeight, 2);
+    expect(after.baselines[2] - after.baselines[1]).toBeCloseTo(after.lineHeight, 2);
+    expect(after.baselines[0], JSON.stringify({ before, after })).toBeCloseTo(before.baselines[0] || before.titleY, 2);
+    const addedExtent = 2 * after.lineHeight;
+    expect(after.matrixY - before.matrixY, JSON.stringify({ before, after })).toBeCloseTo(addedExtent, 2);
+    expect(after.matrixWidth).toBeCloseTo(before.matrixWidth, 2);
+    expect(after.matrixHeight).toBeCloseTo(before.matrixHeight, 2);
+    expect(after.sceneHeight - before.sceneHeight).toBeCloseTo(addedExtent, 2);
+    const existingContentClearance = before.viewBox[1] + before.viewBox[3] - before.contentBottom;
+    const requiredViewportGrowth = Math.max(0, addedExtent - existingContentClearance);
+    const viewportGrowth = after.viewBox[3] - before.viewBox[3];
+    expect(viewportGrowth).toBeLessThanOrEqual(requiredViewportGrowth + 0.5);
+    expect(after.viewBox[1] + after.viewBox[3]).toBeGreaterThanOrEqual(after.contentBottom - 0.5);
+    expect(after.matrixClientHeight).toBeCloseTo(before.matrixClientHeight, 0);
+
+    const drawTimestamp = await getHeatmapDrawPerf(page);
+    await page.evaluate(() => window.Components?.heatmap?.draw?.());
+    await waitForHeatmapDrawAdvance(page, drawTimestamp?.timestamp || 0);
+    const redrawn = await capture();
+    expect(redrawn.text).toBe(editedTitle);
+    expect(redrawn.matrixY).toBeCloseTo(after.matrixY, 2);
+    expect(redrawn.matrixWidth).toBeCloseTo(after.matrixWidth, 2);
+    expect(redrawn.matrixHeight).toBeCloseTo(after.matrixHeight, 2);
+    expect(redrawn.sceneHeight).toBeCloseTo(after.sceneHeight, 2);
+  });
+
   test('preserves title-hidden geometry and label clearance across tab return', async ({ page }) => {
     test.setTimeout(120_000);
     await installLocalCdnOverrides(page);
@@ -33,7 +138,7 @@ test.describe('Heatmap title clearance', () => {
       { type: 'heatmap', pageId: 'heatmapPage', exampleButtonId: 'heatmapLoadExample' },
       { first: true }
     );
-    await clickExampleButtonIfPresent(page, 'heatmapLoadExample');
+    await clickExpectedExampleButton(page, 'heatmapLoadExample');
     await page.waitForFunction(() => (
       document.querySelectorAll('#heatmapPage:not([hidden]) #heatmapSvg text[data-font-role="columnLabel"]').length > 0
       && window.Components?.heatmap?.__testHooks?.getPerformance?.()?.performance?.draw?.status === 'complete'
@@ -126,7 +231,7 @@ test.describe('Heatmap title clearance', () => {
       { type: 'heatmap', pageId: 'heatmapPage', exampleButtonId: 'heatmapLoadExample' },
       { first: true }
     );
-    await clickExampleButtonIfPresent(page, 'heatmapLoadExample');
+    await clickExpectedExampleButton(page, 'heatmapLoadExample');
     await waitForComponentOwnerReady(page, 'heatmap', { requireMountedRoot: true, requireIdle: true, timeout: 30_000 });
 
     let previous = await getHeatmapDrawPerf(page);
@@ -205,7 +310,7 @@ test.describe('Heatmap title clearance', () => {
       { type: 'heatmap', pageId: 'heatmapPage', exampleButtonId: 'heatmapLoadExample' },
       { first: true }
     );
-    await clickExampleButtonIfPresent(page, 'heatmapLoadExample');
+    await clickExpectedExampleButton(page, 'heatmapLoadExample');
     await waitForComponentOwnerReady(page, 'heatmap', { requireMountedRoot: true, requireIdle: true, timeout: 30_000 });
 
     const resizer = page.locator('#heatmapPage .panel-resizer:visible').first();

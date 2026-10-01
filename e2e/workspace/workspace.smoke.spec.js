@@ -9,7 +9,6 @@ test('welcome primary actions and popular examples form one responsive entry row
   await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
 
   const fileTool = page.locator('#welcomeFileDropZone');
-  const finder = page.locator('.welcome-graph-finder');
   const popular = page.locator('.welcome-popular');
   await expect(fileTool).toContainText('Open or drop a file');
   await expect(fileTool.locator('[data-file-formats-label="welcome"]')).toHaveText(

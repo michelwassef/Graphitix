@@ -1,9 +1,12 @@
 const fs = require('fs');
 const path = require('path');
+const { buildFileManifest } = require('../test-support/testManifest.js');
 const {
   runReport: runProjectReport
 } = require('./run-jest-shards.cjs');
-const { assertReportSchema } = require('../test-support/testReportSchema.js');
+const { assertReportSchema, validateJestCaseEvidence } = require('../test-support/testReportSchema.js');
+const { buildTestEnvironment } = require('../test-support/testReportEnvironment.js');
+const { buildJestCaseEvidence } = require('../test-support/jestCaseEvidence.js');
 
 const ROOT_DIR = path.resolve(__dirname, '..');
 const JEST_PROJECTS = Object.freeze(require('../jest.config.js').projects.map(project => project.displayName));
@@ -39,7 +42,8 @@ function getFilesPerProcess(project, requested) {
 }
 
 function buildReport(options, projectReports, startedAt) {
-  const groups = projectReports.flatMap(projectReport => projectReport.groups.map(group => ({
+  const reportableProjects = projectReports.map(({ caseResults, ...projectReport }) => projectReport);
+  const groups = reportableProjects.flatMap(projectReport => projectReport.groups.map(group => ({
     project: projectReport.project,
     ...group
   })));
@@ -51,6 +55,7 @@ function buildReport(options, projectReports, startedAt) {
     filesPerProcess: options.filesPerProcess,
     projectFileLimits: PROJECT_FILE_LIMITS,
     onlyFailures: options.onlyFailures,
+    environment: buildTestEnvironment('fake'),
     initialStatus: projectReports.some(projectReport => projectReport.initialStatus !== 0) ? 1 : 0,
     durationMs: Date.now() - startedAt,
     summary: {
@@ -59,10 +64,23 @@ function buildReport(options, projectReports, startedAt) {
       groups: groups.length,
       failedGroups: failedGroups.length
     },
-    projectsReport: projectReports,
+    projectsReport: reportableProjects,
     groups,
     failedGroups
   };
+}
+
+function buildFullJestCaseEvidence(projectReports, environment = buildTestEnvironment('fake')) {
+  const caseResults = projectReports.flatMap(projectReport => projectReport.caseResults || []);
+  const files = projectReports.flatMap(projectReport => (projectReport.groups || []).flatMap(group => group.files || []));
+  const manifestEntries = buildFileManifest({ jestPaths: Array.from(new Set(files)), e2ePaths: [] });
+  return buildJestCaseEvidence({
+    lane: 'full-jest',
+    environment,
+    results: caseResults,
+    manifestEntries,
+    rootDir: ROOT_DIR
+  });
 }
 
 function run(options) {
@@ -74,10 +92,27 @@ function run(options) {
       project,
       filesPerProcess,
       onlyFailures: options.onlyFailures,
-      reportFile: null
+      reportFile: null,
+      captureCaseResults: Boolean(options.reportFile)
     }));
   }
   const report = buildReport(options, projectReports, startedAt);
+  if (options.reportFile) {
+    const caseEvidence = buildFullJestCaseEvidence(projectReports, report.environment);
+    const evidenceFailures = validateJestCaseEvidence(caseEvidence);
+    const casePath = path.resolve(ROOT_DIR, options.reportFile.replace(/\.json$/i, '.cases.json'));
+    report.caseEvidence = {
+      artifact: path.relative(ROOT_DIR, casePath).replace(/\\/g, '/'),
+      summary: caseEvidence.summary,
+      granularity: caseEvidence.granularity,
+      validationFailures: evidenceFailures
+    };
+    if (evidenceFailures.length > 0) report.initialStatus = 1;
+    fs.mkdirSync(path.dirname(casePath), { recursive: true });
+    fs.writeFileSync(casePath, `${JSON.stringify(caseEvidence, null, 2)}\n`, 'utf8');
+  } else {
+    report.caseEvidence = null;
+  }
   assertReportSchema(report, 'bounded Jest report');
   if (options.reportFile) {
     const reportPath = path.resolve(ROOT_DIR, options.reportFile);
@@ -111,5 +146,6 @@ module.exports = {
   parseArgs,
   getFilesPerProcess,
   buildReport,
+  buildFullJestCaseEvidence,
   run
 };

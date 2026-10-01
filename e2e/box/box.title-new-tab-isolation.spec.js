@@ -43,7 +43,8 @@ async function editVisibleBoxTitle(page, title) {
   const input = page.locator('.inline-edit-overlay .inline-edit-input').first();
   await expect(input).toBeVisible({ timeout: 20_000 });
   await input.fill(title);
-  await input.press('Enter');
+  await page.mouse.click(3, 3);
+  await expect(input).toBeHidden();
   await page.waitForFunction(expected => {
     const state = window.Components?.box?.__getState?.() || {};
     return String(state.titleText || '') === expected;

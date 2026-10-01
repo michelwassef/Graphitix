@@ -57,7 +57,7 @@ describe('Box strip inter-dataset spacing regression', () => {
     expect(typeof hooks.computeStripHalfExtentLimit).toBe('function');
     expect(typeof hooks.computeStripSpreadScale).toBe('function');
 
-    const source = parseCsvColumns(path.resolve(__dirname, '..', 'test-box.csv'), 45);
+    const source = parseCsvColumns(path.resolve(__dirname, '..', 'fixtures', 'box', 'v1', 'test-box.csv'), 45);
     expect(source.length).toBeGreaterThanOrEqual(3);
     const baseTraces = source.slice(0, 3);
     const traces = [];

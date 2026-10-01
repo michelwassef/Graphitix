@@ -979,7 +979,16 @@
             stopPropagation(){},
             stopImmediatePropagation(){}
           };
-          const bridged = undoBridge(bridgeEvent) === true;
+          const bridgeResult = undoBridge(bridgeEvent);
+          if(bridgeResult === 'native'){
+            undoDebug('Debug: undo command delegated to native editor history', {
+              command: normalized,
+              tabId: tabId || null,
+              targetTag: target?.tagName || null
+            });
+            return false;
+          }
+          const bridged = bridgeResult === true;
           if(bridged){
             undoDebug('Debug: undo command handled by bridge', {
               command: normalized,

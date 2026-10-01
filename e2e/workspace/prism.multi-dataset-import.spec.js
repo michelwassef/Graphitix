@@ -14,7 +14,7 @@ const expectedTabs = () => [
 for (const extension of ['prism', 'pzfx']) {
 test(`imports and renders every mixed-type demo .${extension} table`, async ({ page }) => {
   test.setTimeout(90_000);
-  const prismPath = path.join(__dirname, '..', 'prism files', `demo_dataset.${extension}`);
+  const prismPath = path.join(__dirname, '..', '..', '__tests__', 'fixtures', 'prism', 'v1', `demo_dataset.${extension}`);
   await installLocalCdnOverrides(page);
   await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
   page.on('dialog', dialog => dialog.accept());

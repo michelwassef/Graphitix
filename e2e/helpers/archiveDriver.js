@@ -101,6 +101,25 @@ async function openWorkspaceArchive(page, archive, options = {}) {
   return filePath;
 }
 
+async function openWorkspaceArchiveBuffer(page, archiveBuffer, options = {}) {
+  if (!Buffer.isBuffer(archiveBuffer) && !(archiveBuffer instanceof Uint8Array)) {
+    throw new Error('openWorkspaceArchiveBuffer requires archive bytes.');
+  }
+  if (options.reload !== false) {
+    await page.reload({ waitUntil: 'domcontentloaded' });
+  }
+  const fileName = options.fileName || 'workspace.graph';
+  await page.locator(options.inputSelector || '#workspaceSessionInput').setInputFiles({
+    name: fileName,
+    mimeType: options.mimeType || 'application/octet-stream',
+    buffer: Buffer.from(archiveBuffer)
+  });
+  if (options.componentType) {
+    await waitForWorkspaceTab(page, options.componentType, options.timeout);
+  }
+  return fileName;
+}
+
 async function waitForWorkspaceTab(page, componentType, timeout = 60_000) {
   await page.waitForFunction(type => {
     const tabs = window.Main?.session?.workspaceState?.tabs;
@@ -111,6 +130,7 @@ async function waitForWorkspaceTab(page, componentType, timeout = 60_000) {
 module.exports = {
   buildWorkspaceArchive,
   openWorkspaceArchive,
+  openWorkspaceArchiveBuffer,
   parseWorkspaceArchive,
   summarizeArchiveMetadata,
   saveWorkspaceArchive,

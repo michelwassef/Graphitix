@@ -2683,36 +2683,47 @@
     const session = ensureSurfaceSessionOwnershipShape(ownerSession);
     const role = axisKey ? `${axisKey}Title` : 'axisTitle';
     markFontEditable(node, role, role);
+    if(String(node.dataset?.titleBlockText || node.textContent || '').includes('\n')){
+      Shared.fontControls?.setTitleText?.(node, node.dataset?.titleBlockText || node.textContent || '');
+    }
     if(!session || !axisKey){
       return;
     }
-    const applyAxisLabel = value => {
+    let editInitialValue = null;
+    const normalizeAxisLabel = value => {
+      const rawLabel = String(value == null ? '' : value).replace(/\r\n?/g, '\n');
+      return rawLabel.trim() ? rawLabel : (DEFAULT_AXIS_LABELS[axisKey] || DEFAULT_AXIS_LABELS.x);
+    };
+    const writeAxisLabel = (value, reason = 'draft') => {
       if(!isSurfaceAxisLabelOwnerCurrent(session, node)){
         return session.state?.labels?.[axisKey] || DEFAULT_AXIS_LABELS[axisKey] || DEFAULT_AXIS_LABELS.x;
       }
-      const trimmed = value != null ? String(value).trim() : '';
-      const resolved = trimmed || DEFAULT_AXIS_LABELS[axisKey] || DEFAULT_AXIS_LABELS.x;
+      const resolved = normalizeAxisLabel(value);
       session.state.labels[axisKey] = resolved;
       state.labels[axisKey] = resolved;
       const hot = session.managers?.hot || state.hot || null;
       if(hot && typeof hot.setDataAtCell === 'function'){
         const targetCol = resolveSurfaceAxisColumnForSession(session, axisKey, hot);
         if(readSurfaceHeaderLabel(hot, targetCol) !== resolved){
-          hot.setDataAtCell(0, targetCol, resolved, 'surface-axis-inline');
+          hot.setDataAtCell(0, targetCol, resolved, `surface-axis-inline-${reason}`);
         }
       }
+      return resolved;
+    };
+    const applyAxisLabel = value => {
+      const resolved = writeAxisLabel(value, 'edit');
       scheduleSurfaceDrawForSession(session, {
         tabId: session.tabId,
         renderImpact: 'layout',
         reason: `surface-${axisKey}-label-edit`
       });
-      if(node.textContent !== resolved){
+      if(!Shared.fontControls?.setTitleText?.(node, resolved) && node.textContent !== resolved){
         node.textContent = resolved;
       }
       return resolved;
     };
     makeEditableHelper(node, text => {
-      const previous = session.state?.labels?.[axisKey] || DEFAULT_AXIS_LABELS[axisKey] || DEFAULT_AXIS_LABELS.x;
+      const previous = editInitialValue != null ? editInitialValue : (session.state?.labels?.[axisKey] || DEFAULT_AXIS_LABELS[axisKey] || DEFAULT_AXIS_LABELS.x);
       const nextValue = applyAxisLabel(text);
       if(previous === nextValue){
         return;
@@ -2721,22 +2732,60 @@
         applyAxisLabel(value);
         return true;
       });
-    }, { scopeId: 'surface', key: role });
+    }, {
+      getInitialValue: () => String(session.state?.labels?.[axisKey] || DEFAULT_AXIS_LABELS[axisKey] || DEFAULT_AXIS_LABELS.x),
+      scopeId: 'surface', key: role,
+      onEditCheckpoint: (currentValue, _target, reason) => {
+        const nextValue = normalizeAxisLabel(currentValue);
+        if(reason === 'history-restore'){
+          editInitialValue = nextValue;
+          return true;
+        }
+        const previous = editInitialValue != null ? editInitialValue : (session.state?.labels?.[axisKey] || DEFAULT_AXIS_LABELS[axisKey] || DEFAULT_AXIS_LABELS.x);
+        if(previous === nextValue) return false;
+        recordSurfaceChange(`surface:${axisKey}-label`, previous, nextValue, value => {
+          applyAxisLabel(value);
+          return true;
+        });
+        editInitialValue = nextValue;
+        return true;
+      },
+      onEditStart: () => { editInitialValue = session.state?.labels?.[axisKey] || DEFAULT_AXIS_LABELS[axisKey] || DEFAULT_AXIS_LABELS.x; },
+      onInput: value => {
+        const normalized = writeAxisLabel(value, 'draft');
+        Shared.textBlock?.markDraftModified?.(node, session, 'surface', `surface-${axisKey}-label-draft`);
+        return normalized;
+      },
+      onEditEnd: (_target, finalValue) => {
+        const normalized = normalizeAxisLabel(finalValue);
+        if((session.state?.labels?.[axisKey] || DEFAULT_AXIS_LABELS[axisKey] || DEFAULT_AXIS_LABELS.x) !== normalized){
+          writeAxisLabel(normalized, 'cancel');
+          Shared.textBlock?.markDraftModified?.(node, session, 'surface', `surface-${axisKey}-label-cancel`);
+        }
+        editInitialValue = null;
+      }
+    });
   }
 
   function bindSurfaceTitleInlineInteraction(node, ownerSession = null){
     const owner = ensureSurfaceSessionOwnershipShape(ownerSession || getActiveSurfaceSessionForState());
     if(!node || !owner || typeof makeEditableHelper !== 'function'){ return false; }
+    let editInitialValue = null;
+    const normalizeTitle = value => {
+      const rawValue = String(value == null ? '' : value).replace(/\r\n?/g, '\n');
+      return rawValue.trim() ? rawValue : 'Surface Plot';
+    };
     makeEditableHelper(node, text => {
-      const previous = owner.state?.labels?.title || 'Surface Plot';
-      const normalized = String(text || '').trim() || 'Surface Plot';
+      const previous = editInitialValue != null ? editInitialValue : (owner.state?.labels?.title || 'Surface Plot');
+      const normalized = normalizeTitle(text);
       if(previous === normalized){ return; }
       const apply = value => {
-        const nextValue = String(value || '').trim() || 'Surface Plot';
+        const rawValue = String(value == null ? '' : value).replace(/\r\n?/g, '\n');
+        const nextValue = rawValue.trim() ? rawValue : 'Surface Plot';
         patchSurfaceVisualState(owner, {
           labels: { ...(owner.state?.labels || {}), title: nextValue }
         }, { reason: 'surface-title-edit' });
-        if(node.textContent !== nextValue){ node.textContent = nextValue; }
+        if(!Shared.fontControls?.setTitleText?.(node, nextValue) && node.textContent !== nextValue){ node.textContent = nextValue; }
         scheduleSurfaceDrawForSession(owner, {
           tabId: owner.tabId,
           renderImpact: 'layout',
@@ -2746,7 +2795,45 @@
       };
       apply(normalized);
       recordSurfaceChange('surface:title', previous, normalized, value => { apply(value); return true; });
-    }, { scopeId: 'surface', key: 'graphTitle' });
+    }, {
+      getInitialValue: () => String(owner.state?.labels?.title || 'Surface Plot'),
+      scopeId: 'surface', key: 'graphTitle',
+      onEditCheckpoint: (currentValue, _target, reason) => {
+        const nextValue = normalizeTitle(currentValue);
+        if(reason === 'history-restore'){
+          editInitialValue = nextValue;
+          return true;
+        }
+        const previous = editInitialValue != null ? editInitialValue : (owner.state?.labels?.title || 'Surface Plot');
+        if(previous === nextValue) return false;
+        const applyCheckpoint = value => {
+          const next = normalizeTitle(value);
+          patchSurfaceVisualState(owner, {
+            labels: { ...(owner.state?.labels || {}), title: next }
+          }, { reason: 'surface-title-edit' });
+          if(!Shared.fontControls?.setTitleText?.(node, next) && node.textContent !== next){ node.textContent = next; }
+          scheduleSurfaceDrawForSession(owner, { tabId: owner.tabId, renderImpact: 'layout', reason: 'surface-title-edit' });
+          return true;
+        };
+        recordSurfaceChange('surface:title', previous, nextValue, applyCheckpoint);
+        editInitialValue = nextValue;
+        return true;
+      },
+      onEditStart: () => { editInitialValue = owner.state?.labels?.title || 'Surface Plot'; },
+      onInput: value => {
+        const normalized = normalizeTitle(value);
+        patchSurfaceVisualState(owner, { labels: { ...(owner.state?.labels || {}), title: normalized } }, { reason: 'surface-title-draft' });
+        Shared.textBlock?.markDraftModified?.(node, owner, 'surface', 'surface-title-draft');
+      },
+      onEditEnd: (_target, finalValue) => {
+        const normalized = normalizeTitle(finalValue);
+        if((owner.state?.labels?.title || 'Surface Plot') !== normalized){
+          patchSurfaceVisualState(owner, { labels: { ...(owner.state?.labels || {}), title: normalized } }, { reason: 'surface-title-cancel' });
+          Shared.textBlock?.markDraftModified?.(node, owner, 'surface', 'surface-title-cancel');
+        }
+        editInitialValue = null;
+      }
+    });
     return true;
   }
 
@@ -4470,42 +4557,57 @@
       y: ensureMinTicks(clampTicks(scaleY.ticks, ranges.y), ranges.y),
       z: ensureMinTicks(clampTicks(scaleZ.ticks, ranges.z), ranges.z)
     };
+    const surfaceAxisLabels = { x: state.labels.x, y: state.labels.y, z: state.labels.z };
+    const surface3dTitleBlocks = {
+      graphTitle: chartStyle.resolveTitleBlockLayout({ text: state.labels.title, role: 'graphTitle', styles: surfaceFontStyles, fallbackPx: fs }),
+      xTitle: chartStyle.resolveTitleBlockLayout({ text: state.labels.x, role: 'xTitle', styles: surfaceFontStyles, fallbackPx: fs }),
+      yTitle: chartStyle.resolveTitleBlockLayout({ text: state.labels.y, role: 'yTitle', styles: surfaceFontStyles, fallbackPx: fs }),
+      zTitle: chartStyle.resolveTitleBlockLayout({ text: state.labels.z, role: 'zTitle', styles: surfaceFontStyles, fallbackPx: fs })
+    };
     const surface3dSafeViewport = typeof plot3d.resolveRotationSafeViewport === 'function'
       ? plot3d.resolveRotationSafeViewport({
           width,
           height,
           margin,
-          axisLabels: { x: state.labels.x, y: state.labels.y, z: state.labels.z },
+          axisLabels: surfaceAxisLabels,
           axisTicks,
           fontSize: fs,
           tickFontSize: surface3dTickFontSize,
           axisStrokeWidth,
+          titleBlocks: surface3dTitleBlocks,
           chartStyle,
           rotationLimits: plot3d.DEFAULT_ROTATION_LIMITS
         })
       : { minX: 0, minY: 0, maxX: width, maxY: height, left: 0, top: 0, right: 0, bottom: 0, width, height };
     if(typeof plot3d.resolveRotationSafeMargin === 'function'){
       Object.assign(margin, plot3d.resolveRotationSafeMargin({ margin, safeViewport: surface3dSafeViewport }));
-      plotWidth = Math.max(40, width - margin.left - margin.right);
-      plotHeight = Math.max(40, height - margin.top - margin.bottom);
-      projector = typeof plot3d.createProjector === 'function'
-        ? plot3d.createProjector({
-            rotatedPoints: rotatedPoints.concat(rotatedCorners),
-            rotatedCorners,
-            width,
-            height,
-            margin,
-            shiftX: legendShiftX
-          })
-        : projector;
-      projectRotated = rot => projector.project(rot);
     }
+    const surface3dTitleFrame = typeof plot3d.resolveTitleFrame === 'function'
+      ? plot3d.resolveTitleFrame({ width, height, margin, titleBlocks: surface3dTitleBlocks, fontSize: fs })
+      : { width, height, margin: { ...margin }, plotWidth: width - margin.left - margin.right, plotHeight: height - margin.top - margin.bottom, titleExtensions: { graphTitle: 0, axisTitles: { x: 0, y: 0, z: 0 }, right: 0, bottom: 0 } };
+    const surface3dTitleExtensions = surface3dTitleFrame.titleExtensions;
+    Object.assign(margin, surface3dTitleFrame.margin);
+    const surface3dFrameWidth = surface3dTitleFrame.width;
+    const surface3dFrameHeight = surface3dTitleFrame.height;
+    plotWidth = Math.max(40, surface3dTitleFrame.plotWidth);
+    plotHeight = Math.max(40, surface3dTitleFrame.plotHeight);
+    projector = typeof plot3d.createProjector === 'function'
+      ? plot3d.createProjector({
+          rotatedPoints: rotatedPoints.concat(rotatedCorners),
+          rotatedCorners,
+          width: surface3dFrameWidth,
+          height: surface3dFrameHeight,
+          margin,
+          shiftX: legendShiftX
+        })
+      : projector;
+    projectRotated = rot => projector.project(rot);
     const surfaceLegendViewportExtension = (() => {
       if(!legendVisible){
         return 0;
       }
       const metrics = resolveSurfaceLegendMetrics({
-        width,
+        width: surface3dFrameWidth,
         height,
         margin,
         fontSize: fs,
@@ -4529,10 +4631,10 @@
         + maxLabelWidth
         + metrics.strokeWidth
         + 2;
-      const defaultLegendX = width - metrics.marginRight + metrics.legendRightPad;
-      return Math.max(0, defaultLegendX + legendContentWidth - width + 2);
+      const defaultLegendX = surface3dFrameWidth - metrics.marginRight + metrics.legendRightPad;
+      return Math.max(0, defaultLegendX + legendContentWidth - surface3dFrameWidth + 2);
     })();
-    const surfaceCanonicalWidth = width + surfaceLegendViewportExtension;
+    const surfaceCanonicalWidth = surface3dFrameWidth + surfaceLegendViewportExtension;
     const surface3dViewportProjection = typeof chartStyle.stagePlot3dViewport === 'function'
       ? chartStyle.stagePlot3dViewport({
           svgBox,
@@ -4541,13 +4643,13 @@
           baseWidth: width,
           baseHeight: height,
           canonicalWidth: surfaceCanonicalWidth,
-          canonicalHeight: height,
+          canonicalHeight: surface3dFrameHeight,
           legendWidth: surfaceLegendViewportExtension,
           applyOuterEnvelope: false,
           safeViewport: surface3dSafeViewport
         })
       : null;
-    const surface3dViewport = { minX: 0, minY: 0, width: surfaceCanonicalWidth, height };
+    const surface3dViewport = { minX: 0, minY: 0, width: surfaceCanonicalWidth, height: surface3dFrameHeight };
     const colorFor = colorScaleFactory(parsed.stats.zMin, parsed.stats.zMax, state.settings.colorRamp);
     const effectiveMode = (state.settings.interpolation === 'grid' && parsed.faces.length)
       ? 'grid'
@@ -4561,8 +4663,8 @@
       faces: parsed.faces,
       corners,
       ranges,
-      width,
-      height,
+      width: surface3dFrameWidth,
+      height: surface3dFrameHeight,
       margin,
       legendShiftX,
       axisTicks,
@@ -4766,7 +4868,8 @@
       }
     }
     let title = svg.querySelector('text[data-graph-title]');
-    const titleBaseY = Math.max(fs, margin.top * 0.55);
+    const titleBaselineTop = margin.top - surface3dTitleExtensions.graphTitle;
+    const titleBaseY = Math.max(fs, titleBaselineTop * 0.55);
     const titleBaseX = margin.left + plotWidth / 2;
     const titlePos = state.labelPositions?.title;
     const hasTitlePos = Number.isFinite(titlePos?.x) && Number.isFinite(titlePos?.y);
@@ -4780,7 +4883,7 @@
         if (titlePos.relX !== undefined && titlePos.relY !== undefined) {
           // Use relative positioning
           absoluteTitleX = margin.left + titlePos.relX * plotWidth;
-          absoluteTitleY = margin.top + titlePos.relY * plotHeight;
+          absoluteTitleY = titleBaselineTop + titlePos.relY * plotHeight;
         } else if (titlePos.x !== undefined && titlePos.y !== undefined) {
           // Use absolute positioning (backward compatibility)
           absoluteTitleX = titlePos.x;
@@ -4795,6 +4898,9 @@
       title.setAttribute('fill', surfaceTextColor);
       title.textContent = state.labels.title;
       markFontEditable(title, 'graphTitle', 'graphTitle');
+      if(String(state.labels.title || '').includes('\n')){
+        Shared.fontControls?.setTitleText?.(title, state.labels.title);
+      }
       bindSurfaceTitleInlineInteraction(title, drawSession);
       if(typeof plot3d.applyLegendPointerGuards === 'function'){
         plot3d.applyLegendPointerGuards(title, { label: 'surface-title' });
@@ -4806,7 +4912,7 @@
           onDragEnd: pos => {
             // Store both absolute and relative positions
             const relX = (pos.x - margin.left) / plotWidth;
-            const relY = (pos.y - margin.top) / plotHeight;
+            const relY = (pos.y - titleBaselineTop) / plotHeight;
             patchSurfaceLabelPosition(drawSession, 'title', { 
               x: pos.x, 
               y: pos.y,
@@ -4827,7 +4933,7 @@
         if (titlePos.relX !== undefined && titlePos.relY !== undefined) {
           // Use relative positioning
           absoluteTitleX = margin.left + titlePos.relX * plotWidth;
-          absoluteTitleY = margin.top + titlePos.relY * plotHeight;
+          absoluteTitleY = titleBaselineTop + titlePos.relY * plotHeight;
         } else if (titlePos.x !== undefined && titlePos.y !== undefined) {
           // Use absolute positioning (backward compatibility)
           absoluteTitleX = titlePos.x;
@@ -4841,8 +4947,11 @@
       try{ title.setAttribute('fill', surfaceTextColor); }catch(e){}
       if(title.textContent !== state.labels.title){ title.textContent = state.labels.title; }
       applySavedFontStyle(title);
+      if(String(state.labels.title || '').includes('\n')){
+        Shared.fontControls?.setTitleText?.(title, state.labels.title);
+      }
     }
-    if(!hasTitlePos && axisLabelBounds.length && typeof title.getBBox === 'function'){
+    if(!hasTitlePos && !String(state.labels.title || '').includes('\n') && axisLabelBounds.length && typeof title.getBBox === 'function'){
       try {
         const padding = Math.max(fs * 0.45, 10);
         const minAxisTop = axisLabelBounds.reduce((min, bounds) => (
@@ -4913,7 +5022,7 @@
       ensureSurfaceGraphViewport(svg, {
         padding: Math.max(fs, 18),
         debugLabel: 'surface-3d-graph',
-        baseViewport: surface3dViewport,
+      baseViewport: surface3dViewport,
         fitContent: false
       });
     }

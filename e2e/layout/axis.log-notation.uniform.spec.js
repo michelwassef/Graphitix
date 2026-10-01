@@ -1,5 +1,5 @@
 const { test, expect } = require('@playwright/test');
-const { clickExampleButtonIfPresent, openComponentFromWelcome } = require('../helpers/workspaceDriver');
+const { clickExpectedExampleButton, openComponentFromWelcome } = require('../helpers/workspaceDriver');
 const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
 const { waitForComponentOwnerReady } = require('../helpers/contractWaits');
 
@@ -33,7 +33,7 @@ for (const component of CASES) {
     await installLocalCdnOverrides(page);
     await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
     await openComponentFromWelcome(page, component, { first: true });
-    await clickExampleButtonIfPresent(page, component.exampleButtonId);
+    await clickExpectedExampleButton(page, component.exampleButtonId);
     await waitForComponentOwnerReady(page, component, { requireIdle: true });
 
     await page.locator(`#${component.logControlId}`).check();

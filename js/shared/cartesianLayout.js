@@ -139,6 +139,73 @@
     return output;
   }
 
+  function normalizeTitleBlock(value, fallbackFontSize, defaultSide){
+    const source = value && typeof value === 'object' ? value : { text: value };
+    const text = String(source.text ?? '').replace(/\r\n?/g, '\n');
+    const lineCount = text.split('\n').length;
+    const fontSize = positive(source.fontSize, fallbackFontSize);
+    const lineHeight = positive(
+      source.lineHeight,
+      fontSize * (Number(Shared.textBlock?.DEFAULT_LINE_HEIGHT_EM) || 1)
+    );
+    const side = SIDES.includes(source.side) ? source.side : defaultSide;
+    return { text, lineCount, fontSize, lineHeight, side, additionalExtent: Math.max(0, lineCount - 1) * lineHeight };
+  }
+
+  function normalizeTitleBlocks(value, fallbackFontSize, orientation){
+    const source = value && typeof value === 'object' ? value : {};
+    const flipped = orientation === 'flipped';
+    return {
+      graphTitle: normalizeTitleBlock(source.graphTitle, fallbackFontSize, 'top'),
+      xTitle: normalizeTitleBlock(source.xTitle, fallbackFontSize, flipped ? 'left' : 'bottom'),
+      yTitle: normalizeTitleBlock(source.yTitle, fallbackFontSize, flipped ? 'bottom' : 'left')
+    };
+  }
+
+  function resolveTitleLineExtensions(titleBlocks){
+    const extensions = { top: 0, right: 0, bottom: 0, left: 0 };
+    const add = (role, block) => {
+      const amount = Math.max(0, Number(block?.additionalExtent) || 0);
+      if(!(amount > 0)) return;
+      if(role === 'graphTitle'){
+        extensions.bottom += amount;
+        return;
+      }
+      const side = block?.side;
+      if(side === 'left') extensions.right += amount;
+      else if(side === 'right') extensions.left += amount;
+      else if(side === 'top' || side === 'bottom') extensions.bottom += amount;
+    };
+    add('graphTitle', titleBlocks?.graphTitle);
+    add('xTitle', titleBlocks?.xTitle);
+    add('yTitle', titleBlocks?.yTitle);
+    return extensions;
+  }
+
+  namespace.resolveMultilineTitleOverflowSides = function resolveMultilineTitleOverflowSides(value, orientation = 'normal'){
+    const source = value && typeof value === 'object' ? value : {};
+    const flipped = normalizeOrientation(orientation) === 'flipped';
+    const sides = new Set();
+    const add = (role, defaultSide) => {
+      const block = source[role] && typeof source[role] === 'object' ? source[role] : {};
+      if(!String(block.text ?? '').replace(/\r\n?/g, '\n').includes('\n')) return;
+      if(role === 'graphTitle'){
+        sides.add('bottom');
+        return;
+      }
+      const side = SIDES.includes(block.side) ? block.side : defaultSide;
+      // Titles on the left/right move the plot horizontally; titles on the
+      // top/bottom either move the plot down or grow into the bottom rail.
+      if(side === 'left') sides.add('right');
+      else if(side === 'right') sides.add('left');
+      else if(side === 'top' || side === 'bottom') sides.add('bottom');
+    };
+    add('graphTitle', 'top');
+    add('xTitle', flipped ? 'left' : 'bottom');
+    add('yTitle', flipped ? 'bottom' : 'left');
+    return ['left', 'right', 'top', 'bottom'].filter(side => sides.has(side));
+  };
+
   function ownerMatchesContext(ownerValue, contextValue, options = {}){
     const owner = normalizeOwner(ownerValue);
     const context = normalizeOwner(contextValue);
@@ -382,46 +449,60 @@
     return model.fixed + (model.count * Math.max(model.minimum, axisLength));
   }
 
-  function deriveEnvelope(userFrame, basePlotRect, plotRect, reserves, contentBounds){
+  function deriveEnvelope(userFrame, basePlotRect, solvedPlotRect, reserves, contentBounds, titleLineExtensions){
     const bounds = contentBounds && typeof contentBounds === 'object' ? contentBounds : {};
+    const hasMeasuredBounds = ['minX', 'minY', 'maxX', 'maxY']
+      .every(key => Number.isFinite(Number(bounds[key])));
     const basePlotRight = basePlotRect.x + basePlotRect.width;
     const basePlotBottom = basePlotRect.y + basePlotRect.height;
-    const plotRight = plotRect.x + plotRect.width;
-    const plotBottom = plotRect.y + plotRect.height;
+    const plotRight = solvedPlotRect.x + solvedPlotRect.width;
+    const plotBottom = solvedPlotRect.y + solvedPlotRect.height;
     // Plot constraints may extend the metric/data rectangle beyond its canonical
     // rail. Preserve the opposite baseline rail while doing so: extending a PCA
     // or equal-scale plot by 30 px must extend the outer graph by 30 px, not by
     // only the amount that happens to cross the user-frame edge after consuming
-    // the existing right/bottom margin. External content is then appended after
-    // that solved graph envelope.
-    const plotOverflowLeft = Math.max(0, basePlotRect.x - plotRect.x);
-    const plotOverflowTop = Math.max(0, basePlotRect.y - plotRect.y);
+    // the existing right/bottom margin. Exact title line advances are applied
+    // after this existing envelope below; measured bounds can extend it further.
+    const plotOverflowLeft = Math.max(0, basePlotRect.x - solvedPlotRect.x);
+    const plotOverflowTop = Math.max(0, basePlotRect.y - solvedPlotRect.y);
     const plotOverflowRight = Math.max(0, plotRight - basePlotRight);
     const plotOverflowBottom = Math.max(0, plotBottom - basePlotBottom);
     const baseMinX = -plotOverflowLeft;
     const baseMinY = -plotOverflowTop;
     const baseMaxX = userFrame.width + plotOverflowRight;
     const baseMaxY = userFrame.height + plotOverflowBottom;
-    const minX = Math.min(
+    const plannedMinX = Math.min(
       -reserves.outwardBySide.left,
-      baseMinX - reserves.externalBySide.left,
-      finite(bounds.minX, 0)
+      baseMinX - reserves.externalBySide.left
     );
-    const minY = Math.min(
+    const plannedMinY = Math.min(
       -reserves.outwardBySide.top,
-      baseMinY - reserves.externalBySide.top,
-      finite(bounds.minY, 0)
+      baseMinY - reserves.externalBySide.top
     );
-    const maxX = Math.max(
+    const plannedMaxX = Math.max(
       userFrame.width + reserves.outwardBySide.right,
-      baseMaxX + reserves.externalBySide.right,
-      finite(bounds.maxX, userFrame.width)
+      baseMaxX + reserves.externalBySide.right
     );
-    const maxY = Math.max(
+    const plannedMaxY = Math.max(
       userFrame.height + reserves.outwardBySide.bottom,
-      baseMaxY + reserves.externalBySide.bottom,
-      finite(bounds.maxY, userFrame.height)
+      baseMaxY + reserves.externalBySide.bottom
     );
+    // The first plan reserves the full title advances before text is rendered,
+    // so drag bounds cannot clip new lines. Once rendered bounds are available,
+    // they become the exact outer-envelope authority: existing whitespace can
+    // absorb part of the shifted title, and only real overflow grows the SVG.
+    const minX = hasMeasuredBounds
+      ? Math.min(plannedMinX, finite(bounds.minX, 0))
+      : plannedMinX - titleLineExtensions.left;
+    const minY = hasMeasuredBounds
+      ? Math.min(plannedMinY, finite(bounds.minY, 0))
+      : plannedMinY - titleLineExtensions.top;
+    const maxX = hasMeasuredBounds
+      ? Math.max(plannedMaxX, finite(bounds.maxX, userFrame.width))
+      : plannedMaxX + titleLineExtensions.right;
+    const maxY = hasMeasuredBounds
+      ? Math.max(plannedMaxY, finite(bounds.maxY, userFrame.height))
+      : plannedMaxY + titleLineExtensions.bottom;
     return {
       minX,
       minY,
@@ -447,16 +528,46 @@
     const requiredMargins = normalizeMargins(input.requiredMargins || baselineMargins);
     const minimumPlot = normalizeMinimumPlot(input.minimumPlot);
     const rounding = normalizeRounding(input.rounding);
+    const orientation = normalizeOrientation(input.orientation);
+    const titleBlocks = normalizeTitleBlocks(input.titleBlocks, positive(input.fontSize, 14), orientation);
+    const titleLineExtensions = resolveTitleLineExtensions(titleBlocks);
+    const plotTranslation = {
+      x: finite(input.plotTranslation?.x)
+        + (titleBlocks.xTitle.side === 'left' ? titleBlocks.xTitle.additionalExtent : 0)
+        + (titleBlocks.yTitle.side === 'left' ? titleBlocks.yTitle.additionalExtent : 0)
+        - (titleBlocks.xTitle.side === 'right' ? titleBlocks.xTitle.additionalExtent : 0)
+        - (titleBlocks.yTitle.side === 'right' ? titleBlocks.yTitle.additionalExtent : 0),
+      // Each extra graph-title baseline consumes one line-height of vertical
+      // space. The renderers keep the title's original top-rail anchor fixed,
+      // so reserve exactly that same amount for the plot and outer envelope.
+      y: finite(input.plotTranslation?.y)
+        + titleBlocks.graphTitle.additionalExtent
+        + (titleBlocks.xTitle.side === 'top' ? titleBlocks.xTitle.additionalExtent : 0)
+        + (titleBlocks.yTitle.side === 'top' ? titleBlocks.yTitle.additionalExtent : 0)
+    };
+    const auxiliaryReserves = normalizeReserveList(input.auxiliaryReserves);
     const reserves = namespace.composeAutomaticReserves({
       baselineMargins,
       requiredMargins,
-      auxiliaryReserves: input.auxiliaryReserves,
+      auxiliaryReserves,
       externalExtensions: input.externalExtensions
     });
     const basePlotRect = buildBasePlot(userFrame, baselineMargins);
     const constrained = resolvePlotConstraint(basePlotRect, input.plotConstraint, minimumPlot);
-    const plotRect = roundObject(constrained.rect, rounding);
-    const contentEnvelope = roundObject(deriveEnvelope(userFrame, basePlotRect, plotRect, reserves, input.contentBounds), rounding);
+    const unshiftedPlotRect = roundObject(constrained.rect, rounding);
+    const plotRect = roundObject({
+      ...constrained.rect,
+      x: constrained.rect.x + plotTranslation.x,
+      y: constrained.rect.y + plotTranslation.y
+    }, rounding);
+    const contentEnvelope = roundObject(deriveEnvelope(
+      userFrame,
+      basePlotRect,
+      unshiftedPlotRect,
+      reserves,
+      input.contentBounds,
+      titleLineExtensions
+    ), rounding);
     const lock = normalizeLock(input.lock);
     const axisFrameModel = normalizeAxisFrameModel(input.axisFrameModel, userFrame, plotRect, minimumPlot);
     const axisLengths = {
@@ -468,7 +579,7 @@
         : resolveAxisLength(userFrame.height, axisFrameModel.y)
     };
     const renderedRatio = axisLengths.y > 0 ? axisLengths.x / axisLengths.y : null;
-    const frameInsets = roundObject(deriveFrameInsets(userFrame, plotRect), rounding);
+    const lockFrameInsets = roundObject(deriveFrameInsets(userFrame, unshiftedPlotRect), rounding);
     const minimumPlotSatisfied = plotRect.width >= minimumPlot.width && plotRect.height >= minimumPlot.height;
     const diagnostics = [];
     if(!minimumPlotSatisfied) diagnostics.push('minimum-plot-not-satisfied');
@@ -478,7 +589,7 @@
     return deepFreeze({
       version: PLAN_VERSION,
       owner,
-      orientation: normalizeOrientation(input.orientation),
+      orientation,
       userFrame: roundObject(userFrame, rounding),
       baselineMargins: roundObject(baselineMargins, rounding),
       requiredMargins: roundObject(requiredMargins, rounding),
@@ -489,6 +600,9 @@
         left: Math.max(baselineMargins.left, requiredMargins.left)
       }, rounding),
       automaticReserves: reserves,
+      titleBlocks: deepFreeze(titleBlocks),
+      titleLineExtensions: roundObject(titleLineExtensions, rounding),
+      plotTranslation: roundObject(plotTranslation, rounding),
       basePlotRect: roundObject(basePlotRect, rounding),
       plotRect,
       axisLengths: roundObject(axisLengths, rounding),
@@ -502,7 +616,7 @@
         targetRatio: lock.enabled ? (lock.targetRatio || renderedRatio) : null,
         renderedRatio,
         drive: lock.drive,
-        frameInsets
+        frameInsets: lockFrameInsets
       },
       plotConstraint: {
         applied: constrained.applied,
@@ -673,6 +787,7 @@
     'cartesianLayoutGeneration', 'cartesianPublicationGeneration', 'cartesianOrientation',
     'cartesianPayloadSignature', 'cartesianLayoutSignature',
     'cartesianPlotX', 'cartesianPlotY', 'cartesianPlotWidth', 'cartesianPlotHeight',
+    'cartesianPlotTranslationX', 'cartesianPlotTranslationY',
     'cartesianUserWidth', 'cartesianUserHeight',
     'cartesianBaselineTop', 'cartesianBaselineRight', 'cartesianBaselineBottom', 'cartesianBaselineLeft',
     'cartesianRequiredTop', 'cartesianRequiredRight', 'cartesianRequiredBottom', 'cartesianRequiredLeft',
@@ -683,6 +798,7 @@
     'cartesianPlotConstraintApplied', 'cartesianPlotConstraintType', 'cartesianPlotConstraintRatio', 'cartesianPlotConstraintFit',
     'cartesianLockEnabled', 'cartesianLockTargetRatio', 'cartesianLockRenderedRatio', 'cartesianLockDrive',
     'cartesianLockInsetHorizontal', 'cartesianLockInsetVertical',
+    'cartesianLockInsetLeft', 'cartesianLockInsetTop',
     'cartesianEnvelopeMinX', 'cartesianEnvelopeMinY', 'cartesianEnvelopeMaxX', 'cartesianEnvelopeMaxY',
     'cartesianLayoutComplete'
   ]);
@@ -713,6 +829,8 @@
     dataset.cartesianPlotY = String(plan.plotRect.y);
     dataset.cartesianPlotWidth = String(plan.plotRect.width);
     dataset.cartesianPlotHeight = String(plan.plotRect.height);
+    dataset.cartesianPlotTranslationX = String(plan.plotTranslation?.x || 0);
+    dataset.cartesianPlotTranslationY = String(plan.plotTranslation?.y || 0);
     dataset.cartesianUserWidth = String(plan.userFrame.width);
     dataset.cartesianUserHeight = String(plan.userFrame.height);
     SIDES.forEach(side => {
@@ -746,6 +864,10 @@
     else delete dataset.cartesianLockInsetHorizontal;
     if(Number.isFinite(Number(plan.lock?.frameInsets?.vertical))) dataset.cartesianLockInsetVertical = String(plan.lock.frameInsets.vertical);
     else delete dataset.cartesianLockInsetVertical;
+    if(Number.isFinite(Number(plan.lock?.frameInsets?.left))) dataset.cartesianLockInsetLeft = String(plan.lock.frameInsets.left);
+    else delete dataset.cartesianLockInsetLeft;
+    if(Number.isFinite(Number(plan.lock?.frameInsets?.top))) dataset.cartesianLockInsetTop = String(plan.lock.frameInsets.top);
+    else delete dataset.cartesianLockInsetTop;
     dataset.cartesianEnvelopeMinX = String(plan.contentEnvelope.minX);
     dataset.cartesianEnvelopeMinY = String(plan.contentEnvelope.minY);
     dataset.cartesianEnvelopeMaxX = String(plan.contentEnvelope.maxX);
@@ -758,53 +880,140 @@
     DATASET_KEYS.forEach(key => { delete target.dataset[key]; });
   }
 
+  function preservePublishedTitleEnvelope(previousPlan, nextPlan){
+    const previous = previousPlan && typeof previousPlan === 'object' ? previousPlan : null;
+    if(!previous?.publication?.complete || !nextPlan?.contentEnvelope || !nextPlan?.titleLineExtensions) return nextPlan;
+    if(!sameOwnerIdentity(previous.owner, nextPlan.owner)) return nextPlan;
+    const previousFrame = previous.userFrame || {};
+    const nextFrame = nextPlan.userFrame || {};
+    if(Math.abs(finite(previousFrame.width) - finite(nextFrame.width)) > 0.5
+      || Math.abs(finite(previousFrame.height) - finite(nextFrame.height)) > 0.5) return nextPlan;
+
+    const sideConfig = {
+      top: { envelope: 'extensionTop', edge: 'minY', frame: 'height', direction: -1 },
+      right: { envelope: 'extensionRight', edge: 'maxX', frame: 'width', direction: 1 },
+      bottom: { envelope: 'extensionBottom', edge: 'maxY', frame: 'height', direction: 1 },
+      left: { envelope: 'extensionLeft', edge: 'minX', frame: 'width', direction: -1 }
+    };
+    const nextEnvelope = { ...nextPlan.contentEnvelope };
+    let changed = false;
+    Object.entries(sideConfig).forEach(([side, config]) => {
+      if(!(finite(nextPlan.titleLineExtensions[side]) > 0)) return;
+      const previousExternal = Number(previous.automaticReserves?.externalBySide?.[side]);
+      const nextExternal = Number(nextPlan.automaticReserves?.externalBySide?.[side]);
+      if(!Number.isFinite(previousExternal) || !Number.isFinite(nextExternal)
+        || Math.abs(previousExternal - nextExternal) > 0.5) return;
+      const priorReserve = Math.max(0, finite(previous.contentEnvelope?.[config.envelope]));
+      const nextReserve = Math.max(0, finite(nextEnvelope[config.envelope]));
+      if(priorReserve <= nextReserve + 0.001) return;
+      nextEnvelope[config.envelope] = priorReserve;
+      nextEnvelope[config.edge] = config.direction > 0
+        ? finite(nextFrame[config.frame]) + priorReserve
+        : -priorReserve;
+      changed = true;
+    });
+    if(!changed) return nextPlan;
+    nextEnvelope.width = finite(nextEnvelope.maxX) - finite(nextEnvelope.minX);
+    nextEnvelope.height = finite(nextEnvelope.maxY) - finite(nextEnvelope.minY);
+    nextEnvelope.baseOffsetX = -finite(nextEnvelope.minX);
+    nextEnvelope.baseOffsetY = -finite(nextEnvelope.minY);
+    nextEnvelope.extensionWidth = Math.max(0, -finite(nextEnvelope.minX))
+      + Math.max(0, finite(nextEnvelope.maxX) - finite(nextFrame.width));
+    nextEnvelope.extensionHeight = Math.max(0, -finite(nextEnvelope.minY))
+      + Math.max(0, finite(nextEnvelope.maxY) - finite(nextFrame.height));
+    return deepFreeze({ ...nextPlan, contentEnvelope: nextEnvelope });
+  }
+
+  function mergeViewportReservesIntoPlan(plan, projectionTargets){
+    const target = (projectionTargets || []).find(node => node?.dataset?.graphContentBaseWidth != null);
+    if(!target) return plan;
+    const data = target.dataset;
+    const reserveBySide = {
+      left: Math.max(0, finite(data.graphContentReserveLeft)),
+      top: Math.max(0, finite(data.graphContentReserveTop)),
+      right: Math.max(0, finite(data.graphContentReserveRight)),
+      bottom: Math.max(0, finite(data.graphContentReserveBottom)
+        - (data.statsFigureSummaryCarried === '1' ? finite(data.statsFigureSummaryCarryReserveBottom) : 0))
+    };
+    const envelope = { ...plan.contentEnvelope };
+    const frame = plan.userFrame || {};
+    const sideConfig = {
+      left: ['extensionLeft', 'minX', 'width'],
+      top: ['extensionTop', 'minY', 'height'],
+      right: ['extensionRight', 'maxX', 'width'],
+      bottom: ['extensionBottom', 'maxY', 'height']
+    };
+    let changed = false;
+    Object.entries(sideConfig).forEach(([side, [extensionKey, edgeKey, frameKey]]) => {
+      const reserve = reserveBySide[side];
+      if(reserve <= finite(envelope[extensionKey]) + 0.001) return;
+      envelope[extensionKey] = reserve;
+      envelope[edgeKey] = side === 'left' || side === 'top'
+        ? -reserve
+        : finite(frame[frameKey]) + reserve;
+      changed = true;
+    });
+    if(!changed) return plan;
+    envelope.width = finite(envelope.maxX) - finite(envelope.minX);
+    envelope.height = finite(envelope.maxY) - finite(envelope.minY);
+    envelope.baseOffsetX = -finite(envelope.minX);
+    envelope.baseOffsetY = -finite(envelope.minY);
+    envelope.extensionWidth = Math.max(0, -finite(envelope.minX))
+      + Math.max(0, finite(envelope.maxX) - finite(frame.width));
+    envelope.extensionHeight = Math.max(0, -finite(envelope.minY))
+      + Math.max(0, finite(envelope.maxY) - finite(frame.height));
+    return deepFreeze({ ...plan, contentEnvelope: envelope });
+  }
+
   namespace.publishCartesianLayout = function publishCartesianLayout(target, plan, ownerContext = {}){
     if(!target || !plan || plan.publication?.complete !== true) return false;
-    if(!ownerMatchesContext(plan.owner, ownerContext, {
+    let publicationPlan = preservePublishedTitleEnvelope(target.__cartesianLayoutPlan, plan);
+    if(!ownerMatchesContext(publicationPlan.owner, ownerContext, {
       requireOwnerIdentity: true,
       requireContextIdentity: true,
-      requireContextGeneration: plan.owner?.generation != null
+      requireContextGeneration: publicationPlan.owner?.generation != null
     })) return false;
     if(typeof ownerContext.canCommit === 'function' && ownerContext.canCommit() === false) return false;
     const resizerApi = target.__sharedResizableBoxApi || null;
     if(typeof resizerApi?.canCommitCartesianLayout === 'function'
-      && resizerApi.canCommitCartesianLayout(plan, ownerContext) === false){
+      && resizerApi.canCommitCartesianLayout(publicationPlan, ownerContext) === false){
       return false;
     }
     if(typeof ownerContext.canCommit === 'function' && ownerContext.canCommit() === false) return false;
+    const projectionTargets = [ownerContext.projectionTarget]
+      .concat(Array.isArray(ownerContext.projectionTargets) ? ownerContext.projectionTargets : [])
+      .filter(Boolean);
     try{
       // The renderer stages both graph content and presentation. Commit the
       // owner frame only after owner + resizer preflight, then publish the
       // presentation synchronously in the same owner turn. This prevents a
       // stale measurement from exposing a new frame without its matching plan.
       if(typeof ownerContext.commitFrame === 'function'
-        && ownerContext.commitFrame(plan) === false){
+        && ownerContext.commitFrame(publicationPlan) === false){
         return false;
       }
       if(typeof ownerContext.commitPresentation === 'function'
-        && ownerContext.commitPresentation(plan) === false){
+        && ownerContext.commitPresentation(publicationPlan) === false){
         return false;
       }
+      publicationPlan = mergeViewportReservesIntoPlan(publicationPlan, projectionTargets);
       if(typeof resizerApi?.commitCartesianLayout === 'function'
-        && resizerApi.commitCartesianLayout(plan, { ...ownerContext, __cartesianPreflightPlan: plan }) === false){
+        && resizerApi.commitCartesianLayout(publicationPlan, { ...ownerContext, __cartesianPreflightPlan: publicationPlan }) === false){
         return false;
       }
-      const projectionTargets = [ownerContext.projectionTarget]
-        .concat(Array.isArray(ownerContext.projectionTargets) ? ownerContext.projectionTargets : [])
-        .filter(Boolean);
-      target.__cartesianLayoutPlan = plan;
-      writeDataset(target, plan, ownerContext);
+      target.__cartesianLayoutPlan = publicationPlan;
+      writeDataset(target, publicationPlan, ownerContext);
       Array.from(new Set(projectionTargets)).forEach(node => {
-        node.__cartesianLayoutPlan = plan;
-        writeDataset(node, plan, ownerContext);
+        node.__cartesianLayoutPlan = publicationPlan;
+        writeDataset(node, publicationPlan, ownerContext);
       });
       ownerContext.onPublished?.({
-        version: plan.version,
-        owner: plan.owner,
-        userFrame: plan.userFrame,
-        plotRect: plan.plotRect,
-        contentEnvelope: plan.contentEnvelope,
-        generation: plan.publication.generation
+        version: publicationPlan.version,
+        owner: publicationPlan.owner,
+        userFrame: publicationPlan.userFrame,
+        plotRect: publicationPlan.plotRect,
+        contentEnvelope: publicationPlan.contentEnvelope,
+        generation: publicationPlan.publication.generation
       });
       return true;
     }catch(_err){
@@ -898,6 +1107,10 @@
       width: datasetNumber(dataset, 'cartesianPlotWidth'),
       height: datasetNumber(dataset, 'cartesianPlotHeight')
     };
+    const plotTranslation = {
+      x: datasetNumber(dataset, 'cartesianPlotTranslationX') || 0,
+      y: datasetNumber(dataset, 'cartesianPlotTranslationY') || 0
+    };
     const envelope = {
       minX: datasetNumber(dataset, 'cartesianEnvelopeMinX'),
       minY: datasetNumber(dataset, 'cartesianEnvelopeMinY'),
@@ -938,10 +1151,12 @@
     const frameInsets = {
       horizontal: datasetNumber(dataset, 'cartesianLockInsetHorizontal') ?? (userFrame.width - plotRect.width),
       vertical: datasetNumber(dataset, 'cartesianLockInsetVertical') ?? (userFrame.height - plotRect.height),
-      left: plotRect.x,
-      top: plotRect.y,
-      right: userFrame.width - plotRect.x - plotRect.width,
-      bottom: userFrame.height - plotRect.y - plotRect.height
+      left: datasetNumber(dataset, 'cartesianLockInsetLeft') ?? plotRect.x,
+      top: datasetNumber(dataset, 'cartesianLockInsetTop') ?? plotRect.y,
+      right: (datasetNumber(dataset, 'cartesianLockInsetHorizontal') ?? (userFrame.width - plotRect.width))
+        - (datasetNumber(dataset, 'cartesianLockInsetLeft') ?? plotRect.x),
+      bottom: (datasetNumber(dataset, 'cartesianLockInsetVertical') ?? (userFrame.height - plotRect.height))
+        - (datasetNumber(dataset, 'cartesianLockInsetTop') ?? plotRect.y)
     };
     const reserves = namespace.composeAutomaticReserves({ baselineMargins, requiredMargins });
     const plan = deepFreeze({
@@ -960,6 +1175,7 @@
       automaticReserves: reserves,
       basePlotRect: buildBasePlot(userFrame, baselineMargins),
       plotRect,
+      plotTranslation,
       axisLengths,
       axisFrameModel,
       contentEnvelope: {

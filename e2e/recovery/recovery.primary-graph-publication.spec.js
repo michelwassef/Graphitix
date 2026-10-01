@@ -8,7 +8,7 @@
 const { test, expect } = require('@playwright/test');
 const {
   openComponentFromWelcome,
-  clickExampleButtonIfPresent
+  clickExpectedExampleButton
 } = require('../helpers/workspaceDriver');
 const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
 const { registerIssueCollectors } = require('../helpers/diagnostics');
@@ -55,7 +55,7 @@ const CASES = [
     renderedSelector: 'g[data-export-layer="scatter-points"] > *',
     prepare: async page => {
       await page.locator('#scatterPage:not([hidden]) #scatterViewMode').selectOption('3d');
-      await clickExampleButtonIfPresent(page, 'scatterLoadExample');
+      await clickExpectedExampleButton(page, 'scatterLoadExample');
       await page.waitForFunction(() => {
         const svg = document.querySelector('#scatterPage:not([hidden]) #scatterSvg');
         const component = window.Components?.scatter || null;
@@ -150,7 +150,7 @@ for (const component of CASES) {
     await clearRecoverySnapshot(page);
     await expect(page.locator('#welcomeScreen')).toBeVisible({ timeout: 20_000 });
     await openComponentFromWelcome(page, component, { first: true });
-    await clickExampleButtonIfPresent(page, component.exampleButtonId);
+    await clickExpectedExampleButton(page, component.exampleButtonId);
     if (typeof component.prepare === 'function') {
       await component.prepare(page);
     }

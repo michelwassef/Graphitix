@@ -48,7 +48,13 @@ jobs:
           name: test-report-e2e-matrix
           path: |
             artifacts/test-reports/e2e-matrix.json
+            artifacts/test-reports/e2e-matrix.manifest.json
+            artifacts/test-reports/e2e-matrix.skips.json
+            artifacts/test-reports/e2e-matrix.cases.json
             artifacts/test-reports/e2e-owner-order.json
+            artifacts/test-reports/e2e-owner-order.manifest.json
+            artifacts/test-reports/e2e-owner-order.skips.json
+            artifacts/test-reports/e2e-owner-order.cases.json
             artifacts/test-reports/e2e-trend.json
           retention-days: 14
           if-no-files-found: error

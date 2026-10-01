@@ -14,6 +14,7 @@ const serverStartedAt = new Date().toISOString();
 const args = process.argv.slice(2);
 const portArgIndex = args.findIndex(arg => arg === '--port');
 const port = portArgIndex >= 0 ? Number(args[portArgIndex + 1]) : 4173;
+const serverCommand = `node scripts/e2e-server.cjs --port ${port}`;
 
 const mimeByExt = {
   '.html': 'text/html; charset=utf-8',
@@ -50,7 +51,14 @@ const server = http.createServer((req, res) => {
   try {
     const parsed = new URL(req.url || '/', 'http://127.0.0.1');
     if (parsed.pathname === '/__graphitix_provenance') {
-      const body = JSON.stringify({ schemaVersion: 1, indexHash, serverStartedAt });
+      const body = JSON.stringify({
+        schemaVersion: 1,
+        indexHash,
+        serverStartedAt,
+        port,
+        sourceRoot: root,
+        serverCommand
+      });
       res.writeHead(200, {
         'Content-Type': 'application/json; charset=utf-8',
         'Cache-Control': 'no-store'

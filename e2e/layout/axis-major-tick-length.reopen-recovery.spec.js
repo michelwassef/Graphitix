@@ -3,6 +3,7 @@ const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
 const { openComponentFromWelcome } = require('../helpers/workspaceDriver');
 const { clickExampleButton } = require('../helpers/uiDriver');
 const { waitForComponentOwnerReady } = require('../helpers/contractWaits');
+const { buildWorkspaceArchive, parseWorkspaceArchive } = require('../helpers/archiveDriver');
 
 const CASES = [
   { type: 'scatter', pageId: 'scatterPage', exampleButtonId: 'scatterLoadExample' },
@@ -23,82 +24,126 @@ async function openCase(page, componentCase) {
   });
 }
 
-async function runRoundTrip(page, type) {
-  return page.evaluate(async componentType => {
+async function applyLengths(page, type, x, y, source) {
+  await page.evaluate(async ({ componentType, nextX, nextY, hydrationSource }) => {
     const component = window.Main.components.registry[componentType];
     const activeTab = window.Main.session.getActiveTab();
-    const readLengths = payload => {
-      if (componentType === 'venn') {
-        return {
-          x: payload?.style?.upset?.xMajorTickLength ?? null,
-          y: payload?.style?.upset?.yMajorTickLength ?? null
-        };
-      }
-      return {
-        x: payload?.config?.axis?.majorTickLengthX ?? null,
-        y: payload?.config?.axis?.majorTickLengthY ?? null
+    const payload = component.getPayload();
+    if (componentType === 'venn') {
+      payload.style = payload.style || {};
+      payload.style.plotType = 'upset';
+      payload.style.upset = {
+        ...(payload.style.upset || {}),
+        xMajorTickLength: nextX,
+        yMajorTickLength: nextY
       };
-    };
-    const setLengths = (payload, x, y) => {
-      if (componentType === 'venn') {
-        payload.style = payload.style || {};
-        payload.style.plotType = 'upset';
-        payload.style.upset = { ...(payload.style.upset || {}), xMajorTickLength: x, yMajorTickLength: y };
-      } else {
-        payload.config = payload.config || {};
-        payload.config.axis = { ...(payload.config.axis || {}), majorTickLengthX: x, majorTickLengthY: y };
-      }
-      return payload;
-    };
-    const apply = async (payload, source) => {
-      const result = component.loadFromPayload(payload, {
-        source,
-        reason: `e2e-axis-tick-length-${source}`,
-        tabId: activeTab.id,
-        skipDraw: true
-      });
-      if (result && typeof result.then === 'function') {
-        await result;
-      }
-    };
-    const captureArchivePayload = async snapshotKind => {
-      const context = window.Main.tabs.getSessionActionsContext();
-      const blob = await window.Main.sessionActions.buildWorkspaceArchiveBlob(context, {
-        scope: 'workspace',
-        snapshotKind,
-        policyMode: snapshotKind === 'recovery' ? 'recovery' : 'manual-save',
-        reason: `e2e-axis-tick-length-${snapshotKind}`,
-        compression: 'STORE',
-        useWorker: false
-      });
-      const parsed = await window.Shared.graphArchive.parseFile(blob, {
-        fileName: snapshotKind === 'recovery' ? 'recovery.graph' : 'reopen.graph'
-      });
-      return parsed.session.tabs.find(tab => tab.type === componentType)?.payload || null;
-    };
+    } else {
+      payload.config = payload.config || {};
+      payload.config.axis = {
+        ...(payload.config.axis || {}),
+        majorTickLengthX: nextX,
+        majorTickLengthY: nextY
+      };
+    }
+    const result = component.loadFromPayload(payload, {
+      source: hydrationSource,
+      reason: `e2e-axis-tick-length-${hydrationSource}`,
+      tabId: activeTab.id,
+      skipDraw: true
+    });
+    if (result && typeof result.then === 'function') {
+      await result;
+    }
+  }, { componentType: type, nextX: x, nextY: y, hydrationSource: source });
+}
 
-    const configured = setLengths(component.getPayload(), 7, 11);
-    await apply(configured, 'configured');
-
-    const manualPayload = await captureArchivePayload('document-snapshot');
-    await apply(setLengths(component.getPayload(), null, null), 'manual-reset');
-    await apply(manualPayload, 'file-reopen');
-    const reopened = readLengths(component.getPayload());
-
-    const recoveryPayload = await captureArchivePayload('recovery');
-    await apply(setLengths(component.getPayload(), null, null), 'recovery-reset');
-    await apply(recoveryPayload, 'recovery-restore');
-    const recovered = readLengths(component.getPayload());
-
+async function readLengths(page, type) {
+  return page.evaluate(componentType => {
+    const payload = window.Main.components.registry[componentType].getPayload();
+    if (componentType === 'venn') {
+      return {
+        x: payload?.style?.upset?.xMajorTickLength ?? null,
+        y: payload?.style?.upset?.yMajorTickLength ?? null
+      };
+    }
     return {
-      archived: readLengths(manualPayload),
-      reopened,
-      recoveryArchived: readLengths(recoveryPayload),
-      recovered
+      x: payload?.config?.axis?.majorTickLengthX ?? null,
+      y: payload?.config?.axis?.majorTickLengthY ?? null
     };
   }, type);
 }
 
+async function captureArchivePayload(page, type, snapshotKind) {
+  const archive = await buildWorkspaceArchive(page, {
+    scope: 'workspace',
+    snapshotKind,
+    policyMode: snapshotKind === 'recovery' ? 'recovery' : 'manual-save',
+    reason: `e2e-axis-tick-length-${snapshotKind}`,
+    compression: 'STORE',
+    useWorker: false
+  });
+  const parsed = await parseWorkspaceArchive(
+    page,
+    archive.base64,
+    snapshotKind === 'recovery' ? 'recovery.graph' : 'reopen.graph'
+  );
+  return parsed.session.tabs.find(tab => tab.type === type)?.payload || null;
+}
+
+async function applyArchivePayload(page, type, payload, source) {
+  await page.evaluate(async ({ componentType, nextPayload, hydrationSource }) => {
+    const component = window.Main.components.registry[componentType];
+    const activeTab = window.Main.session.getActiveTab();
+    const result = component.loadFromPayload(nextPayload, {
+      source: hydrationSource,
+      reason: `e2e-axis-tick-length-${hydrationSource}`,
+      tabId: activeTab.id,
+      skipDraw: true
+    });
+    if (result && typeof result.then === 'function') {
+      await result;
+    }
+  }, { componentType: type, nextPayload: payload, hydrationSource: source });
+}
+
+async function runRoundTrip(page, type) {
+  await applyLengths(page, type, 7, 11, 'configured');
+  const manualPayload = await captureArchivePayload(page, type, 'document-snapshot');
+  await applyLengths(page, type, null, null, 'manual-reset');
+  await applyArchivePayload(page, type, manualPayload, 'file-reopen');
+  const reopened = await readLengths(page, type);
+
+  const recoveryPayload = await captureArchivePayload(page, type, 'recovery');
+  await applyLengths(page, type, null, null, 'recovery-reset');
+  await applyArchivePayload(page, type, recoveryPayload, 'recovery-restore');
+  const recovered = await readLengths(page, type);
+
+  return {
+    archived: readLengthsFromPayload(manualPayload, type),
+    reopened,
+    recoveryArchived: readLengthsFromPayload(recoveryPayload, type),
+    recovered
+  };
+}
+
+function readLengthsFromPayload(payload, type) {
+  if (type === 'venn') {
+    return {
+      x: payload?.style?.upset?.xMajorTickLength ?? null,
+      y: payload?.style?.upset?.yMajorTickLength ?? null
+    };
+  }
+  return {
+    x: payload?.config?.axis?.majorTickLengthX ?? null,
+    y: payload?.config?.axis?.majorTickLengthY ?? null
+  };
+}
+
+/*
+ * Keep the payload path differences in this contract explicit. The archive
+ * build/parse boundary is shared; only the component-specific field shape is
+ * owned here.
+ */
 for (const componentCase of CASES) {
   test(`${componentCase.type} tick lengths survive file reopen and crash recovery`, async ({ page }) => {
     test.setTimeout(120_000);

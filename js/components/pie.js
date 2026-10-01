@@ -676,6 +676,7 @@ let state = {
     fileHandle: null,
     fileName: 'pie.graph',
     titleText: 'Proportion graph',
+    axisTitleOverrides: {},
     legendWidth: 120,
     colors: {},
     svgBox: null,
@@ -845,6 +846,7 @@ let state = {
     const src = source && typeof source === 'object' ? source : {};
     return {
       titleText: typeof src.titleText === 'string' ? src.titleText : 'Proportion graph',
+      axisTitleOverrides: normalizePieAxisTitleOverrides(src.axisTitleOverrides),
       legendWidth: Number.isFinite(Number(src.legendWidth)) ? Number(src.legendWidth) : 120,
       colors: cloneSimple(src.colors) || {},
       minSvgWidth: Number.isFinite(Number(src.minSvgWidth)) ? Number(src.minSvgWidth) : 0,
@@ -1176,15 +1178,27 @@ let state = {
     return { title: null, legend: null, stats: null, ...source };
   }
 
+  function normalizePieAxisTitleOverrides(value){
+    const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+    return Object.fromEntries(Object.entries(source)
+      .filter(([key, text]) => key === 'stacked.y' && typeof text === 'string')
+      .map(([key, text]) => [key, String(text).replace(/\r\n?/g, '\n')]));
+  }
+
   function patchPieVisualState(session = null, patch = {}, meta = {}){
     const owner = ensurePieSessionOwnershipShape(session || getActivePieSessionForState());
     const hasTitle = Object.prototype.hasOwnProperty.call(patch || {}, 'titleText');
     const hasPositions = Object.prototype.hasOwnProperty.call(patch || {}, 'labelPositions');
+    const hasAxisTitleOverrides = Object.prototype.hasOwnProperty.call(patch || {}, 'axisTitleOverrides');
     const nextTitle = hasTitle ? String(patch.titleText == null ? '' : patch.titleText) : state.titleText;
     const nextPositions = hasPositions ? normalizePieLabelPositions(patch.labelPositions) : normalizePieLabelPositions(state.labelPositions);
+    const nextAxisTitleOverrides = hasAxisTitleOverrides
+      ? normalizePieAxisTitleOverrides(patch.axisTitleOverrides)
+      : normalizePieAxisTitleOverrides(state.axisTitleOverrides);
     if(owner?.state){
       if(hasTitle){ owner.state.titleText = nextTitle; }
       if(hasPositions){ owner.state.labelPositions = nextPositions; }
+      if(hasAxisTitleOverrides){ owner.state.axisTitleOverrides = nextAxisTitleOverrides; }
       owner.updatedAt = Date.now();
       pieDebug('Debug: pie visual state patched to owner session', {
         tabId: owner.tabId || null,
@@ -1196,8 +1210,9 @@ let state = {
     if(!owner || isPieSessionActive(owner)){
       if(hasTitle){ state.titleText = nextTitle; }
       if(hasPositions){ state.labelPositions = nextPositions; }
+      if(hasAxisTitleOverrides){ state.axisTitleOverrides = nextAxisTitleOverrides; }
     }
-    return { titleText: nextTitle, labelPositions: nextPositions };
+    return { titleText: nextTitle, labelPositions: nextPositions, axisTitleOverrides: nextAxisTitleOverrides };
   }
 
   function patchPieLabelPosition(session = null, key, value, meta = {}){
@@ -1415,6 +1430,7 @@ let state = {
     }
     shaped.state = createDefaultPieDurableState({
       titleText: state.titleText,
+      axisTitleOverrides: state.axisTitleOverrides,
       legendWidth: state.legendWidth,
       colors: state.colors,
       minSvgWidth: state.minSvgWidth,
@@ -1448,6 +1464,7 @@ let state = {
     const durable = createDefaultPieDurableState(shaped.state || {});
     const savedStatsConfig = composePieStatsConfig(durable.stats, shaped.advisor, shaped.results?.statsPanelModel);
     state.titleText = durable.titleText;
+    state.axisTitleOverrides = normalizePieAxisTitleOverrides(durable.axisTitleOverrides);
     state.legendWidth = durable.legendWidth;
     state.colors = cloneSimple(durable.colors) || {};
     state.minSvgWidth = durable.minSvgWidth;
@@ -1978,25 +1995,123 @@ let state = {
   function bindPieTitleInlineInteraction(node, ownerSession = null){
     const owner = ensurePieSessionOwnershipShape(ownerSession || getActivePieSessionForState());
     if(!node || !owner || typeof Shared.makeEditable !== 'function'){ return false; }
+    let editInitialValue = null;
     Shared.makeEditable(node, txt => {
-      const previous = owner.state?.titleText != null ? String(owner.state.titleText) : '';
+      const previous = editInitialValue != null ? editInitialValue : (owner.state?.titleText != null ? String(owner.state.titleText) : '');
       const nextValue = txt != null ? String(txt) : '';
       if(previous === nextValue){ return; }
       const apply = value => {
         const normalized = value != null ? String(value) : '';
         patchPieVisualState(owner, { titleText: normalized }, { reason: 'pie-title-edit' });
-        if(node.textContent !== normalized){ node.textContent = normalized; }
+        if(!Shared.fontControls?.setTitleText?.(node, normalized) && node.textContent !== normalized){ node.textContent = normalized; }
         schedulePieDrawForSession(owner, { reason: 'pie-title-edit', renderImpact: 'layout' });
       };
       apply(nextValue);
       recordPieChange('pie:title', previous, nextValue, apply);
+    }, {
+      getInitialValue: () => String(owner.state?.titleText ?? ''),
+      onEditCheckpoint: (currentValue, _target, reason) => {
+        const nextValue = currentValue != null ? String(currentValue) : '';
+        if(reason === 'history-restore'){
+          editInitialValue = nextValue;
+          return true;
+        }
+        const previous = editInitialValue != null ? editInitialValue : (owner.state?.titleText != null ? String(owner.state.titleText) : '');
+        if(previous === nextValue) return false;
+        recordPieChange('pie:title', previous, nextValue, value => {
+          const normalized = value != null ? String(value) : '';
+          patchPieVisualState(owner, { titleText: normalized }, { reason: 'pie-title-edit' });
+          if(!Shared.fontControls?.setTitleText?.(node, normalized) && node.textContent !== normalized) node.textContent = normalized;
+          schedulePieDrawForSession(owner, { reason: 'pie-title-edit', renderImpact: 'layout' });
+          return true;
+        });
+        editInitialValue = nextValue;
+        return true;
+      },
+      onEditStart: () => { editInitialValue = owner.state?.titleText != null ? String(owner.state.titleText) : ''; },
+      onInput: value => {
+        const nextValue = String(value == null ? '' : value).replace(/\r\n?/g, '\n');
+        patchPieVisualState(owner, { titleText: nextValue }, { reason: 'pie-title-draft' });
+        Shared.textBlock?.markDraftModified?.(node, owner, 'pie', 'pie-title-draft');
+      },
+      onEditEnd: (_target, finalValue) => {
+        const nextValue = String(finalValue == null ? '' : finalValue).replace(/\r\n?/g, '\n');
+        if(String(owner.state?.titleText ?? '') !== nextValue){
+          patchPieVisualState(owner, { titleText: nextValue }, { reason: 'pie-title-cancel' });
+          Shared.textBlock?.markDraftModified?.(node, owner, 'pie', 'pie-title-cancel');
+        }
+        editInitialValue = null;
+      }
     });
     return true;
   }
 
   function rehydratePieInlineTextInteractions(svg, ownerSession = null){
     const title = svg?.querySelector?.('[data-font-role="graphTitle"]') || null;
-    return title ? bindPieTitleInlineInteraction(title, ownerSession) : true;
+    const axisTitle = svg?.querySelector?.('[data-pie-axis-title-key="stacked.y"]') || null;
+    return (title ? bindPieTitleInlineInteraction(title, ownerSession) : true)
+      && (axisTitle ? bindPieAxisTitleInlineInteraction(axisTitle, ownerSession, 'stacked.y') : true);
+  }
+
+  function bindPieAxisTitleInlineInteraction(node, ownerSession = null, key = ''){
+    const owner = ensurePieSessionOwnershipShape(ownerSession || getActivePieSessionForState());
+    if(!node || !owner || key !== 'stacked.y' || typeof Shared.makeEditable !== 'function') return false;
+    let editInitialValue = null;
+    const writeOverride = (value, reason = 'pie-stacked-axis-title-draft') => {
+      const normalized = String(value == null ? '' : value).replace(/\r\n?/g, '\n');
+      const overrides = normalizePieAxisTitleOverrides(owner.state?.axisTitleOverrides);
+      overrides[key] = normalized;
+      patchPieVisualState(owner, { axisTitleOverrides: overrides }, { reason });
+      Shared.textBlock?.markDraftModified?.(node, owner, 'pie', reason);
+      return normalized;
+    };
+    Shared.makeEditable(node, value => {
+      const current = normalizePieAxisTitleOverrides(owner.state?.axisTitleOverrides || state.axisTitleOverrides);
+      const previous = editInitialValue != null ? editInitialValue : (current[key] ?? 'Percentage');
+      const nextValue = value == null ? '' : String(value).replace(/\r\n?/g, '\n');
+      if(previous === nextValue) return;
+      const apply = next => {
+        const normalized = String(next == null ? '' : next).replace(/\r\n?/g, '\n');
+        writeOverride(normalized, 'pie-stacked-axis-title-edit');
+        if(!Shared.fontControls?.setTitleText?.(node, normalized) && node.textContent !== normalized) node.textContent = normalized;
+        schedulePieDrawForSession(owner, { reason: 'pie-stacked-axis-title-edit', renderImpact: 'layout' });
+      };
+      apply(nextValue);
+      recordPieChange(`pie:${key}`, previous, nextValue, apply);
+    }, {
+      getInitialValue: () => String(normalizePieAxisTitleOverrides(owner.state?.axisTitleOverrides || state.axisTitleOverrides)[key] ?? 'Percentage'),
+      onEditCheckpoint: (currentValue, _target, reason) => {
+        const nextValue = String(currentValue == null ? '' : currentValue).replace(/\r\n?/g, '\n');
+        if(reason === 'history-restore'){
+          editInitialValue = nextValue;
+          return true;
+        }
+        const current = normalizePieAxisTitleOverrides(owner.state?.axisTitleOverrides || state.axisTitleOverrides);
+        const previous = editInitialValue != null ? editInitialValue : (current[key] ?? 'Percentage');
+        if(previous === nextValue) return false;
+        recordPieChange(`pie:${key}`, previous, nextValue, value => {
+          const normalized = String(value == null ? '' : value).replace(/\r\n?/g, '\n');
+          writeOverride(normalized, 'pie-stacked-axis-title-edit');
+          if(!Shared.fontControls?.setTitleText?.(node, normalized) && node.textContent !== normalized) node.textContent = normalized;
+          schedulePieDrawForSession(owner, { reason: 'pie-stacked-axis-title-edit', renderImpact: 'layout' });
+          return true;
+        });
+        editInitialValue = nextValue;
+        return true;
+      },
+      onEditStart: () => {
+        const current = normalizePieAxisTitleOverrides(owner.state?.axisTitleOverrides || state.axisTitleOverrides);
+        editInitialValue = current[key] ?? 'Percentage';
+      },
+      onInput: value => { writeOverride(value); },
+      onEditEnd: (_target, finalValue) => {
+        const current = normalizePieAxisTitleOverrides(owner.state?.axisTitleOverrides || state.axisTitleOverrides);
+        const nextValue = String(finalValue == null ? '' : finalValue).replace(/\r\n?/g, '\n');
+        if((current[key] ?? 'Percentage') !== nextValue) writeOverride(nextValue, 'pie-stacked-axis-title-cancel');
+        editInitialValue = null;
+      }
+    });
+    return true;
   }
 
   function bindPieRadialTitleDragInteraction(title, svg, ownerSession = null){
@@ -5865,6 +5980,7 @@ let state = {
           const snapshot = {
             state: {
               titleText: durable.titleText,
+              axisTitleOverrides: normalizePieAxisTitleOverrides(durable.axisTitleOverrides),
               legendWidth: durable.legendWidth,
               colors: cloneSimple(durable.colors) || {},
               minSvgWidth: durable.minSvgWidth,
@@ -5906,6 +6022,7 @@ let state = {
       const snapshot = {
         state: {
           titleText: durable.titleText,
+          axisTitleOverrides: normalizePieAxisTitleOverrides(durable.axisTitleOverrides),
           legendWidth: durable.legendWidth,
           colors: cloneSimple(durable.colors) || {},
           minSvgWidth: durable.minSvgWidth,
@@ -5987,6 +6104,7 @@ let state = {
       if(snapshot.state && typeof snapshot.state === 'object'){
         const nextState = snapshot.state;
         state.titleText = typeof nextState.titleText === 'string' ? nextState.titleText : state.titleText;
+        state.axisTitleOverrides = normalizePieAxisTitleOverrides(nextState.axisTitleOverrides ?? state.axisTitleOverrides);
         state.legendWidth = Number.isFinite(Number(nextState.legendWidth)) ? Number(nextState.legendWidth) : state.legendWidth;
         state.colors = cloneSimple(nextState.colors) || state.colors || {};
         state.minSvgWidth = Number.isFinite(Number(nextState.minSvgWidth)) ? Number(nextState.minSvgWidth) : state.minSvgWidth;
@@ -6205,6 +6323,7 @@ let state = {
       }
       importFontStyles('pie', config.fontStyles || null, { tabId: payloadSession?.tabId || payloadTabId || null });
       state.titleText = typeof config.title === 'string' ? config.title : 'Proportion graph';
+      state.axisTitleOverrides = normalizePieAxisTitleOverrides(config.axisTitleOverrides);
       const nextControls = { ...(state.controls || {}) };
       ['chartType', 'startAngle', 'borderColor', 'borderWidth', 'fontSize'].forEach(key => {
         if(config[key] != null){
@@ -6304,6 +6423,7 @@ let state = {
       const statsConfig = exportPieStatsConfig(ownerSession);
       return {
         title: state.titleText,
+        axisTitleOverrides: normalizePieAxisTitleOverrides(state.axisTitleOverrides),
         chartType: controls.chartType,
         stackedAspectLocked: (stackedAspectLocked === true || stackedAspectLocked === false)
           ? stackedAspectLocked
@@ -6768,6 +6888,16 @@ let state = {
     const axisMetrics=chartStyle.createAxisMetrics(fontInfo.px, styleScaleInfo);
     pieDebug('Debug: pie axis metrics',axisMetrics);
     const fontScale=styleScaleInfo?.styleScale || styleScaleInfo?.scale || 1;
+    const pieFontStyles = exportFontStyles('pie', { tabId: drawTabId });
+    const pieGraphTitleText = String(state.titleText ?? '');
+    const pieGraphTitleLayout = chartStyle.resolveTitleBlockLayout({
+      text: pieGraphTitleText,
+      role: 'graphTitle',
+      styles: pieFontStyles,
+      fallbackPx: fs
+    });
+    const pieGraphTitleAdditionalExtent = Math.max(0, Number(pieGraphTitleLayout.lineHeight) || fs)
+      * Math.max(0, pieGraphTitleText.replace(/\r\n?/g, '\n').split('\n').length - 1);
     const borderColor = controls.borderColor || '#ffffff';
     const borderWidthBase = Number.parseFloat(controls.borderWidth) || 0;
     const borderWidth = chartStyle.scaleStrokeWidth(borderWidthBase, styleScaleInfo, { context: 'pie-border', min: 0 });
@@ -6931,7 +7061,6 @@ let state = {
       const percentTicks = percentScale.ticks.map(t => Math.max(0, Math.min(100, t)));
       pieDebug('Debug: pie stacked axis stroke',{ axisStrokeWidthBase, axisStrokeWidth, axisStroke, manualIntervalY });
       const yTickLabels=percentTicks.map(v=>`${Number.isInteger(v) ? v : Number(v).toFixed(1)}%`);
-      const pieFontStyles = exportFontStyles('pie', { tabId: drawTabId });
       const fallbackTickFont = chartStyle.makeFont(fs);
       const fallbackTickFontSize = Number.isFinite(Number(fs)) ? Number(fs) : 12;
       const xTickMeasureProfile = (chartStyle && typeof chartStyle.resolveScopedLabelMeasureFont === 'function')
@@ -6943,7 +7072,7 @@ let state = {
       const tickFont=yTickMeasureProfile.fontSpec;
       const yLabelWidths=yTickLabels.map(lbl=>chartStyle.measureText(lbl,tickFont));
       const maxYLabelWidth=Math.max(...yLabelWidths,0);
-      const yTitleText='Percentage';
+      const yTitleText=String(state.axisTitleOverrides?.['stacked.y'] ?? 'Percentage');
       const hasYTitle = yTitleText.trim().length > 0;
       const yMarginRequirements = chartStyle.computeCartesianMarginRequirements({
         fontSize: fs,
@@ -7021,6 +7150,11 @@ let state = {
         generation: Number(execution?.owner?.sessionGeneration) || null
       };
       const pieAspectData = state.svgBox?.dataset || {};
+      const pieTitleBlocks = {
+        graphTitle: pieGraphTitleLayout,
+        xTitle: chartStyle.resolveTitleBlockLayout({ text: '', role: 'xTitle', styles: pieFontStyles, fallbackPx: fs }),
+        yTitle: chartStyle.resolveTitleBlockLayout({ text: yTitleText, role: 'yTitle', styles: pieFontStyles, fallbackPx: fs })
+      };
       const pieCartesianTransaction = pieAspectData.resizerAspectLocked === 'true'
         ? state.svgBox?.__sharedResizableBoxApi?.getCartesianLayoutTransaction?.({ resizePhase: drawOptions?.resizePhase })
         : null;
@@ -7035,6 +7169,9 @@ let state = {
         chartWidth = lockedPieGeometry.plotRect.width;
         chartHeight = lockedPieGeometry.plotRect.height;
       }
+      // Cartesian planning translates the plot down for each added title line.
+      // Keep the title attached to its original top rail while the plot moves.
+      const stackedTitleAnchorY = margin.top / 2;
       const stackedAuxiliaryReserves = [
         {
           name: 'category-leading-flat',
@@ -7062,6 +7199,7 @@ let state = {
         userFrame: { width: baseSvgWidth, height: svgHeight },
         baselineMargins: margin,
         requiredMargins,
+        titleBlocks: pieTitleBlocks,
         auxiliaryReserves: stackedAuxiliaryReserves,
         externalExtensions: { right: stackedLegendWidthForMargin },
         orientation: 'normal',
@@ -7083,6 +7221,7 @@ let state = {
         chartWidth = pieCartesianPlan.plotRect.width;
         chartHeight = pieCartesianPlan.plotRect.height;
       }
+      const pieTitleShiftX = pieCartesianPlan?.plotTranslation?.x || 0;
       // Rotated category labels grow outward from the first category rail. They
       // no longer shift or shrink the stacked data rectangle.
       const categoricalPlotStart = margin.left;
@@ -7179,7 +7318,7 @@ let state = {
         stackedYTickCount+=1;
         axis.appendChild(txt);
       });
-      const yTitleX=yAxisX-(maxYLabelWidth+yMajorTickLength+tickGap+axisMetrics.axisTitleGap+fs*0.5);
+      const yTitleX=yAxisX-(maxYLabelWidth+yMajorTickLength+tickGap+axisMetrics.axisTitleGap+fs*0.5)-pieTitleShiftX;
       const yTitle=document.createElementNS(NS,'text');
       yTitle.setAttribute('x',yTitleX);
       yTitle.setAttribute('y',margin.top+chartHeight/2);
@@ -7187,7 +7326,9 @@ let state = {
       yTitle.setAttribute('transform',`rotate(-90 ${yTitleX} ${margin.top+chartHeight/2})`);
       yTitle.setAttribute('font-size',fs);
       yTitle.textContent=yTitleText;
+      yTitle.dataset.pieAxisTitleKey = 'stacked.y';
       markFontEditable(yTitle,'yTitle','yTitle');
+      bindPieAxisTitleInlineInteraction(yTitle, drawSession, 'stacked.y');
       axis.appendChild(yTitle);
       if(showFrame){
         pieDebug('Debug: pie frame request',{stroke:axisStroke, showFrame, axisStrokeWidth});
@@ -7356,7 +7497,7 @@ let state = {
         renderedStrokeWidth: minorTickStyle.strokeWidth
       });
       const defaultTitleX = yAxisX+categoricalChartWidth/2;
-      const defaultTitleY = margin.top/2;
+      const defaultTitleY = stackedTitleAnchorY;
       const titlePos = state.labelPositions?.title;
       const title=document.createElementNS(NS,'text');
       title.setAttribute('x', titlePos?.x ?? defaultTitleX);
@@ -7410,12 +7551,13 @@ let state = {
           userFrame: pieCartesianPlan.userFrame,
           baselineMargins: pieCartesianPlan.baselineMargins,
           requiredMargins: pieCartesianPlan.requiredMargins,
+          titleBlocks: pieTitleBlocks,
           auxiliaryReserves: stackedAuxiliaryReserves,
           externalExtensions: { right: stackedLegendWidthForMargin },
           orientation: 'normal',
           lock: pieCartesianPlan.lock,
           minimumPlot: pieCartesianPlan.minimumPlot,
-          contentBounds: {
+          contentBounds: measuredStackedViewport.renderedContentBounds || {
             minX: measuredStackedViewport.minX,
             minY: measuredStackedViewport.minY,
             maxX: measuredStackedViewport.maxX,
@@ -7435,7 +7577,7 @@ let state = {
               && isPieDrawGenerationCurrent(drawSession, drawGeneration),
             projectionTarget: svg,
             commitFrame: () => framePublication.commit(),
-            commitPresentation: () => stackedContentViewport.commit()
+            commitPresentation: plan => stackedContentViewport.commit(plan)
           })
         : false;
       if(pieCartesianPlan && !pieLayoutPublished){
@@ -7537,7 +7679,8 @@ let state = {
       baseHeight:plotHeight,
       legendWidth:legendReservedWidth
     }).width;
-    const svgHeight=Math.max(50,plotHeight);
+    const baseSvgHeight=Math.max(50,plotHeight);
+    const svgHeight=baseSvgHeight + pieGraphTitleAdditionalExtent;
     pieDebug('Debug: pie radial layout metrics', {
       plotWidth,
       plotHeight,
@@ -7554,7 +7697,7 @@ let state = {
     svg.setAttribute('height',String(svgHeight));
     svg.setAttribute('viewBox',`0 0 ${svgWidth} ${svgHeight}`);
     svg.setAttribute('data-pie-base-width', String(plotWidth));
-    svg.setAttribute('data-pie-base-height', String(svgHeight));
+    svg.setAttribute('data-pie-base-height', String(baseSvgHeight));
     applyPieSvgDefaults(svg, { isResizePreview });
     stampPieParameterObservables(svg, drawSession);
     const svgWrapper=document.createElement('div');
@@ -7602,7 +7745,7 @@ let state = {
     const contentLeft = 0;
     const contentRight = Math.max(contentLeft + 50, svgWidth - legendReservedWidth);
     const contentWidth = Math.max(50, contentRight - contentLeft);
-    const contentTop=fs*2;
+    const contentTop=fs*2 + pieGraphTitleAdditionalExtent;
     const contentBottom=svgHeight-fs*2.2;
     const contentHeight=Math.max(10,contentBottom-contentTop);
     let rows=1;
@@ -7854,8 +7997,16 @@ let state = {
       plot:plotEl,
       svg,
       baseWidth:plotWidth,
-      baseHeight:svgHeight,
-      legendWidth:legendReservedWidth
+      baseHeight:baseSvgHeight,
+      legendWidth:legendReservedWidth,
+      bottomHeight:pieGraphTitleAdditionalExtent,
+      contentBounds: {
+        minX: 0,
+        minY: 0,
+        maxX: svgWidth,
+        maxY: svgHeight
+      },
+      refineLegendVerticalReserve: false
     });
     if(!(await checkpoint()) || !framePublication.commit()){
       return false;

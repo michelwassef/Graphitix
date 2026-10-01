@@ -21,11 +21,23 @@ Catch statistical implementation regressions by validating that:
   - Curated baseline cases.
 - `__tests__/stats.differential.python.test.js`
   - Core oracle differential suite (curated + randomized + metamorphic checks).
-- `__tests__/statistical-oracle/stats.component.differential.test.js`
-  - Component-engine differential suite validating component statistical hooks against the Python oracle.
-- `__tests__/statistical-oracle/stats.matrix.components.test.js`
-  - Generated coverage-matrix suite for `box.js`, `line.js`, and `scatter.js`.
-  - Exhaustively exercises exposed analysis branches and parameter combinations where practical.
+- `__tests__/statistical-oracle/stats.component.differential.matrix.test.js`
+  - Component-engine differential matrix validating Box, Pie, ROC, correlation, and Survival hooks against the Python oracle.
+- `__tests__/statistical-oracle/stats.component.differential.edges.test.js`
+  - Edge, randomized, histogram, and parameter-wiring checks for component statistical hooks.
+- `test-support/statsComponentDifferentialSuite.js`
+  - Shared numerical helpers, fixtures, and statistical primitive bootstrap for the component differential suites.
+- `__tests__/statistical-oracle/stats.matrix.box.test.js`
+  - Generated coverage-matrix suite for `box.js`.
+  - Exercises exposed analysis branches and parameter combinations where practical.
+- `__tests__/statistical-oracle/stats.matrix.line.test.js`
+  - Generated coverage-matrix suite for `line.js`.
+  - Exercises visible regression, correlation, and forecast branches.
+- `__tests__/statistical-oracle/stats.matrix.scatter.test.js`
+  - Generated coverage-matrix suite for `scatter.js`.
+  - Exercises regression families, routing, prediction, and LOWESS branches.
+- `test-support/statsMatrixSuite.js`
+  - Shared numerical comparison, fixture, and primitive-bootstrap helpers for the three component matrices.
 - `__tests__/stats.extended.coverage.test.js`
   - Deterministic branch-coverage suite for statistical helpers that are not yet oracle-backed.
   - Covers box post-hoc/grouped workflows plus ROC resampling and survival derived analyses.
@@ -119,7 +131,7 @@ Current differential coverage includes:
 
 ## Component Matrix Coverage
 
-`__tests__/statistical-oracle/stats.matrix.components.test.js` adds systematic branch coverage on top of the curated/randomized differential suites:
+The three component matrix suites add systematic branch coverage on top of the curated/randomized differential suites:
 
 - `box.js`
   - parametric vs non-parametric
@@ -232,9 +244,9 @@ Currently excluded from oracle coverage:
 
 ## Environment Requirements
 
-- Python 3.10+ recommended
-- Install the oracle dependencies with `python -m pip install -r requirements-stats.txt`.
-- The required packages are `numpy`, `scipy`, and `statsmodels`.
+- The oracle uses Python `3.12.10`, pinned in `.python-version`.
+- Install the exact oracle dependency set with `python -m pip install -r requirements-stats.txt`.
+- Validate the interpreter and every direct/transitive pin with `npm run test:python:check` before running `npm run test:stats`.
 
 The Jest helper tries, in order:
 

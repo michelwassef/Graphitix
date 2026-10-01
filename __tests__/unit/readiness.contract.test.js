@@ -124,4 +124,44 @@ describe('owner readiness predicate', () => {
       phase: 'session-owner-mismatch'
     }));
   });
+
+  test('uses the production workspace publication validator for the owner root', () => {
+    const root = {
+      isConnected: true,
+      getAttribute: () => 'tab-a',
+      querySelector: () => ({})
+    };
+    global.window.Shared.workspaceTabs.getMountedRoot = () => root;
+    const validator = jest.fn(meta => meta.root === root && meta.tabId === 'tab-a');
+    global.window.Main.components = { get: () => ({ hasRenderedGraph: validator }) };
+
+    expect(inspectOwnerReadiness({
+      type: 'box',
+      expectedTabId: 'tab-a',
+      requireMountedRoot: true,
+      requirePublished: true
+    })).toEqual(expect.objectContaining({ ready: true, published: true }));
+    expect(validator).toHaveBeenCalledWith({ tabId: 'tab-a', root });
+  });
+
+  test('does not infer graph publication when the workspace validator rejects it', () => {
+    global.window.Shared.workspaceTabs.getMountedRoot = () => ({
+      isConnected: true,
+      getAttribute: () => 'tab-a',
+      querySelector: () => ({})
+    });
+    global.window.Components.box.hasRenderedGraph = jest.fn(() => true);
+    global.window.Main.components = { get: () => ({ hasRenderedGraph: () => false }) };
+
+    expect(inspectOwnerReadiness({
+      type: 'box',
+      expectedTabId: 'tab-a',
+      requireMountedRoot: true,
+      requirePublished: true,
+      diagnostic: true
+    })).toEqual(expect.objectContaining({
+      ready: false,
+      phase: 'primary-graph-not-published'
+    }));
+  });
 });

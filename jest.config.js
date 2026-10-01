@@ -20,13 +20,12 @@ module.exports = {
       testPathIgnorePatterns: ['<rootDir>/.claude/worktrees/']
     },
     {
-      // Numerical differential tests are intentionally isolated so that the
-      // required Python oracle is a visible lane boundary, not an accidental
-      // subset of the broad application integration project.
+      // Numerical contracts use only the minimal DOM namespace. UI and archive
+      // restore suites belong to integration and receive the full HTML/runtime.
       displayName: 'statistical-oracle',
       testEnvironment: 'jsdom',
-      setupFiles: ['<rootDir>/__tests__/setup/globals.js'],
-      setupFilesAfterEnv: ['<rootDir>/__tests__/setup/afterEnv.js'],
+      setupFiles: ['<rootDir>/__tests__/setup/domGlobals.js'],
+      setupFilesAfterEnv: ['<rootDir>/__tests__/setup/domAfterEnv.js'],
       fakeTimers: {
         doNotFake: ['requestAnimationFrame', 'cancelAnimationFrame']
       },

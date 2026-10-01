@@ -23,6 +23,10 @@ const {
 } = require('../helpers/workspaceDriver');
 const { clickExampleButton } = require('../helpers/uiDriver');
 const { waitForComponentOwnerReady } = require('../helpers/contractWaits');
+const {
+  clearRecoverySnapshot,
+  requestRecoveryCheckpoint
+} = require('../helpers/recoveryDriver');
 
 const PAGE_IDS = {
   box: 'boxPage', line: 'linePage', scatter: 'scatterPage', hist: 'histPage', heatmap: 'heatmapPage'
@@ -41,7 +45,7 @@ async function runScenario(page, type) {
     requireIdle: true
   });
 
-  return page.evaluate(async (componentType) => {
+  const setup = await page.evaluate(componentType => {
     const session = window.Main.session;
     const active = session.getActiveTab();
     const config = window.Main.components.registry[componentType];
@@ -64,32 +68,40 @@ async function runScenario(page, type) {
 
     const gateWithStalePayload = !!session.graphTabsHaveData();
 
-    // Clear any auto-written snapshot and force a fresh dirty revision so the explicit write
-    // exercises the real gate.
-    await new Promise((resolve) => {
-      const req = window.indexedDB.open('graphitix-document-state', 2);
-      req.onupgradeneeded = () => { const db = req.result; if (!db.objectStoreNames.contains('snapshots')) db.createObjectStore('snapshots'); };
-      req.onsuccess = () => { try { const tx = req.result.transaction('snapshots', 'readwrite'); tx.objectStore('snapshots').delete('active-recovery'); tx.oncomplete = () => resolve(); tx.onerror = () => resolve(); } catch (e) { resolve(); } };
-      req.onerror = () => resolve();
-    });
-    session.markSessionDirty('test-force-dirty', { tabId: active.id, type: active.type, origin: 'user' });
+    return {
+      tabId: active.id,
+      type: active.type,
+      liveHasData,
+      gateWithStalePayload
+    };
+  }, type);
 
-    const writeResult = await window.Main.documentState.writeRecoverySnapshot('recovery-interval');
-
-    const snapMeta = await new Promise((resolve) => {
+  // Clear any auto-written snapshot before forcing the explicit recovery write.
+  await clearRecoverySnapshot(page, { clearCanonicalJournal: false });
+  await page.evaluate(({ tabId, type }) => {
+    window.Main.session.markSessionDirty('test-force-dirty', { tabId, type, origin: 'user' });
+  }, { tabId: setup.tabId, type: setup.type });
+  const writeResult = await requestRecoveryCheckpoint(page, 'recovery-interval');
+  const snapMeta = await page.evaluate(() => {
+    return new Promise(resolve => {
       const req = window.indexedDB.open('graphitix-document-state', 2);
       req.onsuccess = () => { try { const tx = req.result.transaction('snapshots', 'readonly'); const g = tx.objectStore('snapshots').get('active-recovery'); g.onsuccess = () => resolve(g.result ? g.result.meta : null); g.onerror = () => resolve(null); } catch (e) { resolve(null); } };
       req.onerror = () => resolve(null);
     });
-
-    return {
-      liveHasData,
-      gateWithStalePayload,
-      recapturedRows: meaningfulRows(active.payload),
-      writeStatus: writeResult && writeResult.status,
-      snapshotHasData: snapMeta ? !!snapMeta.hasData : null
-    };
+  });
+  const recapturedRows = await page.evaluate(componentType => {
+    const active = window.Main.session.getActiveTab();
+    const payload = active?.payload || window.Main.components.registry[componentType]?.getPayload?.();
+    return Array.isArray(payload?.data)
+      ? payload.data.filter(row => Array.isArray(row) && row.some(cell => cell != null && String(cell).trim() !== '')).length
+      : -1;
   }, type);
+  return {
+    ...setup,
+    recapturedRows,
+    writeStatus: writeResult && writeResult.status,
+    snapshotHasData: snapMeta ? !!snapMeta.hasData : null
+  };
 }
 
 for (const type of ['box', 'line', 'scatter', 'hist', 'heatmap']) {

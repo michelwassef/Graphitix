@@ -19,9 +19,6 @@ async function clickExampleButton(page, componentOrType, options = {}) {
   const root = page.locator(`#${component.pageId}:not([hidden])`).first();
   await root.waitFor({ state: 'visible', timeout });
   const button = root.locator(`#${component.exampleButtonId}`).first();
-  if (options.optional === true && await button.count() === 0) {
-    return false;
-  }
   await button.waitFor({ state: 'visible', timeout });
   if (!(await button.isEnabled())) {
     throw new Error(`${component.type}: example control is disabled`);

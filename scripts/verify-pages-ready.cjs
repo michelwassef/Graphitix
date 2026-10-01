@@ -48,23 +48,9 @@ function assertStaticReferencesExist() {
   }
 }
 
-function assertNoExpandedPrismArchives() {
-  const prismDir = path.join(root, 'prism files');
-  if (!fs.existsSync(prismDir)) {
-    return;
-  }
-  const expanded = fs.readdirSync(prismDir, { withFileTypes: true })
-    .filter(entry => entry.isDirectory())
-    .map(entry => `prism files/${entry.name}`);
-  if (expanded.length) {
-    fail(`Expanded duplicate Prism archive folders found: ${expanded.join(', ')}`);
-  }
-}
-
 function main() {
   forbiddenPaths.forEach(assertAbsent);
   assertStaticReferencesExist();
-  assertNoExpandedPrismArchives();
   console.log('GitHub Pages readiness checks passed.');
 }
 

@@ -49,6 +49,7 @@ describe('Shared.enableLabelDrag', () => {
     jest.resetModules();
     document.body.innerHTML = '';
     require('../../js/vendor.js');
+    require('../../js/shared/textBlock.js');
     require('../../js/shared/dom.js');
     window.Shared.undoManager = {
       recordStateChange: jest.fn()
@@ -419,6 +420,65 @@ describe('Shared.enableLabelDrag', () => {
     expect(entry.apply(entry.to, 'redo')).toBe(true);
     expect(lineStart.getAttribute('x')).toBe('22');
     expect(exponent.hasAttribute('x')).toBe(false);
+  });
+
+  test('multiline rotated title drag moves every explicit line anchor and undo restores the block', () => {
+    const { svg, text } = createSvgText(10, 20);
+    text.dataset.fontRole = 'yTitle';
+    text.setAttribute('font-size', '10');
+    text.setAttribute('text-anchor', 'middle');
+    text.setAttribute('transform', 'rotate(-90 10 20)');
+    window.Shared.textBlock.renderLines(text, 'First\nSecond\nThird', (row, line) => {
+      row.textContent = line.text;
+    });
+
+    window.Shared.enableLabelDrag(text, svg);
+    text.dispatchEvent(new window.MouseEvent('mousedown', {
+      bubbles: true, cancelable: true, button: 0, clientX: 100, clientY: 120
+    }));
+    window.dispatchEvent(new window.MouseEvent('mousemove', {
+      bubbles: true, cancelable: true, buttons: 1, clientX: 112, clientY: 134
+    }));
+    window.dispatchEvent(new window.MouseEvent('mouseup', {
+      bubbles: true, cancelable: true, button: 0, clientX: 112, clientY: 134
+    }));
+
+    const rows = Array.from(text.children);
+    expect(text.getAttribute('x')).toBe('22');
+    expect(text.getAttribute('y')).toBe('34');
+    expect(rows.map(row => [row.getAttribute('x'), row.getAttribute('y')]))
+      .toEqual([['22', '34'], ['22', '44'], ['22', '54']]);
+    expect(text.getAttribute('transform')).toBe('rotate(-90 22 34)');
+    expect(text.dataset.titleAnchorX).toBe('22');
+    expect(text.dataset.titleAnchorY).toBe('34');
+
+    const entry = window.Shared.undoManager.recordStateChange.mock.calls[0][0];
+    expect(entry.apply(entry.from, 'undo')).toBe(true);
+    expect(rows.map(row => [row.getAttribute('x'), row.getAttribute('y')]))
+      .toEqual([['10', '20'], ['10', '30'], ['10', '40']]);
+    expect(text.getAttribute('transform')).toBe('rotate(-90 10 20)');
+  });
+
+  test('initial viewport normalization moves every multiline title baseline with its anchor', () => {
+    const { svg, text } = createSvgText(50, 10);
+    text.dataset.fontRole = 'graphTitle';
+    text.setAttribute('font-size', '10');
+    window.Shared.textBlock.renderLines(text, 'First\nSecond', (row, line) => {
+      row.textContent = line.text;
+    });
+    svg.getBoundingClientRect = () => ({ left: 0, top: 0, right: 100, bottom: 100 });
+    svg.getScreenCTM = () => ({ inverse: () => ({}) });
+    text.getBoundingClientRect = () => {
+      const rows = Array.from(text.children);
+      const firstY = Number(rows[0]?.getAttribute('y') || text.getAttribute('y'));
+      const lastY = Number(rows[rows.length - 1]?.getAttribute('y') || text.getAttribute('y'));
+      return { left: 40, right: 60, top: firstY - 15, bottom: lastY + 10 };
+    };
+
+    window.Shared.enableLabelDrag(text, svg);
+
+    expect(text.getAttribute('y')).toBe('15');
+    expect(Array.from(text.children).map(row => row.getAttribute('y'))).toEqual(['15', '25']);
   });
 
 });

@@ -1,5 +1,5 @@
-const fs = require('fs');
 const { test, expect } = require('@playwright/test');
+const { openWorkspaceArchive, saveWorkspaceArchive } = require('../helpers/archiveDriver');
 const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
 const { registerIssueCollectors } = require('../helpers/diagnostics');
 const { openComponentFromWelcome, waitForDocumentOpenComplete } = require('../helpers/workspaceDriver');
@@ -279,22 +279,12 @@ async function snapshotVenn(page) {
 }
 
 async function captureArchive(page, stem, outputPath) {
-  const encoded = await page.evaluate(async () => {
-    const ctx = window.Main.tabs.getSessionActionsContext();
-    const blob = await window.Main.sessionActions.buildWorkspaceArchiveBlob(ctx, {
-      scope: 'workspace',
-      snapshotKind: 'document-snapshot',
-      compression: 'STORE',
-      reason: 'e2e-venn-upset-numeric-species'
-    });
-    const bytes = new Uint8Array(await blob.arrayBuffer());
-    let binary = '';
-    for (let i = 0; i < bytes.length; i += 0x8000) {
-      binary += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
-    }
-    return btoa(binary);
+  await saveWorkspaceArchive(page, outputPath, {
+    scope: 'workspace',
+    snapshotKind: 'document-snapshot',
+    compression: 'STORE',
+    reason: 'e2e-venn-upset-numeric-species'
   });
-  fs.writeFileSync(outputPath, Buffer.from(encoded, 'base64'));
   return outputPath;
 }
 
@@ -302,7 +292,11 @@ async function reopenArchive(page, archivePath) {
   await page.reload({ waitUntil: 'domcontentloaded' });
   await expect(page.locator('#welcomeScreen')).toBeVisible({ timeout: 20_000 });
   await installSpeciesMock(page);
-  await page.locator('#workspaceSessionInput').setInputFiles(archivePath);
+  await openWorkspaceArchive(page, archivePath, {
+    reload: false,
+    componentType: 'venn',
+    timeout: 60_000
+  });
   await waitForDocumentOpenComplete(page);
   const activeTabId = await page.evaluate(() => window.Main?.session?.workspaceState?.activeTabId || null);
   await waitForComponentOwnerReady(page, 'venn', {

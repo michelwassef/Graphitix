@@ -1,6 +1,7 @@
 'use strict';
 
 const { waitForAnimationFrame, waitForObservationWindow } = require('./contractWaits');
+const { inspectOwnerReadiness } = require('../../test-support/readiness.js');
 
 const KNOWN_NON_FATAL_LOG_PATTERNS = [
   /AG Grid: invalid gridOptions property 'columnBuffer'/i,
@@ -119,6 +120,35 @@ function normalizeLifecycleEvent(event) {
   };
 }
 
+function normalizeCacheDiagnosticEvent(event) {
+  if (!event || typeof event !== 'object') {
+    return null;
+  }
+  return {
+    tabId: event.tabId || null,
+    component: event.component || event.componentType || null,
+    phase: event.phase || null,
+    source: event.source || null,
+    outcome: event.outcome || null,
+    payloadSignature: event.payloadSignature || null,
+    layoutSignature: event.layoutSignature || null,
+    reason: event.reason || null
+  };
+}
+
+function createDiagnosticEnvelope(options = {}) {
+  return {
+    schemaVersion: 1,
+    kind: 'diagnostic-evidence',
+    componentType: options.componentType || null,
+    capturedAt: Number(options.capturedAt) || Date.now(),
+    owner: options.owner || null,
+    lifecycle: options.lifecycle || null,
+    cache: options.cache || null,
+    archive: options.archive || null
+  };
+}
+
 function summarizeLifecycleEvents(events, options = {}) {
   const componentType = options.componentType == null ? '' : String(options.componentType);
   const tabId = options.tabId == null ? '' : String(options.tabId);
@@ -159,6 +189,73 @@ async function collectLifecycleEvidence(page, options = {}) {
     cursor: Number(result?.cursor) || 0,
     ...summarizeLifecycleEvents(result?.events, { componentType, tabId, limit: options.limit })
   };
+}
+
+async function collectOwnerDiagnosticEvidence(page, component, options = {}) {
+  if (!component?.type || !component?.pageId) {
+    throw new TypeError('Diagnostic evidence requires a component catalog entry');
+  }
+  const expectedTabId = options.expectedTabId == null
+    ? await page.evaluate(() => String(window.Main?.session?.workspaceState?.activeTabId || '').trim() || null)
+    : String(options.expectedTabId);
+  const owner = await page.evaluate(inspectOwnerReadiness, {
+    type: component.type,
+    pageId: component.pageId,
+    expectedTabId,
+    requireMountedRoot: options.requireMountedRoot === true,
+    requirePublished: false,
+    requireIdle: false,
+    diagnostic: true
+  });
+  const tabId = owner?.owner?.activeTabId || expectedTabId || null;
+  const lifecycle = await collectLifecycleEvidence(page, {
+    componentType: component.type,
+    tabId,
+    afterCursor: options.afterLifecycleCursor,
+    limit: options.limit
+  });
+  const cache = await page.evaluate(({ afterCursor, componentType, expectedTabId: ownerTabId, limit }) => {
+    const diagnostics = window.Shared?.renderCacheDiagnostics;
+    const cursor = Number(diagnostics?.getCursor?.() || 0);
+    const events = typeof diagnostics?.getEvents === 'function'
+      ? diagnostics.getEvents({ afterCursor: Number(afterCursor) || 0 })
+      : [];
+    const matching = events.filter(event => (
+      (!ownerTabId || String(event?.tabId || '') === String(ownerTabId))
+      && (!componentType || String(event?.component || '') === String(componentType))
+    )).map(event => ({
+      tabId: event?.tabId || null,
+      component: event?.component || event?.componentType || null,
+      phase: event?.phase || null,
+      source: event?.source || null,
+      outcome: event?.outcome || null,
+      payloadSignature: event?.payloadSignature || null,
+      layoutSignature: event?.layoutSignature || null,
+      reason: event?.reason || null
+    }));
+    return {
+      schemaVersion: 1,
+      afterCursor: Number(afterCursor) || 0,
+      cursor,
+      eventCount: matching.length,
+      events: matching.slice(-(Math.max(1, Math.min(100, Number(limit) || 40))))
+    };
+  }, {
+    afterCursor: options.afterCacheCursor,
+    componentType: component.type,
+    expectedTabId: tabId,
+    limit: options.limit
+  });
+  return createDiagnosticEnvelope({
+    componentType: component.type,
+    owner,
+    lifecycle,
+    cache: {
+      ...cache,
+      events: cache.events.map(normalizeCacheDiagnosticEvent).filter(Boolean),
+      lastOutcome: cache.events.length ? cache.events[cache.events.length - 1]?.outcome || null : null
+    }
+  });
 }
 
 function summarizeReportDelta(beforeReport, afterReport) {
@@ -452,6 +549,7 @@ async function runDiagnosticComponentExercise(page, component) {
   const pageRoot = page.locator(`#${component.pageId}:not([hidden])`);
   const isHeavy = component.type === 'pca' || component.type === 'line';
   const before = await collectComponentPerformanceSnapshot(page, component.type);
+  const beforeEvidence = await collectOwnerDiagnosticEvidence(page, component);
   const steps = [];
   steps.push(await runTimedStep(page, component, 'cycle-selects', () => cycleVisibleSelects(pageRoot, isHeavy ? 2 : 4)));
   steps.push(await runTimedStep(page, component, 'toggle-checkboxes', () => toggleVisibleCheckboxes(pageRoot, isHeavy ? 2 : 5)));
@@ -462,7 +560,20 @@ async function runDiagnosticComponentExercise(page, component) {
     label: 'diagnostic component exercise settle window'
   });
   const after = await collectComponentPerformanceSnapshot(page, component.type);
-  return { steps, before, after };
+  const afterEvidence = await collectOwnerDiagnosticEvidence(page, component, {
+    afterLifecycleCursor: beforeEvidence.lifecycle?.cursor,
+    afterCacheCursor: beforeEvidence.cache?.cursor
+  });
+  return {
+    schemaVersion: 1,
+    steps,
+    before,
+    after,
+    evidence: {
+      before: beforeEvidence,
+      after: afterEvidence
+    }
+  };
 }
 
 module.exports = {
@@ -470,10 +581,13 @@ module.exports = {
   clickAnalysisButtons,
   collectComponentPerformanceSnapshot,
   collectLifecycleEvidence,
+  collectOwnerDiagnosticEvidence,
+  createDiagnosticEnvelope,
   cycleVisibleSelects,
   dragPanelResizer,
   normalizePerfEntry,
   normalizeLifecycleEvent,
+  normalizeCacheDiagnosticEvent,
   registerIssueCollectors,
   runDiagnosticComponentExercise,
   runTimedStep,

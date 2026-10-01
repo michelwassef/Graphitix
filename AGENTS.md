@@ -209,6 +209,9 @@ Payloads must remain JSON-serializable. Do not store DOM nodes, functions, class
 - If a test samples a documented intermediate draw, resize, hydration, or async loading state, repair the wait instead of weakening the expected final state.
 - Do not weaken failing tests before proving they assert the wrong final contract.
 - Keep tests updated with code behavior. Do not preserve stale pixel assumptions or obsolete behavior just because tests expect them.
+- Every discovered test needs explicit manifest evidence for its scenario, capability, transition, setup, and environment; wildcard mappings do not count as direct component coverage.
+- All test lanes and wrappers use the shared report schema, preserve initial failures after diagnostic reruns, and publish covered/omitted scenarios and skip governance. Fake-vendor runs never establish real-vendor behavior; do not enable automatic retries without a flake policy.
+- Split suites incrementally by layer and capability. Preserve unique characterization; consolidate only when scenario-level equivalence is demonstrated. Do not filter a monolithic suite by title ranges.
 
 ## 12. Component Playbooks
 

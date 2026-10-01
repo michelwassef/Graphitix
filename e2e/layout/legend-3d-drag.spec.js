@@ -1,6 +1,6 @@
 /**
  * Tests that 3D graph legends can be dragged to reposition them,
- * and that the position persists across re-renders (rotation).
+ * and that the saved position persists across owner-scoped redraws.
  *
  * Root causes fixed:
  * 1. applyLegendPointerGuards on child elements (swatches/text) was calling
@@ -10,10 +10,12 @@
  */
 
 const { test, expect } = require('@playwright/test');
-const { openComponentFromWelcome, clickExampleButtonIfPresent } = require('../helpers/workspaceDriver');
+const { buildWorkspaceArchive } = require('../helpers/archiveDriver');
+const { openComponentFromWelcome, clickExpectedExampleButton } = require('../helpers/workspaceDriver');
 const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
 const { registerIssueCollectors } = require('../helpers/diagnostics');
 const { waitForComponentOwnerReady } = require('../helpers/contractWaits');
+const { reloadAndAcceptRecovery, seedRecoveryArchive } = require('../helpers/recoveryDriver');
 
 // Simulate dragging a legend starting from a child element (closest to real user behavior)
 async function dragLegendFromChild(page, { svgId, startFromChild = true, deltaX = 70, deltaY = 35 }) {
@@ -75,42 +77,29 @@ async function dragLegendFromChild(page, { svgId, startFromChild = true, deltaX 
 }
 
 async function replaceRecoverySnapshot(page, reason) {
-  await page.evaluate(async snapshotReason => {
-    const openDb = () => new Promise((resolve, reject) => {
-      const request = indexedDB.open('graphitix-document-state', 2);
-      request.onupgradeneeded = () => {
-        if (!request.result.objectStoreNames.contains('snapshots')) request.result.createObjectStore('snapshots');
-      };
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error);
-    });
-    const db = await openDb();
-    const context = window.Main.tabs.getSessionActionsContext();
-    const blob = await window.Main.sessionActions.buildWorkspaceArchiveBlob(context, {
-      scope: 'workspace',
-      snapshotKind: 'recovery',
-      policyMode: 'recovery',
-      reason: snapshotReason,
-      useWorker: false
-    });
-    const state = window.Main.session.workspaceState;
-    const graphTabs = (state.tabs || []).filter(tab => tab && !tab.isWelcome && tab.type);
-    await new Promise((resolve, reject) => {
-      const tx = db.transaction('snapshots', 'readwrite');
-      tx.objectStore('snapshots').put({
-        meta: {
-          app: 'Graphitix', kind: 'recovery', version: 1,
-          savedAt: new Date().toISOString(), updatedAt: Date.now(), reason: snapshotReason,
-          dirty: true, hasData: true, tabCount: graphTabs.length,
-          fileName: 'workspace.graph', fileScope: 'workspace'
-        },
-        blob
-      }, 'active-recovery');
-      tx.oncomplete = resolve;
-      tx.onerror = () => reject(tx.error);
-    });
-    db.close();
-  }, reason);
+  const archive = await buildWorkspaceArchive(page, {
+    scope: 'workspace',
+    snapshotKind: 'recovery',
+    policyMode: 'recovery',
+    reason,
+    useWorker: false
+  });
+  const metadata = await page.evaluate(() => {
+    const workspaceState = window.Main?.session?.workspaceState || {};
+    const graphTabs = (workspaceState.tabs || []).filter(tab => tab && !tab.isWelcome && tab.type);
+    return {
+      tabCount: graphTabs.length,
+      fileName: workspaceState.sessionFileName || 'workspace.graph',
+      filePath: workspaceState.sessionFilePath || '',
+      fileScope: workspaceState.sessionFileScope || 'workspace'
+    };
+  });
+  return seedRecoveryArchive(page, archive.base64, {
+    reason,
+    dirty: true,
+    hasData: true,
+    ...metadata
+  });
 }
 
 async function recoveredLegendFrame(page, svgId) {
@@ -144,7 +133,7 @@ test.describe('3D legend drag', () => {
 
     await page.goto('/index.html');
     await openComponentFromWelcome(page, { type: 'pca', pageId: 'pcaPage' }, { first: true, loadExample: true });
-    await clickExampleButtonIfPresent(page, 'pcaLoadExample');
+    await clickExpectedExampleButton(page, 'pcaLoadExample');
     await waitForComponentOwnerReady(page, 'pca', {
       requireMountedRoot: true,
       requirePublished: true,
@@ -160,7 +149,6 @@ test.describe('3D legend drag', () => {
     });
 
     const dragResult = await dragLegendFromChild(page, { svgId: 'pcaSvg', deltaX: 80, deltaY: 40 });
-    console.log('PCA 3D drag:', JSON.stringify(dragResult));
 
     expect(dragResult.error, `PCA 3D drag error: ${dragResult.error}`).toBeUndefined();
     expect(dragResult.dispatchedOnChild, 'Should drag from child element').toBe(true);
@@ -170,15 +158,26 @@ test.describe('3D legend drag', () => {
     const dragErrors = errors.filter(e => e.includes('onDragEnd error') || e.includes('legendGapFor3d'));
     expect(dragErrors.length, `No drag errors expected, got: ${dragErrors.join('; ')}`).toBe(0);
 
-    // Simulate a rotation re-render and verify position is restored
-    const persistResult = await page.evaluate(async (expectedTransform) => {
-      // Trigger a re-render by updating the rotation state
-      const pcaState = window.Main?.session?.workspaceState?.tabs?.find(t => t.type === 'pca');
-      // Read the stored legend position directly from the internal state
-      const pcaComponent = window.Components?.pca;
-      if (!pcaComponent) return { skipped: true, reason: 'no pca component API' };
+    // Trigger a fresh owner-scoped draw, then verify the saved position is projected again.
+    const ownerTabId = await page.evaluate(() => {
+      const state = window.Main?.session?.workspaceState;
+      const tab = state?.tabs?.find(item => item?.id === state?.activeTabId && item?.type === 'pca');
+      const component = window.Components?.pca;
+      if (!tab || typeof component?.draw !== 'function') {
+        throw new Error('Active PCA owner or draw API unavailable');
+      }
+      component.draw({ tabId: tab.id, reason: 'e2e-pca-legend-drag-rerender' });
+      return tab.id;
+    });
+    await waitForComponentOwnerReady(page, 'pca', {
+      expectedTabId: ownerTabId,
+      requireMountedRoot: true,
+      requirePublished: true,
+      requireIdle: true,
+      timeout: 45_000
+    });
 
-      // Just verify the transform is preserved right now (before any re-render)
+    const persistResult = await page.evaluate(expectedTransform => {
       const svg = document.getElementById('pcaSvg');
       const legend = Array.from(svg?.querySelectorAll('g') || []).find(g => g.style.cursor === 'move');
       return {
@@ -187,10 +186,7 @@ test.describe('3D legend drag', () => {
       };
     }, dragResult.afterTransform);
 
-    console.log('PCA 3D persist check:', JSON.stringify(persistResult));
-    if (!persistResult.skipped) {
-      expect(persistResult.matchesExpected, 'Transform should match saved position').toBe(true);
-    }
+    expect(persistResult.matchesExpected, 'Transform should match saved position after redraw').toBe(true);
   });
 
   test('PCA 2D: legend drag still works after 3D fixes', async ({ page }) => {
@@ -200,7 +196,7 @@ test.describe('3D legend drag', () => {
 
     await page.goto('/index.html');
     await openComponentFromWelcome(page, { type: 'pca', pageId: 'pcaPage' }, { first: true, loadExample: true });
-    await clickExampleButtonIfPresent(page, 'pcaLoadExample');
+    await clickExpectedExampleButton(page, 'pcaLoadExample');
     await waitForComponentOwnerReady(page, 'pca', {
       requireMountedRoot: true,
       requirePublished: true,
@@ -223,7 +219,7 @@ test('recovered Line legend drag preserves the SVG container and does not redraw
   const issues = registerIssueCollectors(page);
   await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
   await openComponentFromWelcome(page, { type: 'line', pageId: 'linePage' }, { first: true, loadExample: true });
-  await clickExampleButtonIfPresent(page, 'lineLoadExample');
+  await clickExpectedExampleButton(page, 'lineLoadExample');
   await page.waitForSelector('#linePage:not([hidden]) #lineSvg [data-legend-viewport-content="true"]', { timeout: 30_000 });
   await page.evaluate(() => {
     document.querySelectorAll('#linePlot [data-legend-viewport-content="true"]').forEach(legend => {
@@ -233,13 +229,8 @@ test('recovered Line legend drag preserves the SVG container and does not redraw
   });
   await replaceRecoverySnapshot(page, 'e2e-line-legend-recovery');
 
-  let accepted = false;
-  page.on('dialog', async dialog => {
-    accepted = /recover|restore/i.test(dialog.message()) || accepted;
-    await dialog.accept();
-  });
-  await page.reload({ waitUntil: 'domcontentloaded' });
-  await expect.poll(() => accepted, { timeout: 20_000 }).toBe(true);
+  const accepted = await reloadAndAcceptRecovery(page, { timeout: 20_000 });
+  expect(accepted).toBe(true);
   await page.waitForSelector('#linePage:not([hidden]) #lineSvg [data-legend-viewport-content="true"]', { timeout: 60_000 });
 
   const before = await recoveredLegendFrame(page, 'lineSvg');

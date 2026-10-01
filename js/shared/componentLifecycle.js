@@ -1254,13 +1254,72 @@
     };
   };
 
-  function timeoutPromise(ms){
-    return new Promise(resolve => {
-      if(typeof global.setTimeout === 'function'){
-        global.setTimeout(() => resolve({ timedOut: true }), Math.max(0, Number(ms) || 0));
-      }else{
-        resolve({ timedOut: false });
+  function raceWithTimeout(value, ms){
+    return new Promise((resolve, reject) => {
+      if(typeof global.setTimeout !== 'function'){
+        Promise.resolve(value).then(resolve, reject);
+        return;
       }
+      const timer = global.setTimeout(() => resolve({ timedOut: true }), Math.max(0, Number(ms) || 0));
+      Promise.resolve(value).then(result => {
+        global.clearTimeout(timer);
+        resolve(result);
+      }, error => {
+        global.clearTimeout(timer);
+        reject(error);
+      });
+    });
+  }
+
+  function waitForPublicationSignal(target, meta, timeoutMs){
+    return new Promise(resolve => {
+      let finished = false;
+      let timer = null;
+      let observer = null;
+      const cleanups = [];
+      const componentKey = meta.componentKey || target?.type || target?.componentKey || target?.__componentKey || null;
+      const tabId = String(meta.tabId || meta.tab?.id || '').trim() || null;
+      const finish = result => {
+        if(finished){ return; }
+        finished = true;
+        if(timer != null){ global.clearTimeout(timer); }
+        if(observer){ observer.disconnect(); }
+        cleanups.forEach(cleanup => cleanup());
+        resolve(result);
+      };
+      const check = () => {
+        const publication = namespace.isPublicationSettled(target, { ...meta, componentKey, tabId });
+        if(publication.ok){
+          finish({ settled: true, publication });
+        }
+      };
+      const unsubscribeLifecycle = namespace.onLifecycleEvent?.(event => {
+        if(componentKey && event?.componentKey !== componentKey){ return; }
+        if(tabId && event?.tabId && String(event.tabId) !== tabId){ return; }
+        check();
+      });
+      if(typeof unsubscribeLifecycle === 'function') cleanups.push(unsubscribeLifecycle);
+      const root = resolveSnapshotPublicationRoot(componentKey, { ...meta, tabId });
+      if(root && typeof global.MutationObserver === 'function'){
+        observer = new global.MutationObserver(check);
+        observer.observe(root, {
+          subtree: true,
+          childList: true,
+          attributes: true,
+          attributeFilter: ['data-graph-frame-publication', 'aria-hidden']
+        });
+      }
+      timer = global.setTimeout(() => finish({
+        timedOut: true,
+        publication: namespace.isPublicationSettled(target, { ...meta, componentKey, tabId })
+      }), Math.max(0, Number(timeoutMs) || 0));
+      let jobsSubscriptionReady = false;
+      const unsubscribeJobs = Shared.jobs?.onChange?.(() => {
+        if(jobsSubscriptionReady) check();
+      });
+      if(typeof unsubscribeJobs === 'function') cleanups.push(unsubscribeJobs);
+      jobsSubscriptionReady = true;
+      check();
     });
   }
 
@@ -1343,18 +1402,23 @@
     const waitUntilPublicationSettled = async () => {
       let last = namespace.isPublicationSettled(target, { ...meta, componentKey, tabId });
       while(!last.ok && Date.now() < deadline){
-        await namespace.waitForAnimationFrames(1);
-        last = namespace.isPublicationSettled(target, { ...meta, componentKey, tabId });
+        const signal = await waitForPublicationSignal(
+          target,
+          { ...meta, componentKey, tabId },
+          Math.max(1, deadline - Date.now())
+        );
+        last = signal?.publication || namespace.isPublicationSettled(target, { ...meta, componentKey, tabId });
+        if(signal?.timedOut){ break; }
       }
       return last;
     };
     try{
       if(target && typeof target.whenIdle === 'function'){
         const remaining = Math.max(1, deadline - Date.now());
-        const idleResult = await Promise.race([
+        const idleResult = await raceWithTimeout(
           maybeAwait(target.whenIdle({ ...meta, componentKey, tabId })),
-          timeoutPromise(remaining)
-        ]);
+          remaining
+        );
         if(idleResult?.timedOut){
           return failure('idle-timeout');
         }
@@ -1372,7 +1436,15 @@
         });
       }
 
-      await namespace.waitForAnimationFrames(settleFrames);
+      const settleResult = settleFrames > 0
+        ? await raceWithTimeout(
+          namespace.waitForAnimationFrames(settleFrames).then(() => ({ timedOut: false })),
+          Math.max(1, deadline - Date.now())
+        )
+        : { timedOut: false };
+      if(settleResult?.timedOut){
+        return failure('settle-timeout');
+      }
       const settledAfterFrames = await waitUntilPublicationSettled();
       if(!settledAfterFrames.ok){
         return failure(settledAfterFrames.staged ? 'frame-publication-pending' : 'component-not-idle', {
@@ -5070,7 +5142,14 @@
     try{ layoutState = typeof workspace.getLayoutState === 'function' ? workspace.getLayoutState(captureMeta) : null; }
     catch(err){ warn('Debug: lifecycle snapshot layout capture failed', { componentKey, tabId: captureMeta.tabId, err: err?.message || String(err) }); }
     if(meta.captureRenderCache !== false){
-      try{ renderCache = typeof workspace.captureRenderCache === 'function' ? workspace.captureRenderCache(captureMeta) : null; }
+      try{
+        const captureOwnedCache = () => typeof workspace.captureRenderCache === 'function'
+          ? workspace.captureRenderCache(captureMeta)
+          : null;
+        renderCache = typeof Shared.withVisibleInlineTitleTargetsForCapture === 'function'
+          ? Shared.withVisibleInlineTitleTargetsForCapture(captureMeta.tabId, captureOwnedCache)
+          : captureOwnedCache();
+      }
       catch(err){ warn('Debug: lifecycle snapshot render cache capture failed', { componentKey, tabId: captureMeta.tabId, err: err?.message || String(err) }); }
     }
     try{ stateModel = workspace.__stateModel?.snapshot?.(tab || captureMeta.tabId || null, captureMeta) || null; }
@@ -5093,9 +5172,15 @@
     const runtime = typeof workspace.captureRuntimeState === 'function' ? workspace.captureRuntimeState(captureMeta) : null;
     const uiState = typeof workspace.captureUiState === 'function' ? workspace.captureUiState(captureMeta) : null;
     const layoutState = typeof workspace.getLayoutState === 'function' ? workspace.getLayoutState(captureMeta) : null;
-    const renderCache = meta.captureRenderCache === false
-      ? null
-      : (typeof workspace.captureRenderCache === 'function' ? workspace.captureRenderCache(captureMeta) : null);
+    let renderCache = null;
+    if(meta.captureRenderCache !== false){
+      const captureOwnedCache = () => typeof workspace.captureRenderCache === 'function'
+        ? workspace.captureRenderCache(captureMeta)
+        : null;
+      renderCache = typeof Shared.withVisibleInlineTitleTargetsForCapture === 'function'
+        ? Shared.withVisibleInlineTitleTargetsForCapture(captureMeta.tabId, captureOwnedCache)
+        : captureOwnedCache();
+    }
     const stateModel = workspace.__stateModel?.snapshot?.(tab || tabId, captureMeta) || null;
     return { ok: true, componentKey, payload, runtime, uiState, layoutState, renderCache, stateModel, diagnostics: { capturedAt: Date.now(), reason: captureMeta.reason } };
   };

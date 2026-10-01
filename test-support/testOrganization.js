@@ -42,18 +42,20 @@ function summarizeTestOrganization(records = []) {
     suiteCount: suites.length,
     organized: suites.filter(suite => suite.group !== 'legacy-root').length,
     legacyRoot: suites.filter(suite => suite.group === 'legacy-root').length,
+    legacyRootSuites: suites.filter(suite => suite.group === 'legacy-root'),
     oversized,
     oversizedLegacyRoot: oversized.filter(suite => suite.group === 'legacy-root')
   };
 }
 
 function validateTestOrganization(organization) {
-  if (!organization || !Array.isArray(organization.oversizedLegacyRoot)) {
+  if (!organization || !Array.isArray(organization.legacyRootSuites)
+    || !Array.isArray(organization.oversizedLegacyRoot)) {
     return ['test organization inventory is incomplete'];
   }
-  if (organization.oversizedLegacyRoot.length > 0) {
+  if (organization.legacyRootSuites.length > 0) {
     return [
-      `oversized test suites must be grouped outside a test root: ${organization.oversizedLegacyRoot.map(suite => suite.file).join(', ')}`
+      `test suites must be grouped beneath a layer or capability directory: ${organization.legacyRootSuites.map(suite => suite.file).join(', ')}`
     ];
   }
   return [];

@@ -1,12 +1,19 @@
 const { test, expect } = require('@playwright/test');
+const {
+  buildWorkspaceArchive,
+  openWorkspaceArchiveBuffer
+} = require('../helpers/archiveDriver');
 const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
 const { openComponentFromWelcome } = require('../helpers/workspaceDriver');
 const { registerIssueCollectors } = require('../helpers/diagnostics');
 const {
   waitForAnimationFrame,
-  waitForComponentOwnerReady,
   waitForOwnerProjection
 } = require('../helpers/contractWaits');
+const {
+  reloadAndAcceptRecovery,
+  seedRecoveryArchive
+} = require('../helpers/recoveryDriver');
 
 function readLineAxisMetrics() {
   const root = document.querySelector('#linePage:not([hidden])') || document;
@@ -107,24 +114,11 @@ async function prepareLine(page) {
 }
 
 async function captureLineWorkspaceArchive(page) {
-  const archive = await page.evaluate(async () => {
-    const context = window.Main?.tabs?.getSessionActionsContext?.();
-    const blob = await window.Main?.sessionActions?.buildWorkspaceArchiveBlob?.(context, {
-      scope: 'workspace',
-      snapshotKind: 'document-snapshot',
-      compression: 'STORE',
-      reason: 'e2e-line-horizontal-resize-reopen'
-    });
-    if (!blob) {
-      throw new Error('Line workspace archive was not created.');
-    }
-    const bytes = new Uint8Array(await blob.arrayBuffer());
-    const chunkSize = 0x8000;
-    let binary = '';
-    for (let offset = 0; offset < bytes.length; offset += chunkSize) {
-      binary += String.fromCharCode.apply(null, bytes.subarray(offset, offset + chunkSize));
-    }
-    return { base64: btoa(binary), size: blob.size };
+  const archive = await buildWorkspaceArchive(page, {
+    scope: 'workspace',
+    snapshotKind: 'document-snapshot',
+    compression: 'STORE',
+    reason: 'e2e-line-horizontal-resize-reopen'
   });
   return {
     buffer: Buffer.from(archive.base64, 'base64'),
@@ -133,19 +127,11 @@ async function captureLineWorkspaceArchive(page) {
 }
 
 async function reopenLineWorkspaceArchive(page, archiveBuffer) {
-  await page.reload({ waitUntil: 'domcontentloaded' });
-  await expect(page.locator('#welcomeScreen')).toBeVisible({ timeout: 20_000 });
-  const input = page.locator('#workspaceSessionInput');
-  await expect(input).toHaveCount(1, { timeout: 20_000 });
-  await input.setInputFiles({
-    name: 'line-horizontal-resize-reopen.graph',
-    mimeType: 'application/octet-stream',
-    buffer: archiveBuffer
+  await openWorkspaceArchiveBuffer(page, archiveBuffer, {
+    fileName: 'line-horizontal-resize-reopen.graph',
+    componentType: 'line',
+    timeout: 60_000
   });
-  await page.waitForFunction(() => {
-    const state = window.Main?.session?.workspaceState || null;
-    return Array.isArray(state?.tabs) && state.tabs.some(tab => tab?.type === 'line' && !tab?.isWelcome);
-  }, null, { timeout: 60_000 });
   const tabId = await page.evaluate(() => {
     const state = window.Main?.session?.workspaceState || {};
     return (state.tabs || []).find(tab => tab?.type === 'line' && !tab?.isWelcome)?.id || null;
@@ -172,86 +158,44 @@ async function reopenLineWorkspaceArchive(page, archiveBuffer) {
 }
 
 async function seedLineRecoverySnapshot(page) {
-  return page.evaluate(async () => {
-    const request = window.indexedDB.open('graphitix-document-state', 2);
-    const db = await new Promise((resolve, reject) => {
-      request.onupgradeneeded = () => {
-        const opened = request.result;
-        if (!opened.objectStoreNames.contains('snapshots')) {
-          opened.createObjectStore('snapshots');
-        }
-      };
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error || new Error('IndexedDB open failed.'));
-    });
-    const context = window.Main?.tabs?.getSessionActionsContext?.();
-    const blob = await window.Main?.sessionActions?.buildWorkspaceArchiveBlob?.(context, {
-      scope: 'workspace',
-      snapshotKind: 'recovery',
-      policyMode: 'recovery',
-      reason: 'e2e-line-horizontal-resize-recovery',
-      useWorker: true
-    });
-    if (!blob) {
-      db.close();
-      throw new Error('Line recovery archive was not created.');
-    }
+  const archive = await buildWorkspaceArchive(page, {
+    scope: 'workspace',
+    snapshotKind: 'recovery',
+    policyMode: 'recovery',
+    reason: 'e2e-line-horizontal-resize-recovery',
+    useWorker: true
+  });
+  const metadata = await page.evaluate(() => {
     const workspaceState = window.Main?.session?.workspaceState || {};
     const graphTabs = Array.isArray(workspaceState.tabs)
       ? workspaceState.tabs.filter(tab => tab && !tab.isWelcome && tab.type)
       : [];
-    await new Promise((resolve, reject) => {
-      const tx = db.transaction('snapshots', 'readwrite');
-      tx.objectStore('snapshots').put({
-        meta: {
-          app: 'Graphitix',
-          kind: 'recovery',
-          version: 1,
-          savedAt: new Date().toISOString(),
-          updatedAt: Date.now(),
-          reason: 'e2e-line-horizontal-resize-recovery',
-          dirty: true,
-          hasData: true,
-          tabCount: graphTabs.length,
-          fileName: workspaceState.sessionFileName || 'recovered.graph',
-          filePath: workspaceState.sessionFilePath || '',
-          fileScope: workspaceState.sessionFileScope || 'workspace'
-        },
-        blob
-      }, 'active-recovery');
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error || new Error('IndexedDB recovery write failed.'));
-    });
-    db.close();
-    return { bytes: blob.size, tabCount: graphTabs.length };
+    return {
+      tabCount: graphTabs.length,
+      fileName: workspaceState.sessionFileName || 'recovered.graph',
+      filePath: workspaceState.sessionFilePath || '',
+      fileScope: workspaceState.sessionFileScope || 'workspace'
+    };
   });
+  await seedRecoveryArchive(page, archive.base64, {
+    reason: 'e2e-line-horizontal-resize-recovery',
+    dirty: true,
+    hasData: true,
+    ...metadata
+  });
+  return { bytes: archive.size, tabCount: metadata.tabCount };
 }
 
 async function reloadAndAcceptLineRecovery(page) {
-  let recoveryAccepted = false;
-  const handler = async dialog => {
-    if (/recover|restore/i.test(dialog.message())) {
-      recoveryAccepted = true;
-    }
-    await dialog.accept();
-  };
-  page.on('dialog', handler);
-  try {
-    await page.reload({ waitUntil: 'domcontentloaded' });
-    await expect.poll(() => recoveryAccepted, {
-      timeout: 20_000,
-      message: 'Line crash-recovery prompt should be accepted'
-    }).toBe(true);
-    await page.waitForFunction(() => {
-      const state = window.Main?.session?.workspaceState || null;
-      const active = state?.tabs?.find(tab => tab?.id === state.activeTabId) || null;
-      return active?.type === 'line'
-        && !!document.querySelector('#linePage:not([hidden]) #linePlot svg')
-        && window.Components?.line?.isIdleForSnapshot?.() === true;
-    }, null, { timeout: 60_000 });
-  } finally {
-    page.off('dialog', handler);
-  }
+  const recoveryAccepted = await reloadAndAcceptRecovery(page, { timeout: 20_000 });
+  expect(recoveryAccepted, 'Line crash-recovery prompt should be accepted').toBe(true);
+  await page.waitForFunction(() => {
+    const state = window.Main?.session?.workspaceState || null;
+    const active = state?.tabs?.find(tab => tab?.id === state.activeTabId) || null;
+    return active?.type === 'line'
+      && !!document.querySelector('#linePage:not([hidden]) #linePlot svg')
+      && window.Components?.line?.isIdleForSnapshot?.() === true;
+  }, null, { timeout: 60_000 });
 }
 
 async function dragLineWidthDense(page, dx, options = {}) {

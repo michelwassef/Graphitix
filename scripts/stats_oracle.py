@@ -32,6 +32,7 @@ import sys
 from typing import Any, Callable, Dict, List, Tuple
 
 import numpy as np
+from check_stats_oracle_runtime import validate_runtime
 from scipy import stats
 from scipy.interpolate import CubicSpline
 from scipy.optimize import least_squares
@@ -3512,6 +3513,7 @@ def evaluate_case(case: Dict[str, Any]) -> Dict[str, Any]:
 
 def main() -> int:
     try:
+        validate_runtime()
         raw_input = sys.stdin.read()
         if not raw_input.strip():
             raise ValueError("Oracle request missing from stdin.")

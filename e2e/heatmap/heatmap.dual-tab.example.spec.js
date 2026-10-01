@@ -1,6 +1,6 @@
 const { test, expect } = require('@playwright/test');
 const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
-const { openComponentFromWelcome, clickExampleButtonIfPresent } = require('../helpers/workspaceDriver');
+const { openComponentFromWelcome, clickExpectedExampleButton } = require('../helpers/workspaceDriver');
 
 async function waitForHeatmapCells(page) {
   await page.waitForFunction(() => {
@@ -95,7 +95,7 @@ test('Heatmap example load works in two heatmap tabs', async ({ page }) => {
     { type: 'heatmap', pageId: 'heatmapPage', exampleButtonId: 'heatmapLoadExample' },
     { first: true }
   );
-  await clickExampleButtonIfPresent(page, 'heatmapLoadExample');
+  await clickExpectedExampleButton(page, 'heatmapLoadExample');
   await waitForHeatmapCells(page);
   const first = await activeHeatmapStatus(page);
   expect(first.overlay).toBe(false);
@@ -110,7 +110,7 @@ test('Heatmap example load works in two heatmap tabs', async ({ page }) => {
     { type: 'heatmap', pageId: 'heatmapPage', exampleButtonId: 'heatmapLoadExample' },
     { first: false }
   );
-  await clickExampleButtonIfPresent(page, 'heatmapLoadExample');
+  await clickExpectedExampleButton(page, 'heatmapLoadExample');
   await waitForHeatmapCells(page);
   const second = await activeHeatmapStatus(page);
   expect(second.overlay).toBe(false);

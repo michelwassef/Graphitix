@@ -1,6 +1,6 @@
 const { test, expect } = require('@playwright/test');
 const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
-const { openComponentFromWelcome, clickExampleButtonIfPresent } = require('../helpers/workspaceDriver');
+const { openComponentFromWelcome, clickExpectedExampleButton } = require('../helpers/workspaceDriver');
 const { registerIssueCollectors } = require('../helpers/diagnostics');
 const { waitForComponentOwnerReady } = require('../helpers/contractWaits');
 
@@ -15,7 +15,7 @@ async function activate(page, tabId){
 
 async function openBoxWithStats(page, first){
   await openComponentFromWelcome(page, { type:'box', pageId:'boxPage' }, { first });
-  await clickExampleButtonIfPresent(page, 'boxLoadExample');
+  await clickExpectedExampleButton(page, 'boxLoadExample');
   await expect(page.locator('#boxComputeStats')).toBeEnabled({ timeout:30_000 });
   await page.locator('#boxComputeStats').click();
   await expect(page.locator('#boxStatsStatus')).toContainText(/up to date/i, { timeout:60_000 });
@@ -24,7 +24,7 @@ async function openBoxWithStats(page, first){
 
 async function openVennWithSummary(page, first){
   await openComponentFromWelcome(page, { type:'venn', pageId:'vennPage' }, { first });
-  await clickExampleButtonIfPresent(page, 'sample');
+  await clickExpectedExampleButton(page, 'sample');
   await page.waitForFunction(() => document.querySelector('#vennPage:not([hidden]) #stage [data-venn-trace-id]'));
   await page.locator('#significanceSection').evaluate(node => { node.open = true; });
   await page.locator('#totalGenes').fill('25000');

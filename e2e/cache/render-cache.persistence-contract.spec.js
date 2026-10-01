@@ -3,11 +3,12 @@ const { test, expect } = require('@playwright/test');
 const {
   COMPONENT_MATRIX,
   openComponentFromWelcome,
-  clickExampleButtonIfPresent,
+  clickExpectedExampleButton,
   waitForDocumentOpenComplete
 } = require('../helpers/workspaceDriver');
 const { waitForArchiveCheckpoint, waitForRenderCacheOutcome } = require('../helpers/contractWaits');
 const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
+const { buildRenderCacheVariantPayload } = require('../../test-support/renderCacheMutationAdapters');
 
 const DEFAULT_CARTESIAN_CACHE_TYPES = new Set(['box', 'scatter', 'pca', 'line', 'roc', 'survival', 'hist', 'pie']);
 const STATS_CONTROLS = {
@@ -34,7 +35,7 @@ async function openFresh(page) {
 async function openExample(page, componentCase, first = false) {
   await openComponentFromWelcome(page, componentCase, { first });
   await page.waitForSelector(`#${componentCase.pageId}:not([hidden])`, { timeout: 30_000 });
-  await clickExampleButtonIfPresent(page, componentCase.exampleButtonId);
+  await clickExpectedExampleButton(page, componentCase.exampleButtonId);
   await page.waitForFunction(type => {
     const state = window.Main?.session?.workspaceState;
     const tab = state?.tabs?.find(item => item?.id === state.activeTabId) || null;
@@ -81,85 +82,22 @@ async function ensureMigratedCartesianMode(page, type) {
 }
 
 async function setVariant(page, type, variant) {
-  return page.evaluate(async ({ componentType, variantId }) => {
+  const basePayload = await page.evaluate(({ componentType }) => {
+    const session = window.Main?.session;
+    const state = session?.workspaceState;
+    const tab = state?.tabs?.find(item => item?.id === state.activeTabId) || null;
+    if (!tab || tab.type !== componentType) throw new Error(`Missing active ${componentType} tab`);
+    return session.clonePayload ? session.clonePayload(tab.payload) : structuredClone(tab.payload);
+  }, { componentType: type });
+  const { payload, mutation } = buildRenderCacheVariantPayload(basePayload, type, variant);
+  return page.evaluate(async ({ componentType, variantId, nextPayload, mutationEvidence }) => {
     const session = window.Main?.session;
     const state = session?.workspaceState;
     const tab = state?.tabs?.find(item => item?.id === state.activeTabId) || null;
     const config = window.Main?.components?.registry?.[componentType] || null;
     if (!tab || !config) throw new Error(`Missing active ${componentType} tab`);
-
     const clone = value => session.clonePayload ? session.clonePayload(value) : structuredClone(value);
-    const payload = clone(tab.payload);
-    const delta = variantId === 'B' ? 0.375 : 0.125;
-    const canonicalDataPaths = {
-      box: [[1, 1], [1, 2], [2, 1]],
-      scatter: [[1, 1], [1, 2], [2, 1]],
-      pca: [[1, 1], [1, 2], [2, 1]],
-      line: [[1, 1], [1, 2], [2, 1]],
-      heatmap: [[1, 1], [1, 2], [2, 1]],
-      surface: [[1, 1], [1, 2], [2, 1]],
-      survival: [[1, 0], [1, 1], [2, 0]],
-      hist: [[1, 0], [1, 1], [2, 0]],
-      pie: [[1, 1], [1, 0], [2, 1]]
-    };
-    const mutateCanonicalDataCell = (data, componentType) => {
-      for (const path of canonicalDataPaths[componentType] || []) {
-        const row = data?.[path[0]];
-        if (!Array.isArray(row)) continue;
-        const current = row[path[1]];
-        if (typeof current === 'number' && Number.isFinite(current)) {
-          row[path[1]] = current + delta;
-          return true;
-        }
-        if (typeof current === 'string' && /^-?\d+(?:\.\d+)?$/.test(current.trim())) {
-          row[path[1]] = String(Number(current) + delta);
-          return true;
-        }
-      }
-      return false;
-    };
-    const mutateRocScore = matrix => {
-      if(!Array.isArray(matrix)) return false;
-      // Row 0 is the header and column 0 is the classification label. Mutating
-      // either changes the schema/classes rather than creating a score variant.
-      for(let rowIndex = 1; rowIndex < matrix.length; rowIndex += 1){
-        const row = matrix[rowIndex];
-        if(!Array.isArray(row)) continue;
-        for(let colIndex = 1; colIndex < row.length; colIndex += 1){
-          const current = row[colIndex];
-          if(typeof current === 'number' && Number.isFinite(current)){
-            row[colIndex] = current + delta;
-            return true;
-          }
-          if(typeof current === 'string' && /^-?\d+(?:\.\d+)?$/.test(current.trim())){
-            row[colIndex] = String(Number(current) + delta);
-            return true;
-          }
-        }
-      }
-      return false;
-    };
-    const mutateVennList = data => {
-      if(!data || typeof data !== 'object') return false;
-      const variantGene = variantId === 'B' ? 'TP53' : 'BRCA2';
-      const genes = String(data.listA || '')
-        .split(/\r?\n/)
-        .map(value => value.trim())
-        .filter(Boolean);
-      if(!genes.includes(variantGene)){
-        genes.push(variantGene);
-      }
-      data.listA = genes.join('\n');
-      return true;
-    };
-    const mutated = componentType === 'venn'
-      ? mutateVennList(payload?.data)
-      : (componentType === 'roc'
-        ? mutateRocScore(payload?.data)
-        : mutateCanonicalDataCell(payload?.data, componentType));
-    if (!mutated) {
-      throw new Error(`Unable to create a canonical data variant for ${componentType}`);
-    }
+    const payload = session.clonePayload ? session.clonePayload(nextPayload) : structuredClone(nextPayload);
     session.assignTabPayload(tab, payload, { reason: `e2e-cache-variant-${variantId}` });
     if (typeof config.loadFromPayload === 'function') {
       config.loadFromPayload(clone(payload), {
@@ -209,11 +147,12 @@ async function setVariant(page, type, variant) {
     return {
       tabId: tab.id,
       title: tab.title,
-      mutated,
+      mutated: true,
+      mutation: mutationEvidence,
       payloadSignature: session.serializePayloadSignature(tab.payload || null),
       layoutSignature: session.serializePayloadSignature(tab.layoutState || null)
     };
-  }, { componentType: type, variantId: variant });
+  }, { componentType: type, variantId: variant, nextPayload: payload, mutationEvidence: mutation });
 }
 
 async function configureStatsVariant(page, type, variant) {

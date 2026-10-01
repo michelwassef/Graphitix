@@ -1161,7 +1161,8 @@
       const controls = normalizeSurvivalRuntimeControls(owner.state.controls || {});
       return String(normalizedKind === 'xLabel' ? controls.xLabel : controls.yLabel);
     };
-    const applyValue = value => {
+    let editInitialValue = null;
+    const writeValue = value => {
       const nextValue = value != null ? String(value) : '';
       if(normalizedKind === 'title'){
         syncSurvivalStateToSession(owner, { titleText: nextValue });
@@ -1174,7 +1175,11 @@
         syncSurvivalStateToSession(owner, { controls });
         if(isSurvivalSessionActive(owner)){ state.controls = controls; }
       }
-      if(node.textContent !== nextValue){ node.textContent = nextValue; }
+      return nextValue;
+    };
+    const applyValue = value => {
+      const nextValue = writeValue(value);
+      if(!Shared.fontControls?.setTitleText?.(node, nextValue) && node.textContent !== nextValue){ node.textContent = nextValue; }
       scheduleSurvivalDrawForSession(owner, {
         renderImpact: 'layout',
         tabId: owner.tabId || null,
@@ -1183,7 +1188,7 @@
       return nextValue;
     };
     return makeEditable(node, text => {
-      const previous = readValue();
+      const previous = editInitialValue != null ? editInitialValue : readValue();
       const nextValue = text != null ? String(text) : '';
       if(previous === nextValue){ return; }
       applyValue(nextValue);
@@ -1193,6 +1198,40 @@
         nextValue,
         applyValue
       );
+    }, {
+      getInitialValue: readValue,
+      onEditCheckpoint: (currentValue, _target, reason) => {
+        const nextValue = currentValue != null ? String(currentValue) : '';
+        if(reason === 'history-restore'){
+          editInitialValue = nextValue;
+          return true;
+        }
+        const previous = editInitialValue != null ? editInitialValue : readValue();
+        if(previous === nextValue) return false;
+        recordSurvivalChange(
+          normalizedKind === 'title' ? 'survival:title' : `survival:${normalizedKind === 'xLabel' ? 'x' : 'y'}-label`,
+          previous,
+          nextValue,
+          applyValue
+        );
+        editInitialValue = nextValue;
+        return true;
+      },
+      onEditStart: () => { editInitialValue = readValue(); },
+      onInput: value => {
+        const nextValue = value != null ? String(value) : '';
+        if(readValue() === nextValue) return;
+        writeValue(nextValue);
+        Shared.textBlock?.markDraftModified?.(node, owner, 'survival', `survival-${normalizedKind}-label-draft`);
+      },
+      onEditEnd: (_target, finalValue) => {
+        const nextValue = finalValue != null ? String(finalValue) : '';
+        if(readValue() !== nextValue){
+          writeValue(nextValue);
+          Shared.textBlock?.markDraftModified?.(node, owner, 'survival', `survival-${normalizedKind}-label-cancel`);
+        }
+        editInitialValue = null;
+      }
     }) === true;
   }
 
@@ -5613,8 +5652,10 @@
     const xMajorTickLength = getAxisMajorTickLength('x') ?? tickLen;
     const yMajorTickLength = getAxisMajorTickLength('y') ?? tickLen;
     const tickGap = axisMetrics.tickLabelGap ?? 6;
-    const xLabelText = controls.xLabel?.trim() || 'Time';
-    const yLabelText = controls.yLabel?.trim() || 'Survival Probability';
+    const storedXLabelText = String(controls.xLabel == null ? '' : controls.xLabel);
+    const storedYLabelText = String(controls.yLabel == null ? '' : controls.yLabel);
+    const xLabelText = storedXLabelText.trim() ? storedXLabelText : 'Time';
+    const yLabelText = storedYLabelText.trim() ? storedYLabelText : 'Survival Probability';
     const hasYTitle = yLabelText.trim().length > 0;
 
     ensureSurvivalLegendControlPlacement();
@@ -5846,11 +5887,17 @@
       plotW = lockedSurvivalGeometry.plotRect.width;
       plotH = lockedSurvivalGeometry.plotRect.height;
     }
+    const survivalTitleBlocks = {
+      graphTitle: chartStyle.resolveTitleBlockLayout({ text: state.titleText, role: 'graphTitle', styles: survivalFontStyles, fallbackPx: fs }),
+      xTitle: chartStyle.resolveTitleBlockLayout({ text: xLabelText, role: 'xTitle', styles: survivalFontStyles, fallbackPx: fs }),
+      yTitle: chartStyle.resolveTitleBlockLayout({ text: yLabelText, role: 'yTitle', styles: survivalFontStyles, fallbackPx: fs })
+    };
     let survivalCartesianPlan = Shared.cartesianLayout?.planCartesianLayout?.({
       owner: survivalLayoutOwner,
       userFrame: { width: baseWidth, height: chartHeight },
       baselineMargins: margin,
       requiredMargins,
+      titleBlocks: survivalTitleBlocks,
       auxiliaryReserves: [],
       externalExtensions: {
         left: riskTableLeftExtension,
@@ -5879,6 +5926,8 @@
       plotW = Math.max(20, baseWidth - margin.left - margin.right);
       plotH = Math.max(20, chartHeight - margin.top - margin.bottom);
     }
+    const survivalTitleShiftX = survivalCartesianPlan?.plotTranslation?.x || 0;
+    const survivalTitleShiftY = survivalCartesianPlan?.plotTranslation?.y || 0;
     const legendViewport = chartStyle.stageGraphContentViewport({
       svgBox: refs.svgBox,
       plot: refs.plotDiv,
@@ -6087,7 +6136,7 @@
     }
 
     const yLabelOffsetSpan = (maxYLabelWidth + yMajorTickLength + tickGap + axisMetrics.axisTitleGap + fs * 0.5);
-    const defaultYTitleX = margin.left - yLabelOffsetSpan;
+    const defaultYTitleX = margin.left - yLabelOffsetSpan - survivalTitleShiftX;
     const defaultYTitleY = margin.top + plotH / 2;
     const yLabelPos = state.labelPositions?.yLabel;
 
@@ -6097,7 +6146,7 @@
     if (yLabelPos) {
       if (yLabelPos.relX !== undefined && yLabelPos.relY !== undefined) {
         // Use relative positioning
-        yTitleX = margin.left + yLabelPos.relX * yLabelOffsetSpan;
+        yTitleX = margin.left + yLabelPos.relX * yLabelOffsetSpan - survivalTitleShiftX;
         yTitleY = margin.top + yLabelPos.relY * plotH;
       } else if (yLabelPos.x !== undefined && yLabelPos.y !== undefined) {
         // Use absolute positioning (backward compatibility)
@@ -6125,7 +6174,7 @@
           const nextPosition = {
             x: pos.x,
             y: pos.y,
-            relX: (pos.x - margin.left) / Math.max(yLabelOffsetSpan, 1),
+            relX: (pos.x - margin.left + survivalTitleShiftX) / Math.max(yLabelOffsetSpan, 1),
             relY: (pos.y - margin.top) / Math.max(plotH, 1)
           };
           patchSurvivalLabelPosition(drawSession, 'yLabel', nextPosition, { reason: 'survival-y-label-position' });
@@ -6134,7 +6183,7 @@
       });
     }
 
-    const titleY = Math.max(fs * 1.6, margin.top * 0.5);
+    const titleY = Math.max(fs * 1.6, (margin.top - survivalTitleShiftY) * 0.5);
     const defaultTitleX = margin.left + plotW / 2;
     const defaultTitleY = titleY;
     const titlePos = state.labelPositions?.title;
@@ -6146,7 +6195,7 @@
       if (titlePos.relX !== undefined && titlePos.relY !== undefined) {
         // Use relative positioning
         absoluteTitleX = margin.left + titlePos.relX * plotW;
-        absoluteTitleY = margin.top + titlePos.relY * plotH;
+        absoluteTitleY = margin.top + titlePos.relY * plotH - survivalTitleShiftY;
       } else if (titlePos.x !== undefined && titlePos.y !== undefined) {
         // Use absolute positioning (backward compatibility)
         absoluteTitleX = titlePos.x;
@@ -6172,7 +6221,7 @@
             x: pos.x,
             y: pos.y,
             relX: (pos.x - margin.left) / Math.max(plotW, 1),
-            relY: (pos.y - margin.top) / Math.max(plotH, 1)
+            relY: (pos.y - margin.top + survivalTitleShiftY) / Math.max(plotH, 1)
           };
           patchSurvivalLabelPosition(drawSession, 'title', nextPosition, { reason: 'survival-title-position' });
           logDebug('title position saved', { absolute: pos, relative: { relX: nextPosition.relX, relY: nextPosition.relY } });
@@ -6344,12 +6393,13 @@
         userFrame: survivalCartesianPlan.userFrame,
         baselineMargins: survivalCartesianPlan.baselineMargins,
         requiredMargins: survivalCartesianPlan.requiredMargins,
+        titleBlocks: survivalTitleBlocks,
         auxiliaryReserves: [],
         externalExtensions: { left: riskTableLeftExtension, right: legendWidth, bottom: riskTableExtraHeight },
         orientation: 'normal',
         lock: survivalCartesianPlan.lock,
         minimumPlot: survivalCartesianPlan.minimumPlot,
-        contentBounds: {
+        contentBounds: measuredSurvivalViewport.renderedContentBounds || {
           minX: measuredSurvivalViewport.minX,
           minY: measuredSurvivalViewport.minY,
           maxX: measuredSurvivalViewport.maxX,
@@ -6368,7 +6418,7 @@
             && (!drawSession || isSurvivalSessionActive(drawSession)),
           projectionTarget: svg,
           commitFrame: () => framePublication.commit(),
-          commitPresentation: () => legendViewport.commit()
+          commitPresentation: plan => legendViewport.commit(plan)
         })
       : false;
     if(survivalCartesianPlan && !survivalLayoutPublished){

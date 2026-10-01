@@ -17,11 +17,20 @@ const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
 const { registerIssueCollectors } = require('../helpers/diagnostics');
 const {
   openComponentFromWelcome,
-  clickExampleButtonIfPresent,
+  clickExpectedExampleButton,
   waitForDocumentOpenComplete
 } = require('../helpers/workspaceDriver');
 const { waitForComponentOwnerReady } = require('../helpers/contractWaits');
-const { saveWorkspaceArchive } = require('../helpers/archiveDriver');
+const {
+  buildWorkspaceArchive,
+  openWorkspaceArchive,
+  saveWorkspaceArchive
+} = require('../helpers/archiveDriver');
+const {
+  clearRecoverySnapshot,
+  reloadAndAcceptRecovery,
+  seedRecoveryArchive
+} = require('../helpers/recoveryDriver');
 
 // compute: id of a "Compute statistics" button to click after loading data (null = auto-computes on draw).
 // containers: the stats-panel container ids that together hold the component's rendered statistics.
@@ -205,7 +214,7 @@ async function buildAndCompute(page, c) {
   await expect(page.locator('#welcomeScreen')).toBeVisible({ timeout: 20_000 });
   await openComponentFromWelcome(page, { type: c.key, pageId: c.pageId, exampleButtonId: c.exampleButtonId }, { first: true });
   await page.waitForFunction(t => !!window.Components?.[t]?.ready, c.key, { timeout: 30_000 });
-  await clickExampleButtonIfPresent(page, c.exampleButtonId);
+  await clickExpectedExampleButton(page, c.exampleButtonId);
   await waitForComponentOwnerReady(page, { type: c.key, pageId: c.pageId }, { requireMountedRoot: true });
   if (typeof c.compute === 'function') {
     await c.compute(page);
@@ -301,35 +310,29 @@ async function expectExportControlsLive(page, containers, label) {
 }
 
 async function seedRecoverySnapshot(page) {
-  await page.evaluate(async () => {
-    const openWebDb = () => new Promise((resolve, reject) => {
-      const request = window.indexedDB.open('graphitix-document-state', 2);
-      request.onupgradeneeded = () => { const db = request.result; if (!db.objectStoreNames.contains('snapshots')) { db.createObjectStore('snapshots'); } };
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error);
-    });
-    const db = await openWebDb();
-    window.localStorage.removeItem('graphitix.canonical-journal.v1');
-    const ws = window.Main?.session?.workspaceState || {};
-    const graphTabs = (ws.tabs || []).filter(t => t && !t.isWelcome && t.type);
-    const ctx = window.Main.tabs.getSessionActionsContext();
-    const blob = await window.Main.sessionActions.buildWorkspaceArchiveBlob(ctx, { scope: 'workspace', snapshotKind: 'recovery', policyMode: 'recovery', reason: 'recovery-interval', useWorker: true });
-    await new Promise((resolve, reject) => {
-      const stores = ['snapshots'];
-      if (db.objectStoreNames.contains('canonical-journal')) {
-        stores.push('canonical-journal');
-      }
-      const tx = db.transaction(stores, 'readwrite');
-      if (stores.includes('canonical-journal')) {
-        tx.objectStore('canonical-journal').clear();
-      }
-      tx.objectStore('snapshots').put({
-        meta: { app: 'Graphitix', kind: 'recovery', version: 1, savedAt: new Date().toISOString(), updatedAt: Date.now(), reason: 'recovery-interval', dirty: true, hasData: true, tabCount: graphTabs.length, fileName: 'workspace.graph', fileScope: 'workspace' },
-        blob
-      }, 'active-recovery');
-      tx.oncomplete = () => { db.close(); resolve(true); };
-      tx.onerror = () => { db.close(); reject(tx.error); };
-    });
+  await clearRecoverySnapshot(page);
+  const archive = await buildWorkspaceArchive(page, {
+    scope: 'workspace',
+    snapshotKind: 'recovery',
+    policyMode: 'recovery',
+    reason: 'recovery-interval',
+    useWorker: true
+  });
+  const metadata = await page.evaluate(() => {
+    const workspaceState = window.Main?.session?.workspaceState || {};
+    const graphTabs = (workspaceState.tabs || []).filter(tab => tab && !tab.isWelcome && tab.type);
+    return {
+      tabCount: graphTabs.length,
+      fileName: workspaceState.sessionFileName || 'workspace.graph',
+      filePath: workspaceState.sessionFilePath || '',
+      fileScope: workspaceState.sessionFileScope || 'workspace'
+    };
+  });
+  return seedRecoveryArchive(page, archive.base64, {
+    reason: 'recovery-interval',
+    dirty: true,
+    hasData: true,
+    ...metadata
   });
 }
 
@@ -349,9 +352,10 @@ for (const c of CASES) {
     const rocBefore = c.key === 'roc' ? await captureRocStatsPersistenceState(page) : null;
     const archivePath = await captureArchive(page, `contract-${c.key}-reopen`, testInfo.outputPath(`contract-${c.key}-reopen.graph`));
 
-    await page.reload({ waitUntil: 'domcontentloaded' });
-    await expect(page.locator('#welcomeScreen')).toBeVisible({ timeout: 20_000 });
-    await page.locator('#workspaceSessionInput').setInputFiles(archivePath);
+    await openWorkspaceArchive(page, archivePath, {
+      componentType: c.key,
+      timeout: 45_000
+    });
     await waitForDocumentOpenComplete(page);
     await expect(page.locator(`#${c.pageId}:not([hidden])`)).toBeVisible({ timeout: 30_000 });
     await waitForComponentOwnerReady(page, { type: c.key, pageId: c.pageId }, { requireMountedRoot: true });
@@ -387,26 +391,8 @@ for (const c of CASES) {
       const rocBefore = c.key === 'roc' ? await captureRocStatsPersistenceState(page) : null;
       await seedRecoverySnapshot(page);
 
-      let recoveryDialogAccepted = false;
-      const handler = async d => {
-        if (d.type() === 'beforeunload') {
-          await d.accept();
-          return;
-        }
-        if (!/recover|restore/i.test(d.message())) {
-          await d.dismiss();
-          return;
-        }
-        await d.accept();
-        recoveryDialogAccepted = true;
-      };
-      page.on('dialog', handler);
-      await page.reload({ waitUntil: 'domcontentloaded' });
-      await expect.poll(() => recoveryDialogAccepted, {
-        timeout: 30_000,
-        message: 'crash recovery should offer the seeded dirty snapshot'
-      }).toBe(true);
-      page.off('dialog', handler);
+      const recoveryDialogAccepted = await reloadAndAcceptRecovery(page, { timeout: 30_000 });
+      expect(recoveryDialogAccepted, 'crash recovery should offer the seeded dirty snapshot').toBe(true);
       await activateComponentTab(page, c.key);
       await expect(page.locator(`#${c.pageId}:not([hidden])`)).toBeVisible({ timeout: 30_000 });
       await expect

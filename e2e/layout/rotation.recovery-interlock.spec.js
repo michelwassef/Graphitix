@@ -2,7 +2,7 @@ const { test, expect } = require('@playwright/test');
 const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
 const {
   openComponentFromWelcome,
-  clickExampleButtonIfPresent
+  clickExpectedExampleButton
 } = require('../helpers/workspaceDriver');
 const { registerIssueCollectors } = require('../helpers/diagnostics');
 const { waitForComponentOwnerReady } = require('../helpers/contractWaits');
@@ -48,7 +48,7 @@ async function open3dExample(page, component) {
   if (component.select3dBeforeExample && component.viewModeId) {
     await page.locator(`#${component.viewModeId}`).selectOption('3d');
   }
-  await clickExampleButtonIfPresent(page, component.exampleButtonId);
+  await clickExpectedExampleButton(page, component.exampleButtonId);
   if (!component.select3dBeforeExample && component.viewModeId) {
     await page.locator(`#${component.viewModeId}`).selectOption('3d');
   }

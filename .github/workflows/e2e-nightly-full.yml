@@ -44,6 +44,9 @@ jobs:
           name: test-report-full-chromium
           path: |
             artifacts/test-reports/full-chromium.json
+            artifacts/test-reports/full-chromium.manifest.json
+            artifacts/test-reports/full-chromium.skips.json
+            artifacts/test-reports/full-chromium.cases.json
             artifacts/test-reports/full-chromium-trend.json
           retention-days: 14
           if-no-files-found: error

@@ -1,5 +1,6 @@
 describe('Shared.plot3d helper', () => {
   beforeAll(() => {
+    require('../../js/shared/chartStyle.js');
     require('../../js/shared/plot3d.js');
   });
 
@@ -60,6 +61,53 @@ describe('Shared.plot3d helper', () => {
       plotWidth: 260,
       fontSize: 12
     }).y).toBeCloseTo(19.2);
+  });
+
+  it('extends 3D title frames by exactly their added lines and keeps the projected plot size', () => {
+    const { plot3d } = global.Shared;
+    const frame = plot3d.resolveTitleFrame({
+      width: 300,
+      height: 200,
+      margin: { top: 18, right: 22, bottom: 24, left: 26 },
+      titleBlocks: {
+        graphTitle: { text: 'Graph\ncontinued', lineHeight: 16 },
+        xTitle: { text: 'X\ncontinued\nlast', lineHeight: 18 },
+        yTitle: { text: 'Y\ncontinued', lineHeight: 12 },
+        zTitle: { text: 'Z', lineHeight: 20 }
+      }
+    });
+
+    expect(frame.titleExtensions).toEqual({
+      graphTitle: 16,
+      axisTitles: { x: 36, y: 12, z: 0 },
+      right: 12,
+      bottom: 52
+    });
+    expect(frame.width).toBe(312);
+    expect(frame.height).toBe(252);
+    expect(frame.margin).toEqual({ top: 34, right: 22, bottom: 60, left: 38 });
+    expect(frame.plotWidth).toBe(252);
+    expect(frame.plotHeight).toBe(158);
+    expect(frame.plotWidth).toBe(300 - 26 - 22);
+    expect(frame.plotHeight).toBe(200 - 18 - 24);
+  });
+
+  it('uses concise decimals while preserving enough precision to distinguish 3D ticks', () => {
+    const { plot3d } = global.Shared;
+    const chartStyle = global.Shared.chartStyle;
+    const wholeNumberTicks = [-6.306849, 0.846086, 7.9999];
+    const preciseTicks = [0.0003, 0.0008, 0.0013];
+    const wholeNumberDigits = plot3d.resolveAxisTickDecimalDigits(wholeNumberTicks);
+    const preciseDigits = plot3d.resolveAxisTickDecimalDigits(preciseTicks);
+
+    expect(wholeNumberDigits).toBe(2);
+    expect(preciseDigits).toBe(5);
+    expect(chartStyle.createAxisTickFormatter(wholeNumberTicks, {
+      notation: 'auto', maxDecimals: 2, decimalDigits: wholeNumberDigits
+    })(wholeNumberTicks[0])).toBe('-6.31');
+    expect(chartStyle.createAxisTickFormatter(preciseTicks, {
+      notation: 'decimal', maxDecimals: 2, decimalDigits: preciseDigits
+    })(preciseTicks[0])).toBe('0.0003');
   });
 
   it('keeps the rotation hit surface on the canonical 3D graph when the SVG has an outward summary reserve', () => {

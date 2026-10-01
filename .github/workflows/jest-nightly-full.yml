@@ -23,8 +23,21 @@ jobs:
           node-version: 20
           cache: npm
 
+      - name: Setup Python oracle
+        uses: actions/setup-python@v7
+        with:
+          python-version-file: .python-version
+          cache: pip
+          cache-dependency-path: requirements-stats.txt
+
       - name: Install dependencies
         run: npm ci
+
+      - name: Install statistical-oracle dependencies
+        run: python -m pip install -r requirements-stats.txt
+
+      - name: Validate statistical-oracle runtime
+        run: npm run test:python:check
 
       - name: Run bounded full Jest certification
         run: npm run test:lane -- --lane full-jest --report-file artifacts/test-reports/full-jest-nightly.json
@@ -40,6 +53,9 @@ jobs:
           name: jest-nightly-full-report
           path: |
             artifacts/test-reports/full-jest-nightly.json
+            artifacts/test-reports/full-jest-nightly.manifest.json
+            artifacts/test-reports/full-jest-nightly.skips.json
+            artifacts/test-reports/full-jest-nightly.cases.json
             artifacts/test-reports/full-jest-nightly-trend.json
           retention-days: 14
           if-no-files-found: error

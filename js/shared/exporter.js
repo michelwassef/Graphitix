@@ -2376,6 +2376,7 @@
     const clipRegistry = collectClipPaths(svgElement);
     const clipPaths = clipRegistry.map;
     let vectorUnsupported = clipRegistry.unsupported;
+    let vectorUnsupportedReason = clipRegistry.unsupported ? 'unsupported-clip-path' : null;
     const gradientDefs = collectLinearGradients(svgElement);
 
     const resolveClipRect = (style, matrix) => {
@@ -2578,6 +2579,17 @@
           break;
         }
         case 'text': {
+          const positionedLineCount = Array.from(node.children || []).filter(child =>
+            child.tagName?.toLowerCase() === 'tspan' && child.hasAttribute('x') && child.hasAttribute('y')
+          ).length;
+          if (positionedLineCount > 1) {
+            // The vector text adapter models one baseline per <text> node. Keep
+            // explicit line positions, rich spans, and anchors exact by sending
+            // this SVG through the existing raster-backed PDF/EMF path.
+            vectorUnsupported = true;
+            vectorUnsupportedReason = 'positioned-multiline-text';
+            return;
+          }
           const raw = node.textContent;
           if (!raw) return;
           const text = raw.replace(/\s+/g, ' ').trim();
@@ -2634,7 +2646,7 @@
     traverse(svgElement, rootMatrix, baseStyle);
 
     if (vectorUnsupported) {
-      debugLog('buildVectorSceneFromSvg fallback', { reason: 'unsupported-clip-path' });
+      debugLog('buildVectorSceneFromSvg fallback', { reason: vectorUnsupportedReason || 'unsupported-svg-feature' });
       return null;
     }
 

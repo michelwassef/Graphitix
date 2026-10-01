@@ -1,7 +1,7 @@
 const { test, expect } = require('@playwright/test');
 const {
   openComponentFromWelcome,
-  clickExampleButtonIfPresent
+  clickExpectedExampleButton
 } = require('../helpers/workspaceDriver');
 const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
 
@@ -46,7 +46,7 @@ test('Line legend cannot be dragged beyond the SVG viewport', async ({ page }) =
   await page.setViewportSize({ width: 1920, height: 1080 });
   await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
   await openComponentFromWelcome(page, { type: 'line', pageId: 'linePage' }, { first: true });
-  await clickExampleButtonIfPresent(page, 'lineLoadExample');
+  await clickExpectedExampleButton(page, 'lineLoadExample');
   await expect(page.locator('#lineSvg g[data-legend-viewport-content="true"]')).toBeVisible();
 
   const bottomRight = await dragLegend(page, 5000, 5000);

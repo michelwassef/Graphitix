@@ -1,6 +1,6 @@
 const { test, expect } = require('@playwright/test');
 const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
-const { openComponentFromWelcome, clickExampleButtonIfPresent, waitForDocumentOpenComplete } = require('../helpers/workspaceDriver');
+const { openComponentFromWelcome, clickExpectedExampleButton, waitForDocumentOpenComplete } = require('../helpers/workspaceDriver');
 const { registerIssueCollectors } = require('../helpers/diagnostics');
 const { saveWorkspaceArchive } = require('../helpers/archiveDriver');
 
@@ -274,13 +274,13 @@ test('survival same-type controls and stats stay isolated across tab switch and 
   await expect(page.locator('#welcomeScreen')).toBeVisible({ timeout: 20_000 });
 
   await openComponentFromWelcome(page, { type: 'survival', pageId: 'survivalPage' }, { first: true });
-  await clickExampleButtonIfPresent(page, 'survivalLoadExample');
+  await clickExpectedExampleButton(page, 'survivalLoadExample');
   await applySurvivalControls(page, first);
   const firstTabId = await currentTabId(page);
   expect(firstTabId).toBeTruthy();
 
   await openComponentFromWelcome(page, { type: 'survival', pageId: 'survivalPage' });
-  await clickExampleButtonIfPresent(page, 'survivalLoadExample');
+  await clickExpectedExampleButton(page, 'survivalLoadExample');
   await applySurvivalControls(page, second);
   const secondTabId = await currentTabId(page);
   expect(secondTabId).toBeTruthy();

@@ -1,5 +1,7 @@
 'use strict';
 
+const path = require('path');
+
 // The file manifest is generated from framework discovery. It is deliberately
 // not a second list of test names: moving a file changes its generated ID and
 // must be reviewed as a migration, while discovery remains authoritative.
@@ -47,8 +49,11 @@ const ARCHIVE_CONTRACTS = new Set(['ARCHIVE', 'REC']);
 const MUTATION_CONTRACTS = new Set(['PERSIST', 'CACHE', 'REC', 'DIRTY', 'STATS', 'LAYOUT', 'ARCHIVE']);
 const REQUIRED_PYTHON_ORACLE_FILES = new Set([
   '__tests__/statistical-oracle/stats.differential.python.test.js',
-  '__tests__/statistical-oracle/stats.component.differential.test.js',
-  '__tests__/statistical-oracle/stats.matrix.components.test.js'
+  '__tests__/statistical-oracle/stats.component.differential.matrix.test.js',
+  '__tests__/statistical-oracle/stats.component.differential.edges.test.js',
+  '__tests__/statistical-oracle/stats.matrix.box.test.js',
+  '__tests__/statistical-oracle/stats.matrix.line.test.js',
+  '__tests__/statistical-oracle/stats.matrix.scatter.test.js'
 ]);
 
 const {
@@ -61,6 +66,8 @@ const { COMPONENT_CATALOG } = require('./componentCatalog.js');
 const { getExplicitLayer } = require('./jestLayerManifest.js');
 const { classifyTestOrganization } = require('./testOrganization.js');
 const { REVIEWED_PARTIAL_BOOTSTRAPS } = require('./partialBootstrapReview.js');
+const { inferBrowserSetupClassification } = require('./testSetupClassification.js');
+const DEFAULT_ROOT_DIR = path.resolve(__dirname, '..');
 const KNOWN_SCENARIO_IDS = new Set(SCENARIO_CATALOG.map(scenario => scenario.id));
 const CRITICAL_SCENARIO_ID_SET = new Set(CRITICAL_SCENARIO_IDS);
 
@@ -84,7 +91,29 @@ function getScenarioTransition(scenario = {}) {
   return 'unclassified-transition';
 }
 
-function buildManifestMetadata({ file, layer, framework, status, scenarioIds, scenarios, componentScope, contracts, setup }) {
+const SETUP_CLASSIFICATIONS = new Set(['ui', 'api', 'mixed', 'declared-in-suite']);
+
+function getSetupClassification(scenarios = [], { file, framework, layer, rootDir = DEFAULT_ROOT_DIR } = {}) {
+  const declared = new Set((scenarios || [])
+    .map(scenario => String(scenario?.setup || '').trim().toLowerCase())
+    .filter(Boolean));
+  if (declared.size === 1 || declared.size > 1) {
+    const classification = declared.size === 1 ? Array.from(declared)[0] : 'mixed';
+    return {
+      classification,
+      evidence: scenarios
+        .filter(scenario => scenario?.setup)
+        .map(scenario => `scenario:${scenario.id}:${scenario.setup}`)
+    };
+  }
+  if (framework === 'playwright') return inferBrowserSetupClassification(file, rootDir);
+  return {
+    classification: 'declared-in-suite',
+    evidence: [`jest-layer:${layer || 'unclassified'}`]
+  };
+}
+
+function buildManifestMetadata({ file, layer, framework, status, scenarioIds, scenarios, componentScope, contracts, setup, rootDir }) {
   const isBrowser = framework === 'playwright';
   const isAppOwned = layer === 'app-integration' || isBrowser;
   const hasAsyncContract = contracts.includes('ASYNC');
@@ -102,6 +131,7 @@ function buildManifestMetadata({ file, layer, framework, status, scenarioIds, sc
     };
   });
   const explicitRequirements = requirements.filter(requirement => requirement.metadataSource === 'explicit');
+  const setupMetadata = getSetupClassification(scenarios, { file, framework, layer, rootDir });
   return {
     requirements,
     capabilityScope: Array.from(new Set(requirements.map(requirement => requirement.capability))),
@@ -122,6 +152,8 @@ function buildManifestMetadata({ file, layer, framework, status, scenarioIds, sc
       mode: isBrowser ? 'e2e-driver-or-suite-fixture' : (layer === 'app-integration' ? 'production-bootstrap-or-suite-fixture' : 'layer-owned-fixture'),
       archiveSchemaVersion: contracts.some(contract => ARCHIVE_CONTRACTS.has(contract)) ? 1 : null
     },
+    setupClassification: setupMetadata.classification,
+    setupEvidence: setupMetadata.evidence,
     bootstrapReview: REVIEWED_PARTIAL_BOOTSTRAPS[normalizePath(file)]
       ? {
           status: 'reviewed-specialized-bootstrap',
@@ -145,18 +177,12 @@ function buildManifestMetadata({ file, layer, framework, status, scenarioIds, sc
     requiredArtifacts: isBrowser
       ? ['trace', 'screenshot', 'video', 'error-context']
       : ['jest-result'],
-    skipPolicy: status === 'legacy-unmapped'
-      ? {
-          reason: 'scenario mapping deferred for reviewed legacy coverage',
-          issueRef: 'testing-suite-refactor-roadmap',
-          expiresOn: '2026-12-31'
-        }
-      : null,
+    skipPolicy: null,
     predecessorScenarioIds: []
   };
 }
 
-function classifyTestFile(file, framework = null) {
+function classifyTestFile(file, framework = null, rootDir = DEFAULT_ROOT_DIR) {
   const normalized = normalizePath(file);
   const resolvedFramework = framework || (normalized.startsWith('e2e/') ? 'playwright' : 'jest');
   let layer = null;
@@ -210,15 +236,16 @@ function classifyTestFile(file, framework = null) {
       scenarios,
       componentScope,
       contracts,
-      setup
+      setup,
+      rootDir
     })
   };
 }
 
-function buildFileManifest({ jestPaths = [], e2ePaths = [] } = {}) {
+function buildFileManifest({ jestPaths = [], e2ePaths = [], rootDir = DEFAULT_ROOT_DIR } = {}) {
   const entries = [
-    ...jestPaths.map(file => classifyTestFile(file, 'jest')),
-    ...e2ePaths.map(file => classifyTestFile(file, 'playwright'))
+    ...jestPaths.map(file => classifyTestFile(file, 'jest', rootDir)),
+    ...e2ePaths.map(file => classifyTestFile(file, 'playwright', rootDir))
   ].sort((left, right) => left.file.localeCompare(right.file));
   const ids = new Set();
   for (const entry of entries) {
@@ -351,8 +378,16 @@ function validateManifest(entries, options = {}) {
     if (!entry.defaultLane || !Array.isArray(entry.requiredLanes) || entry.requiredLanes.length === 0) {
       failures.push(`manifest entry has no lane contract: ${entry.id || '(missing)'}`);
     }
-    if (!Array.isArray(entry.componentScope) || !Array.isArray(entry.contracts) || !entry.setup) {
+    if (!Array.isArray(entry.componentScope) || !Array.isArray(entry.contracts) || !entry.setup
+      || !SETUP_CLASSIFICATIONS.has(entry.setupClassification)
+      || !Array.isArray(entry.setupEvidence) || entry.setupEvidence.length === 0) {
       failures.push(`manifest entry has incomplete ownership metadata: ${entry.id || '(missing)'}`);
+    }
+    if (options.requireReviewedSetupClassification === true
+      && entry.framework === 'playwright'
+      && entry.setupClassification === 'declared-in-suite'
+      && !entry.setupEvidence?.some(evidence => String(evidence).startsWith('reviewed-in-suite:'))) {
+      failures.push(`Playwright setup classification is not source-evidenced or explicitly reviewed: ${entry.file || entry.id}`);
     }
     if (!entry.suiteGroup) {
       failures.push(`manifest entry has no suite organization: ${entry.id || '(missing)'}`);
@@ -425,12 +460,7 @@ function validateManifest(entries, options = {}) {
       }
     }
     if (entry.status === 'legacy-unmapped') {
-      if (!entry.skipPolicy
-        || !entry.skipPolicy.reason
-        || !entry.skipPolicy.issueRef
-        || !/^\d{4}-\d{2}-\d{2}$/.test(String(entry.skipPolicy.expiresOn || ''))) {
-        failures.push(`legacy-unmapped entry has no reviewed skip policy: ${entry.id || '(missing)'}`);
-      }
+      failures.push(`manifest entry has no reviewed scenario mapping: ${entry.id || '(missing)'}`);
     } else if (entry.skipPolicy !== null) {
       failures.push(`migrated manifest entry has an unexpected skip policy: ${entry.id || '(missing)'}`);
     }
@@ -452,6 +482,7 @@ module.exports = {
   CANONICAL_CONTRACTS,
   CRITICAL_SCENARIO_IDS,
   ORACLE_POLICIES,
+  SETUP_CLASSIFICATIONS,
   classifyTestFile,
   buildFileManifest,
   getScenarioTransition,

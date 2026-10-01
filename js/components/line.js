@@ -33,6 +33,10 @@
   const Components = global.Components = global.Components || {};
   const line = Components.line = Components.line || {};
   const chartStyle = Shared.chartStyle = Shared.chartStyle || {};
+  const symbolGeometry = Shared.symbolGeometry = Shared.symbolGeometry || {};
+  if(typeof symbolGeometry.resolveEqualAreaHalfExtent !== 'function' && typeof require === 'function'){
+    require('../shared/symbolGeometry.js');
+  }
   const svgGeometry = Shared.svgGeometry = Shared.svgGeometry || {};
   if(typeof svgGeometry.buildCompoundLinePath !== 'function' && typeof require === 'function'){
     try{
@@ -738,9 +742,34 @@
     const mode3d = options.mode === '3d' || node.closest?.('svg')?.dataset?.viewMode === '3d';
     const defaultValue = normalizedKey === 'y' ? 'Y title' : (normalizedKey === 'z' ? 'Z' : (normalizedKey === 'x' ? 'X' : 'Line graph'));
     const readValue = () => String(getLineLabelsState(owner)?.[normalizedKey] ?? '');
-    const applyValue = value => {
+    let editInitialValue = null;
+    const normalizeValue = value => {
       const rawValue = value != null ? String(value) : '';
-      const nextValue = mode3d && normalizedKey !== 'title' ? (rawValue.trim() || defaultValue) : rawValue;
+      return mode3d && normalizedKey !== 'title' ? (rawValue.trim() || defaultValue) : rawValue;
+    };
+    const patchDraft = value => {
+      const nextValue = normalizeValue(value);
+      patchLineLabelsState(owner, { [normalizedKey]: nextValue }, { reason: `line-${mode3d ? '3d' : '2d'}-${normalizedKey}-label-draft` });
+      if(options.model?.axisLabels && normalizedKey !== 'title'){
+        options.model.axisLabels[normalizedKey] = nextValue;
+      }
+      const hot = getLineSessionHotManager(owner) || null;
+      if(normalizedKey === 'x' && !mode3d && hot && typeof hot.setDataAtCell === 'function'){
+        const data = hot.getData?.() || [];
+        const headerRow = Array.isArray(data[0]) ? data[0] : [];
+        let xIndex = headerRow.findIndex(value => String(value).trim().toLowerCase() === 'x');
+        if(xIndex < 0){ xIndex = 0; }
+        if((headerRow[xIndex] ?? '') !== nextValue){
+          hot.setDataAtCell([[0, xIndex, nextValue]], 'line-x-axis-inline-draft');
+        }
+      }else if(mode3d && normalizedKey !== 'title'){
+        syncLine3dAxisHeader(normalizedKey, nextValue, { hot, source: 'line-axis-inline-draft' });
+      }
+      Shared.textBlock?.markDraftModified?.(node, owner, 'line', `line-${mode3d ? '3d' : '2d'}-${normalizedKey}-label-draft`);
+      return nextValue;
+    };
+    const applyValue = value => {
+      const nextValue = normalizeValue(value);
       patchLineLabelsState(owner, { [normalizedKey]: nextValue }, { reason: `line-${mode3d ? '3d' : '2d'}-${normalizedKey}-label-edit` });
       if(options.model?.axisLabels && normalizedKey !== 'title'){
         options.model.axisLabels[normalizedKey] = nextValue;
@@ -757,7 +786,7 @@
       }else if(mode3d && normalizedKey !== 'title'){
         syncLine3dAxisHeader(normalizedKey, nextValue, { hot, source: 'line-axis-inline' });
       }
-      if(node.textContent !== nextValue){ node.textContent = nextValue; }
+      if(!Shared.fontControls?.setTitleText?.(node, nextValue) && node.textContent !== nextValue){ node.textContent = nextValue; }
       scheduleLineDrawForSession(owner, {
         renderImpact: 'layout',
         force: mode3d,
@@ -767,10 +796,30 @@
       return nextValue;
     };
     return makeEditableHelper(node, text => {
-      const previous = readValue();
+      const previous = editInitialValue != null ? editInitialValue : readValue();
       const nextValue = applyValue(text);
       if(previous !== nextValue){
         recordLineChange(normalizedKey === 'title' ? 'line:title' : `line:${normalizedKey}-label`, previous, nextValue, applyValue);
+      }
+    }, {
+      getInitialValue: readValue,
+      onEditCheckpoint: (currentValue, _target, reason) => {
+        const nextValue = normalizeValue(currentValue);
+        if(reason === 'history-restore'){
+          editInitialValue = nextValue;
+          return true;
+        }
+        const previous = editInitialValue != null ? editInitialValue : readValue();
+        if(previous === nextValue) return false;
+        recordLineChange(normalizedKey === 'title' ? 'line:title' : `line:${normalizedKey}-label`, previous, nextValue, applyValue);
+        editInitialValue = nextValue;
+        return true;
+      },
+      onEditStart: () => { editInitialValue = readValue(); },
+      onInput: patchDraft,
+      onEditEnd: (_target, finalValue) => {
+        if(readValue() !== normalizeValue(finalValue)) applyValue(finalValue);
+        editInitialValue = null;
       }
     }) === true;
   }
@@ -9907,7 +9956,7 @@
     }
     if(normalized === 'diamond'){
       const size = Math.max(radius * 2, 2);
-      const half = size / 2;
+      const half = symbolGeometry.resolveEqualAreaHalfExtent(normalized, size / 2);
       const path = `M ${cx} ${cy - half} L ${cx + half} ${cy} L ${cx} ${cy + half} L ${cx - half} ${cy} Z`;
       return create('path', {
         d: path,
@@ -11822,16 +11871,20 @@
           const role = axisKey === 'z' ? 'zTitle' : (axisKey === 'y' ? 'yTitle' : 'xTitle');
           const defaultLabel = axisKey === 'y' ? 'Y title' : (axisKey === 'z' ? 'Z' : 'X');
           const applyAxisLabel = value => {
-            const resolved = value != null && String(value).trim() ? String(value).trim() : defaultLabel;
+            const rawLabel = String(value == null ? '' : value).replace(/\r\n?/g, '\n');
+            const resolved = rawLabel.trim() ? rawLabel : defaultLabel;
             model.axisLabels[axisKey] = resolved;
             const patch = axisKey === 'x' ? { x: resolved } : (axisKey === 'y' ? { y: resolved } : { z: resolved });
             patchLineLabelsState(target, patch, { reason: 'line-3d-axis-label-edit' });
             syncLine3dAxisHeader(axisKey, resolved, { source: 'line-axis-inline' });
-            if(node.textContent !== resolved){ node.textContent = resolved; }
+            if(!Shared.fontControls?.setTitleText?.(node, resolved) && node.textContent !== resolved){ node.textContent = resolved; }
             scheduleLineDrawForSession(target, { renderImpact: 'layout', force: true, reason: `line-axis-label-${axisKey}` });
             return resolved;
           };
           markFontEditable(node, role, role);
+          if(String(model.axisLabels[axisKey] || '').includes('\n')){
+            Shared.fontControls?.setTitleText?.(node, model.axisLabels[axisKey]);
+          }
           makeEditableHelper(node, text => {
             const previous = model.axisLabels[axisKey] || '';
             const nextValue = applyAxisLabel(text);
@@ -14767,6 +14820,12 @@
         shiftX: legendShiftX
       });
       const line3dAxisLabels = { x: lineLabelsState.x, y: lineLabelsState.y, z: lineLabelsState.z };
+      const line3dTitleBlocks = {
+        graphTitle: chartStyle.resolveTitleBlockLayout({ text: lineLabelsState.title, role: 'graphTitle', styles: line3dFontStyles, fallbackPx: fs }),
+        xTitle: chartStyle.resolveTitleBlockLayout({ text: lineLabelsState.x, role: 'xTitle', styles: line3dFontStyles, fallbackPx: fs }),
+        yTitle: chartStyle.resolveTitleBlockLayout({ text: lineLabelsState.y, role: 'yTitle', styles: line3dFontStyles, fallbackPx: fs }),
+        zTitle: chartStyle.resolveTitleBlockLayout({ text: lineLabelsState.z, role: 'zTitle', styles: line3dFontStyles, fallbackPx: fs })
+      };
       const line3dSafeViewport = typeof plot3d.resolveRotationSafeViewport === 'function'
         ? plot3d.resolveRotationSafeViewport({
             width: W3,
@@ -14778,26 +14837,34 @@
             fontSize: fs,
             tickFontSize: line3dTickFontSize,
             axisStrokeWidth,
+            titleBlocks: line3dTitleBlocks,
             chartStyle,
             rotationLimits: plot3d.DEFAULT_ROTATION_LIMITS
           })
         : { minX: 0, minY: 0, maxX: W3, maxY: H3, left: 0, top: 0, right: 0, bottom: 0, width: W3, height: H3 };
       if(typeof plot3d.resolveRotationSafeMargin === 'function'){
         Object.assign(margin3, plot3d.resolveRotationSafeMargin({ margin: margin3, safeViewport: line3dSafeViewport }));
-        legendShiftX = typeof plot3d.resolveLegendShiftX === 'function'
-          ? plot3d.resolveLegendShiftX({ legendVisible, margin: margin3, fontSize: fs, legendWidth: lineLegendWidth })
-          : 0;
-        plotW3 = Math.max(20, W3 - margin3.left - margin3.right);
-        plotH3 = Math.max(20, H3 - margin3.top - margin3.bottom);
-        projector = plot3d.createProjector({
-          rotatedPoints,
-          rotatedCorners,
-          width: W3,
-          height: H3,
-          margin: margin3,
-          shiftX: legendShiftX
-        });
       }
+      const line3dTitleFrame = typeof plot3d.resolveTitleFrame === 'function'
+        ? plot3d.resolveTitleFrame({ width: W3, height: H3, margin: margin3, titleBlocks: line3dTitleBlocks, fontSize: fs })
+        : { width: W3, height: H3, margin: { ...margin3 }, plotWidth: W3 - margin3.left - margin3.right, plotHeight: H3 - margin3.top - margin3.bottom, titleExtensions: { graphTitle: 0, axisTitles: { x: 0, y: 0, z: 0 }, right: 0, bottom: 0 } };
+      const line3dTitleExtensions = line3dTitleFrame.titleExtensions;
+      Object.assign(margin3, line3dTitleFrame.margin);
+      const line3dFrameWidth = line3dTitleFrame.width;
+      const line3dFrameHeight = line3dTitleFrame.height;
+      legendShiftX = typeof plot3d.resolveLegendShiftX === 'function'
+        ? plot3d.resolveLegendShiftX({ legendVisible, margin: margin3, fontSize: fs, legendWidth: lineLegendWidth })
+        : 0;
+      plotW3 = Math.max(20, line3dTitleFrame.plotWidth);
+      plotH3 = Math.max(20, line3dTitleFrame.plotHeight);
+      projector = plot3d.createProjector({
+        rotatedPoints,
+        rotatedCorners,
+        width: line3dFrameWidth,
+        height: line3dFrameHeight,
+        margin: margin3,
+        shiftX: legendShiftX
+      });
 
       const frontFrameLayer = global.document.createElementNS(NS, 'g');
       frontFrameLayer.setAttribute('data-layer', 'frame-front');
@@ -14845,8 +14912,8 @@
           const role = axisKey === 'z' ? 'zTitle' : (axisKey === 'y' ? 'yTitle' : 'xTitle');
           const defaultLabel = axisKey === 'y' ? 'Y title' : (axisKey === 'z' ? 'Z' : 'X');
           const applyAxisLabel = (value) => {
-            const trimmed = value != null ? String(value).trim() : '';
-            const resolved = trimmed || defaultLabel;
+            const rawLabel = String(value == null ? '' : value).replace(/\r\n?/g, '\n');
+            const resolved = rawLabel.trim() ? rawLabel : defaultLabel;
             const current = axisKey === 'x'
               ? lineLabelsState.x
               : (axisKey === 'y' ? lineLabelsState.y : lineLabelsState.z);
@@ -14858,13 +14925,16 @@
               : (axisKey === 'y' ? { y: resolved } : { z: resolved });
             lineLabelsState = patchLineLabelsState(invocation.session, patch, { reason: 'line-3d-axis-label-edit' });
             syncLine3dAxisHeader(axisKey, resolved, { source: 'line-axis-inline' });
-            if(node.textContent !== resolved){
+            if(!Shared.fontControls?.setTitleText?.(node, resolved) && node.textContent !== resolved){
               node.textContent = resolved;
             }
             scheduleActiveLineDraw({ reason: `line-3d-axis-label-${axisKey}`, renderImpact: 'layout' });
             return resolved;
           };
           markFontEditable(node, role, role);
+          if(String(line3dAxisLabels[axisKey] || '').includes('\n')){
+            Shared.fontControls?.setTitleText?.(node, line3dAxisLabels[axisKey]);
+          }
           makeEditableHelper(node, text => {
             const previous = axisKey === 'x'
               ? (lineLabelsState.x ?? '')
@@ -15044,8 +15114,9 @@
         }
       }
 
+      const titleBaselineTop = margin3.top - line3dTitleExtensions.graphTitle;
       const defaultTitle = typeof plot3d.resolveDefaultTitlePosition === 'function'
-        ? plot3d.resolveDefaultTitlePosition({ margin: margin3, plotWidth: plotW3, fontSize: fs })
+        ? plot3d.resolveDefaultTitlePosition({ margin: { ...margin3, top: titleBaselineTop }, plotWidth: plotW3, fontSize: fs })
         : { x: margin3.left + plotW3 / 2, y: Math.max(margin3.top * 0.4, fs * 1.6) };
       const defaultTitleX = defaultTitle.x;
       const defaultTitleY = defaultTitle.y;
@@ -15058,7 +15129,7 @@
         if (titlePos.relX !== undefined && titlePos.relY !== undefined) {
           // Use relative positioning
           absoluteTitleX = margin3.left + titlePos.relX * plotW3;
-          absoluteTitleY = margin3.top + titlePos.relY * plotH3;
+          absoluteTitleY = titleBaselineTop + titlePos.relY * plotH3;
         } else if (titlePos.x !== undefined && titlePos.y !== undefined) {
           // Use saved absolute positioning when no relative anchor is present
           absoluteTitleX = titlePos.x;
@@ -15076,6 +15147,9 @@
       title3d.textContent = lineLabelsState.title;
       svg3.appendChild(title3d);
       markFontEditable(title3d, 'graphTitle', 'graphTitle');
+      if(String(lineLabelsState.title || '').includes('\n')){
+        Shared.fontControls?.setTitleText?.(title3d, lineLabelsState.title);
+      }
       plot3d.applyLegendPointerGuards(title3d, { label: 'line-title-3d' });
       bindLineInlineTextInteraction(title3d, invocation.session, 'title', { mode: '3d' });
       if(typeof Shared.enableLabelDrag === 'function'){
@@ -15083,7 +15157,7 @@
           onDragEnd: pos => {
             // Store both absolute and relative positions for 3D title
             const relX = (pos.x - margin3.left) / plotW3;
-            const relY = (pos.y - margin3.top) / plotH3;
+            const relY = (pos.y - titleBaselineTop) / plotH3;
             const nextPositions = cloneLineRuntimeValue(getLineLabelsState(invocation.session).positions, {}) || {};
             nextPositions.title = {
               x: pos.x,
@@ -15154,8 +15228,8 @@
       };
       const line3dRotationModel = normalizeLine3dRotationModel({
         version: LINE_3D_ROTATION_MODEL_VERSION,
-        width: W3,
-        height: H3,
+        width: line3dFrameWidth,
+        height: line3dFrameHeight,
         margin: margin3,
         legendShiftX,
         axisRanges: renderAxisRanges3d,
@@ -15199,13 +15273,13 @@
             svg: svg3,
             baseWidth: baseW3,
             baseHeight: H3,
-            canonicalWidth: W3,
-            canonicalHeight: H3,
+            canonicalWidth: line3dFrameWidth,
+            canonicalHeight: line3dFrameHeight,
             legendWidth: legendVisible ? lineLegendWidth + appliedLegendAxisGap : 0,
             safeViewport: line3dSafeViewport
           })
         : null;
-      const line3dViewport = { minX: 0, minY: 0, width: W3, height: H3 };
+      const line3dViewport = { minX: 0, minY: 0, width: line3dFrameWidth, height: line3dFrameHeight };
       // 3D plots must scale uniformly: the content (projected cube, axis labels,
       // title, legend, and every glyph) is laid out in fixed viewBox coordinates and
       // must NEVER be non-uniformly stretched to fill a container of a different
@@ -16031,11 +16105,17 @@
         component: 'line',
         generation: lineOwnerGeneration
       };
+      const lineTitleBlocks = {
+        graphTitle: chartStyle.resolveTitleBlockLayout({ text: lineLabelsState.title, role: 'graphTitle', styles: lineFontStyles, fallbackPx: fs }),
+        xTitle: chartStyle.resolveTitleBlockLayout({ text: lineLabelsState.x, role: 'xTitle', styles: lineFontStyles, fallbackPx: fs }),
+        yTitle: chartStyle.resolveTitleBlockLayout({ text: lineLabelsState.y, role: 'yTitle', styles: lineFontStyles, fallbackPx: fs })
+      };
       let lineCartesianPlan = Shared.cartesianLayout?.planCartesianLayout?.({
         owner: lineLayoutOwner,
         userFrame: { width: W, height: H },
         baselineMargins: margin,
         requiredMargins,
+        titleBlocks: lineTitleBlocks,
         auxiliaryReserves: [],
         externalExtensions: { right: legendWidth },
         orientation: 'normal',
@@ -17394,7 +17474,9 @@
         });
       }
       const yLabelOffsetSpan = maxYLabelWidth + yMajorTickLength + tickGap + axisMetrics.axisTitleGap + fs * 0.5;
-      const defaultYX = margin.left - yLabelOffsetSpan;
+      const lineTitleShiftX = lineCartesianPlan?.plotTranslation?.x || 0;
+      const lineTitleShiftY = lineCartesianPlan?.plotTranslation?.y || 0;
+      const defaultYX = margin.left - yLabelOffsetSpan - lineTitleShiftX;
       const defaultYY = margin.top+plotH/2;
       const yLabelPos = lineLabelsState.positions?.yLabel;
 
@@ -17404,7 +17486,7 @@
       if (yLabelPos) {
         if (yLabelPos.relX !== undefined && yLabelPos.relY !== undefined) {
           // Use relative positioning
-          absoluteYTextX = margin.left + yLabelPos.relX * yLabelOffsetSpan;
+          absoluteYTextX = margin.left + yLabelPos.relX * yLabelOffsetSpan - lineTitleShiftX;
           absoluteYTextY = margin.top + yLabelPos.relY * plotH;
         } else if (yLabelPos.x !== undefined && yLabelPos.y !== undefined) {
           // Use saved absolute positioning when no relative anchor is present
@@ -17422,7 +17504,7 @@
         Shared.enableLabelDrag(yText, svg, {
           onDragEnd: pos => {
             // Store both absolute and relative positions for yLabel
-            const relX = (pos.x - margin.left) / yLabelOffsetSpan;
+            const relX = (pos.x - margin.left + lineTitleShiftX) / yLabelOffsetSpan;
             const relY = (pos.y - margin.top) / plotH;
             const nextPositions = cloneLineRuntimeValue(getLineLabelsState(invocation.session).positions, {}) || {};
             nextPositions.yLabel = {
@@ -17437,7 +17519,7 @@
         });
       }
       const defaultTitleX = margin.left+plotW/2;
-      const defaultTitleY = margin.top/2;
+      const defaultTitleY = (margin.top - lineTitleShiftY) / 2;
       const titlePos = lineLabelsState.positions?.title;
 
       // Convert relative positions to absolute if needed
@@ -17447,7 +17529,7 @@
         if (titlePos.relX !== undefined && titlePos.relY !== undefined) {
           // Use relative positioning
           absoluteTitleX = margin.left + titlePos.relX * plotW;
-          absoluteTitleY = margin.top + titlePos.relY * plotH;
+          absoluteTitleY = margin.top + titlePos.relY * plotH - lineTitleShiftY;
         } else if (titlePos.x !== undefined && titlePos.y !== undefined) {
           // Use saved absolute positioning when no relative anchor is present
           absoluteTitleX = titlePos.x;
@@ -17465,7 +17547,7 @@
           onDragEnd: pos => {
             // Store both absolute and relative positions
             const relX = (pos.x - margin.left) / plotW;
-            const relY = (pos.y - margin.top) / plotH;
+            const relY = (pos.y - margin.top + lineTitleShiftY) / plotH;
             const nextPositions = cloneLineRuntimeValue(getLineLabelsState(invocation.session).positions, {}) || {};
             nextPositions.title = {
               x: pos.x,
@@ -17515,13 +17597,14 @@
           userFrame: lineCartesianPlan.userFrame,
           baselineMargins: lineCartesianPlan.baselineMargins,
           requiredMargins: lineCartesianPlan.requiredMargins,
+          titleBlocks: lineTitleBlocks,
           auxiliaryReserves: [],
           externalExtensions: { right: legendWidth },
           orientation: 'normal',
           lock: lineCartesianPlan.lock,
           plotConstraint,
           minimumPlot: lineCartesianPlan.minimumPlot,
-          contentBounds: {
+          contentBounds: measuredLineViewport.renderedContentBounds || {
             minX: measuredLineViewport.minX,
             minY: measuredLineViewport.minY,
             maxX: measuredLineViewport.maxX,
@@ -17540,7 +17623,7 @@
               && (!invocation.session || isLineSessionActive(invocation.session)),
             projectionTarget: svg,
             commitFrame: () => svgPublication.commit(),
-            commitPresentation: () => legendProjection.commit()
+            commitPresentation: plan => legendProjection.commit(plan)
           })
         : false;
       if(lineCartesianPlan && !lineLayoutPublished){
@@ -19480,6 +19563,7 @@
     const svg = sourceSvg || (refs.plot || refs.root?.querySelector?.('#linePlot') || getLineNodeById('linePlot'))?.querySelector?.('#lineSvg') || null;
     const ownerTabId = getLineProjectionTabId() || getLineActiveSessionForState()?.tabId || tabId || null;
     const extra = {
+      symbolGeometryVersion: symbolGeometry.RENDER_GEOMETRY_VERSION,
       viewMode: svg?.dataset?.viewMode || null,
       width: svg?.getAttribute?.('width') || '',
       height: svg?.getAttribute?.('height') || '',
@@ -19493,7 +19577,9 @@
     const graphPayload = resolveLineGraphCachePayload(cache);
     if(!lineFragmentPayloadHasGraph(graphPayload)){ return false; }
     const meta = getLineRenderCacheMetadata(cache);
-    return !meta || meta.type === 'line';
+    return !!meta
+      && meta.type === 'line'
+      && symbolGeometry.isRenderCacheCurrent(cache);
   }
 
   function canRestoreLineRenderCache(cache, meta = {}){
@@ -19530,7 +19616,10 @@
     // but restore policy and cache invalidation remain owned by domControls/session.
     const tabId = tab?.id || null;
     const activeTabId = global.Main?.session?.workspaceState?.activeTabId || null;
-    const cachePayload = resolveLineGraphCachePayload(tab?.renderCache?.cache || tab?.archiveRenderCache?.cache || null);
+    const renderCache = tab?.renderCache?.cache || tab?.archiveRenderCache?.cache || null;
+    const cachePayload = symbolGeometry.isRenderCacheCurrent(renderCache)
+      ? resolveLineGraphCachePayload(renderCache)
+      : null;
     if(tabId && tabId !== activeTabId && cachePayload?.fragment && typeof cachePayload.fragment.querySelector === 'function'){
       const cachedSvg = cachePayload.fragment.querySelector('#lineSvg') || cachePayload.fragment.querySelector('svg');
       if(cachedSvg && lineSvgHasMeaningfulContent(cachedSvg)){

@@ -78,14 +78,8 @@ describe('stats.adjustPValues — reference-value correctness', () => {
       0.20 * 4 * H / 4,  // rank 4; first from top = 0.20*H*1
       0.06 * 4 * H / 3,  // rank 3
     ];
-    // After cummin from top: rank4=0.20*H, rank3=0.06*4*H/3, rank2=0.04*4*H/2, rank1=0.01*4*H
-    // All clamped to 1 if > 1
-    const raw4 = Math.min(1, 0.20 * 4 * H / 4);
-    const raw3 = Math.min(1, Math.min(raw4, 0.06 * 4 * H / 3));
-    const raw2 = Math.min(1, Math.min(raw3, 0.04 * 4 * H / 2));
-    const raw1 = Math.min(1, Math.min(raw2, 0.01 * 4 * H / 1));
     const adj = stats.adjustPValues(P, { method: 'by' });
-    expectClose(adj, [raw1, raw2, raw4, raw3], 'by');
+    expectClose(adj, expected, 'by');
   });
 
   test('all methods produce values in [0, 1]', () => {

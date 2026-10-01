@@ -1,6 +1,6 @@
 const { test, expect } = require('@playwright/test');
 const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
-const { openComponentFromWelcome, clickExampleButtonIfPresent } = require('../helpers/workspaceDriver');
+const { openComponentFromWelcome, clickExpectedExampleButton } = require('../helpers/workspaceDriver');
 const { registerIssueCollectors } = require('../helpers/diagnostics');
 const { waitForAnimationFrame, waitForComponentOwnerReady } = require('../helpers/contractWaits');
 
@@ -57,7 +57,7 @@ test('surface rotation keeps the graph viewport and rendered frame stable', asyn
   await installLocalCdnOverrides(page);
   await page.goto('/index.html');
   await openComponentFromWelcome(page, { type: 'surface', pageId: 'surfacePage' }, { first: true });
-  await clickExampleButtonIfPresent(page, 'surfaceLoadExample');
+  await clickExpectedExampleButton(page, 'surfaceLoadExample');
   await page.waitForFunction(() => (
     document.querySelectorAll('#surfacePage:not([hidden]) #surfaceSvg g.surface-faces polygon').length > 0
   ));

@@ -1,5 +1,5 @@
 const { test, expect } = require('@playwright/test');
-const { COMPONENT_MATRIX, openComponentFromWelcome, clickExampleButtonIfPresent } = require('../helpers/workspaceDriver');
+const { COMPONENT_MATRIX, openComponentFromWelcome, clickExpectedExampleButton } = require('../helpers/workspaceDriver');
 const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
 
 const PREVIEW_COMPONENTS = COMPONENT_MATRIX
@@ -17,27 +17,6 @@ async function activateWelcomeTab(page) {
     const active = state?.tabs?.find(tab => tab?.id === state.activeTabId);
     return !!active?.isWelcome;
   }, null, { timeout: 20000 });
-}
-
-async function captureActivePreview(page) {
-  return page.evaluate(() => {
-    const state = window.Main?.session?.workspaceState;
-    const tab = state?.tabs?.find(item => item?.id === state.activeTabId);
-    const config = tab?.type ? window.Main?.components?.registry?.[tab.type] : null;
-    if (!tab || !config || typeof window.Main?.previews?.updateTabPreviewFromWorkspace !== 'function') {
-      return null;
-    }
-    window.Main.previews.updateTabPreviewFromWorkspace(tab, config, {
-      forceCapture: true,
-      reason: 'e2e-non-canvas-preview'
-    });
-    return {
-      tabId: tab.id,
-      type: tab.type,
-      markup: tab.previewMarkup || '',
-      meta: tab.previewMeta || null
-    };
-  });
 }
 
 async function captureActivePreviewWithRetry(page, expectedType) {
@@ -72,7 +51,7 @@ test.describe('Tab previews', () => {
       await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
 
       await openComponentFromWelcome(page, component, { first: true });
-      await clickExampleButtonIfPresent(page, component.exampleButtonId);
+      await clickExpectedExampleButton(page, component.exampleButtonId);
       await page.waitForFunction(type => {
         const state = window.Main?.session?.workspaceState || null;
         const tab = state?.tabs?.find(item => item?.id === state.activeTabId) || null;

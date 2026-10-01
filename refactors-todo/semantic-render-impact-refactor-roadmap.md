@@ -296,7 +296,7 @@ Rules for execution:
 Files:
 
 - `js/shared/componentLifecycle.js`
-- `test-support/componentLifecycleCoreSuite.js`
+- `test-support/componentLifecycleTestSetup.js`
 - `__tests__/unit/*componentLifecycle*`
 - `issues.txt`
 

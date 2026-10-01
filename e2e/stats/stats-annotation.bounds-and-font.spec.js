@@ -1,6 +1,6 @@
 const { test, expect } = require('@playwright/test');
 const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
-const { openComponentFromWelcome, clickExampleButtonIfPresent } = require('../helpers/workspaceDriver');
+const { openComponentFromWelcome, clickExpectedExampleButton } = require('../helpers/workspaceDriver');
 const { registerIssueCollectors } = require('../helpers/diagnostics');
 
 async function expectAnnotationInsideSvg(annotation){
@@ -57,7 +57,7 @@ test('Line plot statistics stay multiline, clear of the example lines, and bound
   await page.setViewportSize({ width: 1920, height: 1080 });
   await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
   await openComponentFromWelcome(page, { type: 'line', pageId: 'linePage' }, { first: true });
-  await clickExampleButtonIfPresent(page, 'lineLoadExample');
+  await clickExpectedExampleButton(page, 'lineLoadExample');
 
   await expect(page.locator('#lineComputeStats')).toBeEnabled({ timeout: 20_000 });
   await page.locator('#lineComputeStats').click();
@@ -125,7 +125,7 @@ test('Scatter plot statistics are right-aligned and cannot cross the SVG edge', 
   await page.setViewportSize({ width: 1920, height: 1080 });
   await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
   await openComponentFromWelcome(page, { type: 'scatter', pageId: 'scatterPage' }, { first: true });
-  await clickExampleButtonIfPresent(page, 'scatterLoadExample');
+  await clickExpectedExampleButton(page, 'scatterLoadExample');
 
   await expect(page.locator('#scatterComputeStats')).toBeEnabled({ timeout: 20_000 });
   await page.locator('#scatterComputeStats').click();

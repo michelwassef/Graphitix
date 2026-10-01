@@ -3,6 +3,7 @@
 
 const { TextEncoder, TextDecoder } = require('util');
 const { createJStatTestStub } = require('../helpers/jstatTestStub');
+require('./scrollPolyfill');
 require('../../js/shared/palette.js');
 require('../../js/shared/performance.js');
 require('../../js/shared/workspaceToolbarAccess.js');

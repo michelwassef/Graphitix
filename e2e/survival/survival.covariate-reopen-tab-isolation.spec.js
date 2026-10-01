@@ -1,5 +1,5 @@
-const fs = require('fs');
 const { test, expect } = require('@playwright/test');
+const { openWorkspaceArchive, saveWorkspaceArchive } = require('../helpers/archiveDriver');
 const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
 const { openComponentFromWelcome, waitForDocumentOpenComplete } = require('../helpers/workspaceDriver');
 const { registerIssueCollectors } = require('../helpers/diagnostics');
@@ -153,29 +153,17 @@ function expectCovariates(snapshot, expectedPayload) {
 }
 
 async function captureWorkspaceArchive(page, archivePath) {
-  const archive = await page.evaluate(async () => {
-    const context = window.Main.tabs.getSessionActionsContext();
-    const blob = await window.Main.sessionActions.buildWorkspaceArchiveBlob(context, {
-      scope: 'workspace',
-      snapshotKind: 'document-snapshot',
-      compression: 'STORE',
-      reason: 'e2e-survival-covariate-reopen-isolation'
-    });
-    const bytes = new Uint8Array(await blob.arrayBuffer());
-    let binary = '';
-    for (let i = 0; i < bytes.length; i += 0x8000) {
-      binary += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
-    }
-    return { fileName: 'survival-covariate-reopen-isolation.graph', base64: btoa(binary) };
+  await saveWorkspaceArchive(page, archivePath, {
+    scope: 'workspace',
+    snapshotKind: 'document-snapshot',
+    compression: 'STORE',
+    reason: 'e2e-survival-covariate-reopen-isolation'
   });
-  fs.writeFileSync(archivePath, Buffer.from(archive.base64, 'base64'));
   return archivePath;
 }
 
 async function reopenArchive(page, archivePath) {
-  await page.reload({ waitUntil: 'domcontentloaded' });
-  await expect(page.locator('#welcomeScreen')).toBeVisible({ timeout: 20_000 });
-  await page.locator('#workspaceSessionInput').setInputFiles(archivePath);
+  await openWorkspaceArchive(page, archivePath, { timeout: 60_000 });
   await waitForDocumentOpenComplete(page);
   await page.waitForFunction(() => {
     const state = window.Main?.session?.workspaceState || {};

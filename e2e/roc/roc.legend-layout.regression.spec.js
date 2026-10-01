@@ -1,6 +1,6 @@
 const { test, expect } = require('@playwright/test');
 const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
-const { openComponentFromWelcome, clickExampleButtonIfPresent } = require('../helpers/workspaceDriver');
+const { openComponentFromWelcome, clickExpectedExampleButton } = require('../helpers/workspaceDriver');
 
 async function waitForRocLayout(page, showLegend) {
   await page.waitForFunction((expectedLegend) => {
@@ -66,7 +66,7 @@ test('ROC publishes final layout and legend visibility from the changed checkbox
   await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
   await expect(page.locator('#welcomeScreen')).toBeVisible({ timeout: 20_000 });
   await openComponentFromWelcome(page, { type: 'roc', pageId: 'rocPage' }, { first: true });
-  await clickExampleButtonIfPresent(page, 'rocLoadExample');
+  await clickExpectedExampleButton(page, 'rocLoadExample');
   await waitForRocLayout(page, true);
   await expectRocLayoutStable(page);
   await page.waitForFunction(() => {

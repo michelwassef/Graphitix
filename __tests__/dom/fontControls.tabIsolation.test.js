@@ -60,6 +60,8 @@ describe('fontControls tab-scoped style isolation', () => {
     `;
     require('../../js/vendor.js');
     require('../../js/shared/undo.js');
+    require('../../js/shared/styleUndo.js');
+    require('../../js/shared/textBlock.js');
     require('../../js/shared/fontControls.js');
     window.Shared.undoManager.clear();
   });
@@ -340,6 +342,94 @@ describe('fontControls tab-scoped style isolation', () => {
     expect(axis.getAttribute('font-size')).toBe('12px');
     expect(title.getAttribute('font-family')).toBe('Georgia');
     expect(axis.getAttribute('font-family')).toBe('Arial');
+  });
+
+  test('title alignment toolbar persists, applies to every line, and undoes by owner', () => {
+    const fontControls = window.Shared?.fontControls;
+    const title = createSvgText('A long line\nshort');
+    title.setAttribute('x', '100');
+    title.setAttribute('y', '24');
+    title.setAttribute('text-anchor', 'middle');
+
+    setActiveTab('tab-box-1');
+    fontControls.markText(title, { scopeId: 'box', role: 'graphTitle', key: 'graphTitle', tabId: 'tab-box-1' });
+    fontControls.openForElement(title, { scopeId: 'box', key: 'graphTitle', tabId: 'tab-box-1' });
+
+    const controls = document.querySelector('.font-controls-panel__controls');
+    const colorField = controls.querySelector('.font-controls-panel__field--color');
+    const alignmentField = controls.querySelector('.font-controls-panel__field--alignment');
+    expect(colorField.nextElementSibling).toBe(alignmentField);
+    const left = alignmentField.querySelector('[data-text-align="left"]');
+    expect(left.disabled).toBe(false);
+    left.click();
+
+    expect(title.dataset.titleTextAlign).toBe('left');
+    expect(title.getAttribute('text-anchor')).toBe('middle');
+    const alignedRows = Array.from(title.children).filter(row => row.matches('[data-title-line="1"]'));
+    const expectedLeftEdge = 100 - Number(title.dataset.titleBlockWidth) / 2;
+    expect(alignedRows.map(row => [Number(row.getAttribute('x')), row.getAttribute('text-anchor')]))
+      .toEqual([[expectedLeftEdge, 'start'], [expectedLeftEdge, 'start']]);
+    expect(fontControls.exportScopeStyles('box', { tabId: 'tab-box-1' }).graphTitle.textAlign).toBe('left');
+
+    expect(window.Shared.undoManager.undo()).toBe(true);
+    expect(title.dataset.titleTextAlign).toBe('center');
+    expect(title.getAttribute('text-anchor')).toBe('middle');
+    expect(window.Shared.undoManager.redo()).toBe(true);
+    expect(fontControls.exportScopeStyles('box', { tabId: 'tab-box-1' }).graphTitle.textAlign).toBe('left');
+  });
+
+  test('Graph alignment is available from a tick, shows mixed titles, prunes selection overrides, and restores them on undo', () => {
+    const fontControls = window.Shared?.fontControls;
+    const svg = document.createElementNS(NS, 'svg');
+    const addText = (text, role, key) => {
+      const node = document.createElementNS(NS, 'text');
+      node.textContent = text;
+      node.setAttribute('text-anchor', 'middle');
+      svg.appendChild(node);
+      fontControls.markText(node, { scopeId: 'box', role, key, tabId: 'tab-box-1' });
+      return node;
+    };
+    const graphTitle = addText('Graph title', 'graphTitle', 'graphTitle');
+    const axisTitle = addText('Axis title', 'yTitle', 'yTitle');
+    const tick = addText('1', 'yTick', 'yTick-0');
+    document.body.appendChild(svg);
+
+    setActiveTab('tab-box-1');
+    fontControls.importScopeStyles('box', {
+      graphTitle: { textAlign: 'right' }
+    }, { tabId: 'tab-box-1', prune: true });
+    fontControls.openForElement(tick, { scopeId: 'box', key: 'yTick-0', tabId: 'tab-box-1' });
+    const alignmentField = document.querySelector('.font-controls-panel__field--alignment');
+    const left = alignmentField.querySelector('[data-text-align="left"]');
+    expect(left.disabled).toBe(true);
+    expect(left.getAttribute('aria-describedby')).toBe('font-controls-alignment-help');
+
+    setToolbarScope('graph');
+    expect(left.disabled).toBe(false);
+    expect(alignmentField.dataset.mixed).toBe('true');
+    expect(alignmentField.querySelector('#font-controls-alignment-help').textContent).toContain('mixed');
+    expect(left.getAttribute('aria-pressed')).toBe('false');
+    left.click();
+
+    let styles = fontControls.exportScopeStyles('box', { tabId: 'tab-box-1' });
+    expect(styles.__graph__.textAlign).toBe('left');
+    expect(styles.graphTitle).toBeUndefined();
+    expect(graphTitle.dataset.titleTextAlign).toBe('left');
+    expect(axisTitle.dataset.titleTextAlign).toBe('left');
+    expect(tick.getAttribute('text-anchor')).toBe('middle');
+
+    expect(window.Shared.undoManager.undo()).toBe(true);
+    styles = fontControls.exportScopeStyles('box', { tabId: 'tab-box-1' });
+    expect(styles.__graph__).toBeUndefined();
+    expect(styles.graphTitle.textAlign).toBe('right');
+    expect(graphTitle.dataset.titleTextAlign).toBe('right');
+    expect(axisTitle.dataset.titleTextAlign).toBe('center');
+
+    expect(window.Shared.undoManager.redo()).toBe(true);
+    styles = fontControls.exportScopeStyles('box', { tabId: 'tab-box-1' });
+    expect(styles.__graph__.textAlign).toBe('left');
+    expect(styles.graphTitle).toBeUndefined();
+    expect(axisTitle.dataset.titleTextAlign).toBe('left');
   });
 
   test('point-label font size supports individual and all-label scopes without affecting other graph text', () => {

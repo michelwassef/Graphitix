@@ -62,7 +62,7 @@ function loadCsvMatrix(csvPath){
 
 function getTestBoxMatrix(){
   if(!cachedTestBoxMatrix){
-    const csvPath = path.join(__dirname, '..', '__tests__', 'test-box.csv');
+    const csvPath = path.join(__dirname, '..', '__tests__', 'fixtures', 'box', 'v1', 'test-box.csv');
     cachedTestBoxMatrix = loadCsvMatrix(csvPath);
   }
   return cachedTestBoxMatrix;

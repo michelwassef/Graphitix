@@ -1,6 +1,6 @@
 const { test, expect } = require('@playwright/test');
 const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
-const { openComponentFromWelcome, clickExampleButtonIfPresent, waitForDocumentOpenComplete } = require('../helpers/workspaceDriver');
+const { openComponentFromWelcome, clickExpectedExampleButton, waitForDocumentOpenComplete } = require('../helpers/workspaceDriver');
 const { registerIssueCollectors } = require('../helpers/diagnostics');
 const { saveWorkspaceArchive } = require('../helpers/archiveDriver');
 
@@ -48,7 +48,7 @@ async function openBoxTab(page, { first }) {
   await page.waitForFunction(() => typeof window.Components?.box?.getPayload === 'function', null, {
     timeout: 25_000
   });
-  await clickExampleButtonIfPresent(page, 'boxLoadExample');
+  await clickExpectedExampleButton(page, 'boxLoadExample');
   await page.waitForFunction(selector => {
     const state = window.Main?.session?.workspaceState;
     const active = state?.tabs?.find(tab => tab?.id === state.activeTabId) || null;

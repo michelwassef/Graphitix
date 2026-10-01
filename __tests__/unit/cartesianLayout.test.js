@@ -32,6 +32,107 @@ describe('Cartesian layout transaction', () => {
     }));
   });
 
+  test('multiline title metrics preserve plot size and shift the plot without guessing SVG overflow', () => {
+    const plan = planner().planCartesianLayout({
+      ...baseInput(),
+      titleBlocks: {
+        graphTitle: { text: 'Graph\nsubtitle', fontSize: 10 },
+        xTitle: { text: 'X\naxis', fontSize: 10 },
+        yTitle: { text: 'Y\naxis\nunits', fontSize: 10 }
+      }
+    });
+
+    expect(plan.basePlotRect).toEqual({ x: 70, y: 30, width: 410, height: 310 });
+    expect(plan.plotRect).toEqual({ x: 90, y: 40, width: 410, height: 310 });
+    expect(plan.plotTranslation).toEqual({ x: 20, y: 10 });
+    expect(plan.titleLineExtensions).toEqual({ top: 0, right: 20, bottom: 20, left: 0 });
+    expect(plan.contentEnvelope).toEqual(expect.objectContaining({
+      maxX: 520,
+      maxY: 420,
+      extensionRight: 20,
+      extensionBottom: 20
+    }));
+    expect(plan.lock.frameInsets).toEqual(expect.objectContaining({ left: 70, top: 30 }));
+    expect(plan.lock.frameInsets.right).toBe(20);
+    expect(plan.lock.frameInsets.bottom).toBe(60);
+  });
+
+  test('moves plots by exact line advances and settles the envelope to measured overflow', () => {
+    const graphTitle = planner().planCartesianLayout({
+      ...baseInput(),
+      titleBlocks: {
+        graphTitle: { text: 'Title\nline 2\nline 3', fontSize: 10, lineHeight: 13 }
+      },
+      contentBounds: { minX: 0, minY: 0, maxX: 500, maxY: 409 }
+    });
+    const axes = planner().planCartesianLayout({
+      ...baseInput(),
+      titleBlocks: {
+        xTitle: { text: 'X\nline 2\nline 3\nline 4', fontSize: 10, lineHeight: 7 },
+        yTitle: { text: 'Y\nline 2\nline 3', fontSize: 10, lineHeight: 11 }
+      },
+      contentBounds: { minX: -4, minY: 0, maxX: 507, maxY: 403 }
+    });
+
+    expect(graphTitle.plotTranslation.y).toBe(26);
+    expect(graphTitle.plotRect.y - graphTitle.basePlotRect.y).toBe(26);
+    expect(graphTitle.plotRect.height).toBe(graphTitle.basePlotRect.height);
+    expect(graphTitle.contentEnvelope.extensionBottom).toBe(9);
+    expect(axes.plotTranslation).toEqual({ x: 22, y: 0 });
+    expect(axes.contentEnvelope.extensionLeft).toBe(4);
+    expect(axes.contentEnvelope.extensionRight).toBe(7);
+    expect(axes.contentEnvelope.extensionBottom).toBe(3);
+    expect(axes.plotRect.width).toBe(axes.basePlotRect.width);
+    expect(axes.plotRect.height).toBe(axes.basePlotRect.height);
+  });
+
+  test('defaults title reserves to one effective font-size unit when no line height is supplied', () => {
+    const plan = planner().planCartesianLayout({
+      ...baseInput(),
+      titleBlocks: {
+        graphTitle: { text: 'Title\nsecond line', fontSize: 18 }
+      }
+    });
+
+    expect(plan.titleBlocks.graphTitle.lineHeight).toBe(18);
+    expect(plan.plotTranslation.y).toBe(18);
+    expect(plan.titleLineExtensions.bottom).toBe(18);
+  });
+
+  test('flipped title rails use their rendered outward sides and preserve plot dimensions', () => {
+    const plan = planner().planCartesianLayout({
+      ...baseInput(),
+      orientation: 'flipped',
+      titleBlocks: {
+        xTitle: { text: 'Vertical label\nline 2', lineHeight: 17 },
+        yTitle: { text: 'Horizontal label\nline 2\nline 3', lineHeight: 9 }
+      }
+    });
+
+    expect(plan.titleBlocks.xTitle.side).toBe('left');
+    expect(plan.titleBlocks.yTitle.side).toBe('bottom');
+    expect(plan.plotTranslation).toEqual({ x: 17, y: 0 });
+    expect(plan.contentEnvelope.extensionRight).toBe(17);
+    expect(plan.contentEnvelope.extensionBottom).toBe(18);
+    expect(plan.plotRect.width).toBe(plan.basePlotRect.width);
+    expect(plan.plotRect.height).toBe(plan.basePlotRect.height);
+  });
+
+  test('rendered content bounds settle provisional title reserves to exact overflow', () => {
+    const plan = planner().planCartesianLayout({
+      ...baseInput(),
+      requiredMargins: { top: 30, right: 20, bottom: 75, left: 70 },
+      titleBlocks: {
+        graphTitle: { text: 'Title\nline 2', lineHeight: 13 }
+      },
+      contentBounds: { minX: 0, minY: 0, maxX: 500, maxY: 401 }
+    });
+
+    expect(plan.automaticReserves.outwardBySide.bottom).toBe(15);
+    expect(plan.titleLineExtensions.bottom).toBe(13);
+    expect(plan.contentEnvelope.extensionBottom).toBe(15);
+  });
+
   test('composes stack, max, external, and metric reserves without double counting', () => {
     const composed = planner().composeAutomaticReserves({
       baselineMargins: { top: 10, right: 10, bottom: 20, left: 20 },

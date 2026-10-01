@@ -2,7 +2,7 @@ const fs = require('fs');
 const { test, expect } = require('@playwright/test');
 const {
   openComponentFromWelcome,
-  clickExampleButtonIfPresent,
+  clickExpectedExampleButton,
   waitForDocumentOpenComplete
 } = require('../helpers/workspaceDriver');
 const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
@@ -882,7 +882,7 @@ async function buildMixedHeavyWorkspace(page) {
   const boxTabId = await openNewTabType(page, 'box', 'e2e-heavy-mixed-open-box');
   expect(boxTabId).toBeTruthy();
   await expect(page.locator('#boxPage:not([hidden])')).toBeVisible({ timeout: 20_000 });
-  await clickExampleButtonIfPresent(page, 'boxLoadExample');
+  await clickExpectedExampleButton(page, 'boxLoadExample');
   await waitForComponentOwnerReady(page, 'box', {
     requireMountedRoot: true,
     requirePublished: true,

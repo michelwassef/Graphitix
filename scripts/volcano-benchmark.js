@@ -2,7 +2,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const INPUT_PATH = path.join(__dirname, '..', '__tests__', 'test-volcano.csv');
+const INPUT_PATH = path.join(__dirname, '..', '__tests__', 'fixtures', 'scatter', 'v1', 'test-volcano.csv');
 const DEFAULT_LOG2_FC_THRESHOLD = 1;
 const DEFAULT_NEG_LOG_P_THRESHOLD = 1.3;
 

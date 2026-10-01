@@ -14,6 +14,10 @@
   }
   const Components = global.Components = global.Components || {};
   const box = Components.box = Components.box || {};
+  const symbolGeometry = Shared.symbolGeometry = Shared.symbolGeometry || {};
+  if(typeof symbolGeometry.resolveEqualAreaHalfExtent !== 'function' && typeof require === 'function'){
+    require('../shared/symbolGeometry.js');
+  }
   if(typeof Shared.componentLayout?.resolveDrawableFrame !== 'function' && typeof require === 'function'){
     try{
       require('../shared/componentLayout.js');
@@ -550,19 +554,24 @@
     const traceIndex = params.traceIndex;
     const styleTraceIndex = params.styleTraceIndex == null ? traceIndex : params.styleTraceIndex;
     const traceStyle = typeof params.getPointStyle === 'function' ? params.getPointStyle(styleTraceIndex) : null;
+    const effectiveShape = traceStyle && traceStyle.shape ? traceStyle.shape : 'circle';
+    const toVisualHalfExtent = value => symbolGeometry.resolveEqualAreaHalfExtent(effectiveShape, value);
     const overrideRadius = Number(params.pointRadiusOverride);
     const styleRadiusRaw = traceStyle && Number.isFinite(Number(traceStyle.size)) ? Number(traceStyle.size) : null;
     const allowAutoSize = !!params.autoSize && !(typeof params.hasExplicitPointSize === 'function' && params.hasExplicitPointSize(traceIndex));
-    const fallbackRadius = params.pointRadius;
+    const fallbackRadius = toVisualHalfExtent(params.pointRadius);
     // Explicit toolbar sizes are final marker radii in SVG/canvas units.
     // Auto sizing alone follows graph resize. Re-scaling a manual value here
     // would apply the resize factor twice and make the toolbar lie about size.
     const styleRadius = allowAutoSize || !Number.isFinite(styleRadiusRaw) || styleRadiusRaw <= 0
       ? null
       : styleRadiusRaw;
-    const resolvedRadius = Number.isFinite(overrideRadius) && overrideRadius > 0
+    const nominalResolvedRadius = Number.isFinite(overrideRadius) && overrideRadius > 0
       ? overrideRadius
       : (Number.isFinite(styleRadius) && styleRadius > 0 ? styleRadius : null);
+    const resolvedRadius = nominalResolvedRadius != null
+      ? toVisualHalfExtent(nominalResolvedRadius)
+      : null;
     const allowAdjustmentBase = params.allowRadiusAdjustment != null
       ? !!params.allowRadiusAdjustment
       : (params.autoSize ? allowAutoSize : true);
@@ -612,7 +621,6 @@
     const approximateLayoutRadius = Number.isFinite(Number(fallbackRadius)) && Number(fallbackRadius) > 0
       ? Number(fallbackRadius)
       : swarmPointRadius;
-    const effectiveShape = traceStyle && traceStyle.shape ? traceStyle.shape : 'circle';
     const canvasPointLayerEnabled = shouldUseBoxPointCanvasPreview(params.drawOpts, {
         pointCount,
         threshold: params.canvasThreshold
@@ -801,6 +809,7 @@
     const liveScheme = normalizeBoxCacheColorSchemeId(getBoxSelectedColorSchemeId(), state.tableFormat);
     const ownerTabId = getBoxProjectionTabId() || getActiveBoxSessionForState()?.tabId || tab?.id || null;
     const extra = {
+      symbolGeometryVersion: symbolGeometry.RENDER_GEOMETRY_VERSION,
       colorScheme: payloadScheme || liveScheme,
       liveColorScheme: liveScheme,
       svgColorScheme: normalizeBoxCacheColorSchemeId(svg?.getAttribute?.('data-color-scheme'), state.tableFormat),
@@ -884,7 +893,7 @@
   }
 
   function canRestoreBoxRenderCache(cache, meta = {}){
-    if(!isCompleteBoxRenderCache(cache)){
+    if(!isCompleteBoxRenderCache(cache) || !symbolGeometry.isRenderCacheCurrent(cache)){
       return false;
     }
     const cacheMeta = getBoxRenderCacheMetadata(cache);
@@ -3883,7 +3892,6 @@
         selectedGroupIndex = resolveBoxGroupedGroupIndexForTrace(selectedTraceIndex);
       }
       const groupedScopeEntries = groupedMode ? getBoxGroupedScopeEntries() : [];
-      const selectedGroupEntry = () => groupedScopeEntries.find(entry => entry.groupIndex === selectedGroupIndex) || null;
       const knownTraceIndices = () => {
         const keys = new Set();
         const addKey = value => {
@@ -10531,24 +10539,58 @@
       const labels = normalizeBoxLabelState(owner.state.labels, owner.state);
       return labels[stateKey] != null ? String(labels[stateKey]) : '';
     };
-    const applyValue = value => {
+    let editInitialValue = null;
+    const writeValue = value => {
       const nextValue = value != null ? String(value) : '';
       const labels = commitBoxLabelStateToSession({ [stateKey]: nextValue }, owner);
       if(isBoxSessionActiveForModuleState(owner)){
         state[stateKey] = nextValue;
       }
-      if(node.textContent !== nextValue){
+      return labels?.[stateKey] != null ? String(labels[stateKey]) : nextValue;
+    };
+    const applyValue = value => {
+      const nextValue = writeValue(value);
+      if(!Shared.fontControls?.setTitleText?.(node, nextValue) && node.textContent !== nextValue){
         node.textContent = nextValue;
       }
       scheduleBoxViewRefresh(refreshReason, { tabId: owner.tabId || null, userInitiated: true, renderImpact: 'layout' });
-      return labels?.[stateKey] != null ? String(labels[stateKey]) : nextValue;
+      return nextValue;
     };
     return makeEditable(node, text => {
-      const previous = readValue();
+      const previous = editInitialValue != null ? editInitialValue : readValue();
       const nextValue = text != null ? String(text) : '';
       if(previous === nextValue){ return; }
       applyValue(nextValue);
       recordBoxChange(undoLabel, previous, nextValue, applyValue);
+    }, {
+      getInitialValue: readValue,
+      onEditCheckpoint: (currentValue, _target, reason) => {
+        const nextValue = currentValue != null ? String(currentValue) : '';
+        if(reason === 'history-restore'){
+          editInitialValue = nextValue;
+          return true;
+        }
+        const previous = editInitialValue != null ? editInitialValue : readValue();
+        if(previous === nextValue) return false;
+        recordBoxChange(undoLabel, previous, nextValue, applyValue);
+        editInitialValue = nextValue;
+        return true;
+      },
+      onEditStart: () => { editInitialValue = readValue(); },
+      onInput: value => {
+        const nextValue = value != null ? String(value) : '';
+        if(readValue() === nextValue) return;
+        writeValue(nextValue);
+        Shared.textBlock?.markDraftModified?.(node, owner, 'box', `box-${normalizedKind}-label-draft`);
+      },
+      onEditEnd: (_target, finalValue) => {
+        const nextValue = finalValue != null ? String(finalValue) : '';
+        if(readValue() !== nextValue){
+          writeValue(nextValue);
+          Shared.textBlock?.markDraftModified?.(node, owner, 'box', `box-${normalizedKind}-label-cancel`);
+        }
+        editInitialValue = null;
+      }
     }) === true;
   }
 
@@ -32382,9 +32424,11 @@ Technical analysis record (advanced)
           const previousEffectiveRadius = Number(previousMeta?.effectiveRadius);
           const previousPointRadius = Number(previousRenderState?.pointRadius);
           const fallbackPreviewRadiusRaw = Number(pointRadiusOverride);
-          const fallbackPreviewRadius = Number.isFinite(fallbackPreviewRadiusRaw) && fallbackPreviewRadiusRaw > 0
+          const fallbackPreviewRadiusBase = Number.isFinite(fallbackPreviewRadiusRaw) && fallbackPreviewRadiusRaw > 0
             ? fallbackPreviewRadiusRaw
             : pointRadius;
+          const fallbackPreviewShape = previousRenderState?.shape || getPointStyle?.(styleTraceIndex)?.shape || 'circle';
+          const fallbackPreviewRadius = symbolGeometry.resolveEqualAreaHalfExtent(fallbackPreviewShape, fallbackPreviewRadiusBase);
           const scaledMaxOffset = Number.isFinite(previousMaxOffsetUsed) && previousMaxOffsetUsed >= 0
             ? Math.max(0, previousMaxOffsetUsed * reuseSpreadScale)
             : 0;
@@ -34300,6 +34344,7 @@ Technical analysis record (advanced)
       // do not also stack the same deltas through requiredMargins.
       requiredMargins: baselineMargins,
       auxiliaryReserves,
+      titleBlocks: options.titleBlocks || null,
       externalExtensions: {
         right: Math.max(0, Number(options.legendExtension) || 0)
       },
@@ -34318,6 +34363,50 @@ Technical analysis record (advanced)
       contentBounds: options.contentBounds || null,
       rounding: { mode: 'none', precision: 6 }
     }) || null;
+  }
+
+  function applyBoxCartesianPlotTranslation(svg, plan, isFlipped){
+    if(!svg || !plan?.plotTranslation) return false;
+    const dx = Number(plan.plotTranslation.x) || 0;
+    const dy = Number(plan.plotTranslation.y) || 0;
+    svg.dataset.boxPlotLeft = String(Number(plan.plotRect?.x) || 0);
+    svg.dataset.boxPlotTop = String(Number(plan.plotRect?.y) || 0);
+    svg.dataset.boxPlotW = String(Number(plan.plotRect?.width) || 0);
+    svg.dataset.boxPlotH = String(Number(plan.plotRect?.height) || 0);
+    if(dx === 0 && dy === 0) return true;
+    ['box-grid', 'box-reference', 'box-data', 'box-axis', 'box-significance'].forEach(layerName => {
+      const layer = svg.querySelector(`g[data-layer="${layerName}"]`);
+      if(!layer) return;
+      const prior = String(layer.getAttribute('transform') || '').trim();
+      layer.setAttribute('transform', `translate(${dx} ${dy})${prior ? ` ${prior}` : ''}`);
+    });
+    // In the normal orientation, multiline Y-title baselines extend into the
+    // plot as they rotate. Keep the first-line anchor fixed while the plot and
+    // axes move right by the same exact line-height reserve.
+    if(!isFlipped && dx !== 0){
+      svg.querySelectorAll('g[data-layer="box-axis"] text[data-box-axis-title="y"]').forEach(title => {
+        const parent = title.parentNode;
+        if(!parent || parent.dataset?.boxTitleCounterShift === '1') return;
+        const wrapper = svg.ownerDocument.createElementNS(NS, 'g');
+        wrapper.dataset.boxTitleCounterShift = '1';
+        wrapper.setAttribute('transform', `translate(${-dx} 0)`);
+        parent.insertBefore(wrapper, title);
+        wrapper.appendChild(title);
+      });
+    }
+    return true;
+  }
+
+  function counterShiftBoxGraphTitle(title, verticalShift){
+    const dy = Number(verticalShift) || 0;
+    const parent = title?.parentNode;
+    if(!title || !parent || dy === 0 || parent.dataset?.boxGraphTitleCounterShift === '1') return false;
+    const wrapper = title.ownerDocument.createElementNS(NS, 'g');
+    wrapper.dataset.boxGraphTitleCounterShift = '1';
+    wrapper.setAttribute('transform', `translate(0 ${-dy})`);
+    parent.insertBefore(wrapper, title);
+    wrapper.appendChild(title);
+    return true;
   }
 
   function normalizeBoxBoundaryLabels(bindings, svg){
@@ -34385,6 +34474,7 @@ Technical analysis record (advanced)
       W,
       H,
       legendViewportExtension,
+      titleBlocks,
       commitPendingPlotFrame,
       gridLayer,
       add,
@@ -34434,7 +34524,8 @@ Technical analysis record (advanced)
       userFrame: { width: viewportWidth, height: viewportHeight },
       orientationResult,
       isFlipped,
-      legendExtension: legendViewportExtension
+      legendExtension: legendViewportExtension,
+      titleBlocks
     });
     // Preserve reserve values as owner-scoped runtime diagnostics for the stats
     // overlay and tests, but never use them as frame or persistence authority.
@@ -34446,12 +34537,11 @@ Technical analysis record (advanced)
       left: Math.max(0, Number(orientationResult.leftViewportExtension) || 0),
       right: Math.max(0, Number(orientationResult.rightViewportExtension) || 0)
     }, { session: drawSession, svgBox: els.svgBox, reason: 'cartesian-derived-reserves' });
-    svg.dataset.boxPlotLeft = String(Number(orientationResult?.margin?.left) || 0);
-    svg.dataset.boxPlotTop = String(Number(orientationResult?.margin?.top) || 0);
-    svg.dataset.boxPlotW = String(Number(orientationResult?.plotW) || 0);
-    svg.dataset.boxPlotH = String(Number(orientationResult?.plotH) || 0);
+    applyBoxCartesianPlotTranslation(svg, boxCartesianPlan, isFlipped);
+    const boxPlotShiftX = Number(boxCartesianPlan?.plotTranslation?.x) || 0;
+    const boxPlotShiftY = Number(boxCartesianPlan?.plotTranslation?.y) || 0;
 
-    const defaultTitleX = orientationResult.titleX;
+    const defaultTitleX = orientationResult.titleX + boxPlotShiftX;
     // The automatic title belongs to the visible graph's top rail. A vertical
     // significance stack extends that rail into negative SVG coordinates, so
     // anchor from the solved envelope rather than from asynchronously rendered
@@ -34466,8 +34556,10 @@ Technical analysis record (advanced)
     if (titlePos) {
       if (titlePos.relX !== undefined && titlePos.relY !== undefined) {
         // Use relative positioning
-        absoluteTitleX = orientationResult.margin.left + titlePos.relX * orientationResult.plotW;
-        absoluteTitleY = orientationResult.margin.top + titlePos.relY * orientationResult.plotH;
+        absoluteTitleX = (boxCartesianPlan?.plotRect?.x ?? orientationResult.margin.left)
+          + titlePos.relX * orientationResult.plotW;
+        absoluteTitleY = (boxCartesianPlan?.plotRect?.y ?? orientationResult.margin.top)
+          + titlePos.relY * orientationResult.plotH;
       } else if (titlePos.x !== undefined && titlePos.y !== undefined) {
         // Use absolute positioning (backward compatibility)
         absoluteTitleX = titlePos.x;
@@ -34478,10 +34570,13 @@ Technical analysis record (advanced)
     const titleText = add('text',{ x: absoluteTitleX, y: absoluteTitleY, 'text-anchor': 'middle', 'font-size': fs, fill: chartStyle.TEXT_COLOR });
     titleText.textContent = state.titleText;
     markFontEditable(titleText,'graphTitle','graphTitle');
+    counterShiftBoxGraphTitle(titleText, boxPlotShiftY);
     bindBoxInlineTextInteraction(titleText, drawSession, 'title');
     const commitTitlePosition = pos => {
-      const relX = (pos.x - orientationResult.margin.left) / orientationResult.plotW;
-      const relY = (pos.y - orientationResult.margin.top) / orientationResult.plotH;
+      const plotOriginX = Number(boxCartesianPlan?.plotRect?.x) || orientationResult.margin.left;
+      const plotOriginY = Number(boxCartesianPlan?.plotRect?.y) || orientationResult.margin.top;
+      const relX = (pos.x - plotOriginX) / orientationResult.plotW;
+      const relY = (pos.y - plotOriginY) / orientationResult.plotH;
       state.labelPositions.title = {
         x: pos.x,
         y: pos.y,
@@ -34507,10 +34602,10 @@ Technical analysis record (advanced)
       }
     ];
     if(showLegend && legendRenderer.entries.length){
-      const plotRight = orientationResult.margin.left + orientationResult.plotW;
-      const defaultLegendY = orientationResult.margin.top;
+      const plotRight = orientationResult.margin.left + boxPlotShiftX + orientationResult.plotW;
+      const defaultLegendY = orientationResult.margin.top + boxPlotShiftY;
       const legendPos = state.labelPositions?.legend;
-      const legendReserveOriginX = Number(boxCartesianPlan?.userFrame?.width) || W;
+      const legendReserveOriginX = (Number(boxCartesianPlan?.userFrame?.width) || W) + boxPlotShiftX;
       const legendPosition = chartStyle.resolveLegendPosition(legendPos, {
         defaultX: legendReserveOriginX + legendGapPx,
         defaultY: defaultLegendY,
@@ -34618,7 +34713,8 @@ Technical analysis record (advanced)
           orientationResult,
           isFlipped,
           legendExtension: legendViewportExtension,
-          contentBounds: {
+          titleBlocks,
+          contentBounds: measuredViewport.renderedContentBounds || {
             minX: measuredViewport.minX,
             minY: measuredViewport.minY,
             maxX: measuredViewport.maxX,
@@ -34636,7 +34732,7 @@ Technical analysis record (advanced)
           canCommit: () => isBoxDrawTokenCurrent(drawSession, token),
           projectionTarget: svg,
           commitFrame: () => { commitPendingPlotFrame(); return true; },
-          commitPresentation: () => boxViewportProjection?.commit?.()
+          commitPresentation: plan => boxViewportProjection?.commit?.(plan)
         })
       : false;
     if(boxCartesianPlan && !boxLayoutPublished){
@@ -34759,7 +34855,9 @@ Technical analysis record (advanced)
     const styleScaleInfo = fontInfo.scaleInfo;
     let scopedFontStyles = null;
     try{
-      scopedFontStyles = exportFontStyles('box');
+      scopedFontStyles = exportFontStyles('box', {
+        tabId: drawSession?.tabId || getBoxProjectionTabId() || null
+      });
     }catch(err){
       if(debugEnabled){
         boxLog('Debug: box export scope font styles failed', { error: err?.message || String(err) });
@@ -36110,16 +36208,18 @@ Technical analysis record (advanced)
       : null;
     if(isGroupedMode && groupColorAssignments.size && showLegend){
       const legendStrokeWidth = Math.max(0, borderWidthPx);
-      const mixedGroupLegendStrokeWidth = chartStyle.scaleStrokeWidth(
+      const fallbackLegendStrokeWidth = chartStyle.scaleStrokeWidth(
         1,
         styleScaleInfo,
-        { context: 'box-legend-mixed-border', min: 0.5 }
+        { context: 'box-legend-fallback-border', min: 0.5 }
       );
       const legendEntries = Array.from(groupColorAssignments.entries()).map(([name, colors]) => ({
         label: name,
         fill: colors.fill,
         stroke: colors.border,
-        strokeWidth: colors.strokeWidthMixed ? mixedGroupLegendStrokeWidth : colors.strokeWidth,
+        strokeWidth: (colors.strokeWidthMixed || !(Number(colors.strokeWidth) > 0))
+          ? fallbackLegendStrokeWidth
+          : colors.strokeWidth,
         shape: 'rectangle'
       }));
       legendLayout = chartStyle.computeLegendLayout({
@@ -36261,6 +36361,21 @@ Technical analysis record (advanced)
         significanceBasePlotHeight,
         significanceBasePlotWidth,
         legendViewportExtension,
+        titleBlocks: {
+          graphTitle: chartStyle.resolveTitleBlockLayout({
+            text: state.titleText,
+            role: 'graphTitle',
+            styles: scopedFontStyles,
+            fallbackPx: fs
+          }),
+          yTitle: chartStyle.resolveTitleBlockLayout({
+            text: state.yLabelText,
+            role: 'yTitle',
+            side: isFlipped ? 'bottom' : 'left',
+            styles: scopedFontStyles,
+            fallbackPx: yTitleMeasureProfile.fontSizePx || fs
+          })
+        },
         commitPendingPlotFrame,
         gridLayer
       }
@@ -38639,6 +38754,7 @@ Technical analysis record (advanced)
       tab
       && targetTabId
       && targetTabId !== activeTabId
+      && symbolGeometry.isRenderCacheCurrent(tab.renderCache?.cache)
       && tab.renderCache?.cache?.plot?.fragment
       && typeof tab.renderCache.cache.plot.fragment.querySelector === 'function'
     );
@@ -38648,7 +38764,11 @@ Technical analysis record (advanced)
         return cachedSvg;
       }
     }
-    return resolveBoxPlotSvgRoot();
+    const ownerRoot = resolveBoxRoot(tab || null);
+    const ownerPlot = ownerRoot?.querySelector?.('#boxPlot') || null;
+    return ownerPlot?.querySelector?.('#boxSvg')
+      || ownerPlot?.querySelector?.('svg')
+      || null;
   }
 
   function parseBoxCanvasBitmapDimension(node, attrName, fallback){

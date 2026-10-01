@@ -1,6 +1,6 @@
 const { test, expect } = require('@playwright/test');
 const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
-const { openComponentFromWelcome, clickExampleButtonIfPresent } = require('../helpers/workspaceDriver');
+const { openComponentFromWelcome, clickExpectedExampleButton } = require('../helpers/workspaceDriver');
 const { registerIssueCollectors } = require('../helpers/diagnostics');
 
 async function waitForSeriesPath(page) {
@@ -26,7 +26,7 @@ async function clickSeriesPath(page) {
 async function loadLineExampleForFormat(page, tableFormat) {
   await openComponentFromWelcome(page, { type: 'line', pageId: 'linePage' }, { first: true });
   await page.locator('#lineTableFormat').selectOption(tableFormat);
-  await clickExampleButtonIfPresent(page, 'lineLoadExample');
+  await clickExpectedExampleButton(page, 'lineLoadExample');
   await waitForSeriesPath(page);
 }
 

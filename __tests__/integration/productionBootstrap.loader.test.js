@@ -61,6 +61,7 @@ describe('production-derived Jest bootstrap', () => {
 
   test('rejects a preseeded workspace when strict full-app mode is requested', () => {
     jest.resetModules();
+    const previousMain = window.Main;
     window.Main = {
       session: {
         workspaceState: {
@@ -70,9 +71,14 @@ describe('production-derived Jest bootstrap', () => {
       }
     };
 
-    expect(() => loadProductionBootstrap({
-      vendorMode: 'fake',
-      rejectPreseededSession: true
-    })).toThrow('rejects a preseeded workspace session');
+    try {
+      expect(() => loadProductionBootstrap({
+        vendorMode: 'fake',
+        rejectPreseededSession: true
+      })).toThrow('rejects a preseeded workspace session');
+    } finally {
+      if (previousMain === undefined) delete window.Main;
+      else window.Main = previousMain;
+    }
   });
 });

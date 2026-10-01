@@ -174,8 +174,8 @@ describe('Box strip auto-size radius regression', () => {
   test('large dataset does not get larger auto radius than medium dataset', () => {
     expect(hooks).toBeDefined();
     expect(typeof hooks.computeSwarmOffsets).toBe('function');
-    const mediumPath = path.resolve(__dirname, '../fixtures/box/test-box-medium.csv');
-    const largePath = path.resolve(__dirname, '../fixtures/box/test-box-large.csv');
+    const mediumPath = path.resolve(__dirname, '../fixtures/box/v1/test-box-medium.csv');
+    const largePath = path.resolve(__dirname, '../fixtures/box/v1/test-box-large.csv');
     const mediumColumns = parseCsvColumns(mediumPath);
     const largeColumns = parseCsvColumns(largePath);
     const medium = computeAutoRadius(mediumColumns);

@@ -161,6 +161,8 @@ archive worker, which performs cloning and runtime-id rehoming off the main thre
 
 `Main.session.applySessionData()` expects this same shape when restoring.
 
+Font style records are persisted inside each component's existing payload path (`config.fontStyles`, or Venn's `style.fontStyles`) through `Shared.fontControls` import/export. Title-block alignment is the optional `textAlign` property on those records; archives without it retain centered title alignment. Multiline title text remains canonical component state, while SVG line wrappers, measured bounds, and reserves are rendered or derived state and are not additional archive fields.
+
 ### Cartesian layout publication metadata
 
 For migrated 2D Cartesian renderers, the durable sizing authority remains the tab-owned `layout`/`.svgbox` user frame. `Shared.cartesianLayout` publishes the completed `userFrame`, `plotRect`, `contentEnvelope`, rendered-axis Lock metadata, owner tab/component, publication generation, payload signature, and layout signature as derived live SVG/resizer metadata. Automatic label/significance/legend/risk-table/panel/metric reserves are **not** independent payload or layout fields. This live publication metadata describes the current rendered projection; it is not durable payload state.

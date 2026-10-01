@@ -2,7 +2,7 @@ const { waitForComponentOwnerReady } = require('../helpers/contractWaits');
 const { test, expect } = require('@playwright/test');
 const {
   openComponentFromWelcome,
-  clickExampleButtonIfPresent
+  clickExpectedExampleButton
 } = require('../helpers/workspaceDriver');
 const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
 
@@ -17,7 +17,7 @@ test.describe('Heatmap title drag', () => {
       { type: 'heatmap', pageId: 'heatmapPage', exampleButtonId: 'heatmapLoadExample' },
       { first: true }
     );
-    await clickExampleButtonIfPresent(page, 'heatmapLoadExample');
+    await clickExpectedExampleButton(page, 'heatmapLoadExample');
     await waitForComponentOwnerReady(page, 'heatmap', { requireMountedRoot: true, requireIdle: true, timeout: 30_000 });
 
     const before = await page.evaluate(() => {

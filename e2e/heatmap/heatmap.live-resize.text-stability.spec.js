@@ -1,7 +1,7 @@
 const { test, expect } = require('@playwright/test');
 const {
   openComponentFromWelcome,
-  clickExampleButtonIfPresent
+  clickExpectedExampleButton
 } = require('../helpers/workspaceDriver');
 const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
 const { waitForAnimationFrame, waitForComponentOwnerReady } = require('../helpers/contractWaits');
@@ -15,7 +15,7 @@ test('Heatmap graph resize redraws text live without a second settled-size jump'
     { type: 'heatmap', pageId: 'heatmapPage', exampleButtonId: 'heatmapLoadExample' },
     { first: true }
   );
-  await clickExampleButtonIfPresent(page, 'heatmapLoadExample');
+  await clickExpectedExampleButton(page, 'heatmapLoadExample');
   await page.waitForFunction(() => (
     document.querySelectorAll('#heatmapSvg text[data-font-role="graphTitle"]').length === 1
     && window.Components?.heatmap?.__testHooks?.getPerformance?.()?.performance?.draw?.status === 'complete'

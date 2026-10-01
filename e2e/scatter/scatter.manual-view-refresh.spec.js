@@ -74,7 +74,7 @@ test.describe('Scatter live updates with view-only optimizations', () => {
       { first: true }
     );
 
-    const csvPath = path.resolve(__dirname, '../../__tests__/test-scatter.csv');
+    const csvPath = path.resolve(__dirname, '../../__tests__/fixtures/scatter/v1/test-scatter.csv');
     await importDataFile(page, '#scatterFile', csvPath);
 
     await expect(page.locator('#scatterRenderRow')).toHaveCount(0);

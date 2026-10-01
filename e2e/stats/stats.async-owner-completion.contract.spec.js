@@ -1,6 +1,6 @@
 const { test, expect } = require('@playwright/test');
 const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
-const { openComponentFromWelcome, clickExampleButtonIfPresent } = require('../helpers/workspaceDriver');
+const { openComponentFromWelcome, clickExpectedExampleButton } = require('../helpers/workspaceDriver');
 const { registerIssueCollectors } = require('../helpers/diagnostics');
 const { waitForComponentOwnerReady } = require('../helpers/contractWaits');
 const { activateTab: activateTabWithUi } = require('../helpers/uiDriver');
@@ -19,7 +19,7 @@ async function openSiblingTab(page, type, pageId, exampleButtonId) {
     if (prompt && empty && !empty.disabled) empty.click();
   }, type);
   await expect(page.locator(`#${pageId}:not([hidden])`)).toBeVisible({ timeout: 30_000 });
-  await clickExampleButtonIfPresent(page, exampleButtonId);
+  await clickExpectedExampleButton(page, exampleButtonId);
   await waitForComponentOwnerReady(page, type, { requireMountedRoot: true });
   return activeTabId(page);
 }

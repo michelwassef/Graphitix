@@ -54,6 +54,7 @@ function summarizeReportContract(report) {
       manifest: manifestEvidence.manifest || null
     },
     oracle: report?.oracle || null,
+    vendorMode: report?.environment?.vendorMode || null,
     artifactPolicy: report?.artifactPolicy || null,
     declaredArtifacts: report?.artifacts || null
   };

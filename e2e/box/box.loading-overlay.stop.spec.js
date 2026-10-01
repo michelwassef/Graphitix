@@ -3,7 +3,7 @@ const { test, expect } = require('@playwright/test');
 const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
 const { openComponentFromWelcome, confirmDataImportPrompt } = require('../helpers/workspaceDriver');
 
-const LARGE_BOX_CSV = path.resolve(__dirname, '..', '..', '__tests__', 'fixtures', 'box', 'test-box-large.csv');
+const LARGE_BOX_CSV = path.resolve(__dirname, '..', '..', '__tests__', 'fixtures', 'box', 'v1', 'test-box-large.csv');
 
 test('large Box draws remain stoppable and retry restores progress', async ({ page }) => {
   test.setTimeout(120_000);

@@ -754,6 +754,7 @@
   ]);
 
   const SYSTEM_TABLE_MUTATION_SOURCE_RE = /(^|[-_])(grouped-header-(load|normalize)|header-(init|load|normalize)|3d-header-normalize|default-header-seed|empty-defaults|label-row|metadata|payload-load|workspace-baseline-reset|payload-grouped-(names|sample-labels)-restore)([-_]|$)/i;
+  const TITLE_AXIS_INLINE_SOURCE_RE = /(^|[-_])axis-inline(?:-(draft|edit|cancel))?($|[-_])/i;
 
   const isSessionPayloadSyncSuppressedSource = (source) => {
     const normalized = typeof source === 'string' ? source.trim() : '';
@@ -816,6 +817,7 @@
     return !!normalized && (
       isSessionPayloadSyncSuppressedSource(normalized)
       || normalized === 'loadData'
+      || TITLE_AXIS_INLINE_SOURCE_RE.test(normalized)
     );
   };
 

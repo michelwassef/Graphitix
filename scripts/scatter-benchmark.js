@@ -4,14 +4,12 @@ const path = require('path');
 const { spawn } = require('child_process');
 const http = require('http');
 const { chromium } = require('playwright');
-const {
-  installLocalCdnOverrides,
-  openComponentFromWelcome
-} = require('../e2e/helpers/workspaceHarness');
+const { installLocalCdnOverrides } = require('../e2e/helpers/vendorOverrides');
+const { openComponentFromWelcome } = require('../e2e/helpers/workspaceDriver');
 
 const PORT = Number(process.env.PLAYWRIGHT_WEB_PORT || 4173);
 const BASE_URL = process.env.PLAYWRIGHT_BASE_URL || `http://127.0.0.1:${PORT}`;
-const CSV_PATH = path.resolve(__dirname, '../__tests__/test-scatter.csv');
+const CSV_PATH = path.resolve(__dirname, '../__tests__/fixtures/scatter/v1/test-scatter.csv');
 const ITERATIONS = Math.max(1, Number(process.env.SCATTER_BENCH_ITERATIONS) || 6);
 const OUTPUT_PATH = process.env.SCATTER_BENCH_OUTPUT
   ? path.resolve(process.cwd(), process.env.SCATTER_BENCH_OUTPUT)

@@ -4,7 +4,7 @@ const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
 const { openComponentFromWelcome } = require('../helpers/workspaceDriver');
 const { registerIssueCollectors } = require('../helpers/diagnostics');
 
-const LARGE_PCA_CSV = path.resolve(__dirname, '..', '..', '__tests__', 'test-PCA.csv');
+const LARGE_PCA_CSV = path.resolve(__dirname, '..', '..', '__tests__', 'fixtures', 'pca', 'v1', 'test-PCA.csv');
 
 async function openPca(page) {
   await page.goto('/index.html', { waitUntil: 'domcontentloaded' });

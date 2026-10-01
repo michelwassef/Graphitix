@@ -4,6 +4,9 @@
   if(!Shared.styleUndo && typeof require === 'function'){
     try{ require('./styleUndo.js'); }catch(err){}
   }
+  if(!Shared.textBlock && typeof require === 'function'){
+    try{ require('./textBlock.js'); }catch(err){}
+  }
   const fontControls = Shared.fontControls = Shared.fontControls || {};
   const SVG_NS = 'http://www.w3.org/2000/svg';
 
@@ -299,6 +302,7 @@
   let lastKnownFormatWidth = 0;
   let lastKnownComboWidth = 0;
   let colorInput = null;
+  let colorControlEl = null;
   let legendBorderFieldEl = null;
   let legendBorderChipEl = null;
   let legendBorderChipPreviewEl = null;
@@ -323,6 +327,9 @@
   let underlineToggle = null;
   let subscriptToggle = null;
   let superscriptToggle = null;
+  let alignmentButtons = Object.create(null);
+  let alignmentHelpEl = null;
+  let alignmentFieldEl = null;
   let sizeInput = null;
   let previewTextEl = null;
   let targetLabelEl = null;
@@ -531,7 +538,7 @@
   }
 
   const STYLE_KEYS = ['fontFamily', 'fontWeight', 'fontStyle', 'fontSize', 'fill', 'textDecoration', 'baselineShift'];
-  const STYLE_META_KEYS = ['fontSizeResizeReference', 'fontSizeDisplayScaleReference', 'hidden'].concat(LEGEND_FRAME_STYLE_KEYS);
+  const STYLE_META_KEYS = ['fontSizeResizeReference', 'fontSizeDisplayScaleReference', 'hidden', 'textAlign'].concat(LEGEND_FRAME_STYLE_KEYS);
   const STYLE_STATE_KEYS = STYLE_KEYS.concat(STYLE_META_KEYS);
   const STYLE_ATTR_MAP = {
     fontFamily: 'font-family',
@@ -814,6 +821,13 @@
   function resetInlineSegments(node){
     if(!node){ return; }
     if(!isSvgTextTarget(node)){ return; }
+    const titleText = Shared.textBlock?.isTitleRole(node.dataset?.fontRole)
+      ? node.dataset?.titleBlockText
+      : null;
+    if(typeof titleText === 'string' && titleText.includes('\n')){
+      Shared.textBlock.renderLines(node, titleText, (row, line) => { row.textContent = line.text; });
+      return;
+    }
     const structureParts = node.dataset?.fontPreserveStructure === 'children'
       ? Array.from(node.children || []).filter(child => child?.dataset?.fontStructurePart)
       : [];
@@ -827,7 +841,10 @@
       return;
     }
     if(!node.firstChild){ return; }
-    const textValue = node.textContent || '';
+    const textValue = (Shared.textBlock?.isTitleRole(node.dataset?.fontRole)
+      && typeof node.dataset?.titleBlockText === 'string'
+      ? node.dataset.titleBlockText
+      : node.textContent) || '';
     node.textContent = textValue;
     logDebug('resetInlineSegments', { textLength: textValue.length });
   }
@@ -840,7 +857,10 @@
       resetInlineSegments(node);
       return;
     }
-    const textValue = node.textContent || '';
+    const textValue = (Shared.textBlock?.isTitleRole(node.dataset?.fontRole)
+      && typeof node.dataset?.titleBlockText === 'string'
+      ? node.dataset.titleBlockText
+      : node.textContent) || '';
     if(!textValue){
       resetInlineSegments(node);
       return;
@@ -899,6 +919,27 @@
       });
       node.dataset.fontInlineSegmentsApplied = '1';
       return;
+    }
+    if(Shared.textBlock?.isTitleRole(node.dataset?.fontRole) && textValue.includes('\n')){
+      const styleMap = new Array(textValue.length).fill(null);
+      sanitized.forEach(segment => {
+        for(let index = segment.start; index < Math.min(segment.end, styleMap.length); index += 1){
+          styleMap[index] = segment.style;
+        }
+      });
+      return Shared.textBlock.renderLines(node, textValue, (row, line) => {
+        row.textContent = line.text;
+        const lineSegments = sanitized
+          .filter(segment => segment.end > line.start && segment.start < line.end)
+          .map(segment => ({
+            start: Math.max(0, segment.start - line.start),
+            end: Math.min(line.text.length, segment.end - line.start),
+            style: segment.style
+          }));
+        if(lineSegments.length){
+          applyInlineSegmentsToNode(row, line.text, lineSegments);
+        }
+      }, { styleMap });
     }
     const frag = doc.createDocumentFragment();
     let cursor = 0;
@@ -1368,6 +1409,9 @@
       fill: readToken('fill', 'color'),
       textDecoration: readToken('text-decoration', 'textDecoration'),
       baselineShift: readToken('baseline-shift', 'verticalAlign'),
+      ...(Shared.textBlock?.isTitleRole(node.dataset?.fontRole)
+        ? { textAlign: node.dataset?.titleTextAlign || null }
+        : {}),
     };
     return snapshot;
   }
@@ -1402,6 +1446,10 @@
       clone[key] = value;
       hasValue = true;
     });
+    if(['left', 'center', 'right'].includes(style.textAlign)){
+      clone.textAlign = style.textAlign;
+      hasValue = true;
+    }
     const segments = normalizeInlineSegments(style.inlineSegments || []);
     if(segments.length){
       clone.inlineSegments = segments.map(segment => ({
@@ -1601,10 +1649,15 @@
     const nextStoreClone = hasNextStoreStyle ? cloneStyleSnapshot(meta.nextStoreStyle) : nextClone;
     const patchKeys = Array.isArray(meta?.patchKeys) && meta.patchKeys.length ? meta.patchKeys.slice() : STYLE_KEYS;
     const isBulkScopeUndo = isBulkStoreKey(storeContext.storeKey);
-    const prevScopeStyles = isBulkScopeUndo ? cloneScopeStylesSnapshot(meta?.prevScopeStyles) : null;
-    const nextScopeStyles = isBulkScopeUndo ? cloneScopeStylesSnapshot(meta?.nextScopeStyles) : null;
+    const isWholeScopeUndo = isBulkScopeUndo || meta?.captureWholeScope === true;
+    const prevScopeStyles = isWholeScopeUndo ? cloneScopeStylesSnapshot(meta?.prevScopeStyles) : null;
+    const nextScopeStyles = isWholeScopeUndo ? cloneScopeStylesSnapshot(meta?.nextScopeStyles) : null;
+    if(Shared.textBlock?.isTitleRole(node.dataset?.fontRole) === true){
+      const editTabId = storeContext.tabId || normalizeTabId(node.dataset?.fontTabId);
+      Shared.checkpointInlineTitleEditForTab?.(editTabId, 'font-command');
+    }
     const applyScopeStyles = styles => {
-      if(!isBulkScopeUndo || !storeContext.scopeId){
+      if(!isWholeScopeUndo || !storeContext.scopeId){
         return false;
       }
       importScopeStyles(storeContext.scopeId, styles || null, {
@@ -2204,8 +2257,6 @@
       fontComboWrapper.style.minWidth = px;
       fontComboWrapper.style.maxWidth = px;
       fontComboWrapper.style.width = px;
-      fontInput.style.minWidth = px;
-      fontInput.style.width = px;
     }
     logDebug('toolbar width sync applied', {
       reason,
@@ -3217,6 +3268,12 @@
     }
   }
 
+  function syncFontColorIndicator(){
+    if(colorInput && colorControlEl){
+      colorControlEl.style.setProperty('--font-color-value', parseColorToHex(colorInput.value));
+    }
+  }
+
   function sanitizeLegendBorderWidth(value){
     const numeric = Number(value);
     if(!Number.isFinite(numeric)){ return LEGEND_FRAME_DEFAULTS.legendBorderWidth; }
@@ -3743,6 +3800,18 @@
         resetInlineSegments(node);
       }
     }
+    if(Shared.textBlock?.isTitleRole(node.dataset?.fontRole)
+      && (!requestedPatchKeys || requestedPatchKeys.has('textAlign'))){
+      const currentAnchor = node.getAttribute?.('text-anchor');
+      const alignment = ['left', 'center', 'right'].includes(resolvedStyle.textAlign)
+        ? resolvedStyle.textAlign
+        : Shared.textBlock.normalizeAlignment(
+          node.dataset.titleDefaultAlign || node.dataset.titleTextAlign || currentAnchor,
+          'center'
+        );
+      node.dataset.titleTextAlign = alignment;
+      Shared.textBlock.applyAlignment?.(node, alignment);
+    }
     logDebug('applyStyleToNode', {
       text: node?.textContent,
       scope: node?.dataset?.fontScope || null,
@@ -3755,7 +3824,7 @@
 
   function clearStylePatchFromNode(node, patchKeys){
     const keys = Array.isArray(patchKeys)
-      ? patchKeys.filter(key => STYLE_KEYS.includes(key) || key === 'fontSizeDisplayScaleReference' || key === 'hidden' || key === 'inlineSegments')
+      ? patchKeys.filter(key => STYLE_KEYS.includes(key) || key === 'fontSizeDisplayScaleReference' || key === 'hidden' || key === 'inlineSegments' || key === 'textAlign')
       : [];
     if(!node || !keys.length){ return false; }
     const patch = {};
@@ -3800,6 +3869,7 @@
     }
     if(node.dataset){
       delete node.dataset.fontHidden;
+      delete node.dataset.titleTextAlign;
     }
     resetInlineSegments(node);
     logDebug('clearStyleFromNode', {
@@ -4403,6 +4473,19 @@
     });
   }
 
+  function resolveSupportedTitleTargets(target = currentTarget){
+    const svg = target?.ownerSVGElement || target?.closest?.('svg') || null;
+    if(!svg?.querySelectorAll) return [];
+    const scopeId = String(currentScope || target?.dataset?.fontScope || '');
+    const targetTabId = normalizeTabId(target?.dataset?.fontTabId || null);
+    return Array.from(svg.querySelectorAll('text[data-font-role]')).filter(node => {
+      if(!Shared.textBlock?.isTitleRole(node.dataset?.fontRole)) return false;
+      if(scopeId && node.dataset?.fontScope && node.dataset.fontScope !== scopeId) return false;
+      const nodeTabId = normalizeTabId(node.dataset?.fontTabId || null);
+      return !targetTabId || !nodeTabId || nodeTabId === targetTabId;
+    });
+  }
+
   function syncPanelStateFromTarget(){
     if(!panelEl || !currentTarget){ return; }
     const styleNode = resolveSelectionStyleNode(currentTarget) || currentTarget;
@@ -4415,10 +4498,53 @@
     const attrFill = snapshot.fill || computed.color || computed.fill || '#000000';
     const attrDecoration = snapshot.textDecoration || computed.textDecoration || '';
     const attrBaseline = snapshot.baselineShift || computed.verticalAlign || computed.baselineShift || '';
+    const titleTarget = Shared.textBlock?.isTitleRole(currentTarget.dataset?.fontRole) === true
+      && currentTarget.namespaceURI === SVG_NS;
+    const graphScope = activeScopeMode === FONT_SCOPE_GRAPH;
+    const graphTitleTargets = graphScope ? resolveSupportedTitleTargets(currentTarget) : [];
+    const graphAlignments = graphTitleTargets.map(node => {
+      const style = resolveEffectiveStyleForNode(node).style || {};
+      return Shared.textBlock.normalizeAlignment(
+        style.textAlign || node.dataset?.titleTextAlign || node.getAttribute?.('text-anchor'),
+        'center'
+      );
+    });
+    const graphAlignmentSet = new Set(graphAlignments);
+    const graphMixed = graphAlignmentSet.size > 1;
+    const currentAlignment = Shared.textBlock.normalizeAlignment(
+      graphScope
+        ? (graphMixed ? null : graphAlignments[0])
+        : (snapshot.textAlign || currentTarget.dataset?.titleTextAlign || 'center'),
+      'center'
+    );
+    const alignmentEnabled = graphScope ? graphTitleTargets.length > 0 : titleTarget;
+    if(alignmentFieldEl){
+      alignmentFieldEl.dataset.mixed = graphMixed ? 'true' : 'false';
+    }
+    if(alignmentHelpEl){
+      alignmentHelpEl.textContent = graphScope
+        ? (graphTitleTargets.length === 0
+          ? 'Graph alignment is available when this graph has a graph or axis title.'
+          : (graphMixed
+            ? 'Graph titles use mixed alignment. Choose one to align all supported titles.'
+            : 'Choose an alignment for all supported graph and axis titles.'))
+        : (titleTarget
+          ? 'Alignment applies to the whole selected title block.'
+          : 'Select a graph or axis title, or choose Graph scope to align all supported titles.');
+    }
+    Object.entries(alignmentButtons).forEach(([alignment, button]) => {
+      button.disabled = !alignmentEnabled;
+      button.setAttribute('aria-disabled', alignmentEnabled ? 'false' : 'true');
+      button.setAttribute('aria-pressed', alignmentEnabled && !graphMixed && currentAlignment === alignment ? 'true' : 'false');
+      if(graphMixed){ button.dataset.mixed = 'true'; }
+      else{ delete button.dataset.mixed; }
+      setToggleState(button, alignmentEnabled && !graphMixed && currentAlignment === alignment);
+    });
     const sanitizedFamily = attrFamily.replace(/"/g, '').trim();
     syncFontInputValue(sanitizedFamily, { source: 'target-sync' });
     if(colorInput){
       colorInput.value = parseColorToHex(attrFill);
+      syncFontColorIndicator();
     }
     if(sizeInput){
       let displayVal = '';
@@ -5003,9 +5129,71 @@
     colorInput.type = 'color';
     colorInput.className = 'font-controls-panel__color-input';
     colorInput.setAttribute('aria-label', 'Font color');
+    colorInput.setAttribute('aria-describedby', 'font-controls-color-help');
+    colorControlEl = doc.createElement('span');
+    colorControlEl.className = 'font-controls-panel__color-control';
+    const colorIndicator = doc.createElement('span');
+    colorIndicator.className = 'font-controls-panel__color-indicator';
+    colorIndicator.setAttribute('aria-hidden', 'true');
+    colorIndicator.textContent = 'A';
+    colorControlEl.append(colorInput, colorIndicator);
+    const colorHelp = doc.createElement('span');
+    colorHelp.id = 'font-controls-color-help';
+    colorHelp.className = 'visually-hidden';
+    colorHelp.textContent = 'Opens the font color picker.';
     colorField.appendChild(colorLabel);
-    colorField.appendChild(colorInput);
+    colorField.appendChild(colorControlEl);
+    colorField.appendChild(colorHelp);
     controlsRow.appendChild(colorField);
+    syncFontColorIndicator();
+
+    const alignmentField = doc.createElement('div');
+    alignmentFieldEl = alignmentField;
+    alignmentField.className = 'font-controls-panel__field additional-line-controls-panel__field font-controls-panel__field--alignment';
+    alignmentField.setAttribute('role', 'group');
+    alignmentField.setAttribute('aria-label', 'Text alignment');
+    const alignmentLabel = doc.createElement('span');
+    alignmentLabel.className = 'font-controls-panel__field-label additional-line-controls-panel__field-label';
+    alignmentLabel.textContent = 'Align';
+    const alignmentRow = doc.createElement('div');
+    alignmentRow.className = 'font-controls-panel__alignment-buttons';
+    alignmentButtons = Object.create(null);
+    [
+      ['left', 'Align left', 'M3 3h9M3 8h13M3 13h9'],
+      ['center', 'Align center', 'M3 3h9M1 8h13M3 13h9'],
+      ['right', 'Align right', 'M4 3h9M1 8h13M4 13h9']
+    ].forEach(([alignment, label, pathData]) => {
+      const button = doc.createElement('button');
+      button.type = 'button';
+      button.className = 'font-controls-panel__format-button font-controls-panel__alignment-button';
+      button.dataset.textAlign = alignment;
+      button.setAttribute('aria-label', label);
+      button.setAttribute('title', label);
+      button.setAttribute('aria-describedby', 'font-controls-alignment-help');
+      button.setAttribute('aria-pressed', 'false');
+      button.disabled = true;
+      const icon = doc.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      icon.setAttribute('viewBox', '0 0 16 16');
+      icon.setAttribute('aria-hidden', 'true');
+      const path = doc.createElementNS('http://www.w3.org/2000/svg', 'path');
+      path.setAttribute('d', pathData);
+      path.setAttribute('fill', 'none');
+      path.setAttribute('stroke', 'currentColor');
+      path.setAttribute('stroke-width', '1.5');
+      path.setAttribute('stroke-linecap', 'round');
+      icon.appendChild(path);
+      button.appendChild(icon);
+      alignmentButtons[alignment] = button;
+      alignmentRow.appendChild(button);
+    });
+    alignmentField.appendChild(alignmentLabel);
+    alignmentField.appendChild(alignmentRow);
+    alignmentHelpEl = doc.createElement('span');
+    alignmentHelpEl.id = 'font-controls-alignment-help';
+    alignmentHelpEl.className = 'visually-hidden';
+    alignmentHelpEl.textContent = 'Alignment applies to the whole selected title block.';
+    alignmentField.appendChild(alignmentHelpEl);
+    controlsRow.appendChild(alignmentField);
 
     legendBorderFieldEl = doc.createElement('label');
     legendBorderFieldEl.className = 'font-controls-panel__field additional-line-controls-panel__field font-controls-panel__field--legend-border';
@@ -5310,8 +5498,9 @@
       return applyStylePatchToSnapshot(existingSnapshot, normalizedPatch);
     }
 
-    function captureScopeStylesForUndo(storeContext){
-      if(!storeContext || !isBulkStoreKey(storeContext.storeKey) || !storeContext.scopeId){
+    function captureScopeStylesForUndo(storeContext, options = {}){
+      const captureWholeScope = options.captureWholeScope === true || isBulkStoreKey(storeContext?.storeKey);
+      if(!storeContext || !captureWholeScope || !storeContext.scopeId){
         return null;
       }
       return cloneScopeStylesSnapshot(exportScopeStyles(storeContext.scopeId, {
@@ -5409,6 +5598,7 @@
     });
 
     colorInput.addEventListener('input', () => {
+      syncFontColorIndicator();
       if(!currentTarget) return;
       const prevStyle = captureStyleSnapshot(currentTarget);
       const storeContext = resolveStoreContext(currentTarget, { scopeId: currentScope, key: currentKey });
@@ -5674,6 +5864,63 @@
           setToggleState(subscriptToggle, false);
         }
       }
+    });
+
+    Object.entries(alignmentButtons).forEach(([alignment, button]) => {
+      button.addEventListener('click', () => {
+        const target = currentTarget;
+        if(!target) return;
+        const scopeMode = activeScopeMode || FONT_SCOPE_SELECTION;
+        if(![FONT_SCOPE_SELECTION, FONT_SCOPE_GRAPH].includes(scopeMode)) return;
+        const titleTarget = Shared.textBlock?.isTitleRole(target.dataset?.fontRole) === true
+          && target.namespaceURI === SVG_NS;
+        const graphTitleTargets = scopeMode === FONT_SCOPE_GRAPH
+          ? resolveSupportedTitleTargets(target)
+          : [];
+        if(scopeMode === FONT_SCOPE_SELECTION && !titleTarget) return;
+        if(scopeMode === FONT_SCOPE_GRAPH && graphTitleTargets.length === 0) return;
+        const storeContext = resolveStoreContext(target, {
+          scopeId: currentScope,
+          key: currentKey,
+          mode: scopeMode
+        });
+        const beforeEffective = resolveEffectiveStyleForNode(target).style || captureStyleSnapshot(target) || {};
+        const beforeAlignment = beforeEffective.textAlign || target.dataset?.titleTextAlign || 'center';
+        const prevStoreStyle = cloneStyleSnapshot(getStoredStyle(storeContext.storeKey, {
+          reason: 'text-alignment-prev-store'
+        }));
+        if(scopeMode === FONT_SCOPE_SELECTION && beforeAlignment === alignment) return;
+        if(scopeMode === FONT_SCOPE_GRAPH){
+          const alreadyUniform = graphTitleTargets.every(node => {
+            const style = resolveEffectiveStyleForNode(node).style || {};
+            return Shared.textBlock.normalizeAlignment(
+              style.textAlign || node.dataset?.titleTextAlign || node.getAttribute?.('text-anchor'),
+              'center'
+            ) === alignment;
+          });
+          if(alreadyUniform && prevStoreStyle?.textAlign === alignment) return;
+        }
+        const captureWholeScope = scopeMode === FONT_SCOPE_GRAPH;
+        const prevScopeStyles = captureScopeStylesForUndo(storeContext, { captureWholeScope });
+        const patch = { textAlign: alignment };
+        const nextStoreStyle = resolveStorePayloadForPatch(storeContext, null, patch);
+        const patchKeys = ['textAlign'];
+        storeStyleForNode(target, nextStoreStyle, { ...storeContext, patchKeys });
+        const nextEffective = resolveEffectiveStyleForNode(target).style || {};
+        applyStyleToNode(target, nextEffective, { patchKeys });
+        const nextScopeStyles = captureScopeStylesForUndo(storeContext, { captureWholeScope });
+        if(target === currentTarget) syncPanelStateFromTarget();
+        recordStyleUndo(target, beforeEffective, nextEffective, {
+          label: `text-align-${alignment}`,
+          storeContext,
+          prevStoreStyle,
+          nextStoreStyle,
+          prevScopeStyles,
+          nextScopeStyles,
+          patchKeys,
+          captureWholeScope
+        });
+      });
     });
 
     doc.addEventListener('keydown', (evt) => {
@@ -6085,6 +6332,23 @@
       if(collection && options?.collectionLabel){ node.dataset.fontCollectionLabel = String(options.collectionLabel); }
       if(deferRegistration){ deferredTextNodes.add(node); }
     }
+    if(Shared.textBlock?.isTitleRole(role || node.dataset?.fontRole)){
+      if(!node.dataset.titleTextAlign){
+        node.dataset.titleTextAlign = Shared.textBlock.normalizeAlignment(node.getAttribute?.('text-anchor'));
+      }
+      if(!node.dataset.titleDefaultAlign){
+        node.dataset.titleDefaultAlign = node.dataset.titleTextAlign;
+      }
+      const canonicalText = Shared.textBlock.normalizeText(
+        typeof node.dataset?.titleBlockText === 'string' ? node.dataset.titleBlockText : node.textContent
+      );
+      if(canonicalText.includes('\n')){
+        node.dataset.titleBlockText = canonicalText;
+        if(!Array.from(node.children || []).some(child => child.matches?.('tspan[data-title-line="1"]'))){
+          Shared.textBlock.renderLines(node, canonicalText, (row, line) => { row.textContent = line.text; });
+        }
+      }
+    }
     const storeKey = buildStoreKey(scopeId, key, { node, tabId: tabToken });
     const graphStoreKey = buildStoreKey(scopeId, GRAPH_SCOPE_TOKEN, { node, tabId: tabToken });
     const collectionToken = fontCollectionStoreToken(collection);
@@ -6133,6 +6397,33 @@
     applyEffectiveStyleForNode(node, { storeKey, clearWhenEmpty: false });
   }
 
+  function setTitleText(node, value){
+    if(!node || !Shared.textBlock?.isTitleRole(node.dataset?.fontRole)) return false;
+    const text = Shared.textBlock.normalizeText(value);
+    const hasLineStructure = Array.from(node.children || []).some(child => child.matches?.('tspan[data-title-line="1"]'));
+    if(node.dataset.titleBlockText === text
+      && (text.includes('\n') ? hasLineStructure : (!hasLineStructure && node.textContent === text))){
+      return true;
+    }
+    node.dataset.titleBlockText = text;
+    const ownership = resolveNodeFontOwnership(node);
+    const storeKey = buildStoreKey(ownership.scope, node.dataset?.fontKey || null, {
+      node,
+      tabId: resolveStoreTabToken({ node, tabId: ownership.tabId })
+    });
+    const applied = applyEffectiveStyleForNode(node, { storeKey, clearWhenEmpty: false });
+    if(!applied){
+      if(text.includes('\n')){
+        Shared.textBlock.renderLines(node, text, (row, line) => { row.textContent = line.text; });
+      }else{
+        node.textContent = text;
+        Shared.textBlock.clearRenderedLines(node);
+      }
+      Shared.textBlock.applyAlignment(node, node.dataset.titleTextAlign || 'center');
+    }
+    return true;
+  }
+
   function isStoreKeyOwnedByTab(storeKey, tabToken){
     if(!storeKey || !tabToken){ return false; }
     return String(storeKey).includes(`::${TAB_SCOPE_TOKEN_PREFIX}${tabToken}::`);
@@ -6175,6 +6466,7 @@
   fontControls.isTextRegistrationDeferred = node => !!node && deferredTextNodes.has(node);
   fontControls.openForElement = openPanelForTarget;
   fontControls.applySavedStyle = applySavedStyle;
+  fontControls.setTitleText = setTitleText;
   fontControls.getCollectionStyleToken = fontCollectionStoreToken;
   fontControls.captureInlineState = captureInlineStateForNode;
   fontControls.exportScopeStyles = exportScopeStyles;

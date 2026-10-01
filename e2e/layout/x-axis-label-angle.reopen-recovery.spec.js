@@ -2,6 +2,7 @@ const { test, expect } = require('@playwright/test');
 const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
 const { registerIssueCollectors } = require('../helpers/diagnostics');
 const { openComponentFromWelcome } = require('../helpers/workspaceDriver');
+const { buildWorkspaceArchive, parseWorkspaceArchive } = require('../helpers/archiveDriver');
 
 const DEFAULT_TICK_SELECTOR = 'text[data-font-role="xTick"]';
 const CASES = [
@@ -159,26 +160,25 @@ async function captureArchivePayload(page, type, snapshotKind) {
     type,
     `e2e-x-axis-label-angle-${snapshotKind}-prearchive-ready`
   );
-  return page.evaluate(async ({ componentType, kind }) => {
-    const context = window.Main.tabs.getSessionActionsContext();
-    const blob = await window.Main.sessionActions.buildWorkspaceArchiveBlob(context, {
-      scope: 'workspace',
-      snapshotKind: kind,
-      policyMode: kind === 'recovery' ? 'recovery' : 'manual-save',
-      reason: `e2e-x-axis-label-angle-${kind}`,
-      // This contract exercises canonical payload persistence only. Render-cache
-      // capture is covered by dedicated reopen/cache suites and would couple this
-      // test to the publication state of a deliberately skipDraw hydration below.
-      captureRenderCacheBeforeSnapshot: false,
-      includeRenderCacheInSnapshot: false,
-      compression: 'STORE',
-      useWorker: false
-    });
-    const parsed = await window.Shared.graphArchive.parseFile(blob, {
-      fileName: kind === 'recovery' ? 'recovery.graph' : 'reopen.graph'
-    });
-    return parsed.session.tabs.find(tab => tab.type === componentType)?.payload || null;
-  }, { componentType: type, kind: snapshotKind });
+  const archive = await buildWorkspaceArchive(page, {
+    scope: 'workspace',
+    snapshotKind,
+    policyMode: snapshotKind === 'recovery' ? 'recovery' : 'manual-save',
+    reason: `e2e-x-axis-label-angle-${snapshotKind}`,
+    // This contract exercises canonical payload persistence only. Render-cache
+    // capture is covered by dedicated reopen/cache suites and would couple this
+    // test to the publication state of a deliberately skipDraw hydration below.
+    captureRenderCacheBeforeSnapshot: false,
+    includeRenderCacheInSnapshot: false,
+    compression: 'STORE',
+    useWorker: false
+  });
+  const parsed = await parseWorkspaceArchive(
+    page,
+    archive.base64,
+    snapshotKind === 'recovery' ? 'recovery.graph' : 'reopen.graph'
+  );
+  return parsed.session.tabs.find(tab => tab.type === type)?.payload || null;
 }
 
 async function hydrateOwnerFromPayload(page, type, payload, source) {

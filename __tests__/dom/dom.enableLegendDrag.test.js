@@ -67,6 +67,17 @@ describe('Shared.enableLegendDrag viewport bounds', () => {
     expect(onDragEnd).toHaveBeenLastCalledWith(expect.objectContaining({ x: 0, y: 0 }));
   });
 
+  test('preserves caller-specified viewport clearance while dragging', () => {
+    const { svg, legend } = createLegend();
+    window.Shared.enableLegendDrag(legend, svg, {
+      viewportPadding: { right: 12, bottom: 10 }
+    });
+
+    drag(legend, { x: 100, y: 80 }, { x: 700, y: 600 });
+
+    expect(legend.getAttribute('transform')).toBe('translate(208,150)');
+  });
+
   test('uses the rendered SVG edges when preserveAspectRatio creates side bands', () => {
     const { svg, legend } = createLegend();
     svg.getBoundingClientRect = () => ({ left: 100, top: 50, right: 500, bottom: 350, width: 400, height: 300 });
