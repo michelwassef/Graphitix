@@ -4268,8 +4268,10 @@
     const orientation = options?.orientation || 'vertical';
     const token = options?.token;
     const outliers = [];
-    let wMin = Infinity;
-    let wMax = -Infinity;
+    // Whiskers start at the box edges and extend only toward eligible outer
+    // observations. Interpolated quartiles can lie beyond every in-fence value.
+    let wMin = Number.isFinite(q1) ? q1 : Infinity;
+    let wMax = Number.isFinite(q3) ? q3 : -Infinity;
     let iterCount = 0;
     let observedMin = Infinity;
     let observedMax = -Infinity;
@@ -7261,7 +7263,7 @@
     };
   }
 
-  function resolveBarSummaryConfig(mode, summary, valueList){
+  function resolveBoxSummaryConfig(mode, summary, valueList){
     const normalized = normalizeIndividualSummaryValue(mode);
     const sampleCount = Number(summary?.count) || (Array.isArray(valueList) ? valueList.filter(v=>Number.isFinite(v)).length : 0);
     const mean = summary?.mean;
@@ -7280,10 +7282,10 @@
     let hasInterval = false;
     const getGeoStats = () => {
       if(summary && typeof summary === 'object'){
-        if(!summary.__barGeoSummary){
-          summary.__barGeoSummary = computeGeometricSummary(valueList);
+        if(!summary.__boxGeoSummary){
+          summary.__boxGeoSummary = computeGeometricSummary(valueList);
         }
-        return summary.__barGeoSummary;
+        return summary.__boxGeoSummary;
       }
       return computeGeometricSummary(valueList);
     };
@@ -7372,7 +7374,7 @@
         break;
       case 'none':
         centerValue = Number.isFinite(mean) ? mean : median;
-        boxLog('Debug: box bar summary mode none mapped to center only',{
+        boxLog('Debug: box summary mode none mapped to center only',{
           mode: normalized,
           mean,
           median,
@@ -7386,7 +7388,7 @@
     if(!Number.isFinite(centerValue)){
       const fallbackCenter = [mean, median, minVal, maxVal, 0].find(v => Number.isFinite(v));
       centerValue = Number.isFinite(fallbackCenter) ? fallbackCenter : 0;
-      boxLog('Debug: box bar summary fallback center',{
+      boxLog('Debug: box summary fallback center',{
         mode: normalized,
         centerValue,
         mean,
@@ -7400,7 +7402,7 @@
         hasInterval = false;
         lowValue = centerValue;
         highValue = centerValue;
-        boxLog('Debug: box bar summary interval skipped',{
+        boxLog('Debug: box summary interval skipped',{
           mode: normalized,
           lowValue,
           highValue,
@@ -7410,7 +7412,7 @@
         const temp = highValue;
         highValue = lowValue;
         lowValue = temp;
-        boxLog('Debug: box bar summary interval swapped',{
+        boxLog('Debug: box summary interval swapped',{
           mode: normalized,
           lowValue,
           highValue,
@@ -7433,6 +7435,41 @@
       upperError,
       hasInterval
     };
+  }
+
+  function resolveBoxSummaryIntervalExtent(summarySpec, options = {}){
+    if(!summarySpec?.hasInterval){
+      return null;
+    }
+    const logScale = options.logScale === true;
+    const bounds = [summarySpec.lowValue, summarySpec.highValue]
+      .map(Number)
+      .filter(value => Number.isFinite(value) && (!logScale || value > 0));
+    if(!bounds.length){
+      return null;
+    }
+    return {
+      min: Math.min(...bounds),
+      max: Math.max(...bounds)
+    };
+  }
+
+  function resolveBoxSummaryOverlayDomain(traces, mode, domain, options = {}){
+    let min = Number(domain?.min);
+    let max = Number(domain?.max);
+    (Array.isArray(traces) ? traces : []).forEach(trace => {
+      const summarySpec = resolveBoxSummaryConfig(mode, trace?.__distribution, trace?.y);
+      if(trace && typeof trace === 'object'){
+        trace.__summarySpec = summarySpec;
+      }
+      const extent = resolveBoxSummaryIntervalExtent(summarySpec, options);
+      if(!extent){
+        return;
+      }
+      min = Number.isFinite(min) ? Math.min(min, extent.min) : extent.min;
+      max = Number.isFinite(max) ? Math.max(max, extent.max) : extent.max;
+    });
+    return { min, max };
   }
 
   function resolveDisplayedBarErrorInterval(centerValue, lowValue, highValue, mode = 'upper'){
@@ -7586,7 +7623,7 @@
       return null;
     }
     if(graphType === 'bar'){
-      const summarySpec = options.barSummarySpec || resolveBarSummaryConfig(options.summaryMode, summary, options.valueList);
+      const summarySpec = options.summarySpec || resolveBoxSummaryConfig(options.summaryMode, summary, options.valueList);
       const highValue = Number(summarySpec?.highValue);
       const centerValue = Number(summarySpec?.centerValue);
       if(Number.isFinite(highValue)){
@@ -7644,14 +7681,8 @@
     const sampleCount = Number(summary?.count) || (Array.isArray(valueList) ? valueList.filter(v=>Number.isFinite(v)).length : 0);
     const mean = summary?.mean;
     const sd = summary?.sd;
-    const q1 = summary?.q1;
-    const q3 = summary?.q3;
     const median = summary?.median;
-    const minVal = summary?.min;
-    const maxVal = summary?.max;
-    const sortedValues = Array.isArray(summary?.sortedValues) && summary.sortedValues.length
-      ? summary.sortedValues
-      : computeSortedNumericValues(valueList);
+    const summarySpec = operations.summarySpec || resolveBoxSummaryConfig(normalized, summary, valueList);
     const debug = !!operations.debug;
     const drawPoint = typeof operations.drawPoint === 'function' ? operations.drawPoint : null;
     const drawInterval = typeof operations.drawInterval === 'function' ? operations.drawInterval : null;
@@ -7700,7 +7731,7 @@
         break;
       case 'mean-sd':
         if(sampleCount > 1 && Number.isFinite(sd)){
-          ensureInterval(mean - sd, mean + sd, 'mean-sd');
+          ensureInterval(summarySpec.lowValue, summarySpec.highValue, 'mean-sd');
         }else{
           logSkip('mean-sd spread',{ sampleCount, sd });
         }
@@ -7708,17 +7739,15 @@
         break;
       case 'mean-sem':
         if(sampleCount > 1 && Number.isFinite(sd)){
-          const semValue = sd / Math.sqrt(sampleCount);
-          ensureInterval(mean - semValue, mean + semValue, 'mean-sem');
+          ensureInterval(summarySpec.lowValue, summarySpec.highValue, 'mean-sem');
         }else{
           logSkip('mean-sem spread',{ sampleCount, sd });
         }
         ensurePoint(mean, 1.4, 'mean-sem-center');
         break;
       case 'mean-ci':{
-        const ci = computeMeanCI95(summary);
-        if(ci){
-          ensureInterval(ci.low, ci.high, 'mean-ci');
+        if(summarySpec.hasInterval){
+          ensureInterval(summarySpec.lowValue, summarySpec.highValue, 'mean-ci');
         }else{
           logSkip('mean-ci',{ sampleCount, sd });
         }
@@ -7726,7 +7755,7 @@
         break;
       }
       case 'mean-range':
-        ensureInterval(minVal, maxVal, 'mean-range');
+        ensureInterval(summarySpec.lowValue, summarySpec.highValue, 'mean-range');
         ensurePoint(mean, 1.4, 'mean-range-center');
         break;
       case 'geo-mean':{
@@ -7741,7 +7770,7 @@
       case 'geo-mean-ci':{
         const geo = getGeoStats();
         if(geo){
-          ensureInterval(geo.ciLow, geo.ciHigh, 'geo-mean-ci');
+          ensureInterval(summarySpec.lowValue, summarySpec.highValue, 'geo-mean-ci');
           ensurePoint(geo.geoMean, 1.4, 'geo-mean-ci-center');
         }else{
           logSkip('geo-mean-ci',{ reason:'invalid-data' });
@@ -7751,7 +7780,7 @@
       case 'geo-mean-gsd':{
         const geo = getGeoStats();
         if(geo){
-          ensureInterval(geo.gsdLow, geo.gsdHigh, 'geo-mean-gsd');
+          ensureInterval(summarySpec.lowValue, summarySpec.highValue, 'geo-mean-gsd');
           ensurePoint(geo.geoMean, 1.4, 'geo-mean-gsd-center');
         }else{
           logSkip('geo-mean-gsd',{ reason:'invalid-data' });
@@ -7763,9 +7792,8 @@
         ensurePoint(median, 1.2, 'median-point');
         break;
       case 'median-ci':{
-        const ci = computeMedianCIApprox(sortedValues);
-        if(ci){
-          ensureInterval(ci.low, ci.high, 'median-ci');
+        if(summarySpec.hasInterval){
+          ensureInterval(summarySpec.lowValue, summarySpec.highValue, 'median-ci');
         }else{
           logSkip('median-ci',{ reason:'ci-missing' });
         }
@@ -7774,12 +7802,12 @@
         break;
       }
       case 'median-range':
-        ensureInterval(minVal, maxVal, 'median-range');
+        ensureInterval(summarySpec.lowValue, summarySpec.highValue, 'median-range');
         ensureMedianLine(median);
         ensurePoint(median, 1.2, 'median-range-point');
         break;
       case 'median-iqr':
-        ensureInterval(q1, q3, 'median-iqr');
+        ensureInterval(summarySpec.lowValue, summarySpec.highValue, 'median-iqr');
         ensureMedianLine(median);
         ensurePoint(median, 1.2, 'median-iqr-point');
         break;
@@ -30450,6 +30478,7 @@ Technical analysis record (advanced)
               summaryIntervalWidth,
               summaryStrokeAttrs,
               summaryAdd,
+              summarySpec: t.__summarySpec,
               pendingBars: pendingIndividualSummaryBars,
               pendingCaps: pendingIndividualSummaryIntervalCaps,
               getGlobalHalfSpan: () => globalIndividualSummaryHalfSpan,
@@ -31552,6 +31581,7 @@ Technical analysis record (advanced)
               summaryIntervalWidth,
               summaryStrokeAttrs,
               summaryAdd,
+              summarySpec: t.__summarySpec,
               pendingBars: pendingIndividualSummaryBars,
               pendingCaps: pendingIndividualSummaryIntervalCaps,
               getGlobalHalfSpan: () => globalIndividualSummaryHalfSpan,
@@ -33909,8 +33939,8 @@ Technical analysis record (advanced)
       const trace = config.trace;
       const traceIndex = config.traceIndex;
       const stats = trace.__barStats;
-      const summarySpec = trace.__barSummarySpec || resolveBarSummaryConfig(individualSummaryMode, trace.__distribution, trace.y);
-      trace.__barSummarySpec = summarySpec;
+      const summarySpec = trace.__summarySpec || resolveBoxSummaryConfig(individualSummaryMode, trace.__distribution, trace.y);
+      trace.__summarySpec = summarySpec;
       const sampleCountBar = summarySpec?.sampleCount ?? stats?.sampleCount ?? config.sampleCount;
       const hasSpread = !!summarySpec?.hasInterval;
       const centerValue = summarySpec?.centerValue ?? stats?.mean ?? config.mean;
@@ -35953,8 +35983,8 @@ Technical analysis record (advanced)
       const stackedPreview = isStackedLayout ? new Map() : null;
       traces.forEach((t, traceIndex) => {
         const stats = t.__barStats;
-        const summarySpec = t.__barSummarySpec || resolveBarSummaryConfig(individualSummaryMode, t.__distribution, t.y);
-        t.__barSummarySpec = summarySpec;
+        const summarySpec = resolveBoxSummaryConfig(individualSummaryMode, t.__distribution, t.y);
+        t.__summarySpec = summarySpec;
         const sampleCount = summarySpec?.sampleCount ?? stats?.sampleCount ?? t.y.length;
         if(!sampleCount){
           return;
@@ -36007,6 +36037,11 @@ Technical analysis record (advanced)
       if(isStackedLayout && stackedPreview){
         boxLog('Debug: box stacked extent',{ categories: stackedPreview.size, ymin, ymax });
       }
+    }
+    if(graphTypeRaw === 'strip'){
+      const summaryDomain = resolveBoxSummaryOverlayDomain(traces, individualSummaryMode, { min: ymin, max: ymax }, { logScale });
+      ymin = summaryDomain.min;
+      ymax = summaryDomain.max;
     }
     const userYMin = parseFloat(els.boxYMin?.value || '');
     const userYMax = parseFloat(els.boxYMax?.value || '');
@@ -39759,6 +39794,7 @@ Technical analysis record (advanced)
       getBoxVisualRuntime:()=>cloneSimple(getBoxVisualRuntime(getActiveBoxSessionForState())) || null,
       shouldAutoScaleBoxAxisToVisibleFeature:(graphType,pointMode)=>shouldAutoScaleBoxAxisToVisibleFeature(graphType,pointMode),
       resolveDisplayedBarErrorInterval:(centerValue,lowValue,highValue,mode)=>resolveDisplayedBarErrorInterval(centerValue,lowValue,highValue,mode),
+      resolveBoxSummaryOverlayDomain:(traces,mode,domain,options={})=>resolveBoxSummaryOverlayDomain(traces,mode,domain,options || {}),
       resolveTraceVisibleUpperBoundForAutoAxis:options=>resolveTraceVisibleUpperBoundForAutoAxis(options),
       sanitizeViolinExtentMode:value=>sanitizeViolinExtentMode(value),
       resolveViolinDensityDomain:(values,options={})=>resolveViolinDensityDomain(values,options || {}),

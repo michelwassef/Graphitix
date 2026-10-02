@@ -1,3 +1,18 @@
+## 2026-10-02 — Scatter density smoothing
+
+- Replaced cell-dependent box averaging with Gaussian density smoothing shared by the worker and main thread. Linear grid deposition and interpolation remove cell snapping; bandwidth stays at 1.5% of each displayed axis range independently of grid resolution. Padded boundaries avoid accumulating off-plot points at the edges.
+- Retained 256 density color levels. Checked Gaussian-reference agreement, resolution/resize stability, edge handling, and worker behavior (28 focused Jest tests); the Chromium density canvas parity check passed. Visually reviewed a 20,000-point correlated cluster.
+
+## 2026-10-02 — Box whisker endpoints and automatic axes
+
+- Start whisker endpoints at Q1 and Q3, extending only to eligible observations outside the box, matching Matplotlib's interpolated-quartile behavior. This prevents inward stems and caps in Box and Notched plots and makes automatic axes include the complete box through the same endpoint calculation. Removed the superseded upper-axis-only workaround.
+- Validation: Box axis and summary Jest suites passed (17 tests); four Chromium cases covered five datasets each in Box/Notched and both orientations, including `[1, 4, 8, 50]`, mirrored negative values, and ordinary extended whiskers. Test manifest/inventory checks passed (25 tests); Box syntax check passed.
+
+## 2026-10-02 — Box summary intervals in automatic axes
+
+- Included visible summary interval bounds in Strip auto-ranging so the full interval remains in view on linear axes. Horizontal and vertical plots share the same value-domain bounds; manual axis limits stay authoritative, and log axes exclude nonpositive endpoints.
+- Validation: focused Box axis and bar geometry Jest suites passed (10 tests); `node --check js/components/box.js` passed.
+
 ## 2026-09-29 — Multiline titles and Font alignment
 
 - Graph and axis titles across all eleven components accept explicit line breaks in the inline editor. Enter keeps editing active; clicking outside commits the title. Shared title rendering preserves line baselines, and the layout adapters move the plot and extend the SVG from measured content without changing the canonical data frame.

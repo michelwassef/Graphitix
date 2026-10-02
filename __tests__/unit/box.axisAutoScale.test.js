@@ -24,12 +24,28 @@ describe('Box auto axis scaling helpers', () => {
     expect(hooks.shouldAutoScaleBoxAxisToVisibleFeature('violin', 'outliers')).toBe(false);
   });
 
-  test('visible upper bound ignores hidden outliers for box plots and uses visible summary height for bars', () => {
+  test('box auto-scale includes its upper quartile when all upper observations are outliers', () => {
     expect(hooks).toBeDefined();
     expect(typeof hooks.resolveTraceVisibleUpperBoundForAutoAxis).toBe('function');
 
-    const values = [0, 1, 2, 100];
+    const values = [1, 4, 4, 500];
     const summary = hooks.computeTraceSummary(values, { requireSorted: true });
+    const fences = hooks.computeWhiskerFences({
+      q1: summary.q1,
+      q3: summary.q3,
+      iqr: summary.iqr,
+      rule: 'iqr15'
+    });
+    const whiskers = hooks.resolveWhiskerExtents(values, {
+      ...fences,
+      q1: summary.q1,
+      q3: summary.q3
+    });
+
+    expect(summary.q1).toBeCloseTo(3.25, 10);
+    expect(summary.q3).toBeCloseTo(128, 10);
+    expect(fences.upperFence).toBeCloseTo(315.125, 10);
+    expect(whiskers.wMax).toBe(128);
 
     const visibleBoxMax = hooks.resolveTraceVisibleUpperBoundForAutoAxis({
       graphType: 'box',
@@ -41,7 +57,7 @@ describe('Box auto axis scaling helpers', () => {
       whiskerMeta: null,
       debugEnabled: false
     });
-    expect(visibleBoxMax).toBe(2);
+    expect(visibleBoxMax).toBeCloseTo(summary.q3, 10);
 
     const visibleBarMax = hooks.resolveTraceVisibleUpperBoundForAutoAxis({
       graphType: 'bar',
@@ -53,6 +69,65 @@ describe('Box auto axis scaling helpers', () => {
     expect(visibleBarMax).toBeLessThan(summary.max);
     expect(visibleBarMax).toBeCloseTo(expectedBarMax, 10);
 
+  });
+
+  // Matplotlib cbook.boxplot_stats ends a whisker at its quartile when no
+  // eligible observation extends beyond that edge of the box.
+  test.each([
+    [[1, 4, 4, 50], 1, 15.5, [50]],
+    [[1, 4, 8, 50], 1, 18.5, [50]],
+    [[1, 4, 4, 500], 1, 128, [500]],
+    [[-50, -4, -4, -1], -15.5, -1, [-50]],
+    [[1, 4, 200, 500], 1, 500, []],
+    [[4, 4, 4, 50], 4, 15.5, [50]],
+    [[4, 4, 4, 4, 50], 4, 4, [50]],
+    [[4], 4, 4, []]
+  ])('Tukey whiskers match Matplotlib for %j', (values, expectedMin, expectedMax, expectedOutliers) => {
+    const summary = hooks.computeTraceSummary(values, { requireSorted: true });
+    const fences = hooks.computeWhiskerFences({ ...summary, rule: 'iqr15' });
+    const whiskers = hooks.resolveWhiskerExtents(summary.sortedValues, {
+      ...fences, q1: summary.q1, q3: summary.q3
+    });
+    expect(whiskers.wMin).toBe(expectedMin);
+    expect(whiskers.wMax).toBe(expectedMax);
+    expect(whiskers.outliers).toEqual(expectedOutliers);
+    expect(whiskers.wMin).toBeLessThanOrEqual(summary.q1);
+    expect(whiskers.wMax).toBeGreaterThanOrEqual(summary.q3);
+  });
+
+  test('summary intervals expand the Strip auto domain and keep invalid log bounds out', () => {
+    const values = [1, 4, 4, 500];
+    const summary = hooks.computeTraceSummary(values, { requireSorted: false });
+    const trace = { y: values, __distribution: summary };
+
+    const linearDomain = hooks.resolveBoxSummaryOverlayDomain(
+      [trace],
+      'mean-sd',
+      { min: summary.min, max: summary.max }
+    );
+    expect(linearDomain.min).toBeCloseTo(summary.mean - summary.sd, 10);
+    expect(linearDomain.min).toBeLessThan(0);
+    expect(linearDomain.max).toBe(summary.max);
+    expect(trace.__summarySpec.hasInterval).toBe(true);
+
+    const highTailValues = [1, 100];
+    const highTailSummary = hooks.computeTraceSummary(highTailValues, { requireSorted: false });
+    const highTailDomain = hooks.resolveBoxSummaryOverlayDomain(
+      [{ y: highTailValues, __distribution: highTailSummary }],
+      'mean-sd',
+      { min: highTailSummary.min, max: highTailSummary.max }
+    );
+    expect(highTailDomain.max).toBeCloseTo(highTailSummary.mean + highTailSummary.sd, 10);
+    expect(highTailDomain.max).toBeGreaterThan(highTailSummary.max);
+
+    const logDomain = hooks.resolveBoxSummaryOverlayDomain(
+      [{ y: values, __distribution: summary }],
+      'mean-sd',
+      { min: summary.min, max: summary.max },
+      { logScale: true }
+    );
+    expect(logDomain.min).toBe(summary.min);
+    expect(logDomain.max).toBe(summary.max);
   });
 
   test('violin density geometry is independent from the point overlay mode', () => {

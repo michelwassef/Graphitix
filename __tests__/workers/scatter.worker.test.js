@@ -5,6 +5,7 @@
 const jStat = require('jstat');
 require('../../js/shared/stats.js');
 const sharedStats = global.Shared.stats;
+const scatterDensityModel = require('../../js/shared/scatterDensityModel.js');
 
 function loadWorker() {
   const ctx = {
@@ -20,6 +21,7 @@ function loadWorker() {
   // Minimal regression stub
   ctx.Shared = {
     stats: sharedStats,
+    scatterDensityModel,
     regressionTools: {
       fitRegression: (points, opts) => {
         if (!points || points.length < 2) return null;
@@ -226,6 +228,70 @@ describe('scatter.worker — scatter-render', () => {
     expect(msg.result.density).not.toBeNull();
     expect(msg.result.density.values).toHaveLength(points.length);
     expect(msg.result.density.max).toBeGreaterThan(0);
+  });
+
+  test('worker density includes nearby points with Gaussian weights', async () => {
+    const points = [
+      { x: 10, y: 10 },
+      { x: 10.6, y: 10.6 },
+      { x: 60, y: 60 }
+    ];
+    const msg = await send(ctx, '16', 'scatter-render', {
+      points,
+      xScale: { min: 0, max: 100 },
+      yScale: { min: 0, max: 100 },
+      plotW: 1000,
+      plotH: 1000,
+      densityEnabled: true
+    });
+    expect(msg.ok).toBe(true);
+    const ratio = msg.result.density.values[0] / msg.result.density.values[2];
+    expect(ratio).toBeCloseTo(1 + Math.exp(-0.5 * (2 * (0.6 / 1.5) ** 2)), 2);
+  });
+
+  test('density agrees with a direct Gaussian estimate across resolutions and resizing', () => {
+    const x = [0, 0.4, 1, 30, 30.8, 31.2, 32, 50, 70, 70.5, 71, 99, 100];
+    const y = [0, 0.3, 0.8, 30, 30.1, 31, 31.5, 50, 70, 70.6, 71, 99, 100];
+    const direct = x.map((px, i) => x.reduce((sum, qx, j) => sum
+      + Math.exp(-0.5 * (((px - qx) / 1.5) ** 2 + ((y[i] - y[j]) / 1.5) ** 2)), 0));
+    const peak = Math.max(...direct);
+    for(const [width, height, cellSize] of [[600, 400, 1.5], [600, 400, 3], [1200, 500, 1.5]]){
+      const result = scatterDensityModel.computeScatterDensityValuesFromGeometry(
+        x.map(v => v / 100 * width + 23), y.map(v => v / 100 * height + 41),
+        { width, height, offsetX: 23, offsetY: 41, cellSize }
+      );
+      direct.forEach((v, i) => {
+        expect(Math.abs(result.values[i] / result.max - v / peak)).toBeLessThan(0.025);
+      });
+      // Separated clusters retain a low-density valley.
+      expect(result.values[7] / result.max).toBeLessThan(0.4);
+    }
+  });
+
+  test('invalid and distant off-plot points do not pile up at the edge', () => {
+    const compute = scatterDensityModel.computeScatterDensityValuesFromGeometry;
+    const size = { width: 300, height: 300 };
+    const single = compute([0], [0], size);
+    const result = compute([0, NaN, -1000], [0, 0, 0], size);
+    expect(result.values[0]).toBe(single.values[0]);
+    expect(Array.from(result.values).slice(1)).toEqual([0, 0]);
+  });
+
+  test('density colors transition smoothly across sampling-cell boundaries', () => {
+    const clusterCount = 90;
+    const cx = new Float64Array(clusterCount + 2);
+    const cy = new Float64Array(clusterCount + 2).fill(100.5);
+    for(let i = 0; i < clusterCount; i += 1){
+      cx[i] = 16.5;
+    }
+    cx[clusterCount] = 14.999;
+    cx[clusterCount + 1] = 15.001;
+
+    const result = scatterDensityModel.computeScatterDensityValuesFromGeometry(cx, cy, {
+      width: 300,
+      height: 300
+    });
+    expect(result.values[clusterCount]).toBeCloseTo(result.values[clusterCount + 1], 1);
   });
 
   test('density is null when densityEnabled is false', async () => {

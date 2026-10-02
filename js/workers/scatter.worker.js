@@ -6,7 +6,23 @@
   const JSTAT_URL = '../../libs/jstat.min.js';
   const STATS_URL = '../shared/stats.js';
   const REGRESSION_URL = '../shared/regression.js';
+  const SCATTER_DENSITY_MODEL_URL = '../shared/scatterDensityModel.js';
   const debugState = { enabled: false };
+
+  function ensureScatterDensityModel(){
+    const existing = ctx.Shared?.scatterDensityModel;
+    if(typeof existing?.computeScatterDensityValuesFromGeometry === 'function'){
+      return existing;
+    }
+    if(typeof ctx.importScripts === 'function'){
+      ctx.importScripts(SCATTER_DENSITY_MODEL_URL);
+    }
+    const loaded = ctx.Shared?.scatterDensityModel;
+    if(typeof loaded?.computeScatterDensityValuesFromGeometry !== 'function'){
+      throw new Error('Scatter density model unavailable in worker');
+    }
+    return loaded;
+  }
 
   function logDebug(message, payload){
     if(!debugState.enabled){
@@ -284,58 +300,6 @@
     return stats;
   }
 
-  function computeScatterDensityValues(points, size){
-    const width = Math.max(1, Number(size?.width) || 1);
-    const height = Math.max(1, Number(size?.height) || 1);
-    const data = Array.isArray(points) ? points : [];
-    const count = data.length;
-    if(!count){
-      return { values: [], max: 0 };
-    }
-    const gridResolution = Math.max(10, Math.min(80, Math.round(Math.sqrt(count))));
-    const gridX = gridResolution;
-    const gridY = gridResolution;
-    const cellW = width / gridX;
-    const cellH = height / gridY;
-    const grid = new Array(gridX * gridY).fill(0);
-    const coords = [];
-    for(let i = 0; i < count; i += 1){
-      const pt = data[i];
-      const x = Math.min(Math.max(Number(pt?.x) || 0, 0), width - 1e-6);
-      const y = Math.min(Math.max(Number(pt?.y) || 0, 0), height - 1e-6);
-      const gx = Math.min(gridX - 1, Math.max(0, Math.floor(x / cellW)));
-      const gy = Math.min(gridY - 1, Math.max(0, Math.floor(y / cellH)));
-      grid[gy * gridX + gx] += 1;
-      coords.push({ gx, gy });
-    }
-    const neighborOffsets = [-1, 0, 1];
-    const values = new Array(count);
-    let maxDensity = 0;
-    coords.forEach(({ gx, gy }, idx) => {
-      let sum = 0;
-      let n = 0;
-      for(let dxIdx = 0; dxIdx < neighborOffsets.length; dxIdx += 1){
-        const dx = neighborOffsets[dxIdx];
-        for(let dyIdx = 0; dyIdx < neighborOffsets.length; dyIdx += 1){
-          const dy = neighborOffsets[dyIdx];
-          const nx = gx + dx;
-          const ny = gy + dy;
-          if(nx < 0 || nx >= gridX || ny < 0 || ny >= gridY){
-            continue;
-          }
-          sum += grid[ny * gridX + nx] || 0;
-          n += 1;
-        }
-      }
-      const density = n ? sum / n : 0;
-      values[idx] = density;
-      if(density > maxDensity){
-        maxDensity = density;
-      }
-    });
-    return { values, max: maxDensity };
-  }
-
   function computeScatterRender(payload){
     debugState.enabled = !!payload?.debug;
     const points = Array.isArray(payload?.points) ? payload.points : [];
@@ -379,13 +343,12 @@
     }
     const densityEnabled = !!payload?.densityEnabled;
     const densityInfo = densityEnabled
-      ? computeScatterDensityValues(
-          Array.from(cx, (value, idx) => ({
-            x: value - left,
-            y: cy[idx] - top
-          })),
-          { width: plotW, height: plotH }
-        )
+      ? ensureScatterDensityModel().computeScatterDensityValuesFromGeometry(cx, cy, {
+          width: plotW,
+          height: plotH,
+          offsetX: left,
+          offsetY: top
+        })
       : null;
     return {
       geometry: {
@@ -395,6 +358,8 @@
         cy: Array.from(cy)
       },
       density: densityInfo
+        ? { values: Array.from(densityInfo.values), max: densityInfo.max }
+        : null
     };
   }
 

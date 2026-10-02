@@ -9,6 +9,10 @@
       // Browser builds load scatterLabelModel.js before the component.
     }
   }
+  const scatterDensityModel = Shared.scatterDensityModel = Shared.scatterDensityModel || {};
+  if(typeof scatterDensityModel.computeScatterDensityValuesFromGeometry !== 'function' && typeof require === 'function'){
+    require('../shared/scatterDensityModel.js');
+  }
   const summarizeScatterLabelDistribution = (...args) => scatterLabelModel.summarizeScatterLabelDistribution(...args);
   if(typeof Shared.componentLifecycle?.bindOwnerControlHandler !== 'function' && typeof require === 'function'){
     require('../shared/componentLifecycle.js');
@@ -185,7 +189,7 @@
   const SCATTER_POINT_CANVAS_RESOLUTION_SCALE = 2;
   const SCATTER_POINT_CANVAS_FRAME_POINT_BUDGET = 6000;
   const SCATTER_POINT_CANVAS_SPRITE_FRAME_POINT_BUDGET = 24000;
-  const SCATTER_DENSITY_LARGE_COLOR_STEPS = 32;
+  const SCATTER_DENSITY_LARGE_COLOR_STEPS = 256;
   const SCATTER_THRESHOLD_SELECTION_ROW_LIMIT = 5000;
   const SCATTER_THRESHOLD_SELECTION_SELECTED_LIMIT = 1000;
   const SCATTER_SIGNIFICANT_LABELS_AUTO_OFF_POINT_LIMIT = SCATTER_POINT_BATCH_THRESHOLD;
@@ -7212,68 +7216,6 @@
       const localT = span ? (t - start.t) / span : 0;
       return scatterRgbToCss(scatterMixColors(start.color, end.color, localT));
     };
-  }
-
-  function computeScatterDensityValuesFromGeometry(cxValues, cyValues, size){
-    const width = Math.max(1, Number(size?.width) || 1);
-    const height = Math.max(1, Number(size?.height) || 1);
-    const offsetX = Number(size?.offsetX) || 0;
-    const offsetY = Number(size?.offsetY) || 0;
-    const count = Math.min(
-      Array.isArray(cxValues) || ArrayBuffer.isView(cxValues) ? cxValues.length : 0,
-      Array.isArray(cyValues) || ArrayBuffer.isView(cyValues) ? cyValues.length : 0
-    );
-    if(!count){
-      return { values: [], max: 0 };
-    }
-    const gridResolution = Math.max(10, Math.min(80, Math.round(Math.sqrt(count))));
-    const gridX = gridResolution;
-    const gridY = gridResolution;
-    const cellW = width / gridX;
-    const cellH = height / gridY;
-    const grid = new Int32Array(gridX * gridY);
-    const gxArr = new Int32Array(count);
-    const gyArr = new Int32Array(count);
-    for(let i = 0; i < count; i += 1){
-      const rawX = Number(cxValues[i]);
-      const rawY = Number(cyValues[i]);
-      const x = Math.min(Math.max((Number.isFinite(rawX) ? rawX : 0) - offsetX, 0), width - 1e-6);
-      const y = Math.min(Math.max((Number.isFinite(rawY) ? rawY : 0) - offsetY, 0), height - 1e-6);
-      const gx = Math.min(gridX - 1, Math.max(0, Math.floor(x / cellW)));
-      const gy = Math.min(gridY - 1, Math.max(0, Math.floor(y / cellH)));
-      grid[gy * gridX + gx] += 1;
-      gxArr[i] = gx;
-      gyArr[i] = gy;
-    }
-    const values = new Float64Array(count);
-    let maxDensity = 0;
-    for(let idx = 0; idx < count; idx += 1){
-      const gx = gxArr[idx];
-      const gy = gyArr[idx];
-      let sum = 0;
-      let n = 0;
-      for(let dy = -1; dy <= 1; dy += 1){
-        const ny = gy + dy;
-        if(ny < 0 || ny >= gridY){
-          continue;
-        }
-        const row = ny * gridX;
-        for(let dx = -1; dx <= 1; dx += 1){
-          const nx = gx + dx;
-          if(nx < 0 || nx >= gridX){
-            continue;
-          }
-          sum += grid[row + nx];
-          n += 1;
-        }
-      }
-      const density = n ? sum / n : 0;
-      values[idx] = density;
-      if(density > maxDensity){
-        maxDensity = density;
-      }
-    }
-    return { values, max: maxDensity };
   }
 
   function resolveScatterLargeDatasetPolicy(options = {}){
@@ -24824,7 +24766,7 @@ time(`scatterSvgDraw_${token}`);
           token,
           points: geometryCount
         });
-        densityInfo = computeScatterDensityValuesFromGeometry(pointCx, pointCy, {
+        densityInfo = scatterDensityModel.computeScatterDensityValuesFromGeometry(pointCx, pointCy, {
           width: plotW,
           height: plotH,
           offsetX: margin.left,
