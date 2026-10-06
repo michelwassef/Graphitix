@@ -227,10 +227,16 @@ describe('Box swarm offsets — point styling and layout', () => {
   });
 
   test('dataset drag delegates the physical reorder to the active tab-owned table manager', () => {
-    const state = window.Components.box.__getState();
+    const hooks = window.Components.box.__testHooks;
+    const owner = hooks.getSession('box-column-order-test', { create: true });
     const applyColumnOrder = jest.fn(() => true);
-    state.hot = { applyColumnOrder };
-    expect(suite.hooks.applyBoxDatasetColumnOrder([1, 2, 0])).toBe(true);
+    owner.state.visual.fillColors = ['#111111', '#222222'];
+    owner.state.visual.borderColors = ['#333333', '#444444'];
+    owner.state.styles.traceShapeStyles = { 0: { fill: '#111111' } };
+    owner.state.styles.pointStyles = { 1: { fill: '#222222' } };
+    owner.state.styles.summaryStyles = { 0: { color: '#333333' } };
+    owner.managers.hot = { __boxTabId: owner.tabId, applyColumnOrder };
+    expect(suite.hooks.applyBoxDatasetColumnOrder([1, 2, 0], owner)).toBe(true);
     expect(applyColumnOrder).toHaveBeenCalledTimes(1);
     expect(applyColumnOrder).toHaveBeenCalledWith(
       [1, 2, 0],
@@ -243,7 +249,15 @@ describe('Box swarm offsets — point styling and layout', () => {
     expect(options.onApplied).toBeUndefined();
     expect(options.onUndo).toBeUndefined();
     expect(options.onRedo).toBeUndefined();
-    state.hot = null;
+    const payload = options.updatePayload({ config: {} });
+    expect(payload.config).toMatchObject({
+      colors: ['#111111', '#222222'],
+      borderColors: ['#333333', '#444444'],
+      shapeStyles: { 0: { fill: '#111111' } },
+      pointStyles: { 1: { fill: '#222222' } },
+      summaryStyles: { 0: { color: '#333333' } }
+    });
+    owner.managers.hot = null;
   });
 
   test('canvas-backed point groups expose an interaction proxy for toolbar selection', () => {

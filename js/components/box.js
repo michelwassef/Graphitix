@@ -13,6 +13,11 @@
     require('../shared/componentLifecycle.js');
   }
   const Components = global.Components = global.Components || {};
+  const boxIndexedStylesModel = Components.__models?.boxIndexedStyles
+    || (typeof require === 'function' ? require('./boxIndexedStylesModel.js') : null);
+  if(!boxIndexedStylesModel){
+    throw new Error('Box indexed styles model must load before the Box component.');
+  }
   const box = Components.box = Components.box || {};
   const symbolGeometry = Shared.symbolGeometry = Shared.symbolGeometry || {};
   if(typeof symbolGeometry.resolveEqualAreaHalfExtent !== 'function' && typeof require === 'function'){
@@ -1057,6 +1062,7 @@
   }
 
   function normalizeBoxStoredColorsForScheme(options = {}){
+    const owner = ensureBoxSessionOwnershipShape(options.session || null);
     const schemeId = typeof options.schemeId === 'string' && options.schemeId.trim()
       ? options.schemeId.trim().toLowerCase()
       : getBoxSelectedColorSchemeId();
@@ -1112,6 +1118,17 @@
         }else{
           delete state.traceShapeStyles[key];
         }
+      });
+    }
+    if(owner?.tabId){
+      const normalized = getBoxIndexedDatasetStateBundle(owner);
+      normalized.fillColors = Array.isArray(state.fillColors) ? state.fillColors.slice() : [];
+      normalized.borderColors = Array.isArray(state.borderColors) ? state.borderColors.slice() : [];
+      normalized.traceShapeStyles = cloneSimple(state.traceShapeStyles) || {};
+      writeBoxIndexedDatasetStateBundle(normalized, owner, getBoxActiveHotManager(owner), 'box-theme-style-normalize', {
+        updateColumnOrder: false,
+        persistUserState: false,
+        markDrawDataDirty: false
       });
     }
   }
@@ -2341,184 +2358,87 @@
     return renderIndex;
   }
 
-  function reorderBoxIndexedValues(source, permutationOldByNew){
-    const permutation = Array.isArray(permutationOldByNew) ? permutationOldByNew : [];
-    if(Array.isArray(source)){
-      const output = [];
-      permutation.forEach((oldIndex, newIndex) => {
-        if(oldIndex < source.length){
-          output[newIndex] = source[oldIndex];
-        }
-      });
-      return output;
-    }
-    const input = source && typeof source === 'object' ? source : {};
-    const output = {};
-    Object.keys(input).forEach(key => {
-      if(!Number.isInteger(Number(key)) || Number(key) < 0){
-        output[key] = input[key];
-      }
-    });
-    permutation.forEach((oldIndex, newIndex) => {
-      if(Object.prototype.hasOwnProperty.call(input, oldIndex)){
-        output[newIndex] = input[oldIndex];
-      }
-    });
-    return output;
-  }
-
-  function spliceBoxIndexedValues(source, startIndex, deleteCount, insertCount){
-    const start = Math.max(0, Math.floor(Number(startIndex) || 0));
-    const removeCount = Math.max(0, Math.floor(Number(deleteCount) || 0));
-    const addCount = Math.max(0, Math.floor(Number(insertCount) || 0));
-    if(Array.isArray(source)){
-      const output = source.slice();
-      while(output.length < start){
-        output.push('');
-      }
-      output.splice(start, removeCount, ...Array.from({ length: addCount }, () => ''));
-      return output;
-    }
-    const input = source && typeof source === 'object' ? source : {};
-    const output = {};
-    Object.keys(input).forEach(key => {
-      const numericKey = Number(key);
-      if(!Number.isInteger(numericKey) || numericKey < 0){
-        output[key] = input[key];
-        return;
-      }
-      if(numericKey < start){
-        output[numericKey] = input[key];
-        return;
-      }
-      if(numericKey >= start + removeCount){
-        output[numericKey - removeCount + addCount] = input[key];
-      }
-    });
-    return output;
-  }
-
-  function captureBoxIndexedValuesSlice(source, startIndex, count){
-    const start = Math.max(0, Math.floor(Number(startIndex) || 0));
-    const length = Math.max(0, Math.floor(Number(count) || 0));
-    if(Array.isArray(source)){
-      return source.slice(start, start + length);
-    }
-    const input = source && typeof source === 'object' ? source : {};
-    const output = {};
-    Object.keys(input).forEach(key => {
-      const numericKey = Number(key);
-      if(Number.isInteger(numericKey) && numericKey >= start && numericKey < start + length){
-        output[numericKey - start] = cloneSimple(input[key]);
-      }
-    });
-    return output;
-  }
-
-  function restoreBoxIndexedValuesSlice(source, startIndex, snapshot){
-    const start = Math.max(0, Math.floor(Number(startIndex) || 0));
-    if(Array.isArray(source)){
-      const output = source.slice();
-      const values = Array.isArray(snapshot) ? snapshot : [];
-      values.forEach((value, offset) => {
-        output[start + offset] = value;
-      });
-      return output;
-    }
-    const output = source && typeof source === 'object' ? { ...source } : {};
-    const values = snapshot && typeof snapshot === 'object' && !Array.isArray(snapshot) ? snapshot : {};
-    Object.keys(values).forEach(key => {
-      const offset = Number(key);
-      if(Number.isInteger(offset) && offset >= 0){
-        output[start + offset] = cloneSimple(values[key]);
-      }
-    });
-    return output;
-  }
-
   function getBoxIndexedDatasetStateBundle(session = null){
     const owner = ensureBoxSessionOwnershipShape(session);
-    const useActiveMirror = !owner || isBoxSessionActiveForModuleState(owner);
     const visual = owner?.state?.visual || {};
     const styles = owner?.state?.styles || {};
     return {
-      fillColors: Array.isArray(useActiveMirror ? state.fillColors : visual.fillColors)
-        ? (useActiveMirror ? state.fillColors : visual.fillColors).slice()
+      fillColors: Array.isArray(visual.fillColors)
+        ? visual.fillColors.slice()
         : [],
-      borderColors: Array.isArray(useActiveMirror ? state.borderColors : visual.borderColors)
-        ? (useActiveMirror ? state.borderColors : visual.borderColors).slice()
+      borderColors: Array.isArray(visual.borderColors)
+        ? visual.borderColors.slice()
         : [],
-      traceShapeStyles: cloneSimple(useActiveMirror ? state.traceShapeStyles : styles.traceShapeStyles) || {},
-      pointStyles: cloneSimple(useActiveMirror ? state.pointStyles : styles.pointStyles) || {},
-      summaryStyles: cloneSimple(useActiveMirror ? state.summaryStyles : styles.summaryStyles) || {}
+      traceShapeStyles: cloneSimple(styles.traceShapeStyles) || {},
+      pointStyles: cloneSimple(styles.pointStyles) || {},
+      summaryStyles: cloneSimple(styles.summaryStyles) || {}
     };
   }
 
-  function writeBoxIndexedDatasetStateBundle(bundle, session = null, hotInstance = null, reason = 'dataset-indexed-style-change'){
+  function writeBoxIndexedDatasetStateBundle(bundle, session = null, hotInstance = null, reason = 'dataset-indexed-style-change', options = {}){
     const next = bundle && typeof bundle === 'object' ? bundle : {};
     const owner = ensureBoxSessionOwnershipShape(session);
-    const colCount = Math.max(0, Number(hotInstance?.countCols?.()) || 0);
-    const colOrder = Array.from({ length: colCount }, (_, index) => index);
-    if(owner){
-      owner.state.visual = owner.state.visual && typeof owner.state.visual === 'object' ? owner.state.visual : {};
-      owner.state.styles = owner.state.styles && typeof owner.state.styles === 'object' ? owner.state.styles : {};
-      owner.state.selection = owner.state.selection && typeof owner.state.selection === 'object' ? owner.state.selection : {};
-      owner.state.visual.fillColors = Array.isArray(next.fillColors) ? next.fillColors.slice() : [];
-      owner.state.visual.borderColors = Array.isArray(next.borderColors) ? next.borderColors.slice() : [];
-      owner.state.styles.traceShapeStyles = cloneSimple(next.traceShapeStyles) || {};
-      owner.state.styles.pointStyles = cloneSimple(next.pointStyles) || {};
-      owner.state.styles.summaryStyles = cloneSimple(next.summaryStyles) || {};
-      owner.state.selection.colOrder = colOrder.slice();
-      owner.state.updatedAt = Date.now();
-      owner.updatedAt = Date.now();
+    if(!owner?.tabId || !owner.state){
+      return null;
     }
-    if(!owner || isBoxSessionActiveForModuleState(owner)){
+    owner.state.visual = owner.state.visual && typeof owner.state.visual === 'object' ? owner.state.visual : {};
+    owner.state.styles = owner.state.styles && typeof owner.state.styles === 'object' ? owner.state.styles : {};
+    owner.state.selection = owner.state.selection && typeof owner.state.selection === 'object' ? owner.state.selection : {};
+    owner.state.visual.fillColors = Array.isArray(next.fillColors) ? next.fillColors.slice() : [];
+    owner.state.visual.borderColors = Array.isArray(next.borderColors) ? next.borderColors.slice() : [];
+    owner.state.styles.traceShapeStyles = cloneSimple(next.traceShapeStyles) || {};
+    owner.state.styles.pointStyles = cloneSimple(next.pointStyles) || {};
+    owner.state.styles.summaryStyles = cloneSimple(next.summaryStyles) || {};
+    const updateColumnOrder = options.updateColumnOrder !== false;
+    if(updateColumnOrder){
+      const colCount = Math.max(0, Number(hotInstance?.countCols?.()) || 0);
+      owner.state.selection.colOrder = Array.from({ length: colCount }, (_, index) => index);
+    }
+    owner.state.updatedAt = Date.now();
+    owner.updatedAt = Date.now();
+    if(isBoxSessionActiveForModuleState(owner)){
       state.fillColors = Array.isArray(next.fillColors) ? next.fillColors.slice() : [];
       state.borderColors = Array.isArray(next.borderColors) ? next.borderColors.slice() : [];
       state.traceShapeStyles = cloneSimple(next.traceShapeStyles) || {};
       state.pointStyles = cloneSimple(next.pointStyles) || {};
       state.summaryStyles = cloneSimple(next.summaryStyles) || {};
-      state.colOrder = colOrder.slice();
+      if(updateColumnOrder){
+        state.colOrder = owner.state.selection.colOrder.slice();
+      }
     }
-    if(owner){
-      captureBoxSessionState(owner, { reason }, { readActiveGlobals: isBoxSessionActiveForModuleState(owner) });
+    captureBoxSessionState(owner, { reason }, { readActiveGlobals: isBoxSessionActiveForModuleState(owner) });
+    if(options.persistUserState !== false){
+      Shared.componentLifecycle?.persistOwnedUserState?.('box', owner, {
+        tabId: owner.tabId,
+        reason
+      });
     }
-    markBoxDrawDataDirty(reason, owner || getActiveBoxSessionForState());
+    if(options.markDrawDataDirty !== false){
+      markBoxDrawDataDirty(reason, owner);
+    }
     return next;
   }
 
-  function captureBoxIndexedDatasetStateSlice(bundle, startIndex, count){
-    const source = bundle && typeof bundle === 'object' ? bundle : {};
-    return {
-      fillColors: captureBoxIndexedValuesSlice(source.fillColors, startIndex, count),
-      borderColors: captureBoxIndexedValuesSlice(source.borderColors, startIndex, count),
-      traceShapeStyles: captureBoxIndexedValuesSlice(source.traceShapeStyles, startIndex, count),
-      pointStyles: captureBoxIndexedValuesSlice(source.pointStyles, startIndex, count),
-      summaryStyles: captureBoxIndexedValuesSlice(source.summaryStyles, startIndex, count)
-    };
+  function updateBoxIndexedStyleField(session, fieldKey, value, reason, options = {}){
+    const owner = ensureBoxSessionOwnershipShape(session);
+    const isPalette = fieldKey === 'fillColors' || fieldKey === 'borderColors';
+    const isStyleMap = ['traceShapeStyles', 'pointStyles', 'summaryStyles'].includes(fieldKey);
+    if(!owner?.tabId || (!isPalette && !isStyleMap)){
+      return null;
+    }
+    const bundle = getBoxIndexedDatasetStateBundle(owner);
+    bundle[fieldKey] = isPalette
+      ? (Array.isArray(value) ? value.slice() : [])
+      : (cloneSimple(value) || {});
+    return writeBoxIndexedDatasetStateBundle(bundle, owner, getBoxActiveHotManager(owner), reason, {
+      updateColumnOrder: false,
+      persistUserState: options.persistUserState !== false,
+      markDrawDataDirty: false
+    });
   }
 
-  function spliceBoxIndexedDatasetState(bundle, startIndex, deleteCount, insertCount){
-    const source = bundle && typeof bundle === 'object' ? bundle : {};
-    return {
-      fillColors: spliceBoxIndexedValues(source.fillColors, startIndex, deleteCount, insertCount),
-      borderColors: spliceBoxIndexedValues(source.borderColors, startIndex, deleteCount, insertCount),
-      traceShapeStyles: spliceBoxIndexedValues(source.traceShapeStyles, startIndex, deleteCount, insertCount),
-      pointStyles: spliceBoxIndexedValues(source.pointStyles, startIndex, deleteCount, insertCount),
-      summaryStyles: spliceBoxIndexedValues(source.summaryStyles, startIndex, deleteCount, insertCount)
-    };
-  }
-
-  function restoreBoxIndexedDatasetStateSlice(bundle, startIndex, snapshot){
-    const source = bundle && typeof bundle === 'object' ? bundle : {};
-    const saved = snapshot && typeof snapshot === 'object' ? snapshot : {};
-    return {
-      fillColors: restoreBoxIndexedValuesSlice(source.fillColors, startIndex, saved.fillColors),
-      borderColors: restoreBoxIndexedValuesSlice(source.borderColors, startIndex, saved.borderColors),
-      traceShapeStyles: restoreBoxIndexedValuesSlice(source.traceShapeStyles, startIndex, saved.traceShapeStyles),
-      pointStyles: restoreBoxIndexedValuesSlice(source.pointStyles, startIndex, saved.pointStyles),
-      summaryStyles: restoreBoxIndexedValuesSlice(source.summaryStyles, startIndex, saved.summaryStyles)
-    };
+  function updateBoxIndexedStyleMap(session, mapKey, value, reason, options = {}){
+    return updateBoxIndexedStyleField(session, mapKey, value, reason, options);
   }
 
   function getBoxColumnStyleHistory(hotInstance){
@@ -2564,13 +2484,16 @@
     if(state.applyingPayload || isBoxGroupedModeActive(hotInstance)){
       return false;
     }
-    const owner = getBoxSessionForHot(hotInstance, { reason: 'box-column-insert-style-remap' }, { create: false });
+    const owner = getBoxSessionForHot(hotInstance, { reason: 'box-column-insert-style-remap' }, { create: false, fallbackActive: false });
+    if(!owner?.tabId){
+      return false;
+    }
     const before = getBoxIndexedDatasetStateBundle(owner);
-    let next = spliceBoxIndexedDatasetState(before, startIndex, 0, count);
+    let next = boxIndexedStylesModel.splice(before, startIndex, 0, count);
     if(source === 'undo:delete-cols'){
       const entry = findBoxColumnDeletionHistoryEntry(hotInstance, startIndex, count, 'applied', 'backward');
       if(entry){
-        next = restoreBoxIndexedDatasetStateSlice(next, startIndex, entry.snapshot);
+        next = boxIndexedStylesModel.restoreSlice(next, startIndex, entry.snapshot);
         entry.status = 'undone';
       }
     }
@@ -2584,7 +2507,10 @@
     if(state.applyingPayload || isBoxGroupedModeActive(hotInstance)){
       return false;
     }
-    const owner = getBoxSessionForHot(hotInstance, { reason: 'box-column-remove-style-remap' }, { create: false });
+    const owner = getBoxSessionForHot(hotInstance, { reason: 'box-column-remove-style-remap' }, { create: false, fallbackActive: false });
+    if(!owner?.tabId){
+      return false;
+    }
     const before = getBoxIndexedDatasetStateBundle(owner);
     if(source === 'header-menu'){
       const history = getBoxColumnStyleHistory(hotInstance);
@@ -2593,12 +2519,12 @@
         history.deletions.push({
           start: Math.max(0, Math.floor(Number(startIndex) || 0)),
           count: Math.max(0, Math.floor(Number(count) || 0)),
-          snapshot: captureBoxIndexedDatasetStateSlice(before, startIndex, count),
+          snapshot: boxIndexedStylesModel.captureSlice(before, startIndex, count),
           status: 'applied'
         });
       }
     }
-    const next = spliceBoxIndexedDatasetState(before, startIndex, count, 0);
+    const next = boxIndexedStylesModel.splice(before, startIndex, count, 0);
     writeBoxIndexedDatasetStateBundle(next, owner, hotInstance, source === 'undo:insert-cols'
       ? 'dataset-column-insert-undo'
       : 'dataset-column-remove');
@@ -2621,15 +2547,12 @@
     if(!permutation.length || !permutation.every(value => Number.isInteger(value) && value >= 0)){
       return false;
     }
-    const owner = getBoxSessionForHot(hotInstance, { reason: 'box-column-reorder-style-remap' }, { create: false });
+    const owner = getBoxSessionForHot(hotInstance, { reason: 'box-column-reorder-style-remap' }, { create: false, fallbackActive: false });
+    if(!owner?.tabId){
+      return false;
+    }
     const before = getBoxIndexedDatasetStateBundle(owner);
-    const next = {
-      fillColors: reorderBoxIndexedValues(before.fillColors, permutation),
-      borderColors: reorderBoxIndexedValues(before.borderColors, permutation),
-      traceShapeStyles: reorderBoxIndexedValues(before.traceShapeStyles, permutation),
-      pointStyles: reorderBoxIndexedValues(before.pointStyles, permutation),
-      summaryStyles: reorderBoxIndexedValues(before.summaryStyles, permutation)
-    };
+    const next = boxIndexedStylesModel.reorder(before, permutation);
     writeBoxIndexedDatasetStateBundle(next, owner, hotInstance, source || 'dataset-column-reorder');
     return true;
   }
@@ -2649,7 +2572,10 @@
   }
 
   function applyBoxDatasetColumnOrder(permutationOldByNew, session = null){
-    const owner = session || getActiveBoxSessionForState();
+    const owner = ensureBoxSessionOwnershipShape(session || getActiveBoxSessionForState());
+    if(!owner?.tabId){
+      return false;
+    }
     const hot = getBoxActiveHotManager(owner);
     const permutation = Array.isArray(permutationOldByNew)
       ? permutationOldByNew.map(value => Number(value))
@@ -2660,15 +2586,16 @@
     const applied = hot.applyColumnOrder(permutation, {
       reason: 'box-graph-dataset-reorder',
       updatePayload: payload => {
+        const indexedStyles = getBoxIndexedDatasetStateBundle(owner);
         const nextPayload = payload && typeof payload === 'object' ? payload : {};
         const config = nextPayload.config && typeof nextPayload.config === 'object'
           ? nextPayload.config
           : (nextPayload.config = {});
-        config.colors = state.fillColors.slice();
-        config.borderColors = state.borderColors.slice();
-        config.shapeStyles = cloneSimple(state.traceShapeStyles) || {};
-        config.pointStyles = cloneSimple(state.pointStyles) || {};
-        config.summaryStyles = cloneSimple(state.summaryStyles) || {};
+        config.colors = indexedStyles.fillColors.slice();
+        config.borderColors = indexedStyles.borderColors.slice();
+        config.shapeStyles = cloneSimple(indexedStyles.traceShapeStyles) || {};
+        config.pointStyles = cloneSimple(indexedStyles.pointStyles) || {};
+        config.summaryStyles = cloneSimple(indexedStyles.summaryStyles) || {};
         return nextPayload;
       }
     });
@@ -2906,21 +2833,25 @@
     if(!indices.length || !patch || typeof patch !== 'object'){
       return;
     }
-    const current = state[mapKey] && typeof state[mapKey] === 'object' ? state[mapKey] : {};
+    const owner = getBoxProjectionSession({ reason: `${mapKey}-change` });
+    if(!owner?.tabId || !isBoxSessionActiveForModuleState(owner)){
+      return;
+    }
+    const current = getBoxIndexedDatasetStateBundle(owner)[mapKey] || {};
     const previous = cloneSimple(current) || {};
     const next = cloneSimple(current) || {};
     indices.forEach(index => {
       next[index] = Object.assign({}, next[index] || {}, patch);
     });
-    state[mapKey] = next;
     const drawReason = options.drawReason || `${mapKey}-change`;
     const undoReason = options.undoReason || `${mapKey}-undo`;
+    updateBoxIndexedStyleMap(owner, mapKey, next, drawReason);
     try{ scheduleBoxViewRefresh(drawReason, { renderImpact: 'paint' }); }catch(err){ console.warn(`${mapKey} scheduleDraw error`, err); }
     try{
       recordBoxChange(options.label || `box:${mapKey}`, previous, next, value => {
-        state[mapKey] = value || {};
-        scheduleBoxViewRefresh(undoReason, { renderImpact: 'paint' });
-      });
+        updateBoxIndexedStyleMap(owner, mapKey, value, undoReason);
+        scheduleBoxDrawForSession(owner, { tabId: owner.tabId, reason: undoReason, renderImpact: 'paint' });
+      }, { tabId: owner.tabId });
     }catch(err){ console.warn(`${mapKey} error`, err); }
   }
 
@@ -2957,19 +2888,30 @@
   }
 
   function applyTraceShapeGlobalStyle(patch){
-    const previous = cloneSimple(state.traceShapeStyles || {}) || {};
-    const nextStyles = cloneSimple(state.traceShapeStyles || {}) || {};
+    const owner = getBoxProjectionSession({ reason: 'shape-style-global-change' });
+    if(!owner?.tabId || !isBoxSessionActiveForModuleState(owner)){
+      return;
+    }
+    const previous = {
+      styles: getBoxIndexedDatasetStateBundle(owner).traceShapeStyles,
+      globalStyle: cloneSimple(state.traceShapeGlobalStyle || {}) || {}
+    };
+    const nextStyles = cloneSimple(previous.styles) || {};
     Object.keys(nextStyles).forEach(key => {
       nextStyles[key] = Object.assign({}, nextStyles[key] || {}, patch);
     });
-    state.traceShapeStyles = nextStyles;
     state.traceShapeGlobalStyle = Object.assign({}, state.traceShapeGlobalStyle || {}, patch);
+    updateBoxIndexedStyleMap(owner, 'traceShapeStyles', nextStyles, 'shape-style-global-change');
     try{ scheduleBoxViewRefresh('shape-style-global-change', { renderImpact: 'paint' }); }catch(err){ console.warn('applyTraceShapeGlobalStyle scheduleDraw error', err); }
     try{
-      recordBoxChange('box:shape-style:global', previous, nextStyles, value => {
-        state.traceShapeStyles = value || {};
-        scheduleBoxViewRefresh('shape-style-global-undo', { renderImpact: 'paint' });
-      });
+      recordBoxChange('box:shape-style:global', previous, {
+        styles: getBoxIndexedDatasetStateBundle(owner).traceShapeStyles,
+        globalStyle: cloneSimple(state.traceShapeGlobalStyle || {}) || {}
+      }, value => {
+        state.traceShapeGlobalStyle = cloneSimple(value?.globalStyle) || {};
+        updateBoxIndexedStyleMap(owner, 'traceShapeStyles', value?.styles, 'shape-style-global-undo');
+        scheduleBoxDrawForSession(owner, { tabId: owner.tabId, reason: 'shape-style-global-undo', renderImpact: 'paint' });
+      }, { tabId: owner.tabId });
     }catch(err){ console.warn('applyTraceShapeGlobalStyle error', err); }
   }
 
@@ -3000,10 +2942,15 @@
     const opts = options && typeof options === 'object' ? options : {};
     const normalizedPatch = normalizeBoxPointStylePatch(patch);
     const shouldRecordUndo = opts.recordUndo !== false;
-    state.pointStyles = state.pointStyles || {};
-    const previous = cloneSimple(state.pointStyles[traceIndexValue]) || {};
+    const owner = getBoxProjectionSession({ reason: 'point-style-trace-change' });
+    if(!owner?.tabId || !isBoxSessionActiveForModuleState(owner)){
+      return;
+    }
+    const currentStyles = getBoxIndexedDatasetStateBundle(owner).pointStyles;
+    const previous = cloneSimple(currentStyles[traceIndexValue]) || {};
     const next = Object.assign({}, previous, normalizedPatch);
-    state.pointStyles[traceIndexValue] = next;
+    const nextStyles = { ...currentStyles, [traceIndexValue]: next };
+    updateBoxIndexedStyleMap(owner, 'pointStyles', nextStyles, 'point-style-trace-change');
     if(!tryApplyBoxStripPointStyleLive(normalizedPatch, { traceIndex: traceIndexValue, persistState: false })){
       try{ scheduleBoxViewRefresh('point-style-trace-change', { renderImpact: 'paint' }); }catch(err){ console.warn('persistTracePointStyle scheduleDraw error', err); }
     }
@@ -3012,14 +2959,15 @@
     }
     try{
       recordBoxChange(`box:point-style:${traceIndexValue}`, previous, next, value => {
-        state.pointStyles = state.pointStyles || {};
+        const restored = getBoxIndexedDatasetStateBundle(owner).pointStyles;
         if(value && typeof value === 'object' && Object.keys(value).length){
-          state.pointStyles[traceIndexValue] = value;
+          restored[traceIndexValue] = value;
         }else{
-          delete state.pointStyles[traceIndexValue];
+          delete restored[traceIndexValue];
         }
-        scheduleActiveBoxDraw({ reason: 'point-style-trace-undo', renderImpact: 'paint' });
-      });
+        updateBoxIndexedStyleMap(owner, 'pointStyles', restored, 'point-style-trace-undo');
+        scheduleBoxDrawForSession(owner, { tabId: owner.tabId, reason: 'point-style-trace-undo', renderImpact: 'paint' });
+      }, { tabId: owner.tabId });
     }catch(err){ console.warn('persistTracePointStyle error', err); }
   }
 
@@ -3027,15 +2975,20 @@
     const opts = options && typeof options === 'object' ? options : {};
     const normalizedPatch = normalizeBoxPointStylePatch(patch);
     const shouldRecordUndo = opts.recordUndo !== false;
+    const owner = getBoxProjectionSession({ reason: 'point-style-global-change' });
+    if(!owner?.tabId || !isBoxSessionActiveForModuleState(owner)){
+      return;
+    }
     const previous = {
-      pointStyles: cloneSimple(state.pointStyles || {}) || {},
+      pointStyles: getBoxIndexedDatasetStateBundle(owner).pointStyles,
       pointGlobalStyle: cloneSimple(state.pointGlobalStyle || {}) || {}
     };
-    state.pointStyles = state.pointStyles || {};
-    Object.keys(state.pointStyles).forEach(key => {
-      state.pointStyles[key] = Object.assign({}, state.pointStyles[key] || {}, normalizedPatch);
+    const nextStyles = previous.pointStyles;
+    Object.keys(nextStyles).forEach(key => {
+      nextStyles[key] = Object.assign({}, nextStyles[key] || {}, normalizedPatch);
     });
     state.pointGlobalStyle = Object.assign({}, state.pointGlobalStyle || {}, normalizedPatch);
+    updateBoxIndexedStyleMap(owner, 'pointStyles', nextStyles, 'point-style-global-change');
     if(!tryApplyBoxStripPointStyleLive(normalizedPatch, { persistState: false })){
       try{ scheduleBoxViewRefresh('point-style-global-change', { renderImpact: 'paint' }); }catch(err){ console.warn('applyPointGlobalStyle scheduleDraw error', err); }
     }
@@ -3044,13 +2997,13 @@
     }
     try{
       recordBoxChange('box:point-style:global', previous, {
-        pointStyles: cloneSimple(state.pointStyles || {}) || {},
+        pointStyles: getBoxIndexedDatasetStateBundle(owner).pointStyles,
         pointGlobalStyle: cloneSimple(state.pointGlobalStyle || {}) || {}
       }, value => {
-        state.pointStyles = cloneSimple(value?.pointStyles) || {};
         state.pointGlobalStyle = cloneSimple(value?.pointGlobalStyle) || {};
-        scheduleActiveBoxDraw({ reason: 'point-style-global-undo', renderImpact: 'paint' });
-      });
+        updateBoxIndexedStyleMap(owner, 'pointStyles', value?.pointStyles, 'point-style-global-undo');
+        scheduleBoxDrawForSession(owner, { tabId: owner.tabId, reason: 'point-style-global-undo', renderImpact: 'paint' });
+      }, { tabId: owner.tabId });
     }catch(err){ console.warn('applyPointGlobalStyle error', err); }
   }
 
@@ -3689,12 +3642,31 @@
         persistBoxSummaryStyle(traceIndex, patch);
         return;
       }
-      state.summaryGlobalStyle = Object.assign({}, state.summaryGlobalStyle || {}, patch);
-      state.summaryStyles = state.summaryStyles || {};
-      Object.keys(state.summaryStyles).forEach(key => {
-        state.summaryStyles[key] = Object.assign({}, state.summaryStyles[key] || {}, patch);
+      const owner = getBoxProjectionSession({ reason: 'summary-style-global-change' });
+      if(!owner?.tabId || !isBoxSessionActiveForModuleState(owner)){
+        return;
+      }
+      const previous = {
+        styles: getBoxIndexedDatasetStateBundle(owner).summaryStyles,
+        globalStyle: cloneSimple(state.summaryGlobalStyle || {}) || {}
+      };
+      const summaryStyles = getBoxIndexedDatasetStateBundle(owner).summaryStyles;
+      Object.keys(summaryStyles).forEach(key => {
+        summaryStyles[key] = Object.assign({}, summaryStyles[key] || {}, patch);
       });
-      scheduleBoxViewRefresh('summary-style-global-change', { renderImpact: 'paint' });
+      state.summaryGlobalStyle = Object.assign({}, state.summaryGlobalStyle || {}, patch);
+      updateBoxIndexedStyleMap(owner, 'summaryStyles', summaryStyles, 'summary-style-global-change');
+      try{ scheduleBoxViewRefresh('summary-style-global-change', { renderImpact: 'paint' }); }catch(err){ console.warn('summary global style schedule failed', err); }
+      try{
+        recordBoxChange('box:summary-style:global', previous, {
+          styles: getBoxIndexedDatasetStateBundle(owner).summaryStyles,
+          globalStyle: cloneSimple(state.summaryGlobalStyle || {}) || {}
+        }, value => {
+          state.summaryGlobalStyle = cloneSimple(value?.globalStyle) || {};
+          updateBoxIndexedStyleMap(owner, 'summaryStyles', value?.styles, 'summary-style-global-undo');
+          scheduleBoxDrawForSession(owner, { tabId: owner.tabId, reason: 'summary-style-global-undo', renderImpact: 'paint' });
+        }, { tabId: owner.tabId });
+      }catch(err){ console.warn('summary global style undo record failed', err); }
     };
     additionalLineControls.show({
       scopeId: 'box',
@@ -4098,18 +4070,19 @@
           onColorChange(value, ctx){
             const scopeValue = resolveScope(ctx);
             resolveBodyTargets(scopeValue).forEach(node => node.setAttribute('fill', value));
+            const owner = getBoxProjectionSession({ reason: 'shape-fill-change' });
+            const fillColors = getBoxIndexedDatasetStateBundle(owner).fillColors;
             if(scopeValue === 'global'){
-              if(Array.isArray(state.fillColors)){
-                for(let i = 0; i < state.fillColors.length; i += 1){
-                  state.fillColors[i] = value;
-                }
-              }
+              for(let i = 0; i < fillColors.length; i += 1){ fillColors[i] = value; }
               if(els?.boxFill){
                 try{ els.boxFill.value = value; }catch(e){}
               }
               state.lastDefaultFill = value;
             }else if((scopeValue === 'group' || scopeValue === 'trace') && selectedColorIndex != null && selectedColorIndex >= 0){
-              state.fillColors[selectedColorIndex] = value;
+              fillColors[selectedColorIndex] = value;
+            }
+            if(owner?.tabId && (scopeValue === 'global' || ((scopeValue === 'group' || scopeValue === 'trace') && selectedColorIndex != null && selectedColorIndex >= 0))){
+              updateBoxIndexedStyleField(owner, 'fillColors', fillColors, 'shape-fill-change');
             }
             applyScopePatch({ fill: value }, scopeValue);
             scheduleBoxViewRefresh('shape-fill-change', { renderImpact: 'paint' });
@@ -11405,7 +11378,7 @@
     const source = canReadActiveGlobals
       ? {
           ...(shaped.state || {}),
-          ...(captureBoxOwnedRuntimeSlices(meta?.reason || 'capture-box-session-state') || {}),
+          ...(captureBoxOwnedRuntimeSlices(meta?.reason || 'capture-box-session-state', shaped) || {}),
           hydrated: true
         }
       : (shaped.state || null);
@@ -11807,8 +11780,10 @@
     return next;
   }
 
-  function captureBoxOwnedRuntimeSlices(reason){
-    const ownerSession = getActiveBoxSessionForState();
+  function captureBoxOwnedRuntimeSlices(reason, session = null){
+    const ownerSession = ensureBoxSessionOwnershipShape(session || getActiveBoxSessionForState());
+    const indexedStyles = getBoxIndexedDatasetStateBundle(ownerSession);
+    const ownerSelection = ownerSession?.state?.selection || {};
     const capturedNotes = captureBoxNotesForSession(ownerSession);
     const results = captureBoxStatsResultsState(
       reason || 'capture-box-owned-results',
@@ -11826,7 +11801,7 @@
       },
       selection: {
         selectedCols: normalizeBoxOwnedSetArray(state.selectedCols),
-        colOrder: Array.isArray(state.colOrder) ? state.colOrder.slice() : []
+        colOrder: Array.isArray(ownerSelection.colOrder) ? ownerSelection.colOrder.slice() : []
       },
       stats: {
         statsTest: state.statsTest,
@@ -11869,8 +11844,8 @@
       visual: {
         tableFormat: normalizeBoxTableFormat(state.tableFormat),
         lastDefaultFill: state.lastDefaultFill,
-        fillColors: Array.isArray(state.fillColors) ? state.fillColors.slice() : [],
-        borderColors: Array.isArray(state.borderColors) ? state.borderColors.slice() : [],
+        fillColors: indexedStyles.fillColors,
+        borderColors: indexedStyles.borderColors,
         graphTypeBorderWidths: cloneSimple(state.graphTypeBorderWidths) || {},
         groupLayout: state.groupLayout,
         grouped: cloneSimple(state.grouped) || { replicatesPerGroup: 3 },
@@ -11903,9 +11878,9 @@
         lastAxisLabels: Array.isArray(state.lastAxisLabels) ? state.lastAxisLabels.slice() : []
       },
       styles: {
-        traceShapeStyles: cloneSimple(state.traceShapeStyles) || {},
-        pointStyles: cloneSimple(state.pointStyles) || {},
-        summaryStyles: cloneSimple(state.summaryStyles) || {},
+        traceShapeStyles: indexedStyles.traceShapeStyles,
+        pointStyles: indexedStyles.pointStyles,
+        summaryStyles: indexedStyles.summaryStyles,
         summaryGlobalStyle: cloneSimple(state.summaryGlobalStyle) || null,
         traceShapeGlobalStyle: cloneSimple(state.traceShapeGlobalStyle) || null,
         pointGlobalStyle: cloneSimple(state.pointGlobalStyle) || createDefaultBoxPointGlobalStyle()
@@ -13143,7 +13118,7 @@
   }
 
   const boxUndoManager = Shared.undoManager || null;
-  function recordBoxChange(label, previous, next, apply){
+  function recordBoxChange(label, previous, next, apply, options = {}){
     if(!boxUndoManager || typeof boxUndoManager.recordStateChange !== 'function'){
       return;
     }
@@ -13155,6 +13130,7 @@
       manager: boxUndoManager,
       label,
       scope: 'boxGraphPanel',
+      ...(options.tabId ? { tabId: options.tabId } : {}),
       from: previous,
       to: next,
       apply(value){
@@ -16333,18 +16309,23 @@
       return false;
     }
     if(persistState){
-      state.pointStyles = state.pointStyles || {};
+      const owner = getBoxProjectionSession({ reason: 'point-style-live-change' });
+      if(!owner?.tabId || !isBoxSessionActiveForModuleState(owner)){
+        return false;
+      }
+      const pointStyles = getBoxIndexedDatasetStateBundle(owner).pointStyles;
       if(traceIndex != null){
-        const previous = state.pointStyles[traceIndex] && typeof state.pointStyles[traceIndex] === 'object'
-          ? state.pointStyles[traceIndex]
+        const previous = pointStyles[traceIndex] && typeof pointStyles[traceIndex] === 'object'
+          ? pointStyles[traceIndex]
           : {};
-        state.pointStyles[traceIndex] = Object.assign({}, previous, stylePatch);
+        pointStyles[traceIndex] = Object.assign({}, previous, stylePatch);
       }else{
-        Object.keys(state.pointStyles).forEach(key => {
-          state.pointStyles[key] = Object.assign({}, state.pointStyles[key] || {}, stylePatch);
+        Object.keys(pointStyles).forEach(key => {
+          pointStyles[key] = Object.assign({}, pointStyles[key] || {}, stylePatch);
         });
         state.pointGlobalStyle = Object.assign({}, state.pointGlobalStyle || {}, stylePatch);
       }
+      updateBoxIndexedStyleMap(owner, 'pointStyles', pointStyles, 'point-style-live-change');
     }
     let applied = false;
     let geometryFallbackNeeded = false;
@@ -18551,6 +18532,10 @@
         });
         normalizeBoxGroupedHeaderRow(hot, { forceGrouped: true });
         updateGroupedHeaders(hot);
+        const exampleOwnerSession = getBoxSessionForHot(hot, { reason: 'box-example-grouped-header-owner' }, { create: false });
+        if(exampleOwnerSession){
+          commitBoxGroupedHeaderStateToSession(hot, exampleOwnerSession, { reason: 'box-example-load' });
+        }
         boxLog('boxplot grouped example loaded');
       }else{
         hot.loadData(loadedExampleMatrix, {
@@ -18780,35 +18765,29 @@
       return false;
     }
     const key = field === 'borderColors' ? 'borderColors' : 'fillColors';
-    owner.state.visual = owner.state.visual && typeof owner.state.visual === 'object'
-      ? owner.state.visual
-      : {};
-    const current = Array.isArray(owner.state.visual[key])
-      ? owner.state.visual[key].slice()
-      : (Array.isArray(state[key]) ? state[key].slice() : []);
+    const current = getBoxIndexedDatasetStateBundle(owner)[key];
     current[colorIndex] = value;
-    owner.state.visual[key] = current;
-    state[key] = current.slice();
-    owner.state.updatedAt = Date.now();
-    owner.updatedAt = Date.now();
-
-    captureBoxSessionState(owner, { reason }, { readActiveGlobals: true });
-    const persisted = Shared.componentLifecycle?.persistOwnedUserState?.('box', owner, {
-      tabId: ownerTabId,
-      reason
-    }) !== false;
+    updateBoxIndexedStyleField(owner, key, current, reason);
     scheduleBoxDrawForSession(owner, {
       tabId: ownerTabId,
       renderImpact: 'paint',
       reason
     });
-    return persisted;
+    return true;
   }
 
   function updateBoxColorPickers(labels, options){
     const opts = options || {};
     const grouped = !!opts.grouped;
     const colorIndices = Array.isArray(opts.colorIndices) ? opts.colorIndices : [];
+    const owner = getBoxProjectionSession({ reason: 'box-color-picker-projection' });
+    const indexed = owner?.tabId
+      ? getBoxIndexedDatasetStateBundle(owner)
+      : { fillColors: state.fillColors.slice(), borderColors: state.borderColors.slice() };
+    const fillColors = indexed.fillColors.slice();
+    const borderColors = indexed.borderColors.slice();
+    const initialFillColors = fillColors.slice();
+    const initialBorderColors = borderColors.slice();
     if(!els.boxColorPerBox){
       return;
     }
@@ -18822,19 +18801,19 @@
         schemeId,
         tableFormat: state.tableFormat,
         colorIndex,
-        fillColor: state.fillColors[colorIndex],
-        borderColor: state.borderColors[colorIndex],
+        fillColor: fillColors[colorIndex],
+        borderColor: borderColors[colorIndex],
         preferUnifiedDefault: false
       });
-      if(!state.fillColors[colorIndex] || isBoxThemeNeutralColorToken(state.fillColors[colorIndex], { schemeId })){
-        state.fillColors[colorIndex]=themedDefaults.fillColor;
+      if(!fillColors[colorIndex] || isBoxThemeNeutralColorToken(fillColors[colorIndex], { schemeId })){
+        fillColors[colorIndex]=themedDefaults.fillColor;
       }
-      if(!state.borderColors[colorIndex] || isBoxThemeNeutralColorToken(state.borderColors[colorIndex], { schemeId })) state.borderColors[colorIndex]=themedDefaults.borderColor;
+      if(!borderColors[colorIndex] || isBoxThemeNeutralColorToken(borderColors[colorIndex], { schemeId })) borderColors[colorIndex]=themedDefaults.borderColor;
       const fillInput=document.createElement('input');
       fillInput.type='color';
       fillInput.dataset.setting=`colors.${colorIndex}`;
       fillInput.setAttribute('aria-label',`Fill color for ${lab}`);
-      fillInput.value=state.fillColors[colorIndex];
+      fillInput.value=fillColors[colorIndex];
       if(global.attachColorPickerNear) global.attachColorPickerNear(fillInput);
       fillInput.addEventListener('input',e=>{
         const value = e.target.value;
@@ -18846,7 +18825,7 @@
       borderInput.type='color';
       borderInput.dataset.setting=`borderColors.${colorIndex}`;
       borderInput.setAttribute('aria-label',`Border color for ${lab}`);
-      borderInput.value=state.borderColors[colorIndex];
+      borderInput.value=borderColors[colorIndex];
       if(global.attachColorPickerNear) global.attachColorPickerNear(borderInput);
       borderInput.addEventListener('input',e=>{
         const value = e.target.value;
@@ -18856,7 +18835,13 @@
       });
       const lbl=document.createElement('label'); lbl.textContent=lab+' '; lbl.appendChild(fillInput); lbl.appendChild(borderInput); els.boxColorPerBox.appendChild(lbl);
     });
-    boxLog('Debug: updateBoxColorPickers applied',{ labelsCount: labels.length, grouped, colorIndices: colorIndices.slice(), fillColors: [...state.fillColors], borderColors: [...state.borderColors] });
+    if(owner?.tabId && JSON.stringify(fillColors) !== JSON.stringify(initialFillColors)){
+      updateBoxIndexedStyleField(owner, 'fillColors', fillColors, 'box-color-picker-defaults', { persistUserState: false });
+    }
+    if(owner?.tabId && JSON.stringify(borderColors) !== JSON.stringify(initialBorderColors)){
+      updateBoxIndexedStyleField(owner, 'borderColors', borderColors, 'box-border-picker-defaults', { persistUserState: false });
+    }
+    boxLog('Debug: updateBoxColorPickers applied',{ labelsCount: labels.length, grouped, colorIndices: colorIndices.slice(), fillColors: [...fillColors], borderColors: [...borderColors] });
   }
   function initUI(){
     ensureViolinState();
@@ -19349,7 +19334,12 @@
         const nextColor = els.boxFill.value;
         const oldColor = state.lastDefaultFill;
         boxLog('boxFill changed',{ newColor: nextColor, oldColor });
-        state.fillColors = state.fillColors.map(c => c === oldColor ? nextColor : c);
+        const owner = getBoxProjectionSession({ reason: 'box-default-fill-change' });
+        if(owner?.tabId){
+          const fillColors = getBoxIndexedDatasetStateBundle(owner).fillColors
+            .map(color => color === oldColor ? nextColor : color);
+          updateBoxIndexedStyleField(owner, 'fillColors', fillColors, 'box-default-fill-change');
+        }
         state.lastDefaultFill = nextColor;
         if(tryApplyBoxStripPointStyleLive({ fill: nextColor })){
           return;
@@ -35007,7 +34997,8 @@ Technical analysis record (advanced)
     normalizeBoxStoredColorsForScheme({
       schemeId: activeColorSchemeId,
       colorMode,
-      tableFormat: state.tableFormat
+      tableFormat: state.tableFormat,
+      session: drawSession
     });
     const annotationColor = resolveBoxSignificanceAnnotationColor(significanceStyle.color, {
       schemeId: activeColorSchemeId
@@ -36596,6 +36587,7 @@ Technical analysis record (advanced)
     const payloadSourceData = Shared.dataViews?.resolveRawDataForPersistence?.(dataViewsPayload, activeHot.getData())
       || activeHot.getData();
     const payloadSession = getBoxSessionForHot(activeHot, { reason: 'box-payload-hot-owner' }, { create: false }) || getActiveBoxSessionForState();
+    const indexedStyles = getBoxIndexedDatasetStateBundle(payloadSession);
     const controlSnapshot = readBoxOwnedRuntimeControls(payloadSession);
     const axisSnapshot = ensureAxisSettings();
     const violinState = ensureViolinState();
@@ -36680,13 +36672,13 @@ Technical analysis record (advanced)
 	          pDecimals: sanitizeSignificancePDecimals(significanceStyle.pDecimals)
 	        },
         errorMode: controlSnapshot.errorMode,
-        colors:[...state.fillColors],
-        borderColors:[...state.borderColors],
-        shapeStyles: state.traceShapeStyles || null,
+        colors: indexedStyles.fillColors,
+        borderColors: indexedStyles.borderColors,
+        shapeStyles: indexedStyles.traceShapeStyles,
         shapeGlobalStyle: state.traceShapeGlobalStyle || null,
-        pointStyles: state.pointStyles || null,
+        pointStyles: indexedStyles.pointStyles,
         pointGlobalStyle: state.pointGlobalStyle || null,
-        summaryStyles: state.summaryStyles || null,
+        summaryStyles: indexedStyles.summaryStyles,
         summaryGlobalStyle: state.summaryGlobalStyle || null,
         yMin: controlSnapshot.yMin,
         yMax: controlSnapshot.yMax,
@@ -37484,10 +37476,22 @@ Technical analysis record (advanced)
     }else{
       state.connectionLineStyle = null;
     }
+    writeBoxIndexedDatasetStateBundle({
+      fillColors: state.fillColors,
+      borderColors: state.borderColors,
+      traceShapeStyles: state.traceShapeStyles,
+      pointStyles: state.pointStyles,
+      summaryStyles: state.summaryStyles
+    }, payloadSession, getBoxActiveHotManager(payloadSession), 'box-payload-indexed-styles', {
+      updateColumnOrder: false,
+      persistUserState: false,
+      markDrawDataDirty: false
+    });
     normalizeBoxStoredColorsForScheme({
       schemeId: c.colorScheme,
       colorMode: c.colorMode,
-      tableFormat: incomingTableFormat
+      tableFormat: incomingTableFormat,
+      session: payloadSession
     });
     if(els.boxColorIndividual && els.boxColorUnified){
       if(c.colorMode==='individual'){
@@ -38320,10 +38324,25 @@ Technical analysis record (advanced)
       setGridStyle(c.gridStyle, c.axis?.strokeWidth, schemeId);
     }
 
+    if(owner?.tabId){
+      writeBoxIndexedDatasetStateBundle({
+        fillColors: state.fillColors,
+        borderColors: state.borderColors,
+        traceShapeStyles: state.traceShapeStyles,
+        pointStyles: state.pointStyles,
+        summaryStyles: state.summaryStyles
+      }, owner, getBoxActiveHotManager(owner), 'box-style-only-indexed-styles', {
+        updateColumnOrder: false,
+        persistUserState: false,
+        markDrawDataDirty: false
+      });
+    }
+
     normalizeBoxStoredColorsForScheme({
       schemeId,
       colorMode: getBoxColorMode(),
-      tableFormat: state.tableFormat
+      tableFormat: state.tableFormat,
+      session: owner
     });
     const appliedLive = tryApplyBoxStylePayloadLive(c);
     if(owner){
@@ -39618,7 +39637,8 @@ Technical analysis record (advanced)
       computeTraceDataSignature: values => computeBoxTraceDataSignature(values),
       buildStatsSignature: traces => buildStatsSignature(traces),
       buildFigureSummary: (model, report) => buildBoxFigureSummary(model || {}, report || {}),
-	    getSession: tabLike => getBoxSession(tabLike || getBoxProjectionTabId() || null, { reason: 'box-test-session' }, { create: false }),
+	    getSession: (tabLike, options = {}) => getBoxSession(tabLike || getBoxProjectionTabId() || null, { reason: 'box-test-session' }, { create: options?.create === true }),
+	    captureSessionState: (session, meta = {}, options = {}) => captureBoxSessionState(session, meta || {}, options || {}),
 	    tTest:(a,b,options={})=>callBoxStatsModel('tTest',a,b,options || {}),
       tTestEqualVariance:(a,b,options={})=>callBoxStatsModel('tTestEqualVariance',a,b,options || {}),
 	    tTestPaired:(a,b,options={})=>callBoxStatsModel('tTestPaired',a,b,options || {}),
@@ -39757,11 +39777,14 @@ Technical analysis record (advanced)
       resolveBoxToolbarPointBorderColorValue:(style,sourcePoint)=>resolveBoxToolbarPointBorderColorValue(style,sourcePoint),
       resolveBoxToolbarPointBorderWidthPatch:(style,sourcePoint,widthValue)=>resolveBoxToolbarPointBorderWidthPatch(style,sourcePoint,widthValue),
       normalizeBoxPointStylePatch:patch=>normalizeBoxPointStylePatch(patch),
+      persistTraceShapeStyle:(traceIndex,patch)=>persistTraceShapeStyle(traceIndex,patch),
+      persistTracePointStyle:(traceIndex,patch,options={})=>persistTracePointStyle(traceIndex,patch,options || {}),
+      persistBoxSummaryStyle:(traceIndex,patch)=>persistBoxSummaryStyle(traceIndex,patch),
       resolveBoxTraceStyleIndex:(trace,renderIndex)=>resolveBoxTraceStyleIndex(trace,renderIndex),
-      reorderBoxIndexedValues:(source,permutation)=>reorderBoxIndexedValues(source,permutation),
-      spliceBoxIndexedValues:(source,startIndex,deleteCount,insertCount)=>spliceBoxIndexedValues(source,startIndex,deleteCount,insertCount),
-      captureBoxIndexedValuesSlice:(source,startIndex,count)=>captureBoxIndexedValuesSlice(source,startIndex,count),
-      restoreBoxIndexedValuesSlice:(source,startIndex,snapshot)=>restoreBoxIndexedValuesSlice(source,startIndex,snapshot),
+      reorderBoxIndexedValues: boxIndexedStylesModel.reorderValues,
+      spliceBoxIndexedValues: boxIndexedStylesModel.spliceValues,
+      captureBoxIndexedValuesSlice: boxIndexedStylesModel.captureValuesSlice,
+      restoreBoxIndexedValuesSlice: boxIndexedStylesModel.restoreValuesSlice,
       remapBoxSingleDatasetStylesForColumnInsert:(hotInstance,startIndex,count,source)=>remapBoxSingleDatasetStylesForColumnInsert(hotInstance,startIndex,count,source),
       remapBoxSingleDatasetStylesForColumnRemoval:(hotInstance,startIndex,count,source)=>remapBoxSingleDatasetStylesForColumnRemoval(hotInstance,startIndex,count,source),
       remapBoxSingleDatasetStylesForColumnPermutation:(hotInstance,permutation,source)=>remapBoxSingleDatasetStylesForColumnPermutation(hotInstance,permutation,source),

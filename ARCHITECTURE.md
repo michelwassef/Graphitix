@@ -23,7 +23,9 @@ For component-level contracts, see the generated [docs/development/component-con
 4. Main namespace modules (`js/main/*.js`, `js/main/tabs/*.js`)
 5. Root bootstrap (`js/main.js`)
 
-The exact script order is in `index.html` near the bottom (`<script src=...>` tags around lines ~2008-2067).
+The exact ordered deferred script list is near the top of `index.html`, around lines 61-161. See [main-bootstrap.md](./docs/development/main-bootstrap.md) for the loading sequence and its checks.
+
+After the main control plane starts, `Main.components` loads visualization modules on demand. The descriptors in [`js/main/components.js`](./js/main/components.js) give each workspace type a browser dynamic-import path and a Node `require` path; the component file registers itself as `window.Components[type]`. These are the current classic-script/CommonJS conventions, not named-export ES modules. Keep both paths pointed at the same component source and use the loader rather than adding component script tags. The component-contract check validates the source/registration boundary, and a Chromium contract exercises every workspace bundle.
 
 ## 2. Namespace Ownership
 

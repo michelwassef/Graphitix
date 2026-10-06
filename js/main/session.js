@@ -3551,11 +3551,10 @@
           tab.lastUserModifiedReason = reason;
           tab.lastUserModifiedAt = Date.now();
         }
-        // A snapshot capture (recovery / beforeunload) reads live state to persist it; it must
-        // NOT advance the session revision. Doing so re-dirties the session, which reschedules
-        // another recovery write, whose own capture re-detects live-DOM layout drift, and so on
-        // — an unbounded, expensive feedback loop. Update tab.payload/layout for the snapshot but
-        // leave the session revision untouched.
+        // Recovery snapshots and beforeunload captures for tracked pending control changes read
+        // live state to persist it; they must NOT advance the session revision. Doing so re-dirties
+        // the session, which reschedules another recovery write, whose capture re-detects layout
+        // drift, and so on. Update tab.payload/layout for the snapshot but leave the revision alone.
         if (!snapshotIntent.snapshotCapture) {
           markSessionDirty(options.reason || 'tab-state-updated', {
             tabId: tab.id,
@@ -4441,7 +4440,13 @@
     window.addEventListener('beforeunload', () => {
       const active = getActiveTab();
       if (!active || !workspaceState.sessionUserDirty) return;
-      captureCanonicalUserMutationState(active, { reason: 'beforeunload' });
+      // A direct payload commit is already canonical in the owning session. Do not
+      // overwrite it from the active component projection during unload. Reconcile
+      // live controls only when a tracked user mutation is still awaiting its
+      // settled capture; completed mutations have already written through.
+      if (pendingCanonicalUserMutationTabs.has(String(active.id || ''))) {
+        captureCanonicalUserMutationState(active, { reason: 'beforeunload' });
+      }
       window.Main?.documentState?.persistCanonicalJournalNow?.({
         tabId: active.id,
         reason: 'beforeunload'

@@ -453,6 +453,9 @@
 
   function captureOwnerObservables(type, tabId){
     const component = getComponent(type);
+    // Main.components.registry contains the public workspace facade. The owner
+    // session and its test hooks belong to the loaded component module itself.
+    const componentModule = global.Components?.[type] || component;
     const tab = getTab(tabId);
     const sessionRecord = global.Shared?.workspaceTabs?.getSessionRecord?.(tabId, type) || null;
     let runtime = null;
@@ -461,18 +464,18 @@
     }catch(error){
       runtime = { __captureError: error?.message || String(error) };
     }
-    const stateModel = component?.__stateModel?.snapshot?.(tabId, { tab, tabId, reason: 'parameter-isolation-state-model' }) || null;
+    const stateModel = componentModule?.__stateModel?.snapshot?.(tabId, { tab, tabId, reason: 'parameter-isolation-state-model' }) || null;
     let componentSession = null;
     try{
-      componentSession = component?.__testHooks?.getSession?.(tabId)
-        || component?.__testHooks?.getSessionForTab?.(tabId)
+      componentSession = componentModule?.__testHooks?.getSession?.(tabId)
+        || componentModule?.__testHooks?.getSessionForTab?.(tabId)
         || null;
     }catch(_error){
       componentSession = null;
     }
     let activeState = null;
     try{
-      activeState = component?.__getState?.() || null;
+      activeState = componentModule?.__getState?.() || null;
     }catch(_error){
       activeState = null;
     }
@@ -480,7 +483,12 @@
       ? {
           config: {
             view: componentSession.state.controls?.view ?? null,
-            colorScheme: componentSession.state.colorScheme ?? null
+            colorScheme: componentSession.state.colorScheme ?? null,
+            displayedColorSchemeId: global.Shared?.colorSchemes?.resolveDisplayedSchemeIdForType?.(
+              'heatmap',
+              { captureLive: true }
+            ) ?? null,
+            palette: clone(componentSession.state.palette) || null
           }
         }
       : null;
@@ -541,12 +549,29 @@
   function buildParameterWitnesses(parameters, beforeState, afterState){
     const witnesses = new Map();
     parameters.forEach(parameter => {
+      const projectionContract = parameter.projectionContract || null;
+      const domProjectionOwnerKey = projectionContract?.domExpectedOwnerKey || null;
+      const domBefore = domProjectionOwnerKey
+        ? beforeState.owner?.[domProjectionOwnerKey]
+        : parameter.before;
+      const domAfter = domProjectionOwnerKey
+        ? afterState.owner?.[domProjectionOwnerKey]
+        : parameter.after;
+      const palettePairs = Array.isArray(projectionContract?.palettePairs)
+        ? projectionContract.palettePairs
+        : [];
+      const capturePaletteValues = state => palettePairs.map(pair => ({
+        payloadPath: pair.payloadPath,
+        ownerKey: pair.ownerKey,
+        payloadValue: clone(getAtPath(state.payload, String(pair.payloadPath || '').split('.'))),
+        ownerValue: clone(state.owner?.[pair.ownerKey])
+      }));
       witnesses.set(parameter.key, {
         domKey: findWitness(
           beforeState.dom,
           afterState.dom,
-          parameter.before,
-          parameter.after,
+          domBefore,
+          domAfter,
           parameter,
           parameter.controlDomKey
         ),
@@ -556,7 +581,12 @@
           parameter.before,
           parameter.after,
           parameter
-        )
+        ),
+        domProjectionOwnerKey,
+        paletteValues: palettePairs.length ? {
+          before: capturePaletteValues(beforeState),
+          after: capturePaletteValues(afterState)
+        } : null
       });
     });
     return witnesses;
@@ -658,6 +688,13 @@
 
   function explicitMutationAlternative(mutation, current){
     const operation = String(mutation?.operation || '').trim();
+    if(operation === 'set-value'){
+      if(mutation.value === undefined){
+        return { covered: false, reason: 'explicit-value-required' };
+      }
+      const value = clone(mutation.value);
+      return { covered: !equivalent(value, current), value, source: 'explicit-set-value' };
+    }
     if(operation === 'boolean-toggle'){
       return typeof current === 'boolean'
         ? { covered: true, value: !current, source: 'explicit-boolean-toggle' }
@@ -720,6 +757,7 @@
           ? null
           : (alternative.reason || 'explicit-mutation-did-not-change-value'),
         semanticFingerprint: Array.isArray(mutation.fingerprint) ? mutation.fingerprint.slice() : [],
+        projectionContract: mutation.projectionContract ? clone(mutation.projectionContract) : null,
         requiresDomWitness: mutation.requiresDomWitness !== false,
         controlIndex: null,
         controlDomKey: null

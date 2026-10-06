@@ -22,6 +22,50 @@ async function readJournalMeta(page) {
   }));
 }
 
+async function readLocalJournalMeta(page) {
+  return page.evaluate(() => {
+    try {
+      const raw = window.localStorage.getItem('graphitix.canonical-journal.v1');
+      return raw ? JSON.parse(raw)?.meta || null : null;
+    } catch (_err) {
+      return null;
+    }
+  });
+}
+
+async function readLocalJournalTab(page, tabId) {
+  return page.evaluate(({ tabId }) => {
+    try {
+      const raw = window.localStorage.getItem('graphitix.canonical-journal.v1');
+      const journal = raw ? JSON.parse(raw) : null;
+      return journal?.tabs?.find(tab => String(tab?.id || '') === String(tabId)) || null;
+    } catch (_err) {
+      return null;
+    }
+  }, { tabId });
+}
+
+async function clearIndexedDbCanonicalJournal(page) {
+  await page.evaluate(async () => {
+    const request = window.indexedDB.open('graphitix-document-state', 2);
+    const db = await new Promise((resolve, reject) => {
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error || new Error('IndexedDB open failed.'));
+    });
+    try {
+      if (!db.objectStoreNames.contains('canonical-journal')) return;
+      await new Promise((resolve, reject) => {
+        const transaction = db.transaction('canonical-journal', 'readwrite');
+        transaction.objectStore('canonical-journal').clear();
+        transaction.oncomplete = resolve;
+        transaction.onerror = () => reject(transaction.error || new Error('Journal clear failed.'));
+      });
+    } finally {
+      db.close();
+    }
+  });
+}
+
 async function readJournalTab(page, tabId) {
   return page.evaluate(({ tabId }) => new Promise(resolve => {
     const request = window.indexedDB.open('graphitix-document-state', 2);
@@ -37,7 +81,7 @@ async function readJournalTab(page, tabId) {
   }), { tabId });
 }
 
-test('canonical recovery journal restores an edit made immediately before reload', async ({ page }) => {
+test('local canonical journal restores a direct payload commit without IndexedDB journal', async ({ page }) => {
   test.setTimeout(120_000);
   await installLocalCdnOverrides(page);
   await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
@@ -55,10 +99,17 @@ test('canonical recovery journal restores an edit made immediately before reload
     const session = window.Main?.session;
     const active = session?.getActiveTab?.();
     if (!active?.payload) throw new Error('Box payload unavailable');
-    const changed = session.commitTabPayload(active, {
-      ...active.payload,
-      __canonicalJournalProbe: 'latest-user-edit'
-    }, { reason: 'e2e-canonical-journal-edit', origin: 'user' });
+    const nextPayload = structuredClone(active.payload);
+    nextPayload.config = nextPayload.config || {};
+    nextPayload.config.graphType = 'box';
+    nextPayload.config.whisker = {
+      ...(nextPayload.config.whisker || {}),
+      rule: 'custom'
+    };
+    const changed = session.commitTabPayload(active, nextPayload, {
+      reason: 'e2e-canonical-journal-edit',
+      origin: 'user'
+    });
     return {
       changed,
       revision: session.workspaceState.sessionRevision,
@@ -66,6 +117,19 @@ test('canonical recovery journal restores an edit made immediately before reload
     };
   });
   expect(mutation.changed).toBe(true);
+
+  await expect.poll(() => readLocalJournalMeta(page), {
+    timeout: 10_000,
+    message: 'settled user mutation should synchronously write the local recovery journal'
+  }).toEqual(expect.objectContaining({
+    kind: 'canonical-journal',
+    revision: mutation.revision,
+    tabCount: 1
+  }));
+  expect((await readLocalJournalTab(page, mutation.tabId))?.payload?.config).toEqual(expect.objectContaining({
+    graphType: 'box',
+    whisker: expect.objectContaining({ rule: 'custom' })
+  }));
 
   await expect.poll(() => readJournalMeta(page), {
     timeout: 10_000,
@@ -75,6 +139,8 @@ test('canonical recovery journal restores an edit made immediately before reload
     revision: mutation.revision,
     tabCount: 1
   }));
+  await clearRecoverySnapshot(page, { clearCanonicalJournal: false });
+  await clearIndexedDbCanonicalJournal(page);
 
   let accepted = false;
   const dialogHandler = async dialog => {
@@ -92,7 +158,8 @@ test('canonical recovery journal restores an edit made immediately before reload
       const state = window.Main?.session?.workspaceState || {};
       const active = (state.tabs || []).find(tab => tab.id === state.activeTabId);
       return active?.type === 'box'
-        && active?.payload?.__canonicalJournalProbe === 'latest-user-edit'
+        && active?.payload?.config?.whisker?.rule === 'custom'
+        && document.querySelector('#boxPage:not([hidden]) #boxWhiskerRule')?.value === 'custom'
         && !!document.querySelector('#boxPage:not([hidden]) #boxPlot svg');
     }, null, { timeout: 60_000 });
   } finally {

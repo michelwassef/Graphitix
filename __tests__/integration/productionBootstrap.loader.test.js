@@ -59,6 +59,58 @@ describe('production-derived Jest bootstrap', () => {
     expect(window.Components?.venn).toBeUndefined();
   });
 
+  test('loads every declared Node bundle and registers the matching component', async () => {
+    jest.resetModules();
+    delete window.Main;
+    delete window.Components;
+    delete window.Shared;
+
+    loadProductionBootstrap({
+      vendorMode: 'fake',
+      includeMain: false
+    });
+
+    const loader = window.Main.components;
+    const types = Object.keys(loader.registry).sort();
+    const loaded = await Promise.all(types.map(type => loader.loadComponentBundle(type, { forceRequire: true })));
+
+    expect(Object.keys(window.Components || {}).sort()).toEqual(types);
+    expect(loaded).toHaveLength(types.length);
+    loaded.forEach((component, index) => {
+      expect(component).toBe(window.Components[types[index]]);
+      expect(typeof component?.rehydrateGraphInteractions).toBe('function');
+    });
+  });
+
+  test('gates component loader diagnostics through the shared debug setting', async () => {
+    jest.resetModules();
+    delete window.Main;
+    delete window.Components;
+    delete window.Shared;
+
+    loadProductionBootstrap({
+      vendorMode: 'fake',
+      includeMain: false
+    });
+
+    const debugSpy = jest.spyOn(console, 'debug').mockImplementation(() => {});
+    const loader = window.Main.components;
+    try {
+      await loader.loadComponentBundle('unknown-component');
+      expect(debugSpy).not.toHaveBeenCalled();
+
+      window.Shared.enableDebugLogging();
+      await loader.loadComponentBundle('unknown-component');
+      expect(debugSpy).toHaveBeenCalledTimes(1);
+      expect(debugSpy).toHaveBeenCalledWith(
+        'Debug: loadComponentBundle missing descriptor',
+        { type: 'unknown-component' }
+      );
+    } finally {
+      debugSpy.mockRestore();
+    }
+  });
+
   test('rejects a preseeded workspace when strict full-app mode is requested', () => {
     jest.resetModules();
     const previousMain = window.Main;

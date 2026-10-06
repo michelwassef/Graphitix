@@ -139,4 +139,58 @@ describe('component mutation catalog', () => {
     expect(results.get(parameter.key).snapshots).toHaveLength(1);
     expect(results.get(parameter.key).before).toBe(1);
   });
+
+  test('checks Heatmap scheme projection against the resolver and round-trips its effective palette', () => {
+    const mutation = COMPONENT_MUTATION_CATALOG.heatmap.mutations.find(item => item.id === 'heatmap.color-scheme');
+    expect(COMPONENT_MUTATION_CATALOG.heatmap.baseline.requiredPayloadPaths).toEqual(expect.arrayContaining([
+      'config.colors.negative',
+      'config.colors.zero',
+      'config.colors.positive'
+    ]));
+    expect(mutation.projectionContract.domExpectedOwnerKey)
+      .toBe('ownerProjection.config.displayedColorSchemeId');
+
+    const parameter = {
+      key: 'config.colorScheme',
+      path: ['config', 'colorScheme'],
+      before: 'scientific',
+      after: 'soft',
+      projectionContract: mutation.projectionContract
+    };
+    const colors = { negative: '#4e79a7', zero: '#f7f7f7', positive: '#e15759' };
+    const paletteValues = Object.entries(colors).map(([key, value]) => ({
+      payloadPath: `config.colors.${key}`,
+      ownerKey: `ownerProjection.config.palette.${key}`,
+      payloadValue: value,
+      ownerValue: value
+    }));
+    const state = {
+      tabId: 'heatmap-tab',
+      payload: { config: { colorScheme: 'soft', colors: { ...colors } } },
+      dom: { '#heatmapColorSchemeSelect.value': 'custom' },
+      owner: {
+        'ownerProjection.config.colorScheme': 'soft',
+        'ownerProjection.config.displayedColorSchemeId': 'custom',
+        ...Object.fromEntries(paletteValues.map(item => [item.ownerKey, item.ownerValue]))
+      }
+    };
+    const witness = {
+      domKey: '#heatmapColorSchemeSelect.value',
+      ownerKey: 'ownerProjection.config.colorScheme',
+      domProjectionOwnerKey: 'ownerProjection.config.displayedColorSchemeId',
+      paletteValues: { after: paletteValues }
+    };
+
+    expect(parameterAssertions.assertParameterState(state, parameter, 'soft', witness, 'reopen').failures).toEqual([]);
+
+    const drifted = structuredClone(state);
+    drifted.dom['#heatmapColorSchemeSelect.value'] = 'soft';
+    drifted.payload.config.colors.negative = '#123456';
+    drifted.owner['ownerProjection.config.palette.negative'] = '#123456';
+    expect(parameterAssertions.assertParameterState(drifted, parameter, 'soft', witness, 'reopen').failures)
+      .toEqual(expect.arrayContaining([
+        'reopen: DOM scheme projection disagrees with the displayed-scheme resolver',
+        'reopen: effective Heatmap palette did not survive persistence at config.colors.negative'
+      ]));
+  });
 });

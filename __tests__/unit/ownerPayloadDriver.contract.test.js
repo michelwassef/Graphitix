@@ -102,8 +102,10 @@ describe('owner-payload driver persistence contract', () => {
   test('owner observation accepts the normalized getSessionForTab hook', () => {
     const body = functionBody('function captureOwnerObservables(', 'function findWitness(');
 
+    expect(body).toContain('const componentModule = global.Components?.[type] || component;');
     expect(body).toContain('__testHooks?.getSession?.(tabId)');
     expect(body).toContain('__testHooks?.getSessionForTab?.(tabId)');
+    expect(body).toContain('componentModule?.__testHooks?.getSession?.(tabId)');
   });
 
   test('component discovery does not reconstruct conditional state from payload leaves', () => {

@@ -215,9 +215,9 @@ async function openComponentTab(page, component, { first = false } = {}) {
 
 for (const component of COMPONENT_MATRIX) {
   test(`same-component tab switching stays isolated for ${component.type}`, async ({ page }, testInfo) => {
-    // This contract exercises the component's declared representative
-    // mutations through switch, archive, and reopen. The legacy generic
-    // parameter stress harness remains diagnostic only.
+    // This contract exercises representative owner transitions and table
+    // scroll isolation. Archive payload shape is covered by the archive
+    // round-trip contracts; the legacy parameter stress harness is diagnostic.
     test.setTimeout(10 * 60_000);
     const issues = registerIssueCollectors(page);
     await installLocalCdnOverrides(page);

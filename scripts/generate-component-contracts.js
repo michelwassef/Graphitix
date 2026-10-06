@@ -55,14 +55,37 @@ function countChar(text, needle) {
   return count;
 }
 
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function resolveComponentSourcePath(type, kind, relativePath) {
+  if (typeof relativePath !== 'string' || !relativePath.trim()) {
+    throw new Error(`Component "${type}" has no ${kind} bundle path.`);
+  }
+  const resolvedPath = path.resolve(path.dirname(COMPONENTS_JS), relativePath);
+  const relativeToRoot = path.relative(ROOT, resolvedPath);
+  if (relativeToRoot === '..' || relativeToRoot.startsWith(`..${path.sep}`) || path.isAbsolute(relativeToRoot)) {
+    throw new Error(`Component "${type}" ${kind} bundle path escapes the repository: ${relativePath}`);
+  }
+  if (!fs.existsSync(resolvedPath) || !fs.statSync(resolvedPath).isFile()) {
+    throw new Error(`Component "${type}" ${kind} bundle source is missing: ${relativePath}`);
+  }
+  return resolvedPath;
+}
+
 function parseComponentsRegistry(lines) {
   const bundleMap = new Map();
   const bundleRegex = /^\s*([a-z][a-z0-9_]*):\s*\{\s*browserPath:\s*'([^']+)',\s*requirePath:\s*'([^']+)'\s*\},?\s*$/i;
   for (let i = 0; i < lines.length; i += 1) {
     const match = lines[i].match(bundleRegex);
     if (!match) continue;
-    bundleMap.set(match[1].toLowerCase(), {
-      type: match[1].toLowerCase(),
+    const type = match[1].toLowerCase();
+    if (bundleMap.has(type)) {
+      throw new Error(`Duplicate component bundle descriptor: ${type}`);
+    }
+    bundleMap.set(type, {
+      type,
       browserPath: match[2],
       requirePath: match[3],
       line: i + 1
@@ -70,9 +93,10 @@ function parseComponentsRegistry(lines) {
   }
 
   const start = lines.findIndex(line => line.includes('const WORKSPACES = {'));
-  if (start < 0) return [];
+  if (start < 0) throw new Error('Main.components WORKSPACES registry was not found.');
   const entries = [];
   let inRegistry = false;
+  let registryClosed = false;
   let registryDepth = 0;
   let current = null;
   let currentDepth = 0;
@@ -119,33 +143,74 @@ function parseComponentsRegistry(lines) {
 
       if (currentDepth <= 0) {
         const bundle = bundleMap.get(current.key);
-        current.bundle = bundle || null;
-        if(bundle?.requirePath){
-          const componentPath = path.resolve(path.dirname(COMPONENTS_JS), bundle.requirePath);
-          const componentLines = fs.existsSync(componentPath)
-            ? fs.readFileSync(componentPath, 'utf8').split(/\r?\n/)
-            : null;
-          COMPONENT_SOURCE_HOOKS.forEach(hookName => {
-            const hookLine = componentLines
-              ? componentLines.findIndex(line => line.includes(`${current.key}.${hookName} =`))
-              : -1;
-            const hookIsPresent = !componentLines || hookLine >= 0;
-            if(hookIsPresent && !current.hooks.some(hook => hook.key === hookName)){
-              current.hooks.push({
-                key: hookName,
-                line: hookLine + 1,
-                expression: `${current.key}.${hookName}`
-              });
-            }
-          });
+        if (!bundle) {
+          throw new Error(`Workspace "${current.key}" has no component bundle descriptor.`);
         }
+        if (current.type !== current.key) {
+          throw new Error(`Workspace "${current.key}" declares mismatched type "${current.type || '(missing)'}".`);
+        }
+
+        const browserSourcePath = resolveComponentSourcePath(current.key, 'browser', bundle.browserPath);
+        const requireSourcePath = resolveComponentSourcePath(current.key, 'Node', bundle.requirePath);
+        if (browserSourcePath !== requireSourcePath) {
+          throw new Error(`Component "${current.key}" browser and Node paths resolve to different source files.`);
+        }
+
+        const componentSource = fs.readFileSync(requireSourcePath, 'utf8');
+        const componentLines = componentSource.split(/\r?\n/);
+        const escapedType = escapeRegExp(current.key);
+        const registrationLine = componentLines.findIndex(line => (
+          new RegExp(`^\\s*(?:const|let|var)\\s+[^\\s=]+\\s*=\\s*Components\\.${escapedType}\\s*=`).test(line)
+        ));
+        if (registrationLine < 0) {
+          throw new Error(`Component source "${bundle.requirePath}" does not register Components.${current.key}.`);
+        }
+
+        COMPONENT_SOURCE_HOOKS.forEach(hookName => {
+          const hookLine = componentLines.findIndex(line => (
+            new RegExp(`^\\s*${escapedType}\\.${escapeRegExp(hookName)}\\s*=`).test(line)
+          ));
+          if (hookLine < 0) {
+            throw new Error(`Component "${current.key}" is missing required source hook "${hookName}".`);
+          }
+          if (!current.hooks.some(hook => hook.key === hookName)) {
+            current.hooks.push({
+              key: hookName,
+              line: hookLine + 1,
+              expression: `${current.key}.${hookName}`
+            });
+          }
+        });
+        current.bundle = bundle;
         entries.push(current);
         current = null;
       }
     }
 
     registryDepth += countChar(line, '{') - countChar(line, '}');
-    if (registryDepth <= 0) break;
+    if (registryDepth <= 0) {
+      registryClosed = true;
+      break;
+    }
+  }
+
+  if (!registryClosed) {
+    throw new Error('Main.components WORKSPACES registry is not closed.');
+  }
+  if (!entries.length) {
+    throw new Error('Main.components WORKSPACES registry contains no component entries.');
+  }
+  const workspaceTypes = new Set();
+  entries.forEach(entry => {
+    if (workspaceTypes.has(entry.key)) {
+      throw new Error(`Duplicate workspace component entry: ${entry.key}`);
+    }
+    workspaceTypes.add(entry.key);
+  });
+  for (const type of bundleMap.keys()) {
+    if (!workspaceTypes.has(type)) {
+      throw new Error(`Component bundle descriptor "${type}" has no matching workspace entry.`);
+    }
   }
   return entries.sort((a, b) => a.key.localeCompare(b.key));
 }
@@ -210,8 +275,15 @@ function toMarkdown(entries) {
 
 function main() {
   const checkOnly = process.argv.includes('--check');
-  const lines = fs.readFileSync(COMPONENTS_JS, 'utf8').split(/\r?\n/);
-  const entries = parseComponentsRegistry(lines);
+  let entries;
+  try {
+    const lines = fs.readFileSync(COMPONENTS_JS, 'utf8').split(/\r?\n/);
+    entries = parseComponentsRegistry(lines);
+  } catch (err) {
+    console.error(`Component contract generation failed: ${err?.message || String(err)}`);
+    process.exitCode = 1;
+    return;
+  }
   const markdown = toMarkdown(entries);
   const relativeOutputPath = toPosix(path.relative(ROOT, OUTPUT_PATH));
   const normalizeLineEndings = value => typeof value === 'string'
@@ -236,4 +308,6 @@ function main() {
   console.log(`Generated ${relativeOutputPath} (${entries.length} components)`);
 }
 
-main();
+if (require.main === module) {
+  main();
+}

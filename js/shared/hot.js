@@ -31,6 +31,17 @@
       // Browser builds load dataViewPersistence.js before hot.js.
     }
   }
+  const hotUiStateNamespace = Shared.hotUiStateAdapter = Shared.hotUiStateAdapter || {};
+  if(typeof hotUiStateNamespace.createHotUiStateAdapter !== 'function' && typeof require === 'function'){
+    try{
+      require('./hotUiStateAdapter.js');
+    }catch(_err){
+      // Browser builds load hotUiStateAdapter.js before hot.js.
+    }
+  }
+  if(typeof hotUiStateNamespace.createHotUiStateAdapter !== 'function'){
+    throw new Error('Shared.hot requires js/shared/hotUiStateAdapter.js');
+  }
   const MIN_INPUT_COLS = 12;
   const tabTablePools = hotNS.__tabTablePools = hotNS.__tabTablePools || {};
   const resolveActiveTabId = () => {
@@ -18248,61 +18259,30 @@
   hotNS.applyExclusions = applyExclusions;
   hotNS.clearExclusions = clearExclusions;
   // Capture/apply the table UI state persisted by every component.
+  const hotUiStateAdapter = hotUiStateNamespace.createHotUiStateAdapter({
+    reportError(message, err, context){
+      if(context){
+        console.error(message, { ...context, err });
+      }else{
+        console.error(message, err);
+      }
+    },
+    debug: hotDebug
+  });
+  const resolveTableUiStateOwnerTabId = (instance, preferredTabId = null) => normalizeOwnerTabId(
+    preferredTabId
+    || instance.__workspaceTabId
+    || instance.__graphitixTabId
+    || instance.__hotWorkspaceTabId
+    || resolveTabIdFromNode(instance.rootElement || null)
+    || resolveTabIdFromNode(instance.__hotWrapper || instance.wrapper || null)
+  );
+
   function captureHotUiState(instance){
     if(!instance){ return null; }
-    const captured = {};
-    const gridApi = instance.gridApi || null;
-    if(gridApi && typeof gridApi.getFirstDisplayedRowIndex === 'function'){
-      try{
-        const firstRow = gridApi.getFirstDisplayedRowIndex();
-        if(Number.isInteger(firstRow) && firstRow >= 0){
-          captured.firstDisplayedRow = firstRow;
-        }
-      }catch(err){
-        console.error('Shared.hot.captureHotUiState getFirstDisplayedRowIndex error', err);
-      }
-    }
-    if(gridApi && typeof gridApi.getVerticalPixelRange === 'function'){
-      try{
-        const range = gridApi.getVerticalPixelRange();
-        if(range && Number.isFinite(range.top)){
-          captured.scrollTopPx = Math.max(0, Math.round(range.top));
-        }
-      }catch(err){
-        // no-op — pixel range is opportunistic; firstDisplayedRow above is the source of truth
-      }
-    }
-    if(typeof instance.getSelectedRangeLast === 'function'){
-      try{
-        const selection = instance.getSelectedRangeLast();
-        if(selection && selection.from && selection.to){
-          captured.selection = {
-            from: { row: Number(selection.from.row), col: Number(selection.from.col) },
-            to: { row: Number(selection.to.row), col: Number(selection.to.col) }
-          };
-        }
-      }catch(err){
-        console.error('Shared.hot.captureHotUiState getSelectedRangeLast error', err);
-      }
-    }
-    if(typeof instance.getColumnWidths === 'function'){
-      try{
-        const columnWidths = instance.getColumnWidths();
-        if(columnWidths && typeof columnWidths === 'object' && Object.keys(columnWidths).length){
-          captured.columnWidths = columnWidths;
-        }
-      }catch(err){
-        console.error('Shared.hot.captureHotUiState getColumnWidths error', err);
-      }
-    }
+    const captured = hotUiStateAdapter.capture(instance);
     try{
-      const ownerTabId = normalizeOwnerTabId(
-        instance.__workspaceTabId
-        || instance.__graphitixTabId
-        || instance.__hotWorkspaceTabId
-        || resolveTabIdFromNode(instance.rootElement || null)
-        || resolveTabIdFromNode(instance.__hotWrapper || instance.wrapper || null)
-      );
+      const ownerTabId = resolveTableUiStateOwnerTabId(instance);
       if(ownerTabId){
         captured.tabId = ownerTabId;
       }
@@ -18320,67 +18300,9 @@
 
   function applyHotUiState(instance, state, options = {}){
     if(!instance || !state || typeof state !== 'object'){ return false; }
-    const ownerTabId = normalizeOwnerTabId(
-      options.tabId
-      || instance.__workspaceTabId
-      || instance.__graphitixTabId
-      || instance.__hotWorkspaceTabId
-      || resolveTabIdFromNode(instance.rootElement || null)
-      || resolveTabIdFromNode(instance.__hotWrapper || instance.wrapper || null)
-    );
-    if(state.tabId && ownerTabId && String(state.tabId) !== String(ownerTabId)){
-      hotDebug('Debug: Shared.hot.applyHotUiState skipped due to tab ownership mismatch', {
-        stateTabId: state.tabId,
-        ownerTabId,
-        reason: options.reason || 'apply-hot-uiState'
-      });
-      return false;
-    }
-    let appliedAny = false;
-    const gridApi = instance.gridApi || null;
+    const ownerTabId = resolveTableUiStateOwnerTabId(instance, options.tabId);
     const reason = options.reason || 'apply-hot-uiState';
-    if(state.columnWidths && typeof instance.applyColumnWidths === 'function'){
-      try{
-        if(instance.applyColumnWidths(state.columnWidths)){
-          appliedAny = true;
-        }
-      }catch(err){
-        console.error('Shared.hot.applyHotUiState column widths error', { reason, err });
-      }
-    }
-    if(Number.isInteger(state.firstDisplayedRow) && state.firstDisplayedRow >= 0
-      && gridApi && typeof gridApi.ensureIndexVisible === 'function'){
-      try{
-        gridApi.ensureIndexVisible(state.firstDisplayedRow, 'top');
-        appliedAny = true;
-      }catch(err){
-        console.error('Shared.hot.applyHotUiState ensureIndexVisible error', { reason, err });
-      }
-    }
-    if(Number.isFinite(Number(state.scrollTopPx)) && Number(state.scrollTopPx) >= 0
-      && gridApi && typeof gridApi.setVerticalScrollPosition === 'function'){
-      try{
-        gridApi.setVerticalScrollPosition(Math.max(0, Math.round(Number(state.scrollTopPx))));
-        appliedAny = true;
-      }catch(err){
-        console.error('Shared.hot.applyHotUiState setVerticalScrollPosition error', { reason, err });
-      }
-    }
-    if(state.selection && state.selection.from && state.selection.to
-      && typeof instance.selectCell === 'function'){
-      const from = state.selection.from;
-      const to = state.selection.to;
-      if(Number.isInteger(from.row) && Number.isInteger(from.col)
-        && Number.isInteger(to.row) && Number.isInteger(to.col)){
-        try{
-          instance.selectCell(from.row, from.col, to.row, to.col);
-          appliedAny = true;
-        }catch(err){
-          console.error('Shared.hot.applyHotUiState selectCell error', { reason, err });
-        }
-      }
-    }
-    return appliedAny;
+    return hotUiStateAdapter.apply(instance, state, { ownerTabId, reason });
   }
 
   // Component-facing factory: every workspace component owns a Shared.hot instance and
@@ -18389,25 +18311,10 @@
   // messages and the apply reason. Components should prefer this over hand-rolling the
   // captureUiState / applyUiState methods.
   function makeTableUiStateHooks(getHot, label){
-    const componentLabel = String(label || 'component');
-    return {
-      capture(){
-        const hot = typeof getHot === 'function' ? getHot() : getHot;
-        if(!hot){ return null; }
-        const tableState = captureHotUiState(hot);
-        if(!tableState){ return null; }
-        return { table: tableState };
-      },
-      apply(uiState, meta = {}){
-        if(!uiState || typeof uiState !== 'object' || !uiState.table){ return false; }
-        const hot = typeof getHot === 'function' ? getHot() : getHot;
-        if(!hot){ return false; }
-        return applyHotUiState(hot, uiState.table, {
-          reason: meta.reason || (componentLabel + '-apply-uiState'),
-          tabId: meta.tabId || uiState.table.tabId || null
-        });
-      }
-    };
+    return hotUiStateAdapter.makeTableUiStateHooks(getHot, label, {
+      capture: captureHotUiState,
+      apply: applyHotUiState
+    });
   }
 
   hotNS.captureHotUiState = captureHotUiState;

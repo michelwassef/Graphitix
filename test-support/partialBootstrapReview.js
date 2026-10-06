@@ -18,6 +18,7 @@ const REVIEWED_PARTIAL_BOOTSTRAPS = Object.freeze({
   '__tests__/unit/stats.audit.remediation.components.test.js': 'uses a reviewed cross-component statistical fixture with explicit shared dependencies',
   '__tests__/statistical-oracle/stats.extended.coverage.test.js': 'uses a reviewed cross-component statistical fixture with explicit shared dependencies',
   '__tests__/unit/line.model.test.js': 'isolates Line model helpers with a chartStyle test double'
+  ,'__tests__/unit/box.indexedStylesModel.test.js': 'tests the pure Box transformation model directly without bootstrapping the component'
 });
 
 function collectDirectComponentBootstraps(records = []) {

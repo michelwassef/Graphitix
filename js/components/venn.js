@@ -998,7 +998,7 @@
     usesFactory: typeof Shared.graphViewport?.createEnsurer === 'function'
   });
 
-  function enforceVennLockedViewportRatio(stage, svgBox, reason){
+  function enforceVennLockedViewportRatio(stage, svgBox, reason, preserveAspectRatio = 'none'){
     if(stage?.tagName?.toLowerCase?.() !== 'svg'
       || svgBox?.dataset?.resizerAspectLocked !== 'true'
       || typeof Shared.graphViewport?.enforceLockedAxisRatio !== 'function'){
@@ -1020,7 +1020,7 @@
       return false;
     }
     stage.setAttribute('viewBox', `${next.minX} ${next.minY} ${next.viewW} ${next.viewH}`);
-    stage.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+    stage.setAttribute('preserveAspectRatio', preserveAspectRatio);
     return true;
   }
 
@@ -10193,7 +10193,6 @@
       });
       ensureGraphViewport(stage, viewportOptions);
     }
-    enforceVennLockedViewportRatio(stage, svgBox, 'venn-locked-axis-ratio');
     chartStyle.stageGraphContentViewport?.({
       svgBox,
       plot: stage.parentElement,
@@ -10207,6 +10206,9 @@
       settleContentBounds: titleAdditionalExtent > 0,
       debugLabel: 'venn-title-envelope'
     })?.commit?.();
+    // Content-envelope publication writes the final viewBox. Enforce the
+    // rendered-axis lock after that write so it remains authoritative.
+    enforceVennLockedViewportRatio(stage, svgBox, 'venn-locked-axis-ratio', 'xMidYMid meet');
   }
 
   function formatCount(value) {
@@ -11430,7 +11432,6 @@
       });
       ensureGraphViewport(stage, viewportOptions);
     }
-    enforceVennLockedViewportRatio(stage, svgBox, 'upset-locked-axis-ratio');
     const titleViewport = chartStyle.stageGraphContentViewport?.({
       svgBox,
       plot: stage.parentElement,
@@ -11449,6 +11450,9 @@
       debugLabel: 'upset-title-envelope'
     });
     titleViewport?.commit?.();
+    // Content-envelope publication writes the final viewBox. Enforce the
+    // rendered-axis lock after that write so it remains authoritative.
+    enforceVennLockedViewportRatio(stage, svgBox, 'upset-locked-axis-ratio');
     debugLog('drawUpSet complete', {
       intersections: intersections.length,
       sets: sets.length,

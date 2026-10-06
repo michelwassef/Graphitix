@@ -5,6 +5,12 @@
   const namespace = Main.components = Main.components || {};
   const componentLayout = Shared.componentLayout = Shared.componentLayout || {};
 
+  function logDebug(...args) {
+    if (typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()) {
+      console.debug(...args);
+    }
+  }
+
   const isNodeLike = typeof process !== 'undefined' && !!process?.versions?.node;
   const COMPONENT_BUNDLES = {
     venn: { browserPath: '../components/venn.js', requirePath: '../components/venn.js' },
@@ -19,13 +25,19 @@
     hist: { browserPath: '../components/hist.js', requirePath: '../components/hist.js' },
     pie: { browserPath: '../components/pie.js', requirePath: '../components/pie.js' }
   };
+  const COMPONENT_BUNDLE_DEPENDENCIES = {
+    box: [{
+      browserPath: '../components/boxIndexedStylesModel.js',
+      requirePath: '../components/boxIndexedStylesModel.js'
+    }]
+  };
   const bundlePromises = new Map();
   const cachedBundles = new Set();
 
   function loadComponentBundle(type, options = {}) {
     const descriptor = COMPONENT_BUNDLES[type];
     if (!descriptor) {
-      console.debug('Debug: loadComponentBundle missing descriptor', { type });
+      logDebug('Debug: loadComponentBundle missing descriptor', { type });
       return Promise.resolve(window.Components?.[type] || null);
     }
     const cached = bundlePromises.get(type);
@@ -36,36 +48,39 @@
     if (useRequire) {
       let component = null;
       try {
+        (COMPONENT_BUNDLE_DEPENDENCIES[type] || []).forEach(dependency => require(dependency.requirePath));
         require(descriptor.requirePath);
         component = window.Components?.[type] || null;
-        console.debug('Debug: component bundle required via Node', { type, path: descriptor.requirePath, hasComponent: !!component }); // Debug: Node require path
+        logDebug('Debug: component bundle required via Node', { type, path: descriptor.requirePath, hasComponent: !!component }); // Debug: Node require path
       } catch (err) {
         console.error('components require bundle error', { type, err });
         throw err;
       }
       if (!cachedBundles.has(type)) {
         cachedBundles.add(type);
-        console.debug('Debug: component bundle cached', { type, hasComponent: !!component }); // Debug: cache entry established
+        logDebug('Debug: component bundle cached', { type, hasComponent: !!component }); // Debug: cache entry established
       } else {
-        console.debug('Debug: component bundle reuse', { type, hasComponent: !!component }); // Debug: cache reuse
+        logDebug('Debug: component bundle reuse', { type, hasComponent: !!component }); // Debug: cache reuse
       }
       const promise = Promise.resolve(component);
       bundlePromises.set(type, promise);
       return promise;
     }
 
-    const promise = import(/* webpackIgnore: true */ descriptor.browserPath)
+    const dependencies = COMPONENT_BUNDLE_DEPENDENCIES[type] || [];
+    const promise = Promise.all(dependencies.map(dependency => import(/* webpackIgnore: true */ dependency.browserPath)))
+      .then(() => import(/* webpackIgnore: true */ descriptor.browserPath))
       .then(module => {
         const moduleKeys = module ? Object.keys(module) : [];
-        console.debug('Debug: component bundle imported', { type, path: descriptor.browserPath, moduleKeys }); // Debug: import keys
+        logDebug('Debug: component bundle imported', { type, path: descriptor.browserPath, moduleKeys }); // Debug: import keys
         return window.Components?.[type] || null;
       })
       .then(component => {
         if (!cachedBundles.has(type)) {
           cachedBundles.add(type);
-          console.debug('Debug: component bundle cached', { type, hasComponent: !!component }); // Debug: cache entry established
+          logDebug('Debug: component bundle cached', { type, hasComponent: !!component }); // Debug: cache entry established
         } else {
-          console.debug('Debug: component bundle reuse', { type, hasComponent: !!component }); // Debug: cache reuse
+          logDebug('Debug: component bundle reuse', { type, hasComponent: !!component }); // Debug: cache reuse
         }
         return component;
       })
@@ -232,7 +247,7 @@
         reason = 'empty-cache';
       }
       if (!ok) {
-        console.debug('Debug: generic render cache validation rejected', {
+        logDebug('Debug: generic render cache validation rejected', {
           type,
           tabId,
           reason,
@@ -242,7 +257,7 @@
         });
         return false;
       }
-      console.debug('Debug: generic render cache validation accepted', {
+      logDebug('Debug: generic render cache validation accepted', {
         type,
         tabId,
         fragments,
@@ -423,7 +438,7 @@
           actualSignatureLength: actualSignature ? actualSignature.length : 0
         });
       } else {
-        console.debug('Debug: payload round-trip self-test passed', {
+        logDebug('Debug: payload round-trip self-test passed', {
           type,
           tabId,
           reason,
@@ -481,7 +496,7 @@
         if (component && typeof component.activateTab === 'function') {
           return component.activateTab(tab, meta);
         }
-        console.debug('Debug: workspace activateTab noop', { type, tabId: tab?.id || null, reason: meta?.reason || null });
+        logDebug('Debug: workspace activateTab noop', { type, tabId: tab?.id || null, reason: meta?.reason || null });
         return undefined;
       };
     }
@@ -489,7 +504,7 @@
       workspace.deactivateTab = (tab, meta) => {
         const result = invokeComponentLifecycle(type, 'deactivateTab', [tab, meta]);
         if (typeof result === 'undefined') {
-          console.debug('Debug: workspace deactivateTab noop', { type, tabId: tab?.id || null, reason: meta?.reason || null });
+          logDebug('Debug: workspace deactivateTab noop', { type, tabId: tab?.id || null, reason: meta?.reason || null });
         }
         return result;
       };
@@ -560,7 +575,7 @@
     }
     installGenericRenderCacheValidator(workspace, type);
     publishLifecycleCapabilities(type, workspace);
-    console.debug('Debug: workspace lifecycle contract installed', { type, contract: workspace.__lifecycleContract });
+    logDebug('Debug: workspace lifecycle contract installed', { type, contract: workspace.__lifecycleContract });
     return workspace;
   }
 
@@ -587,7 +602,7 @@
     }
     if (typeof component.deactivateTab !== 'function') {
       component.deactivateTab = markLifecycleFallback((tab, meta) => {
-        console.debug('Debug: component deactivateTab noop', { type, tabId: tab?.id || null, reason: meta?.reason || null });
+        logDebug('Debug: component deactivateTab noop', { type, tabId: tab?.id || null, reason: meta?.reason || null });
         return false;
       });
     }
@@ -601,7 +616,7 @@
         } catch (err) {
           console.error('component disposeTab table cleanup error', { type, tabId: tab?.id || null, err });
         }
-        console.debug('Debug: component disposeTab default complete', { type, tabId: tab?.id || null, reason: meta?.reason || null });
+        logDebug('Debug: component disposeTab default complete', { type, tabId: tab?.id || null, reason: meta?.reason || null });
         return true;
       });
     }
@@ -644,7 +659,7 @@
       liveDomReuse: false,
       passiveControls: false
     };
-    console.debug('Debug: uninitialized component passive projection promoted to full initialization', {
+    logDebug('Debug: uninitialized component passive projection promoted to full initialization', {
       component: component?.__componentKey || null,
       tabId: source.tabId || source.tab?.id || null,
       reason: source.reason || 'component-ensure'
@@ -668,11 +683,11 @@
         }
         if (ensureResult && typeof ensureResult.then === 'function') {
           return ensureResult.then(() => {
-            console.debug('Debug: ensureComponent resolved async (cached)', { name, ready: !!component.ready });
+            logDebug('Debug: ensureComponent resolved async (cached)', { name, ready: !!component.ready });
             return component;
           });
         }
-        console.debug('Debug: ensureComponent resolved synchronously (cached)', { name, ready: !!component.ready });
+        logDebug('Debug: ensureComponent resolved synchronously (cached)', { name, ready: !!component.ready });
         return component;
       } catch (err) {
         console.error('ensureComponent error during cached component ensure', {
@@ -689,7 +704,7 @@
         publishLifecycleCapabilities(name, WORKSPACES[name], loadedComponent);
       }
       if (!loadedComponent) {
-        console.debug('Debug: ensureComponent missing global export', { name });
+        logDebug('Debug: ensureComponent missing global export', { name });
         return null;
       }
       let ensureResult = null;
@@ -700,7 +715,7 @@
         ensureResult = loadedComponent.init(ensureOptions);
       }
       return Promise.resolve(ensureResult).then(() => {
-        console.debug('Debug: ensureComponent resolved', { name, ready: !!loadedComponent.ready }); // Debug: ensure completion
+        logDebug('Debug: ensureComponent resolved', { name, ready: !!loadedComponent.ready }); // Debug: ensure completion
         return loadedComponent;
       });
     }).catch(err => {
@@ -744,7 +759,7 @@
       const tabId = options?.tabId || meta?.tabId || null;
       const reason = options?.reason || options?.source || null;
       if (Shared.workspaceTabs?.isSessionMetaCurrent && !Shared.workspaceTabs.isSessionMetaCurrent(componentKey, meta)) {
-        console.debug('Debug: registry draw skipped stale tab session', {
+        logDebug('Debug: registry draw skipped stale tab session', {
           componentKey,
           tabId: meta?.tabId || null,
           sessionGeneration: meta?.sessionGeneration || 0,
@@ -754,7 +769,7 @@
         return;
       }
       if (Shared.componentLifecycle?.shouldSuppressDraw?.(componentKey, { ...(options || {}), tabId, reason })) {
-        console.debug('Debug: registry draw suppressed by lifecycle transaction', { componentKey, tabId, reason });
+        logDebug('Debug: registry draw suppressed by lifecycle transaction', { componentKey, tabId, reason });
         Shared.componentLifecycle?.emitLifecycleEvent?.({ componentKey, tabId, action: 'draw-suppressed', reason, details: { source: options?.source || null } });
         return;
       }
@@ -973,7 +988,7 @@
     }
     return rows.some(row => row.some(isFinitePayloadNumber));
   }
-  console.debug('Debug: main tab-scoped lifecycle schedulers ready', { schedulers: ['boxplot', 'scatter', 'pca', 'line', 'heatmap', 'hist', 'pie', 'survival'] });
+  logDebug('Debug: main tab-scoped lifecycle schedulers ready', { schedulers: ['boxplot', 'scatter', 'pca', 'line', 'heatmap', 'hist', 'pie', 'survival'] });
 
   const WORKSPACES = {
     venn: {
@@ -1387,5 +1402,5 @@
   namespace.ensureComponent = ensureComponent;
   namespace.registry = WORKSPACES;
   namespace.get = type => WORKSPACES[type] || null;
-  console.debug('Debug: Main components module initialized', { workspaceCount: Object.keys(WORKSPACES).length });
+  logDebug('Debug: Main components module initialized', { workspaceCount: Object.keys(WORKSPACES).length });
 })();

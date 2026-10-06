@@ -35,6 +35,23 @@ describe('Shared.hot UI state helpers', () => {
     });
   });
 
+  test('the internal adapter captures plain UI data without resolving workspace ownership', () => {
+    const adapter = window.Shared.hotUiStateAdapter.createHotUiStateAdapter();
+    const instance = {
+      __workspaceTabId: 'tab-a',
+      gridApi: { getFirstDisplayedRowIndex: () => 9 },
+      getSelectedRangeLast: () => ({
+        from: { row: 2, col: 1 },
+        to: { row: 4, col: 3 }
+      })
+    };
+
+    expect(adapter.capture(instance)).toEqual({
+      firstDisplayedRow: 9,
+      selection: { from: { row: 2, col: 1 }, to: { row: 4, col: 3 } }
+    });
+  });
+
   test('captureHotUiState returns null when nothing meaningful is found', () => {
     expect(window.Shared.hot.captureHotUiState({})).toBeNull();
   });
@@ -79,5 +96,23 @@ describe('Shared.hot UI state helpers', () => {
       selection: { from: { row: 0, col: 0 }, to: { row: 0, col: 0 } }
     });
     expect(applied).toBe(false);
+  });
+
+  test('the internal adapter applies only when the facade supplies a matching owner', () => {
+    const debug = jest.fn();
+    const adapter = window.Shared.hotUiStateAdapter.createHotUiStateAdapter({ debug });
+    const ensureIndexVisible = jest.fn();
+    const instance = { gridApi: { ensureIndexVisible } };
+    const state = { tabId: 'tab-a', firstDisplayedRow: 6 };
+
+    expect(adapter.apply(instance, state, { ownerTabId: 'tab-b' })).toBe(false);
+    expect(ensureIndexVisible).not.toHaveBeenCalled();
+    expect(debug).toHaveBeenCalledWith(
+      'Debug: Shared.hot.applyHotUiState skipped due to tab ownership mismatch',
+      { stateTabId: 'tab-a', ownerTabId: 'tab-b', reason: 'apply-hot-uiState' }
+    );
+
+    expect(adapter.apply(instance, state, { ownerTabId: 'tab-a', reason: 'restore-a' })).toBe(true);
+    expect(ensureIndexVisible).toHaveBeenCalledWith(6, 'top');
   });
 });

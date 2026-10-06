@@ -101,8 +101,10 @@ describe('chartStyle.computeBottomLayout reserve rotated space', () => {
     expect(wide.requiredBottom).toBe(80 + wide.reservedExtra);
     expect(wide.reservedExtra).toBeCloseTo(wide.rotatedExtra + wide.rotationOpticalPaddingPx, 9);
     expect(narrow.requiredBottom).toBe(wide.requiredBottom);
-    expect(wide.titleOffset).toBe(wide.nominalTitleOffset - wide.titleBaselineInset);
-    expect(narrow.titleOffset).toBeCloseTo(narrow.nominalTitleOffset + narrow.activeExtra - narrow.titleBaselineInset, 9);
+    expect(wide.titleOffset).toBe(wide.nominalTitleOffset);
+    expect(narrow.titleOffset).toBeCloseTo(narrow.nominalTitleOffset + narrow.activeExtra, 9);
+    expect(wide.titleOffset - wide.labelOffset - 16)
+      .toBeCloseTo(wide.axisTitleGap, 9);
   });
 
   test('explicit band width triggers rotation when categorical spacing is compressed', () => {

@@ -92,6 +92,7 @@ const REVIEWED_SCENARIO_METADATA = Object.freeze({
   , 'OWN.legend-font-toolbar': Object.freeze({ requirement: 'Legend font controls remain isolated by component owner', capability: 'style-ownership', evidence: 'legend-font-toolbar-contract' })
   , 'OWN.pie-chart-type-controls': Object.freeze({ requirement: 'Pie chart-type controls remain isolated by tab', capability: 'component-modes', evidence: 'pie-chart-type-control-contract' })
   , 'BOOTSTRAP.browser-smoke': Object.freeze({ requirement: 'Browser smoke uses the supported application bootstrap', capability: 'bootstrap', evidence: 'browser-bootstrap-smoke' })
+  , 'BOOTSTRAP.browser-component-bundles': Object.freeze({ requirement: 'Declared browser component bundles register their matching workspace component', capability: 'bootstrap', evidence: 'lazy-component-bundle-registration-contract', setup: 'api' })
   , 'BOOTSTRAP.production-derived-loader': Object.freeze({ requirement: 'Isolated application tests use the production-derived loader', capability: 'bootstrap', evidence: 'production-derived-loader-contract' })
   , 'BOOTSTRAP.ui-events-lazy': Object.freeze({ requirement: 'Lazy UI event bootstrap preserves component boundaries', capability: 'bootstrap', evidence: 'ui-events-lazy-bootstrap-contract' })
   , 'BOOTSTRAP.app-initialization': Object.freeze({ requirement: 'Application initialization follows the declared bootstrap order', capability: 'bootstrap', evidence: 'app-initialization-contract' })
@@ -113,7 +114,12 @@ const REVIEWED_SCENARIO_METADATA = Object.freeze({
   , 'STATS.numerical-oracle': Object.freeze({ requirement: 'Numerical results match the required external oracle', capability: 'statistical-validation', evidence: 'statistical-oracle-contract' })
   , 'STATS.ui-presentation-branches': Object.freeze({ requirement: 'Rendered statistical panels expose their supported presentation branches', capability: 'statistics', evidence: 'rendered-statistics-branches', setup: 'mixed' })
   , 'STATS.ui-persistence-restore': Object.freeze({ requirement: 'Statistical panels survive component switching and payload or cache restore', capability: 'statistics', evidence: 'ui-statistics-restore-contract', setup: 'mixed' })
+  , 'PERSIST.box-indexed-style-session-write': Object.freeze({ requirement: 'Box indexed style edits write through to the owning session before capture', capability: 'session-persistence', evidence: 'box-indexed-style-session-write-contract', setup: 'mixed' })
+  , 'PERSIST.box-indexed-styles.tab-isolation': Object.freeze({ requirement: 'Box indexed styles remain independent across same-type tab activation', capability: 'session-ownership', evidence: 'box-indexed-style-tab-isolation-contract', setup: 'mixed' })
+  , 'PERSIST.box-indexed-styles.recovery': Object.freeze({ requirement: 'Box indexed styles survive canonical recovery through owner-session persistence', capability: 'recovery-persistence', evidence: 'box-indexed-style-canonical-recovery', setup: 'mixed' })
+  , 'UNIT.box-indexed-styles-model': Object.freeze({ requirement: 'Box indexed-style transformations preserve column identity through structural edits', capability: 'component-model', evidence: 'box-indexed-styles-model-unit', setup: 'api' })
   , 'ARCH.static-contracts': Object.freeze({ requirement: 'Architecture rules enforce source and ownership boundaries', capability: 'architecture-governance', evidence: 'static-architecture-contracts' })
+  , 'ARCH.module-call-map': Object.freeze({ requirement: 'Generated module map includes bootstrap and worker files plus literal worker consumers', capability: 'architecture-governance', evidence: 'generated-module-call-map-coverage' })
   , 'ARCH.owner-capture-normalization': Object.freeze({ requirement: 'Owner capture normalizes through the canonical session boundary', capability: 'session-ownership', evidence: 'owner-capture-normalization-contract' })
   , 'ARCH.hot-paste-scheduling': Object.freeze({ requirement: 'Grid paste scheduling preserves owner-scoped mutation order', capability: 'grid-ownership', evidence: 'hot-paste-scheduling-contract' })
   , 'UNIT.color-scheme-math': Object.freeze({ requirement: 'Color-scheme math produces deterministic palette values', capability: 'style-model', evidence: 'color-scheme-math-unit-contract' })
@@ -127,6 +133,7 @@ const REVIEWED_SCENARIO_METADATA = Object.freeze({
   , 'UNIT.forecast-regression': Object.freeze({ requirement: 'Forecast regression helpers preserve model semantics', capability: 'statistics', evidence: 'forecast-regression-unit-contract' })
   , 'UNIT.regression-reporting': Object.freeze({ requirement: 'Regression reporting notation preserves interpretation', capability: 'statistics-reporting', evidence: 'regression-reporting-unit-contract' })
   , 'UNIT.scatter-statistics-primitives': Object.freeze({ requirement: 'Scatter statistical primitives preserve component semantics', capability: 'statistics', evidence: 'scatter-statistics-primitives-unit-contract' })
+  , 'UNIT.scatter-lowess-model': Object.freeze({ requirement: 'Scatter LOWESS model preserves fit inputs, predictions, and diagnostics', capability: 'statistics', evidence: 'scatter-lowess-model-unit-contract' })
   , 'UNIT.regression-catalog': Object.freeze({ requirement: 'Regression catalog entries expose complete model metadata', capability: 'statistics', evidence: 'regression-catalog-unit-contract' })
   , 'UNIT.stats-adjust': Object.freeze({ requirement: 'Multiple-comparison adjustment methods preserve statistical definitions', capability: 'statistics', evidence: 'stats-adjust-unit-contract' })
   , 'UNIT.stats-goodness-of-fit': Object.freeze({ requirement: 'Goodness-of-fit helpers report valid diagnostics', capability: 'statistics', evidence: 'stats-goodness-of-fit-unit-contract' })
@@ -166,7 +173,7 @@ const REVIEWED_SCENARIO_METADATA = Object.freeze({
   , 'UNIT.component-load-benchmarks': Object.freeze({ requirement: 'Component load benchmarks report reproducible boundaries', capability: 'performance', evidence: 'component-load-benchmark-unit-contract' })
   , 'UNIT.go-analysis': Object.freeze({ requirement: 'GO analysis helpers preserve supported request semantics', capability: 'external-analysis', evidence: 'go-analysis-unit-contract' })
   , 'UNIT.graph-archive-roundtrip': Object.freeze({ requirement: 'Graph archive round trips preserve durable session fields', capability: 'archive', evidence: 'graph-archive-roundtrip-unit-contract' })
-  , 'UNIT.hot-ui-state': Object.freeze({ requirement: 'Grid UI state serialization preserves supported controls', capability: 'grid-persistence', evidence: 'hot-ui-state-unit-contract' })
+  , 'UNIT.hot-ui-state': Object.freeze({ requirement: 'Shared table UI-state capture and restore preserve viewport, selection, widths, and owner isolation', capability: 'grid-persistence', evidence: 'hot-ui-state-unit-contract' })
   , 'UNIT.line-model-helpers': Object.freeze({ requirement: 'Line model helpers preserve series and projection semantics', capability: 'rendering-model', evidence: 'line-model-helpers-unit-contract' })
   , 'UNIT.regression-logistic-summary': Object.freeze({ requirement: 'Logistic regression summaries preserve interpretation fields', capability: 'statistics-reporting', evidence: 'regression-logistic-summary-unit-contract' })
   , 'UNIT.welcome-assets': Object.freeze({ requirement: 'Welcome assets remain generated from the declared source examples', capability: 'generated-artifacts', evidence: 'welcome-assets-unit-contract' })
@@ -357,8 +364,8 @@ const RAW_SCENARIO_CATALOG = Object.freeze([
   Object.freeze({ id: 'OWN.line-view-lifecycle', kind: 'contract', contract: 'OWN', components: ['line'], requirement: 'Line view lifecycle ownership', capability: 'tab-isolation', evidence: 'line-view-lifecycle' }),
   Object.freeze({ id: 'OWN.pca-view-controls', kind: 'contract', contract: 'OWN', components: ['pca'], requirement: 'PCA view-control ownership', capability: 'component-modes', evidence: 'pca-view-controls' }),
   Object.freeze({ id: 'OWN.venn-tab-opening', kind: 'contract', contract: 'OWN', components: ['venn'], requirement: 'Venn tab opening ownership', capability: 'tab-isolation', evidence: 'venn-tab-opening' }),
-  Object.freeze({ id: 'PERSIST.box-column-style-identity', kind: 'contract', contract: 'PERSIST', components: ['box'], requirement: 'Box column style identity', capability: 'persistence', evidence: 'box-column-insert-style-identity' }),
-  Object.freeze({ id: 'PERSIST.box-column-reorder-undo', kind: 'contract', contract: 'PERSIST', components: ['box'], requirement: 'Box column reorder undo', capability: 'persistence', evidence: 'box-column-reorder-undo' }),
+  Object.freeze({ id: 'PERSIST.box-column-style-identity', kind: 'contract', contract: 'PERSIST', components: ['box'], requirement: 'Box indexed styles follow columns through insertion and deletion undo/redo and appear in exported SVG', capability: 'persistence', evidence: 'box-indexed-style-structural-edit-export' }),
+  Object.freeze({ id: 'PERSIST.box-column-reorder-undo', kind: 'contract', contract: 'PERSIST', components: ['box'], requirement: 'Box reorder undo restores headers and indexed style identity', capability: 'persistence', evidence: 'box-column-reorder-style-undo' }),
   Object.freeze({ id: 'STATS.box-dual-tab-isolation', kind: 'contract', contract: 'STATS', components: ['box'], requirement: 'Box dual-tab statistics isolation', capability: 'statistics', evidence: 'box-dual-tab-significance-resize-isolation' }),
   Object.freeze({ id: 'STATS.box-dual-tab-no-crash', kind: 'contract', contract: 'STATS', components: ['box'], requirement: 'Box dual-tab statistics stability', capability: 'statistics', evidence: 'box-dual-tab-no-crash' }),
   Object.freeze({ id: 'STATS.box-duplicate-recompute', kind: 'contract', contract: 'STATS', components: ['box'], requirement: 'Box duplicate statistics recomputation', capability: 'statistics', evidence: 'box-duplicate-recompute' }),
@@ -395,6 +402,7 @@ const RAW_SCENARIO_CATALOG = Object.freeze([
   Object.freeze({ id: 'REC.document-state-recovery', kind: 'contract', contract: 'REC', components: ['*'] }),
   Object.freeze({ id: 'ASYNC.inactive-owner-completion', kind: 'contract', contract: 'ASYNC', components: ['box', 'scatter'], requirement: 'Stale asynchronous owner isolation', capability: 'async-ownership', evidence: 'inactive-owner-completion-contract' }),
   Object.freeze({ id: 'BOOTSTRAP.browser-smoke', kind: 'contract', contract: 'OWN', components: ['*'] }),
+  Object.freeze({ id: 'BOOTSTRAP.browser-component-bundles', kind: 'contract', contract: 'OWN', components: ['*'] }),
   Object.freeze({ id: 'BOOTSTRAP.production-derived-loader', kind: 'contract', contract: 'OWN', components: ['*'] }),
   Object.freeze({ id: 'BOOTSTRAP.ui-events-lazy', kind: 'contract', contract: 'OWN', components: ['*'] }),
   Object.freeze({ id: 'BOOTSTRAP.app-initialization', kind: 'contract', contract: 'OWN', components: ['*'] }),
@@ -403,10 +411,14 @@ const RAW_SCENARIO_CATALOG = Object.freeze([
   Object.freeze({ id: 'VENDOR.real-npm-runtime', kind: 'contract', components: ['*'] }),
   Object.freeze({ id: 'VENDOR.browser-runtime', kind: 'contract', components: ['*'] }),
   Object.freeze({ id: 'PERSIST.regression-summary', kind: 'contract', contract: 'PERSIST', components: ['scatter', 'line'] }),
+  Object.freeze({ id: 'PERSIST.box-indexed-style-session-write', kind: 'contract', contract: 'PERSIST', components: ['box'] }),
+  Object.freeze({ id: 'PERSIST.box-indexed-styles.tab-isolation', kind: 'contract', contract: 'PERSIST', components: ['box'] }),
+  Object.freeze({ id: 'PERSIST.box-indexed-styles.recovery', kind: 'contract', contract: 'PERSIST', components: ['box'] }),
   Object.freeze({ id: 'CACHE.surface-render-cache', kind: 'contract', contract: 'CACHE', components: ['surface'] }),
   Object.freeze({ id: 'UNIT.color-scheme-math', kind: 'unit', components: ['*'] }),
   Object.freeze({ id: 'UNIT.box-statistics-model', kind: 'unit', components: ['box'] }),
   Object.freeze({ id: 'UNIT.box-stats-model-ownership', kind: 'unit', components: ['box'] }),
+  Object.freeze({ id: 'UNIT.box-indexed-styles-model', kind: 'unit', components: ['box'] }),
   Object.freeze({ id: 'UNIT.data-pipeline', kind: 'unit', components: ['*'] }),
   Object.freeze({ id: 'UNIT.data-transforms', kind: 'unit', components: ['*'] }),
   Object.freeze({ id: 'UNIT.desktop-commands', kind: 'unit', components: ['*'] }),
@@ -417,6 +429,7 @@ const RAW_SCENARIO_CATALOG = Object.freeze([
   Object.freeze({ id: 'UNIT.render-cache-schema', kind: 'unit', components: ['*'], requirement: 'Reject corrupt and obsolete render-cache schemas', capability: 'render-cache', evidence: 'render-cache-schema-validation' }),
   Object.freeze({ id: 'UNIT.resampling', kind: 'unit', components: ['roc'], requirement: 'Seeded ROC resampling reproducibility', capability: 'statistics', evidence: 'roc-resampling-unit-contract' }),
   Object.freeze({ id: 'UNIT.scatter-statistics-primitives', kind: 'unit', components: ['scatter'] }),
+  Object.freeze({ id: 'UNIT.scatter-lowess-model', kind: 'unit', components: ['scatter'] }),
   Object.freeze({ id: 'UNIT.regression-catalog', kind: 'unit', components: ['*'] }),
   Object.freeze({ id: 'UNIT.stats-adjust', kind: 'unit', components: ['*'] }),
   Object.freeze({ id: 'UNIT.stats-goodness-of-fit', kind: 'unit', components: ['*'] }),
@@ -456,7 +469,7 @@ const RAW_SCENARIO_CATALOG = Object.freeze([
   Object.freeze({ id: 'UNIT.component-load-benchmarks', kind: 'unit', components: ['*'] }),
   Object.freeze({ id: 'UNIT.go-analysis', kind: 'unit', components: ['venn'] }),
   Object.freeze({ id: 'UNIT.graph-archive-roundtrip', kind: 'unit', components: ['*'] }),
-  Object.freeze({ id: 'UNIT.hot-ui-state', kind: 'unit', components: ['*'] }),
+  Object.freeze({ id: 'UNIT.hot-ui-state', kind: 'unit', components: ['venn', 'box', 'scatter', 'pca', 'line', 'heatmap', 'surface', 'roc', 'survival', 'hist', 'pie'] }),
   Object.freeze({ id: 'UNIT.line-regression-overlay', kind: 'unit', components: ['line'], requirement: 'Line regression overlay segmentation', capability: 'rendering', evidence: 'line-regression-overlay-unit-contract' }),
   Object.freeze({ id: 'UNIT.line-model-helpers', kind: 'unit', components: ['line'] }),
   Object.freeze({ id: 'UNIT.regression-logistic-summary', kind: 'unit', components: ['*'] }),
@@ -580,6 +593,7 @@ const RAW_SCENARIO_CATALOG = Object.freeze([
   Object.freeze({ id: 'STATS.ui-presentation-branches', kind: 'contract', contract: 'STATS', components: ['box', 'scatter', 'line', 'pie', 'hist', 'roc', 'survival', 'pca', 'heatmap'] }),
   Object.freeze({ id: 'STATS.ui-persistence-restore', kind: 'contract', contract: 'STATS', components: ['box', 'scatter', 'line', 'pie', 'hist', 'roc', 'survival', 'pca', 'heatmap'] }),
   Object.freeze({ id: 'ARCH.static-contracts', kind: 'architecture', components: ['*'] }),
+  Object.freeze({ id: 'ARCH.module-call-map', kind: 'architecture', components: ['*'] }),
   Object.freeze({ id: 'ARCH.owner-capture-normalization', kind: 'architecture', components: ['*'] }),
   Object.freeze({ id: 'ARCH.hot-paste-scheduling', kind: 'architecture', components: ['*'] })
 ]);
@@ -633,7 +647,10 @@ const SCENARIOS_BY_FILE = Object.freeze({
   '__tests__/integration/venn.go-string.ownership.test.js': Object.freeze(['ASYNC.venn-analysis-owner']),
   '__tests__/integration/venn.cache-recovery.test.js': Object.freeze(['CACHE.venn-read-only-capture', 'PERSIST.component-reopen-fidelity']),
   'e2e/box/box.column-insert-style-identity.spec.js': Object.freeze(['PERSIST.box-column-style-identity']),
+  'e2e/box/box.indexed-styles.session-write.spec.js': Object.freeze(['PERSIST.box-indexed-style-session-write', 'PERSIST.box-indexed-styles.tab-isolation']),
   'e2e/box/box.column-reorder.undo-race.spec.js': Object.freeze(['PERSIST.box-column-reorder-undo']),
+  'e2e/recovery/recovery.box-indexed-style.spec.js': Object.freeze(['REC.archive-recovery-matrix', 'PERSIST.component-reopen-fidelity', 'PERSIST.box-indexed-styles.recovery']),
+  '__tests__/unit/box.indexedStylesModel.test.js': Object.freeze(['UNIT.box-indexed-styles-model']),
   'e2e/box/box.comma-decimal-values.spec.js': Object.freeze(['IMPORT.component-data-import']),
   'e2e/box/box.dual-tab.significance-resize.isolation.spec.js': Object.freeze(['STATS.box-dual-tab-isolation', 'LAYOUT.box-flip-resize']),
   'e2e/box/box.dual-tab.stats-no-crash.spec.js': Object.freeze(['STATS.box-dual-tab-no-crash']),
@@ -677,6 +694,7 @@ const SCENARIOS_BY_FILE = Object.freeze({
   '__tests__/unit/renderCacheSchema.test.js': Object.freeze(['UNIT.render-cache-schema']),
   '__tests__/unit/resampling.contract.test.js': Object.freeze(['UNIT.resampling']),
   '__tests__/unit/scatter.sharedStatisticsPrimitives.test.js': Object.freeze(['UNIT.scatter-statistics-primitives']),
+  '__tests__/unit/scatterLowessModel.test.js': Object.freeze(['UNIT.scatter-lowess-model']),
   '__tests__/unit/regression.catalog.test.js': Object.freeze(['UNIT.regression-catalog']),
   '__tests__/unit/stats.adjust.test.js': Object.freeze(['UNIT.stats-adjust']),
   '__tests__/unit/stats.goodnessOfFit.test.js': Object.freeze(['UNIT.stats-goodness-of-fit']),
@@ -917,6 +935,7 @@ const SCENARIOS_BY_FILE = Object.freeze({
   '__tests__/architecture/componentImportBindings.test.js': Object.freeze(['ARCH.static-contracts']),
   '__tests__/architecture/dataViews.payloadRaw.contract.test.js': Object.freeze(['ARCH.static-contracts']),
   '__tests__/architecture/generateComponentContracts.check.test.js': Object.freeze(['ARCH.static-contracts']),
+  '__tests__/architecture/moduleCallMap.coverage.test.js': Object.freeze(['ARCH.module-call-map']),
   '__tests__/architecture/graph.horizontalGutter.contract.test.js': Object.freeze(['ARCH.static-contracts']),
   '__tests__/architecture/graph.exportControlsAlignment.contract.test.js': Object.freeze(['ARCH.static-contracts']),
   '__tests__/architecture/graphArchive.worker.schema.test.js': Object.freeze(['ARCH.static-contracts']),
@@ -975,6 +994,7 @@ const SCENARIOS_BY_FILE = Object.freeze({
   '__tests__/integration/productionBootstrap.loader.test.js': Object.freeze(['BOOTSTRAP.production-derived-loader']),
   '__tests__/architecture/productionBootstrap.manifest.contract.test.js': Object.freeze(['GOVERNANCE.production-bootstrap-manifest']),
   'e2e/workspace/workspace.smoke.spec.js': Object.freeze(['BOOTSTRAP.browser-smoke']),
+  'e2e/workspace/component-lazy-load.contract.spec.js': Object.freeze(['BOOTSTRAP.browser-component-bundles']),
   'e2e/ownership/component.same-type-tab-switching.isolation.spec.js': Object.freeze(['OWN.same-type-switching.all-components']),
   'e2e/ownership/component.owner-order.repeated.spec.js': Object.freeze(['OWN.repeated-owner-order']),
   'e2e/ownership/component.same-type-parameter-isolation.spec.js': Object.freeze(['OWN.same-type-switching.all-components', 'PERSIST.explicit-component-mutations']),

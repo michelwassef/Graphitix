@@ -40,3 +40,9 @@ Only after all six namespaces are registered does `js/main.js` continue bootstra
 ## Updating the Sequence
 
 If you introduce a new namespace that `js/main.js` depends on, add a guard alongside the existing checks so that incorrect load order fails fast. Whenever you rename or relocate one of the modules above, update this document and the guard strings to keep developers oriented.
+
+## Lazy Component Bundles
+
+Visualization modules are not part of the static script sequence. [`js/main/components.js`](../../js/main/components.js) keeps one descriptor per workspace type with a browser dynamic-import path and a Node `require` path. Both paths must resolve to the same component file; that file registers its module under `window.Components[type]`. The generated [component contract](./component-contracts.md) checks the descriptor, source registration, and required restore hook. The browser bundle contract loads each workspace type through the real dynamic-import path.
+
+The loader may also declare component-private model dependencies. It loads those before the component in both browser and Node paths, so they remain lazy with their component. Box uses this for [`boxIndexedStylesModel.js`](../../js/components/boxIndexedStylesModel.js): it contains only pure indexed-array/map transforms, holds no tab or DOM state, and is registered under the non-enumerable `Components.__models` namespace. The Box controller remains the owner of session lookup, HOT history, payload writes, and dirty-state updates. A missing model fails the Box load; no fallback copy of the transformations is kept in the controller.

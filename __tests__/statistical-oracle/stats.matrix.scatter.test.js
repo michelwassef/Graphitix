@@ -127,6 +127,33 @@ describe('Scatter statistics oracle matrix', () => {
     compareSummaryParameters({ summary: actual.summary }, ref.summary, ['Span'], 'scatter-lowess-direct', { abs: 1e-12, rel: 1e-9 });
   });
 
+  test('Scatter LOWESS baseline filters invalid pairs, sorts finite points, clamps finite spans, and rejects short input', () => {
+    const points = [
+      { x: 3, y: 30 },
+      { x: 1, y: 10 },
+      { x: NaN, y: 15 },
+      { x: 2, y: 20 },
+      { x: 4, y: Infinity }
+    ];
+    const original = points.map(point => ({ ...point }));
+    const lowSpan = scatterHooks.fitScatterLowessRegression(points, { fitSpec: { span: -1 } });
+    const highSpan = scatterHooks.fitScatterLowessRegression(points, { fitSpec: { span: 2 } });
+
+    expect(lowSpan.metrics.sampleSize).toBe(3);
+    expect(lowSpan.summary.parameters.Span).toBe(0.2);
+    expect(highSpan.summary.parameters.Span).toBe(0.95);
+    expect(lowSpan.domain).toEqual({ minX: 1, maxX: 3 });
+    expect(lowSpan.curveSamples.map(point => point.x)).toEqual([1, 2, 3]);
+    expect(points).toEqual(original);
+    expect(scatterHooks.fitScatterLowessRegression(points.slice(0, 2))).toBeNull();
+  });
+
+  test('Scatter LOWESS defaults an unparseable explicit span to the established default', () => {
+    const points = toPoints([1, 2, 3], [2, 4, 5]);
+    const result = scatterHooks.fitScatterLowessRegression(points, { fitSpec: { span: 'invalid' } });
+    expect(result.summary.parameters.Span).toBe(0.75);
+  });
+
   test('scatter visible modes all execute, auto-association matches policy, and special routing is exercised', () => {
     const linearData = toPoints([1, 2, 3, 4, 5, 6, 7, 8, 9, 10], [3.0, 4.5, 5.7, 7.8, 9.9, 11.2, 13.5, 15.7, 17.8, 19.9]);
     const saturatingData = toPoints([0.2, 0.4, 0.8, 1.5, 2.5, 4, 6, 9, 13, 18], [4.3, 8.8, 16.8, 28.1, 42.3, 58.5, 73.3, 86.2, 94.1, 98.2]);

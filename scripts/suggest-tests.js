@@ -17,6 +17,7 @@ const IMPACT_LANE_COMMANDS = Object.freeze({
   dom: 'npm run test:dom -- --runInBand',
   integration: 'npm run test:integration -- --runInBand',
   workers: 'npm run test:workers -- --runInBand',
+  stats: 'npm run test:stats',
   vendor: 'npm run test:vendor',
   'e2e-contracts:chromium': 'npm run test:e2e:contracts:chromium -- --workers=1'
 });

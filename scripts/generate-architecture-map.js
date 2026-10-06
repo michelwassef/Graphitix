@@ -1,8 +1,10 @@
 const fs = require('fs');
 const path = require('path');
+const espree = require('espree');
 
 const ROOT = process.cwd();
-const SOURCE_DIRS = ['js/main', 'js/shared', 'js/components'];
+const SOURCE_DIRS = ['js/main', 'js/shared', 'js/components', 'js/workers'];
+const ROOT_SOURCE_FILES = ['js/main.js', 'js/vendor.js'];
 const OUTPUT_PATH = path.join(ROOT, 'docs', 'development', 'module-call-map.md');
 
 function walk(dir) {
@@ -71,41 +73,135 @@ function collectNamespaceExports(lines) {
   };
 }
 
-function collectSymbolReferences(lines, prefix) {
-  const symbols = [];
+function staticMemberName(member) {
+  if (!member?.computed && member?.property?.type === 'Identifier') {
+    return member.property.name;
+  }
+  if (member?.computed && member?.property?.type === 'Literal'
+    && typeof member.property.value === 'string') {
+    return member.property.value;
+  }
+  return null;
+}
+
+function resolveNamespacePath(node, prefix) {
+  if (!node || typeof node !== 'object') {
+    return null;
+  }
+  if (node.type === 'Identifier') {
+    return node.name === prefix ? { path: [] } : null;
+  }
+  if (node.type !== 'MemberExpression') {
+    return null;
+  }
+  const property = staticMemberName(node);
+  if (!property) {
+    return null;
+  }
+  if (node.object?.type === 'Identifier'
+    && ['window', 'globalThis'].includes(node.object.name)
+    && property === prefix) {
+    return { path: [] };
+  }
+  const parent = resolveNamespacePath(node.object, prefix);
+  return parent ? { path: [...parent.path, property] } : null;
+}
+
+function walkAst(node, visit) {
+  if (!node || typeof node !== 'object') {
+    return;
+  }
+  if (Array.isArray(node)) {
+    node.forEach(child => walkAst(child, visit));
+    return;
+  }
+  if (typeof node.type === 'string') {
+    visit(node);
+  }
+  Object.keys(node).forEach(key => {
+    if (key !== 'parent' && key !== 'loc' && key !== 'range' && key !== 'tokens' && key !== 'comments') {
+      walkAst(node[key], visit);
+    }
+  });
+}
+
+function collectSymbolReferences(source, prefix) {
+  const lines = [];
   const linesBySymbol = new Map();
-  const pattern = new RegExp(`\\b${prefix}\\.([A-Za-z0-9_]+)`, 'g');
-  for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
-    const text = lines[lineIndex];
+  const ast = espree.parse(source, {
+    ecmaVersion: 'latest',
+    sourceType: 'script',
+    loc: true,
+    allowReturnOutsideFunction: true
+  });
+  walkAst(ast, node => {
+    if (node.type === 'MemberExpression') {
+      const namespacePath = resolveNamespacePath(node, prefix);
+      const symbol = namespacePath?.path?.[0];
+      if (symbol) {
+        lines.push(symbol);
+        pushLineMatch(linesBySymbol, symbol, node.loc.start.line);
+      }
+      return;
+    }
+
+    if (node.type !== 'VariableDeclarator' || node.id?.type !== 'ObjectPattern') {
+      return;
+    }
+    const namespacePath = resolveNamespacePath(node.init, prefix);
+    if (!namespacePath || namespacePath.path.length) {
+      return;
+    }
+    node.id.properties.forEach(property => {
+      if (property.type !== 'Property' || property.computed) {
+        return;
+      }
+      const symbol = property.key?.type === 'Identifier'
+        ? property.key.name
+        : (property.key?.type === 'Literal' ? property.key.value : null);
+      if (typeof symbol === 'string' && symbol) {
+        lines.push(symbol);
+        pushLineMatch(linesBySymbol, symbol, property.loc.start.line);
+      }
+    });
+  });
+  return {
+    symbols: uniqueSorted(lines),
+    linesBySymbol: mapToSortedObject(linesBySymbol)
+  };
+}
+
+function collectWorkerReferences(lines) {
+  const references = [];
+  const pattern = /['"`]((?:\.\/)?js\/workers\/[A-Za-z0-9_.\/-]+\.js)['"`]/g;
+  for (const line of lines) {
     let match;
-    while ((match = pattern.exec(text)) !== null) {
-      const symbol = match[1];
-      symbols.push(symbol);
-      pushLineMatch(linesBySymbol, symbol, lineIndex + 1);
+    while ((match = pattern.exec(line)) !== null) {
+      references.push(match[1].replace(/^\.\//, ''));
     }
     pattern.lastIndex = 0;
   }
-  return {
-    symbols: uniqueSorted(symbols),
-    linesBySymbol: mapToSortedObject(linesBySymbol)
-  };
+  return uniqueSorted(references);
 }
 
 function buildMap() {
   const files = SOURCE_DIRS
     .map(rel => path.join(ROOT, rel))
     .filter(abs => fs.existsSync(abs))
-    .flatMap(abs => walk(abs));
+    .flatMap(abs => walk(abs))
+    .concat(ROOT_SOURCE_FILES.map(rel => path.join(ROOT, rel)).filter(abs => fs.existsSync(abs)));
 
   const modules = [];
   for (const file of files) {
     const rel = toPosix(path.relative(ROOT, file));
-    const lines = fs.readFileSync(file, 'utf8').split(/\r?\n/);
+    const source = fs.readFileSync(file, 'utf8');
+    const lines = source.split(/\r?\n/);
 
-    const shared = collectSymbolReferences(lines, 'Shared');
-    const components = collectSymbolReferences(lines, 'Components');
-    const main = collectSymbolReferences(lines, 'Main');
+    const shared = collectSymbolReferences(source, 'Shared');
+    const components = collectSymbolReferences(source, 'Components');
+    const main = collectSymbolReferences(source, 'Main');
     const namespaceExports = collectNamespaceExports(lines);
+    const workerRefs = collectWorkerReferences(lines);
 
     modules.push({
       rel,
@@ -115,6 +211,7 @@ function buildMap() {
       componentLinesBySymbol: components.linesBySymbol,
       mainRefs: main.symbols,
       mainLinesBySymbol: main.linesBySymbol,
+      workerRefs,
       namespaceExports: namespaceExports.symbols,
       namespaceExportLinesBySymbol: namespaceExports.linesBySymbol
     });
@@ -235,6 +332,7 @@ function toMarkdown(modules) {
     lines.push(`- Uses Shared symbols: ${formatSymbolPreview(module.sharedRefs, module.sharedLinesBySymbol)}`);
     lines.push(`- Uses Components symbols: ${formatSymbolPreview(module.componentRefs, module.componentLinesBySymbol)}`);
     lines.push(`- Uses Main symbols: ${formatSymbolPreview(module.mainRefs, module.mainLinesBySymbol)}`);
+    lines.push(`- Uses worker entries: ${module.workerRefs.length ? module.workerRefs.join(', ') : '(none detected)'}`);
     lines.push('');
   }
 
@@ -246,7 +344,9 @@ function toMarkdown(modules) {
 
   lines.push('## Notes');
   lines.push('');
-  lines.push('- This map is regex-based and intended for fast orientation, not static-type accuracy.');
+  lines.push('- Namespace member references use JavaScript syntax parsing and are intended for fast orientation, not as a complete call graph.');
+  lines.push('- It includes root bootstrap files and worker modules; worker edges only capture literal `js/workers/*.js` paths.');
+  lines.push('- Static namespace destructuring, optional chains, and literal computed properties are included. Local data-flow aliases, callbacks, computed paths, and dynamic dispatch still require source tracing.');
   lines.push('- Line references use 1-based file line numbers.');
   lines.push('- `namespace.*` entries indicate exported members inside IIFE modules.');
   lines.push('- Regenerate after refactors: `npm run docs:arch-map`.');
@@ -262,4 +362,8 @@ function main() {
   console.log(`Generated ${path.relative(ROOT, OUTPUT_PATH)} (${modules.length} modules)`);
 }
 
-main();
+if (require.main === module) {
+  main();
+}
+
+module.exports = { buildMap, collectSymbolReferences, toMarkdown };

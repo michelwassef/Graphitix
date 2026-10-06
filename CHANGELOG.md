@@ -1,3 +1,26 @@
+## 2026-10-05 — HOT table UI-state boundary
+
+- Extracted table viewport, scroll, selection, column-width capture/restore, and component hook construction into `js/shared/hotUiStateAdapter.js`. `Shared.hot` remains the public facade and retains owner resolution; no payload or archive shape changed.
+- Validation: nine focused Jest suites / 112 tests passed; all 11 same-type Chromium switching cases and 3 inactive-owner capture cases passed. Generated architecture/component/test maps and welcome assets are fresh; `npm run quality:static` passed.
+
+## 2026-10-05 — Component persistence witnesses
+
+- Corrected the shared persistence driver to read owner sessions and state-model hooks from loaded component modules instead of the public workspace facades. Exposed the existing displayed-color-scheme resolver through the read-only `Shared.colorSchemes` API so the Heatmap selector is checked against its actual custom-palette behavior.
+- Added explicit change-impact coverage requiring unit, DOM, and all-component archive-matrix checks for the shared witness paths. Closed the Heatmap witness issue after all 11 Chromium persistence/reopen cases passed; four focused Jest suites passed (76 tests).
+
+## 2026-10-04 — Welcome preview provenance refresh
+
+- Regenerated welcome-example provenance after the current HTML/CSS source edits. The manifest fingerprint was refreshed; all 11 SVG previews remained byte-identical. `npm run quality:static` now passes its asset and inventory gates.
+
+## 2026-10-04 — Heatmap value-scale stats regression coverage
+
+- Strengthened Heatmap integration checks to require custom scale bounds in the exact owner session and the rendered stats panel after full and view-only redraws. Both focused cases pass; no production or archive-format change was needed.
+
+## 2026-10-04 — Box grouped example session state
+
+- Loading the grouped Box example now commits its normalized headers to the exact owner session, preventing stale group and condition labels after replacement. Blank Group 3/4 cells remain because the shared table contract preserves at least 12 editable columns.
+- Validation: focused Box integration regression passed; grouped duplicate/reload/preview Chromium spec passed 3/3.
+
 ## 2026-10-02 — Scatter density smoothing
 
 - Replaced cell-dependent box averaging with Gaussian density smoothing shared by the worker and main thread. Linear grid deposition and interpolation remove cell snapping; bandwidth stays at 1.5% of each displayed axis range independently of grid resolution. Padded boundaries avoid accumulating off-plot points at the edges.
@@ -46,6 +69,8 @@
 - Hardened the new regression matrix from the same runtime evidence: deterministic worker fixtures, settled-owner parameter discovery, derived/inactive statistics classification, contextual PCA axis witnesses, and owner-panel assertions now test durable component state without treating synthetic sentinel DOM as canonical after legitimate redraws.
 
 ## Unreleased
+- Made lazy component contracts source-driven and fail closed, with registry-derived Node loading checks and Chromium coverage for every browser bundle. Routed loader diagnostics through the shared debug switch and repaired statistical/model test-impact selection. Focused validation passed: 33 Jest tests and one Chromium bundle-contract test; the generated contract and 608-row inventory checks pass.
+- Removed the two completed refactor roadmaps after confirming their outcomes are recorded in the changelog and current architecture docs; added a source-linked maintainability roadmap and a backlog item to reconcile dated audit snapshots with the canonical issue list.
 - Case-evidence validation now rejects unknown outcomes, files with no individual test results, and empty evidence reports, keeping successful lanes fail-closed.
 - Diamond markers now use the same filled area as square markers across Line, Scatter, PCA, Box, legends, and symbol previews. Label spacing, Box swarm layout, and render-cache compatibility follow the new geometry.
 - Removed empty failure catches from the Scatter tab-switch and Venn reopen acceptance tests; inventory now allows them only in the bounded diagnostic probe. The Chromium contract lane passed 35/35.

@@ -45,10 +45,13 @@ describe('static runtime dependency delivery', () => {
   test('index loads AG Grid before shared table code from same-origin assets', () => {
     const html = read('index.html');
     const agGridScript = html.indexOf('libs/ag-grid-community/ag-grid-community.min.noStyle.js');
+    const hotUiStateScript = html.indexOf('js/shared/hotUiStateAdapter.js');
     const hotScript = html.indexOf('js/shared/hot.js');
     expect(agGridScript).toBeGreaterThan(-1);
+    expect(hotUiStateScript).toBeGreaterThan(-1);
     expect(hotScript).toBeGreaterThan(-1);
     expect(agGridScript).toBeLessThan(hotScript);
+    expect(hotUiStateScript).toBeLessThan(hotScript);
   });
 
   test('index loads the Cartesian transaction before runtime session consumers', () => {

@@ -56,6 +56,58 @@ describe('UI events: Box and Line', () => {
     expect(matrix.slice(0, 2)).toEqual(expected.slice(0, 2));
   });
 
+  test('Box Plot: grouped example writes replacement headers to its owner session', async () => {
+    await activateWorkspace('box');
+    await awaitBoxReady('ui-events-box-grouped-replacement-start');
+
+    const formatSelect = document.getElementById('boxTableFormat');
+    expect(formatSelect).toBeTruthy();
+    formatSelect.value = 'grouped';
+    formatSelect.dispatchEvent(new Event('change', { bubbles: true }));
+    await awaitBoxReady('ui-events-box-grouped-replacement-format');
+
+    const box = window.Components?.box;
+    const hot = box?.__getState?.()?.hot;
+    expect(hot).toBeTruthy();
+    hot.loadData([
+      ['Prior group A', '', '', 'Prior group B', '', '', 'Prior group C', '', '', 'Prior group D', '', ''],
+      ['Prior week 1', 'Prior week 2', 'Prior week 3', 'Prior week 1', 'Prior week 2', 'Prior week 3', 'Prior week 1', 'Prior week 2', 'Prior week 3', 'Prior week 1', 'Prior week 2', 'Prior week 3'],
+      [11, 12, 13, 21, 22, 23, 31, 32, 33, 41, 42, 43],
+      [14, 15, 16, 24, 25, 26, 34, 35, 36, 44, 45, 46]
+    ], { source: 'test-large-grouped-data' });
+    await awaitBoxReady('ui-events-box-grouped-replacement-large-data');
+    const activeTabId = window.Main?.session?.getActiveTab?.()?.id;
+    const ownerSession = box.__testHooks?.getSession?.(activeTabId);
+    ownerSession.state.visual.grouped = {
+      replicatesPerGroup: 3,
+      groups: ['Prior group A', 'Prior group B', 'Prior group C', 'Prior group D'],
+      conditions: ['Prior week 1', 'Prior week 2', 'Prior week 3']
+    };
+    box.__getState().grouped = {
+      ...ownerSession.state.visual.grouped,
+      groups: ownerSession.state.visual.grouped.groups.slice(),
+      conditions: ownerSession.state.visual.grouped.conditions.slice()
+    };
+
+    document.getElementById('boxLoadExample').click();
+    await awaitBoxReady('ui-events-box-grouped-replacement-example');
+
+    const matrix = hot.getData?.() || [];
+    const expected = getExampleData('box', 'grouped');
+    expect(matrix.slice(0, 2).map(row => row.slice(0, expected[0].length))).toEqual(expected.slice(0, 2));
+    expect(matrix.slice(0, 2).flatMap(row => row.slice(expected[0].length)).filter(value => String(value || '').trim())).toEqual([]);
+    expect(hot.countCols?.()).toBeGreaterThanOrEqual(10);
+    expect(ownerSession?.state?.visual?.grouped?.groups).toEqual([
+      expected[0][0], expected[0][3], 'Group 3', 'Group 4'
+    ]);
+    expect(ownerSession?.state?.visual?.grouped?.conditions).toEqual(expected[1].slice(0, 3));
+    const groupedState = box.__getState?.()?.grouped || {};
+    expect(groupedState.groups).toEqual([
+      expected[0][0], expected[0][3], 'Group 3', 'Group 4'
+    ]);
+    expect(groupedState.conditions).toEqual(expected[1].slice(0, 3));
+  });
+
   test('Box Plot: whisker rule selection persists to payload', async () => {
     await activateWorkspace('box');
     await flushAsyncWork();

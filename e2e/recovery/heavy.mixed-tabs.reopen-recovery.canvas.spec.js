@@ -8,6 +8,7 @@ const {
 const { installLocalCdnOverrides } = require('../helpers/vendorOverrides');
 const { registerIssueCollectors } = require('../helpers/diagnostics');
 const { waitForComponentOwnerReady } = require('../helpers/contractWaits');
+const { reloadAndAcceptRecovery: reloadAndAcceptRecoveryDriver } = require('../helpers/recoveryDriver');
 
 function stableJson(value) {
   return JSON.stringify(value, null, 2);
@@ -841,15 +842,10 @@ async function seedRecoverySnapshot(page) {
 }
 
 async function reloadAndAcceptRecovery(page) {
-  let acceptedDialog = false;
-  const dialogHandler = async dialog => {
-    acceptedDialog = true;
-    await dialog.accept();
-  };
-  page.on('dialog', dialogHandler);
-  try {
-    await page.reload({ waitUntil: 'domcontentloaded' });
-    await expect.poll(() => acceptedDialog, { timeout: 30_000 }).toBe(true);
+  const accepted = await reloadAndAcceptRecoveryDriver(page, {
+    timeout: 40_000,
+    afterReload: async () => {
+      await expect(page.locator('#workspaceTabsList .workspace-tab[data-tab-id]')).toHaveCount(4, { timeout: 120_000 });
     const type = await page.evaluate(() => {
       const state = window.Main?.session?.workspaceState;
       return state?.tabs?.find(tab => tab?.id === state.activeTabId)?.type || null;
@@ -862,10 +858,9 @@ async function reloadAndAcceptRecovery(page) {
         timeout: 120_000
       });
     }
-  } finally {
-    page.off('dialog', dialogHandler);
-  }
-  return acceptedDialog;
+    }
+  });
+  expect(accepted).toBe(true);
 }
 
 async function buildMixedHeavyWorkspace(page) {

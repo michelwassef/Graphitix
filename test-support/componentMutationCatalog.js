@@ -30,6 +30,7 @@ const COMPONENT_MUTATION_CATALOG = Object.freeze({
     mutations: [
       { id: 'box.graph-type', kind: 'parameter', path: 'config.graphType', operation: 'enum-cycle', values: ['strip', 'box', 'violin'], fingerprint: ['config.graphType'] },
       { id: 'box.color-scheme', kind: 'style', path: 'config.colorScheme', operation: 'scheme-cycle', values: ['grayscale', 'scientific', 'soft'], fingerprint: ['config.colorScheme', 'config.fill', 'config.border'] },
+      { id: 'box.indexed-shape-style', kind: 'style', path: 'config.shapeStyles.0.fill', operation: 'set-value', value: '#0e7490', fingerprint: ['config.shapeStyles.0.fill'], requiresDomWitness: false },
       { id: 'box.connect-points', kind: 'parameter', path: 'config.connectPointsAcrossDatasets', operation: 'boolean-toggle', fingerprint: ['config.connectPointsAcrossDatasets'] },
       { id: 'box.width', kind: 'layout', path: 'meta.graphSizing.display.widthPx', operation: 'number-delta', delta: 72, fingerprint: ['meta.graphSizing.display.widthPx'] }
     ],
@@ -94,11 +95,33 @@ const COMPONENT_MUTATION_CATALOG = Object.freeze({
   heatmap: {
     baseline: {
       source: 'welcome-load-example',
-      requiredPayloadPaths: ['config.view', 'config.colorScheme', 'meta.graphSizing.display.widthPx']
+      requiredPayloadPaths: [
+        'config.view',
+        'config.colorScheme',
+        'config.colors.negative',
+        'config.colors.zero',
+        'config.colors.positive',
+        'meta.graphSizing.display.widthPx'
+      ]
     },
     mutations: [
       { id: 'heatmap.view', kind: 'parameter', path: 'config.view', operation: 'enum-cycle', values: ['corr-columns', 'values'], fingerprint: ['config.view', 'activeDataViewId'] },
-      { id: 'heatmap.color-scheme', kind: 'style', path: 'config.colorScheme', operation: 'scheme-cycle', values: ['scientific', 'soft', 'normal'], fingerprint: ['config.colorScheme'] },
+      {
+        id: 'heatmap.color-scheme',
+        kind: 'style',
+        path: 'config.colorScheme',
+        operation: 'scheme-cycle',
+        values: ['scientific', 'soft', 'normal'],
+        fingerprint: ['config.colorScheme'],
+        projectionContract: {
+          domExpectedOwnerKey: 'ownerProjection.config.displayedColorSchemeId',
+          palettePairs: [
+            { payloadPath: 'config.colors.negative', ownerKey: 'ownerProjection.config.palette.negative' },
+            { payloadPath: 'config.colors.zero', ownerKey: 'ownerProjection.config.palette.zero' },
+            { payloadPath: 'config.colors.positive', ownerKey: 'ownerProjection.config.palette.positive' }
+          ]
+        }
+      },
       { id: 'heatmap.width', kind: 'layout', path: 'meta.graphSizing.display.widthPx', operation: 'number-delta', delta: 72, fingerprint: ['meta.graphSizing.display.widthPx'] }
     ],
     uiMutations: [

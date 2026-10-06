@@ -24,7 +24,9 @@ test('Box keeps existing single-dataset styles attached to their source columns 
     const box = window.Components?.box;
     const state = box?.__getState?.();
     const hot = state?.hot;
-    if (!box || !state || !hot || typeof hot.loadData !== 'function') {
+    const activeTab = window.Main?.session?.getActiveTab?.();
+    const owner = activeTab?.id ? box?.__testHooks?.getSession?.(activeTab.id) : null;
+    if (!box || !state || !owner || !hot || typeof hot.loadData !== 'function') {
       throw new Error('Box table is unavailable');
     }
 
@@ -35,23 +37,28 @@ test('Box keeps existing single-dataset styles attached to their source columns 
       [3, 13, 23, 33, 43]
     ], { source: 'e2e-box-column-style-setup', recordUndo: false });
 
-    state.fillColors = ['#111111', '#222222', '#777777', '#00aa55', '#ff0000'];
-    state.borderColors = ['#111111', '#222222', '#777777', '#00aa55', '#ff0000'];
-    state.traceShapeStyles = {
+    owner.state.visual.fillColors = ['#111111', '#222222', '#777777', '#00aa55', '#ff0000'];
+    owner.state.visual.borderColors = ['#111111', '#222222', '#777777', '#00aa55', '#ff0000'];
+    owner.state.styles.traceShapeStyles = {
       2: { fill: '#777777' },
       3: { fill: '#00aa55' },
       4: { fill: '#ff0000' }
     };
-    state.pointStyles = {
+    owner.state.styles.pointStyles = {
       2: { fill: '#777777', stroke: '#777777' },
       3: { fill: '#00aa55', stroke: '#00aa55' },
       4: { fill: '#ff0000', stroke: '#ff0000' }
     };
-    state.summaryStyles = {
+    owner.state.styles.summaryStyles = {
       2: { color: '#777777' },
       3: { color: '#00aa55' },
       4: { color: '#ff0000' }
     };
+    state.fillColors = owner.state.visual.fillColors.slice();
+    state.borderColors = owner.state.visual.borderColors.slice();
+    state.traceShapeStyles = JSON.parse(JSON.stringify(owner.state.styles.traceShapeStyles));
+    state.pointStyles = JSON.parse(JSON.stringify(owner.state.styles.pointStyles));
+    state.summaryStyles = JSON.parse(JSON.stringify(owner.state.styles.summaryStyles));
 
     await box.draw({ force: true, reason: 'e2e-box-column-style-before-insert' });
   });
@@ -94,6 +101,17 @@ test('Box keeps existing single-dataset styles attached to their source columns 
       renderedStyleIndices: pointGroups.map(group => Number(group.getAttribute('data-style-trace'))).filter(Number.isFinite)
     };
   });
+  const exportedStyleIndices = await page.evaluate(() => {
+    const svg = document.querySelector('#boxSvg');
+    const xml = window.Shared?.exporter?.svgElementToXml?.(svg, 'box-indexed-style-after-insert');
+    if (typeof xml !== 'string') return { validSvg: false, indices: [] };
+    const exported = new DOMParser().parseFromString(xml, 'image/svg+xml');
+    return {
+      validSvg: exported.documentElement?.localName === 'svg',
+      expectedStylesPresent: ['#777777', '#00aa55', '#ff0000']
+        .map(color => xml.toLowerCase().includes(color))
+    };
+  });
 
   expect(after.fillColors.slice(0, 2)).toEqual(['#111111', '#222222']);
   expect(after.fillColors.slice(3, 6)).toEqual(['#777777', '#00aa55', '#ff0000']);
@@ -121,5 +139,83 @@ test('Box keeps existing single-dataset styles attached to their source columns 
   });
   expect(after.renderedStyleIndices).toEqual(expect.arrayContaining([0, 1, 3, 4, 5]));
   expect(after.renderedStyleIndices).not.toContain(2);
+  expect(exportedStyleIndices.validSvg).toBe(true);
+  expect(exportedStyleIndices.expectedStylesPresent).toEqual([true, true, true]);
   expect(issues.critical).toEqual([]);
+
+  await page.evaluate(() => {
+    const hot = window.Components?.box?.__getState?.()?.hot;
+    if (!hot) return false;
+    hot.selectCell(0, 3, hot.countRows() - 1);
+    const header = document.querySelector('#hot .ag-header-cell[col-id="c3"]');
+    header?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 30, clientY: 30 }));
+    return !!header;
+  });
+  const columnMenu = page.locator('.ag-hot-menu').last();
+  await expect(columnMenu).toBeVisible();
+  await columnMenu.getByText('Delete 1 column(s)', { exact: true }).click();
+  await expect.poll(async () => page.evaluate(() => {
+    const hot = window.Components?.box?.__getState?.()?.hot;
+    return hot?.getDataAtRow?.(0)?.slice(0, 5) || [];
+  }), { timeout: 15_000, intervals: [100, 200, 400] }).toEqual(['A', 'B', '', 'D', 'E']);
+  await waitForBoxIdle(page);
+  const afterRemoval = await page.evaluate(() => {
+    const activeTab = window.Main?.session?.getActiveTab?.();
+    const owner = activeTab?.id
+      ? window.Components?.box?.__testHooks?.getSession?.(activeTab.id)
+      : null;
+    return {
+      traceShapeStyles: JSON.parse(JSON.stringify(owner?.state?.styles?.traceShapeStyles || {})),
+      pointStyles: JSON.parse(JSON.stringify(owner?.state?.styles?.pointStyles || {})),
+      summaryStyles: JSON.parse(JSON.stringify(owner?.state?.styles?.summaryStyles || {}))
+    };
+  });
+  expect(afterRemoval.traceShapeStyles).toEqual({
+    3: { fill: '#00aa55' },
+    4: { fill: '#ff0000' }
+  });
+  expect(afterRemoval.pointStyles).toEqual({
+    3: { fill: '#00aa55', stroke: '#00aa55' },
+    4: { fill: '#ff0000', stroke: '#ff0000' }
+  });
+  expect(afterRemoval.summaryStyles).toEqual({
+    3: { color: '#00aa55' },
+    4: { color: '#ff0000' }
+  });
+
+  await page.keyboard.press('Control+z');
+  await expect.poll(async () => page.evaluate(() => {
+    const hot = window.Components?.box?.__getState?.()?.hot;
+    return hot?.getDataAtRow?.(0)?.slice(0, 6) || [];
+  }), { timeout: 15_000, intervals: [200, 400, 800] }).toEqual(['A', 'B', '', 'C', 'D', 'E']);
+  await waitForBoxIdle(page);
+  const afterRemovalUndo = await page.evaluate(() => {
+    const activeTab = window.Main?.session?.getActiveTab?.();
+    const owner = activeTab?.id
+      ? window.Components?.box?.__testHooks?.getSession?.(activeTab.id)
+      : null;
+    return {
+      traceShapeStyles: JSON.parse(JSON.stringify(owner?.state?.styles?.traceShapeStyles || {})),
+      pointStyles: JSON.parse(JSON.stringify(owner?.state?.styles?.pointStyles || {})),
+      summaryStyles: JSON.parse(JSON.stringify(owner?.state?.styles?.summaryStyles || {}))
+    };
+  });
+  expect(afterRemovalUndo.traceShapeStyles).toEqual(after.traceShapeStyles);
+  expect(afterRemovalUndo.pointStyles).toEqual(after.pointStyles);
+  expect(afterRemovalUndo.summaryStyles).toEqual(after.summaryStyles);
+
+  await page.keyboard.press('Control+y');
+  await expect.poll(async () => page.evaluate(() => {
+    const hot = window.Components?.box?.__getState?.()?.hot;
+    return hot?.getDataAtRow?.(0)?.slice(0, 5) || [];
+  }), { timeout: 15_000, intervals: [200, 400, 800] }).toEqual(['A', 'B', '', 'D', 'E']);
+  await waitForBoxIdle(page);
+  const afterRemovalRedo = await page.evaluate(() => {
+    const activeTab = window.Main?.session?.getActiveTab?.();
+    const owner = activeTab?.id
+      ? window.Components?.box?.__testHooks?.getSession?.(activeTab.id)
+      : null;
+    return JSON.parse(JSON.stringify(owner?.state?.styles?.traceShapeStyles || {}));
+  });
+  expect(afterRemovalRedo).toEqual(afterRemoval.traceShapeStyles);
 });

@@ -3,6 +3,9 @@ Updated: 2026-08-15
 Source artifacts: artifacts/full-test-report.txt and artifacts/full-test-run-20260814-201255/*
 Scope: Jest integration + Playwright Chromium. Firefox intentionally excluded.
 
+ARCHIVE STATUS — RECONCILED THROUGH 2026-10-05
+This file records the August run only. Its counts and R-item statuses are not current checkout results or the active backlog. Current replacements for S01–S34 were rechecked: 13 Jest suites / 156 tests passed after repairing an incomplete render-cache test fixture, and the corresponding Chromium candidate suites passed 34 tests. R01's PCA palette suite passed (3 tests); R02's Box grouped-example owner-state defect is fixed and its focused checks pass; R03's exact value-scale owner stats and rendered checks now pass (2 tests); R06's current fallback Jest case and full focused Chromium spec pass (1 and 5 tests); R07's all-component unlocked-resize invariant, R09's full large-data cancel/retry scenario, R10's title-edit visibility case, R11's legend viewport/payload/restore contract, R12's Box/Histogram first-click reopen cases, R14's Line archive/recovery cases, and R16/R17's current Venn restore cases pass in Chromium. R04's repeated-flip axis-title spacing and R08's opt-in UpSet lock-ratio defects were later repaired and their focused Chromium regressions passed. The identified direct-commit crash-recovery journal gap was also repaired: a synchronous local journal is written from the canonical session, and recovery passed after the other journal and snapshot were cleared. These results cover the tested paths, not every possible abrupt-exit or storage-failure scenario. See refactors-todo/maintainability-refactor-progress.md for dated evidence and issues.txt for the current backlog.
+
 Summary
 -------
 - Persistent failures after single-worker retry in the supplied run: 63
@@ -321,6 +324,7 @@ B. REAL CODE ISSUES — GROUPED BY LIKELY ROOT CAUSE
 R01 — PCA named palette identity/projection is rewritten as Custom
 Severity: P1 / High
 Root-cause confidence: High (two independent owner/style tests fail on the same state transition).
+Current checkout status: VERIFIED PASS 2026-10-04. `__tests__/integration/pca.colorScheme.roundTrip.test.js` passes all 3 tests; no current palette-identity defect was observed.
 Tests:
   J01 __tests__/pca.colorScheme.roundTrip.test.js
       Grayscale on tab B is retained after switching to tab A and back
@@ -332,17 +336,19 @@ Finding:
 
 R02 — Box grouped example replacement leaves stale generated grouped columns
 Severity: P1 / High
-Root-cause confidence: High; already independently recorded in issues.txt.
+Status: ROOT CAUSE FIXED 2026-10-04. The example-load path now commits normalized grouped headers through the exact HOT owner into its session. A focused integration regression failed before the fix with the previous owner groups and passed after it (1 targeted test); the Box grouped duplicate/reload/preview Chromium spec passed 3/3. The old wording conflated stale owner metadata with blank editable capacity: Shared.hot retains at least 12 columns, so a 2×3 example can have empty Group 3/4 slots. The current browser contract verifies those trailing cells contain no headings or values.
 Tests:
-  J03 __tests__/ui.events.test.js
+  J03 __tests__/integration/ui.events.box-line.test.js
       Box Plot: grouped example seeds condition names
 Finding:
-  Loading the canonical 2×3 grouped ToothGrowth example leaves generated Group 3/Group 4 columns and repeated dose
-  headings. Example replacement should be exact at the owning table/session boundary.
+  Example replacement previously left the prior grouped labels in the owner session because this path skipped the
+  grouped-header write-through used by other grouped mutations. The matrix was replaced, but activation or capture
+  could still observe stale session labels. The fix refreshes the owner session from the normalized active table.
 
 R03 — Heatmap value-scale state is not propagated into current stats/view-only reporting
 Severity: P2 / Medium
 Root-cause confidence: High (serialization/view-state assertions succeed far enough to expose stale statistics).
+Current checkout status: VERIFIED PASS 2026-10-04. The strengthened focused tests assert the exact owner-session stats and nonempty rendered scale text after both a full draw and a cached view-only redraw; both pass. No new production change was needed in this review.
 Tests:
   J04 __tests__/integration/heatmap.stats.test.js
       value scale override and fixed legend height serialize and affect the rendered legend
@@ -357,6 +363,7 @@ R04 — Box canonical frame/reserve authority drifts across significance, flip, 
 Severity: P1 / High
 Root-cause confidence: High; source-contract failures are corroborated by four browser geometry failures and an
 existing verified issue.
+Current checkout update (2026-10-04): three of four targeted geometry cases passed. Repeated manual flip failed twice with an axis-title gap change from 8.00 px to 2.40 px (5.60 px against a 2.5 px tolerance); this narrower current defect is logged in issues.txt. The old 49 px reopen and ~61% axis-ratio claims were not reproduced by the three passing current cases.
 Tests:
   J07 __tests__/box.statsAspect.contract.test.js
       auxiliary frame reserves preserve canonical graph geometry
@@ -385,7 +392,7 @@ supported by these four failures.
 R06 — Shared axis-length interaction contract
 Severity: P1 / High
 Root-cause confidence: Very high; both browser and direct shared-axis traces now isolate the two independent defects.
-Status: wheel-burst path VERIFIED PASS on Windows Chromium; manual fallback-offset fix applied, pending Windows Jest rerun.
+Status: current targeted behavior VERIFIED PASS 2026-10-04. The latest-wins fallback refinement case passes at its current path, `__tests__/dom/axisControls.editing.test.js` (1 selected test), and `e2e/layout/toolbar.numeric-wheel-gesture.spec.js` passes all 5 current Chromium cases. The archived `axisControls.init.test.js` path is no longer current.
 Tests:
   PW32/PW33 e2e/toolbar.numeric-wheel-gesture.spec.js
       X/Y rapid wheel burst lifecycle
@@ -410,6 +417,7 @@ Findings/fixes:
 R07 — PCA unlocked one-axis resize changes the orthogonal drawn axis
 Severity: P1 / High
 Root-cause confidence: High; already independently recorded in issues.txt.
+Current checkout status: VERIFIED PASS 2026-10-04. The current all-component Chromium invariant passes the vertical and horizontal scale/axis-length checks for PCA and every other 2-D Cartesian component; the dated failure is not current evidence of an open PCA defect.
 Tests:
   PW05 e2e/graph-axis-resize-invariants.spec.js
       unlocked one-axis graph resize preserves the orthogonal SVG axis scale in every component
@@ -419,6 +427,7 @@ Finding:
 R08 — Venn forced Lock-ratio state and rendered ratio disagree
 Severity: P2 / Medium
 Root-cause confidence: High; both state and geometry assertions fail and the defect is already recorded in issues.txt.
+Current checkout update (2026-10-04): the opt-in Venn case is specifically UpSet and fails twice at horizontal resize with locked state true but 2.213% axis-ratio drift (2% limit). The default suite excludes UpSet due its legacy integrated-layout resizer; the current defect is recorded in issues.txt with this narrower scope.
 Tests:
   PW06 e2e/graph-resize-undo.spec.js
       svgbox drag resize undo and redo restore dimensions in every component
@@ -431,7 +440,8 @@ Finding:
 R09 — Large Data-values Heatmap cancel/retry could reuse a stale committed model
 Severity: P1 / High
 Root-cause confidence: Very high; worker completion plus the cancelled render checkpoint isolate the stale-cache transition.
-Status: FIX APPLIED 2026-08-15; authoritative Chromium reruns no longer show the former 180 s stall. The 2026-08-16 settled-state reruns now reach and validate the correct committed `values` model at 7,358 x 3. Two downstream assertions inherited from the original v25 test were stale and had previously been unreachable: the imported two-condition matrix intentionally changes the data-aware settings signature, and column-label export needs an aspect-correction matrix only when the live column labels actually carry one. The final full-spec rerun remains pending because later resize/export assertions have not yet executed to completion.
+Current checkout status: VERIFIED PASS 2026-10-04. The full current 7,358×3 cancel/retry and downstream resize/export scenario passes; no current stale-model behavior was observed.
+Historical status (2026-08-16): the settled-state rerun reached and validated the correct committed `values` model at 7,358 x 3. Two downstream assertions inherited from the original v25 test were stale and had previously been unreachable: the imported two-condition matrix intentionally changes the data-aware settings signature, and column-label export needs an aspect-correction matrix only when the live column labels actually carry one. At that time, a final full-spec rerun remained pending; the current full scenario is now recorded as passing above.
 Tests:
   PW08 e2e/heatmap.large-data-values.responsiveness.spec.js
       large Data-values heatmap stays responsive and completes exact clustering
@@ -451,6 +461,7 @@ Fix:
 R10 — Heatmap replacement title is not kept hidden during inline editing
 Severity: P2 / Medium
 Root-cause confidence: High; browser assertion observes the actual replacement title lifecycle.
+Current checkout status: VERIFIED PASS 2026-10-04. The current Chromium replacement/title-inline-edit case passes (1/1); no current title-visibility defect was observed.
 Tests:
   PW09 e2e/heatmap.title-inline-edit-background.spec.js
       Heatmap replacement title stays hidden during inline editing
@@ -462,7 +473,7 @@ R11 — Legend toggle projection violates payload and/or canonical viewport inva
 Severity: P1 / High
 Root-cause confidence: Very high for the state/payload defect. The original geometry failure is reclassified as an
 over-constrained browser expectation; the attempted production geometry correction introduced a real regression and is reverted.
-Status: STATE/PAYLOAD FIX RETAINED; SHARED GEOMETRY CHANGE REVERTED 2026-08-15; authoritative Chromium rerun required.
+Historical status (2026-08-15): state/payload fix retained and the attempted shared geometry change reverted; an authoritative current rerun was required at that time. Current checkout status: VERIFIED PASS 2026-10-04. The shared legend viewport/payload/restore suite passed 18/18 Chromium cases.
 State/payload manifestation:
   The owner-write-through half is supported by the Windows run: restored first-drag cases pass and the related Pie /
   Survival / ROC / Histogram same-component isolation matrix passes 4/4. PCA/ROC/Survival/Histogram/Pie continue to use
@@ -487,6 +498,7 @@ R12 — Restored Box/Histogram axes are not interactive on the first click
 Severity: P1 / High
 Root-cause confidence: High at the interaction-rehydration layer; component-specific marker/binding differences still
 need comparison against components that pass.
+Current checkout status: VERIFIED PASS 2026-10-04. The current Box and Histogram archive-reopen first-click cases both open the correct axis toolbar without a redraw; the dated behavior is not current.
 Tests:
   PW25 e2e/reopen.graph-edit-cache-invalidation.spec.js
       box axes open their toolbar on the first click after archive reopen
@@ -505,7 +517,7 @@ issues.txt on its independent evidence.
 R14 — Line statistics lose their data/result readiness across archive and recovery restore
 Severity: P1 / High
 Root-cause confidence: Very high.
-Status: FOLLOW-UP FIX APPLIED 2026-08-15; authoritative Chromium rerun required.
+Historical status (2026-08-15): follow-up fix applied; an authoritative current rerun was required then. Current checkout status: VERIFIED PASS 2026-10-04. Both Line archive-reopen and recovery-restore statistics cases pass after tab switching (2/2).
 Tests:
   PW29 e2e/stats.archive-reopen-tab-switch.persistence.spec.js
       archive reopen keeps line statistics after tab switch
@@ -533,7 +545,7 @@ save/restore logic is changed.
 R16 — Venn restored analysis families can be cleared by a stale derived-region identity
 Severity: P1 / High
 Root-cause confidence: Very high.
-Status: FIX APPLIED 2026-08-15; pending official repository-runner verification.
+Historical status (2026-08-15): fix applied; official repository-runner verification was pending then. Current checkout status: VERIFIED PASS 2026-10-04. The two-owner archive-reopen/result-tab case passes (1/1).
 Tests:
   PW34 e2e/venn.restore-recovery.spec.js
       two button-run venn tabs keep GO and STRING after archive reopen and result-tab clicks
@@ -554,7 +566,7 @@ Fix:
 R17 — Venn selected numeric region is cleared by the same first-projection analysis invalidation
 Severity: P1 / High
 Root-cause confidence: Very high.
-Status: FIX APPLIED 2026-08-15 by the same R16 baseline contract; pending official repository-runner verification.
+Historical status (2026-08-15): fix applied by the R16 baseline contract; official repository-runner verification was pending then. Current checkout status: VERIFIED PASS 2026-10-04. The numeric UpSet archive-reopen case passes (1/1).
 Tests:
   PW35 e2e/venn.upset-numeric-species-reopen-isolation.spec.js
       venn UpSet, numeric counts, species state, selected region, and archive reopen stay tab-isolated
@@ -645,9 +657,10 @@ Chromium R06:
   - This verifies the shared wheel-burst transaction behavior and confirms no second production debounce change is needed.
 Jest R06 follow-up:
   - `workspaceToolbar.numericWheel.test.js`: PASS.
-  - `axisControls.init.test.js`: 35/36 PASS; the remaining latest-wins test now reaches a real manual fallback geometry bug
-    previously masked by its disabled-resizer fixture. `axisBasisOffsetPx: null` was coerced to zero; the production fix is
-    applied and awaits authoritative Windows rerun.
+  - Historical `axisControls.init.test.js` run: 35/36 PASS; the remaining latest-wins test reached a real manual fallback
+    geometry bug previously masked by its disabled-resizer fixture. `axisBasisOffsetPx: null` was coerced to zero.
+  - Current equivalent `axisControls.editing.test.js`, latest-wins case: PASS (1/1) after the absent-offset fix.
+  - Current `e2e/layout/toolbar.numeric-wheel-gesture.spec.js`: PASS (5/5), including manual X/Y offset preservation and X/Y true bursts.
 
 Chromium R14 / Heatmap:
   - Line archive reopen statistics: PASS.
@@ -663,8 +676,10 @@ Chromium R16/R17 / corrected harnesses:
 
 Net status:
   The current audited build has authoritative targeted confirmation for R11 containment/ownership, R14 Line restore, and
-  the R06 browser wheel-burst lifecycle. R16/R17 Venn and the newly exposed heavy-Heatmap canvas reuse issue remain open.
-  R06 has one newly exposed shared manual-axis fallback fix pending Jest verification; the former browser remainder was
-  proven to be stale burst simulation rather than a second production transaction bug, and its corrected acceptance
-  still requires rerun. The new full-suite failure count must still be established by rerunning the complete suite; do not
+  the R06 browser wheel-burst lifecycle and current Jest latest-wins fallback case. R16/R17 Venn and the newly exposed
+  heavy-Heatmap canvas reuse issue remain open. The former browser remainder was proven to be stale burst simulation
+  rather than a second production transaction bug; its corrected acceptance passed. The new full-suite failure count must
+  still be established by rerunning the complete suite; do not
   infer a lower total from partial targeted runs.
+
+Current R11 acceptance (2026-10-04): `e2e/layout/legend.viewport-invariant.spec.js` passed 18/18 Chromium cases, including payload parity, base plot invariance, 2-D/3-D containment, restored first drag, and render-cache owner transfer.

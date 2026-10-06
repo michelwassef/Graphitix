@@ -54,7 +54,8 @@ describe('heavy canvas reopen/recovery regression guards', () => {
       __graphitixRenderCache: {
         complete: true,
         type: 'scatter',
-        tabId
+        tabId,
+        symbolGeometryVersion: window.Shared.symbolGeometry.RENDER_GEOMETRY_VERSION
       }
     };
   }
@@ -91,7 +92,8 @@ describe('heavy canvas reopen/recovery regression guards', () => {
         __graphitixRenderCache: {
           complete: true,
           type: 'box',
-          tabId
+          tabId,
+          symbolGeometryVersion: window.Shared.symbolGeometry.RENDER_GEOMETRY_VERSION
         }
       },
       tabId,

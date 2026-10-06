@@ -103,6 +103,34 @@ describe('colorSchemes — resolveThemeState()', () => {
   });
 });
 
+describe('colorSchemes — resolveDisplayedSchemeIdForType()', () => {
+  let cs;
+  beforeEach(() => { cs = loadModule(); });
+  afterEach(() => { delete window.Main; });
+
+  test('distinguishes a named Heatmap palette from custom effective colors', () => {
+    const namedPayload = cs.applyToPayload('heatmap', {
+      type: 'heatmap',
+      config: {
+        colorScheme: 'soft',
+        colors: { negative: '#0000ff', zero: '#ffffff', positive: '#ff0000' }
+      }
+    }, 'soft');
+    window.Main = { session: { getActiveTab: () => ({ type: 'heatmap', payload: namedPayload }) } };
+    expect(cs.resolveDisplayedSchemeIdForType('heatmap')).toBe('soft');
+
+    const customPayload = {
+      type: 'heatmap',
+      config: {
+        colorScheme: 'soft',
+        colors: { negative: '#123456', zero: '#abcdef', positive: '#fedcba' }
+      }
+    };
+    window.Main.session.getActiveTab = () => ({ type: 'heatmap', payload: customPayload });
+    expect(cs.resolveDisplayedSchemeIdForType('heatmap')).toBe('custom');
+  });
+});
+
 describe('colorSchemes — applyToSvg()', () => {
   let cs;
   beforeEach(() => { cs = loadModule(); });

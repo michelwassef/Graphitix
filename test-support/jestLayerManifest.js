@@ -239,6 +239,7 @@ const ARCHITECTURE_TESTS = Object.freeze([
   '__tests__/architecture/componentImportBindings.test.js',
   '__tests__/architecture/dataViews.payloadRaw.contract.test.js',
   '__tests__/architecture/generateComponentContracts.check.test.js',
+  '__tests__/architecture/moduleCallMap.coverage.test.js',
   '__tests__/architecture/graph.horizontalGutter.contract.test.js',
   '__tests__/architecture/graphArchive.worker.schema.test.js',
   '__tests__/architecture/graphFileOwnership.contract.test.js',

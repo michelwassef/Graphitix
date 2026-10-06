@@ -3118,6 +3118,10 @@
     return readActiveSchemeForType(type) || getDefaultSchemeIdForType(type);
   };
 
+  namespace.resolveDisplayedSchemeIdForType = function resolveDisplayedSchemeIdForTypeExport(type, options){
+    return resolveDisplayedSchemeIdForType(type, options);
+  };
+
   namespace.resolveCategoricalPaletteForType = function resolveCategoricalPaletteForTypeExport(type, options){
     return resolveCategoricalPaletteForType(type, options);
   };

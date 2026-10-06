@@ -1846,8 +1846,6 @@
     const adjustedLabelOffset = baseLabelOffset + tickLabelFontSize;
     const includeAxisTitleReserve = options?.includeAxisTitleReserve !== false;
     const axisTitleReserve = includeAxisTitleReserve ? axisTitleGap + fontSize : 0;
-    // SVG text y is a baseline; keep the font's descent inside the reserved title rail.
-    const titleBaselineInset = includeAxisTitleReserve ? Math.max(1, Math.ceil(fontSize * 0.2)) : 0;
     const nominalTitleOffset = adjustedLabelOffset + axisTitleReserve;
     const labelReserveMarginRaw = Number(options?.labelReserveMarginPx);
     const labelReserveMarginPx = Number.isFinite(labelReserveMarginRaw) && labelReserveMarginRaw >= 0
@@ -1972,9 +1970,12 @@
     const bottom = preservePlotRail ? baseBottom : requiredBottom;
     // Keep the title at its normal position until labels actually rotate. The
     // proactive reserve is an outward envelope allowance, not an active gap.
+    // Place the text baseline after the full title rail. Subtracting a font
+    // inset here made the visible gap smaller than axisTitleGap, so a title
+    // moved closer to its ticks when the axis changed orientation.
     const titleOffset = preservePlotRail
-      ? adjustedLabelOffset + activeExtra + axisTitleReserve - titleBaselineInset
-      : nominalTitleOffset - titleBaselineInset;
+      ? adjustedLabelOffset + activeExtra + axisTitleReserve
+      : nominalTitleOffset;
     debugLog('Debug: chartStyle.computeBottomLayout', {
       labelCount: labels.length,
       fontSize,
@@ -2005,10 +2006,9 @@
       preservePlotRail,
       labelOffset: adjustedLabelOffset,
       titleOffset,
-      titleBaselineInset,
       tickLength
     }); // Debug: bottom layout computation
-    return {bottom, requiredBottom, contentReserveBottom: Math.max(0, requiredBottom - baseBottom), shouldRotate, shouldRotateRaw, hasManualLabelRotation, manualLabelRotationAngleDeg, labelRotationAngleDeg: hasManualLabelRotation ? manualLabelRotationAngleDeg : -rotationAngleDeg, widths, bandWidth, maxLabelWidth, maxLabelWidthRatio, maxAdjacentOverlapRatio, projectedRotatedLabelHeight, rotatedExtra, rotationOpticalPaddingPx, activeExtra, reservedExtra, rotatedLabelHorizontalProjections, labelOffset: adjustedLabelOffset, titleOffset, titleBaselineInset, nominalTitleOffset, tickLength, tickLabelGap, axisTitleGap, outerPadding, labelMeasureFont, tickLabelFontSize};
+    return {bottom, requiredBottom, contentReserveBottom: Math.max(0, requiredBottom - baseBottom), shouldRotate, shouldRotateRaw, hasManualLabelRotation, manualLabelRotationAngleDeg, labelRotationAngleDeg: hasManualLabelRotation ? manualLabelRotationAngleDeg : -rotationAngleDeg, widths, bandWidth, maxLabelWidth, maxLabelWidthRatio, maxAdjacentOverlapRatio, projectedRotatedLabelHeight, rotatedExtra, rotationOpticalPaddingPx, activeExtra, reservedExtra, rotatedLabelHorizontalProjections, labelOffset: adjustedLabelOffset, titleOffset, nominalTitleOffset, tickLength, tickLabelGap, axisTitleGap, outerPadding, labelMeasureFont, tickLabelFontSize};
   };
 
   chartStyle.resolveRotatedXAxisEndpointInsets = function resolveRotatedXAxisEndpointInsets(bottomLayout, margins = {}){

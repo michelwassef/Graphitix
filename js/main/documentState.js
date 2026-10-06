@@ -1031,6 +1031,13 @@
       }
       syncTitle({ reason: type });
       if (state.workspaceState?.sessionUserDirty) {
+        const changeDetails = event?.detail?.details || {};
+        if (changeDetails.directPayloadMutation === true && changeDetails.origin !== 'lifecycle') {
+          persistCanonicalJournalNow({
+            ...changeDetails,
+            reason: event?.detail?.reason || type
+          });
+        }
         scheduleCanonicalJournal(event?.detail || {});
         scheduleRecoverySnapshot(type);
       } else if ((type === 'saved' || type === 'clean') && !state.restoringRecovery) {

@@ -5,12 +5,13 @@
 **Raw DataView persistence remediation:** completed in this reviewed tree on 2026-08-21. The user subsequently ran the targeted Jest set successfully (9/9 suites, 103/103 tests); the first Chromium run passed 14/16 cases and exposed one stale Pie assertion plus one real PCA active-DataView persistence gap, both corrected in this tree. The stale Raw-DataView backlog entry is removed in this 2026-08-22 recheck.
 **Scope:** current Graphitix archive supplied in `graphitix-current(20260822-130517).zip`
 **Method:** exhaustive static/source audit of the 11 graph components and shared ownership, lifecycle, persistence, sizing, statistics, import, recovery, render-cache, and workspace-tab infrastructure. Jest/Playwright/browser execution was not performed by the assistant; targeted runtime results supplied by the user are recorded where relevant below.
+**Status:** Historical snapshot. “Current” and “open” below refer to the supplied 2026-08-22 archive, not the present checkout. On 2026-10-04, findings 1–3 below were rechecked as source-resolved; the crash-recovery gap remains open in [issues.txt](./issues.txt), and the mixed heavy tests are enabled and pass. Evidence and limits are recorded in the [maintainability progress tracker](./refactors-todo/maintainability-refactor-progress.md).
 
 ## Executive verdict
 
 v34 is substantially safer than the earlier reviewed revisions: most of the previously critical graph-open, worker/job, PCA, Scatter, Box, and Line ownership defects are genuinely fixed in the current source and must not remain in the active backlog merely because they were historically severe.
 
-The former Venn P0 durable same-component contamination path and the previously reported P1 significance-threshold, delayed graph-sizing, Raw-DataView, and concrete Box palette write-through defects are source-resolved in the current tree. The current source findings therefore contain **no source-verified P0** and **no remaining source-verified P1 tab-isolation root cause**. One adjacent P1 persistence defect remains: the crash-recovery revision window. The narrower open tab-isolation findings are two P2 transient UI leaks plus one P2 shared owner-resolution ambiguity.
+The former Venn P0 durable same-component contamination path and the previously reported P1 significance-threshold, delayed graph-sizing, Raw-DataView, and concrete Box palette write-through defects were source-resolved in the reviewed tree. That review found **no source-verified P0** and **no remaining source-verified P1 tab-isolation root cause**. One adjacent P1 persistence defect remained: the crash-recovery revision window. The narrower open tab-isolation findings were two P2 transient UI leaks plus one P2 shared owner-resolution ambiguity; their later disposition is summarized above.
 
 The Venn remediation closes the ownerless pre-request boundary rather than cleaning up contamination afterward: the initiating tab/session generation is captured at the event/schedule boundary, immutable launch data is snapshotted before asynchronous work, request creation and durable commits retain that owner, and old A continuations are rejected after A→B→A generation changes. The remaining open findings below should be addressed with the same exact-owner + generation/freshness discipline.
 
@@ -138,7 +139,7 @@ The static recheck exposed and fixes two root defect classes in this exact archi
 
 These new exhaustive runtime suites were **not executed by the assistant** and require local certification. Static JavaScript syntax validation and patch-application validation are performed before delivery.
 
-## Current open tab-isolation findings
+## Findings that were open in the 2026-08-22 snapshot
 
 ### 1. P2 / Medium — Venn UniProt tooltip completion can display in a sibling tab
 
@@ -194,23 +195,24 @@ The original P1 was broader than the first audit wording. Nine components could 
 Targeted Jest coverage checks Raw resolution; replayability classification; exact transform-option persistence; broken-lineage retention; materialized/user-edited retention; recursive descendant invalidation after Raw, derived-user, and component-style programmatic source mutations; all ten component payload sources; AG Grid/HOT canonical write-through; adaptive lite raw CSV selection; full-mode canonicalization; full-load reconciliation; deterministic/pipeline replay; and main-thread/worker schema parity. Chromium contract coverage additionally performs real browser build→parse cycles in forced-lite mode, verifying both ordinary Raw/replayable/materialized/user-edited views and a descendant created before its source was edited survive with the exact saved matrices and active view.
 
 **Runtime validation follow-up (2026-08-21).** The user executed the nine targeted Jest suites after the remediation: **9/9 suites and 103/103 tests passed**. The first targeted Chromium run passed **14/16** cases and exposed two distinct follow-ups. The first Pie assertion was stale because it still expected the active derived matrix in top-level `payload.data`; that assertion now separately checks canonical Raw in `payload.data` and the numeric offset in the active DataView. The PCA failure was a real persistence defect: generic PCA DataView creation/activation/removal changed the live manager but did not dirty the owning workspace payload, allowing deactivation to trust a previously clean canonical payload and reopen with Raw selected. PCA now marks the exact owner session dirty from DataView state changes while excluding manager initialization, deserialization, and payload hydration; the former RNA-seq-only dirty mark is therefore redundant and has been removed. The user's rerun then passed **37/37 PCA Jest tests** and the PCA Chromium reopen/recovery case. That rerun exposed a second, real Pie persistence gap: Pie DataView creation/activation could likewise change the live per-tab manager without dirtying the owning canonical payload. Because the E2E resize is layout-only (`affectsPayload: false`), the inactive Pie tab could look correct while its per-tab DOM stayed mounted yet reopen from a stale canonical payload after a process reload. Pie now marks persistent DataView changes (`create-derived`, `activate`, and removal) dirty on the exact HOT-owning session, while initialization/deserialization/payload hydration remain silent. A targeted tab-isolation regression also verifies that mutating inactive Pie tab A's DataView state dirties A without contaminating active sibling B. Runtime rerun of the corrected Pie case remains pending at this review point.
+**Current checkout recheck (2026-10-04):** the corrected Pie persistence path is no longer pending. `npx playwright test e2e/pie/pie.dataviews-color-label-resize-isolation.spec.js --project=chromium --workers=1` passed its same-type DataView/color/label/resize/reopen case (1/1).
 
 `issues.txt` was intentionally left unchanged for this remediation because the user requested to remove/update the backlog item manually.
 
-### A. P1 — crash-recovery debounce leaves the newest revision unjournaled
+### A. P1 — crash-recovery debounce leaves the newest revision unjournaled (narrowed; still open)
 
-`js/main/documentState.js` uses `RECOVERY_DELAY_MS = 2500` and `RECOVERY_MAX_DEFER_MS = 10000`. A hard process loss in that interval can restore the previous rich snapshot rather than the newest canonical mutation.
+`js/main/documentState.js` used `RECOVERY_DELAY_MS = 2500` and `RECOVERY_MAX_DEFER_MS = 10000`. The current checkout adds an owner-scoped canonical journal, narrowing this window, but the journal write is asynchronous and the exported synchronous localStorage fallback has no call site. A hard process loss before the IndexedDB commit can still recover the previous revision. The current evidence and required architecture fix are in `issues.txt`; the immediate-journal browser test waits for the IndexedDB write and does not certify failure-before-commit behavior.
 
 The appropriate architecture is a lightweight owner-scoped revision journal/incremental canonical checkpoint, not heavy archive serialization on every input. Recovery parity should be tested by terminating immediately after edits, during rapid controls, and after tab switches.
 
-### B. P2 — heavy mixed archive/recovery coverage remains parked
+### B. P2 — heavy mixed archive/recovery coverage (parked at review date; now enabled)
 
-Exactly two current `test.fixme` tests remain, both in `e2e/recovery/heavy.mixed-tabs.reopen-recovery.canvas.spec.js`:
+At the 2026-08-22 review, exactly two `test.fixme` tests remained in `e2e/recovery/heavy.mixed-tabs.reopen-recovery.canvas.spec.js`:
 
 - mixed heavy Scatter tabs + heavy Box archive reopen (`:1012`)
 - mixed heavy Scatter tabs + heavy Box crash recovery (`:1033`)
 
-These are certification gaps, not evidence that the current implementation necessarily fails. Once the remaining P1 source defects are repaired, they should be unparked and expanded to verify first-interaction parity, statistics/results, graph sizing, previews/render caches, owner-specific invalidation, and no cross-tab warm-cache contamination.
+These were certification gaps, not evidence that the reviewed implementation necessarily failed. On 2026-10-04 both tests were enabled and passed in Chromium: mixed heavy archive reopen (2.4 minutes) and mixed heavy crash recovery (1.9 minutes). They verify restored previews and owner-specific cache invalidation after user edits. They are no longer parked coverage.
 
 The architecture explicitly says checkpoint/save flows must not activate an inactive tab solely to manufacture a render cache. Any future test expectation to the contrary would be wrong.
 

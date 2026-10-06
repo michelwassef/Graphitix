@@ -85,6 +85,21 @@ describe('Heatmap stats formatting — rendering and layout', () => {
     });
     await heatmap.draw();
 
+    expect(heatmap.__getState().lastStats).toMatchObject({
+      type: 'values',
+      scaleMin: 0,
+      scaleMax: 30,
+      scaleCustomized: true
+    });
+    const activeTabId = window.Main?.session?.getActiveTab?.()?.id || window.Main?.tabs?.getActiveTab?.()?.id;
+    const ownerSession = heatmap.__testHooks.getSession(activeTabId);
+    expect(ownerSession?.results?.stats).toMatchObject({
+      type: 'values',
+      scaleMin: 0,
+      scaleMax: 30,
+      scaleCustomized: true
+    });
+
     const savedPayload = heatmap.getPayload();
     expect(savedPayload.config.valueScale).toEqual({ min: null, max: 30 });
     expect(savedPayload.config.legendHeightMode).toBe('fixed');
@@ -108,11 +123,8 @@ describe('Heatmap stats formatting — rendering and layout', () => {
     }
 
     const statsContent = document.getElementById('heatmapStatsContent');
-    if((statsContent?.textContent || '').trim()){
-      expect(statsContent?.textContent || '').toContain('Color scale');
-    } else {
-      expect(statsContent).toBeTruthy();
-    }
+    expect(statsContent?.textContent || '').toContain('Color scale');
+    expect(statsContent?.textContent || '').toContain('0.00 to 30.00');
   });
 
   test('fixed legend height is display-space geometry and cannot shrink graph typography', () => {
@@ -597,6 +609,21 @@ describe('Heatmap stats formatting — rendering and layout', () => {
     await heatmap.draw({ viewOnly: true, reason: 'test-value-scale-view-only' });
     await flushAsyncWork(10);
 
+    expect(heatmap.__getState().lastStats).toMatchObject({
+      type: 'values',
+      scaleMin: 0,
+      scaleMax: 20,
+      scaleCustomized: true
+    });
+    const activeTabId = window.Main?.session?.getActiveTab?.()?.id || window.Main?.tabs?.getActiveTab?.()?.id;
+    const ownerSession = heatmap.__testHooks.getSession(activeTabId);
+    expect(ownerSession?.results?.stats).toMatchObject({
+      type: 'values',
+      scaleMin: 0,
+      scaleMax: 20,
+      scaleCustomized: true
+    });
+
     const afterRect = getCellRect() || svg.querySelector('rect');
     if(afterRect){
       expect(typeof afterRect.getAttribute('fill')).toBe('string');
@@ -605,11 +632,8 @@ describe('Heatmap stats formatting — rendering and layout', () => {
     }
 
     const statsContent = document.getElementById('heatmapStatsContent');
-    if((statsContent?.textContent || '').trim()){
-      expect(statsContent?.textContent || '').toContain('0.00 to 20.00');
-    } else {
-      expect(statsContent).toBeTruthy();
-    }
+    expect(statsContent?.textContent || '').toContain('Color scale');
+    expect(statsContent?.textContent || '').toContain('0.00 to 20.00');
   });
 
   test('graph title stays above long vertical column labels', async () => {
